@@ -65,7 +65,7 @@ async fn new_board(client: &Client, card_properties: Value) -> ApiResponse {
 
 fn card_block(board_id: &str, properties: Value) -> Value {
     let mut block = json!({
-        "id": "c1", "boardId": board_id, "parentId": board_id, "type": "card", "title": "Card",
+        "id": "c1", "containerId": board_id, "parentId": board_id, "type": "card", "title": "Card",
         "schema": 1, "createAt": 1, "updateAt": 1, "fields": {},
     });
     block["fields"]["properties"] = properties;
@@ -146,7 +146,7 @@ async fn a_board_with_a_malformed_card_property_definition_is_not_created() {
 async fn a_board_patch_with_a_malformed_card_property_definition_changes_nothing() {
     let th = Setup::native().start().await.init_basic().await;
     let (board, _card) = board_with_card(&th).await;
-    let path = format!("{TEST_WS}/boards/{}", board.id);
+    let path = format!("{TEST_WS}/containers/{}", board.id);
 
     for (what, definition) in malformed_definitions() {
         let response = th
@@ -191,7 +191,10 @@ async fn well_formed_card_property_definitions_are_stored_as_sent() {
     let patched: Value = th
         .client
         .patch(
-            &format!("{TEST_WS}/boards/{}", board["id"].as_str().expect("an id")),
+            &format!(
+                "{TEST_WS}/containers/{}",
+                board["id"].as_str().expect("an id")
+            ),
             &json!({"updatedCardProperties": [added]}),
         )
         .await
@@ -403,7 +406,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
     let th = Setup::native().start().await.init_basic().await;
     let request = |card_properties: Value, values: Value| {
         json!({
-            "boards": [{
+            "containers": [{
                 "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Both",
                 "cardProperties": card_properties,
             }],
@@ -437,7 +440,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
         )
         .await
         .created_json();
-    let board_id = created["boards"][0]["id"].as_str().expect("a board id");
+    let board_id = created["containers"][0]["id"].as_str().expect("a board id");
     let block_id = created["blocks"][0]["id"].as_str().expect("a block id");
 
     for (what, board_patch, block_patch) in [
@@ -457,7 +460,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
             .patch(
                 &format!("{TEST_WS}/boards-and-blocks"),
                 &json!({
-                    "boardIds": [board_id], "boardPatches": [board_patch],
+                    "containerIds": [board_id], "containerPatches": [board_patch],
                     "blockIds": [block_id], "blockPatches": [block_patch],
                 }),
             )
@@ -466,7 +469,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
     }
     let board: Container = th
         .client
-        .get(&format!("{TEST_WS}/boards/{board_id}"))
+        .get(&format!("{TEST_WS}/containers/{board_id}"))
         .await
         .ok_json();
     assert_eq!(board.title, "Both", "the board is as it was");
@@ -658,7 +661,7 @@ async fn values_left_behind_by_a_change_of_definitions_stay_until_written() {
         .created_json();
     th.client
         .patch(
-            &format!("{TEST_WS}/boards/{}", board.id),
+            &format!("{TEST_WS}/containers/{}", board.id),
             &json!({"deletedCardProperties": ["due"],
                     "updatedCardProperties": [{"id": "note", "name": "Note", "type": "date"}]}),
         )
@@ -705,7 +708,7 @@ async fn values_left_behind_by_a_change_of_definitions_stay_until_written() {
     );
     assert_eq!(copy_values["note"], json!({"from": "2026-03-06"}), "{copy}");
     th.client
-        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/duplicate", board.id))
         .await
         .check_status(StatusCode::CREATED);
 
@@ -721,7 +724,7 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
     let (board, card) = board_with_card(&th).await;
     th.client
         .patch(
-            &format!("{TEST_WS}/boards/{}", board.id),
+            &format!("{TEST_WS}/containers/{}", board.id),
             &json!({"updatedCardProperties": [{"id": "due", "name": "Due", "type": "date"}]}),
         )
         .await
@@ -730,7 +733,7 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
     let text = json!({"updatedFields": {"properties": {"p1": "open", "due": "soon"}}});
     check_refused(&th.client.patch(&block_path, &text).await, "patchBlock");
     let request = json!({
-        "boardIds": [board.id], "boardPatches": [{"title": "n"}],
+        "containerIds": [board.id], "containerPatches": [{"title": "n"}],
         "blockIds": [card.id], "blockPatches": [text],
     });
     check_refused(

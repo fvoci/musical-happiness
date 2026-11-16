@@ -75,22 +75,32 @@ async fn a_guest_opens_only_the_boards_it_was_invited_to() {
         .await
         .check_ok();
 
-    for path in ["", "/blocks", "/cards", "/members"] {
+    // A board's own routes are under `/boards`, those of a board or a wiki under
+    // `/containers`.
+    for (under, path) in [
+        ("containers", ""),
+        ("boards", "/blocks"),
+        ("boards", "/cards"),
+        ("containers", "/members"),
+    ] {
         th.client2
-            .get(&format!("{TEST_WS}/boards/{invited}{path}"))
+            .get(&format!("{TEST_WS}/{under}/{invited}{path}"))
             .await
             .check_ok();
     }
     let missing = th
         .client2
-        .get(&format!("{TEST_WS}/boards/{UNKNOWN_ID}"))
+        .get(&format!("{TEST_WS}/containers/{UNKNOWN_ID}"))
         .await;
     for hidden in [&open, &private, &elsewhere.id] {
-        let response = th.client2.get(&format!("{TEST_WS}/boards/{hidden}")).await;
+        let response = th
+            .client2
+            .get(&format!("{TEST_WS}/containers/{hidden}"))
+            .await;
         assert_eq!(answer(&response), answer(&missing), "board {hidden}");
     }
     th.client2
-        .post(&format!("{TEST_WS}/boards/{open}/join"), &json!({}))
+        .post(&format!("{TEST_WS}/containers/{open}/join"), &json!({}))
         .await
         .check_not_found();
     let listed: Vec<fvoci_model::Container> =
@@ -205,7 +215,7 @@ async fn a_guest_makes_no_public_link_and_manages_no_members_whatever_is_stored(
     let shared = th
         .client2
         .post(
-            &format!("{TEST_WS}/boards/{board}/sharing"),
+            &format!("{TEST_WS}/containers/{board}/sharing"),
             &json!({"enabled": true}),
         )
         .await;
@@ -214,7 +224,7 @@ async fn a_guest_makes_no_public_link_and_manages_no_members_whatever_is_stored(
     let edited = th
         .client2
         .patch(
-            &format!("{TEST_WS}/boards/{board}"),
+            &format!("{TEST_WS}/containers/{board}"),
             &json!({"title": "Changed by the guest"}),
         )
         .await;
@@ -245,7 +255,7 @@ async fn a_guest_is_told_the_changes_of_its_boards_and_of_no_other() {
     for board in [&other, &invited] {
         th.client
             .patch(
-                &format!("{TEST_WS}/boards/{board}"),
+                &format!("{TEST_WS}/containers/{board}"),
                 &json!({"title": "Renamed"}),
             )
             .await

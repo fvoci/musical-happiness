@@ -172,7 +172,7 @@ async function anonymousVisit(
   board: MadeBoard,
 ): Promise<void> {
   const response = await api.post(
-    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/sharing`,
+    `/api/v1/w/${board.workspaceId}/containers/${board.boardId}/sharing`,
     { data: { enabled: true } },
   );
   expect(response.ok()).toBe(true);

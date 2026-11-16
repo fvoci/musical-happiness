@@ -173,12 +173,12 @@ async fn late_writes_lose(th: TestServer, reach: &Reach) -> (TestServer, Seen) {
     // The board goes and comes back: its documents are removed by query, which leaves
     // each one past its version, and put again.
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_no_content();
     sent(&th, reach).await;
     th.client
-        .post_empty(&format!("{TEST_WS}/boards/{}/undelete", board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/undelete", board.id))
         .await
         .check_ok();
     sent(&th, reach).await;

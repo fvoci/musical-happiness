@@ -34,7 +34,7 @@ async fn shared_views_hide_people_after_their_property_is_deleted() {
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &json!([{
-                "type": "view", "title": "By owner", "boardId": board.id,
+                "type": "view", "title": "By owner", "containerId": board.id,
                 "createAt": 1, "updateAt": 1,
                 "fields": {
                     "viewType": "board", "groupById": "owner",
@@ -60,7 +60,7 @@ async fn shared_views_hide_people_after_their_property_is_deleted() {
     );
     ts.client
         .patch(
-            &format!("{TEST_WS}/boards/{}", board.id),
+            &format!("{TEST_WS}/containers/{}", board.id),
             &json!({"deletedCardProperties": ["owner"]}),
         )
         .await

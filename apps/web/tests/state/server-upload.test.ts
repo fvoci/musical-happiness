@@ -84,7 +84,7 @@ describe('uploading a file to the server', () => {
     });
     expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
       'GET /base/api/v1/client-config',
-      'POST /base/api/v1/w/w1/boards/b1/uploads',
+      'POST /base/api/v1/w/w1/containers/b1/uploads',
       'PUT /base/api/v1/w/w1/uploads/up1/parts/1',
       'PUT /base/api/v1/w/w1/uploads/up1/parts/2',
       'PUT /base/api/v1/w/w1/uploads/up1/parts/3',
@@ -201,7 +201,7 @@ describe('uploading a file to the server', () => {
       url: '/api/v1/w/w1/boards/b1/blocks',
       json: [
         {
-          boardId: 'b1',
+          containerId: 'b1',
           parentId: 'c1',
           type: 'attachment',
           title: 'notes.txt',
@@ -211,7 +211,7 @@ describe('uploading a file to the server', () => {
     });
     expect(attachment).toMatchObject({ id: 'a1', fileId: 'f1.txt', name: 'notes.txt', size: 10 });
     expect(serverBackend('/base').fileUrl('b1', 'f1.txt')).toBe(
-      '/base/api/v1/w/w1/boards/b1/files/f1.txt',
+      '/base/api/v1/w/w1/containers/b1/files/f1.txt',
     );
   });
 
@@ -223,7 +223,7 @@ describe('uploading a file to the server', () => {
     });
     const bytes = await serverBackend('/base').fileBytes('b1', 'f1.txt');
     expect(await bytes.text()).toBe('bytes');
-    expect(urls).toEqual(['/base/api/v1/w/w1/boards/b1/files/f1.txt']);
+    expect(urls).toEqual(['/base/api/v1/w/w1/containers/b1/files/f1.txt']);
   });
 
   it('throws away an upload given up while it was being opened', async () => {

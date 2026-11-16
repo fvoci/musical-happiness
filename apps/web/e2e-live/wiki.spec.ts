@@ -56,7 +56,7 @@ test('a wiki is made, filed among the boards, and kept apart from them', async (
   // The server has it as a wiki, filed in the default category, and no board.
   const wikis = (await (
     await api.get(`/api/v1/w/${workspaceId}/wikis`)
-  ).json()) as Schemas['Board'][];
+  ).json()) as Schemas['Container'][];
   // Among the wikis alone; others' open ones of the shared workspace are listed beside it.
   const mine = wikis.filter((wiki) => wiki.id === wikiId);
   expect(mine.map((wiki) => [wiki.id, wiki.kind, wiki.title, wiki.type])).toEqual([
@@ -65,13 +65,13 @@ test('a wiki is made, filed among the boards, and kept apart from them', async (
   expect(wikis.every((wiki) => wiki.kind === 'wiki')).toBe(true);
   const boards = (await (
     await api.get(`/api/v1/w/${workspaceId}/boards`)
-  ).json()) as Schemas['Board'][];
+  ).json()) as Schemas['Container'][];
   expect(boards.map((one) => one.id)).not.toContain(wikiId);
   const categories = (await (
     await api.get(`/api/v1/w/${workspaceId}/categories`)
-  ).json()) as Schemas['CategoryBoards'][];
+  ).json()) as Schemas['CategoryContainers'][];
   const system = categories.find((category) => category.type === 'system');
-  expect(system?.boardMetadata.map((entry) => entry.boardId)).toContain(wikiId);
+  expect(system?.containerMetadata.map((entry) => entry.containerId)).toContain(wikiId);
 
   // The sidebar has both, the wiki said to be one; read again, it still has.
   await page.reload();
@@ -163,7 +163,7 @@ test('two people write one page together, see each other on it, and the tree fol
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
     await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
-  ).json()) as Schemas['Board'];
+  ).json()) as Schemas['Container'];
   const [found] = (await (
     await api.get(`${inWorkspace}/users`, { params: { search: colleague.username } })
   ).json()) as Schemas['User'][];
@@ -273,7 +273,9 @@ test('a wiki is renamed and described, deleted from its menu, and restored from 
   await expect(page.getByTestId('wiki-header-title')).toHaveText('Guide');
   await expect
     .poll(async () => {
-      const wikis = (await (await api.get(`${inWorkspace}/wikis`)).json()) as Schemas['Board'][];
+      const wikis = (await (
+        await api.get(`${inWorkspace}/wikis`)
+      ).json()) as Schemas['Container'][];
       const found = wikis.find((one) => one.id === wikiId);
       return [found?.title, found?.description];
     })
@@ -308,7 +310,7 @@ test('an open wiki is listed to and read by whoever works in the workspace, and 
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
     await api.post(`${inWorkspace}/wikis`, { data: { title: 'Open notes', type: 'O' } })
-  ).json()) as Schemas['Board'];
+  ).json()) as Schemas['Container'];
   const first = (await (
     await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, { data: { title: 'Hello' } })
   ).json()) as Schemas['Page'];
@@ -351,7 +353,7 @@ test('a connection that drops leaves a page read-only, and once back the reader 
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
     await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
-  ).json()) as Schemas['Board'];
+  ).json()) as Schemas['Container'];
   const first = (await (
     await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, { data: { title: 'Travel' } })
   ).json()) as Schemas['Page'];

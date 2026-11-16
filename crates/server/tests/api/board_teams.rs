@@ -41,7 +41,7 @@ async fn team_roles_open_edit_find_and_export_a_board_then_end_when_removed() {
         &owner,
     )
     .await;
-    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
     let team = group(&th, &user, "Design").await;
     let assignment = format!("{path}/teams/{}", team.id);
     th.client2
@@ -118,7 +118,7 @@ async fn the_highest_direct_or_team_role_survives_until_its_source_ends() {
         &owner,
     )
     .await;
-    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
     let first = group(&th, &user, "Readers").await;
     let second = group(&th, &user, "Editors").await;
     for (team, role) in [(&first, "commenter"), (&second, "editor")] {
@@ -184,7 +184,7 @@ async fn a_manager_cannot_gain_reading_through_a_team_without_a_record() {
         &owner,
     )
     .await;
-    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
     let colleague = th.stranger().await;
     let others = group(&th, &colleague, "Other readers").await;
     let assignment = format!("{path}/teams/{}", others.id);
@@ -282,7 +282,7 @@ async fn losing_the_last_team_role_ends_subscriptions_and_live_board_messages() 
         &owner,
     )
     .await;
-    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
     let team = group(&th, &user, "Listeners").await;
     th.client
         .put(
@@ -352,7 +352,7 @@ async fn workspace_demotion_or_departure_revokes_team_access_without_restoring_i
             &owner,
         )
         .await;
-        let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+        let path = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
         let team = group(&th, &user, "Former members").await;
         th.client
             .put(
@@ -404,7 +404,7 @@ async fn a_private_template_is_listed_while_a_team_role_grants_it() {
     // The ordinary workspace member administers the board and can assign a team.
     let team = group(&th, &owner, "Template authors").await;
     let assignment = format!(
-        "/w/{ROOT_WORKSPACE_ID}/boards/{}/teams/{}",
+        "/w/{ROOT_WORKSPACE_ID}/containers/{}/teams/{}",
         board.id, team.id
     );
     th.client2
@@ -414,14 +414,14 @@ async fn a_private_template_is_listed_while_a_team_role_grants_it() {
     // Give the direct admin role to the manager, then remove the owner's direct role.
     th.client2
         .post(
-            &format!("/w/{ROOT_WORKSPACE_ID}/boards/{}/members", board.id),
+            &format!("/w/{ROOT_WORKSPACE_ID}/containers/{}/members", board.id),
             &json!({"userId": manager, "schemeAdmin": true}),
         )
         .await
         .check_ok();
     th.client
         .delete(&format!(
-            "/w/{ROOT_WORKSPACE_ID}/boards/{}/members/{owner}",
+            "/w/{ROOT_WORKSPACE_ID}/containers/{}/members/{owner}",
             board.id
         ))
         .await
@@ -460,7 +460,7 @@ async fn a_template_turned_private_or_open_says_nothing_of_its_team_readers() {
     th.client
         .put(
             &format!(
-                "/w/{ROOT_WORKSPACE_ID}/boards/{}/teams/{}",
+                "/w/{ROOT_WORKSPACE_ID}/containers/{}/teams/{}",
                 template.id, team.id
             ),
             &json!({"role":"editor"}),
@@ -480,7 +480,7 @@ async fn a_template_turned_private_or_open_says_nothing_of_its_team_readers() {
     for (kind, action) in [("P", "DELETE_MEMBER"), ("O", "UPDATE_MEMBER")] {
         th.client
             .patch(
-                &format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", template.id),
+                &format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", template.id),
                 &json!({"type": kind}),
             )
             .await
@@ -535,7 +535,7 @@ async fn a_board_of_a_team_is_listed_only_to_a_session_its_organization_takes() 
     th.client
         .put(
             &format!(
-                "/w/{ROOT_WORKSPACE_ID}/boards/{}/teams/{}",
+                "/w/{ROOT_WORKSPACE_ID}/containers/{}/teams/{}",
                 board.id, team.id
             ),
             &json!({"role":"viewer"}),
@@ -570,7 +570,7 @@ async fn a_team_role_is_told_what_references_name_until_it_is_taken_off() {
     let private = made(&th.client, &at, "P", HIDDEN).await;
     let member = th.client2.me().await.id;
     let team = group(&th, &member, "Readers").await;
-    let on_the_board = format!("{at}/boards/{}/teams/{}", private.board, team.id);
+    let on_the_board = format!("{at}/containers/{}/teams/{}", private.board, team.id);
 
     check_as_nothing(&th.client2, &at, &private.both(), &own.card, "no role").await;
     th.client

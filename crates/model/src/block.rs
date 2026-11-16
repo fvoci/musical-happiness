@@ -397,7 +397,6 @@ pub struct Block {
     pub delete_at: i64,
     /// The identifier of the board the block belongs to.
     #[serde(deserialize_with = "null_as_default")]
-    #[serde(rename = "boardId")]
     pub container_id: String,
     /// For a comment whose body was changed: when that last happened, in milliseconds
     /// since the Unix epoch. Absent for a comment never changed and for every other

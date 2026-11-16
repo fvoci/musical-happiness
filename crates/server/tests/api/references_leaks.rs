@@ -65,7 +65,7 @@ async fn given(reader: &Client, board: &str, source: &str) -> Vec<Given> {
         all.push(got(reader, path).await);
     }
     let archive = reader
-        .get(&format!("{TEST_WS}/boards/{board}/archive/export"))
+        .get(&format!("{TEST_WS}/containers/{board}/archive/export"))
         .await;
     let mut entries = Vec::new();
     if let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(archive.body.clone())) {

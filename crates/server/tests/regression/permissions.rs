@@ -153,13 +153,13 @@ impl<'a> Fixture<'a> {
             .string("id");
         for role in MEMBER_ROLES {
             let member = merged(
-                &json!({"boardId": board, "userId": users.ids[role]}),
+                &json!({"containerId": board, "userId": users.ids[role]}),
                 role_flags(role),
             );
             let added = http
                 .api(
                     Method::POST,
-                    &format!("{ROOT_API}/boards/{board}/members"),
+                    &format!("{ROOT_API}/containers/{board}/members"),
                     Payload::Json(member),
                     &owner,
                 )
@@ -232,7 +232,7 @@ impl<'a> Fixture<'a> {
     async fn upload_file(&self) -> String {
         self.owner(
             Method::POST,
-            &format!("{ROOT_API}/boards/{}/files", self.board),
+            &format!("{ROOT_API}/containers/{}/files", self.board),
             multipart("file", "pixel.png", &PNG, "image/png"),
         )
         .await
@@ -274,8 +274,8 @@ impl Request {
 )]
 async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
     let board = &fx.board;
-    let board_path = format!("{ROOT_API}/boards/{board}");
-    let blocks = format!("{board_path}/blocks");
+    let board_path = format!("{ROOT_API}/containers/{board}");
+    let blocks = format!("{ROOT_API}/boards/{board}/blocks");
     let viewer = &fx.users.ids["viewer"];
     let extra = &fx.users.ids["extra"];
     let workspace = ROOT_API.to_owned();
@@ -308,17 +308,17 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         "members: add viewer" => Request::json(
             Method::POST,
             format!("{board_path}/members"),
-            json!({"boardId": board, "userId": extra, "schemeViewer": true}),
+            json!({"containerId": board, "userId": extra, "schemeViewer": true}),
         ),
         "members: add admin" => Request::json(
             Method::POST,
             format!("{board_path}/members"),
-            json!({"boardId": board, "userId": extra, "schemeAdmin": true}),
+            json!({"containerId": board, "userId": extra, "schemeAdmin": true}),
         ),
         "members: update" => Request::json(
             Method::PUT,
             format!("{board_path}/members/{viewer}"),
-            json!({"boardId": board, "userId": viewer, "schemeEditor": true}),
+            json!({"containerId": board, "userId": viewer, "schemeEditor": true}),
         ),
         "members: delete another" => {
             Request::new(Method::DELETE, format!("{board_path}/members/{viewer}"))
@@ -377,21 +377,21 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
             Method::PATCH,
             format!("{ROOT_API}/boards-and-blocks"),
             json!({
-                "boardIds": [board], "boardPatches": [{"title": "p"}],
+                "containerIds": [board], "containerPatches": [{"title": "p"}],
                 "blockIds": [fx.card], "blockPatches": [{"title": "p"}],
             }),
         ),
         "boards-and-blocks: delete" => Request::json(
             Method::DELETE,
             format!("{ROOT_API}/boards-and-blocks"),
-            json!({"boards": [board], "blocks": [fx.card]}),
+            json!({"containers": [board], "blocks": [fx.card]}),
         ),
         "cards: create" => Request::json(
             Method::POST,
-            format!("{board_path}/cards"),
+            format!("{ROOT_API}/boards/{board}/cards"),
             json!({"title": "new"}),
         ),
-        "cards: list" => Request::new(Method::GET, format!("{board_path}/cards")),
+        "cards: list" => Request::new(Method::GET, format!("{ROOT_API}/boards/{board}/cards")),
         "cards: get" => Request::new(Method::GET, format!("{ROOT_API}/cards/{}", fx.card)),
         "cards: patch" => Request::json(
             Method::PATCH,

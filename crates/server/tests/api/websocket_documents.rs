@@ -267,7 +267,7 @@ async fn malformed_and_server_evicted_documents_leave_no_workspace_watch() {
     peer.joined(TEST_WORKSPACE_ID, &room.card_id).await;
     ts.client
         .delete(&format!(
-            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user}",
+            "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user}",
             room.board_id
         ))
         .await

@@ -66,9 +66,9 @@ const STEADY = 10_000;
 const GATHER = 200;
 
 type Message = { workspaceId?: string } & (
-  | { action: 'UPDATE_BOARD'; board: Schemas['Board'] }
+  | { action: 'UPDATE_BOARD'; board: Schemas['Container'] }
   | { action: 'UPDATE_BLOCK'; block: Schemas['Block'] }
-  | { action: 'UPDATE_MEMBER' | 'DELETE_MEMBER'; member: Schemas['BoardMember'] }
+  | { action: 'UPDATE_MEMBER' | 'DELETE_MEMBER'; member: Schemas['ContainerMember'] }
   | { action: string }
 );
 
@@ -354,28 +354,32 @@ export class LiveChanges {
       if (block.deleteAt !== 0) {
         // Only the block deleted is told, not what went with it.
         this.#tellBoard(
-          block.boardId,
-          { kind: 'blocksDeleted', boardId: block.boardId, blockIds: [block.id] },
+          block.containerId,
+          { kind: 'blocksDeleted', boardId: block.containerId, blockIds: [block.id] },
           false,
         );
         return;
       }
       if (block.type === 'page') {
         const pages = [pageOfBlock(block)];
-        this.#tellBoard(block.boardId, { kind: 'pages', boardId: block.boardId, pages }, false);
+        this.#tellBoard(
+          block.containerId,
+          { kind: 'pages', boardId: block.containerId, pages },
+          false,
+        );
         return;
       }
       const changed = changedBlock(block);
       if (changed) {
         this.#tellBoard(
-          block.boardId,
-          { kind: 'blocks', boardId: block.boardId, blocks: [changed] },
+          block.containerId,
+          { kind: 'blocks', boardId: block.containerId, blocks: [changed] },
           false,
         );
       }
     } else if ('member' in message) {
       this.#sidebarSoon();
-      await this.#readMembers(message.member.boardId);
+      await this.#readMembers(message.member.containerId);
     } else if (message.action.includes('CATEGOR')) {
       this.#sidebarSoon();
     }

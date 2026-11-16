@@ -46,8 +46,8 @@ async fn shared_wiki(th: &TestServer) -> SharedWiki {
     let at = format!("{TEST_WS}/wikis/{wiki}/pages");
     owner
         .post(
-            &format!("{TEST_WS}/boards/{wiki}/members"),
-            &json!({"boardId": wiki, "userId": other_id, "schemeEditor": true}),
+            &format!("{TEST_WS}/containers/{wiki}/members"),
+            &json!({"containerId": wiki, "userId": other_id, "schemeEditor": true}),
         )
         .await
         .check_ok();
@@ -90,7 +90,7 @@ async fn shared_wiki(th: &TestServer) -> SharedWiki {
     let file = Part::bytes(b"an image of the wiki".to_vec()).file_name("wiki.png");
     let uploaded = Client::send(
         owner
-            .request(Method::POST, &format!("{TEST_WS}/boards/{wiki}/files"))
+            .request(Method::POST, &format!("{TEST_WS}/containers/{wiki}/files"))
             .multipart(Form::new().part("file", file)),
     )
     .await
@@ -213,7 +213,7 @@ async fn a_wiki_link_opens_nothing_once_it_is_off() {
     let reads = |shared: &SharedWiki| [shared.at(""), shared.at("/pages")];
     // A new token.
     let shared = shared_wiki(&th).await;
-    let sharing = format!("{TEST_WS}/boards/{}/sharing", shared.wiki);
+    let sharing = format!("{TEST_WS}/containers/{}/sharing", shared.wiki);
     owner
         .post(&sharing, &json!({"enabled": true, "regenerate": true}))
         .await
@@ -255,7 +255,7 @@ async fn a_wiki_link_opens_nothing_once_it_is_off() {
     anonymous.get(&shared.at("")).await.check_ok();
     // The wiki in the trash.
     owner
-        .delete(&format!("{TEST_WS}/boards/{}", shared.wiki))
+        .delete(&format!("{TEST_WS}/containers/{}", shared.wiki))
         .await
         .check_no_content();
     for path in reads(&shared) {
@@ -329,7 +329,7 @@ async fn a_visit_by_a_wiki_link_ends_with_its_token() {
     assert_eq!(people(&mut member, 1).await["anonymousCount"], 1);
     th.client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", shared.wiki),
+            &format!("{TEST_WS}/containers/{}/sharing", shared.wiki),
             &json!({"enabled": true, "regenerate": true}),
         )
         .await

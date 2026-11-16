@@ -42,9 +42,9 @@ async fn a_new_block_of_another_type_is_refused() {
             .post(
                 &format!("{TEST_WS}/boards-and-blocks"),
                 &json!({
-                    "boards": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "O"}],
+                    "containers": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "O"}],
                     "blocks": [{
-                        "id": "x1", "boardId": "b1", "type": name, "createAt": 1, "updateAt": 1,
+                        "id": "x1", "containerId": "b1", "type": name, "createAt": 1, "updateAt": 1,
                     }],
                 }),
             )

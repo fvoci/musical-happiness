@@ -23,7 +23,7 @@ async fn guest_link(th: &TestServer) -> Invitation {
     th.client
         .post(
             &links_path(),
-            &json!({"role":"guest","boardId":board.id,"boardRole":"viewer"}),
+            &json!({"role":"guest","containerId":board.id,"containerRole":"viewer"}),
         )
         .await
         .created_json()

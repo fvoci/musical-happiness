@@ -133,8 +133,8 @@ export function uploadInParts(
     options,
     () =>
       http.request<Schemas['UploadOpened']>(
-        underWorkspace('/boards/{boardId}/uploads'),
-        { workspaceId, boardId },
+        underWorkspace('/containers/{containerId}/uploads'),
+        { workspaceId, containerId: boardId },
         { method: 'POST', json: newUploadOf(file) },
       ),
     async (uploadId, signal) => {

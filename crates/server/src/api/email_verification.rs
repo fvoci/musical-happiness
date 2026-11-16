@@ -24,7 +24,6 @@ struct EmailVerified {
     workspace_id: String,
     /// For a guest's link: the board it was let onto.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "boardId")]
     container_id: Option<String>,
     /// Whether the registration started its organization, rather than joining one by
     /// the link of an invitation.

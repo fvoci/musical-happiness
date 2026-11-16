@@ -78,7 +78,12 @@ async fn a_global_webhook_receives_each_scoped_background_change_with_its_own_bo
             .await
             .expect("a webhook arrives")
             .expect("the receiver remains open");
-        boards.insert(block["boardId"].as_str().expect("a board ID").to_owned());
+        boards.insert(
+            block["containerId"]
+                .as_str()
+                .expect("a board ID")
+                .to_owned(),
+        );
     }
     assert_eq!(
         boards,

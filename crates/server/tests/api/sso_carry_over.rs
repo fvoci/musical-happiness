@@ -513,11 +513,11 @@ async fn a_guest_carries_their_account_over_and_keeps_their_boards() {
     assert_eq!(session.me().await.id, guest, "the guest's own account");
     assert_eq!(count(&ts, "users").await, users, "no account made");
     session
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards/{invited}"))
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/containers/{invited}"))
         .await
         .check_ok();
     session
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards/{other}"))
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/containers/{other}"))
         .await
         .check_not_found();
     let listed: Vec<fvoci_model::Container> = session

@@ -126,7 +126,10 @@ async fn an_admin_who_cannot_act_as_one_does_not_keep_a_board_from_its_last_admi
 
     let left = th
         .client
-        .post(&format!("{TEST_WS}/boards/{}/leave", board.id), &json!({}))
+        .post(
+            &format!("{TEST_WS}/containers/{}/leave", board.id),
+            &json!({}),
+        )
         .await;
     let stored = th
         .app
@@ -162,7 +165,7 @@ async fn an_import_leaves_out_who_is_not_in_the_workspace_and_says_how_many() {
         .check_ok();
     let archive = th
         .client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))
         .await;
     archive.check_ok();
 

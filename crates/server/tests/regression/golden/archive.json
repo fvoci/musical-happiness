@@ -40,8 +40,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -57,8 +57,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -72,8 +72,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -89,8 +89,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -256,7 +256,7 @@
   },
   {
     "name": "export: non-member",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/archive/export as arch-bob",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:3>/archive/export as arch-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -270,7 +270,7 @@
   },
   {
     "name": "export: anonymous",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/archive/export as anonymous",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:3>/archive/export as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -284,7 +284,7 @@
   },
   {
     "name": "export: unknown board",
-    "request": "GET /api/v1/w/<id:1>/boards/unknown-board/archive/export as arch-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/unknown-board/archive/export as arch-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -405,8 +405,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:9>",
         "body": null,
+        "containerId": "<id:9>",
         "createAt": "<ts>",
         "createdBy": "<id:8>",
         "deleteAt": 0,
@@ -422,8 +422,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:9>",
         "body": null,
+        "containerId": "<id:9>",
         "createAt": "<ts>",
         "createdBy": "<id:8>",
         "deleteAt": 0,
@@ -437,8 +437,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:9>",
         "body": null,
+        "containerId": "<id:9>",
         "createAt": "<ts>",
         "createdBy": "<id:8>",
         "deleteAt": 0,
@@ -454,8 +454,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:9>",
         "body": null,
+        "containerId": "<id:9>",
         "createAt": "<ts>",
         "createdBy": "<id:8>",
         "deleteAt": 0,
@@ -474,12 +474,12 @@
   },
   {
     "name": "imported members",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:9>/members as arch-bob",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:9>/members as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:9>",
+        "containerId": "<id:9>",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
@@ -487,7 +487,7 @@
         "userId": "<id:2>"
       },
       {
-        "boardId": "<id:9>",
+        "containerId": "<id:9>",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": false,
@@ -498,7 +498,7 @@
   },
   {
     "name": "imported file",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:9>/files/<secret:2>.png as arch-bob",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:9>/files/<secret:2>.png as arch-bob",
     "status": 200,
     "content_type": "application/octet-stream",
     "body": "<67 bytes>"

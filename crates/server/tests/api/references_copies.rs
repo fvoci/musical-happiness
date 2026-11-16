@@ -154,7 +154,7 @@ async fn a_copy_of_a_board_names_its_own_cards_in_its_bodies() {
     let source = named_board(&th).await;
     let copy: ContainersAndBlocks = th
         .client
-        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", source.board))
+        .post_empty(&format!("{TEST_WS}/containers/{}/duplicate", source.board))
         .await
         .created_json();
     check_names_its_own(&th, &source, &copy.containers[0].id, "a copy").await;
@@ -168,7 +168,7 @@ async fn a_template_and_a_board_made_from_it_name_their_own_cards_in_their_bodie
     let template: ContainersAndBlocks = th
         .client
         .post_empty(&format!(
-            "{TEST_WS}/boards/{}/duplicate?asTemplate=true",
+            "{TEST_WS}/containers/{}/duplicate?asTemplate=true",
             source.board
         ))
         .await
@@ -176,7 +176,7 @@ async fn a_template_and_a_board_made_from_it_name_their_own_cards_in_their_bodie
     let template = &template.containers[0];
     let made: ContainersAndBlocks = th
         .client
-        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", template.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/duplicate", template.id))
         .await
         .created_json();
     check_names_its_own(&th, &source, &template.id, "a template").await;
@@ -190,7 +190,10 @@ async fn an_imported_archive_names_the_imported_cards_in_its_bodies() {
     let source = named_board(&th).await;
     let archive = th
         .client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", source.board))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/archive/export",
+            source.board
+        ))
         .await;
     archive.check_ok();
     import(&th.client, TEST_WORKSPACE_ID, &archive.body)
@@ -328,9 +331,9 @@ async fn blocks_made_together_name_each_other_by_their_new_identifiers() {
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", source.board),
             &json!([
-                {"id": first, "boardId": source.board, "type": "card", "title": "first",
+                {"id": first, "containerId": source.board, "type": "card", "title": "first",
                     "body": body, "createAt": 1, "updateAt": 1},
-                {"id": second, "boardId": source.board, "type": "card", "title": "second",
+                {"id": second, "containerId": source.board, "type": "card", "title": "second",
                     "createAt": 1, "updateAt": 1},
             ]),
         )

@@ -45,7 +45,7 @@ async function answered<T>(answer: Awaited<ReturnType<APIRequestContext['get']>>
 /** Uploads the picture to the wiki: the file's identifier. */
 async function uploadPicture(api: APIRequestContext, ws: string, wikiId: string): Promise<string> {
   const opened = await answered<Schemas['UploadOpened']>(
-    await api.post(`/api/v1/w/${ws}/boards/${wikiId}/uploads`, {
+    await api.post(`/api/v1/w/${ws}/containers/${wikiId}/uploads`, {
       data: { name: 'pic.png', size: PICTURE.length, contentType: 'image/png' },
     }),
   );
@@ -70,7 +70,7 @@ export async function makeWiki(api: APIRequestContext, title: string): Promise<M
     await api.get('/api/v1/users/me/workspaces'),
   );
   const ws = home?.id ?? '';
-  const wiki = await answered<Schemas['Board']>(
+  const wiki = await answered<Schemas['Container']>(
     await api.post(`/api/v1/w/${ws}/wikis`, { data: { title, type: 'P' } }),
   );
   const at = `/api/v1/w/${ws}/wikis/${wiki.id}/pages`;
@@ -138,7 +138,7 @@ export async function checkCopied(
   const fileId = /"fileId":"([^"]+)"/.exec(shown)?.[1] ?? '';
   expect(fileId).not.toBe('');
   expect(fileId).not.toBe(made.fileId);
-  const file = await api.get(`/api/v1/w/${ws}/boards/${copyId}/files/${fileId}`);
+  const file = await api.get(`/api/v1/w/${ws}/containers/${copyId}/files/${fileId}`);
   expect(file.status()).toBe(200);
   expect(Buffer.from(await file.body()).equals(PICTURE)).toBe(true);
 }
@@ -199,7 +199,7 @@ test('a wiki saved as an archive is made again in another workspace', async ({
     page.getByTestId('transfers').locator('[data-transfer="import"][data-finished]'),
   ).toContainText('wiki.boardarchive is imported.');
   const wikis = async () =>
-    answered<Schemas['Board'][]>(await api.get(`/api/v1/w/${second}/wikis`));
+    answered<Schemas['Container'][]>(await api.get(`/api/v1/w/${second}/wikis`));
   await expect.poll(async () => (await wikis()).length).toBe(1);
   const [copy] = await wikis();
   expect(copy).toMatchObject({ kind: 'wiki', title: 'Handbook to archive', workspaceId: second });

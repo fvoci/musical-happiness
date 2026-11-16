@@ -134,19 +134,24 @@ export class ServerRequests implements TrashReads {
 
   /**
    * The parameters of a path under `/w/{workspaceId}` with the workspace
-   * filled in: the board's own when `boardId` names a board read before (in
-   * the path, or beside it for a path of a card), else the one the reader is
-   * in, unless `workspaceId` names another.
+   * filled in: the board's or wiki's own when `containerId` or `boardId` names
+   * one read before (in the path, or beside it for a path of a card), else the
+   * one the reader is in, unless `workspaceId` names another.
    * Every address under a workspace is made with these.
    */
   protected workspaceOf<P extends Record<string, string>>(
     params: P,
-    workspaceId = (params.boardId && this.#places.get(params.boardId)) || this.#workspaceId,
+    workspaceId = this.#placeOf(params.containerId ?? params.boardId) ?? this.#workspaceId,
   ): P & { workspaceId: string } {
     if (workspaceId === undefined) {
       throw new BackendError(500, { detail: 'no workspace was entered' });
     }
     return { ...params, workspaceId };
+  }
+
+  /** The workspace of the board or wiki `id`, if it was read before. */
+  #placeOf(id: string | undefined): string | undefined {
+    return id ? this.#places.get(id) : undefined;
   }
 
   /** A request to `path` under the workspace (`workspaceOf`). */
@@ -174,7 +179,7 @@ export class ServerRequests implements TrashReads {
   }
 
   async boards(workspaceId: string): Promise<Board[]> {
-    const boards = await this.#http.request<Schemas['Board'][]>(underWorkspace('/boards'), {
+    const boards = await this.#http.request<Schemas['Container'][]>(underWorkspace('/boards'), {
       workspaceId,
     });
     this.learnPlaces(boards);
@@ -183,7 +188,9 @@ export class ServerRequests implements TrashReads {
 
   async board(boardId: string): Promise<Board> {
     const board = boardOf(
-      await this.inWorkspace<Schemas['Board']>('/boards/{boardId}', { boardId }),
+      await this.inWorkspace<Schemas['Container']>('/containers/{containerId}', {
+        containerId: boardId,
+      }),
     );
     this.learnPlaces([board]);
     return board;
@@ -240,8 +247,8 @@ export class ServerRequests implements TrashReads {
     return {
       workspaceName: preview.workspaceName,
       inviterName: preview.inviterName,
-      ...(typeof preview.boardTitle === 'string' ? { boardTitle: preview.boardTitle } : {}),
-      ...(preview.boardKind ? { boardKind: preview.boardKind } : {}),
+      ...(typeof preview.containerTitle === 'string' ? { boardTitle: preview.containerTitle } : {}),
+      ...(preview.containerKind ? { boardKind: preview.containerKind } : {}),
     };
   }
 
@@ -264,8 +271,8 @@ export class ServerRequests implements TrashReads {
     if (accepted === undefined) return 'waiting';
     return {
       workspaceId: accepted.workspaceId,
-      ...(accepted.boardId ? { boardId: accepted.boardId } : {}),
-      ...(accepted.boardKind ? { boardKind: accepted.boardKind } : {}),
+      ...(accepted.containerId ? { boardId: accepted.containerId } : {}),
+      ...(accepted.containerKind ? { boardKind: accepted.containerKind } : {}),
     };
   }
 
@@ -363,7 +370,7 @@ export class ServerRequests implements TrashReads {
 
   async deletedBoards(workspaceId: string, paging?: Paging): Promise<DeletedItem[]> {
     const items = await this.#http.request<Schemas['DeletedItem'][]>(
-      underWorkspace('/trash/boards'),
+      underWorkspace('/trash/containers'),
       { workspaceId },
       { query: { ...paging } },
     );

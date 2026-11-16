@@ -118,11 +118,14 @@ test('people are shown by display name and login name wherever the board names t
   });
   const cardId = board.cards['Plan the launch'] ?? '';
   // A person property with Grace in it, a body that mentions her, and her comment.
-  const patched = await ownerApi.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
-    data: {
-      updatedCardProperties: [{ id: 'owner', name: 'Owner', type: 'person', options: [] }],
+  const patched = await ownerApi.patch(
+    `/api/v1/w/${board.workspaceId}/containers/${board.boardId}`,
+    {
+      data: {
+        updatedCardProperties: [{ id: 'owner', name: 'Owner', type: 'person', options: [] }],
+      },
     },
-  });
+  );
   expect(patched.ok()).toBe(true);
   const card = (await (
     await ownerApi.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)

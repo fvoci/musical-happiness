@@ -31,7 +31,7 @@ pub(super) async fn exercise(case: &mut Case) {
         .value();
     let token = sharing["token"].as_str().expect("read token");
     for (operation, expected) in [
-        ("getSharedBoard", &board),
+        ("getSharedContainer", &board),
         ("getSharedBlocks", &card),
         ("getSharedCards", &card),
     ] {

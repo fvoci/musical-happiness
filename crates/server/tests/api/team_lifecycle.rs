@@ -46,7 +46,7 @@ async fn board_restore_keeps_surviving_teams_and_uses_their_current_people() {
         &owner,
     )
     .await;
-    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
     let surviving = assigned_team(&th, &path, &user, "Surviving").await;
     let deleted = assigned_team(&th, &path, &user, "Deleted").await;
     th.client2.get(&path).await.check_ok();
@@ -104,7 +104,7 @@ async fn team_removal_preserves_template_subscriptions_until_workspace_membershi
         let mut template = new_board(ROOT_WORKSPACE_ID, ContainerType::Open, "Open template");
         template.is_template = true;
         let board = board_with_admin(&th, template, &owner).await;
-        let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+        let path = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
         let team = assigned_team(&th, &path, &user, "Template editors").await;
         let mut block = Block {
             id: new_id(),
@@ -214,7 +214,7 @@ async fn a_manager_who_restores_a_board_through_its_teams_puts_everyone_it_opens
         &owner,
     )
     .await;
-    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
     // The manager's team sorts first: letting the manager in must not hide the second.
     let mine = empty_team(&th, "Joined in the trash").await;
     let theirs = empty_team(&th, "Colleagues").await;
@@ -280,7 +280,7 @@ async fn an_admin_of_the_board_who_restores_it_records_nobody() {
         &manager,
     )
     .await;
-    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
     let team = empty_team(&th, "With the admin").await;
     th.client
         .put(&member_path(&team, &manager), &json!({}))

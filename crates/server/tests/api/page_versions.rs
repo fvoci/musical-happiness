@@ -231,7 +231,7 @@ async fn the_versions_are_reached_through_their_page_while_it_is_there() {
     );
     // A page of a wiki in the trash has none either.
     th.client
-        .delete(&format!("{TEST_WS}/boards/{other_wiki}"))
+        .delete(&format!("{TEST_WS}/containers/{other_wiki}"))
         .await
         .check_no_content();
     assert_eq!(

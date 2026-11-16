@@ -129,3 +129,62 @@ ALTER TABLE search_outbox DROP CONSTRAINT search_outbox_scope_check;
 UPDATE search_outbox SET scope = 'container' WHERE scope = 'board';
 ALTER TABLE search_outbox ADD CONSTRAINT search_outbox_scope_check
     CHECK (scope IN ('block', 'container'));
+
+-- A record of somebody put on a board or a wiki says so of the container
+-- ('self_added_to_container', 'added_to_container'), the records kept so far too. A
+-- record is never changed but here: its guard stands aside for this one statement.
+ALTER TABLE audit_log DROP CONSTRAINT audit_log_action_check;
+ALTER TABLE audit_log DISABLE TRIGGER audit_log_kept;
+UPDATE audit_log
+SET action = CASE action
+    WHEN 'self_added_to_board' THEN 'self_added_to_container'
+    ELSE 'added_to_container'
+END
+WHERE action IN ('self_added_to_board', 'added_to_board');
+ALTER TABLE audit_log ENABLE TRIGGER audit_log_kept;
+ALTER TABLE audit_log ADD CONSTRAINT audit_log_action_check CHECK (action IN (
+    'self_added_to_container', 'added_to_container',
+    'org_admin_joined', 'org_admin_left', 'org_admin_revoked',
+    'org_admin_granted', 'org_admin_removed',
+    'workspace_created', 'workspace_renamed', 'workspace_deleted', 'workspace_restored',
+    'public_links_disabled', 'public_links_enabled',
+    'oidc_provider_configured', 'oidc_provider_removed', 'sso_required', 'sso_released',
+    'oidc_provider_pending_saved', 'oidc_provider_pending_applied',
+    'oidc_provider_pending_discarded', 'password_reset_link_made',
+    'password_set_by_operator',
+    'oidc_former_provider_kept', 'oidc_former_provider_ended',
+    'oidc_former_provider_lapsed', 'oidc_identity_bound', 'oidc_identity_carried_over',
+    'email_verified_by_operator'));
+
+-- What the trash keeps as JSON names a block's and a member's board or wiki
+-- `containerId`, and a file's `container_id`, as the model does from now on.
+UPDATE deleted_blocks
+SET block = ((block::jsonb - 'boardId')
+             || jsonb_build_object('containerId', block::jsonb -> 'boardId'))::json
+WHERE block::jsonb ? 'boardId';
+UPDATE deleted_containers
+SET members = (
+    SELECT json_agg(CASE
+        WHEN e.m ? 'boardId'
+            THEN (e.m - 'boardId') || jsonb_build_object('containerId', e.m -> 'boardId')
+        ELSE e.m
+    END ORDER BY e.n)
+    FROM jsonb_array_elements(deleted_containers.members::jsonb) WITH ORDINALITY AS e (m, n)
+)
+WHERE EXISTS (
+    SELECT 1 FROM jsonb_array_elements(deleted_containers.members::jsonb) AS e (m)
+    WHERE e.m ? 'boardId'
+);
+UPDATE deleted_containers
+SET files = (
+    SELECT json_agg(CASE
+        WHEN e.f ? 'board_id'
+            THEN (e.f - 'board_id') || jsonb_build_object('container_id', e.f -> 'board_id')
+        ELSE e.f
+    END ORDER BY e.n)
+    FROM jsonb_array_elements(deleted_containers.files::jsonb) WITH ORDINALITY AS e (f, n)
+)
+WHERE EXISTS (
+    SELECT 1 FROM jsonb_array_elements(deleted_containers.files::jsonb) AS e (f)
+    WHERE e.f ? 'board_id'
+);

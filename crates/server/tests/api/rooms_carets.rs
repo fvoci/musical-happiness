@@ -185,7 +185,7 @@ async fn a_caret_is_gone_with_its_member() {
     let again = one.caret().await;
     th.client
         .delete(&format!(
-            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user2}",
+            "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user2}",
             t.board_id
         ))
         .await
@@ -503,7 +503,7 @@ async fn a_held_member_is_told_no_caret_until_the_check_keeps_them() {
     let removed = async {
         th.client
             .delete(&format!(
-                "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user2}",
+                "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user2}",
                 t.board_id
             ))
             .await

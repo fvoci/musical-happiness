@@ -373,7 +373,7 @@ async fn an_upload_and_the_sharing_list_everything_they_refuse() {
     let response = th
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/uploads", board.id),
+            &format!("{TEST_WS}/containers/{}/uploads", board.id),
             &json!({"name": "", "size": -1, "contentType": "a".repeat(256)}),
         )
         .await;
@@ -390,7 +390,7 @@ async fn an_upload_and_the_sharing_list_everything_they_refuse() {
     let response = th
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", board.id),
             &json!({"token": "mine", "regenerate": "yes"}),
         )
         .await;

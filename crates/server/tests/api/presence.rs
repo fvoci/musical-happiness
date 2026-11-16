@@ -96,7 +96,7 @@ async fn token_visits_count_anonymously_and_receive_nothing() {
     let sharing: Sharing = th
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", t.board_id),
+            &format!("{TEST_WS}/containers/{}/sharing", t.board_id),
             &json!({"enabled":true}),
         )
         .await
@@ -153,7 +153,10 @@ async fn no_membership_no_presence_and_revoked_membership_expires() {
     let _ = people(&mut one, 2).await;
     let _ = people(&mut two, 2).await;
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}/members/{other}", t.board_id))
+        .delete(&format!(
+            "{TEST_WS}/containers/{}/members/{other}",
+            t.board_id
+        ))
         .await
         .check_no_content();
     let _ = people(&mut one, 1).await;
@@ -302,7 +305,10 @@ async fn a_member_put_out_of_the_board_leaves_the_roster_before_the_periodic_che
     let _ = people(&mut two, 2).await;
     let removed_at = tokio::time::Instant::now();
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}/members/{other}", t.board_id))
+        .delete(&format!(
+            "{TEST_WS}/containers/{}/members/{other}",
+            t.board_id
+        ))
         .await
         .check_no_content();
     let roster = people(&mut one, 1).await;

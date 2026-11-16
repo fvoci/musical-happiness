@@ -26,7 +26,7 @@ test.use({ locale: 'en-US' });
 async function boardsTitled(api: APIRequestContext, workspaceId: string, title: string) {
   const boards = (await (
     await api.get(`/api/v1/w/${workspaceId}/boards`)
-  ).json()) as Schemas['Board'][];
+  ).json()) as Schemas['Container'][];
   return boards.filter((board) => board.title === title);
 }
 

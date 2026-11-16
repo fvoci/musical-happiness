@@ -44,10 +44,10 @@ export async function firstOrganization(base: string): Promise<string[]> {
       data: { title, type: 'O', isTemplate: kind === 'template' },
     });
     expect(made.status()).toBe(201);
-    const board = (await made.json()) as Schemas['Board'];
+    const board = (await made.json()) as Schemas['Container'];
     forbidden.push(title, board.id);
     if (kind === 'discarded')
-      expect((await api.delete(`/api/v1/w/${workspace}/boards/${board.id}`)).ok()).toBe(true);
+      expect((await api.delete(`/api/v1/w/${workspace}/containers/${board.id}`)).ok()).toBe(true);
   }
   await api.dispose();
   return forbidden;
@@ -115,7 +115,7 @@ export async function fileUnderCategory(
   await expect(dialog).toBeHidden();
   const categories = (await (
     await api.get(`/api/v1/w/${workspace}/categories`)
-  ).json()) as Schemas['CategoryBoards'][];
+  ).json()) as Schemas['CategoryContainers'][];
   const id = categories.find((item) => item.name === 'Second projects')?.id;
   expect(id).toBeTruthy();
   await chooseFromMenu(page, boardMenu(page, title), `move-to-${id}`);
@@ -165,7 +165,7 @@ export async function archiveRoundTrip(
   ).toContainText('second.boardarchive is imported.');
   const boards = (await (
     await api.get(`/api/v1/w/${workspace}/boards`)
-  ).json()) as Schemas['Board'][];
+  ).json()) as Schemas['Container'][];
   expect(boards.filter((board) => board.title === title)).toHaveLength(2);
   const copied = boards.find(
     (board) => board.title === title && board.id !== placeOf(page.url()).boardId,

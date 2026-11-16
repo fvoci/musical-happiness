@@ -105,7 +105,7 @@
   },
   {
     "name": "my template",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:3> as tpl-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:3> as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -142,7 +142,7 @@
   },
   {
     "name": "onboarding board",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as tpl-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:4> as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -269,17 +269,17 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardMetadata": [
+        "collapsed": false,
+        "containerMetadata": [
           {
-            "boardId": "<id:4>",
+            "containerId": "<id:4>",
             "hidden": false
           },
           {
-            "boardId": "<id:6>",
+            "containerId": "<id:6>",
             "hidden": false
           }
         ],
-        "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:7>",

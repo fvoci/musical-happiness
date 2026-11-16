@@ -169,7 +169,7 @@ for (const entry of ['sidebar', 'address'] as const) {
     await sidebar(theirs).getByTestId('open-settings').click();
     await theirs.getByTestId('open-records').click();
     const records = theirs.getByTestId('workspace-records');
-    const joins = records.locator('[data-action="self_added_to_board"]');
+    const joins = records.locator('[data-action="self_added_to_container"]');
     await expect(joins.first()).toBeVisible();
     // Other tests join boards of this workspace too: this join is the one made since the click
     // (the server and the browser share a clock; a second spares a record kept in seconds).

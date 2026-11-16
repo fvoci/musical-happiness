@@ -9,8 +9,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::SharingRequest;
-use super::contract::params::BoardId;
-use super::contract::params::MemberWorkspaceId;
+use super::contract::params::{ContainerId, MemberWorkspaceId};
 use super::contract::tag;
 use super::workspace::InContainer;
 
@@ -49,10 +48,10 @@ async fn require_share_permission(
 /// shared is not shared. For the board's admins.
 #[utoipa::path(
     get,
-    path = "/w/{workspaceId}/boards/{boardId}/sharing",
+    path = "/w/{workspaceId}/containers/{containerId}/sharing",
     operation_id = "getSharing",
     tag = tag::SHARING,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     responses((status = 200, description = "The sharing state.", body = Sharing)),
 )]
 async fn handle_get_sharing(
@@ -65,7 +64,7 @@ async fn handle_get_sharing(
     Ok(json_response(&sharing))
 }
 
-/// Reads the body of `POST /boards/{boardId}/sharing`: `enabled`, a boolean, and
+/// Reads the body of `POST /containers/{containerId}/sharing`: `enabled`, a boolean, and
 /// optionally `regenerate`, a boolean. A `token` is refused, `null` too: the server
 /// makes it.
 fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
@@ -112,10 +111,10 @@ fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
 /// reason `public_links_off`; stopping it is not. For the board's admins.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards/{boardId}/sharing",
+    path = "/w/{workspaceId}/containers/{containerId}/sharing",
     operation_id = "setSharing",
     tag = tag::SHARING,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     request_body = SharingRequest,
     responses((
         status = 200,

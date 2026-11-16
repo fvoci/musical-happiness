@@ -944,7 +944,6 @@ struct StoredFiles(Vec<StoredFile>);
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct StoredFile {
     id: String,
-    #[serde(rename = "board_id")]
     container_id: String,
     stored_name: String,
     name: String,

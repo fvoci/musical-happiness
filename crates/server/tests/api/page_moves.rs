@@ -114,8 +114,8 @@ async fn a_page_moves_where_it_is_asked_and_what_is_wrong_is_named() {
     let other = ts.client2.me().await.id;
     client
         .post(
-            &format!("{TEST_WS}/boards/{wiki_id}/members"),
-            &json!({"boardId": wiki_id, "userId": other, "schemeViewer": true}),
+            &format!("{TEST_WS}/containers/{wiki_id}/members"),
+            &json!({"containerId": wiki_id, "userId": other, "schemeViewer": true}),
         )
         .await
         .check_ok();

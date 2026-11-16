@@ -26,8 +26,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::{Binary, FileForm};
-use super::contract::params::MemberWorkspaceId;
-use super::contract::params::{BoardId, FileId};
+use super::contract::params::{ContainerId, FileId, MemberWorkspaceId};
 use super::contract::tag;
 use super::workspace::InContainer;
 
@@ -106,10 +105,10 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
 /// with the `If-Modified-Since` of an earlier answer gets the whole file again.
 #[utoipa::path(
     get,
-    path = "/w/{workspaceId}/boards/{boardId}/files/{fileId}",
+    path = "/w/{workspaceId}/containers/{containerId}/files/{fileId}",
     operation_id = "getFile",
     tag = tag::FILES,
-    params(MemberWorkspaceId, BoardId, FileId),
+    params(MemberWorkspaceId, ContainerId, FileId),
     responses(
         (status = 200, description = "The file.", body = inline(Binary), content_type = "application/octet-stream"),
         (status = 206, description = "The range of the file that was asked for.", body = inline(Binary), content_type = "application/octet-stream"),
@@ -158,10 +157,10 @@ pub(super) async fn serve_container_file(
 /// board's members.
 #[utoipa::path(
     get,
-    path = "/w/{workspaceId}/boards/{boardId}/files/{fileId}/info",
+    path = "/w/{workspaceId}/containers/{containerId}/files/{fileId}/info",
     operation_id = "getFileInfo",
     tag = tag::FILES,
-    params(MemberWorkspaceId, BoardId, FileId),
+    params(MemberWorkspaceId, ContainerId, FileId),
     responses((status = 200, description = "What is known about the file.", body = FileInfo)),
 )]
 async fn handle_get_file_info(
@@ -199,10 +198,10 @@ pub(super) async fn container_file_info(
 /// anything but letters and digits in it, is left off. For editors.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards/{boardId}/files",
+    path = "/w/{workspaceId}/containers/{containerId}/files",
     operation_id = "uploadFile",
     tag = tag::FILES,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     request_body(content = FileForm, content_type = "multipart/form-data"),
     responses((status = 201, description = "The file is stored.", body = UploadedFile)),
 )]

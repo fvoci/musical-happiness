@@ -134,7 +134,7 @@ async fn onboarding_copies_the_built_in_board_whatever_users_made() {
     assert_eq!(copied, expected, "the cards of the built-in board");
     let copy: Container = ts
         .client2
-        .get(&format!("{ROOT_WS}/boards/{board_id}"))
+        .get(&format!("{ROOT_WS}/containers/{board_id}"))
         .await
         .ok_json();
     assert_eq!(
@@ -180,7 +180,7 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
 
     let copy: Container = ts
         .client
-        .get(&format!("{ROOT_WS}/boards/{board_id}"))
+        .get(&format!("{ROOT_WS}/containers/{board_id}"))
         .await
         .ok_json();
     assert_eq!(
@@ -213,7 +213,7 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
 
     let board = ts
         .client
-        .get(&format!("{ROOT_WS}/boards/{board_id}"))
+        .get(&format!("{ROOT_WS}/containers/{board_id}"))
         .await
         .ok_json::<Container>();
     assert_eq!(
@@ -324,7 +324,7 @@ async fn onboard_stores_the_templates_again_when_the_welcome_board_is_gone() {
     let board_id = value["boardId"].as_str().expect("a board id");
     let board: Container = ts
         .client
-        .get(&format!("{ROOT_WS}/boards/{board_id}"))
+        .get(&format!("{ROOT_WS}/containers/{board_id}"))
         .await
         .ok_json();
     assert_eq!(board.title, WELCOME_TITLE, "the welcome board is copied");

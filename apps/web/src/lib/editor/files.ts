@@ -13,7 +13,7 @@
  *   token, so an address carries none: `<img src>` names the file directly
  *   and the browser sends the cookie. A board read by its public link is the
  *   one case where the address carries something: its read token, in the
- *   query of `getSharedFile` (`/shared/{boardId}/files/{fileId}`), which the
+ *   query of `getSharedFile` (`/shared/{containerId}/files/{fileId}`), which the
  *   reader's screen sets (src/app/SharedApp.svelte). (Saving an attachment
  *   under its own name reads its bytes by script, lib/save.ts: the server
  *   names the download after the file's identifier.)

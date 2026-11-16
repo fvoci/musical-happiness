@@ -1,7 +1,7 @@
 //! Wikis: listing and making them, and their pages.
 //!
 //! A wiki is a board of the kind `wiki`. What is the same for a board and a wiki is
-//! asked under `/boards/{boardId}` (`InContainer`); here is what only a wiki has, and the
+//! asked under `/containers/{containerId}` (`InContainer`); here is what only a wiki has, and the
 //! handle these routes work with reaches wikis and no board (`InWiki`).
 
 use axum::body::Bytes;

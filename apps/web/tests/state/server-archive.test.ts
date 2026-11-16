@@ -43,7 +43,7 @@ describe('an export', () => {
     const archive = await serverBackend('/base').exportBoard('b1', {
       onProgress: (progress) => seen.push([progress.sentBytes, progress.totalBytes]),
     });
-    expect(urls).toEqual(['/base/api/v1/w/w1/boards/b1/archive/export']);
+    expect(urls).toEqual(['/base/api/v1/w/w1/containers/b1/archive/export']);
     expect(archive.name).toBe('archive-2026-11-11.boardarchive');
     expect(await archive.bytes.text()).toBe('PK1234ab');
     expect(seen).toEqual([

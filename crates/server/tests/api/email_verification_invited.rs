@@ -72,7 +72,7 @@ impl Scene {
                 })
                 .await
                 .created_json();
-            json!({"role": "guest", "boardId": board.id, "boardRole": "viewer"})
+            json!({"role": "guest", "containerId": board.id, "containerRole": "viewer"})
         } else {
             json!({"role": "member"})
         };

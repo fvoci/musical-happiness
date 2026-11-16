@@ -1,4 +1,4 @@
-//! A shared board or wiki as whoever holds its link reads it: `/shared/{boardId}`,
+//! A shared board or wiki as whoever holds its link reads it: `/shared/{containerId}`,
 //! with its read token and no session. A board's link reads its views, cards and
 //! comments; a wiki's its tree and pages, and neither the routes of the other. Both
 //! read their files.
@@ -31,8 +31,8 @@ use super::blocks::asked_blocks;
 use super::cards::cards_page;
 use super::contract::bodies::Binary;
 use super::contract::params::{
-    AllBlocks, BlockTypeFilter, BoardId, FileId, OneBlockId, Page as PageNumber, PageId, ParentId,
-    PerPage, Preview, SharedReadToken,
+    AllBlocks, BlockTypeFilter, ContainerId, FileId, OneBlockId, Page as PageNumber, PageId,
+    ParentId, PerPage, Preview, SharedReadToken,
 };
 use super::contract::tag;
 use super::files::{container_file_info, serve_container_file};
@@ -42,7 +42,7 @@ use crate::client_address::ClientAddress;
 use crate::error::AppError;
 
 /// The path parameter that names the shared board.
-const CONTAINER_ID: &str = "boardId";
+const CONTAINER_ID: &str = "containerId";
 
 /// The query parameter that carries the read token.
 const READ_TOKEN: &str = "readToken";
@@ -58,7 +58,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_shared_page))
 }
 
-/// The board or wiki a request under `/shared/{boardId}` names, opened by the read token
+/// The board or wiki a request under `/shared/{containerId}` names, opened by the read token
 /// of the request: the application behind the wall of its own organization, reaching
 /// its kind alone.
 ///
@@ -138,10 +138,10 @@ impl InSharedContainer {
 /// that has had many such answers within a minute.
 #[utoipa::path(
     get,
-    path = "/shared/{boardId}",
-    operation_id = "getSharedBoard",
+    path = "/shared/{containerId}",
+    operation_id = "getSharedContainer",
     tag = tag::SHARING,
-    params(BoardId, SharedReadToken),
+    params(ContainerId, SharedReadToken),
     security(()),
     responses((status = 200, description = "The board or the wiki.", body = Container)),
 )]
@@ -152,7 +152,7 @@ async fn handle_get_shared_container(shared: InSharedContainer) -> ApiResult {
 /// The blocks of a shared board
 ///
 /// What `getBlocks` gives of the board, with the same parameters, read with its read
-/// token as `getSharedBoard` is; a wiki's token reads no blocks (404). No block names a
+/// token as `getSharedContainer` is; a wiki's token reads no blocks (404). No block names a
 /// user: `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in
 /// a body, and so is each user that
 /// the board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)
@@ -167,10 +167,10 @@ async fn handle_get_shared_container(shared: InSharedContainer) -> ApiResult {
 /// first; the blocks that one request made come in the order that request had them in.
 #[utoipa::path(
     get,
-    path = "/shared/{boardId}/blocks",
+    path = "/shared/{containerId}/blocks",
     operation_id = "getSharedBlocks",
     tag = tag::SHARING,
-    params(BoardId, SharedReadToken, AllBlocks, OneBlockId, ParentId, BlockTypeFilter),
+    params(ContainerId, SharedReadToken, AllBlocks, OneBlockId, ParentId, BlockTypeFilter),
     security(()),
     responses((status = 200, description = "The blocks.", body = Vec<Block>)),
 )]
@@ -196,7 +196,7 @@ async fn handle_get_shared_blocks(
 
 /// The cards of a shared board
 ///
-/// What `getCards` gives of the board, read with its read token as `getSharedBoard` is;
+/// What `getCards` gives of the board, read with its read token as `getSharedContainer` is;
 /// a wiki's token reads no cards (404).
 /// No card names a user: `createdBy` and `modifiedBy` are empty, the values of person
 /// properties are emptied, and values of properties the board does not define are left
@@ -205,10 +205,10 @@ async fn handle_get_shared_blocks(
 /// pages cut that order.
 #[utoipa::path(
     get,
-    path = "/shared/{boardId}/cards",
+    path = "/shared/{containerId}/cards",
     operation_id = "getSharedCards",
     tag = tag::SHARING,
-    params(BoardId, SharedReadToken, PageNumber, PerPage, Preview),
+    params(ContainerId, SharedReadToken, PageNumber, PerPage, Preview),
     security(()),
     responses((status = 200, description = "The cards of the page.", body = Vec<Card>)),
 )]
@@ -229,13 +229,13 @@ async fn handle_get_shared_cards(
 /// A file of a shared board or wiki
 ///
 /// What `getFile` gives of a file of the board or the wiki, read with its read token as
-/// `getSharedBoard` is: a file of another board or wiki is not there.
+/// `getSharedContainer` is: a file of another board or wiki is not there.
 #[utoipa::path(
     get,
-    path = "/shared/{boardId}/files/{fileId}",
+    path = "/shared/{containerId}/files/{fileId}",
     operation_id = "getSharedFile",
     tag = tag::SHARING,
-    params(BoardId, FileId, SharedReadToken),
+    params(ContainerId, FileId, SharedReadToken),
     security(()),
     responses(
         (status = 200, description = "The file.", body = inline(Binary), content_type = "application/octet-stream"),
@@ -253,13 +253,13 @@ async fn handle_get_shared_file(
 /// What is known about a file of a shared board or wiki
 ///
 /// What `getFileInfo` gives of a file of the board or the wiki, read with its read
-/// token as `getSharedBoard` is.
+/// token as `getSharedContainer` is.
 #[utoipa::path(
     get,
-    path = "/shared/{boardId}/files/{fileId}/info",
+    path = "/shared/{containerId}/files/{fileId}/info",
     operation_id = "getSharedFileInfo",
     tag = tag::SHARING,
-    params(BoardId, FileId, SharedReadToken),
+    params(ContainerId, FileId, SharedReadToken),
     security(()),
     responses((status = 200, description = "What is known about the file.", body = FileInfo)),
 )]
@@ -274,15 +274,15 @@ async fn handle_get_shared_file_info(
 
 /// The pages of a shared wiki
 ///
-/// What `getPageTree` gives of the wiki, read with its read token as `getSharedBoard`
+/// What `getPageTree` gives of the wiki, read with its read token as `getSharedContainer`
 /// is: every page without its body, naming nobody. By `order` as strings compare by
 /// code unit, then by `id`. A board's token reads no pages (404).
 #[utoipa::path(
     get,
-    path = "/shared/{boardId}/pages",
+    path = "/shared/{containerId}/pages",
     operation_id = "getSharedPageTree",
     tag = tag::SHARING,
-    params(BoardId, SharedReadToken),
+    params(ContainerId, SharedReadToken),
     security(()),
     responses((status = 200, description = "The pages.", body = Vec<PageNode>)),
 )]
@@ -296,7 +296,7 @@ async fn handle_get_shared_page_tree(shared: InSharedContainer) -> ApiResult {
 /// A page of a shared wiki
 ///
 /// What `getPage` gives of a page of the wiki, read with its read token as
-/// `getSharedBoard` is. No page names a user: `createdBy` and `modifiedBy` are empty,
+/// `getSharedContainer` is. No page names a user: `createdBy` and `modifiedBy` are empty,
 /// and so is the `userId` of every mention in its body. A reference in the body keeps
 /// its `id` if it names a page of this wiki, and has an empty one for anything else: of
 /// what is elsewhere in the workspace nothing is told, nor whether there is anything.
@@ -304,10 +304,10 @@ async fn handle_get_shared_page_tree(shared: InSharedContainer) -> ApiResult {
 /// in the trash, and a board's token are 404.
 #[utoipa::path(
     get,
-    path = "/shared/{boardId}/pages/{pageId}",
+    path = "/shared/{containerId}/pages/{pageId}",
     operation_id = "getSharedPage",
     tag = tag::SHARING,
-    params(BoardId, PageId, SharedReadToken),
+    params(ContainerId, PageId, SharedReadToken),
     security(()),
     responses((status = 200, description = "The page.", body = Page)),
 )]

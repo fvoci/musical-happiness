@@ -380,9 +380,11 @@ test('a board copied right after typing copies what was typed', async ({ page, b
   await editor(page).click();
   await page.keyboard.type('Typed just now');
   await expect(page.getByTestId('card-save-state')).toHaveAttribute('data-state', 'saved');
-  const copied = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/duplicate`);
+  const copied = await api.post(
+    `/api/v1/w/${board.workspaceId}/containers/${board.boardId}/duplicate`,
+  );
   expect(copied.ok()).toBe(true);
-  const copyId = ((await copied.json()) as Schemas['BoardsAndBlocks']).boards[0]?.id ?? '';
+  const copyId = ((await copied.json()) as Schemas['ContainersAndBlocks']).containers[0]?.id ?? '';
   const blocks = (await (
     await api.get(`/api/v1/w/${board.workspaceId}/boards/${copyId}/blocks`)
   ).json()) as Schemas['Block'][];

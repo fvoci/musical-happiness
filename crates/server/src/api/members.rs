@@ -7,8 +7,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::{MemberRoles, NewMember};
-use super::contract::params::MemberWorkspaceId;
-use super::contract::params::{BoardId, UserId};
+use super::contract::params::{ContainerId, MemberWorkspaceId, UserId};
 use super::contract::tag;
 use super::workspace::InContainer;
 
@@ -80,10 +79,10 @@ fn require_holdable(
 /// to the board.
 #[utoipa::path(
     get,
-    path = "/w/{workspaceId}/boards/{boardId}/members",
+    path = "/w/{workspaceId}/containers/{containerId}/members",
     operation_id = "getMembers",
     tag = tag::MEMBERS,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     responses((status = 200, description = "The members.", body = Vec<ContainerMember>)),
 )]
 async fn handle_get_members_for_container(
@@ -123,10 +122,10 @@ async fn handle_get_members_for_container(
 /// it, themselves or another, is recorded in the workspace's audit log.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards/{boardId}/members",
+    path = "/w/{workspaceId}/containers/{containerId}/members",
     operation_id = "addMember",
     tag = tag::MEMBERS,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     request_body = NewMember,
     responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
@@ -222,10 +221,10 @@ async fn handle_add_member(
 /// no member of it.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards/{boardId}/join",
-    operation_id = "joinBoard",
+    path = "/w/{workspaceId}/containers/{containerId}/join",
+    operation_id = "joinContainer",
     tag = tag::MEMBERS,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
 async fn handle_join_container(
@@ -276,10 +275,10 @@ async fn handle_join_container(
 /// it: that is 409 with the reason `last_admin`.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards/{boardId}/leave",
-    operation_id = "leaveBoard",
+    path = "/w/{workspaceId}/containers/{containerId}/leave",
+    operation_id = "leaveContainer",
     tag = tag::MEMBERS,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     responses((status = 204, description = "The user is no member any more.")),
 )]
 async fn handle_leave_container(
@@ -314,10 +313,10 @@ async fn handle_leave_container(
 /// more, is 404.
 #[utoipa::path(
     put,
-    path = "/w/{workspaceId}/boards/{boardId}/members/{userId}",
+    path = "/w/{workspaceId}/containers/{containerId}/members/{userId}",
     operation_id = "updateMember",
     tag = tag::MEMBERS,
-    params(MemberWorkspaceId, BoardId, UserId),
+    params(MemberWorkspaceId, ContainerId, UserId),
     request_body = MemberRoles,
     responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
@@ -377,10 +376,10 @@ async fn handle_update_member(
 /// answered 204 like a removal.
 #[utoipa::path(
     delete,
-    path = "/w/{workspaceId}/boards/{boardId}/members/{userId}",
+    path = "/w/{workspaceId}/containers/{containerId}/members/{userId}",
     operation_id = "removeMember",
     tag = tag::MEMBERS,
-    params(MemberWorkspaceId, BoardId, UserId),
+    params(MemberWorkspaceId, ContainerId, UserId),
     responses((status = 204, description = "The user is no member any more.")),
 )]
 async fn handle_delete_member(

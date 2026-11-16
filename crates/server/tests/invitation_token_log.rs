@@ -154,8 +154,8 @@ async fn use_the_links(api: &Api) -> (Vec<String>, Vec<String>) {
     let make = async |body: Value| -> Invitation { parsed(admin.post(&invitations, &body).await) };
 
     let for_members = make(json!({"role": "member"})).await;
-    let for_a_guest = make(json!({"role": "guest", "boardId": board.id})).await;
-    let revoked = make(json!({"role": "guest", "boardId": board.id})).await;
+    let for_a_guest = make(json!({"role": "guest", "containerId": board.id})).await;
+    let revoked = make(json!({"role": "guest", "containerId": board.id})).await;
     let tokens: Vec<String> = [&for_members, &for_a_guest, &revoked]
         .into_iter()
         .map(|link| link.token.clone().expect("a new link comes with its token"))

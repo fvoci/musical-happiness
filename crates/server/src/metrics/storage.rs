@@ -43,7 +43,7 @@ pub(crate) enum ContainerWork {
     Export,
     /// Made from an archive.
     Import,
-    /// Copied where it is (`duplicateBoard`).
+    /// Copied where it is (`duplicateContainer`).
     Duplicate,
 }
 
@@ -173,7 +173,7 @@ impl StorageMetrics {
                 "boards_copied_total",
                 "How many boards and wikis were copied whole, by work: export (written \
                  into an archive, once the archive is ready to be sent), import (made from \
-                 an archive with its members), duplicate (copied by duplicateBoard, the \
+                 an archive with its members), duplicate (copied by duplicateContainer, the \
                  welcome board of a new account among them); and by kind: board, wiki.",
             )
             .namespace(PREFIX),

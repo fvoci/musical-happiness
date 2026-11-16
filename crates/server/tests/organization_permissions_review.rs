@@ -55,7 +55,7 @@ async fn a_roleless_workspace_admin_gets_no_template_content_from_the_list() {
         .check_ok();
     let direct: Container = server
         .client2
-        .get(&format!("{TEST_WS}/boards/{}", template.id))
+        .get(&format!("{TEST_WS}/containers/{}", template.id))
         .await
         .ok_json();
     assert!(direct.description.is_empty() && direct.properties.is_empty());
@@ -88,7 +88,7 @@ async fn a_workspace_admin_can_list_a_private_template_without_a_membership() {
     let (server, template, _) = private_template_for_admin().await;
     let direct: Container = server
         .client2
-        .get(&format!("{TEST_WS}/boards/{}", template.id))
+        .get(&format!("{TEST_WS}/containers/{}", template.id))
         .await
         .ok_json();
     let listed: Vec<Container> = server

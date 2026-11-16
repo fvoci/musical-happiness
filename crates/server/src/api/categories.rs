@@ -9,7 +9,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::{CategoryUpdate, NewCategory};
-use super::contract::params::{BoardId, CategoryId, MemberWorkspaceId, WorkspaceId};
+use super::contract::params::{CategoryId, ContainerId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
 
 use super::decode_object_members;
@@ -261,10 +261,10 @@ async fn handle_get_user_category_containers(TextInContainer(ws): TextInContaine
 /// built-in templates: a board of another workspace answers as one that is not there.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/categories/{categoryId}/boards/{boardId}",
-    operation_id = "setBoardCategory",
+    path = "/w/{workspaceId}/categories/{categoryId}/containers/{containerId}",
+    operation_id = "setContainerCategory",
     tag = tag::SIDEBAR,
-    params(WorkspaceId, CategoryId, BoardId),
+    params(WorkspaceId, CategoryId, ContainerId),
     responses((status = 204, description = "The board is under the category.")),
 )]
 async fn handle_update_category_container(
@@ -326,8 +326,8 @@ async fn handle_reorder_categories(TextInContainer(ws): TextInContainer, body: B
 /// one that is not in the category, is refused.
 #[utoipa::path(
     put,
-    path = "/w/{workspaceId}/categories/{categoryId}/board-order",
-    operation_id = "reorderCategoryBoards",
+    path = "/w/{workspaceId}/categories/{categoryId}/container-order",
+    operation_id = "reorderCategoryContainers",
     tag = tag::SIDEBAR,
     params(WorkspaceId, CategoryId),
     request_body = Vec<String>,
@@ -366,10 +366,10 @@ async fn handle_reorder_category_containers(
 /// board of another workspace than the category's answers as one that is not there.
 #[utoipa::path(
     put,
-    path = "/w/{workspaceId}/categories/{categoryId}/boards/{boardId}/hide",
-    operation_id = "hideBoard",
+    path = "/w/{workspaceId}/categories/{categoryId}/containers/{containerId}/hide",
+    operation_id = "hideContainer",
     tag = tag::SIDEBAR,
-    params(WorkspaceId, CategoryId, BoardId),
+    params(WorkspaceId, CategoryId, ContainerId),
     responses((status = 204, description = "The board is hidden.")),
 )]
 async fn handle_hide_container(
@@ -387,10 +387,10 @@ async fn handle_hide_container(
 /// board of another workspace than the category's answers as one that is not there.
 #[utoipa::path(
     put,
-    path = "/w/{workspaceId}/categories/{categoryId}/boards/{boardId}/unhide",
-    operation_id = "unhideBoard",
+    path = "/w/{workspaceId}/categories/{categoryId}/containers/{containerId}/unhide",
+    operation_id = "unhideContainer",
     tag = tag::SIDEBAR,
-    params(WorkspaceId, CategoryId, BoardId),
+    params(WorkspaceId, CategoryId, ContainerId),
     responses((status = 204, description = "The board is shown.")),
 )]
 async fn handle_unhide_container(

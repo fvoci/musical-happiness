@@ -107,7 +107,7 @@ pub(crate) async fn put_on(admin: &Client, wiki_id: &str, user_id: &str, role: &
         scheme_editor: role == "editor",
         ..ContainerMember::default()
     };
-    let path = format!("{TEST_WS}/boards/{wiki_id}/members");
+    let path = format!("{TEST_WS}/containers/{wiki_id}/members");
     admin.post(&path, &member).await.check_ok();
     // Adding who is on it already changes no role: the role is set.
     admin
@@ -215,7 +215,7 @@ async fn a_wiki_of_another_organization_is_reached_through_its_workspace_only() 
             .await;
         assert_eq!(of_theirs.problem(), of_none.problem(), "{at}");
         th.client
-            .get(&format!("{at}/boards/{wiki}"))
+            .get(&format!("{at}/containers/{wiki}"))
             .await
             .check_not_found();
     }
@@ -302,7 +302,7 @@ async fn a_guest_has_only_the_wikis_it_was_invited_to() {
         );
         // Nor does the guest join it, open as it is to the members of the workspace.
         th.client2
-            .post(&format!("{TEST_WS}/boards/{wiki}/join"), &json!({}))
+            .post(&format!("{TEST_WS}/containers/{wiki}/join"), &json!({}))
             .await
             .check_not_found();
     }
@@ -340,7 +340,7 @@ async fn who_only_manages_a_wiki_reads_none_of_its_pages() {
 
     assert!(listed(admin_client, TEST_WS).await.contains(&wiki));
     let seen: Container = admin_client
-        .get(&format!("{TEST_WS}/boards/{wiki}"))
+        .get(&format!("{TEST_WS}/containers/{wiki}"))
         .await
         .ok_json();
     assert_eq!(
@@ -349,17 +349,17 @@ async fn who_only_manages_a_wiki_reads_none_of_its_pages() {
         "what the wiki says of itself is for its readers"
     );
     let of_maker: Container = maker
-        .get(&format!("{TEST_WS}/boards/{wiki}"))
+        .get(&format!("{TEST_WS}/containers/{wiki}"))
         .await
         .ok_json();
     assert_eq!(of_maker.description, DESCRIPTION);
     // The link that shows the wiki's pages is of its content.
     admin_client
-        .get(&format!("{TEST_WS}/boards/{wiki}/sharing"))
+        .get(&format!("{TEST_WS}/containers/{wiki}/sharing"))
         .await
         .check_not_found();
     admin_client
-        .get(&format!("{TEST_WS}/boards/{wiki}/members"))
+        .get(&format!("{TEST_WS}/containers/{wiki}/members"))
         .await
         .check_ok();
     assert_eq!(asked(admin_client, TEST_WS, &wiki, &page).await, NOT_THERE);
@@ -426,7 +426,7 @@ async fn the_pages_of_a_wiki_are_for_each_role_what_the_role_is_let_do() {
     let door = at_the_door(&th.client2, TEST_WORKSPACE_ID, &open_page).await;
     assert_eq!(door, "read");
     th.client2
-        .post(&format!("{TEST_WS}/boards/{open}/join"), &json!({}))
+        .post(&format!("{TEST_WS}/containers/{open}/join"), &json!({}))
         .await
         .check_ok();
     let door = at_the_door(&th.client2, TEST_WORKSPACE_ID, &open_page).await;
@@ -546,7 +546,7 @@ async fn who_may_not_read_a_wiki_is_told_nothing_of_its_pages() {
         assert_eq!(
             (
                 &of_pages[0]["block"]["id"],
-                &of_pages[0]["block"]["boardId"]
+                &of_pages[0]["block"]["containerId"]
             ),
             (&json!(shown_page), &json!(shown)),
             "{standing}: told of the page they read, and of no other"
@@ -565,10 +565,10 @@ async fn who_may_not_read_a_wiki_is_told_nothing_of_its_pages() {
         // In the trash it is for who administered it, and for who manages the
         // workspace by its name: not for a member or a guest it was hidden from.
         th.client
-            .delete(&format!("{TEST_WS}/boards/{hidden}"))
+            .delete(&format!("{TEST_WS}/containers/{hidden}"))
             .await
             .check_no_content();
-        let trash = th.client2.get(&format!("{TEST_WS}/trash/boards")).await;
+        let trash = th.client2.get(&format!("{TEST_WS}/trash/containers")).await;
         let listed = trash.status == StatusCode::OK && trash.text().contains(&hidden);
         assert_eq!(
             listed,

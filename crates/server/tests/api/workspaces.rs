@@ -345,11 +345,11 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
         .await
         .expect("the user is put on their board");
     ts.client
-        .get(&format!("{ROOT_WS}/boards/{their_board}"))
+        .get(&format!("{ROOT_WS}/containers/{their_board}"))
         .await
         .check_not_found();
     ts.client
-        .get(&format!("/w/{their_workspace}/boards/{their_board}"))
+        .get(&format!("/w/{their_workspace}/containers/{their_board}"))
         .await
         .check_ok();
     // A body that names their workspace under the server's is refused: the path names it.
@@ -381,7 +381,13 @@ async fn workspace_routes_are_available_to_members_of_another_organization() {
         .add_workspace_member(&their_workspace, &user1, WorkspaceRole::Member)
         .await
         .expect("the user is let into their workspace");
-    for path in ["", "/categories", "/templates", "/users", "/trash/boards"] {
+    for path in [
+        "",
+        "/categories",
+        "/templates",
+        "/users",
+        "/trash/containers",
+    ] {
         ts.client
             .get(&format!("/w/{their_workspace}{path}"))
             .await
@@ -432,7 +438,7 @@ async fn a_workspace_the_user_is_not_in_answers_as_one_that_is_not_there() {
         "/boards/search?q=a",
         "/categories",
         "/templates",
-        "/trash/boards",
+        "/trash/containers",
         "/users",
     ] {
         let hidden = ts
@@ -541,10 +547,10 @@ async fn an_open_board_of_a_workspace_the_user_is_not_in_is_not_there() {
         pair(&template.id, "/duplicate"),
         (
             format!(
-                "{ROOT_WS}/boards/{}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}",
+                "{ROOT_WS}/containers/{}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}",
                 template.id
             ),
-            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}"),
+            format!("{ROOT_WS}/containers/{UNKNOWN_ID}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}"),
         ),
     ] {
         let hidden_answer = ts.client.post(&hidden, &nothing).await;
@@ -698,7 +704,7 @@ async fn a_board_takes_the_people_of_its_workspace() {
         .await;
     // The stranger is in the root workspace, as everybody is, and not in the board's.
     let stranger = ts.stranger().await;
-    let members = format!("{TEST_WS}/boards/{}/members", board.id);
+    let members = format!("{TEST_WS}/containers/{}/members", board.id);
     let add = async |user_id: &str| {
         ts.client
             .post(&members, &json!({"userId": user_id, "schemeEditor": true}))
@@ -723,7 +729,7 @@ async fn a_board_takes_the_people_of_its_workspace() {
     // stranger is not in, the board has the importing user alone.
     let archive = ts
         .client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))
         .await;
     archive.check_ok();
     let members_after_import_into = async |workspace_id: &str| {
@@ -741,7 +747,10 @@ async fn a_board_takes_the_people_of_its_workspace() {
             .expect("the imported board is in the workspace");
         let members: Vec<ContainerMember> = ts
             .client
-            .get(&format!("/w/{workspace_id}/boards/{}/members", imported.id))
+            .get(&format!(
+                "/w/{workspace_id}/containers/{}/members",
+                imported.id
+            ))
             .await
             .ok_json();
         let mut members: Vec<String> = members.into_iter().map(|one| one.user_id).collect();
@@ -786,11 +795,11 @@ async fn a_path_that_is_no_text_is_malformed_but_for_the_boards_of_a_workspace()
     // The routes that moved under `/w/` (`InWorkspace`): the workspace that is no text is one of
     // others, another parameter that is none a malformed request.
     ts.client
-        .get("/w/%FF/boards/x")
+        .get("/w/%FF/containers/x")
         .await
         .check_error(reqwest::StatusCode::NOT_FOUND, "workspace not found");
     ts.client
-        .get(&format!("{ROOT_WS}/boards/%FF"))
+        .get(&format!("{ROOT_WS}/containers/%FF"))
         .await
         .check_error(reqwest::StatusCode::BAD_REQUEST, "the request is malformed");
     ts.teardown().await;

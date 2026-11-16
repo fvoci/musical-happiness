@@ -84,7 +84,7 @@ test('a board is read by its public link without signing in, and not when the li
       { title: 'Order compost', status: 'Done' },
     ],
   });
-  const at = `/api/v1/w/${board.workspaceId}/boards/${board.boardId}`;
+  const at = `/api/v1/w/${board.workspaceId}/containers/${board.boardId}`;
   const cardId = board.cards['Sow the beans'] ?? '';
   const card = (await (
     await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
@@ -98,21 +98,24 @@ test('a board is read by its public link without signing in, and not when the li
       })
     ).ok(),
   ).toBe(true);
-  const commented = await api.post(`${at}/blocks`, {
-    data: [
-      {
-        type: 'comment',
-        parentId: cardId,
-        boardId: board.boardId,
-        title: '',
-        body: { type: 'doc', content: [paragraph('The broad beans did well last year.')] },
-        createAt: Date.now(),
-        updateAt: Date.now(),
-      },
-    ],
-  });
+  const commented = await api.post(
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`,
+    {
+      data: [
+        {
+          type: 'comment',
+          parentId: cardId,
+          boardId: board.boardId,
+          title: '',
+          body: { type: 'doc', content: [paragraph('The broad beans did well last year.')] },
+          createAt: Date.now(),
+          updateAt: Date.now(),
+        },
+      ],
+    },
+  );
   expect(commented.ok()).toBe(true);
-  const table = await api.post(`${at}/blocks`, {
+  const table = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
         type: 'view',
@@ -253,7 +256,7 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
   const at = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
     await api.post(`${at}/wikis`, { data: { title: 'Field notes', type: 'P' } })
-  ).json()) as Schemas['Board'];
+  ).json()) as Schemas['Container'];
   const pages = `${at}/wikis/${wiki.id}/pages`;
   const made = async (title: string, parentId?: string) =>
     (await (

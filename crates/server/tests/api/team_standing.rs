@@ -85,7 +85,7 @@ async fn a_revoked_team_role_invalidates_direct_grants_and_invitation_acceptance
     th.client
         .put(
             &format!(
-                "/w/{ROOT_WORKSPACE_ID}/boards/{}/members/{manager}",
+                "/w/{ROOT_WORKSPACE_ID}/containers/{}/members/{manager}",
                 board.id
             ),
             &json!({"schemeViewer":true}),

@@ -86,8 +86,8 @@ async fn handle_create_invitation(InContainer(ws): InContainer, body: Bytes) -> 
     let inviting = match request.role {
         WorkspaceRole::Member => {
             for (given, field) in [
-                (request.container_id.is_some(), "boardId"),
-                (request.container_role.is_some(), "boardRole"),
+                (request.container_id.is_some(), "containerId"),
+                (request.container_role.is_some(), "containerRole"),
             ] {
                 if given {
                     return Err(
@@ -126,14 +126,14 @@ async fn guest_of<'r>(
     let Some(container_id) = request.container_id.as_deref() else {
         return Err(
             AppError::bad_request("an invitation for a guest names the board")
-                .with_field("boardId"),
+                .with_field("containerId"),
         );
     };
     let role = request.container_role.unwrap_or(ContainerRole::Editor);
     if !permissions::may_hold(WorkspaceRole::Guest, role) {
         return Err(
             AppError::bad_request("a guest is an editor of a board at most")
-                .with_field("boardRole"),
+                .with_field("containerRole"),
         );
     }
     // A board the user does not see, and one of another workspace, is not there.
@@ -146,7 +146,7 @@ async fn guest_of<'r>(
     if access.container.is_template {
         return Err(
             AppError::bad_request("a guest is invited to a board, not to a template")
-                .with_field("boardId"),
+                .with_field("containerId"),
         );
     }
     if !access.grant.allows(ContainerPermission::ManageRoles) {

@@ -45,13 +45,13 @@ async fn the_deleted_boards_are_listed_for_their_former_admins() {
         (&th.client, &also_mine),
     ] {
         client
-            .delete(&format!("{TEST_WS}/boards/{}", board.id))
+            .delete(&format!("{TEST_WS}/containers/{}", board.id))
             .await
             .check_no_content();
         // A millisecond apart at least, so that their order is that of time.
         tokio::time::sleep(Duration::from_millis(3)).await;
     }
-    let trash = format!("{TEST_WS}/trash/boards");
+    let trash = format!("{TEST_WS}/trash/containers");
     let names_of = |listed: &[Value]| -> Vec<Value> {
         listed.iter().map(|entry| entry["title"].clone()).collect()
     };
@@ -91,7 +91,7 @@ async fn the_deleted_boards_are_listed_for_their_former_admins() {
 
     // Brought back, a board is no longer listed.
     th.client
-        .post_empty(&format!("{TEST_WS}/boards/{}/undelete", mine.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/undelete", mine.id))
         .await
         .check_ok();
     let listed: Vec<Value> = th.client.get(&trash).await.ok_json();

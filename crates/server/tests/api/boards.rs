@@ -176,13 +176,13 @@ fn card_block(board_id: &str) -> Block {
     }
 }
 
-pub(crate) async fn get_board(client: &Client, board_id: &str) -> ApiResponse {
-    client.get(&format!("{TEST_WS}/boards/{board_id}")).await
+pub(crate) async fn get_board(client: &Client, id: &str) -> ApiResponse {
+    client.get(&format!("{TEST_WS}/containers/{id}")).await
 }
 
 async fn get_members(client: &Client, board_id: &str) -> ApiResponse {
     client
-        .get(&format!("{TEST_WS}/boards/{board_id}/members"))
+        .get(&format!("{TEST_WS}/containers/{board_id}/members"))
         .await
 }
 
@@ -190,7 +190,7 @@ pub(crate) async fn update_member(client: &Client, member: &ContainerMember) -> 
     client
         .put(
             &format!(
-                "{TEST_WS}/boards/{}/members/{}",
+                "{TEST_WS}/containers/{}/members/{}",
                 member.container_id, member.user_id
             ),
             member,
@@ -201,7 +201,7 @@ pub(crate) async fn update_member(client: &Client, member: &ContainerMember) -> 
 pub(crate) async fn delete_member(client: &Client, member: &ContainerMember) -> ApiResponse {
     client
         .delete(&format!(
-            "{TEST_WS}/boards/{}/members/{}",
+            "{TEST_WS}/containers/{}/members/{}",
             member.container_id, member.user_id
         ))
         .await
@@ -209,13 +209,13 @@ pub(crate) async fn delete_member(client: &Client, member: &ContainerMember) -> 
 
 async fn join_board(client: &Client, board_id: &str) -> ApiResponse {
     client
-        .post_empty(&format!("{TEST_WS}/boards/{board_id}/join"))
+        .post_empty(&format!("{TEST_WS}/containers/{board_id}/join"))
         .await
 }
 
 async fn leave_board(client: &Client, board_id: &str) -> ApiResponse {
     client
-        .post_empty(&format!("{TEST_WS}/boards/{board_id}/leave"))
+        .post_empty(&format!("{TEST_WS}/containers/{board_id}/leave"))
         .await
 }
 
@@ -232,7 +232,7 @@ pub(crate) async fn duplicate_board_in(
 ) -> ApiResponse {
     client
         .post_empty(&format!(
-            "/w/{workspace_id}/boards/{board_id}/duplicate{query}"
+            "/w/{workspace_id}/containers/{board_id}/duplicate{query}"
         ))
         .await
 }
@@ -1052,7 +1052,7 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
     }
     let read: Container = th
         .client2
-        .get(&format!("{TEST_WS}/boards/{}", board.id))
+        .get(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .ok_json();
     assert_eq!(
@@ -1162,7 +1162,7 @@ pub(crate) async fn patch_board(
     patch: &impl serde::Serialize,
 ) -> ApiResponse {
     client
-        .patch(&format!("{TEST_WS}/boards/{board_id}"), patch)
+        .patch(&format!("{TEST_WS}/containers/{board_id}"), patch)
         .await
 }
 
@@ -1382,7 +1382,7 @@ async fn patch_board_permissions_by_what_the_patch_touches() {
         th.client
             .send_raw_body(
                 Method::PATCH,
-                &format!("{TEST_WS}/boards/{}", board.id),
+                &format!("{TEST_WS}/containers/{}", board.id),
                 body,
             )
             .await
@@ -1407,7 +1407,7 @@ async fn delete_board_a_non_authenticated_user_should_be_rejected() {
 
     let response = th
         .anonymous()
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await;
 
     response.check_unauthorized();
@@ -1428,7 +1428,7 @@ async fn delete_board_a_user_without_permissions_should_be_rejected() {
 
     let response = th
         .client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await;
 
     response.check_forbidden();
@@ -1449,7 +1449,7 @@ async fn delete_board_non_existing_board() {
     for board_id in [UNKNOWN_ID, "non-existing-board"] {
         let response = th
             .client
-            .delete(&format!("{TEST_WS}/boards/{board_id}"))
+            .delete(&format!("{TEST_WS}/containers/{board_id}"))
             .await;
         response.check_error(StatusCode::NOT_FOUND, "board not found");
     }
@@ -1470,7 +1470,7 @@ async fn delete_board_an_existing_board_should_be_correctly_deleted() {
 
     let response = th
         .client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await;
 
     response.check_no_content();
@@ -1483,7 +1483,7 @@ async fn delete_board_an_existing_board_should_be_correctly_deleted() {
 
     // Verified on the original: deleting it again is a 404.
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_not_found();
     th.teardown().await;
@@ -1493,7 +1493,7 @@ async fn delete_board_an_existing_board_should_be_correctly_deleted() {
 
 pub(crate) async fn undelete_board(client: &Client, board_id: &str) -> ApiResponse {
     client
-        .post_empty(&format!("{TEST_WS}/boards/{board_id}/undelete"))
+        .post_empty(&format!("{TEST_WS}/containers/{board_id}/undelete"))
         .await
 }
 
@@ -1734,7 +1734,7 @@ async fn get_members_for_board_should_correctly_return_board_members_for_a_valid
     assert_eq!(
         first,
         json!({
-            "boardId": board.id,
+            "containerId": board.id,
             "userId": user2.id,
             "schemeAdmin": false,
             "schemeEditor": true,
@@ -1966,7 +1966,7 @@ async fn add_member_validates_the_body_like_the_original() {
         &user1.id,
     )
     .await;
-    let path = format!("{TEST_WS}/boards/{}/members", board.id);
+    let path = format!("{TEST_WS}/containers/{}/members", board.id);
 
     for body in ["{bad", "[]", "null"] {
         th.client
@@ -1986,7 +1986,7 @@ async fn add_member_validates_the_body_like_the_original() {
             &path,
             &json!({
                 "userId": user2.id,
-                "boardId": "another-board",
+                "containerId": "another-board",
                 "schemeCommenter": true,
                 "roles": "x",
                 "minimumRole": "admin",
@@ -2071,7 +2071,7 @@ async fn add_member_as_admin_needs_the_permission_to_manage_roles() {
         "the accomplice is not a member"
     );
     client3
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_forbidden();
     delete_member(&client3, &member(&board.id, &user1.id))
@@ -2182,7 +2182,7 @@ async fn add_member_without_managing_roles_gives_the_minimum_role_of_the_board()
         if !minimum_role.is_empty() {
             th.client
                 .patch(
-                    &format!("{TEST_WS}/boards/{}", board.id),
+                    &format!("{TEST_WS}/containers/{}", board.id),
                     &json!({"minimumRole": minimum_role}),
                 )
                 .await
@@ -2245,7 +2245,7 @@ async fn add_member_by_a_manager_of_roles_gives_the_roles_of_the_request() {
     .await;
     th.client
         .patch(
-            &format!("{TEST_WS}/boards/{}", board.id),
+            &format!("{TEST_WS}/containers/{}", board.id),
             &json!({"minimumRole": "commenter"}),
         )
         .await
@@ -2542,7 +2542,7 @@ async fn update_member_checks() {
         &user1.id,
     )
     .await;
-    let path = format!("{TEST_WS}/boards/{}/members/{}", board.id, user2.id);
+    let path = format!("{TEST_WS}/containers/{}/members/{}", board.id, user2.id);
 
     // Who is no member of the private board learns nothing, whatever the body and
     // whoever the path names. (The original decodes the body and looks the user up
@@ -2553,7 +2553,7 @@ async fn update_member_checks() {
                 .client2
                 .send_raw_body(
                     Method::PUT,
-                    &format!("{TEST_WS}/boards/{}/members/{target}", board.id),
+                    &format!("{TEST_WS}/containers/{}/members/{target}", board.id),
                     body,
                 )
                 .await;
@@ -2575,7 +2575,7 @@ async fn update_member_checks() {
         let response = th
             .client
             .put(
-                &format!("{TEST_WS}/boards/{}/members/{target}", board.id),
+                &format!("{TEST_WS}/containers/{}/members/{target}", board.id),
                 &json!({"schemeEditor": true}),
             )
             .await;
@@ -2593,7 +2593,7 @@ async fn update_member_checks() {
         .client
         .put(
             &path,
-            &json!({"userId": "ignored", "boardId": "ignored", "schemeAdmin": true}),
+            &json!({"userId": "ignored", "containerId": "ignored", "schemeAdmin": true}),
         )
         .await
         .ok_json();
@@ -2931,7 +2931,7 @@ async fn joining_again_raises_to_the_minimum_role_and_never_lowers() {
     // Above it: an editor stays an editor.
     th.client
         .put(
-            &format!("{TEST_WS}/boards/{}/members/{}", board.id, user2.id),
+            &format!("{TEST_WS}/containers/{}/members/{}", board.id, user2.id),
             &editor(&board.id, &user2.id),
         )
         .await
@@ -2947,7 +2947,7 @@ async fn joining_again_raises_to_the_minimum_role_and_never_lowers() {
         .check_ok();
     th.client
         .put(
-            &format!("{TEST_WS}/boards/{}/members/{}", board.id, user2.id),
+            &format!("{TEST_WS}/containers/{}/members/{}", board.id, user2.id),
             &viewer(&board.id, &user2.id),
         )
         .await
@@ -3064,7 +3064,7 @@ async fn join_board_create_and_join_private_board_should_not_succeed() {
     for query in ["", "?allow_admin", "?allow_admin=true"] {
         let response = th
             .client2
-            .post_empty(&format!("{TEST_WS}/boards/{}/join{query}", board.id))
+            .post_empty(&format!("{TEST_WS}/containers/{}/join{query}", board.id))
             .await;
         // A private board does not exist for who is no member, so there is nothing
         // to join.
@@ -3123,7 +3123,7 @@ async fn leave_board_cases() {
     // Memberships outlive a deleted board, but it cannot be left any more.
     join_board(&th.client2, &board.id).await.check_ok();
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_no_content();
     leave_board(&th.client2, &board.id).await.check_not_found();

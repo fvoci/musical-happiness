@@ -224,9 +224,9 @@ async fn create_boards_and_blocks_blocks_from_nonexistent_boards() {
 
     expect_bad_request(
         &response,
-        "invalid boardId nonexistent-board-id (no board of the request has that id)",
+        "invalid containerId nonexistent-board-id (no board of the request has that id)",
     );
-    assert_eq!(response.refused_at(), "/blocks/0/boardId");
+    assert_eq!(response.refused_at(), "/blocks/0/containerId");
     th.teardown().await;
 }
 
@@ -267,7 +267,7 @@ async fn create_boards_and_blocks_boards_from_different_workspaces() {
 
     // The path names the workspace, and the second board names another.
     expect_bad_request(&response, "the board is made in the workspace of the path");
-    assert_eq!(response.refused_at(), "/boards/1/workspaceId");
+    assert_eq!(response.refused_at(), "/containers/1/workspaceId");
     th.teardown().await;
 }
 
@@ -375,7 +375,7 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
 
 /// A card as a request names it, with the times the route insists on.
 fn card_json(board_id: &str) -> Value {
-    json!({"id": "b1", "boardId": board_id, "type": "card", "createAt": 1, "updateAt": 1})
+    json!({"id": "b1", "containerId": board_id, "type": "card", "createAt": 1, "updateAt": 1})
 }
 
 /// The boards of the test workspace that a client's user sees.
@@ -404,7 +404,10 @@ async fn create_boards_and_blocks_refusals() {
     ] {
         let response = th
             .client
-            .post(PATH, &json!({"boards": boards, "blocks": [card_json("")]}))
+            .post(
+                PATH,
+                &json!({"containers": boards, "blocks": [card_json("")]}),
+            )
             .await;
         expect_bad_request(
             &response,
@@ -416,24 +419,24 @@ async fn create_boards_and_blocks_refusals() {
     // Each refusal names the member in the one spelling the API has.
     for (block, field, message) in [
         (
-            json!({"id": "b1", "boardId": "bd", "createAt": 1, "updateAt": 1}),
+            json!({"id": "b1", "containerId": "bd", "createAt": 1, "updateAt": 1}),
             "type",
             "missing type for block id b1",
         ),
         (
-            json!({"id": "b1", "boardId": "bd", "type": "card", "updateAt": 1}),
+            json!({"id": "b1", "containerId": "bd", "type": "card", "updateAt": 1}),
             "createAt",
             "invalid createAt for block id b1",
         ),
         (
-            json!({"id": "b1", "boardId": "bd", "type": "card", "createAt": 1}),
+            json!({"id": "b1", "containerId": "bd", "type": "card", "createAt": 1}),
             "updateAt",
             "invalid updateAt for block id b1",
         ),
     ] {
         let response = th
             .client
-            .post(PATH, &json!({"boards": [board], "blocks": [block]}))
+            .post(PATH, &json!({"containers": [board], "blocks": [block]}))
             .await;
         expect_bad_request(&response, message);
         assert_eq!(
@@ -454,13 +457,13 @@ async fn create_boards_and_blocks_refusals() {
             .client
             .post(
                 PATH,
-                &json!({"boards": [board], "blocks": [card_json("bd")]}),
+                &json!({"containers": [board], "blocks": [card_json("bd")]}),
             )
             .await;
         expect_bad_request(&response, "the board is made in the workspace of the path");
         assert_eq!(
             response.refused_at(),
-            "/boards/0/workspaceId",
+            "/containers/0/workspaceId",
             "the member at fault: {board}"
         );
     }
@@ -471,7 +474,10 @@ async fn create_boards_and_blocks_refusals() {
     long_title["title"] = json!("x".repeat(70_000));
     let response = th
         .client
-        .post(PATH, &json!({"boards": [board], "blocks": [long_title]}))
+        .post(
+            PATH,
+            &json!({"containers": [board], "blocks": [long_title]}),
+        )
         .await;
     response.check_bad_request();
     assert!(
@@ -502,7 +508,7 @@ async fn create_boards_and_blocks_accepts_a_template() {
         .post(
             PATH,
             &json!({
-                "boards": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "O", "isTemplate": true}],
+                "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "O", "isTemplate": true}],
                 "blocks": [card_json("bd")],
             }),
         )
@@ -549,7 +555,7 @@ async fn create_boards_and_blocks_refuses_unknown_board_types_and_roles() {
     ] {
         let response = th
             .client
-            .post(PATH, &json!({"boards": [board], "blocks": [block]}))
+            .post(PATH, &json!({"containers": [board], "blocks": [block]}))
             .await;
         expect_bad_request(&response, message);
     }
@@ -592,7 +598,7 @@ async fn create_boards_and_blocks_is_broadcast() {
         .await;
     assert_eq!(message["block"]["title"], json!("block 1"), "{message}");
     let message = socket
-        .expect("UPDATE_MEMBER", "/member/boardId", board_id)
+        .expect("UPDATE_MEMBER", "/member/containerId", board_id)
         .await;
     assert_eq!(message["member"]["userId"], json!(user1.id), "{message}");
     th.teardown().await;
@@ -777,8 +783,8 @@ async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() 
     let th = Setup::native().start().await.init_basic().await;
     let boards = two_boards(&th, SecondBoard::WithoutMembers, TEST_WORKSPACE_ID).await;
     let request = json!({
-        "boardIds": [boards.board1.id, boards.board2.id],
-        "boardPatches": [{"title": "new title 4"}, {"type": "invalid"}],
+        "containerIds": [boards.board1.id, boards.board2.id],
+        "containerPatches": [{"title": "new title 4"}, {"type": "invalid"}],
         "blockIds": [boards.block1.id, boards.block2.id],
         "blockPatches": [{"title": "new title 4"}, {"title": "new title 4"}],
     });
@@ -792,15 +798,15 @@ async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() 
     // then for permissions, so with the boards swapped the missing permission comes
     // first.
     let swapped = json!({
-        "boardIds": [boards.board2.id, boards.board1.id],
-        "boardPatches": [{"title": "new title 4"}, {"minimumRole": "boss"}],
+        "containerIds": [boards.board2.id, boards.board1.id],
+        "containerPatches": [{"title": "new title 4"}, {"minimumRole": "boss"}],
         "blockIds": [],
         "blockPatches": [],
     });
     patch(&th.client, &swapped).await.check_forbidden();
     let role = json!({
-        "boardIds": [boards.board1.id],
-        "boardPatches": [{"minimumRole": "boss"}],
+        "containerIds": [boards.board1.id],
+        "containerPatches": [{"minimumRole": "boss"}],
         "blockIds": [],
         "blockPatches": [],
     });
@@ -937,7 +943,7 @@ async fn patch_boards_and_blocks_checks() {
     for board_id in [UNKNOWN_ID, "nonexistent", private.id.as_str()] {
         let response = patch(
             &th.client2,
-            &json!({"boardIds": [board_id], "boardPatches": [{"title": "n"}]}),
+            &json!({"containerIds": [board_id], "containerPatches": [{"title": "n"}]}),
         )
         .await;
         response.check_error(StatusCode::NOT_FOUND, "board not found");
@@ -948,7 +954,7 @@ async fn patch_boards_and_blocks_checks() {
         let response = patch(
             &th.client,
             &json!({
-                "boardIds": [first_id], "boardPatches": [{"title": "n"}],
+                "containerIds": [first_id], "containerPatches": [{"title": "n"}],
                 "blockIds": [block_id], "blockPatches": [{"title": "n"}],
             }),
         )
@@ -970,7 +976,7 @@ async fn patch_boards_and_blocks_checks() {
     let response = patch(
         &th.client2,
         &json!({
-            "boardIds": [first_id], "boardPatches": [{"type": "P"}],
+            "containerIds": [first_id], "containerPatches": [{"type": "P"}],
             "blockIds": [boards.block1.id], "blockPatches": [{"title": "n"}],
         }),
     )
@@ -987,36 +993,40 @@ async fn patch_boards_and_blocks_checks() {
     // (The original answers `"blocks": null`; the model sends empty lists.)
     let response = patch(
         &th.client2,
-        &json!({"boardIds": [first_id], "boardPatches": [{"description": "by the editor"}]}),
+        &json!({"containerIds": [first_id], "containerPatches": [{"description": "by the editor"}]}),
     )
     .await;
     let value = response.value();
     response.check_ok();
     assert_eq!(value["blocks"], json!([]), "no blocks");
     assert_eq!(
-        value["boards"][0]["description"],
+        value["containers"][0]["description"],
         json!("by the editor"),
         "{value}"
     );
-    assert_eq!(value["boards"][0]["modifiedBy"], json!(user2.id), "{value}");
+    assert_eq!(
+        value["containers"][0]["modifiedBy"],
+        json!(user2.id),
+        "{value}"
+    );
 
     // The same board twice: both patches are applied, and the board is answered twice.
     let response = patch(
         &th.client,
         &json!({
-            "boardIds": [first_id, first_id],
-            "boardPatches": [{"title": "t1"}, {"icon": "i2"}],
+            "containerIds": [first_id, first_id],
+            "containerPatches": [{"title": "t1"}, {"icon": "i2"}],
         }),
     )
     .await;
     let value: Value = response.ok_json();
     assert_eq!(
-        value["boards"][0]["icon"],
+        value["containers"][0]["icon"],
         json!(""),
         "after the first patch"
     );
-    assert_eq!(value["boards"][1]["title"], json!("t1"), "after both");
-    assert_eq!(value["boards"][1]["icon"], json!("i2"), "after both");
+    assert_eq!(value["containers"][1]["title"], json!("t1"), "after both");
+    assert_eq!(value["containers"][1]["icon"], json!("i2"), "after both");
 
     // A commenter patches nothing.
     th.app
@@ -1028,7 +1038,7 @@ async fn patch_boards_and_blocks_checks() {
         .expect("user2 becomes a commenter");
     patch(
         &th.client2,
-        &json!({"boardIds": [first_id], "boardPatches": [{"title": "n"}]}),
+        &json!({"containerIds": [first_id], "containerPatches": [{"title": "n"}]}),
     )
     .await
     .check_forbidden();
@@ -1286,18 +1296,18 @@ async fn delete_boards_and_blocks_checks() {
     }
 
     for nothing in [UNKNOWN_ID, "nonexistent"] {
-        let response = delete(&th.client, &json!({"boards": [nothing]})).await;
+        let response = delete(&th.client, &json!({"containers": [nothing]})).await;
         response.check_error(StatusCode::NOT_FOUND, "board not found");
 
         expect_bad_request(
-            &delete(&th.client, &json!({"boards": [], "blocks": [nothing]})).await,
+            &delete(&th.client, &json!({"containers": [], "blocks": [nothing]})).await,
             "at least one board is required",
         );
         // A block that does not exist answers as one of a board that is not listed.
         expect_bad_request(
             &delete(
                 &th.client,
-                &json!({"boards": [first_id], "blocks": [nothing]}),
+                &json!({"containers": [first_id], "blocks": [nothing]}),
             )
             .await,
             "the request names a block that is not on its boards",
@@ -1308,7 +1318,7 @@ async fn delete_boards_and_blocks_checks() {
     expect_bad_request(
         &delete(
             &th.client,
-            &json!({"boards": [first_id], "blocks": [boards.block2.id]}),
+            &json!({"containers": [first_id], "blocks": [boards.block2.id]}),
         )
         .await,
         "the request names a block that is not on its boards",
@@ -1317,14 +1327,14 @@ async fn delete_boards_and_blocks_checks() {
     // Somebody who is not a member.
     delete(
         &th.client2,
-        &json!({"boards": [first_id], "blocks": [boards.block1.id]}),
+        &json!({"containers": [first_id], "blocks": [boards.block1.id]}),
     )
     .await
     .check_forbidden();
     assert_titles_unchanged(&th, &boards).await;
 
     // Boards only: the board goes, with its blocks.
-    delete(&th.client, &json!({"boards": [first_id]}))
+    delete(&th.client, &json!({"containers": [first_id]}))
         .await
         .check_no_content();
     let error = th

@@ -1,6 +1,6 @@
 /**
  * The backend of a reader by a board's public link, against a stand-in for
- * `fetch`: every reading goes to `/api/v1/shared/{boardId}` with the read
+ * `fetch`: every reading goes to `/api/v1/shared/{containerId}` with the read
  * token and without the session's cookie, and nothing is ever written.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';

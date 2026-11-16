@@ -193,9 +193,9 @@ async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResul
     record_operator(Command::ReconcileFiles, result)
 }
 
-/// Makes the index of the search server again and lists every board of every
+/// Makes the index of the search server again and lists every board and wiki of every
 /// organization to be sent to it: for an index that is thought to be wrong. Answers
-/// how many boards were listed (`boards`); they are sent by the server's upkeep in
+/// how many were listed (`containers`); they are sent by the server's upkeep in
 /// the seconds or minutes after, and until then a search finds what was sent so far.
 /// 404 (`search_not_configured`) on a server without a search server, 503
 /// (`search_unavailable`) if the search server cannot hold the index or does not take
@@ -203,7 +203,7 @@ async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResul
 async fn handle_reindex_search(State(app): State<App>) -> ApiResult {
     let result = crate::search::reindex(&app)
         .await
-        .map(|containers| json_response(&serde_json::json!({"boards": containers})));
+        .map(|containers| json_response(&serde_json::json!({"containers": containers})));
     record_operator(Command::ReindexSearch, result)
 }
 

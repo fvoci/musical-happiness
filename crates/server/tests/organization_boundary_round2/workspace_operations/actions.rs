@@ -25,14 +25,14 @@ pub(super) async fn exercise(case: &mut Case) {
     files::exercise(case, &board).await;
     bulk(case).await;
     templates(case).await;
-    case.run("deleteBoard", &[("boardId", &board)], json!({}))
+    case.run("deleteContainer", &[("boardId", &board)], json!({}))
         .await;
-    let trash = case.run("getDeletedBoards", &[], json!({})).await;
+    let trash = case.run("getDeletedContainers", &[], json!({})).await;
     assert!(
         trash.text().contains(&board),
         "the deleted board is in this founder's trash"
     );
-    case.run("undeleteBoard", &[("boardId", &board)], json!({}))
+    case.run("undeleteContainer", &[("boardId", &board)], json!({}))
         .await;
     // Keep private fixtures behind for the next founder's template and trash reads.
     for template in [true, false] {
@@ -46,7 +46,7 @@ pub(super) async fn exercise(case: &mut Case) {
             .value();
         let fixture = case.remember(&made, "id");
         if !template {
-            case.run("deleteBoard", &[("boardId", &fixture)], json!({}))
+            case.run("deleteContainer", &[("boardId", &fixture)], json!({}))
                 .await;
         }
     }
@@ -56,9 +56,9 @@ pub(super) async fn exercise(case: &mut Case) {
 async fn boards(case: &mut Case, board: &str) {
     let at = &[("boardId", board)];
     case.present("getWorkspaceBoards", &[], board).await;
-    case.present("getBoard", at, board).await;
+    case.present("getContainer", at, board).await;
     case.run(
-        "patchBoard",
+        "patchContainer",
         at,
         json!({"title": format!("secret {} renamed", case.label)}),
     )
@@ -95,7 +95,8 @@ async fn wikis(case: &mut Case) {
     let wiki = case.remember(&made, "id");
     assert_eq!(made["kind"], "wiki", "a wiki is made as one");
     case.present("getWikis", &[], &wiki).await;
-    case.present("getBoard", &[("boardId", &wiki)], &wiki).await;
+    case.present("getContainer", &[("boardId", &wiki)], &wiki)
+        .await;
     pages(case, &wiki).await;
 }
 
@@ -280,7 +281,7 @@ async fn cards(case: &mut Case, board: &str) -> String {
             "createBlocks",
             at,
             json!([{
-                "id": "comment-reference", "boardId": board, "parentId": card,
+                "id": "comment-reference", "containerId": board, "parentId": card,
                 "type": "comment", "body": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "first comment"}]}]}, "createAt": 1, "updateAt": 1
             }]),
         )
@@ -326,10 +327,11 @@ async fn categories(case: &mut Case, board: &str) {
     let at = &[("categoryId", category.as_str())];
     case.run("updateCategory", at, json!({"id": category, "name": "Renamed category", "userId": case.user, "workspaceId": case.workspace})).await;
     let board_at = &[("categoryId", category.as_str()), ("boardId", board)];
-    case.run("setBoardCategory", board_at, json!({})).await;
-    case.run("hideBoard", board_at, json!({})).await;
-    case.run("unhideBoard", board_at, json!({})).await;
-    case.run("reorderCategoryBoards", at, json!([board])).await;
+    case.run("setContainerCategory", board_at, json!({})).await;
+    case.run("hideContainer", board_at, json!({})).await;
+    case.run("unhideContainer", board_at, json!({})).await;
+    case.run("reorderCategoryContainers", at, json!([board]))
+        .await;
     let listed = case.present("getCategories", &[], &category).await.value();
     let mut order: Vec<_> = listed
         .as_array()
@@ -376,7 +378,7 @@ async fn people(case: &mut Case, board: &str) -> String {
     case.run(
         "addMember",
         at,
-        json!({"boardId": board, "userId": peer, "schemeEditor": true}),
+        json!({"containerId": board, "userId": peer, "schemeEditor": true}),
     )
     .await;
     case.present("getMembers", at, &peer).await;
@@ -384,7 +386,7 @@ async fn people(case: &mut Case, board: &str) -> String {
     case.run(
         "updateMember",
         member_at,
-        json!({"boardId": board, "userId": peer, "schemeViewer": true}),
+        json!({"containerId": board, "userId": peer, "schemeViewer": true}),
     )
     .await;
     case.run("removeMember", member_at, json!({})).await;
@@ -427,10 +429,10 @@ async fn teams(case: &mut Case, board: &str) {
     let member_at = &[("teamId", team.as_str()), ("userId", peer.as_str())];
     case.run("addTeamMember", member_at, json!({})).await;
     let on_board = &[("boardId", board), ("teamId", team.as_str())];
-    case.run("setBoardTeam", on_board, json!({"role": "editor"}))
+    case.run("setContainerTeam", on_board, json!({"role": "editor"}))
         .await;
     let listed = case
-        .present("getBoardTeams", &[("boardId", board)], &team)
+        .present("getContainerTeams", &[("boardId", board)], &team)
         .await
         .text();
     for held in [peer.as_str(), "Designers", "\"editor\""] {
@@ -439,7 +441,7 @@ async fn teams(case: &mut Case, board: &str) {
             "the board's team holds {held}: {listed}"
         );
     }
-    case.run("removeBoardTeam", on_board, json!({})).await;
+    case.run("removeContainerTeam", on_board, json!({})).await;
     case.run("removeTeamMember", member_at, json!({})).await;
     case.run("deleteTeam", at, json!({})).await;
     // One team stays, with a role on the board: what the next founder reads of their
@@ -450,7 +452,7 @@ async fn teams(case: &mut Case, board: &str) {
         .value();
     let kept = case.remember(&kept, "id");
     case.run(
-        "setBoardTeam",
+        "setContainerTeam",
         &[("boardId", board), ("teamId", kept.as_str())],
         json!({"role": "viewer"}),
     )
@@ -471,11 +473,11 @@ async fn joining(case: &mut Case) {
     case.run(
         "addMember",
         at,
-        json!({"boardId": board, "userId": case.peer, "schemeAdmin": true}),
+        json!({"containerId": board, "userId": case.peer, "schemeAdmin": true}),
     )
     .await;
-    case.run("leaveBoard", at, json!({})).await;
-    case.run("joinBoard", at, json!({})).await;
+    case.run("leaveContainer", at, json!({})).await;
+    case.run("joinContainer", at, json!({})).await;
 }
 
 async fn audit_admission(case: &mut Case) -> String {
@@ -492,15 +494,15 @@ async fn audit_admission(case: &mut Case) -> String {
     case.run(
         "addMember",
         at,
-        json!({"boardId": board, "userId": case.peer, "schemeAdmin": true}),
+        json!({"containerId": board, "userId": case.peer, "schemeAdmin": true}),
     )
     .await;
-    case.run("leaveBoard", at, json!({})).await;
+    case.run("leaveContainer", at, json!({})).await;
     // A workspace administrator who cannot read a private board records gaining a role.
     case.run(
         "addMember",
         at,
-        json!({"boardId": board, "userId": case.user, "schemeAdmin": true}),
+        json!({"containerId": board, "userId": case.user, "schemeAdmin": true}),
     )
     .await;
     board
@@ -526,16 +528,16 @@ async fn subscriptions(case: &mut Case, card: &str) {
 
 async fn bulk(case: &mut Case) {
     let made = case.run("createBoardsAndBlocks", &[], json!({
-        "boards": [{"id": "board-reference", "title": "Bulk board", "type": "P", "workspaceId": case.workspace}],
-        "blocks": [{"id": "card-reference", "boardId": "board-reference", "title": "Bulk card", "type": "card", "createAt": 1, "updateAt": 1}]
+        "containers": [{"id": "board-reference", "title": "Bulk board", "type": "P", "workspaceId": case.workspace}],
+        "blocks": [{"id": "card-reference", "containerId": "board-reference", "title": "Bulk card", "type": "card", "createAt": 1, "updateAt": 1}]
     })).await.value();
-    let board = case.remember(&made["boards"][0], "id");
+    let board = case.remember(&made["containers"][0], "id");
     let card = case.remember(&made["blocks"][0], "id");
-    case.run("patchBoardsAndBlocks", &[], json!({"boardIds": [board], "boardPatches": [{"title": "Bulk changed"}], "blockIds": [card], "blockPatches": [{"title": "Bulk card changed"}]})).await;
+    case.run("patchBoardsAndBlocks", &[], json!({"containerIds": [board], "containerPatches": [{"title": "Bulk changed"}], "blockIds": [card], "blockPatches": [{"title": "Bulk card changed"}]})).await;
     case.run(
         "deleteBoardsAndBlocks",
         &[],
-        json!({"boards": [board], "blocks": [card]}),
+        json!({"containers": [board], "blocks": [card]}),
     )
     .await;
 }
@@ -560,10 +562,10 @@ async fn templates(case: &mut Case) {
         .as_str()
         .expect("template ID");
     let copied = case
-        .run("duplicateBoard", &[("boardId", template)], json!({}))
+        .run("duplicateContainer", &[("boardId", template)], json!({}))
         .await
         .value();
-    case.remember(&copied["boards"][0], "id");
+    case.remember(&copied["containers"][0], "id");
     let toured = case.run("onboard", &[], json!({})).await.value();
     assert_eq!(
         toured["workspaceId"], case.workspace,

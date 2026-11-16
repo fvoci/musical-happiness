@@ -76,7 +76,7 @@ impl Hidden {
             .client
             .request(
                 Method::POST,
-                &format!("{TEST_WS}/boards/{}/files", board.id),
+                &format!("{TEST_WS}/containers/{}/files", board.id),
             )
             .multipart(Form::new().part("file", part));
         let uploaded = Client::send(request).await;
@@ -113,7 +113,7 @@ impl Hidden {
             .check_created();
         th.client
             .post(
-                &format!("{TEST_WS}/boards/{}/sharing", board.id),
+                &format!("{TEST_WS}/containers/{}/sharing", board.id),
                 &json!({"enabled": true}),
             )
             .await
@@ -214,7 +214,7 @@ fn category_path(category: &str, rest: &str) -> String {
 
 /// The path of a board in a category of the test workspace, and of what follows it.
 fn filed_path(category: &str, board: &str, rest: &str) -> String {
-    category_path(category, &format!("/boards/{board}{rest}"))
+    category_path(category, &format!("/containers/{board}{rest}"))
 }
 
 /// Every route that names something of the hidden owner's: [`board_cases`], and what is
@@ -240,12 +240,12 @@ fn board_cases() -> Vec<Case> {
         // The board itself.
         case(
             Method::GET,
-            |h, i| format!("{TEST_WS}/boards/{}", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}", h.board[i]),
             no_body,
         ),
         case(
             Method::PATCH,
-            |h, i| format!("{TEST_WS}/boards/{}", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}", h.board[i]),
             title,
         ),
         case(
@@ -255,64 +255,64 @@ fn board_cases() -> Vec<Case> {
         ),
         case(
             Method::DELETE,
-            |h, i| format!("{TEST_WS}/boards/{}", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}", h.board[i]),
             no_body,
         ),
         case(
             Method::POST,
-            |h, i| format!("{TEST_WS}/boards/{}/duplicate", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/duplicate", h.board[i]),
             no_body,
         ),
         case(
             Method::POST,
-            |h, i| format!("{TEST_WS}/boards/{}/undelete", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/undelete", h.board[i]),
             no_body,
         ),
         case(
             Method::GET,
-            |h, i| format!("{TEST_WS}/boards/{}/archive/export", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/archive/export", h.board[i]),
             no_body,
         ),
         // Its members.
         case(
             Method::GET,
-            |h, i| format!("{TEST_WS}/boards/{}/members", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/members", h.board[i]),
             no_body,
         ),
         case(
             Method::POST,
-            |h, i| format!("{TEST_WS}/boards/{}/members", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/members", h.board[i]),
             member,
         ),
         case(
             Method::PUT,
-            |h, i| format!("{TEST_WS}/boards/{}/members/{}", h.board[i], h.owner[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/members/{}", h.board[i], h.owner[i]),
             member,
         ),
         case(
             Method::DELETE,
-            |h, i| format!("{TEST_WS}/boards/{}/members/{}", h.board[i], h.owner[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/members/{}", h.board[i], h.owner[i]),
             no_body,
         ),
         case(
             Method::POST,
-            |h, i| format!("{TEST_WS}/boards/{}/join", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/join", h.board[i]),
             no_body,
         ),
         case(
             Method::POST,
-            |h, i| format!("{TEST_WS}/boards/{}/leave", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/leave", h.board[i]),
             no_body,
         ),
         // Its sharing.
         case(
             Method::GET,
-            |h, i| format!("{TEST_WS}/boards/{}/sharing", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/sharing", h.board[i]),
             no_body,
         ),
         case(
             Method::POST,
-            |h, i| format!("{TEST_WS}/boards/{}/sharing", h.board[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/sharing", h.board[i]),
             |_, _| json!({"enabled": false}),
         ),
     ]
@@ -347,7 +347,7 @@ fn content_cases() -> Vec<Case> {
             |h, i| format!("{TEST_WS}/boards/{}/blocks", h.board[i]),
             |h, i| {
                 json!([{
-                    "boardId": h.board[i], "type": "card", "createAt": 1, "updateAt": 1,
+                    "containerId": h.board[i], "type": "card", "createAt": 1, "updateAt": 1,
                 }])
             },
         ),
@@ -425,24 +425,29 @@ fn content_cases() -> Vec<Case> {
         // Its files.
         case(
             Method::GET,
-            |h, i| format!("{TEST_WS}/boards/{}/files/{}", h.board[i], h.file[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/files/{}", h.board[i], h.file[i]),
             no_body,
         ),
         case(
             Method::GET,
-            |h, i| format!("{TEST_WS}/boards/{}/files/{}/info", h.board[i], h.file[i]),
+            |h, i| {
+                format!(
+                    "{TEST_WS}/containers/{}/files/{}/info",
+                    h.board[i], h.file[i]
+                )
+            },
             no_body,
         ),
         // Both kinds of combined request.
         case(
             Method::PATCH,
             |_, _| format!("{TEST_WS}/boards-and-blocks"),
-            |h, i| json!({"boardIds": [h.board[i]], "boardPatches": [{"title": "x"}]}),
+            |h, i| json!({"containerIds": [h.board[i]], "containerPatches": [{"title": "x"}]}),
         ),
         case(
             Method::DELETE,
             |_, _| format!("{TEST_WS}/boards-and-blocks"),
-            |h, i| json!({"boards": [h.board[i]]}),
+            |h, i| json!({"containers": [h.board[i]]}),
         ),
         // A subscription to one of its blocks, and the owner's subscriptions.
         case(
@@ -478,7 +483,7 @@ fn content_cases() -> Vec<Case> {
         ),
         case(
             Method::PUT,
-            |h, i| category_path(&h.category[i], "/board-order"),
+            |h, i| category_path(&h.category[i], "/container-order"),
             |_, _| json!([]),
         ),
         case(
@@ -573,7 +578,7 @@ fn mixed_cases() -> Vec<Case> {
             |_, _| format!("{TEST_WS}/boards-and-blocks"),
             |h, i| {
                 json!({
-                    "boardIds": [h.own_board], "boardPatches": [{"title": "x"}],
+                    "containerIds": [h.own_board], "containerPatches": [{"title": "x"}],
                     "blockIds": [h.card[i]], "blockPatches": [{"title": "y"}],
                 })
             },
@@ -583,15 +588,15 @@ fn mixed_cases() -> Vec<Case> {
             |_, _| format!("{TEST_WS}/boards-and-blocks"),
             |h, i| {
                 json!({
-                    "boardIds": [h.own_board, h.board[i]],
-                    "boardPatches": [{"title": "x"}, {"title": "y"}],
+                    "containerIds": [h.own_board, h.board[i]],
+                    "containerPatches": [{"title": "x"}, {"title": "y"}],
                 })
             },
         ),
         case(
             Method::DELETE,
             |_, _| format!("{TEST_WS}/boards-and-blocks"),
-            |h, i| json!({"boards": [h.own_board], "blocks": [h.card[i]]}),
+            |h, i| json!({"containers": [h.own_board], "blocks": [h.card[i]]}),
         ),
         // Blocks for the asker's own board, with files to copy from a hidden board.
         case(
@@ -604,7 +609,7 @@ fn mixed_cases() -> Vec<Case> {
             },
             |h, i| {
                 json!([{
-                    "boardId": h.own_board, "type": "attachment", "createAt": 1, "updateAt": 1,
+                    "containerId": h.own_board, "type": "attachment", "createAt": 1, "updateAt": 1,
                     "fields": {"fileId": h.file[i]},
                 }])
             },
@@ -639,12 +644,17 @@ fn mixed_cases() -> Vec<Case> {
         // A file of the hidden board through the asker's own board.
         case(
             Method::GET,
-            |h, i| format!("{TEST_WS}/boards/{}/files/{}", h.own_board, h.file[i]),
+            |h, i| format!("{TEST_WS}/containers/{}/files/{}", h.own_board, h.file[i]),
             no_body,
         ),
         case(
             Method::GET,
-            |h, i| format!("{TEST_WS}/boards/{}/files/{}/info", h.own_board, h.file[i]),
+            |h, i| {
+                format!(
+                    "{TEST_WS}/containers/{}/files/{}/info",
+                    h.own_board, h.file[i]
+                )
+            },
             no_body,
         ),
     ]
@@ -717,7 +727,7 @@ async fn what_a_user_cannot_see_answers_as_what_does_not_exist() {
     // None of it changed anything: the owner still has it all.
     let owner = &hidden.th.client;
     owner
-        .get(&format!("{TEST_WS}/boards/{}", hidden.board[0]))
+        .get(&format!("{TEST_WS}/containers/{}", hidden.board[0]))
         .await
         .check_ok();
     let blocks: Vec<Block> = owner
@@ -726,7 +736,7 @@ async fn what_a_user_cannot_see_answers_as_what_does_not_exist() {
         .ok_json();
     assert_eq!(blocks.len(), 2, "the card and its text");
     let members: Vec<Value> = owner
-        .get(&format!("{TEST_WS}/boards/{}/members", hidden.board[0]))
+        .get(&format!("{TEST_WS}/containers/{}/members", hidden.board[0]))
         .await
         .ok_json();
     assert_eq!(members.len(), 1, "the owner alone");
@@ -984,22 +994,22 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         ),
         (
             Method::PUT,
-            format!("{TEST_WS}/boards/{board}/members/{{}}"),
+            format!("{TEST_WS}/containers/{board}/members/{{}}"),
             json!({"schemeEditor": true}),
         ),
         (
             Method::DELETE,
-            format!("{TEST_WS}/boards/{board}/members/{{}}"),
+            format!("{TEST_WS}/containers/{board}/members/{{}}"),
             Value::Null,
         ),
         (
             Method::POST,
-            format!("{TEST_WS}/boards/{board}/members"),
+            format!("{TEST_WS}/containers/{board}/members"),
             json!({"userId": "{}", "schemeEditor": true}),
         ),
         (
             Method::POST,
-            format!("{TEST_WS}/boards/{board}/duplicate?toWorkspace={{}}"),
+            format!("{TEST_WS}/containers/{board}/duplicate?toWorkspace={{}}"),
             Value::Null,
         ),
         (
@@ -1014,17 +1024,17 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         ),
         (
             Method::POST,
-            format!("/w/{workspace}/categories/{{}}/boards/{board}"),
+            format!("/w/{workspace}/categories/{{}}/containers/{board}"),
             Value::Null,
         ),
         (
             Method::POST,
-            format!("/w/{workspace}/categories/{category}/boards/{{}}"),
+            format!("/w/{workspace}/categories/{category}/containers/{{}}"),
             Value::Null,
         ),
         (
             Method::PUT,
-            format!("/w/{workspace}/categories/{category}/boards/{{}}/hide"),
+            format!("/w/{workspace}/categories/{category}/containers/{{}}/hide"),
             Value::Null,
         ),
         (

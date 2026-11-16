@@ -273,7 +273,7 @@ crates/server/src/problems.rs | another team of the workspace
 # the card rooms of their boards at once, as the contract says.
 contracts/websocket.md | teammember
 contracts/websocket.md | deleteteam
-contracts/websocket.md | boardteam
+contracts/websocket.md | containerteam
 crates/server/src/app/access.rs | the team roles on a board
 crates/server/src/app/containers.rs | its surviving teams
 crates/server/src/collab/rooms/access.rs | team): the others

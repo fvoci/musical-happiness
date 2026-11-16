@@ -46,7 +46,7 @@ async function twoOnAPage(
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
     await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
-  ).json()) as Schemas['Board'];
+  ).json()) as Schemas['Container'];
   const [found] = (await (
     await api.get(`${inWorkspace}/users`, { params: { search: colleague.username } })
   ).json()) as Schemas['User'][];

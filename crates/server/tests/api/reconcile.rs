@@ -31,7 +31,7 @@ async fn the_comparison_reports_and_dooms_only_when_asked(ts: &TestServer) {
     let (board_id, recorded) = uploaded(ts, b"recorded").await;
     let (trashed_board, trashed) = uploaded(ts, b"in the trash").await;
     ts.client
-        .delete(&format!("{TEST_WS}/boards/{trashed_board}"))
+        .delete(&format!("{TEST_WS}/containers/{trashed_board}"))
         .await
         .check_no_content();
     let (_, missing) = uploaded(ts, b"its object goes").await;

@@ -74,7 +74,7 @@ export function workspacesOf(workspaces: Schemas['UserWorkspace'][]): WorkspaceI
   }));
 }
 
-export function boardOf(board: Schemas['Board']): Board {
+export function boardOf(board: Schemas['Container']): Board {
   return {
     id: board.id,
     workspaceId: board.workspaceId,
@@ -102,9 +102,11 @@ export function boardOf(board: Schemas['Board']): Board {
  * A membership. An inherited role stays separate from the direct scheme flags.
  * The local minimum role is empty; the server already resolves inherited access.
  */
-export function memberOf(member: Schemas['BoardMember']): BoardMember {
+export function memberOf(member: Schemas['ContainerMember']): BoardMember {
+  const { containerId, ...rest } = member;
   return {
-    ...member,
+    ...rest,
+    boardId: containerId,
     minimumRole: '',
     synthetic: member.synthetic ?? false,
     inheritedRole: member.inheritedRole ?? undefined,
@@ -113,8 +115,13 @@ export function memberOf(member: Schemas['BoardMember']): BoardMember {
 
 /** A block of the API as the screens' block. Its body, if any, is the card's or comment's to carry. */
 export function blockOf(block: Schemas['Block']): Block {
-  const { body: _body, ...rest } = block;
-  return { ...rest, type: block.type as BlockType, fields: { ...block.fields } };
+  const { body: _body, containerId, ...rest } = block;
+  return {
+    ...rest,
+    boardId: containerId,
+    type: block.type as BlockType,
+    fields: { ...block.fields },
+  };
 }
 
 /** The body of a block or a card, as the screens' document. */
@@ -255,8 +262,8 @@ export function attachmentOf(block: Schemas['Block']): Attachment {
  * A category. The contract lists the boards of a category with a `hidden`
  * flag each; the screens keep the shown and the hidden apart.
  */
-export function categoryOf(category: Schemas['CategoryBoards']): Category {
-  const metadata = category.boardMetadata;
+export function categoryOf(category: Schemas['CategoryContainers']): Category {
+  const metadata = category.containerMetadata;
   return {
     id: category.id,
     name: category.name,
@@ -265,8 +272,8 @@ export function categoryOf(category: Schemas['CategoryBoards']): Category {
     type: category.type,
     collapsed: category.collapsed,
     sortOrder: category.sortOrder,
-    boardIds: metadata.map((entry) => entry.boardId),
-    hiddenBoardIds: metadata.filter((entry) => entry.hidden).map((entry) => entry.boardId),
+    boardIds: metadata.map((entry) => entry.containerId),
+    hiddenBoardIds: metadata.filter((entry) => entry.hidden).map((entry) => entry.containerId),
     createAt: category.createAt,
     updateAt: category.updateAt,
   };
@@ -307,10 +314,10 @@ export function sharingOf(sharing: Schemas['Sharing']): Sharing {
 export function newBoardAndViewOf(
   draft: BoardDraft,
   firstView: ViewDraft,
-): Schemas['NewBoardsAndBlocks'] {
+): Schemas['NewContainersAndBlocks'] {
   const boardRef = 'new-board';
   return {
-    boards: [
+    containers: [
       {
         id: boardRef,
         type: draft.type ?? 'P',
@@ -323,7 +330,7 @@ export function newBoardAndViewOf(
     blocks: [
       {
         id: 'new-view',
-        boardId: boardRef,
+        containerId: boardRef,
         type: 'view',
         title: firstView.title,
         fields: firstView.fields,
@@ -339,7 +346,7 @@ export function newBoardAndViewOf(
  * contract does not have (none, or admin) is refused here as the server
  * would refuse it.
  */
-export function boardPatchOf(patch: BoardPatch): Schemas['BoardPatch'] {
+export function boardPatchOf(patch: BoardPatch): Schemas['ContainerPatch'] {
   const { minimumRole, updatedCardProperties, ...rest } = patch;
   if (minimumRole === '' || minimumRole === 'admin') {
     throw new BackendError(400, {

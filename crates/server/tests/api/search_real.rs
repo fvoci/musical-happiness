@@ -398,7 +398,7 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
     let others = count(&settings).await;
     for container in [&board.id, &wiki] {
         th.client
-            .delete(&format!("{TEST_WS}/boards/{container}"))
+            .delete(&format!("{TEST_WS}/containers/{container}"))
             .await
             .check_no_content();
     }

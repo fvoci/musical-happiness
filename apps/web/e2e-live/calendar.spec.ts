@@ -34,7 +34,7 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   const board = await makeBoard(api, { title: 'Harvest calendar' });
   // A second date, after "Due": the one the page will choose. Not the first, which a new
   // calendar is placed by, so that the reload shows the choice and not the start.
-  const added = await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
+  const added = await api.patch(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}`, {
     data: { updatedCardProperties: [{ id: 'start', name: 'Start', type: 'date', options: [] }] },
   });
   expect(added.ok()).toBe(true);

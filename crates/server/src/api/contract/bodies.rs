@@ -61,8 +61,7 @@ impl ToSchema for ReferenceIds {}
 /// A board to make.
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]
-#[schema(as = NewBoard)]
-pub(crate) struct NewContainer {
+pub(crate) struct NewBoard {
     /// Only where boards and blocks are made together, and needed there: a name by
     /// which the blocks of the request say which board they belong to. The server gives
     /// the board another identifier. Where one board is made, a board with an `id` is
@@ -106,7 +105,6 @@ pub(crate) struct NewBlock {
     id: Option<String>,
     /// The board the block belongs to: the board of the path, or, where boards and
     /// blocks are made together, the `id` of one of the request's boards.
-    #[schema(rename = "boardId")]
     container_id: String,
     /// The block this one is below: a block of the same board, or the name of another
     /// block of the request. Left out for a block directly on its board.
@@ -135,12 +133,10 @@ pub(crate) struct NewBlock {
 /// Boards and their blocks, to make together.
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]
-#[schema(as = NewBoardsAndBlocks)]
 pub(crate) struct NewContainersAndBlocks {
     /// The boards, at least one. Each needs an `id`.
-    #[schema(rename = "boards")]
-    containers: Vec<NewContainer>,
-    /// The blocks, at least one. The `boardId` of each is the `id` of one of `boards`.
+    containers: Vec<NewBoard>,
+    /// The blocks, at least one. The `containerId` of each is the `id` of one of `containers`.
     blocks: Vec<NewBlock>,
 }
 
@@ -149,8 +145,7 @@ pub(crate) struct NewContainersAndBlocks {
 #[schema(rename_all = "camelCase")]
 pub(crate) struct NewCard {
     /// The board of the path, if it is there at all.
-    #[schema(rename = "boardId")]
-    container_id: Option<String>,
+    board_id: Option<String>,
     /// The display title.
     title: Option<String>,
     /// The card's icon; at most one grapheme.

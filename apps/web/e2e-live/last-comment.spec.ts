@@ -49,7 +49,7 @@ test('a comment somebody else posts moves the card in a view sorted by last upda
   const talked = ((await made.json()) as Schemas['Card']).id;
   await api.patch(`/api/v1/w/${board.workspaceId}/cards/${older}`, { data: { title: 'Quiet' } });
   // The board gets a "last updated time" and the view is sorted by it, newest first.
-  await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
+  await api.patch(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}`, {
     data: {
       updatedCardProperties: [{ id: 'updated', name: 'Updated', type: 'updatedTime', options: [] }],
     },

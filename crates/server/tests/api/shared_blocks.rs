@@ -23,7 +23,7 @@ async fn board_with_people(th: &TestServer, board_id: &str, me: &str, editor: &s
     ]);
     th.client
         .patch(
-            &format!("{TEST_WS}/boards/{board_id}"),
+            &format!("{TEST_WS}/containers/{board_id}"),
             &json!({"updatedCardProperties": people}),
         )
         .await

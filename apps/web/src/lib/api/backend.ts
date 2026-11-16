@@ -179,13 +179,13 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     firstView: ViewDraft,
   ): Promise<{ board: Board; view: BoardView }> {
     const request = newBoardAndViewOf(draft, firstView);
-    const made = await this.inWorkspace<Schemas['BoardsAndBlocks']>(
+    const made = await this.inWorkspace<Schemas['ContainersAndBlocks']>(
       '/boards-and-blocks',
       {},
       { method: 'POST', json: request },
       workspaceId,
     );
-    const [board] = made.boards;
+    const [board] = made.containers;
     const view = made.blocks.find((block) => block.type === 'view');
     if (!board || !view) throw new BackendError(500, { detail: 'the server made no board' });
     return { board: boardOf(board), view: viewOf(view) };
@@ -207,9 +207,9 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   async patchBoard(boardId: string, patch: BoardPatch): Promise<Board> {
     const request = boardPatchOf(patch);
     return boardOf(
-      await this.inWorkspace<Schemas['Board']>(
-        '/boards/{boardId}',
-        { boardId },
+      await this.inWorkspace<Schemas['Container']>(
+        '/containers/{containerId}',
+        { containerId: boardId },
         { method: 'PATCH', json: request },
       ),
     );
@@ -217,7 +217,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   /** `searchWorkspaceBoards` by title: the boards of the workspace. */
   async searchBoards(workspaceId: string, query: string): Promise<Board[]> {
-    const boards = await this.#http.request<Schemas['Board'][]>(
+    const boards = await this.#http.request<Schemas['Container'][]>(
       underWorkspace('/boards/search'),
       { workspaceId },
       { query: { q: query } },
@@ -226,7 +226,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   async templates(workspaceId: string): Promise<Board[]> {
-    const boards = await this.#http.request<Schemas['Board'][]>(underWorkspace('/templates'), {
+    const boards = await this.#http.request<Schemas['Container'][]>(underWorkspace('/templates'), {
       workspaceId,
     });
     return boards.map(boardOf);
@@ -234,12 +234,12 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   /** `duplicateBoard` into the workspace (`toWorkspace`). The copy is the first board of the answer. */
   async duplicateBoard(boardId: string, asTemplate: boolean, workspaceId: string): Promise<Board> {
-    const made = await this.inWorkspace<Schemas['BoardsAndBlocks']>(
-      '/boards/{boardId}/duplicate',
-      { boardId },
+    const made = await this.inWorkspace<Schemas['ContainersAndBlocks']>(
+      '/containers/{containerId}/duplicate',
+      { containerId: boardId },
       { method: 'POST', query: { asTemplate: String(asTemplate), toWorkspace: workspaceId } },
     );
-    const [board] = made.boards;
+    const [board] = made.containers;
     if (!board) throw new BackendError(500, { detail: 'the server made no copy' });
     return boardOf(board);
   }
@@ -254,25 +254,24 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   /** To the server's trash, with its blocks and members (`deleteBoard`, board admins only). */
-  async deleteBoard(boardId: string): Promise<void> {
-    await this.inWorkspace('/boards/{boardId}', { boardId }, { method: 'DELETE' });
+  async deleteBoard(containerId: string): Promise<void> {
+    await this.inWorkspace('/containers/{containerId}', { containerId }, { method: 'DELETE' });
   }
 
   /** Out of the server's trash, filed where each person had it (the category messages tell). */
   async restoreBoard(boardId: string): Promise<Board> {
     return boardOf(
-      await this.inWorkspace<Schemas['Board']>(
-        '/boards/{boardId}/undelete',
-        { boardId },
+      await this.inWorkspace<Schemas['Container']>(
+        '/containers/{containerId}/undelete',
+        { containerId: boardId },
         { method: 'POST' },
       ),
     );
   }
 
-  async members(boardId: string): Promise<BoardMember[]> {
-    const members = await this.inWorkspace<Schemas['BoardMember'][]>('/boards/{boardId}/members', {
-      boardId,
-    });
+  async members(containerId: string): Promise<BoardMember[]> {
+    const path = '/containers/{containerId}/members';
+    const members = await this.inWorkspace<Schemas['ContainerMember'][]>(path, { containerId });
     return members.map(memberOf);
   }
 
@@ -280,9 +279,9 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   async addMember(boardId: string, userId: string, role: BoardRole): Promise<BoardMember> {
     const request: Schemas['NewMember'] = { userId, ...rolesOf(role) };
     return memberOf(
-      await this.inWorkspace<Schemas['BoardMember']>(
-        '/boards/{boardId}/members',
-        { boardId },
+      await this.inWorkspace<Schemas['ContainerMember']>(
+        '/containers/{containerId}/members',
+        { containerId: boardId },
         { method: 'POST', json: request },
       ),
     );
@@ -290,9 +289,9 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   async setMemberRole(boardId: string, userId: string, role: BoardRole): Promise<BoardMember> {
     return memberOf(
-      await this.inWorkspace<Schemas['BoardMember']>(
-        '/boards/{boardId}/members/{userId}',
-        { boardId, userId },
+      await this.inWorkspace<Schemas['ContainerMember']>(
+        '/containers/{containerId}/members/{userId}',
+        { containerId: boardId, userId },
         { method: 'PUT', json: rolesOf(role) },
       ),
     );
@@ -300,16 +299,16 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   async removeMember(boardId: string, userId: string): Promise<void> {
     await this.inWorkspace(
-      '/boards/{boardId}/members/{userId}',
-      { boardId, userId },
+      '/containers/{containerId}/members/{userId}',
+      { containerId: boardId, userId },
       { method: 'DELETE' },
     );
   }
 
   async sharing(boardId: string): Promise<Sharing> {
     return sharingOf(
-      await this.inWorkspace<Schemas['Sharing']>('/boards/{boardId}/sharing', {
-        boardId,
+      await this.inWorkspace<Schemas['Sharing']>('/containers/{containerId}/sharing', {
+        containerId: boardId,
       }),
     );
   }
@@ -321,8 +320,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     };
     return sharingOf(
       await this.inWorkspace<Schemas['Sharing']>(
-        '/boards/{boardId}/sharing',
-        { boardId },
+        '/containers/{containerId}/sharing',
+        { containerId: boardId },
         { method: 'POST', json: request },
       ),
     );
@@ -341,9 +340,9 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /** Joins an open board (`joinBoard`), with its minimum role. */
   async joinBoard(boardId: string): Promise<BoardMember> {
     return memberOf(
-      await this.inWorkspace<Schemas['BoardMember']>(
-        '/boards/{boardId}/join',
-        { boardId },
+      await this.inWorkspace<Schemas['ContainerMember']>(
+        '/containers/{containerId}/join',
+        { containerId: boardId },
         { method: 'POST' },
       ),
     );
@@ -352,7 +351,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   // ------------------------------------------------------------ sidebar
 
   async categories(workspaceId: string): Promise<Category[]> {
-    const categories = await this.#http.request<Schemas['CategoryBoards'][]>(
+    const categories = await this.#http.request<Schemas['CategoryContainers'][]>(
       underWorkspace('/categories'),
       { workspaceId },
     );
@@ -382,7 +381,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       { workspaceId },
       { method: 'POST', json: request },
     );
-    return categoryOf({ ...made, boardMetadata: [] });
+    return categoryOf({ ...made, containerMetadata: [] });
   }
 
   /**
@@ -414,7 +413,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     );
     // The answer is the category alone; its boards are as they were read.
     return {
-      ...categoryOf({ ...updated, boardMetadata: [] }),
+      ...categoryOf({ ...updated, containerMetadata: [] }),
       boardIds: before.boardIds,
       hiddenBoardIds: before.hiddenBoardIds,
     };
@@ -464,8 +463,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     index: number,
   ): Promise<void> {
     await this.#http.request(
-      underWorkspace('/categories/{categoryId}/boards/{boardId}'),
-      { workspaceId, categoryId, boardId },
+      underWorkspace('/categories/{categoryId}/containers/{containerId}'),
+      { workspaceId, categoryId, containerId: boardId },
       { method: 'POST' },
     );
     const filed = (await this.#category(workspaceId, categoryId)).boardIds.filter(
@@ -473,7 +472,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     );
     filed.splice(Math.max(0, Math.min(index, filed.length)), 0, boardId);
     await this.#http.request(
-      underWorkspace('/categories/{categoryId}/board-order'),
+      underWorkspace('/categories/{categoryId}/container-order'),
       { workspaceId, categoryId },
       { method: 'PUT', json: filed },
     );
@@ -488,9 +487,9 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return this.#sidebarTurn(workspaceId, async () => {
       await this.#http.request(
         hidden
-          ? underWorkspace('/categories/{categoryId}/boards/{boardId}/hide')
-          : underWorkspace('/categories/{categoryId}/boards/{boardId}/unhide'),
-        { workspaceId, categoryId, boardId },
+          ? underWorkspace('/categories/{categoryId}/containers/{containerId}/hide')
+          : underWorkspace('/categories/{categoryId}/containers/{containerId}/unhide'),
+        { workspaceId, categoryId, containerId: boardId },
         { method: 'PUT' },
       );
     });
@@ -520,7 +519,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   async createView(boardId: string, draft: ViewDraft): Promise<BoardView> {
     // A block right on its board has no parent (the server's way).
     const block: Schemas['NewBlock'] = {
-      boardId,
+      containerId: boardId,
       type: 'view',
       title: draft.title,
       fields: draft.fields,
@@ -683,7 +682,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    */
   async createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment> {
     const block = {
-      boardId,
+      containerId: boardId,
       parentId: cardId,
       type: 'comment',
       title: '',
@@ -780,7 +779,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    */
   async createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment> {
     const block: Schemas['NewBlock'] = {
-      boardId,
+      containerId: boardId,
       parentId: cardId,
       type: 'attachment',
       title: file.name,
@@ -872,8 +871,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     return downloadWithProgress(
       this.#http,
-      underWorkspace('/boards/{boardId}/archive/export'),
-      this.workspaceOf({ boardId }),
+      underWorkspace('/containers/{containerId}/archive/export'),
+      this.workspaceOf({ containerId: boardId }),
       'archive.boardarchive',
       options,
     );
@@ -916,13 +915,14 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   /** The bytes of a file (`getFile`). */
-  fileBytes(boardId: string, fileId: string): Promise<Blob> {
-    return this.inWorkspaceBytes('/boards/{boardId}/files/{fileId}', { boardId, fileId });
+  fileBytes(containerId: string, fileId: string): Promise<Blob> {
+    const params = { containerId, fileId };
+    return this.inWorkspaceBytes('/containers/{containerId}/files/{fileId}', params);
   }
 
   /** The file's bytes, from the page's own origin: the session's cookie goes along. */
-  fileUrl(boardId: string, fileId: string): string | undefined {
-    return this.inWorkspaceUrl('/boards/{boardId}/files/{fileId}', { boardId, fileId });
+  fileUrl(containerId: string, fileId: string): string | undefined {
+    return this.inWorkspaceUrl('/containers/{containerId}/files/{fileId}', { containerId, fileId });
   }
 
   /** The board's changes, from the one connection of the page (`live.ts`). */

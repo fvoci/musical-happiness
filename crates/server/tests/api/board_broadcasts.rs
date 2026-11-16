@@ -142,7 +142,7 @@ async fn board_changes_are_broadcast_to_the_members() {
     );
     assert_eq!(message["board"]["title"], json!("Roadmap"), "{message}");
     let message = socket1
-        .expect("UPDATE_MEMBER", "/member/boardId", &board.id)
+        .expect("UPDATE_MEMBER", "/member/containerId", &board.id)
         .await;
     assert_eq!(message["member"]["userId"], json!(user1.id), "{message}");
     assert_eq!(message["member"]["schemeAdmin"], json!(true), "{message}");
@@ -154,7 +154,7 @@ async fn board_changes_are_broadcast_to_the_members() {
     assert_eq!(message["board"]["title"], json!("Roadmap 2"), "{message}");
 
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_no_content();
     let message = socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;
@@ -211,7 +211,11 @@ async fn member_changes_are_broadcast() {
             json!(TEST_WORKSPACE_ID),
             "{message}"
         );
-        assert_eq!(message["member"]["boardId"], json!(board.id), "{message}");
+        assert_eq!(
+            message["member"]["containerId"],
+            json!(board.id),
+            "{message}"
+        );
         assert_eq!(message["member"]["schemeEditor"], json!(true), "{message}");
     }
 
@@ -237,7 +241,11 @@ async fn member_changes_are_broadcast() {
         let message = socket
             .expect("DELETE_MEMBER", "/member/userId", &user2.id)
             .await;
-        assert_eq!(message["member"]["boardId"], json!(board.id), "{message}");
+        assert_eq!(
+            message["member"]["containerId"],
+            json!(board.id),
+            "{message}"
+        );
     }
     th.teardown().await;
 }
@@ -281,7 +289,7 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
             "{message}"
         );
         assert_eq!(
-            message["member"]["boardId"],
+            message["member"]["containerId"],
             json!(template.id),
             "{message}"
         );
@@ -303,7 +311,7 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
     assert_eq!(
         message["member"],
         json!({
-            "boardId": template.id,
+            "containerId": template.id,
             "userId": user2.id,
             "schemeAdmin": false,
             "schemeEditor": false,
@@ -374,7 +382,7 @@ async fn duplicate_board_is_broadcast() {
         .expect("UPDATE_BLOCK", "/block/id", &copy.blocks[0].id)
         .await;
     let message = socket
-        .expect("UPDATE_MEMBER", "/member/boardId", copy_id)
+        .expect("UPDATE_MEMBER", "/member/containerId", copy_id)
         .await;
     assert_eq!(message["member"]["userId"], json!(user1.id), "{message}");
     th.teardown().await;

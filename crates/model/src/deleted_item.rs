@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::ContainerKind;
 
 /// A card or a board in the trash, with as much as it takes to decide whether to bring
-/// it back (`undeleteBlock`, `undeleteBoard`).
+/// it back (`undeleteBlock`, `undeleteContainer`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DeletedItem {

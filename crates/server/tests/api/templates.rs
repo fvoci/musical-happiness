@@ -66,14 +66,14 @@ async fn get_templates_returns_the_built_in_templates() {
         .client
         .post(
             &format!(
-                "{ROOT_WS}/boards/{}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}",
+                "{ROOT_WS}/containers/{}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}",
                 first.id
             ),
             &json!({}),
         )
         .await
         .created_json::<Value>();
-    let copy = &duplicate["boards"][0];
+    let copy = &duplicate["containers"][0];
     assert_eq!(
         copy["isTemplate"],
         json!(false),
@@ -279,7 +279,7 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
 
     let response = ts
         .client
-        .post_empty(&format!("{ROOT_WS}/boards/{}/join", welcome.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/join", welcome.id))
         .await;
     response.check_error(
         reqwest::StatusCode::FORBIDDEN,
@@ -289,13 +289,13 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
     // Without a membership there is no way to write to it.
     ts.client
         .patch(
-            &format!("{ROOT_WS}/boards/{}", welcome.id),
+            &format!("{ROOT_WS}/containers/{}", welcome.id),
             &serde_json::json!({"title": "taken over"}),
         )
         .await
         .check_forbidden();
     ts.client
-        .delete(&format!("{ROOT_WS}/boards/{}", welcome.id))
+        .delete(&format!("{ROOT_WS}/containers/{}", welcome.id))
         .await
         .check_forbidden();
     let blocks = ts
@@ -315,13 +315,13 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
         .await
         .check_forbidden();
     ts.client
-        .post_empty(&format!("{ROOT_WS}/boards/{}/members", welcome.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/members", welcome.id))
         .await
         .check_forbidden();
 
     // Reading and copying it is what it is for.
     ts.client
-        .post_empty(&format!("{ROOT_WS}/boards/{}/duplicate", welcome.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/duplicate", welcome.id))
         .await
         .check_created();
     ts.teardown().await;
@@ -584,7 +584,10 @@ async fn a_guest_uses_templates_in_the_workspace_where_they_are_a_member() {
         .await
         .check_ok();
     ts.client2
-        .post(&format!("{elsewhere}/boards/{board}/duplicate"), &json!({}))
+        .post(
+            &format!("{elsewhere}/containers/{board}/duplicate"),
+            &json!({}),
+        )
         .await
         .check_created();
     ts.teardown().await;

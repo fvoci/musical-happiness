@@ -63,7 +63,7 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
   });
   expect(written.ok()).toBe(true);
   const shared = (await (
-    await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/sharing`, {
+    await api.post(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}/sharing`, {
       data: { enabled: true },
     })
   ).json()) as Schemas['Sharing'];

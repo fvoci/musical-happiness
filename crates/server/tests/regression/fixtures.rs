@@ -51,7 +51,7 @@ pub(crate) fn block(
 ) -> Value {
     let mut block = json!({
         "id": id,
-        "boardId": board,
+        "containerId": board,
         "parentId": if parent.is_empty() { board } else { parent },
         "type": block_type,
         "title": title,
@@ -124,12 +124,12 @@ pub(crate) async fn new_blocks(
 /// Adds `user` to the board with a role, as `admin`. Recorded as `add <role>`.
 pub(crate) async fn add_member(s: &mut Session, admin: &str, board: &str, user: &str, role: &str) {
     let body = merged(
-        &json!({"boardId": board, "userId": s.user_id(user).await}),
+        &json!({"containerId": board, "userId": s.user_id(user).await}),
         role_flags(role),
     );
     s.post(
         &format!("add {role}"),
-        &format!("{ROOT_API}/boards/{board}/members"),
+        &format!("{ROOT_API}/containers/{board}/members"),
     )
     .json(body)
     .user(admin)

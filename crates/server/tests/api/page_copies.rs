@@ -61,8 +61,8 @@ async fn a_page_is_copied_with_those_below_it_its_images_given_files_and_told_of
     let other = ts.client2.me().await.id;
     client
         .post(
-            &format!("{TEST_WS}/boards/{wiki_id}/members"),
-            &json!({"boardId": wiki_id, "userId": other, "schemeEditor": true}),
+            &format!("{TEST_WS}/containers/{wiki_id}/members"),
+            &json!({"containerId": wiki_id, "userId": other, "schemeEditor": true}),
         )
         .await
         .check_ok();
@@ -104,7 +104,9 @@ async fn a_page_is_copied_with_those_below_it_its_images_given_files_and_told_of
     let copied_file = image_of(&body).expect("the copy shows an image");
     assert_ne!(copied_file, file);
     client
-        .get(&format!("{TEST_WS}/boards/{wiki_id}/files/{copied_file}"))
+        .get(&format!(
+            "{TEST_WS}/containers/{wiki_id}/files/{copied_file}"
+        ))
         .await
         .check_ok();
     // The copy begins without versions of its body (no route reads a page's yet), the
@@ -143,8 +145,8 @@ async fn a_copy_is_the_editors_held_to_the_limits_and_checked() {
     let other = ts.client2.me().await.id;
     client
         .post(
-            &format!("{TEST_WS}/boards/{wiki_id}/members"),
-            &json!({"boardId": wiki_id, "userId": other, "schemeViewer": true}),
+            &format!("{TEST_WS}/containers/{wiki_id}/members"),
+            &json!({"containerId": wiki_id, "userId": other, "schemeViewer": true}),
         )
         .await
         .check_ok();

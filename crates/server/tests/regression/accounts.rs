@@ -450,7 +450,7 @@ pub(crate) async fn admins(s: &mut Session) {
         .user("root")
         .await;
     s.post("invite: members to a board", &invitations)
-        .json(json!({"role": "member", "boardId": UNKNOWN_ID}))
+        .json(json!({"role": "member", "containerId": UNKNOWN_ID}))
         .user("root")
         .await;
     s.post("register without an invitation", &format!("{API}/register"))

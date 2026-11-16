@@ -242,8 +242,8 @@ async fn the_type_of_a_problem_is_the_address_of_a_page_about_its_kind() {
 async fn a_path_that_is_no_text_is_a_problem_like_any_other_error() {
     let th = Setup::native().start().await.init_basic().await;
     for path in [
-        &format!("{ROOT_WS}/boards/%FF"),
-        &format!("{ROOT_WS}/boards/%FF/sharing"),
+        &format!("{ROOT_WS}/containers/%FF"),
+        &format!("{ROOT_WS}/containers/%FF/sharing"),
         &format!("{ROOT_WS}/users/%C3%28"),
     ] {
         let response = th.client.get(path).await;
@@ -293,7 +293,7 @@ async fn an_answer_without_a_result_has_no_body_and_no_content_type() {
         ),
         (
             Method::DELETE,
-            format!("{TEST_WS}/boards/{board}"),
+            format!("{TEST_WS}/containers/{board}"),
             Value::Null,
         ),
         (
@@ -372,11 +372,11 @@ async fn base_path_prefixes_every_route() {
 async fn startup_refuses_a_malformed_base_path() {
     for base_path in [
         "boards",
-        "/boards/{workspace}",
+        "/containers/{workspace}",
         &format!("{ROOT_WS}/boards/*rest"),
         // The router would read these as patterns, or never match them.
         "/:boards",
-        &format!("{ROOT_WS}/boards/:workspace"),
+        &format!("{ROOT_WS}/containers/:workspace"),
         &format!("{ROOT_WS}/boards?x=1"),
         "/boards#top",
         "/a//b",
@@ -467,8 +467,13 @@ async fn a_request_is_finished_when_its_client_disconnects() {
             .as_array()
             .into_iter()
             .flatten()
-            .flat_map(|category| category["boardMetadata"].as_array().into_iter().flatten())
-            .filter_map(|metadata| metadata["boardId"].as_str())
+            .flat_map(|category| {
+                category["containerMetadata"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+            })
+            .filter_map(|metadata| metadata["containerId"].as_str())
             .collect();
         let counts = (
             created.len(),

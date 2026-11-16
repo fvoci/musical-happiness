@@ -124,7 +124,7 @@ async fn a_card_is_found_while_it_is_there_as_it_is() {
     tend(&th.app).await;
     assert_eq!(titles(&fake).len(), 2);
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_no_content();
     tend(&th.app).await;
@@ -138,7 +138,7 @@ async fn a_card_is_found_while_it_is_there_as_it_is() {
         json!([{"term": {"orgId": org_id}}, {"term": {"containerId": board.id}}])
     );
     th.client
-        .post_empty(&format!("{TEST_WS}/boards/{}/undelete", board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/undelete", board.id))
         .await
         .check_ok();
     tend(&th.app).await;
@@ -204,7 +204,7 @@ async fn a_server_without_a_search_server_notes_nothing() {
         .await
         .check_no_content();
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_no_content();
     tend(&th.app).await;
@@ -407,7 +407,7 @@ async fn the_operator_has_the_index_made_again() {
     th.teardown().await;
 
     assert_eq!(reindexed.status, 200, "{}", reindexed.body);
-    assert_eq!(listed, json!({"boards": 1}));
+    assert_eq!(listed, json!({"containers": 1}));
     assert_eq!(made, ["PUT", "DELETE", "PUT"], "removed and made again");
     assert_eq!(definition["mappings"]["dynamic"], "strict", "{definition}");
     assert_eq!(

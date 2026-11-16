@@ -24,7 +24,7 @@ async fn board_with_previewed_card(th: &TestServer) -> (Container, String, Strin
     let later_id = crate::files::uploaded_id(&later);
     th.client
         .patch(
-            &format!("{TEST_WS}/boards/{}", board.id),
+            &format!("{TEST_WS}/containers/{}", board.id),
             &json!({"updatedCardProperties": [
                 {"id": "owner", "name": "Owner", "type": "person", "options": []},
             ]}),
@@ -47,10 +47,10 @@ async fn board_with_previewed_card(th: &TestServer) -> (Container, String, Strin
         {"type": "image", "attrs": {"fileId": later_id}},
         paragraph("more"),
     ]});
-    let with_body = json!({"id": new_id(), "boardId": board.id, "type": "card", "title": "with",
+    let with_body = json!({"id": new_id(), "containerId": board.id, "type": "card", "title": "with",
                            "createAt": 1, "updateAt": 1, "body": body,
                            "fields": {"properties": {"owner": me.id}}});
-    let without = json!({"id": new_id(), "boardId": board.id, "type": "card", "title": "without",
+    let without = json!({"id": new_id(), "containerId": board.id, "type": "card", "title": "without",
                          "createAt": 1, "updateAt": 1});
     th.client
         .post(

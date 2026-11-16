@@ -87,7 +87,7 @@ async fn a_json_body_over_the_default_limit_is_refused_with_413() {
     let over = json_of_length(DEFAULT_JSON_LIMIT + 1);
     let routes = [
         (Method::POST, format!("{TEST_WS}/boards")),
-        (Method::PATCH, format!("{TEST_WS}/boards/{}", board.id)),
+        (Method::PATCH, format!("{TEST_WS}/containers/{}", board.id)),
         (
             Method::POST,
             format!("{TEST_WS}/boards/{}/blocks", board.id),
@@ -101,7 +101,7 @@ async fn a_json_body_over_the_default_limit_is_refused_with_413() {
         (Method::POST, format!("{TEST_WS}/subscriptions")),
         (Method::POST, format!("{TEST_WS}/users")),
         // A board nobody has: the body is refused before the board is looked for.
-        (Method::PATCH, format!("{TEST_WS}/boards/no-such-board")),
+        (Method::PATCH, format!("{TEST_WS}/containers/no-such-board")),
     ];
     for (method, path) in routes {
         let response = th.client.send_raw_body(method.clone(), &path, &over).await;
@@ -187,7 +187,10 @@ async fn a_request_without_a_session_token_gets_the_small_limit_on_every_route()
     for (method, path) in [
         (Method::POST, &format!("{TEST_WS}/boards")),
         (Method::POST, &format!("{TEST_WS}/boards-and-blocks")),
-        (Method::PATCH, &format!("{TEST_WS}/boards/no-such-board")),
+        (
+            Method::PATCH,
+            &format!("{TEST_WS}/containers/no-such-board"),
+        ),
     ] {
         let response = anonymous
             .send_raw_body(
@@ -330,7 +333,7 @@ async fn uploads_are_not_behind_the_json_limit() {
         .client
         .request(
             Method::POST,
-            &format!("{TEST_WS}/boards/{}/files", board.id),
+            &format!("{TEST_WS}/containers/{}/files", board.id),
         )
         .multipart(Form::new().part("file", part));
     Client::send(request).await.check_created();

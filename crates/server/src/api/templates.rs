@@ -36,7 +36,7 @@ async fn handle_get_templates(TextInWorkspace(ws): TextInWorkspace) -> ApiResult
     let mut results: Vec<Container> = Vec::with_capacity(containers.len());
     for container in containers {
         // Whole to who reads it; to the workspace's administrators who only manage it,
-        // its name, as getBoard gives it (`as_managed`).
+        // its name, as getContainer gives it (`as_managed`).
         let grant = app.container_grant(user_id, &container.id).await?;
         if grant.reads() {
             results.push(container);

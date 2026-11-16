@@ -14,6 +14,7 @@ use std::path::Path;
 use futures_util::StreamExt as _;
 use fvoci_model::{ArchiveHeader, ArchiveLine, Container};
 use serde::Serialize;
+use serde_json::Value;
 use tokio::fs;
 use zip::write::{SimpleFileOptions, ZipWriter};
 
@@ -275,7 +276,7 @@ impl ArchiveWriter {
         })?;
         let line = ArchiveLine {
             line_type: line_type.to_owned(),
-            data,
+            data: with_board_named(data),
         };
         let mut bytes = serde_json::to_vec(&line).map_err(|error| {
             AppError::internal(format_args!("cannot encode archive line: {error}"))
@@ -356,4 +357,15 @@ fn is_stored_name(name: &str) -> bool {
     !name.is_empty()
         && !name.contains(['/', '\\'])
         && !matches!(name, "." | ".." | "board.jsonl" | "version.json")
+}
+
+/// A line's data under the names of the archive's format: a block and a member name their
+/// board or wiki `boardId` there, as every archive has, whatever the model calls it.
+fn with_board_named(mut data: Value) -> Value {
+    if let Value::Object(line) = &mut data
+        && let Some(container) = line.remove("containerId")
+    {
+        line.insert("boardId".to_owned(), container);
+    }
+    data
 }

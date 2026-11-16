@@ -47,10 +47,8 @@ pub struct LinkedBlock {
     /// Its icon, at most one grapheme; empty for none.
     pub icon: String,
     /// The identifier of the board the card is on, or of the wiki the page is of.
-    #[serde(rename = "boardId")]
     pub container_id: String,
     /// Whether that is a board or a wiki.
-    #[serde(rename = "boardKind")]
     pub container_kind: ContainerKind,
 }
 
@@ -112,7 +110,7 @@ mod tests {
             serde_json::to_value(&page).expect("serialized"),
             json!({"id": "0197a5a0-0000-7000-8000-000000000001", "kind": "page",
                 "title": "Plan", "icon": "📌",
-                "boardId": "0197a5a0-0000-7000-8000-000000000002", "boardKind": "wiki"}),
+                "containerId": "0197a5a0-0000-7000-8000-000000000002", "containerKind": "wiki"}),
         );
         let card = LinkedBlock::of(&block(BlockType::Card), &container).expect("a card is shown");
         assert_eq!(card.kind, LinkedKind::Card);

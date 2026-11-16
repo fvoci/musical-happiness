@@ -213,12 +213,12 @@ async fn who_left_a_workspace_is_named_where_they_wrote_and_found_nowhere() {
         .ok_json();
     let members: Vec<ContainerMember> = th
         .client
-        .get(&format!("{TEST_WS}/boards/{}/members", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/members", board.id))
         .await
         .ok_json();
     let archive = th
         .client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))
         .await;
     archive.check_ok();
     let archive = archive_text(&archive.body);
@@ -401,7 +401,7 @@ async fn who_left_is_named_on_an_open_board_to_its_members_only() {
         .await
         .created_json();
     th.client2
-        .post_empty(&format!("{ROOT_WS}/boards/{}/join", open.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/join", open.id))
         .await
         .check_ok();
     th.client2
@@ -425,7 +425,7 @@ async fn who_left_is_named_on_an_open_board_to_its_members_only() {
         third.get(&format!("{ROOT_WS}/users/{leaver}")).await.status,
     );
     third
-        .post_empty(&format!("{ROOT_WS}/boards/{}/join", open.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/join", open.id))
         .await
         .check_ok();
     let after = (
@@ -454,7 +454,7 @@ async fn who_left_is_named_on_an_open_wiki_to_whoever_works_there() {
         .expect("an id")
         .to_owned();
     th.client2
-        .post_empty(&format!("{ROOT_WS}/boards/{wiki}/join"))
+        .post_empty(&format!("{ROOT_WS}/containers/{wiki}/join"))
         .await
         .check_ok();
     th.client2
@@ -540,7 +540,7 @@ async fn a_guest_names_who_wrote_on_its_board_and_finds_them_nowhere() {
         .check_created();
     th.client
         .delete(&format!(
-            "{ROOT_WS}/boards/{}/members/{writer_id}",
+            "{ROOT_WS}/containers/{}/members/{writer_id}",
             board.id
         ))
         .await

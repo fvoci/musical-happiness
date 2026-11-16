@@ -146,12 +146,15 @@ async fn another_organizations_user_cannot_join_and_edit_an_open_board() {
 
     let joined = ts
         .client2
-        .post(&format!("{ROOT_WS}/boards/{}/join", board.id), &json!({}))
+        .post(
+            &format!("{ROOT_WS}/containers/{}/join", board.id),
+            &json!({}),
+        )
         .await;
     let changed = ts
         .client2
         .patch(
-            &format!("{ROOT_WS}/boards/{}", board.id),
+            &format!("{ROOT_WS}/containers/{}", board.id),
             &json!({"title": "Changed by another organization"}),
         )
         .await;
@@ -189,12 +192,15 @@ async fn a_workspace_guest_cannot_gain_editor_access_through_the_legacy_join_rou
 
     let joined = ts
         .client2
-        .post(&format!("{ROOT_WS}/boards/{}/join", board.id), &json!({}))
+        .post(
+            &format!("{ROOT_WS}/containers/{}/join", board.id),
+            &json!({}),
+        )
         .await;
     let changed = ts
         .client2
         .patch(
-            &format!("{ROOT_WS}/boards/{}", board.id),
+            &format!("{ROOT_WS}/containers/{}", board.id),
             &json!({"title": "Changed by a guest"}),
         )
         .await;

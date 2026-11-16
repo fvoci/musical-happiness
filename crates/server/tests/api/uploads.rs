@@ -47,7 +47,7 @@ fn digest(bytes: &[u8]) -> String {
 async fn open(client: &Client, board_id: &str, name: &str, size: usize) -> ApiResponse {
     client
         .post(
-            &format!("{TEST_WS}/boards/{board_id}/uploads"),
+            &format!("{TEST_WS}/containers/{board_id}/uploads"),
             &json!({"name": name, "size": size}),
         )
         .await
@@ -170,7 +170,7 @@ async fn a_file_sent_in_parts_is_stored_whole() {
         .await;
     state.check_ok();
     let state = state.value();
-    assert_eq!(state["boardId"], board.id.as_str());
+    assert_eq!(state["containerId"], board.id.as_str());
     assert_eq!(state["name"], "Report.PDF");
     assert_eq!(state["size"], data.len());
     assert_eq!(state["parts"], json!([{"number": 2, "size": 1000}]));
@@ -206,7 +206,10 @@ async fn a_file_sent_in_parts_is_stored_whole() {
     );
     let download = ts
         .client
-        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{file_id}",
+            board.id
+        ))
         .await;
     download.check_ok();
     assert!(download.body == data, "the file is the parts in order");
@@ -253,7 +256,10 @@ async fn an_empty_file_has_no_part() {
         .to_owned();
     let download = ts
         .client
-        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{file_id}",
+            board.id
+        ))
         .await;
     download.check_ok();
     assert_eq!(download.body, b"");
@@ -367,7 +373,7 @@ async fn an_upload_for_a_board_in_the_trash_is_ended_in_its_workspace() {
         .await;
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
     ts.client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_no_content();
 
@@ -442,7 +448,7 @@ async fn opening_an_upload_is_checked() {
     for (body, field) in refusals {
         let response = ts
             .client
-            .post(&format!("{TEST_WS}/boards/{}/uploads", board.id), &body)
+            .post(&format!("{TEST_WS}/containers/{}/uploads", board.id), &body)
             .await;
         response.check_bad_request();
         if !field.is_empty() {
@@ -487,7 +493,7 @@ async fn a_completion_without_the_permission_throws_the_upload_away() {
 
     ts.client
         .delete(&format!(
-            "{TEST_WS}/boards/{}/members/{}",
+            "{TEST_WS}/containers/{}/members/{}",
             board.id, editor.id
         ))
         .await
@@ -943,7 +949,7 @@ async fn a_single_upload_declared_too_large_is_refused_before_it_is_sent() {
         .await;
     let address = ts.base_url.trim_start_matches("http://").to_owned();
     let request = format!(
-        "POST /api/v1/w/{TEST_WORKSPACE_ID}/boards/{}/files HTTP/1.1\r\nHost: {address}\r\n\
+        "POST /api/v1/w/{TEST_WORKSPACE_ID}/containers/{}/files HTTP/1.1\r\nHost: {address}\r\n\
          Authorization: Bearer {}\r\nX-Requested-With: XMLHttpRequest\r\n\
          Content-Type: multipart/form-data; boundary=edge\r\n\
          Content-Length: {}\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n",
@@ -1079,7 +1085,10 @@ async fn with_s3_the_parts_go_to_the_bucket() {
     assert_eq!(Path::new(&file_id).extension(), Some("pdf".as_ref()));
     let download = ts
         .client
-        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{file_id}",
+            board.id
+        ))
         .await;
     download.check_ok();
     assert!(download.body == data, "the file is the parts in order");
@@ -1101,7 +1110,10 @@ async fn with_s3_the_parts_go_to_the_bucket() {
         .to_owned();
     let download = ts
         .client
-        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{file_id}",
+            board.id
+        ))
         .await;
     download.check_ok();
     assert_eq!(download.body.len(), 0, "an empty file");
@@ -1279,7 +1291,10 @@ async fn with_s3_a_completion_without_record_leaves_no_object() {
         assert!(path.ends_with(&file_id), "the object is the file");
         let download = ts
             .client
-            .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
+            .get(&format!(
+                "{TEST_WS}/containers/{}/files/{file_id}",
+                board.id
+            ))
             .await;
         download.check_ok();
         assert!(download.body == b"abc".as_slice(), "the file is recorded");
@@ -1350,7 +1365,10 @@ async fn with_s3_parts_sent_at_once_are_all_taken() {
         .to_owned();
     let download = ts
         .client
-        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{file_id}",
+            board.id
+        ))
         .await;
     download.check_ok();
     assert!(download.body == data, "the file is the parts in order");

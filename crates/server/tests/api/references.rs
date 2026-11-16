@@ -119,7 +119,7 @@ pub(crate) async fn let_read(admin: &Client, board_id: &str, user_id: &str) {
         ..ContainerMember::default()
     };
     admin
-        .post(&format!("{TEST_WS}/boards/{board_id}/members"), &member)
+        .post(&format!("{TEST_WS}/containers/{board_id}/members"), &member)
         .await
         .check_ok();
 }
@@ -145,9 +145,9 @@ async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
         answer.value(),
         json!([
             {"id": mine.page, "kind": "page", "title": "The plan", "icon": "",
-                "boardId": mine.wiki, "boardKind": "wiki"},
+                "containerId": mine.wiki, "containerKind": "wiki"},
             {"id": mine.card, "kind": "card", "title": "The plan", "icon": "📌",
-                "boardId": mine.board, "boardKind": "board"},
+                "containerId": mine.board, "containerKind": "board"},
         ]),
     );
     assert_eq!(resolved(&th.client, TEST_WS, &[]).await.text(), "[]");
@@ -238,7 +238,7 @@ async fn what_is_in_the_trash_is_resolved_as_nothing() {
     let other = made(&th.client, TEST_WS, "P", HIDDEN).await;
     for container in [&other.board, &other.wiki] {
         th.client
-            .delete(&format!("{TEST_WS}/boards/{container}"))
+            .delete(&format!("{TEST_WS}/containers/{container}"))
             .await
             .check_no_content();
     }
@@ -251,7 +251,7 @@ async fn what_is_in_the_trash_is_resolved_as_nothing() {
     )
     .await;
     th.client
-        .post_empty(&format!("{TEST_WS}/boards/{}/undelete", other.wiki))
+        .post_empty(&format!("{TEST_WS}/containers/{}/undelete", other.wiki))
         .await
         .check_ok();
     assert_eq!(
@@ -283,7 +283,10 @@ async fn what_a_member_is_not_on_is_resolved_as_nothing() {
 
     // Joined, and invited: each is told from then on, and the other stays nothing.
     member
-        .post(&format!("{TEST_WS}/boards/{}/join", open.board), &json!({}))
+        .post(
+            &format!("{TEST_WS}/containers/{}/join", open.board),
+            &json!({}),
+        )
         .await
         .check_ok();
     let_read(&th.client, &private.wiki, &member_id).await;
@@ -307,7 +310,7 @@ async fn what_a_member_is_not_on_is_resolved_as_nothing() {
     // Taken off again, it is nothing again.
     th.client
         .delete(&format!(
-            "{TEST_WS}/boards/{}/members/{member_id}",
+            "{TEST_WS}/containers/{}/members/{member_id}",
             private.wiki
         ))
         .await

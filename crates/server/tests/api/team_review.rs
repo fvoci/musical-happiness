@@ -159,7 +159,7 @@ async fn following_through_a_team(th: &TestServer, name: &str) -> (String, Team)
     th.client
         .put(
             &format!(
-                "/w/{ROOT_WORKSPACE_ID}/boards/{}/teams/{}",
+                "/w/{ROOT_WORKSPACE_ID}/containers/{}/teams/{}",
                 board.id, team.id
             ),
             &json!({"role":"editor"}),
@@ -190,7 +190,7 @@ async fn following_through_a_team(th: &TestServer, name: &str) -> (String, Team)
 async fn assert_board_is_gone_for_the_second_user(th: &TestServer, board_id: &str, how: &str) {
     let user = th.client2.me().await.id;
     th.client2
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards/{board_id}"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/containers/{board_id}"))
         .await
         .check_status(StatusCode::NOT_FOUND);
     let subscriptions: Vec<Subscription> = th
@@ -222,7 +222,7 @@ async fn taking_the_team_off_the_board_ends_what_its_role_opened() {
     let (board_id, team) = following_through_a_team(&th, "Taken off").await;
     th.client
         .delete(&format!(
-            "/w/{ROOT_WORKSPACE_ID}/boards/{board_id}/teams/{}",
+            "/w/{ROOT_WORKSPACE_ID}/containers/{board_id}/teams/{}",
             team.id
         ))
         .await

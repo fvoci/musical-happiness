@@ -16,8 +16,9 @@ use utoipa_axum::routes;
 
 use super::archive::require_import_access;
 use super::contract::bodies::Binary;
-use super::contract::params::MemberWorkspaceId;
-use super::contract::params::{BoardId, ContentDigest, PartNumber, UploadId, WorkspaceId};
+use super::contract::params::{
+    ContainerId, ContentDigest, MemberWorkspaceId, PartNumber, UploadId, WorkspaceId,
+};
 use super::contract::tag;
 use super::files::UploadedFile;
 use super::limits::discard;
@@ -79,7 +80,6 @@ struct UploadState {
     #[schema(inline)]
     purpose: Purpose,
     /// The board the file is for; empty for an archive.
-    #[serde(rename = "boardId")]
     container_id: String,
     /// The workspace the archive is for; empty for a file.
     workspace_id: String,
@@ -181,10 +181,10 @@ pub(super) fn part_routes() -> OpenApiRouter<App> {
 /// `uploadFile`.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards/{boardId}/uploads",
+    path = "/w/{workspaceId}/containers/{containerId}/uploads",
     operation_id = "createUpload",
     tag = tag::FILES,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     request_body = NewUpload,
     responses((status = 201, description = "The upload is open.", body = UploadOpened)),
 )]

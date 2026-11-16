@@ -61,7 +61,7 @@ async function define(
   board: { workspaceId: string; boardId: string },
   property: { id: string; name: string; type: string },
 ): Promise<void> {
-  const answer = await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
+  const answer = await api.patch(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}`, {
     data: { updatedCardProperties: [{ ...property, options: [] }] },
   });
   expect(answer.ok(), await answer.text()).toBe(true);

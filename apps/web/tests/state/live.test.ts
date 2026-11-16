@@ -130,12 +130,12 @@ describe('changes from the server', () => {
     socket.message({
       action: 'UPDATE_BLOCK',
       workspaceId: 't',
-      block: { ...BLOCK, id: 'c1', boardId: 'b1', type: 'card', fields: { properties: {} } },
+      block: { ...BLOCK, id: 'c1', containerId: 'b1', type: 'card', fields: { properties: {} } },
     });
     socket.message({
       action: 'UPDATE_BLOCK',
       workspaceId: 't',
-      block: { ...BLOCK, id: 'c1', boardId: 'b1', deleteAt: 5, type: '', fields: {} },
+      block: { ...BLOCK, id: 'c1', containerId: 'b1', deleteAt: 5, type: '', fields: {} },
     });
     await settle();
     expect(board).toMatchObject([
@@ -187,13 +187,13 @@ describe('changes from the server', () => {
     socket.message({
       action: 'UPDATE_MEMBER',
       workspaceId: 't',
-      member: { boardId: 'b1', userId: 'u2', schemeViewer: true },
+      member: { containerId: 'b1', userId: 'u2', schemeViewer: true },
     });
     // A board nobody here watches: its members are not read.
     socket.message({
       action: 'DELETE_MEMBER',
       workspaceId: 't',
-      member: { boardId: 'b9', userId: 'u2' },
+      member: { containerId: 'b9', userId: 'u2' },
     });
     await settle();
     expect(board).toMatchObject([{ kind: 'members', boardId: 'b1', members: [{ userId: 'u' }] }]);
@@ -220,7 +220,7 @@ describe('changes from the server', () => {
     const message = {
       action: 'UPDATE_MEMBER',
       workspaceId: 't',
-      member: { boardId: 'b1', userId: 'u2' },
+      member: { containerId: 'b1', userId: 'u2' },
     };
     socket.message(message);
     socket.message(message);

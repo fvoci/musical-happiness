@@ -846,7 +846,7 @@ async fn create_card_answer_and_stored_block() {
             "createAt": card.create_at,
             "updateAt": card.update_at,
             "deleteAt": 0,
-            "boardId": board.id,
+            "containerId": board.id,
         }),
         "a card block directly on its board, with the times that were answered"
     );
@@ -1259,7 +1259,7 @@ async fn a_card_stored_with_a_malformed_field_is_written_and_copied_without_it()
         .await
         .expect("written again");
     th.client
-        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/duplicate", board.id))
         .await
         .check_created();
     th.client
@@ -1321,7 +1321,7 @@ async fn a_title_with_u0000_is_refused() {
     ] {
         let response = th
             .client
-            .patch(&format!("{TEST_WS}/boards/{}", board.id), &patch)
+            .patch(&format!("{TEST_WS}/containers/{}", board.id), &patch)
             .await;
         response.check_bad_request();
         assert_eq!(response.refused_at(), format!("/{member}"), "{patch}");
@@ -1719,7 +1719,11 @@ async fn card_changes_are_broadcast() {
         );
         assert_eq!(message["block"]["type"], json!("card"), "{message}");
         assert_eq!(message["block"]["title"], json!(title), "{message}");
-        assert_eq!(message["block"]["boardId"], json!(board.id), "{message}");
+        assert_eq!(
+            message["block"]["containerId"],
+            json!(board.id),
+            "{message}"
+        );
 
         for (query, title) in [("", "patched"), ("?disableNotify=true", "patched quietly")] {
             th.client

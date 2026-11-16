@@ -51,6 +51,11 @@ pub(crate) const TEST_WS: &str = "/w/00000000-0000-7000-8000-000000000001";
 /// The identifier of nothing: well-formed, and never given to anything.
 pub(crate) const UNKNOWN_ID: &str = "00000000-0000-7000-8000-00000000dead";
 
+/// The path of a board or a wiki, under its own workspace.
+pub(crate) fn container_path(container: &Container) -> String {
+    format!("/w/{}/containers/{}", container.workspace_id, container.id)
+}
+
 /// A running server with a database and directories of its own.
 pub(crate) struct TestServer {
     /// The application state, for arranging and inspecting what the API has no route for.
@@ -1077,7 +1082,10 @@ impl Client {
         member: &ContainerMember,
     ) -> ApiResponse {
         self.post(
-            &format!("/w/{workspace_id}/boards/{}/members", member.container_id),
+            &format!(
+                "/w/{workspace_id}/containers/{}/members",
+                member.container_id
+            ),
             member,
         )
         .await

@@ -38,11 +38,9 @@ pub enum ContainersAndBlocksError {
 /// Boards and the blocks that belong to them, created together.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
-#[schema(as = BoardsAndBlocks)]
 pub struct ContainersAndBlocks {
     /// The boards.
     #[serde(deserialize_with = "null_as_default")]
-    #[serde(rename = "boards")]
     pub containers: Vec<Container>,
     /// The blocks; each must belong to one of `boards`.
     #[serde(deserialize_with = "null_as_default")]
@@ -85,11 +83,9 @@ impl ContainersAndBlocks {
 /// The identifiers of boards and blocks to delete together.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
-#[schema(as = DeleteBoardsAndBlocks)]
 pub struct DeleteContainersAndBlocks {
     /// The identifiers of the boards.
     #[serde(deserialize_with = "null_as_default")]
-    #[serde(rename = "boards")]
     pub containers: Vec<String>,
     /// The identifiers of the blocks.
     #[serde(deserialize_with = "null_as_default")]
@@ -132,13 +128,12 @@ impl From<&ContainersAndBlocks> for DeleteContainersAndBlocks {
 /// Identifiers and patches are matched by position.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
-#[schema(as = PatchBoardsAndBlocks)]
 pub struct PatchContainersAndBlocks {
     /// The identifiers of the boards to patch.
-    #[serde(rename = "boardIds", deserialize_with = "null_as_default")]
+    #[serde(rename = "containerIds", deserialize_with = "null_as_default")]
     pub container_ids: Vec<String>,
     /// The board patches, one per board identifier.
-    #[serde(rename = "boardPatches", deserialize_with = "null_as_default")]
+    #[serde(rename = "containerPatches", deserialize_with = "null_as_default")]
     pub container_patches: Vec<ContainerPatch>,
     /// The identifiers of the blocks to patch.
     #[serde(rename = "blockIds", deserialize_with = "null_as_default")]

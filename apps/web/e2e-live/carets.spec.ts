@@ -376,7 +376,7 @@ test("a wiki's page shows the carets of who write it, by the name the server kno
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
     await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
-  ).json()) as Schemas['Board'];
+  ).json()) as Schemas['Container'];
   const boraApi = await signedIn(base, bora);
   const [adaId, boraId] = [await userId(api), await userId(boraApi)];
   await api.post(`${inWorkspace}/boards/${wiki.id}/members`, {

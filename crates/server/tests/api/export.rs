@@ -14,11 +14,11 @@ use fvoci_model::{Block, BlockType, Container, ContainerType, new_id};
 use reqwest::{Method, StatusCode};
 use sha2::{Digest as _, Sha256};
 
-/// `GET /boards/{id}/archive/export` for a board.
+/// `GET /containers/{id}/archive/export` for a board.
 async fn export_board(client: &Client, board: &Container) -> ApiResponse {
     client
         .get(&format!(
-            "/w/{}/boards/{}/archive/export",
+            "/w/{}/containers/{}/archive/export",
             board.workspace_id, board.id
         ))
         .await
@@ -558,7 +558,7 @@ async fn an_archive_carries_the_images_of_bodies() {
     let file = ts
         .client
         .get(&format!(
-            "{TEST_WS}/boards/{}/files/{new_file}",
+            "{TEST_WS}/containers/{}/files/{new_file}",
             imported.id
         ))
         .await;
@@ -597,7 +597,7 @@ async fn an_imported_comment_with_an_image_is_not_edited() {
     ts.client
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", board.id),
-            &serde_json::json!([{"boardId": board.id, "parentId": card["id"], "type": "comment",
+            &serde_json::json!([{"containerId": board.id, "parentId": card["id"], "type": "comment",
                                  "createAt": 1, "updateAt": 1, "body": body}]),
         )
         .await
@@ -641,7 +641,7 @@ async fn an_imported_comment_with_an_image_is_not_edited() {
     assert_eq!(versions, serde_json::json!([]));
     ts.client
         .get(&format!(
-            "{TEST_WS}/boards/{}/files/{new_file}",
+            "{TEST_WS}/containers/{}/files/{new_file}",
             imported.id
         ))
         .await
@@ -661,7 +661,7 @@ async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
     let block = |id: &str, parent: &str, kind: &str| {
         line(
             "block",
-            serde_json::json!({"id": id, "boardId": "b1", "parentId": parent, "type": kind,
+            serde_json::json!({"id": id, "containerId": "b1", "parentId": parent, "type": kind,
                                "title": id, "createAt": 1, "updateAt": 1}),
         )
     };
@@ -793,7 +793,7 @@ fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> {
     };
     let card = |id: &str, board_id: &str| {
         serde_json::json!({"type": "block", "data": {
-            "id": id, "boardId": board_id, "type": "card", "title": "card", "createAt": 1,
+            "id": id, "containerId": board_id, "type": "card", "title": "card", "createAt": 1,
             "updateAt": 1,
         }})
     };
@@ -828,11 +828,11 @@ fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> {
 async fn an_archive_with_a_refused_board_stores_nothing() {
     let ts = Setup::native().start().await.init_basic().await;
     let older_type = serde_json::json!({"type": "block", "data": {
-        "id": "t2", "boardId": "b2", "parentId": "c2", "type": "text", "title": "text",
+        "id": "t2", "containerId": "b2", "parentId": "c2", "type": "text", "title": "text",
         "createAt": 1, "updateAt": 1,
     }});
     let oversized = serde_json::json!({"type": "block", "data": {
-        "id": "c3", "boardId": "b2", "type": "card", "title": "big", "createAt": 1,
+        "id": "c3", "containerId": "b2", "type": "card", "title": "big", "createAt": 1,
         "updateAt": 1, "fields": {"note": "x".repeat(70_000)},
     }});
     for (block, says) in [
@@ -1045,7 +1045,7 @@ async fn stalled_download(ts: &TestServer, board_id: &str) -> tokio::net::TcpStr
         .expect("a small receive buffer");
     let mut stream = socket.connect(address).await.expect("connected");
     let request = format!(
-        "GET /api/v1/w/{TEST_WORKSPACE_ID}/boards/{board_id}/archive/export HTTP/1.1\r\nHost: localhost\r\n\
+        "GET /api/v1/w/{TEST_WORKSPACE_ID}/containers/{board_id}/archive/export HTTP/1.1\r\nHost: localhost\r\n\
          Authorization: Bearer {}\r\nX-Requested-With: XMLHttpRequest\r\n\r\n",
         ts.client.token
     );

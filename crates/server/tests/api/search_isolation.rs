@@ -42,7 +42,7 @@ async fn card_read_through_a_team(th: &TestServer, user_id: &str) -> (String, St
         .check_no_content();
     th.client
         .put(
-            &format!("{TEST_WS}/boards/{}/teams/{}", board.id, team.id),
+            &format!("{TEST_WS}/containers/{}/teams/{}", board.id, team.id),
             &json!({"role": "viewer"}),
         )
         .await
@@ -56,7 +56,7 @@ async fn card_of_a_board_in_the_trash(th: &TestServer) -> (String, String) {
     let board = private_board(&th.client, "Gone").await;
     let card = new_card(&th.client, &board.id, "지운 보드의 카드", WORD).await;
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_no_content();
     (board.id, card.id)
@@ -147,7 +147,7 @@ async fn pages_that_went(th: &TestServer) -> Vec<(String, String)> {
     let gone = new_wiki(&th.client).await;
     let of_gone = new_page(&th.client, &gone, "", "지운 위키의 쪽", WORD).await;
     th.client
-        .delete(&format!("{TEST_WS}/boards/{gone}"))
+        .delete(&format!("{TEST_WS}/containers/{gone}"))
         .await
         .check_no_content();
     vec![(trashed.id, kept), (of_gone.id, gone)]
@@ -211,7 +211,7 @@ async fn world(th: &TestServer) -> World {
         .created_json();
     let open_card = new_card(&th.client, &open.id, "열린 카드", "환불규정을 따른다").await;
     th.client2
-        .post_empty(&format!("{TEST_WS}/boards/{}/join", open.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/join", open.id))
         .await
         .check_ok();
     // An open board the second user has not joined: theirs to join, and not to read.

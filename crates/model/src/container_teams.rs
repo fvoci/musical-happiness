@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 /// A workspace team and the role its members inherit on a board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-#[schema(as = BoardTeam)]
 pub struct ContainerTeam {
     /// The group, including its current nonguest members.
     pub team: crate::Team,
@@ -14,7 +13,6 @@ pub struct ContainerTeam {
 
 /// The role given to a team on a board.
 #[derive(Debug, Clone, Copy, Deserialize, utoipa::ToSchema)]
-#[schema(as = BoardTeamRole)]
 pub struct ContainerTeamRole {
     /// The team's role, at most editor.
     pub role: crate::MinimumRole,

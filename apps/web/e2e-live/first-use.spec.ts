@@ -210,7 +210,7 @@ test('somebody starts an organization, and a second person comes in by its link 
   }
   // The tests that follow start in a workspace without boards for everybody: this
   // one is its members' alone from here on.
-  const closed = await api.patch(`/api/v1/w/${workspaceId}/boards/${boardId}`, {
+  const closed = await api.patch(`/api/v1/w/${workspaceId}/containers/${boardId}`, {
     data: { type: 'P' },
   });
   expect(closed.ok()).toBe(true);

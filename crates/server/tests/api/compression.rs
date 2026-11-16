@@ -94,7 +94,7 @@ async fn an_export_is_not_compressed() {
         .await;
     let response = get_encoded(
         &ts.client,
-        &format!("{TEST_WS}/boards/{}/archive/export", board.id),
+        &format!("{TEST_WS}/containers/{}/archive/export", board.id),
         "zstd, br, gzip",
     )
     .await;
@@ -133,7 +133,7 @@ async fn an_error_is_not_compressed() {
     for asked in ["gzip", "br", "zstd"] {
         let response = get_encoded(
             &ts.client,
-            &format!("{TEST_WS}/boards/no-such-board"),
+            &format!("{TEST_WS}/containers/no-such-board"),
             asked,
         )
         .await;

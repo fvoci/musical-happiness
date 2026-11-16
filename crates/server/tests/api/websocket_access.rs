@@ -119,7 +119,7 @@ impl EndShare {
     ];
 
     async fn apply(self, ts: &TestServer, board: &str) {
-        let at = format!("/w/{TEST_WORKSPACE_ID}/boards/{board}");
+        let at = format!("/w/{TEST_WORKSPACE_ID}/containers/{board}");
         match self {
             Self::Off => ts
                 .client

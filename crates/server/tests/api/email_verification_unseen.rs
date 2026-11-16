@@ -68,7 +68,7 @@ impl Places<'_> {
         vec![
             self.users(),
             format!("/w/{workspace}/members"),
-            format!("/w/{workspace}/boards/{board}/members"),
+            format!("/w/{workspace}/containers/{board}/members"),
             format!("/w/{workspace}/audit"),
             format!("/w/{workspace}/invitations"),
             format!("/org/{org}/members?perPage=200"),
@@ -84,7 +84,7 @@ impl Places<'_> {
             org,
             board,
         } = self;
-        let on_board = format!("/w/{workspace}/boards/{board}/members");
+        let on_board = format!("/w/{workspace}/containers/{board}/members");
         vec![
             (Method::GET, format!("{}/{id}", self.users()), Value::Null),
             (
@@ -284,7 +284,7 @@ impl Scene {
         let for_a_guest: Invitation = ada
             .post(
                 &links,
-                &json!({"role": "guest", "boardId": board.id, "boardRole": "viewer"}),
+                &json!({"role": "guest", "containerId": board.id, "containerRole": "viewer"}),
             )
             .await
             .created_json();

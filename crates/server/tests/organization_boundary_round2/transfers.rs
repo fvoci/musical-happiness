@@ -185,7 +185,7 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
     let members: Vec<ContainerMember> = scene
         .ts
         .client
-        .get(&format!("{ROOT_WS}/boards/{}/members", imported.id))
+        .get(&format!("{ROOT_WS}/containers/{}/members", imported.id))
         .await
         .ok_json();
     assert!(
@@ -208,7 +208,7 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
         .ts
         .client
         .get(&format!(
-            "{ROOT_WS}/boards/{}/files/{imported_name}",
+            "{ROOT_WS}/containers/{}/files/{imported_name}",
             imported.id
         ))
         .await;

@@ -139,11 +139,9 @@ impl Category {
 /// A board's place in a category.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
-#[schema(as = CategoryBoardMetadata)]
 pub struct CategoryContainerMetadata {
     /// The identifier of the board.
     #[serde(deserialize_with = "null_as_default")]
-    #[serde(rename = "boardId")]
     pub container_id: String,
     /// Whether the user has hidden the board from the sidebar.
     #[serde(deserialize_with = "null_as_default")]
@@ -153,14 +151,12 @@ pub struct CategoryContainerMetadata {
 /// A category together with the boards in it, in display order.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
-#[schema(as = CategoryBoards)]
 pub struct CategoryContainers {
     /// The category. Its members appear inline in the JSON form.
     #[serde(flatten)]
     pub category: Category,
     /// The boards in the category.
     #[serde(deserialize_with = "null_as_default")]
-    #[serde(rename = "boardMetadata")]
     pub container_metadata: Vec<CategoryContainerMetadata>,
 }
 

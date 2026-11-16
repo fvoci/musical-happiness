@@ -251,7 +251,7 @@ async fn check_authorship(authorship: Authorship) {
     );
     let members: Vec<ContainerMember> = th
         .client
-        .get(&format!("{TEST_WS}/boards/{}/members", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/members", board.id))
         .await
         .ok_json();
     assert!(

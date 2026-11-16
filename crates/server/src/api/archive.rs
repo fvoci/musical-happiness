@@ -15,7 +15,7 @@ use utoipa_axum::routes;
 
 use super::body::decode_object;
 use super::contract::bodies::Binary;
-use super::contract::params::{BoardId, MemberWorkspaceId, WorkspaceId};
+use super::contract::params::{ContainerId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
 use super::require_container_permission;
 use super::workspace::{InContainer, InWorkspace};
@@ -84,10 +84,10 @@ pub(super) async fn require_import_access(
 /// broken before the archive's end.
 #[utoipa::path(
     get,
-    path = "/w/{workspaceId}/boards/{boardId}/archive/export",
-    operation_id = "exportBoardArchive",
+    path = "/w/{workspaceId}/containers/{containerId}/archive/export",
+    operation_id = "exportContainerArchive",
     tag = tag::ARCHIVES,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     responses((
         status = 200,
         description = "The archive.",
@@ -134,7 +134,7 @@ async fn handle_export_container(
 /// An archive of the boards and wikis of the workspace that the user is a member of
 /// with a role, and of its open ones for who works in the workspace (also those they
 /// have not joined), offered as a download with its length, in the format of
-/// `exportBoardArchive`, and under its limits. 404 unless the user is a member of the
+/// `exportContainerArchive`, and under its limits. 404 unless the user is a member of the
 /// workspace; a guest's archive has the boards and wikis they were invited to.
 #[utoipa::path(
     get,

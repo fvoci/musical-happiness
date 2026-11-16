@@ -60,7 +60,10 @@ async fn refusals_are_counted_by_the_name_of_their_problem() {
     let response = server.client.get("/no-such-route").await;
     assert_eq!(response.status, StatusCode::NOT_FOUND);
     // Refused by the framework, and made a problem.
-    let response = server.client.get(&format!("{TEST_WS}/boards/%FF")).await;
+    let response = server
+        .client
+        .get(&format!("{TEST_WS}/containers/%FF"))
+        .await;
     assert_eq!(response.status, StatusCode::BAD_REQUEST);
     let response = server.client.get("/hello").await;
     assert_eq!(response.status, StatusCode::OK);
@@ -88,7 +91,7 @@ async fn what_a_client_sends_makes_no_problem_of_its_own() {
         let word = fvoci_model::new_id();
         let path = match n % 4 {
             0 => format!("/api/v1/{word}"),
-            1 => format!("/api/v1/boards/{word}"),
+            1 => format!("/api/v1/containers/{word}"),
             2 => format!("/api/v1/problems/{word}"),
             _ => format!("/problems/{word}"),
         };
@@ -219,13 +222,16 @@ async fn the_operations_on_the_local_disk_are_measured() {
     let file_id = crate::files::uploaded_id(&response);
     let download = server
         .client
-        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{file_id}",
+            board.id
+        ))
         .await;
     download.check_ok();
     let missing = server
         .client
         .get(&format!(
-            "{TEST_WS}/boards/{}/files/7{}.txt",
+            "{TEST_WS}/containers/{}/files/7{}.txt",
             board.id,
             fvoci_model::new_id()
         ))
@@ -299,7 +305,7 @@ async fn with_s3_the_steps_of_an_upload_in_parts_are_measured() {
         async move {
             let response = client
                 .post(
-                    &format!("{TEST_WS}/boards/{board_id}/uploads"),
+                    &format!("{TEST_WS}/containers/{board_id}/uploads"),
                     &serde_json::json!({"name": name, "size": 3}),
                 )
                 .await;

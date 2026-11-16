@@ -76,7 +76,7 @@
       "members": {
         "action": "string",
         "workspaceId": "string",
-        "board": "#Board"
+        "board": "#Container"
       }
     },
     "UPDATE_BLOCK": {
@@ -90,14 +90,14 @@
       "members": {
         "action": "string",
         "workspaceId": "string",
-        "member": "#BoardMember"
+        "member": "#ContainerMember"
       }
     },
     "DELETE_MEMBER": {
       "members": {
         "action": "string",
         "workspaceId": "string",
-        "member": "#BoardMember"
+        "member": "#ContainerMember"
       }
     },
     "UPDATE_CATEGORY": {

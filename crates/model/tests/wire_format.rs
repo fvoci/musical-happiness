@@ -34,7 +34,7 @@ fn block_json_members() {
     let want = json!({
         "id": "a1", "parentId": "c1", "createdBy": "u1", "modifiedBy": "u2", "schema": 1,
         "type": "comment", "title": "hello", "fields": { "a": [true], "z": 1 }, "body": null,
-        "createAt": 10, "updateAt": 20, "deleteAt": 0, "boardId": "b1"
+        "createAt": 10, "updateAt": 20, "deleteAt": 0, "containerId": "b1"
     });
     assert_eq!(
         to_json(&block),
@@ -329,7 +329,7 @@ fn board_member_json_members() {
     assert_eq!(
         to_json(&member),
         json!({
-            "boardId": "b", "userId": "u",
+            "containerId": "b", "userId": "u",
             "schemeAdmin": true, "schemeEditor": false, "schemeCommenter": true,
             "schemeViewer": false, "synthetic": true, "inheritedRole": "editor"
         })
@@ -339,7 +339,7 @@ fn board_member_json_members() {
 #[test]
 fn patch_boards_and_blocks_json_members() {
     let patch: PatchContainersAndBlocks = serde_json::from_value(json!({
-        "boardIds": ["b"], "boardPatches": [{ "title": "t" }],
+        "containerIds": ["b"], "containerPatches": [{ "title": "t" }],
         "blockIds": ["a"], "blockPatches": [{ "title": "u" }]
     }))
     .expect("decodes");
@@ -401,7 +401,7 @@ fn category_boards_json_flattens_the_category() {
         json!({
             "id": "7c", "name": "Boards", "userId": "", "workspaceId": "", "createAt": 0,
             "updateAt": 0, "deleteAt": 0, "collapsed": false, "sortOrder": 30,
-            "type": "custom", "boardMetadata": [{ "boardId": "b1", "hidden": true }]
+            "type": "custom", "containerMetadata": [{ "containerId": "b1", "hidden": true }]
         })
     );
 }
@@ -727,7 +727,7 @@ fn null_members_decode_as_empty_values() {
     let block: Block = serde_json::from_value(json!({
         "id": null, "parentId": null, "createdBy": null, "modifiedBy": null, "schema": null,
         "type": "card", "title": null, "fields": null, "createAt": null, "updateAt": null,
-        "deleteAt": null, "boardId": null,
+        "deleteAt": null, "containerId": null,
     }))
     .expect("a block with null members decodes");
     assert_eq!(
@@ -756,7 +756,7 @@ fn null_members_decode_as_empty_values() {
     );
 
     let member: ContainerMember = serde_json::from_value(json!({
-        "boardId": null, "userId": null, "roles": null, "minimumRole": null,
+        "containerId": null, "userId": null, "roles": null, "minimumRole": null,
         "schemeAdmin": null, "schemeEditor": null, "schemeCommenter": null, "schemeViewer": null,
     }))
     .expect("a member with null members decodes");

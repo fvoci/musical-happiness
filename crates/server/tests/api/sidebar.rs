@@ -145,7 +145,7 @@ pub(crate) async fn file_board(
 ) {
     let response = client
         .post_empty(&format!(
-            "/w/{workspace_id}/categories/{category_id}/boards/{board_id}"
+            "/w/{workspace_id}/categories/{category_id}/containers/{board_id}"
         ))
         .await;
     response.check_no_content();
@@ -357,7 +357,7 @@ async fn hide_unhide_board() {
     assert!(!listed[0].container_metadata[0].hidden, "not hidden");
 
     let place = format!(
-        "{}/{}/boards/{}",
+        "{}/{}/containers/{}",
         categories_path(TEST_WORKSPACE_ID),
         listed[0].category.id,
         listed[0].container_metadata[0].container_id
@@ -1180,7 +1180,7 @@ async fn get_user_category_boards_user_had_no_default_category_but_had_no_boards
             "deleteAt": 0,
             "collapsed": false,
             "type": "system",
-            "boardMetadata": [],
+            "containerMetadata": [],
             // Preserved quirk: a category created at the top is stored one place down.
             "sortOrder": 10,
         }),
@@ -1447,19 +1447,19 @@ async fn category_routes_need_a_session() {
         (Method::DELETE, &format!("{ROOT_WS}/categories/any")),
         (
             Method::PUT,
-            &format!("{ROOT_WS}/categories/any/board-order"),
+            &format!("{ROOT_WS}/categories/any/container-order"),
         ),
         (
             Method::POST,
-            &format!("{ROOT_WS}/categories/any/boards/any"),
+            &format!("{ROOT_WS}/categories/any/containers/any"),
         ),
         (
             Method::PUT,
-            &format!("{ROOT_WS}/categories/any/boards/any/hide"),
+            &format!("{ROOT_WS}/categories/any/containers/any/hide"),
         ),
         (
             Method::PUT,
-            &format!("{ROOT_WS}/categories/any/boards/any/unhide"),
+            &format!("{ROOT_WS}/categories/any/containers/any/unhide"),
         ),
     ];
 
@@ -1489,7 +1489,8 @@ async fn category_routes_need_a_workspace_that_exists() {
     for workspace_id in [UNKNOWN_ID, "1"] {
         let categories = categories_path(workspace_id);
         let one = format!("{categories}/{}", created.id);
-        let place = format!("{one}/boards/{}", board.id);
+        let place = format!("{one}/containers/{}", board.id);
+        let order = format!("{one}/container-order");
         let new = json!({"name": "New", "userId": user.id, "workspaceId": workspace_id});
         let change = json!({
             "id": created.id, "name": "Renamed", "userId": user.id, "workspaceId": workspace_id,
@@ -1504,7 +1505,7 @@ async fn category_routes_need_a_workspace_that_exists() {
             ),
             (Method::PUT, one.clone(), change),
             (Method::DELETE, one.clone(), Value::Null),
-            (Method::PUT, format!("{one}/board-order"), json!([board.id])),
+            (Method::PUT, order, json!([board.id])),
             (Method::POST, place.clone(), Value::Null),
             (Method::PUT, format!("{place}/hide"), Value::Null),
             (Method::PUT, format!("{place}/unhide"), Value::Null),
@@ -2119,7 +2120,7 @@ async fn reorder_category_boards_over_the_api() {
     for board_id in &boards {
         file_board(&th.client, ROOT_WORKSPACE_ID, &created.id, board_id).await;
     }
-    let path = format!("{ROOT_WS}/categories/{}/board-order", created.id);
+    let path = format!("{ROOT_WS}/categories/{}/container-order", created.id);
     let order = async || {
         let listed = category_boards(&th.client, ROOT_WORKSPACE_ID).await;
         board_ids(entry(&listed, &created.id))
@@ -2155,9 +2156,9 @@ async fn reorder_category_boards_over_the_api() {
 
     // A category of another workspace than the path's, and one that does not exist.
     for route in [
-        format!("{TEST_WS}/categories/{}/board-order", created.id),
-        format!("{ROOT_WS}/categories/{UNKNOWN_ID}/board-order"),
-        format!("{ROOT_WS}/categories/nope/board-order"),
+        format!("{TEST_WS}/categories/{}/container-order", created.id),
+        format!("{ROOT_WS}/categories/{UNKNOWN_ID}/container-order"),
+        format!("{ROOT_WS}/categories/nope/container-order"),
     ] {
         let response = th.client.put(&route, &new_order).await;
         check_error(&response, StatusCode::NOT_FOUND, "category not found");
@@ -2170,7 +2171,7 @@ async fn reorder_category_boards_over_the_api() {
         .client
         .send_raw_body(
             Method::PUT,
-            &format!("{ROOT_WS}/categories/{default_id}/board-order"),
+            &format!("{ROOT_WS}/categories/{default_id}/container-order"),
             "[]",
         )
         .await;
@@ -2202,7 +2203,7 @@ async fn update_category_board_over_the_api() {
         create_category(&th.client, &category(ROOT_WORKSPACE_ID, &user.id, "Cat A")).await;
     let board_path = |workspace_id: &str, category_id: &str| {
         format!(
-            "/w/{workspace_id}/categories/{category_id}/boards/{}",
+            "/w/{workspace_id}/categories/{category_id}/containers/{}",
             board.id
         )
     };
@@ -2271,7 +2272,7 @@ async fn update_category_board_over_the_api() {
         let response = th
             .client
             .post_empty(&format!(
-                "{ROOT_WS}/categories/{default_id}/boards/{board_id}"
+                "{ROOT_WS}/categories/{default_id}/containers/{board_id}"
             ))
             .await;
         check_error(&response, StatusCode::NOT_FOUND, "board not found");
@@ -2300,29 +2301,30 @@ async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
         "one board"
     );
     let default_id = &before[0].category.id;
+    let board_id = &board.id;
 
     // What does not exist is asked for by an identifier of nothing and by text that is
     // no identifier: the answers are the same.
     for nothing in [UNKNOWN_ID, "nope"] {
         for (path, missing) in [
             (
-                format!("{ROOT_WS}/categories/{nothing}/boards/{nothing}/hide"),
+                format!("{ROOT_WS}/categories/{nothing}/containers/{nothing}/hide"),
                 "category not found",
             ),
             (
-                format!("{ROOT_WS}/categories/{nothing}/boards/{}/hide", board.id),
+                format!("{ROOT_WS}/categories/{nothing}/containers/{board_id}/hide"),
                 "category not found",
             ),
             (
-                format!("{ROOT_WS}/categories/{nothing}/boards/{nothing}/unhide"),
+                format!("{ROOT_WS}/categories/{nothing}/containers/{nothing}/unhide"),
                 "category not found",
             ),
             (
-                format!("{ROOT_WS}/categories/{default_id}/boards/{nothing}/hide"),
+                format!("{ROOT_WS}/categories/{default_id}/containers/{nothing}/hide"),
                 "board not found",
             ),
             (
-                format!("{ROOT_WS}/categories/{default_id}/boards/{nothing}/unhide"),
+                format!("{ROOT_WS}/categories/{default_id}/containers/{nothing}/unhide"),
                 "board not found",
             ),
         ] {
@@ -2334,11 +2336,11 @@ async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
     // A board the user sees, in a category of the user's it is not filed in.
     let other = create_category(&th.client, &category(ROOT_WORKSPACE_ID, &user.id, "Other")).await;
     let before = category_boards(&th.client, ROOT_WORKSPACE_ID).await;
-    let response = put_empty(
-        &th.client,
-        &format!("{ROOT_WS}/categories/{}/boards/{}/hide", other.id, board.id),
-    )
-    .await;
+    let hide = format!(
+        "{ROOT_WS}/categories/{}/containers/{board_id}/hide",
+        other.id
+    );
+    let response = put_empty(&th.client, &hide).await;
     response.check_no_content();
 
     let after = category_boards(&th.client, ROOT_WORKSPACE_ID).await;
@@ -2372,7 +2374,7 @@ async fn the_word_reorder_is_an_identifier_like_any_other() {
 
     // Among the boards of a category: the place of the board `reorder`, which takes
     // `POST` only.
-    let as_board = format!("{ROOT_WS}/categories/{}/boards/reorder", created.id);
+    let as_board = format!("{ROOT_WS}/categories/{}/containers/reorder", created.id);
     let response = th.client.put(&as_board, &[&board.id]).await;
     check_error(
         &response,
@@ -2395,10 +2397,8 @@ async fn the_word_reorder_is_an_identifier_like_any_other() {
     );
     assert_eq!(response.header("allow"), "PUT", "what the path takes");
 
-    let response = th
-        .client
-        .post_empty(&format!("{ROOT_WS}/categories/{}/board-order", created.id))
-        .await;
+    let order = format!("{ROOT_WS}/categories/{}/container-order", created.id);
+    let response = th.client.post_empty(&order).await;
     check_error(
         &response,
         StatusCode::METHOD_NOT_ALLOWED,
@@ -2469,7 +2469,7 @@ async fn filing_a_board_into_another_users_category_is_refused() {
                 .th
                 .client2
                 .post_empty(&format!(
-                    "{ROOT_WS}/categories/{category_id}/boards/{board_id}"
+                    "{ROOT_WS}/categories/{category_id}/containers/{board_id}"
                 ))
                 .await;
             check_error(&response, StatusCode::NOT_FOUND, "category not found");
@@ -2566,7 +2566,7 @@ async fn another_users_category_cannot_be_changed() {
 
     // Reorder the boards in it.
     let response = intruder
-        .put(&format!("{path}/board-order"), &[two.board_id.as_str()])
+        .put(&format!("{path}/container-order"), &[two.board_id.as_str()])
         .await;
     check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
@@ -2587,7 +2587,7 @@ async fn another_users_category_cannot_be_changed() {
     }
 
     // Hide and show.
-    let place = format!("{path}/boards/{}", two.board_id);
+    let place = format!("{path}/containers/{}", two.board_id);
     let response = put_empty(intruder, &format!("{place}/hide")).await;
     check_error(&response, StatusCode::NOT_FOUND, "category not found");
     assert_eq!(

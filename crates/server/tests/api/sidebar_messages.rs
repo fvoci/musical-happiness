@@ -188,7 +188,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
     );
 
     // Hiding and showing send the one board.
-    put_empty(&th.client, &format!("{path}/boards/{first}/hide"))
+    put_empty(&th.client, &format!("{path}/containers/{first}/hide"))
         .await
         .check_no_content();
     assert_eq!(
@@ -196,7 +196,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
         board_change(json!([hidden])),
         "after hiding a board"
     );
-    put_empty(&th.client, &format!("{path}/boards/{first}/unhide"))
+    put_empty(&th.client, &format!("{path}/containers/{first}/unhide"))
         .await
         .check_no_content();
     assert_eq!(
@@ -207,7 +207,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
 
     let board_order = [second.as_str(), first.as_str()];
     th.client
-        .put(&format!("{path}/board-order"), &board_order)
+        .put(&format!("{path}/container-order"), &board_order)
         .await
         .check_ok();
     assert_eq!(
@@ -258,7 +258,7 @@ async fn the_default_category_is_created_once_by_concurrent_requests() {
         "named as the original names it"
     );
     assert_eq!(
-        categories[0]["boardMetadata"].as_array().map(Vec::len),
+        categories[0]["containerMetadata"].as_array().map(Vec::len),
         Some(12),
         "with all twelve boards filed"
     );
@@ -311,7 +311,7 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
     let category_path = format!("{ROOT_WS}/categories/{}", created.id);
     put_empty(
         &th.client,
-        &format!("{category_path}/boards/{}/hide", board.id),
+        &format!("{category_path}/containers/{}/hide", board.id),
     )
     .await
     .check_no_content();
@@ -322,7 +322,7 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         subscribed_socket_of(&th, &third, ROOT_WORKSPACE_ID, &third_user.id).await;
 
     th.client
-        .delete(&format!("{ROOT_WS}/boards/{}", board.id))
+        .delete(&format!("{ROOT_WS}/containers/{}", board.id))
         .await
         .check_no_content();
     th.client2
@@ -330,7 +330,7 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         .await
         .check_no_content();
     th.client
-        .post_empty(&format!("{ROOT_WS}/boards/{}/undelete", board.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/undelete", board.id))
         .await
         .check_ok();
 

@@ -185,16 +185,25 @@ describe('references, from the server', () => {
     boardId: 'b',
     boardKind: 'board',
   };
+  /** The same as the server says it. */
+  const served = {
+    id: 'c',
+    kind: 'card',
+    title: 'Plan',
+    icon: '',
+    containerId: 'b',
+    containerKind: 'board',
+  };
 
   it('asks the three operations under the workspace', async () => {
     const { references } = serverBackend('/base');
-    let sent = serve([linked]);
+    let sent = serve([served]);
     expect(await references.resolve('w1', ['c', 'x', 'c'])).toEqual([linked]);
     expect(sent).toEqual([
       { request: 'POST /base/api/v1/w/w1/references/resolve', body: ['c', 'x'] },
     ]);
 
-    sent = serve([linked]);
+    sent = serve([served]);
     expect(await references.to('w1', 'c 1', { page: 2, perPage: 50 })).toEqual([linked]);
     expect(await references.to('w1', 'c')).toEqual([linked]);
     expect(sent.map((one) => one.request)).toEqual([
@@ -202,7 +211,7 @@ describe('references, from the server', () => {
       'GET /base/api/v1/w/w1/references/to/c',
     ]);
 
-    sent = serve([linked]);
+    sent = serve([served]);
     expect(await references.search('w1', 'road map')).toEqual([linked]);
     expect(sent.map((one) => one.request)).toEqual([
       'GET /base/api/v1/w/w1/references/search?q=road+map',

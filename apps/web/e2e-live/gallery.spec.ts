@@ -43,9 +43,12 @@ test('a gallery shows each card’s first picture and the start of its text, rea
   });
   const sunset = board.cards.Sunset ?? '';
 
-  const uploaded = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/files`, {
-    multipart: { file: { name: 'pixel.png', mimeType: 'image/png', buffer: PIXEL } },
-  });
+  const uploaded = await api.post(
+    `/api/v1/w/${board.workspaceId}/containers/${board.boardId}/files`,
+    {
+      multipart: { file: { name: 'pixel.png', mimeType: 'image/png', buffer: PIXEL } },
+    },
+  );
   expect(uploaded.ok()).toBe(true);
   const { fileId } = (await uploaded.json()) as Schemas['UploadedFile'];
   const writeBody = async (content: unknown[]) => {

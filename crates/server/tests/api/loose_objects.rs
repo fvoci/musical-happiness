@@ -60,7 +60,7 @@ async fn doomed_objects_are_removed_and_tried_again(ts: &TestServer) {
     let (_, unshown) = uploaded(ts, b"shown by no block").await;
     let (board_id, purged) = uploaded(ts, b"of a purged board").await;
     ts.client
-        .delete(&format!("{TEST_WS}/boards/{board_id}"))
+        .delete(&format!("{TEST_WS}/containers/{board_id}"))
         .await
         .check_no_content();
     housekeeping
@@ -411,7 +411,7 @@ async fn finish(
 async fn a_file_that_is_not_recorded_leaves_nothing(ts: &TestServer) {
     let (board_id, path, writer, write) = slow_write(ts).await;
     ts.client
-        .delete(&format!("{TEST_WS}/boards/{board_id}"))
+        .delete(&format!("{TEST_WS}/containers/{board_id}"))
         .await
         .check_no_content();
     finish(writer, write)

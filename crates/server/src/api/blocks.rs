@@ -328,11 +328,11 @@ async fn handle_post_blocks(
             );
         }
         if block.container_id != container_id {
-            return Err(
-                AppError::bad_request(format_args!("invalid boardId for block id {id}"))
-                    .with_field("boardId")
-                    .under(&place),
-            );
+            return Err(AppError::bad_request(format_args!(
+                "invalid containerId for block id {id}"
+            ))
+            .with_field("containerId")
+            .under(&place));
         }
     }
     if has_contents {

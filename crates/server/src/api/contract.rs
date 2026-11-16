@@ -66,7 +66,7 @@ const TAGS: [(&str, &str); 16] = [
         tag::WIKIS,
         "Wikis and their pages. A wiki is a board of the kind `wiki`: who is on it, its \
          sharing, its files, its place in the sidebar and in the trash are asked as a \
-         board's are, under `/boards/{boardId}` with the wiki's identifier.",
+         board's are, under `/containers/{containerId}` with the wiki's identifier.",
     ),
     (tag::MEMBERS, "Who is on a board, and with which role."),
     (tag::SHARING, "Sharing a board with whoever has its link."),
@@ -110,7 +110,7 @@ The API of an fvoci server.
 `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain \
 HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. \
 A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` \
-instead. The operations under `/shared/{boardId}` need no session: they read a shared board with its \
+instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its \
 `readToken`, and look at no session that comes along.
 
 ## Requests that change something
@@ -216,26 +216,26 @@ const SCHEMAS: &[(&str, Members)] = &[
     // What the server answers with.
     (
         "AcceptedInvitation",
-        Members::AllBut(&["boardId", "boardKind"]),
+        Members::AllBut(&["containerId", "containerKind"]),
     ),
-    ("EmailVerified", Members::AllBut(&["boardId"])),
+    ("EmailVerified", Members::AllBut(&["containerId"])),
     ("Block", Members::AllBut(&["editedAt"])),
     ("Body", Members::AsWritten),
-    ("Board", Members::All),
+    ("Container", Members::All),
     (
-        "BoardMember",
+        "ContainerMember",
         Members::AllBut(&["synthetic", "inheritedRole"]),
     ),
-    ("BoardTeam", Members::All),
-    ("BoardTeamRole", Members::AsWritten),
-    ("BoardsAndBlocks", Members::All),
+    ("ContainerTeam", Members::All),
+    ("ContainerTeamRole", Members::AsWritten),
+    ("ContainersAndBlocks", Members::All),
     ("BodyVersion", Members::All),
     ("BodyVersionContent", Members::All),
     ("Card", Members::AllBut(&["preview"])),
     ("CardPreview", Members::All),
     ("Category", Members::All),
-    ("CategoryBoardMetadata", Members::All),
-    ("CategoryBoards", Members::All),
+    ("CategoryContainerMetadata", Members::All),
+    ("CategoryContainers", Members::All),
     ("ClientConfig", Members::All),
     ("CommentVersion", Members::All),
     ("DeletedItem", Members::AllBut(&["kind"])),
@@ -246,8 +246,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     (
         "Invitation",
         Members::AllBut(&[
-            "boardId",
-            "boardRole",
+            "containerId",
+            "containerRole",
             "maxUses",
             "parentId",
             "recipient",
@@ -256,7 +256,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ),
     (
         "InvitationPreview",
-        Members::AllBut(&["boardTitle", "boardKind"]),
+        Members::AllBut(&["containerTitle", "containerKind"]),
     ),
     ("LoginOptions", Members::All),
     ("OidcStart", Members::All),
@@ -312,14 +312,14 @@ const SCHEMAS: &[(&str, Members)] = &[
         "BlockPatchBatch",
         Members::Only(&["blockIds", "blockPatches"]),
     ),
-    ("BoardPatch", Members::Only(&[])),
+    ("ContainerPatch", Members::Only(&[])),
     ("CardPatch", Members::Only(&[])),
     ("CategoryUpdate", Members::AsWritten),
     (
         "ChangePasswordRequest",
         Members::Only(&["oldPassword", "newPassword"]),
     ),
-    ("DeleteBoardsAndBlocks", Members::Only(&["boards"])),
+    ("DeleteContainersAndBlocks", Members::Only(&["containers"])),
     ("FileForm", Members::AsWritten),
     ("FinishPasswordReset", Members::All),
     ("CompleteEmailVerification", Members::Only(&["token"])),
@@ -337,7 +337,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ),
     ("NewBlock", Members::AsWritten),
     ("NewBoard", Members::AsWritten),
-    ("NewBoardsAndBlocks", Members::AsWritten),
+    ("NewContainersAndBlocks", Members::AsWritten),
     ("NewWiki", Members::AsWritten),
     ("NewPage", Members::Only(&[])),
     ("PagePatch", Members::Only(&[])),
@@ -361,8 +361,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ),
     ("OidcStartRequest", Members::Only(&[])),
     (
-        "PatchBoardsAndBlocks",
-        Members::Only(&["boardIds", "boardPatches"]),
+        "PatchContainersAndBlocks",
+        Members::Only(&["containerIds", "containerPatches"]),
     ),
     (
         "RegisterRequest",
@@ -378,10 +378,10 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("UserIds", Members::AsWritten),
     ("UserPreferencesPatch", Members::Only(&[])),
     // Closed sets of words.
-    ("BoardKind", Members::AsWritten),
-    ("BoardType", Members::AsWritten),
     ("CardOpen", Members::AsWritten),
     ("CategoryType", Members::AsWritten),
+    ("ContainerKind", Members::AsWritten),
+    ("ContainerType", Members::AsWritten),
     ("Density", Members::AsWritten),
     ("HourCycle", Members::AsWritten),
     ("LinkedKind", Members::AsWritten),

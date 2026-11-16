@@ -361,7 +361,7 @@ async fn a_new_account_at_the_address_its_guest_link_was_mailed_to_needs_no_conf
         .client
         .post(
             &links,
-            &json!({"role": "guest", "boardId": board.id, "boardRole": "viewer"}),
+            &json!({"role": "guest", "containerId": board.id, "containerRole": "viewer"}),
         )
         .await
         .created_json();
@@ -386,7 +386,7 @@ async fn a_new_account_at_the_address_its_guest_link_was_mailed_to_needs_no_conf
         .await;
     accepted.check_status(StatusCode::OK);
     assert_eq!(
-        accepted.value()["boardId"],
+        accepted.value()["containerId"],
         board.id.as_str(),
         "onto its board"
     );

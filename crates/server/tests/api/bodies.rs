@@ -374,7 +374,7 @@ async fn a_body_comes_back_from_the_trash_and_is_copied() {
 
 /// A card made through `createBlocks` with a body; `body` is that of the block.
 fn card_block(board_id: &str, body: &Value) -> Value {
-    json!({"id": "b1", "boardId": board_id, "type": "card", "createAt": 1, "updateAt": 1,
+    json!({"id": "b1", "containerId": board_id, "type": "card", "createAt": 1, "updateAt": 1,
            "body": body})
 }
 
@@ -445,7 +445,7 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
 
     let read = card(&th.client, &card_id).await;
     let request = json!({
-        "boardIds": [board.id], "boardPatches": [{"title": "n"}],
+        "containerIds": [board.id], "containerPatches": [{"title": "n"}],
         "blockIds": [card_id], "blockPatches": [{"body": null, "readAt": read.update_at}],
     });
     th.client
@@ -460,7 +460,7 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
         .post(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "boards": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
+                "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
                 "blocks": [card_block("bd", &document())],
             }),
         )
@@ -540,7 +540,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
         "blockPatches/0/body",
     );
     let request = json!({
-        "boardIds": [board.id], "boardPatches": [{"title": "n"}],
+        "containerIds": [board.id], "containerPatches": [{"title": "n"}],
         "blockIds": [created.id], "blockPatches": [patch],
     });
     check_refused_member(
@@ -555,7 +555,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
         .post(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "boards": [{"id": board.id, "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
+                "containers": [{"id": board.id, "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
                 "blocks": [card_block(&board.id, &with_image(&file_id))],
             }),
         )
@@ -594,7 +594,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
             "0/body/content/0",
         ),
         (
-            json!({"id": "t1", "boardId": board.id, "parentId": card_id, "type": "attachment",
+            json!({"id": "t1", "containerId": board.id, "parentId": card_id, "type": "attachment",
                    "createAt": 1, "updateAt": 1, "body": document()}),
             "0/body",
         ),
@@ -607,7 +607,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
         .post(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "boards": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
+                "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
                 "blocks": [card_block("bd", &json!("attachment"))],
             }),
         )
@@ -679,7 +679,7 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
         .to_owned();
     assert_ne!(moved, file_id, "a copy of the file");
     th.client
-        .get(&format!("{TEST_WS}/boards/{}/files/{moved}", other.id))
+        .get(&format!("{TEST_WS}/containers/{}/files/{moved}", other.id))
         .await
         .check_ok();
 
@@ -716,10 +716,10 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
     // A copy of the board too.
     let board_copy: Value = th
         .client
-        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/duplicate", board.id))
         .await
         .created_json();
-    let new_board = board_copy["boards"][0]["id"]
+    let new_board = board_copy["containers"][0]["id"]
         .as_str()
         .expect("a board")
         .to_owned();
@@ -731,7 +731,7 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
                 .as_str()
                 .expect("a file");
             th.client
-                .get(&format!("{TEST_WS}/boards/{new_board}/files/{name}"))
+                .get(&format!("{TEST_WS}/containers/{new_board}/files/{name}"))
                 .await
                 .check_ok();
             let stored = card(&th.client, block["id"].as_str().expect("an id")).await;
@@ -744,7 +744,7 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
     );
     th.client
         .get(&format!(
-            "{TEST_WS}/boards/{}/files/{copied_file}",
+            "{TEST_WS}/containers/{}/files/{copied_file}",
             board.id
         ))
         .await
@@ -827,7 +827,7 @@ async fn a_copy_of_a_card_that_shows_an_image_begins_with_one_version() {
 
     let board_copy: Value = th
         .client
-        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/duplicate", board.id))
         .await
         .created_json();
     let mut cards = 0;
@@ -931,7 +931,7 @@ async fn copied_files_are_shown_and_an_unused_upload_is_collected() {
     );
     for (board_id, name) in std::iter::once((board.id.clone(), file_id)).chain(copies) {
         th.client
-            .get(&format!("{TEST_WS}/boards/{board_id}/files/{name}"))
+            .get(&format!("{TEST_WS}/containers/{board_id}/files/{name}"))
             .await
             .check_ok();
     }
@@ -973,7 +973,7 @@ async fn a_comment_has_a_body() {
         .await
         .created_json();
     let comment = |body: &Value| {
-        json!([{"id": "c1", "boardId": board.id, "parentId": card.id, "type": "comment",
+        json!([{"id": "c1", "containerId": board.id, "parentId": card.id, "type": "comment",
                 "createAt": 1, "updateAt": 1, "body": body}])
     };
 
@@ -1040,7 +1040,7 @@ async fn a_comment_has_a_body() {
                 "{TEST_WS}/boards/{}/blocks?sourceBoardId={}",
                 other.id, board.id
             ),
-            &json!([{"id": "c2", "boardId": other.id, "parentId": other_card.id,
+            &json!([{"id": "c2", "containerId": other.id, "parentId": other_card.id,
                      "type": "comment", "createAt": 1, "updateAt": 1,
                      "body": with_image(&file_id)}]),
         )
@@ -1051,7 +1051,7 @@ async fn a_comment_has_a_body() {
         .expect("a file");
     assert_ne!(name, file_id, "a copy of the file");
     th.client
-        .get(&format!("{TEST_WS}/boards/{}/files/{name}", other.id))
+        .get(&format!("{TEST_WS}/containers/{}/files/{name}", other.id))
         .await
         .check_ok();
 
@@ -1078,7 +1078,7 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
         .client
         .post(
             &blocks,
-            &json!([{"id": "c1", "boardId": board.id, "parentId": card.id,
+            &json!([{"id": "c1", "containerId": board.id, "parentId": card.id,
                      "type": "comment", "createAt": 1, "updateAt": 1,
                      "body": with_image(&file_id)}]),
         )
@@ -1094,7 +1094,7 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
     let read = block_of(&th.client, &board.id, &comment_id).await;
     assert_eq!(read["body"], document(), "{read}");
     let request = json!({
-        "boardIds": [board.id], "boardPatches": [{"title": "n"}],
+        "containerIds": [board.id], "containerPatches": [{"title": "n"}],
         "blockIds": [comment_id],
         "blockPatches": [{"body": with_image(&file_id), "readAt": read["updateAt"]}],
     });
@@ -1133,10 +1133,10 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
         .post(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "boards": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
+                "containers": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
                 "blocks": [
-                    {"id": "k1", "boardId": "bd", "type": "card", "createAt": 1, "updateAt": 1},
-                    {"id": "m1", "boardId": "bd", "parentId": "k1", "type": "comment",
+                    {"id": "k1", "containerId": "bd", "type": "card", "createAt": 1, "updateAt": 1},
+                    {"id": "m1", "containerId": "bd", "parentId": "k1", "type": "comment",
                      "createAt": 1, "updateAt": 1, "body": document()},
                 ],
             }),
@@ -1203,7 +1203,7 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
         .await
         .created_json();
     let comment = |id: &str, body: &Value| {
-        json!([{"id": id, "boardId": board.id, "parentId": card.id, "type": "comment",
+        json!([{"id": id, "containerId": board.id, "parentId": card.id, "type": "comment",
                 "createAt": 1, "updateAt": 1, "body": body}])
     };
 
@@ -1264,7 +1264,7 @@ async fn a_changed_comment_says_so_and_its_members_read_what_it_said() {
         .client
         .post(
             &blocks,
-            &json!([{"boardId": board.id, "parentId": card.id, "type": "comment",
+            &json!([{"containerId": board.id, "parentId": card.id, "type": "comment",
                      "createAt": 1, "updateAt": 1, "editedAt": 5, "body": paragraph_doc("first")}]),
         )
         .await

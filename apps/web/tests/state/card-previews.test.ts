@@ -95,7 +95,7 @@ describe('the server backend', () => {
 
     const block = cardOfBlock({
       id: 'c4',
-      boardId: 'b',
+      containerId: 'b',
       parentId: 'b',
       createdBy: 'u',
       modifiedBy: 'u',

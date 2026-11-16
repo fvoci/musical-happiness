@@ -891,7 +891,7 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
 async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connection() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let sharing = |board_id: &str| format!("{ROOT_WS}/boards/{board_id}/sharing");
+    let sharing = |board_id: &str| format!("{ROOT_WS}/containers/{board_id}/sharing");
 
     // Sharing turned off.
     let (board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
@@ -935,7 +935,7 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
 
     // The board deleted: its sharing went with it.
     th.client
-        .delete(&format!("{ROOT_WS}/boards/{}", board.id))
+        .delete(&format!("{ROOT_WS}/containers/{}", board.id))
         .await
         .check_no_content();
     assert_eq!(
@@ -950,7 +950,7 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
     th.client
         .delete_json(
             &format!("{ROOT_WS}/boards-and-blocks"),
-            &json!({"boards": [board.id], "blocks": [block.id]}),
+            &json!({"containers": [board.id], "blocks": [block.id]}),
         )
         .await
         .check_no_content();
@@ -1411,7 +1411,7 @@ async fn card_properties_are_put_in_order_and_the_board_is_told() {
     assert_eq!(ids(&message["board"]), [json!("c"), json!("a"), json!("b")]);
     let stored = th
         .client
-        .get(&format!("{ROOT_WS}/boards/{}", board.id))
+        .get(&format!("{ROOT_WS}/containers/{}", board.id))
         .await
         .value();
     assert_eq!(ids(&stored), [json!("c"), json!("a"), json!("b")]);
@@ -1422,7 +1422,7 @@ async fn card_properties_are_put_in_order_and_the_board_is_told() {
     assert_eq!(answered, ["b", "c", "a"]);
     let by_editor = th
         .client
-        .get(&format!("{ROOT_WS}/boards/{}", board.id))
+        .get(&format!("{ROOT_WS}/containers/{}", board.id))
         .await
         .value();
     assert_eq!(by_editor["modifiedBy"], json!(editor.id), "{by_editor}");
@@ -1452,7 +1452,7 @@ async fn card_properties_are_put_in_order_and_the_board_is_told() {
         .check_status(reqwest::StatusCode::NOT_FOUND);
     let stored = th
         .client
-        .get(&format!("{ROOT_WS}/boards/{}", board.id))
+        .get(&format!("{ROOT_WS}/containers/{}", board.id))
         .await
         .value();
     assert_eq!(

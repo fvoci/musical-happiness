@@ -225,7 +225,10 @@ async fn paths_with_identifiers_are_counted_under_their_template() {
     let server = server_with_metrics().await;
     let ids: Vec<String> = (0..3).map(|_| fvoci_model::new_id()).collect();
     for id in &ids {
-        let response = server.client.get(&format!("{TEST_WS}/boards/{id}")).await;
+        let response = server
+            .client
+            .get(&format!("{TEST_WS}/containers/{id}"))
+            .await;
         assert_eq!(response.status, StatusCode::UNAUTHORIZED, "no session");
     }
     let body = scrape(&server).await;
@@ -233,7 +236,7 @@ async fn paths_with_identifiers_are_counted_under_their_template() {
         requests(
             &body,
             "GET",
-            "/api/v1/w/{workspaceId}/boards/{boardId}",
+            "/api/v1/w/{workspaceId}/containers/{containerId}",
             "401"
         ),
         Some(3.0),
@@ -258,7 +261,7 @@ async fn paths_and_methods_that_are_no_route_do_not_make_labels() {
             let path = match n % 3 {
                 0 => format!("/api/v1/{word}"),
                 1 => format!("/{word}/{n}"),
-                _ => format!("/api/v2/boards/{word}"),
+                _ => format!("/api/v2/containers/{word}"),
             };
             let method = if n % 2 == 0 {
                 Method::GET
@@ -477,7 +480,7 @@ async fn the_pool_and_the_open_uploads_are_measured() {
         let opened = server
             .client
             .post(
-                &format!("{TEST_WS}/boards/{}/uploads", board.id),
+                &format!("{TEST_WS}/containers/{}/uploads", board.id),
                 &serde_json::json!({"name": "a.txt", "size": size}),
             )
             .await;
@@ -531,7 +534,7 @@ async fn the_archives_that_hold_their_place_are_counted() {
         .await;
     let export = server
         .client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))
         .await;
     assert_eq!(export.status, StatusCode::OK);
     let imported = crate::export::import(
@@ -575,7 +578,7 @@ async fn the_archives_that_hold_their_place_are_counted() {
         Some(0.0),
         "given back"
     );
-    let export_route = "/api/v1/w/{workspaceId}/boards/{boardId}/archive/export";
+    let export_route = "/api/v1/w/{workspaceId}/containers/{containerId}/archive/export";
     let import_route = "/api/v1/w/{workspaceId}/archive/import";
     assert_eq!(
         requests(&body, "GET", export_route, "200"),
@@ -621,7 +624,7 @@ async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
     for (id, times) in [(&board.id, 1), (&wiki, 2)] {
         for _ in 0..times {
             let export = client
-                .get(&format!("{TEST_WS}/boards/{id}/archive/export"))
+                .get(&format!("{TEST_WS}/containers/{id}/archive/export"))
                 .await;
             export.check_ok();
             crate::export::import(client, crate::common::TEST_WORKSPACE_ID, &export.body)
@@ -630,7 +633,7 @@ async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
         }
         client
             .post(
-                &format!("{TEST_WS}/boards/{id}/duplicate"),
+                &format!("{TEST_WS}/containers/{id}/duplicate"),
                 &serde_json::json!({}),
             )
             .await

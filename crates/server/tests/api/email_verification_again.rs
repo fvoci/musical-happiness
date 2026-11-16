@@ -97,7 +97,7 @@ impl Org {
         self.founder
             .post(
                 &format!("/w/{}/invitations", self.workspace_id),
-                &json!({"role": "guest", "boardId": board.id, "boardRole": "viewer"}),
+                &json!({"role": "guest", "containerId": board.id, "containerRole": "viewer"}),
             )
             .await
             .created_json()
@@ -337,7 +337,7 @@ async fn accepting_again_gives_back_the_use_the_first_registration_took() {
     let link = newest_link(&th, &smtp, "gwen@example.test").await;
     let confirmed = complete_with_marker(&th, &link, &marker).await;
     confirmed.check_status(StatusCode::OK);
-    assert_eq!(confirmed.value()["boardId"], json!(guests.container_id));
+    assert_eq!(confirmed.value()["containerId"], json!(guests.container_id));
     assert_eq!(
         org.uses(&th, &guests).await,
         1,

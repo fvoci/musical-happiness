@@ -82,7 +82,7 @@ export function pageOfBlock(block: Schemas['Block']): WikiPage {
       createAt: block.createAt,
       updateAt: block.updateAt,
     },
-    block.boardId,
+    block.containerId,
   );
 }
 
@@ -120,24 +120,24 @@ function pagePatchOf(patch: PagePatch): Schemas['PagePatch'] {
 export class ServerWikis implements Wikis {
   readonly #request: WikiRequest;
   /** Keeps the workspace of each wiki read, for the paths under it. */
-  readonly #learn: (wikis: readonly Schemas['Board'][]) => void;
+  readonly #learn: (wikis: readonly Schemas['Container'][]) => void;
 
   readonly bodyVersions: ServerPageVersions;
 
-  constructor(request: WikiRequest, learn: (wikis: readonly Schemas['Board'][]) => void) {
+  constructor(request: WikiRequest, learn: (wikis: readonly Schemas['Container'][]) => void) {
     this.#request = request;
     this.#learn = learn;
     this.bodyVersions = new ServerPageVersions(request);
   }
 
   async wikis(workspaceId: string): Promise<Board[]> {
-    const wikis = await this.#request<Schemas['Board'][]>('/wikis', {}, {}, workspaceId);
+    const wikis = await this.#request<Schemas['Container'][]>('/wikis', {}, {}, workspaceId);
     this.#learn(wikis);
     return wikis.map(boardOf);
   }
 
   async createWiki(workspaceId: string, draft: WikiDraft): Promise<Board> {
-    const wiki = await this.#request<Schemas['Board']>(
+    const wiki = await this.#request<Schemas['Container']>(
       '/wikis',
       {},
       { method: 'POST', json: newWikiOf(draft) },

@@ -60,7 +60,7 @@ async fn a_role_change_and_removal_reach_every_connection_immediately() {
     let changed_at = Instant::now();
     th.client
         .delete(&format!(
-            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user}",
+            "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user}",
             table.board_id
         ))
         .await
@@ -162,7 +162,7 @@ async fn a_template_closed_to_the_workspace_puts_out_its_uninvited_readers() {
     let changed_at = Instant::now();
     th.client
         .patch(
-            &format!("/w/{TEST_WORKSPACE_ID}/boards/{board}"),
+            &format!("/w/{TEST_WORKSPACE_ID}/containers/{board}"),
             &json!({"type": "P"}),
         )
         .await
@@ -180,7 +180,7 @@ async fn a_batch_closing_a_template_puts_out_its_uninvited_readers() {
     let (board, mut reader) = template_reader(&th).await;
     let changed_at = Instant::now();
     th.client.patch(&format!("/w/{TEST_WORKSPACE_ID}/boards-and-blocks"), &json!({
-        "boardIds": [board], "boardPatches": [{"type": "P"}], "blockIds": [], "blockPatches": [],
+        "containerIds": [board], "containerPatches": [{"type": "P"}], "blockIds": [], "blockPatches": [],
     })).await.check_ok();
     assert_eq!(
         soon(&mut reader, "DOC_LEFT", changed_at).await["reason"],
@@ -205,8 +205,8 @@ async fn a_batch_closing_several_templates_puts_out_the_readers_of_each() {
         .patch(
             &format!("/w/{TEST_WORKSPACE_ID}/boards-and-blocks"),
             &json!({
-                "boardIds": [roomless, first, second],
-                "boardPatches": [{"type": "P"}, {"type": "P"}, {"type": "P"}],
+                "containerIds": [roomless, first, second],
+                "containerPatches": [{"type": "P"}, {"type": "P"}, {"type": "P"}],
                 "blockIds": [], "blockPatches": [],
             }),
         )
@@ -230,7 +230,7 @@ async fn trashing_a_board_or_workspace_empties_its_rooms_immediately() {
             let org = crate::org_admin::org_of(&th).await;
             format!("/org/{org}/workspaces/{TEST_WORKSPACE_ID}")
         } else {
-            format!("/w/{TEST_WORKSPACE_ID}/boards/{}", table.board_id)
+            format!("/w/{TEST_WORKSPACE_ID}/containers/{}", table.board_id)
         };
         let changed_at = Instant::now();
         th.client.delete(&path).await.check_no_content();
@@ -374,7 +374,7 @@ async fn a_board_passed_to_the_workspace_admin_lets_them_write_at_once() {
     let (me, other) = (th.client.me().await.id, th.client2.me().await.id);
     let path = |user: &str| {
         format!(
-            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user}",
+            "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user}",
             t.board_id
         )
     };

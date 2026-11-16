@@ -100,7 +100,7 @@ async fn a_slow_permission_read_puts_out_nobody_whose_read_was_not_slow() {
     let _stalled = th.app.collab().stall_next_access_check();
     th.client
         .patch(
-            &format!("/w/{TEST_WORKSPACE_ID}/boards/{}", table.board_id),
+            &format!("/w/{TEST_WORKSPACE_ID}/containers/{}", table.board_id),
             &json!({"minimumRole": "viewer"}),
         )
         .await

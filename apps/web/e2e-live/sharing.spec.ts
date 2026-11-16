@@ -25,13 +25,13 @@ test.use({ locale: 'en-US' });
 
 async function members(api: APIRequestContext, board: { workspaceId: string; boardId: string }) {
   return (await (
-    await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/members`)
-  ).json()) as Schemas['BoardMember'][];
+    await api.get(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}/members`)
+  ).json()) as Schemas['ContainerMember'][];
 }
 
 async function sharing(api: APIRequestContext, board: { workspaceId: string; boardId: string }) {
   return (await (
-    await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/sharing`)
+    await api.get(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}/sharing`)
   ).json()) as Schemas['Sharing'];
 }
 
@@ -103,8 +103,8 @@ test('a board is shared from its dialog, and every change is kept on the server'
   await expect
     .poll(async () => {
       const read = (await (
-        await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`)
-      ).json()) as Schemas['Board'];
+        await api.get(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}`)
+      ).json()) as Schemas['Container'];
       return [read.type, read.minimumRole];
     })
     .toEqual(['O', 'commenter']);

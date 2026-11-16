@@ -10,7 +10,7 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::common::{
-    ApiResponse, Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID,
+    ApiResponse, Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID, container_path,
 };
 
 const MANAGERS_ONLY: &str = "only the administrators of the workspace manage its members";
@@ -106,7 +106,7 @@ async fn guest_of(th: &TestServer, inviter: &Client, board: &Container, username
     let link: Invitation = inviter
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/invitations"),
-            &json!({"role": "guest", "boardId": board.id}),
+            &json!({"role": "guest", "containerId": board.id}),
         )
         .await
         .created_json();
@@ -332,25 +332,16 @@ async fn a_member_made_a_guest_edits_their_boards_and_administers_none() {
     );
 
     // The guest reads and edits, and manages nothing.
+    th.client2.get(&container_path(&theirs)).await.check_ok();
     th.client2
-        .get(&format!("/w/{}/boards/{}", theirs.workspace_id, theirs.id))
+        .patch(&container_path(&theirs), &json!({"title": "Edited"}))
         .await
         .check_ok();
     th.client2
-        .patch(
-            &format!("/w/{}/boards/{}", theirs.workspace_id, theirs.id),
-            &json!({"title": "Edited"}),
-        )
-        .await
-        .check_ok();
-    th.client2
-        .delete(&format!("/w/{}/boards/{}", theirs.workspace_id, theirs.id))
+        .delete(&container_path(&theirs))
         .await
         .check_status(StatusCode::FORBIDDEN);
-    th.client
-        .get(&format!("/w/{}/boards/{}", theirs.workspace_id, theirs.id))
-        .await
-        .check_ok();
+    th.client.get(&container_path(&theirs)).await.check_ok();
 
     th.teardown().await;
 }
@@ -377,7 +368,7 @@ async fn a_member_taken_out_finds_no_workspace_and_their_boards_pass_on() {
         .client2
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/invitations"),
-            &json!({"role": "guest", "boardId": theirs.id}),
+            &json!({"role": "guest", "containerId": theirs.id}),
         )
         .await
         .created_json();
@@ -408,7 +399,7 @@ async fn a_member_taken_out_finds_no_workspace_and_their_boards_pass_on() {
     }
     for board in [&theirs, &shared] {
         th.client2
-            .get(&format!("/w/{}/boards/{}", board.workspace_id, board.id))
+            .get(&container_path(board))
             .await
             .check_status(StatusCode::NOT_FOUND);
     }
@@ -460,7 +451,7 @@ async fn a_member_taken_out_finds_no_workspace_and_their_boards_pass_on() {
         .check_ok();
     assert_eq!(role_of(&th.client2).await, Some(WorkspaceRole::Member));
     th.client2
-        .get(&format!("/w/{}/boards/{}", theirs.workspace_id, theirs.id))
+        .get(&container_path(&theirs))
         .await
         .check_status(StatusCode::NOT_FOUND);
     assert_eq!(roles_on(&th, &theirs).await, admin_alone);
@@ -533,12 +524,12 @@ async fn the_sidebar_of_a_guest_has_the_boards_they_are_on_and_no_other() {
             .into_iter()
             .flatten()
             .flat_map(|category| {
-                category["boardMetadata"]
+                category["containerMetadata"]
                     .as_array()
                     .cloned()
                     .unwrap_or_default()
             })
-            .filter_map(|entry| entry["boardId"].as_str().map(str::to_owned))
+            .filter_map(|entry| entry["containerId"].as_str().map(str::to_owned))
             .collect();
         (
             categories[0]["id"].as_str().unwrap_or_default().to_owned(),
@@ -546,7 +537,7 @@ async fn the_sidebar_of_a_guest_has_the_boards_they_are_on_and_no_other() {
         )
     };
     let (category_id, _) = filed().await;
-    let file_the_open_board = format!("{sidebar}/{category_id}/boards/{}", open.id);
+    let file_the_open_board = format!("{sidebar}/{category_id}/containers/{}", open.id);
     th.client2
         .post_empty(&file_the_open_board)
         .await

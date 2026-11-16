@@ -87,7 +87,7 @@ async fn check_handbook(ts: &TestServer, at: &str, copy: &str, source: &Handbook
         .to_owned();
     assert_ne!(file, source.file, "a file of the copy's own");
     let read = client
-        .get(&format!("{at}/boards/{copy}/files/{file}"))
+        .get(&format!("{at}/containers/{copy}/files/{file}"))
         .await;
     read.check_ok();
     assert_eq!(read.body, b"a picture\n", "the same bytes");
@@ -101,7 +101,7 @@ async fn check_handbook(ts: &TestServer, at: &str, copy: &str, source: &Handbook
         assert!(kept.expect("the versions").is_empty(), "no versions come");
     }
     let members: Vec<ContainerMember> = client
-        .get(&format!("{at}/boards/{copy}/members"))
+        .get(&format!("{at}/containers/{copy}/members"))
         .await
         .ok_json();
     let me = client.me().await.id;
@@ -120,7 +120,10 @@ async fn a_wiki_exported_by_its_route_is_imported_into_another_workspace_as_it_w
     let elsewhere = made(client, TEST_WS, "O", "elsewhere").await;
     let source = handbook(client, &elsewhere.card).await;
     let exported = client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", source.wiki))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/archive/export",
+            source.wiki
+        ))
         .await;
     exported.check_ok();
 
@@ -216,7 +219,7 @@ fn board_line(id: &str, kind: &str, title: &str) -> Value {
 
 fn block_line(id: &str, board: &str, parent: &str, block_type: &str) -> Value {
     json!({"type": "block", "data": {
-        "id": id, "boardId": board, "parentId": parent, "type": block_type,
+        "id": id, "containerId": board, "parentId": parent, "type": block_type,
         "title": id, "createAt": 1, "updateAt": 1,
     }})
 }

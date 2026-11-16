@@ -7,8 +7,8 @@
     "body": {
       "blocks": [
         {
-          "boardId": "<id:2>",
           "body": null,
+          "containerId": "<id:2>",
           "createAt": "<ts>",
           "createdBy": "<id:3>",
           "deleteAt": 0,
@@ -22,8 +22,8 @@
           "updateAt": "<ts>"
         },
         {
-          "boardId": "<id:5>",
           "body": null,
+          "containerId": "<id:5>",
           "createAt": "<ts>",
           "createdBy": "<id:3>",
           "deleteAt": 0,
@@ -37,7 +37,7 @@
           "updateAt": "<ts>"
         }
       ],
-      "boards": [
+      "containers": [
         {
           "cardProperties": [],
           "createAt": "<ts>",
@@ -103,11 +103,11 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid boardId elsewhere (no board of the request has that id)",
+      "detail": "invalid containerId elsewhere (no board of the request has that id)",
       "errors": [
         {
-          "detail": "invalid boardId elsewhere (no board of the request has that id)",
-          "pointer": "/blocks/0/boardId",
+          "detail": "invalid containerId elsewhere (no board of the request has that id)",
+          "pointer": "/blocks/0/containerId",
           "reason": "invalid"
         }
       ],
@@ -128,7 +128,7 @@
       "errors": [
         {
           "detail": "the board is made in the workspace of the path",
-          "pointer": "/boards/1/workspaceId",
+          "pointer": "/containers/1/workspaceId",
           "reason": "invalid"
         }
       ],
@@ -189,8 +189,8 @@
     "body": {
       "blocks": [
         {
-          "boardId": "<id:2>",
           "body": null,
+          "containerId": "<id:2>",
           "createAt": "<ts>",
           "createdBy": "<id:3>",
           "deleteAt": 0,
@@ -204,8 +204,8 @@
           "updateAt": "<ts>"
         },
         {
-          "boardId": "<id:5>",
           "body": null,
+          "containerId": "<id:5>",
           "createAt": "<ts>",
           "createdBy": "<id:3>",
           "deleteAt": 0,
@@ -221,7 +221,7 @@
           "updateAt": "<ts>"
         }
       ],
-      "boards": [
+      "containers": [
         {
           "cardProperties": [],
           "createAt": "<ts>",
@@ -339,7 +339,7 @@
   },
   {
     "name": "board a after patch",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:2> as bab-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:2> as bab-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -371,8 +371,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:5>",
         "body": null,
+        "containerId": "<id:5>",
         "createAt": "<ts>",
         "createdBy": "<id:3>",
         "deleteAt": 0,
@@ -453,7 +453,7 @@
   },
   {
     "name": "board a after delete",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:2> as bab-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:2> as bab-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {

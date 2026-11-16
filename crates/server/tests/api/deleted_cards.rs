@@ -141,7 +141,7 @@ async fn the_deleted_cards_are_those_that_come_back_by_themselves() {
     assert_eq!(titles(&listed), [json!("nested")]);
 
     th.client
-        .delete(&format!("{TEST_WS}/boards/{board_id}"))
+        .delete(&format!("{TEST_WS}/containers/{board_id}"))
         .await
         .check_no_content();
     th.client

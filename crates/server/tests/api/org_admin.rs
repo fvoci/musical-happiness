@@ -504,7 +504,7 @@ async fn a_workspace_in_the_trash_is_not_there_and_comes_back_as_it_was() {
     let (board, file_id) = board_with_a_file(&ts, &workspace).await;
     let token = ts.share(&board.id).await;
     let shared = format!("/shared/{}?readToken={token}", board.id);
-    let at = format!("/w/{workspace}/boards/{}", board.id);
+    let at = format!("/w/{workspace}/containers/{}", board.id);
     let file = format!("{at}/files/{file_id}");
     ts.anonymous().get(&shared).await.check_ok();
 
@@ -669,7 +669,7 @@ async fn the_public_links_of_the_organization_close_and_open_again() {
     let share = ts
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", other_board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", other_board.id),
             &json!({ "enabled": true }),
         )
         .await;
@@ -680,7 +680,7 @@ async fn the_public_links_of_the_organization_close_and_open_again() {
     let stop = ts
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", stopped_board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", stopped_board.id),
             &json!({ "enabled": false }),
         )
         .await;

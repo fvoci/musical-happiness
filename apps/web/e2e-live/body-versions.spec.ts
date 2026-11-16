@@ -235,7 +235,7 @@ test('a viewer reads the versions and restores none; a reader by the public link
   await looker.context().close();
 
   // By the board's public link: the card is read, and its menu has no versions.
-  const at = `/api/v1/w/${board.workspaceId}/boards/${board.boardId}`;
+  const at = `/api/v1/w/${board.workspaceId}/containers/${board.boardId}`;
   const shared = (await (
     await api.post(`${at}/sharing`, { data: { enabled: true } })
   ).json()) as Schemas['Sharing'];

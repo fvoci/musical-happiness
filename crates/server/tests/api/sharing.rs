@@ -33,7 +33,7 @@ async fn board_with_admin(th: &TestServer, user_id: &str, board_type: ContainerT
 }
 
 fn sharing_path(board_id: &str) -> String {
-    format!("{ROOT_WS}/boards/{board_id}/sharing")
+    format!("{ROOT_WS}/containers/{board_id}/sharing")
 }
 
 /// `POST /boards/{id}/sharing` with a body.
@@ -419,7 +419,7 @@ async fn post_sharing_takes_the_board_and_the_modifier_from_the_request() {
         &board.id,
         json!({
             "id": other_board.id,
-            "boardId": other_board.id,
+            "containerId": other_board.id,
             "enabled": true,
             "modifiedBy": UNKNOWN_ID,
             "updateAt": 1,

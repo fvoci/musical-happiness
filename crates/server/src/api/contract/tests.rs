@@ -118,8 +118,8 @@ const NO_SESSION: [&str; 16] = [
 /// The operations that read a shared board with its read token, and look at no session.
 const READ_TOKEN: [&str; 7] = [
     "getSharedBlocks",
-    "getSharedBoard",
     "getSharedCards",
+    "getSharedContainer",
     "getSharedFile",
     "getSharedFileInfo",
     "getSharedPage",
@@ -184,14 +184,14 @@ fn an_answer_has_every_member_and_a_patch_needs_none() {
     let text = document().expect("the document");
     let document: Value = serde_json::from_str(&text).expect("JSON");
     let schemas = &document["components"]["schemas"];
-    let board = &schemas["Board"];
+    let board = &schemas["Container"];
     assert_eq!(
         board["required"].as_array().map(Vec::len),
         board["properties"].as_object().map(serde_json::Map::len),
         "every member of a board is always there"
     );
     assert_eq!(
-        schemas["BoardPatch"]["required"],
+        schemas["ContainerPatch"]["required"],
         Value::Null,
         "a patch needs no member"
     );
@@ -201,8 +201,8 @@ fn an_answer_has_every_member_and_a_patch_needs_none() {
         "the token and the time are left out while a board is not shared"
     );
     assert_eq!(
-        schemas["CategoryBoards"]["allOf"][1]["required"],
-        json!(["boardMetadata"]),
+        schemas["CategoryContainers"]["allOf"][1]["required"],
+        json!(["containerMetadata"]),
         "the members of a category with its boards, beside those of the category"
     );
     assert!(board["required"].is_array() && board["properties"].is_object());
@@ -291,17 +291,17 @@ fn what_is_always_there_is_what_the_server_writes() {
     let schemas = &document["components"]["schemas"];
     let written = [
         ("Block", sent(&Block::default())),
-        ("Board", sent(&Container::default())),
-        ("BoardMember", sent(&ContainerMember::default())),
-        ("BoardsAndBlocks", sent(&ContainersAndBlocks::default())),
         ("Card", sent(&Card::default())),
         ("Category", sent(&Category::default())),
         (
-            "CategoryBoardMetadata",
+            "CategoryContainerMetadata",
             sent(&CategoryContainerMetadata::default()),
         ),
-        ("CategoryBoards", sent(&CategoryContainers::default())),
+        ("CategoryContainers", sent(&CategoryContainers::default())),
         ("ClientConfig", sent(&ClientConfig::default())),
+        ("Container", sent(&Container::default())),
+        ("ContainerMember", sent(&ContainerMember::default())),
+        ("ContainersAndBlocks", sent(&ContainersAndBlocks::default())),
         ("FileInfo", sent(&FileInfo::default())),
         ("Sharing", sent(&Sharing::default())),
         ("Workspace", sent(&Workspace::default())),
@@ -368,8 +368,8 @@ fn a_closed_set_of_words_lists_the_words_as_they_are_written() {
         );
     }
     for (set, value) in [
-        ("BoardType", json!(fvoci_model::ContainerType::Open)),
-        ("BoardType", json!(fvoci_model::ContainerType::Private)),
+        ("ContainerType", json!(fvoci_model::ContainerType::Open)),
+        ("ContainerType", json!(fvoci_model::ContainerType::Private)),
         ("MinimumRole", json!(fvoci_model::MinimumRole::default())),
         ("CategoryType", json!(fvoci_model::CategoryType::default())),
         ("WorkspaceRole", json!(fvoci_model::WorkspaceRole::Admin)),
@@ -500,27 +500,27 @@ const ORDERS: &[(&str, &str)] = &[
     ),
     ("duplicateBlock", "the copy of the block first"),
     (
-        "duplicateBoard",
+        "duplicateContainer",
         "in the order of the original's, oldest first",
     ),
     (
         "getBlocks",
         "Oldest first; the blocks that one request made come in the order that request had them in",
     ),
-    (
-        "getBoardTeams",
-        "Ordered by team name in any letter case, by code point, then by identifier",
-    ),
     ("getCardBodyVersions", "The newest first"),
     ("getCards", "Oldest first; the pages cut that order"),
     ("getCategories", "by `sortOrder`, lowest first"),
     ("getCommentVersions", "The first one first"),
     (
-        "getDeletedBoards",
-        "The last deleted first; the pages cut that order",
+        "getContainerTeams",
+        "Ordered by team name in any letter case, by code point, then by identifier",
     ),
     (
         "getDeletedCards",
+        "The last deleted first; the pages cut that order",
+    ),
+    (
+        "getDeletedContainers",
         "The last deleted first; the pages cut that order",
     ),
     (
@@ -573,7 +573,7 @@ const ORDERS: &[(&str, &str)] = &[
     ("patchBoardsAndBlocks", "each in the order of the request"),
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),
-    ("reorderCategoryBoards", "in their new order"),
+    ("reorderCategoryContainers", "in their new order"),
     ("resolveReferences", "in the order they were first named"),
     ("searchReferences", "the one changed last first"),
     ("searchWorkspaceBoards", "Oldest first"),
@@ -589,7 +589,8 @@ fn answers_a_list(responses: &Value) -> bool {
         .filter(|(status, _)| status.starts_with('2'))
         .any(|(_, response)| {
             let schema = &response["content"]["application/json"]["schema"];
-            schema["type"] == "array" || schema["$ref"] == "#/components/schemas/BoardsAndBlocks"
+            schema["type"] == "array"
+                || schema["$ref"] == "#/components/schemas/ContainersAndBlocks"
         })
 }
 

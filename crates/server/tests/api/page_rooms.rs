@@ -168,7 +168,7 @@ async fn two_users_edit_a_page_together_and_converge() {
             .await;
     }
     assert_eq!(
-        (&told["block"]["type"], &told["block"]["boardId"]),
+        (&told["block"]["type"], &told["block"]["containerId"]),
         (&json!("page"), &json!(d.wiki_id)),
         "{told}"
     );
@@ -357,7 +357,10 @@ async fn the_room_of_a_page_is_for_whom_its_wiki_lets_in() {
 
     // Taken off the wiki, they are put out; the other stays.
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}/members/{user2}", d.wiki_id))
+        .delete(&format!(
+            "{TEST_WS}/containers/{}/members/{user2}",
+            d.wiki_id
+        ))
         .await
         .check_no_content();
     let left = two.text("DOC_LEFT").await;
@@ -389,7 +392,7 @@ async fn deleting_a_page_or_its_wiki_closes_the_rooms_of_what_goes_with_it() {
         let stored = body_of(&read(&th.client, &below_at).await);
         assert_ne!(stored, wanted, "the room has not written the page yet");
 
-        let wiki = format!("{TEST_WS}/boards/{}", d.wiki_id);
+        let wiki = format!("{TEST_WS}/containers/{}", d.wiki_id);
         let gone = match target {
             "page" => below_at.clone(),
             "page above" => d.page(),

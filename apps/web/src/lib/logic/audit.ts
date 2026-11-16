@@ -3,8 +3,8 @@
  * contract): who did what, to what and whom, and when.
  */
 export const AUDIT_ACTIONS = [
-  'self_added_to_board',
-  'added_to_board',
+  'self_added_to_container',
+  'added_to_container',
   'org_admin_joined',
   'org_admin_left',
   'org_admin_revoked',

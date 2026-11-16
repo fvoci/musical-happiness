@@ -28,7 +28,7 @@ export class ServerEmailVerification implements EmailVerification {
     );
     return {
       workspaceId: confirmed.workspaceId,
-      ...(confirmed.boardId ? { boardId: confirmed.boardId } : {}),
+      ...(confirmed.containerId ? { boardId: confirmed.containerId } : {}),
       organizationStarted: confirmed.organizationStarted,
     };
   }

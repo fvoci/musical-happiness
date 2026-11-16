@@ -44,7 +44,7 @@ async fn copies_templates_and_archives_include_the_last_acknowledged_update() {
 }
 
 async fn snapshot(th: &TestServer, table: &Table, operation: &str) -> Option<Value> {
-    let base = format!("/w/{TEST_WORKSPACE_ID}/boards/{}", table.board_id);
+    let base = format!("/w/{TEST_WORKSPACE_ID}/containers/{}", table.board_id);
     let template = if operation.ends_with("template") {
         "?asTemplate=true"
     } else {
@@ -53,8 +53,8 @@ async fn snapshot(th: &TestServer, table: &Table, operation: &str) -> Option<Val
     let blocks: Vec<Block> = if operation.starts_with("card") {
         th.client
             .post_empty(&format!(
-                "{base}/blocks/{}/duplicate{template}",
-                table.card_id
+                "/w/{TEST_WORKSPACE_ID}/boards/{}/blocks/{}/duplicate{template}",
+                table.board_id, table.card_id
             ))
             .await
             .created_json()

@@ -50,7 +50,7 @@ async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
     // Off the board: out of the room, and what it sends reaches nobody.
     th.client
         .delete(&format!(
-            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user2}",
+            "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user2}",
             t.board_id
         ))
         .await
@@ -199,7 +199,7 @@ async fn losing_the_team_role_puts_the_member_out_of_the_room() {
     th.client
         .put(
             &format!(
-                "/w/{TEST_WORKSPACE_ID}/boards/{}/teams/{}",
+                "/w/{TEST_WORKSPACE_ID}/containers/{}/teams/{}",
                 t.board_id, team.id
             ),
             &json!({"role":"editor"}),
@@ -208,7 +208,7 @@ async fn losing_the_team_role_puts_the_member_out_of_the_room() {
         .check_no_content();
     th.client
         .delete(&format!(
-            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user}",
+            "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user}",
             t.board_id
         ))
         .await

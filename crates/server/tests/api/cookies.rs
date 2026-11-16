@@ -449,7 +449,7 @@ async fn a_file_is_read_with_the_cookie_alone_and_served_sandboxed() {
         .client
         .request(
             Method::POST,
-            &format!("{ROOT_WS}/boards/{}/files", board.id),
+            &format!("{ROOT_WS}/containers/{}/files", board.id),
         )
         .multipart(
             reqwest::multipart::Form::new().part(
@@ -464,7 +464,7 @@ async fn a_file_is_read_with_the_cookie_alone_and_served_sandboxed() {
         .as_str()
         .expect("the upload answers the file's name")
         .to_owned();
-    let path = format!("{ROOT_WS}/boards/{}/files/{file_id}", board.id);
+    let path = format!("{ROOT_WS}/containers/{}/files/{file_id}", board.id);
 
     let response = Client::send(th.client.as_browser().bare_request(Method::GET, &path)).await;
 

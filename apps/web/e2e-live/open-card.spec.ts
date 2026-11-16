@@ -87,7 +87,7 @@ async function bothInTheCard(browser: Browser, base: string, title: string) {
     })
   ).json()) as Schemas['User'][];
   const colleagueId = found.find((user) => user.username === colleague.username)?.id ?? '';
-  const memberPath = `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/members/${colleagueId}`;
+  const memberPath = `/api/v1/w/${board.workspaceId}/containers/${board.boardId}/members/${colleagueId}`;
   return {
     api,
     first: first.page,

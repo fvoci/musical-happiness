@@ -93,7 +93,7 @@ pub(crate) fn titled_id(tree: &[PageNode], title: &str) -> String {
 async fn duplicate(client: &Client, board_id: &str, query: &str) -> crate::common::ApiResponse {
     client
         .post(
-            &format!("{TEST_WS}/boards/{board_id}/duplicate{query}"),
+            &format!("{TEST_WS}/containers/{board_id}/duplicate{query}"),
             &json!({}),
         )
         .await
@@ -132,7 +132,7 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
         .check_created();
     client
         .post(
-            &format!("{TEST_WS}/boards/{wiki}/sharing"),
+            &format!("{TEST_WS}/containers/{wiki}/sharing"),
             &json!({"enabled": true}),
         )
         .await
@@ -140,8 +140,8 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
     let other = ts.client2.me().await.id;
     client
         .post(
-            &format!("{TEST_WS}/boards/{wiki}/members"),
-            &json!({"boardId": wiki, "userId": other, "schemeEditor": true}),
+            &format!("{TEST_WS}/containers/{wiki}/members"),
+            &json!({"containerId": wiki, "userId": other, "schemeEditor": true}),
         )
         .await
         .check_ok();
@@ -207,7 +207,10 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
         .to_owned();
     assert_ne!(copied_file, file);
     let read = client
-        .get(&format!("{TEST_WS}/boards/{}/files/{copied_file}", copy.id))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{copied_file}",
+            copy.id
+        ))
         .await;
     read.check_ok();
     assert_eq!(read.body, b"a picture\n");
@@ -235,7 +238,7 @@ async fn check_left_behind(ts: &TestServer, copy: &str, copy_a: &str) {
         .expect("the trash");
     assert!(trash.is_empty(), "nothing of the trash is copied");
     let members: Vec<ContainerMember> = client
-        .get(&format!("{TEST_WS}/boards/{copy}/members"))
+        .get(&format!("{TEST_WS}/containers/{copy}/members"))
         .await
         .ok_json();
     let me = client.me().await.id;
@@ -245,7 +248,7 @@ async fn check_left_behind(ts: &TestServer, copy: &str, copy_a: &str) {
         "who copies it administers the copy"
     );
     let sharing = client
-        .get(&format!("{TEST_WS}/boards/{copy}/sharing"))
+        .get(&format!("{TEST_WS}/containers/{copy}/sharing"))
         .await;
     sharing.check_ok();
     assert_eq!(sharing.value()["enabled"], json!(false), "no public link");
@@ -364,7 +367,7 @@ async fn a_wiki_is_copied_into_another_workspace_of_its_copier_with_its_files() 
         .to_owned();
     assert_ne!(copied_file, file);
     let read = client
-        .get(&format!("{at}/boards/{}/files/{copied_file}", copy.id))
+        .get(&format!("{at}/containers/{}/files/{copied_file}", copy.id))
         .await;
     read.check_ok();
     assert_eq!(read.body, b"a picture\n");

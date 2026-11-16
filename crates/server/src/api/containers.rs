@@ -10,9 +10,8 @@ use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::bodies::NewContainer;
-use super::contract::params::MemberWorkspaceId;
-use super::contract::params::{AsTemplate, BoardId, ToWorkspace};
+use super::contract::bodies::NewBoard;
+use super::contract::params::{AsTemplate, BoardId, ContainerId, MemberWorkspaceId, ToWorkspace};
 use super::contract::tag;
 use super::workspace::{InContainer, InWorkspace};
 
@@ -133,7 +132,7 @@ fn decode_container_patch(body: &[u8]) -> Result<ContainerPatch, AppError> {
     params(MemberWorkspaceId),
     operation_id = "createBoard",
     tag = tag::CONTAINERS,
-    request_body = NewContainer,
+    request_body = NewBoard,
     responses((status = 201, description = "The board that was made.", body = Container)),
 )]
 async fn handle_create_container(ws: InWorkspace, body: Bytes) -> ApiResult {
@@ -164,10 +163,10 @@ async fn handle_create_container(ws: InWorkspace, body: Bytes) -> ApiResult {
 /// its workspace.
 #[utoipa::path(
     get,
-    path = "/w/{workspaceId}/boards/{boardId}",
-    operation_id = "getBoard",
+    path = "/w/{workspaceId}/containers/{containerId}",
+    operation_id = "getContainer",
     tag = tag::CONTAINERS,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     responses((status = 200, description = "The board.", body = Container)),
 )]
 async fn handle_get_container(
@@ -199,10 +198,10 @@ async fn handle_get_container(
 /// not know are left out.
 #[utoipa::path(
     patch,
-    path = "/w/{workspaceId}/boards/{boardId}",
-    operation_id = "patchBoard",
+    path = "/w/{workspaceId}/containers/{containerId}",
+    operation_id = "patchContainer",
     tag = tag::CONTAINERS,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     request_body = ContainerPatch,
     responses((status = 200, description = "The board as it is now.", body = Container)),
 )]
@@ -251,7 +250,7 @@ async fn handle_patch_container(
 /// The body names every card property of the board (`cardProperties`, by `id`) once,
 /// in the new order, as `reorderCategories` names categories; one left out, one named
 /// twice or one the board does not have is 400, and nothing changes. For who may manage
-/// the board's properties, as `patchBoard`. The board's listeners get `UPDATE_BOARD`, as
+/// the board's properties, as `patchContainer`. The board's listeners get `UPDATE_BOARD`, as
 /// for any change of the board.
 #[utoipa::path(
     put,
@@ -290,17 +289,17 @@ async fn handle_reorder_card_properties(
 
 /// Delete a board
 ///
-/// The board goes to the trash with its blocks and its members, and `undeleteBoard`
+/// The board goes to the trash with its blocks and its members, and `undeleteContainer`
 /// brings it back until the trash is emptied of it. Team IDs and their roles are kept,
 /// but grant no access while the board is in the trash. Its sharing ends, with its read
 /// token, and so do its places in the users' sidebars and the subscriptions to its
 /// blocks; those do not come back with the board. For the board's admins.
 #[utoipa::path(
     delete,
-    path = "/w/{workspaceId}/boards/{boardId}",
-    operation_id = "deleteBoard",
+    path = "/w/{workspaceId}/containers/{containerId}",
+    operation_id = "deleteContainer",
     tag = tag::CONTAINERS,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     responses((status = 204, description = "The board is deleted.")),
 )]
 async fn handle_delete_container(
@@ -343,10 +342,10 @@ async fn handle_delete_container(
 /// grew, is 400 with the reason `page_too_deep` or `too_many_pages` and the `limit`.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards/{boardId}/duplicate",
-    operation_id = "duplicateBoard",
+    path = "/w/{workspaceId}/containers/{containerId}/duplicate",
+    operation_id = "duplicateContainer",
     tag = tag::CONTAINERS,
-    params(MemberWorkspaceId, BoardId, AsTemplate, ToWorkspace),
+    params(MemberWorkspaceId, ContainerId, AsTemplate, ToWorkspace),
     responses((
         status = 201,
         description = "The copy: one board and its blocks. The blocks are in the order of the original's, oldest first.",
@@ -403,10 +402,10 @@ async fn handle_duplicate_container(
 /// get it without its description and properties); to anybody else there is no such board.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards/{boardId}/undelete",
-    operation_id = "undeleteBoard",
+    path = "/w/{workspaceId}/containers/{containerId}/undelete",
+    operation_id = "undeleteContainer",
     tag = tag::CONTAINERS,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     responses((status = 200, description = "The board as it is again.", body = Container)),
 )]
 async fn handle_undelete_container(

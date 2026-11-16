@@ -5,6 +5,7 @@
 
 use fvoci_model::new_id;
 use fvoci_store::{DbType, Store};
+use serde_json::Value;
 use sqlx::Connection as _;
 
 use crate::common::{self, db_type};
@@ -28,19 +29,105 @@ fn renamed(name: &str) -> String {
 }
 
 /// A row as the migration leaves it: what is said of a container in the search's
-/// outbox says so.
+/// outbox and in the audit log says so, and what the trash keeps as JSON names a
+/// block's and a member's container `containerId` and a file's `container_id`.
 fn with_the_new_values(
     table: &str,
     columns: &[String],
     mut row: Vec<Option<String>>,
 ) -> Vec<Option<String>> {
+    let column = |name: &str| columns.iter().position(|column| column == name);
     if table == "search_outbox"
-        && let Some(scope) = columns.iter().position(|column| column == "scope")
+        && let Some(scope) = column("scope")
         && row[scope].as_deref() == Some("board")
     {
         row[scope] = Some("container".to_owned());
     }
+    if table == "audit_log"
+        && let Some(action) = column("action")
+    {
+        let new = match row[action].as_deref() {
+            Some("self_added_to_board") => Some("self_added_to_container"),
+            Some("added_to_board") => Some("added_to_container"),
+            _ => None,
+        };
+        if let Some(new) = new {
+            row[action] = Some(new.to_owned());
+        }
+    }
+    let keys: &[(&str, &str, &str)] = match table {
+        "deleted_blocks" => &[("block", "boardId", "containerId")],
+        "deleted_boards" => &[
+            ("members", "boardId", "containerId"),
+            ("files", "board_id", "container_id"),
+        ],
+        _ => &[],
+    };
+    for &(name, from, to) in keys {
+        if let Some(index) = column(name)
+            && let Some(text) = &row[index]
+        {
+            let mut value: Value = serde_json::from_str(text).expect("the trash keeps JSON");
+            let objects: Vec<&mut Value> = if let Value::Array(items) = &mut value {
+                items.iter_mut().collect()
+            } else {
+                vec![&mut value]
+            };
+            for object in objects {
+                if let Some(object) = object.as_object_mut()
+                    && let Some(id) = object.remove(from)
+                {
+                    object.insert(to.to_owned(), id);
+                }
+            }
+            row[index] = Some(value.to_string());
+        }
+    }
     row
+}
+
+/// The JSON a column of the trash keeps, as it is compared: the migration writes it
+/// again in its own layout (PostgreSQL's `jsonb` orders the members of an object), so
+/// the members of every object are in the order of their names.
+fn comparable(
+    table: &str,
+    columns: &[String],
+    mut row: Vec<Option<String>>,
+) -> Vec<Option<String>> {
+    let json: &[&str] = match table {
+        "deleted_blocks" => &["block"],
+        "deleted_containers" => &["container", "members", "files", "places", "team_roles"],
+        _ => &[],
+    };
+    for (index, column) in columns.iter().enumerate() {
+        if json.contains(&column.as_str())
+            && let Some(text) = &row[index]
+        {
+            let value: Value = serde_json::from_str(text).expect("the trash keeps JSON");
+            row[index] = Some(in_order(&value));
+        }
+    }
+    row
+}
+
+/// `value` as text, with the members of every object in the order of their names.
+fn in_order(value: &Value) -> String {
+    match value {
+        Value::Object(members) => {
+            let mut members: Vec<(&String, &Value)> = members.iter().collect();
+            members.sort_by_key(|(name, _)| *name);
+            let members: Vec<String> = members
+                .into_iter()
+                .map(|(name, value)| format!("{}:{}", Value::from(name.as_str()), in_order(value)))
+                .collect();
+            format!("{{{}}}", members.join(","))
+        }
+        Value::Array(items) => {
+            let items: Vec<String> = items.iter().map(in_order).collect();
+            format!("[{}]", items.join(","))
+        }
+        other => other.to_string(),
+    }
 }
 
 /// The names of the schema that still speak of a board: tables, columns, indexes,
@@ -145,13 +232,18 @@ async fn indexes(database: &fvoci_store::testing::TestDatabase) -> Vec<String> {
 
 /// The rows the tables made after the organizations have of a board: a team's role on
 /// it, an invitation of a guest onto it, a link of a body on it, the search's note of
-/// it, and the roles an administrator held on it before joining the workspace as the
-/// organization's administrator.
+/// it, the roles an administrator held on it before joining the workspace as the
+/// organization's administrator, and the records of two people put on it; and the
+/// trash's JSON as the server wrote it, a member's and a file's board and a block's.
 fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> String {
     let board = before.id("board");
     let card = before.id("card");
     let workspace = before.id("older_workspace");
     let admin = before.id("admin");
+    let member = before.id("member");
+    let deleted = before.id("deleted_board");
+    let deleted_card = before.id("deleted_card");
+    let (added, joined) = (new_id(), new_id());
     let org = format!("(SELECT org_id FROM workspaces WHERE id = '{workspace}')");
     let body_links = match db_type() {
         DbType::Sqlite => format!(
@@ -177,6 +269,18 @@ fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> St
          ('board', '{board}', {org}, 1, 1, 0), ('block', '{card}', {org}, 1, 1, 0); \
          UPDATE workspace_members SET prior_board_roles = '[[\"{board}\",[true,true,false,false]]]' \
          WHERE workspace_id = '{workspace}' AND user_id = '{admin}'; \
+         INSERT INTO audit_log (id, org_id, workspace_id, actor_id, actor_kind, action, \
+         target_id, subject_id, create_at) VALUES \
+         ('{added}', {org}, '{workspace}', '{admin}', 'person', 'added_to_board', '{board}', \
+         '{member}', 1), \
+         ('{joined}', {org}, '{workspace}', '{admin}', 'person', 'self_added_to_board', \
+         '{board}', NULL, 2); \
+         UPDATE deleted_boards SET \
+         members = '[{{\"boardId\":\"{deleted}\",\"userId\":\"{admin}\",\"schemeAdmin\":true}}]', \
+         files = '[{{\"id\":\"f\",\"board_id\":\"{deleted}\",\"stored_name\":\"s\"}}]' \
+         WHERE id = '{deleted}'; \
+         UPDATE deleted_blocks SET block = '{{\"type\":\"card\",\"boardId\":\"{board}\"}}' \
+         WHERE id = '{deleted_card}'; \
          DELETE FROM data_steps;"
     )
 }
@@ -184,8 +288,9 @@ fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> St
 /// A database that a server left before the containers were named so, with rows in
 /// every table that has a board's name or a column of it (those of the database before
 /// the organizations carried through their migrations, and those of the tables made
-/// since): after the migration every table has the rows it had, under the new names,
-/// and the search's note of a whole board says 'container'. Every index is there as it
+/// since): after the migration every table has the rows it had, under the new names;
+/// the search's note of a whole board and the audit's records say 'container', and the
+/// trash's JSON names the containers as the model does. Every index is there as it
 /// was, the keys still hold, and the checks of a row's container find the containers.
 #[tokio::test]
 async fn a_database_with_boards_keeps_every_row_under_the_names_of_the_containers() {
@@ -210,6 +315,7 @@ async fn a_database_with_boards_keeps_every_row_under_the_names_of_the_container
         "invitations",
         "body_links",
         "search_outbox",
+        "audit_log",
     ] {
         assert!(
             !old[table].1.is_empty(),
@@ -235,14 +341,15 @@ async fn a_database_with_boards_keeps_every_row_under_the_names_of_the_container
     let expected: Dump = old
         .into_iter()
         .map(|(table, (columns, rows))| {
-            let rows = rows
+            let new_table = renamed(&table);
+            let new_columns: Vec<String> = columns.iter().map(|column| renamed(column)).collect();
+            let mut rows: Vec<_> = rows
                 .into_iter()
                 .map(|row| with_the_new_values(&table, &columns, row))
-                .collect::<Vec<_>>();
-            let columns: Vec<String> = columns.iter().map(|column| renamed(column)).collect();
-            let mut rows = rows;
+                .map(|row| comparable(&new_table, &new_columns, row))
+                .collect();
             rows.sort();
-            (renamed(&table), (columns, rows))
+            (new_table, (new_columns, rows))
         })
         .collect();
     assert_eq!(
@@ -252,11 +359,16 @@ async fn a_database_with_boards_keeps_every_row_under_the_names_of_the_container
     );
     for (table, (columns, rows)) in &expected {
         let (new_columns, new_rows) = &new[table];
+        let mut new_rows: Vec<_> = new_rows
+            .iter()
+            .map(|row| comparable(table, new_columns, row.clone()))
+            .collect();
+        new_rows.sort();
         assert_eq!(
             new_columns, columns,
             "{table}: the same columns, in their order"
         );
-        assert_eq!(new_rows, rows, "{table}: the same rows");
+        assert_eq!(&new_rows, rows, "{table}: the same rows");
     }
 
     let store = Store::connect(database.db_type(), database.dbconfig())

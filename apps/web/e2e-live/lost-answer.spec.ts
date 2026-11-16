@@ -16,7 +16,7 @@ test('a change stored without an answer stays and is undone', async ({ page, bas
   await register(base, owner);
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, { title: 'Alpha' });
-  const path = `/api/v1/w/${board.workspaceId}/boards/${board.boardId}`;
+  const path = `/api/v1/w/${board.workspaceId}/containers/${board.boardId}`;
   const savedTitle = async (): Promise<string> => {
     const response = await api.get(path);
     expect(response.ok()).toBe(true);

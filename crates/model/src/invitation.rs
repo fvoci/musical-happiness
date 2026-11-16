@@ -31,12 +31,10 @@ pub struct Invitation {
     pub role: WorkspaceRole,
     /// For a guest: the board or the wiki they are invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "boardId")]
     pub container_id: Option<String>,
     /// For a guest: their role on that board, `viewer`, `commenter` or `editor`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>)]
-    #[serde(rename = "boardRole")]
     pub container_role: Option<ContainerRole>,
     /// The identifier of the user who made the link.
     pub created_by: String,
@@ -88,13 +86,11 @@ pub struct NewInvitation {
     pub role: WorkspaceRole,
     /// For a guest: the board or the wiki they are invited to. Not for a member.
     #[serde(default)]
-    #[serde(rename = "boardId")]
     pub container_id: Option<String>,
     /// For a guest: their role on that board, `viewer`, `commenter` or `editor`; an
     /// editor if left out. Not for a member.
     #[serde(default)]
     #[schema(value_type = Option<String>)]
-    #[serde(rename = "boardRole")]
     pub container_role: Option<ContainerRole>,
 }
 
@@ -125,11 +121,9 @@ pub struct InvitationPreview {
     pub inviter_name: String,
     /// For a guest: the title of the board or the wiki they are invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "boardTitle")]
     pub container_title: Option<String>,
     /// For a guest: which of the two it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "boardKind")]
     pub container_kind: Option<ContainerKind>,
 }
 
@@ -167,11 +161,9 @@ pub struct AcceptedInvitation {
     pub workspace_id: String,
     /// For a guest: the board or the wiki they were invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "boardId")]
     pub container_id: Option<String>,
     /// For a guest: which of the two it is, so that they are sent to its own address.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "boardKind")]
     pub container_kind: Option<ContainerKind>,
 }
 

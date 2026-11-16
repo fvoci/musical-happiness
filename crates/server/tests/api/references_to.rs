@@ -135,11 +135,11 @@ async fn what_names_a_card_or_a_page_is_told_once_and_in_pages() {
         told.value(),
         json!([
             {"id": page, "kind": "page", "title": "The plan", "icon": "",
-                "boardId": mine.wiki, "boardKind": "wiki"},
+                "containerId": mine.wiki, "containerKind": "wiki"},
             {"id": first, "kind": "card", "title": "first", "icon": "",
-                "boardId": mine.board, "boardKind": "board"},
+                "containerId": mine.board, "containerKind": "board"},
             {"id": second, "kind": "card", "title": "second", "icon": "",
-                "boardId": mine.board, "boardKind": "board"},
+                "containerId": mine.board, "containerKind": "board"},
         ]),
     );
     // The page is named by the card and by the comment's card.
@@ -246,7 +246,10 @@ async fn what_names_from_where_the_asker_does_not_read_is_not_told() {
 
     // Joined, the member is told of what names it from there, and of nothing else.
     member
-        .post(&format!("{TEST_WS}/boards/{}/join", open.board), &json!({}))
+        .post(
+            &format!("{TEST_WS}/containers/{}/join", open.board),
+            &json!({}),
+        )
         .await
         .check_ok();
     // The oldest first, as each was made: the card that names it, the open board's
@@ -493,9 +496,9 @@ async fn what_a_reference_may_name_is_found_by_its_title() {
         told.value(),
         json!([
             {"id": mine.page, "kind": "page", "title": "Quarterly Plan", "icon": "",
-                "boardId": mine.wiki, "boardKind": "wiki"},
+                "containerId": mine.wiki, "containerKind": "wiki"},
             {"id": mine.card, "kind": "card", "title": "Quarterly Plan", "icon": "",
-                "boardId": mine.board, "boardKind": "board"},
+                "containerId": mine.board, "containerKind": "board"},
         ]),
     );
     for (term, expected) in [
@@ -601,7 +604,10 @@ async fn what_the_asker_does_not_read_is_not_found() {
 
     // Joined, and invited: what is there is found from then on.
     member
-        .post(&format!("{TEST_WS}/boards/{}/join", open.board), &json!({}))
+        .post(
+            &format!("{TEST_WS}/containers/{}/join", open.board),
+            &json!({}),
+        )
         .await
         .check_ok();
     let_read(owner, &private.wiki, &member.me().await.id).await;

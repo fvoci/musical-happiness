@@ -24,7 +24,7 @@ test.use({ locale: 'en-US' });
 async function templates(api: APIRequestContext, workspaceId: string) {
   const answer = await api.get(`/api/v1/w/${workspaceId}/templates`);
   expect(answer.ok()).toBe(true);
-  return (await answer.json()) as Schemas['Board'][];
+  return (await answer.json()) as Schemas['Container'][];
 }
 
 async function views(api: APIRequestContext, workspaceId: string, boardId: string) {
@@ -62,8 +62,8 @@ test('a board is made from a template, and a template from a board is changed on
   await expect(boardLink(page, 'Project Tasks')).toHaveAttribute('aria-current', 'page');
   const made = placeOf(page.url()).boardId;
   const copy = (await (
-    await api.get(`/api/v1/w/${mine.workspaceId}/boards/${made}`)
-  ).json()) as Schemas['Board'];
+    await api.get(`/api/v1/w/${mine.workspaceId}/containers/${made}`)
+  ).json()) as Schemas['Container'];
   // In the reader's workspace (sent as `toWorkspace`: a built-in template is kept apart from every workspace).
   expect(copy).toMatchObject({
     title: 'Project Tasks',

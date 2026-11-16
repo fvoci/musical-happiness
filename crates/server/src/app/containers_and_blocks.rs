@@ -74,7 +74,7 @@ impl App {
     ) -> Result<ContainersAndBlocks, AppError> {
         for (index, container) in created.containers.iter().enumerate() {
             self.require_makes(container)
-                .map_err(|error| error.under(&format!("/boards/{index}")))?;
+                .map_err(|error| error.under(&format!("/containers/{index}")))?;
         }
         let members = {
             let _structure = self.collab().changing_structure(self).await;
@@ -303,7 +303,7 @@ impl App {
                 .broadcast_container_delete(&workspace_id, container_id, former(container_id))
                 .await;
             // The board's sharing went with it; so does whoever followed it by its link,
-            // as with `deleteBoard`.
+            // as with `deleteContainer`.
             self.ws().end_readers_of_container(container_id);
         }
         Ok(())

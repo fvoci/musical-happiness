@@ -6,7 +6,7 @@ use serde::Deserialize;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::contract::{
-    params::{BoardId, TeamId, WorkerWorkspaceId},
+    params::{ContainerId, TeamId, WorkerWorkspaceId},
     tag,
 };
 use super::workspace::InContainer;
@@ -22,14 +22,12 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ContainerPlace {
-    #[serde(rename = "boardId")]
     container_id: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TeamPlace {
-    #[serde(rename = "boardId")]
     container_id: String,
     team_id: String,
 }
@@ -40,8 +38,8 @@ struct TeamPlace {
 /// people and its role. Ordered by team name in any letter case, by code point, then by
 /// identifier.
 /// Direct memberships remain separate.
-#[utoipa::path(get, path = "/w/{workspaceId}/boards/{boardId}/teams", operation_id = "getBoardTeams", tag = tag::MEMBERS,
-    params(WorkerWorkspaceId, BoardId),
+#[utoipa::path(get, path = "/w/{workspaceId}/containers/{containerId}/teams", operation_id = "getContainerTeams", tag = tag::MEMBERS,
+    params(WorkerWorkspaceId, ContainerId),
     responses((status = 200, description = "Assigned teams.", body = Vec<ContainerTeam>)))]
 async fn list(InContainer(ws): InContainer, Path(place): Path<ContainerPlace>) -> ApiResult {
     let ws = ws.require_no_guest()?;
@@ -65,8 +63,8 @@ async fn list(InContainer(ws): InContainer, Path(place): Path<ContainerPlace>) -
 /// For board administrators and workspace administrators. The role is viewer,
 /// commenter, or editor; admin is rejected. The board and team must belong to this
 /// workspace and are checked before decoding the body. Managed access is audited.
-#[utoipa::path(put, path = "/w/{workspaceId}/boards/{boardId}/teams/{teamId}", operation_id = "setBoardTeam", tag = tag::MEMBERS,
-    params(WorkerWorkspaceId, BoardId, TeamId), request_body = ContainerTeamRole,
+#[utoipa::path(put, path = "/w/{workspaceId}/containers/{containerId}/teams/{teamId}", operation_id = "setContainerTeam", tag = tag::MEMBERS,
+    params(WorkerWorkspaceId, ContainerId, TeamId), request_body = ContainerTeamRole,
     responses((status = 204, description = "The team has this role.")))]
 async fn assign(
     InContainer(ws): InContainer,
@@ -100,8 +98,8 @@ async fn assign(
 ///
 /// For board administrators and workspace administrators. Direct roles and the
 /// roles inherited from other teams remain. Idempotent for an existing team.
-#[utoipa::path(delete, path = "/w/{workspaceId}/boards/{boardId}/teams/{teamId}", operation_id = "removeBoardTeam", tag = tag::MEMBERS,
-    params(WorkerWorkspaceId, BoardId, TeamId), responses((status = 204, description = "The team has no role on this board.")))]
+#[utoipa::path(delete, path = "/w/{workspaceId}/containers/{containerId}/teams/{teamId}", operation_id = "removeContainerTeam", tag = tag::MEMBERS,
+    params(WorkerWorkspaceId, ContainerId, TeamId), responses((status = 204, description = "The team has no role on this board.")))]
 async fn remove(InContainer(ws): InContainer, Path(place): Path<TeamPlace>) -> ApiResult {
     let ws = ws.require_no_guest()?;
     require_container_permission(

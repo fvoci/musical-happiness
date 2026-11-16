@@ -588,7 +588,7 @@ pub(crate) async fn give_in(
     if is_member {
         th.client
             .put(
-                &format!("/w/{workspace_id}/boards/{board_id}/members/{user_id}"),
+                &format!("/w/{workspace_id}/containers/{board_id}/members/{user_id}"),
                 &member,
             )
             .await

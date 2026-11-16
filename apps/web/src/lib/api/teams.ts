@@ -11,9 +11,9 @@ export class ServerTeams implements Teams {
   }
 
   onBoard(workspaceId: string, boardId: string): Promise<BoardTeam[]> {
-    return this.#http.request<Schemas['BoardTeam'][]>(
-      '/api/v1/w/{workspaceId}/boards/{boardId}/teams',
-      { workspaceId, boardId },
+    return this.#http.request<Schemas['ContainerTeam'][]>(
+      '/api/v1/w/{workspaceId}/containers/{containerId}/teams',
+      { workspaceId, containerId: boardId },
     );
   }
 
@@ -23,18 +23,18 @@ export class ServerTeams implements Teams {
     teamId: string,
     role: TeamRole,
   ): Promise<void> {
-    const json: Schemas['BoardTeamRole'] = { role };
+    const json: Schemas['ContainerTeamRole'] = { role };
     await this.#http.request(
-      '/api/v1/w/{workspaceId}/boards/{boardId}/teams/{teamId}',
-      { workspaceId, boardId, teamId },
+      '/api/v1/w/{workspaceId}/containers/{containerId}/teams/{teamId}',
+      { workspaceId, containerId: boardId, teamId },
       { method: 'PUT', json },
     );
   }
 
   async unassign(workspaceId: string, boardId: string, teamId: string): Promise<void> {
     await this.#http.request(
-      '/api/v1/w/{workspaceId}/boards/{boardId}/teams/{teamId}',
-      { workspaceId, boardId, teamId },
+      '/api/v1/w/{workspaceId}/containers/{containerId}/teams/{teamId}',
+      { workspaceId, containerId: boardId, teamId },
       { method: 'DELETE' },
     );
   }

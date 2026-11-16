@@ -176,7 +176,7 @@ async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
         file_board(&th.client, ROOT_WORKSPACE_ID, &created.id, board_id).await;
     }
     let category_path = format!("{ROOT_WS}/categories/{}", created.id);
-    let path = format!("{category_path}/board-order");
+    let path = format!("{category_path}/container-order");
     let new_order = [boards[2].as_str(), boards[0].as_str(), boards[1].as_str()];
     let response = th.client.put(&path, &new_order).await;
     assert_eq!(response.ok_json::<Vec<String>>(), new_order, "the answer");
@@ -199,7 +199,7 @@ async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
         // asked past the route, does not file one.
         let response = th
             .client
-            .post_empty(&format!("{category_path}/boards/{segment}"))
+            .post_empty(&format!("{category_path}/containers/{segment}"))
             .await;
         check_error(&response, StatusCode::NOT_FOUND, "board not found");
         let filed = th
@@ -230,7 +230,7 @@ async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
         let response = th
             .client
             .put(
-                &format!("{ROOT_WS}/categories/{segment}/board-order"),
+                &format!("{ROOT_WS}/categories/{segment}/container-order"),
                 &new_order,
             )
             .await;

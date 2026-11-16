@@ -75,17 +75,17 @@ fn content(board_id: &str, card_id: &str) -> Vec<(Method, String, String)> {
             format!("{TEST_WS}/cards/{UNKNOWN_ID}"),
         ),
         get(
-            format!("{TEST_WS}/boards/{board_id}/sharing"),
-            format!("{TEST_WS}/boards/{UNKNOWN_ID}/sharing"),
+            format!("{TEST_WS}/containers/{board_id}/sharing"),
+            format!("{TEST_WS}/containers/{UNKNOWN_ID}/sharing"),
         ),
         get(
-            format!("{TEST_WS}/boards/{board_id}/archive/export"),
-            format!("{TEST_WS}/boards/{UNKNOWN_ID}/archive/export"),
+            format!("{TEST_WS}/containers/{board_id}/archive/export"),
+            format!("{TEST_WS}/containers/{UNKNOWN_ID}/archive/export"),
         ),
         (
             Method::POST,
-            format!("{TEST_WS}/boards/{board_id}/duplicate"),
-            format!("{TEST_WS}/boards/{UNKNOWN_ID}/duplicate"),
+            format!("{TEST_WS}/containers/{board_id}/duplicate"),
+            format!("{TEST_WS}/containers/{UNKNOWN_ID}/duplicate"),
         ),
         (
             Method::POST,
@@ -109,11 +109,11 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
     let listed: Vec<Container> = th.client2.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let seen = th
         .client2
-        .get(&format!("{TEST_WS}/boards/{}", board.id))
+        .get(&format!("{TEST_WS}/containers/{}", board.id))
         .await;
     let members = th
         .client2
-        .get(&format!("{TEST_WS}/boards/{}/members", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/members", board.id))
         .await;
     let mut hidden = Vec::new();
     for (method, path, absent) in content(&board.id, &card_id) {
@@ -132,17 +132,17 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
         .await;
     let deleted = th
         .client2
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await;
     let in_the_trash: Vec<Value> = th
         .client2
-        .get(&format!("{TEST_WS}/trash/boards"))
+        .get(&format!("{TEST_WS}/trash/containers"))
         .await
         .ok_json();
     let restored = th
         .client2
         .post(
-            &format!("{TEST_WS}/boards/{}/undelete", board.id),
+            &format!("{TEST_WS}/containers/{}/undelete", board.id),
             &json!({}),
         )
         .await;
@@ -253,17 +253,17 @@ async fn a_member_who_is_no_admin_neither_lists_nor_manages_a_private_board() {
     let (board, _) = private_board_with_a_card(&th).await;
     let missing = th
         .client2
-        .get(&format!("{TEST_WS}/boards/{UNKNOWN_ID}/members"))
+        .get(&format!("{TEST_WS}/containers/{UNKNOWN_ID}/members"))
         .await;
 
     let listed: Vec<Container> = th.client2.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let members = th
         .client2
-        .get(&format!("{TEST_WS}/boards/{}/members", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/members", board.id))
         .await;
     let deleted = th
         .client2
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await;
     th.teardown().await;
 
@@ -306,7 +306,7 @@ async fn a_workspace_admin_who_gives_a_membership_without_a_role_a_role_is_recor
     let raised = th
         .client2
         .put(
-            &format!("{TEST_WS}/boards/{}/members/{admin}", board.id),
+            &format!("{TEST_WS}/containers/{}/members/{admin}", board.id),
             &json!({"schemeViewer": true}),
         )
         .await;

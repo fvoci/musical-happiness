@@ -616,7 +616,7 @@ async fn subscription_to_a_block_of_a_board_the_user_cannot_view_is_refused() {
     // Once they have joined the open board, they can subscribe to its cards.
     let card = insert_card(&th.client, &open_board.id).await;
     th.client2
-        .post_empty(&format!("{TEST_WS}/boards/{}/join", open_board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/join", open_board.id))
         .await
         .check_ok();
     let subscription = subscribe(&th.client2, &card.id, &outsider).await;
@@ -660,7 +660,7 @@ async fn subscription_by_every_member_of_the_board_still_works() {
     let viewer_id = viewer.me().await.id;
     th.client
         .delete(&format!(
-            "{TEST_WS}/boards/{}/members/{viewer_id}",
+            "{TEST_WS}/containers/{}/members/{viewer_id}",
             board.id
         ))
         .await
@@ -712,7 +712,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     // A removal that is refused ends nothing: an editor may not remove a member.
     th.client2
         .delete(&format!(
-            "{TEST_WS}/boards/{}/members/{admin_id}",
+            "{TEST_WS}/containers/{}/members/{admin_id}",
             boards[0].id
         ))
         .await
@@ -726,7 +726,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     // Removed by the admin.
     th.client
         .delete(&format!(
-            "{TEST_WS}/boards/{}/members/{user2_id}",
+            "{TEST_WS}/containers/{}/members/{user2_id}",
             boards[0].id
         ))
         .await
@@ -745,7 +745,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
 
     // Leaving by oneself.
     th.client2
-        .post_empty(&format!("{TEST_WS}/boards/{}/leave", boards[1].id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/leave", boards[1].id))
         .await
         .check_no_content();
     assert_eq!(

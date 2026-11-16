@@ -162,13 +162,13 @@ async fn a_page_is_sent_and_found_with_the_cards_while_it_is_there() {
     tend(&th.app).await;
     let retitled = fake.documents(INDEX);
     th.client
-        .delete(&format!("{TEST_WS}/boards/{wiki}"))
+        .delete(&format!("{TEST_WS}/containers/{wiki}"))
         .await
         .check_no_content();
     tend(&th.app).await;
     let after_the_wiki = held(&fake);
     th.client
-        .post_empty(&format!("{TEST_WS}/boards/{wiki}/undelete"))
+        .post_empty(&format!("{TEST_WS}/containers/{wiki}/undelete"))
         .await
         .check_ok();
     tend(&th.app).await;
@@ -271,7 +271,7 @@ async fn a_stale_index_shows_nobody_a_page_they_do_not_read() {
     let gone = new_wiki(&th.client).await;
     let gone_page = new_page(&th.client, &gone, "", "사라진 위키의 페이지", "환불").await;
     th.client
-        .delete(&format!("{TEST_WS}/boards/{gone}"))
+        .delete(&format!("{TEST_WS}/containers/{gone}"))
         .await
         .check_no_content();
     th.app

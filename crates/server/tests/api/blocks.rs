@@ -1237,7 +1237,7 @@ async fn a_query_parameter_spelled_another_way_is_no_parameter() {
     let anonymous = th.anonymous();
     for route in [
         path.clone(),
-        format!("{TEST_WS}/boards/{}", boards.board.id),
+        format!("{TEST_WS}/containers/{}", boards.board.id),
     ] {
         for name in ["readToken", "read_token", "readtoken", "ReadToken"] {
             let with_token = format!("{route}?{name}={read_token}");
@@ -1339,7 +1339,7 @@ async fn post_blocks_without_identifiers_and_in_the_order_of_the_request() {
     let nameless: Vec<Value> = (0..3)
         .map(|index| {
             json!({
-                "boardId": board.id, "type": "card", "title": format!("nameless {index}"),
+                "containerId": board.id, "type": "card", "title": format!("nameless {index}"),
                 "createAt": 1, "updateAt": 1,
             })
         })
@@ -1392,24 +1392,24 @@ async fn post_blocks_validation() {
     let other_board = create_board_in_store(&th, ContainerType::Private).await;
     let path = blocks_path(&board.id);
     let valid =
-        json!({"id": "x1", "boardId": board.id, "type": "card", "createAt": 1, "updateAt": 1});
+        json!({"id": "x1", "containerId": board.id, "type": "card", "createAt": 1, "updateAt": 1});
     let without = |member: &str| {
-        let mut block = valid.clone();
-        block
-            .as_object_mut()
-            .expect("the block is an object")
-            .remove(member);
+        let mut block = valid.as_object().expect("the block is an object").clone();
+        block.remove(member);
         json!([block])
     };
     let mut elsewhere = valid.clone();
-    elsewhere["boardId"] = json!(other_board.id);
+    elsewhere["containerId"] = json!(other_board.id);
 
     let cases = [
         (without("type"), "missing type for block id x1"),
         (without("createAt"), "invalid createAt for block id x1"),
         (without("updateAt"), "invalid updateAt for block id x1"),
-        (without("boardId"), "invalid boardId for block id x1"),
-        (json!([elsewhere]), "invalid boardId for block id x1"),
+        (
+            without("containerId"),
+            "invalid containerId for block id x1",
+        ),
+        (json!([elsewhere]), "invalid containerId for block id x1"),
     ];
     for (body, message) in &cases {
         let response = th.client.post(&path, body).await;
@@ -1743,7 +1743,7 @@ async fn patch_block_changes() {
     // modifier.
     patch(&th.client, card, &BlockPatch::default()).await;
     let foreign_members = json!({
-        "boardId": boards.other_board.id,
+        "containerId": boards.other_board.id,
         "id": "another",
         "createdBy": "someone",
         "deleteAt": 5,
@@ -2315,7 +2315,7 @@ async fn block_changes_are_broadcast() {
         let announced = member.next_block().await;
         assert_eq!(announced["id"], json!(block.id), "{announced}");
         assert_eq!(announced["title"], json!(block.title), "{announced}");
-        assert_eq!(announced["boardId"], json!(board.id), "{announced}");
+        assert_eq!(announced["containerId"], json!(board.id), "{announced}");
     }
     let quiet_card = new_block(&board.id, BlockType::Card, "quiet card");
     let quiet: Vec<Block> = th
@@ -2370,7 +2370,7 @@ async fn block_changes_are_broadcast() {
     delete(&th.client, card).await;
     let announced = member.next_block().await;
     assert_eq!(announced["id"], json!(card.id), "{announced}");
-    assert_eq!(announced["boardId"], json!(board.id), "{announced}");
+    assert_eq!(announced["containerId"], json!(board.id), "{announced}");
     assert_eq!(announced["title"], json!(""), "{announced}");
     assert_ne!(announced["deleteAt"], json!(0), "{announced}");
 

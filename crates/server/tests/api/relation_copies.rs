@@ -51,7 +51,7 @@ async fn named_board(th: &TestServer) -> Named {
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &json!([{
-                "id": "v", "boardId": board.id, "parentId": board.id, "type": "view",
+                "id": "v", "containerId": board.id, "parentId": board.id, "type": "view",
                 "title": "Gantt", "schema": 1, "createAt": 1, "updateAt": 1,
                 "fields": {"viewType": "gantt", "dependencyPropertyId": RELATION},
             }]),
@@ -136,7 +136,7 @@ async fn a_copy_of_a_board_names_its_own_cards() {
 
     let copy: ContainersAndBlocks = th
         .client
-        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/duplicate", board.id))
         .await
         .created_json();
     let copied = &copy.containers[0];
@@ -164,7 +164,7 @@ async fn a_template_and_a_board_made_from_it_name_their_own_cards() {
     let template: ContainersAndBlocks = th
         .client
         .post_empty(&format!(
-            "{TEST_WS}/boards/{}/duplicate?asTemplate=true",
+            "{TEST_WS}/containers/{}/duplicate?asTemplate=true",
             board.id
         ))
         .await
@@ -172,7 +172,7 @@ async fn a_template_and_a_board_made_from_it_name_their_own_cards() {
     let template = &template.containers[0];
     let made: ContainersAndBlocks = th
         .client
-        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", template.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/duplicate", template.id))
         .await
         .created_json();
     let made = &made.containers[0];
@@ -207,7 +207,7 @@ async fn an_imported_archive_names_the_imported_cards() {
 
     let archive = th
         .client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))
         .await;
     archive.check_ok();
     import(&th.client, TEST_WORKSPACE_ID, &archive.body)
@@ -284,7 +284,7 @@ async fn a_relation_value_of_a_block_that_is_no_card_does_not_stop_a_copy() {
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &json!([{
-                "id": "v", "boardId": board.id, "parentId": board.id, "type": "view",
+                "id": "v", "containerId": board.id, "parentId": board.id, "type": "view",
                 "title": "Odd", "schema": 1, "createAt": 1, "updateAt": 1,
                 "fields": {"properties": {RELATION: [cards["A"], new_id()]}},
             }]),
@@ -293,7 +293,7 @@ async fn a_relation_value_of_a_block_that_is_no_card_does_not_stop_a_copy() {
         .check_created();
     let copy: ContainersAndBlocks = th
         .client
-        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/duplicate", board.id))
         .await
         .created_json();
     let values = relations_by_title(&th.client, &copy.containers[0].id).await;

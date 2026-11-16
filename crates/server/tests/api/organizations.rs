@@ -154,12 +154,12 @@ async fn a_server_of_one_organization_starts_past_the_wall_and_works() {
         .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
         .await;
     ts.client
-        .get(&format!("{ROOT_WS}/boards/{}", private.id))
+        .get(&format!("{ROOT_WS}/containers/{}", private.id))
         .await
         .check_ok();
     // The second user is no member of the board: the server says so, wall or no wall.
     ts.client2
-        .get(&format!("{ROOT_WS}/boards/{}", private.id))
+        .get(&format!("{ROOT_WS}/containers/{}", private.id))
         .await
         .check_not_found();
     ts.teardown().await;

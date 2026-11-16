@@ -72,7 +72,7 @@ async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiRes
     ws.require_container_maker("access denied to create board")?;
     let (mut request, (invalid, bodies)): (ContainersAndBlocks, _) =
         decode_object_with(&body, |body| {
-            let invalid: Option<InvalidContainerMember> = objects_mut(body, "boards")
+            let invalid: Option<InvalidContainerMember> = objects_mut(body, "containers")
                 .flatten()
                 .find_map(take_invalid_container_members);
             (
@@ -108,7 +108,7 @@ async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiRes
 
     for (index, container) in request.containers.iter_mut().enumerate() {
         ws.place_container(container, "workspaceId")
-            .map_err(|error| error.under(&element_pointer(Some("/boards"), index)))?;
+            .map_err(|error| error.under(&element_pointer(Some("/containers"), index)))?;
         if container.id.is_empty() {
             return Err(AppError::bad_request(
                 "boards need an ID to be referenced from the blocks",
@@ -175,9 +175,9 @@ fn new_block_problem(
         ))
     } else if !container_ids.contains(block.container_id.as_str()) {
         Some((
-            "boardId",
+            "containerId",
             format!(
-                "invalid boardId {} (no board of the request has that id)",
+                "invalid containerId {} (no board of the request has that id)",
                 block.container_id
             ),
         ))
@@ -191,7 +191,7 @@ fn new_block_problem(
 /// Applies a patch to each of several boards of one workspace and to blocks of those
 /// boards, all or none. The request names at least one board, and every block it names
 /// is on one of its boards: blocks alone are not changed this way. Each board needs
-/// what `patchBoard` needs, each block what `patchBlock` needs; a board's patch that
+/// what `patchContainer` needs, each block what `patchBlock` needs; a board's patch that
 /// names a `kind` is 400 at `/boardPatches/{index}/kind`.
 #[utoipa::path(
     patch,
@@ -213,7 +213,7 @@ async fn handle_patch_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResu
     let (mut patches, (invalid_members, changes)): (PatchContainersAndBlocks, _) =
         decode_object_with(&body, |body| {
             let invalid: Vec<(Option<InvalidContainerMember>, bool)> =
-                objects_mut(body, "boardPatches")
+                objects_mut(body, "containerPatches")
                     .map(|patch| match patch {
                         Some(patch) => (
                             take_invalid_patch_members(patch),
@@ -252,10 +252,10 @@ async fn handle_patch_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResu
             "access denied to modifying board properties",
         )
         .await?;
-        // As `patchBoard`: the kind of a board never changes.
+        // As `patchContainer`: the kind of a board never changes.
         if names_a_kind {
             return Err(AppError::bad_request("the kind of a board never changes")
-                .with_pointer(format!("/boardPatches/{index}/kind")));
+                .with_pointer(format!("/containerPatches/{index}/kind")));
         }
         if patch.container_type.is_some() || patch.minimum_role.is_some() {
             require_container_permission(
@@ -367,8 +367,8 @@ async fn block_of_containers(
 /// Deletes several boards of one workspace, all or none. The request names at least one
 /// board, and every block it names must be on one of its boards and be the user's to
 /// delete as `deleteBlock` has it; the blocks are checked and nothing more, since a
-/// board takes all of its blocks along. The boards go to the trash as `deleteBoard`
-/// puts them there, and `undeleteBoard` brings each back with its blocks. For the
+/// board takes all of its blocks along. The boards go to the trash as `deleteContainer`
+/// puts them there, and `undeleteContainer` brings each back with its blocks. For the
 /// admins of every board named.
 #[utoipa::path(
     delete,

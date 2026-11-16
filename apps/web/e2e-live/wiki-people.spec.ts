@@ -36,7 +36,7 @@ async function makeWiki(api: APIRequestContext, title: string, type: 'O' | 'P') 
   const inWorkspace = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
     await api.post(`${inWorkspace}/wikis`, { data: { title, type } })
-  ).json()) as Schemas['Board'];
+  ).json()) as Schemas['Container'];
   const page = (await (
     await api.post(`${inWorkspace}/wikis/${wiki.id}/pages`, { data: { title: 'Hello' } })
   ).json()) as Schemas['Page'];
@@ -50,8 +50,8 @@ async function makeWiki(api: APIRequestContext, title: string, type: 'O' | 'P') 
 
 async function members(api: APIRequestContext, wiki: { workspaceId: string; wikiId: string }) {
   return (await (
-    await api.get(`/api/v1/w/${wiki.workspaceId}/boards/${wiki.wikiId}/members`)
-  ).json()) as Schemas['BoardMember'][];
+    await api.get(`/api/v1/w/${wiki.workspaceId}/containers/${wiki.wikiId}/members`)
+  ).json()) as Schemas['ContainerMember'][];
 }
 
 async function idOf(api: APIRequestContext): Promise<string> {
@@ -105,7 +105,7 @@ test('a wiki is shared from its head: a colleague added, their role changed, and
     .poll(async () => {
       const listed = (await (
         await colleagueApi.get(`/api/v1/w/${wiki.workspaceId}/wikis`)
-      ).json()) as Schemas['Board'][];
+      ).json()) as Schemas['Container'][];
       return listed.find((one) => one.id === wiki.wikiId)?.type;
     })
     .toBe('O');

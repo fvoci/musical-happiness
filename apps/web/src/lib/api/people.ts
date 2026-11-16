@@ -21,7 +21,7 @@ function invitationOf(link: Schemas['Invitation']): Invitation {
   return {
     id: link.id,
     role: link.role === 'guest' ? 'guest' : 'member',
-    ...(link.boardId ? { boardId: link.boardId } : {}),
+    ...(link.containerId ? { boardId: link.containerId } : {}),
     createdBy: link.createdBy,
     createAt: link.createAt,
     expiresAt: link.expiresAt,
@@ -87,7 +87,7 @@ export class ServerPeople implements People {
     boardId: string,
     role: GuestBoardRole,
   ): Promise<Invitation> {
-    return this.#invite(workspaceId, { role: 'guest', boardId, boardRole: role });
+    return this.#invite(workspaceId, { role: 'guest', containerId: boardId, containerRole: role });
   }
 
   async #invite(workspaceId: string, request: Schemas['NewInvitation']): Promise<Invitation> {

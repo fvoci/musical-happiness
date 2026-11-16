@@ -167,7 +167,7 @@ test('a team editor opens and edits a board, then loses it when removed from the
   await expect(boardLink(editor, title)).toHaveCount(0);
   await expect
     .poll(async () =>
-      (await theirs.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`)).status(),
+      (await theirs.get(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}`)).status(),
     )
     .toBe(404);
   await other.close();

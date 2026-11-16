@@ -1,7 +1,7 @@
 /**
  * The backend of a reader by a public link: a board's views, cards, comments
  * and files, or a wiki's tree, pages and files, read by
- * `/api/v1/shared/{boardId}` with the link's read token alone. No session goes along (`credentials: 'omit'`): a
+ * `/api/v1/shared/{containerId}` with the link's read token alone. No session goes along (`credentials: 'omit'`): a
  * reader who is signed in reads as anyone else does, and nothing of their
  * account mixes in. Nothing is written: every change is refused here,
  * before a request is made. A visit connection counts this reader anonymously;
@@ -68,9 +68,9 @@ const nothing = (): Promise<never[]> => Promise.resolve([]);
 const done = (): Promise<void> => Promise.resolve();
 const unwatched = (): (() => void) => () => undefined;
 
-/** A path of the shared board's, as the contract writes it after `/api/v1/shared/{boardId}`. */
+/** A path of the shared board's, as the contract writes it after `/api/v1/shared/{containerId}`. */
 type SharedPath = ApiPath extends infer P
-  ? P extends `/api/v1/shared/{boardId}${infer Rest}`
+  ? P extends `/api/v1/shared/{containerId}${infer Rest}`
     ? Rest
     : never
   : never;
@@ -163,8 +163,8 @@ export class SharedBackend implements Backend {
     query: Record<string, string | number> = {},
   ): Promise<T> {
     return this.#http.request<T>(
-      `/api/v1/shared/{boardId}${path}`,
-      { boardId: this.#boardId, ...params },
+      `/api/v1/shared/{containerId}${path}`,
+      { containerId: this.#boardId, ...params },
       { query: { ...query, readToken: this.#readToken } },
     );
   }
@@ -197,7 +197,7 @@ export class SharedBackend implements Backend {
 
   async board(boardId: string): Promise<Board> {
     this.#only(boardId);
-    const board = boardOf(await this.#read<Schemas['Board']>(''));
+    const board = boardOf(await this.#read<Schemas['Container']>(''));
     return { ...board, workspaceId: SHARED_PLACE };
   }
 
@@ -252,8 +252,8 @@ export class SharedBackend implements Backend {
   fileBytes(boardId: string, fileId: string): Promise<Blob> {
     this.#only(boardId);
     return this.#http.bytes(
-      '/api/v1/shared/{boardId}/files/{fileId}',
-      { boardId, fileId },
+      '/api/v1/shared/{containerId}/files/{fileId}',
+      { containerId: boardId, fileId },
       { readToken: this.#readToken },
     );
   }
@@ -261,8 +261,8 @@ export class SharedBackend implements Backend {
   fileUrl(boardId: string, fileId: string): string | undefined {
     if (boardId !== this.#boardId) return undefined;
     return this.#http.url(
-      '/api/v1/shared/{boardId}/files/{fileId}',
-      { boardId, fileId },
+      '/api/v1/shared/{containerId}/files/{fileId}',
+      { containerId: boardId, fileId },
       { readToken: this.#readToken },
     );
   }

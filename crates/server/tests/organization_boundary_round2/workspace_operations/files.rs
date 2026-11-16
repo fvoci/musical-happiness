@@ -46,7 +46,7 @@ pub(super) async fn exercise(case: &mut Case, board: &str) {
     let upload = case.remember(&upload, "uploadId");
     let upload_at = &[("uploadId", upload.as_str())];
     let state = case.present("getUpload", upload_at, &upload).await.value();
-    assert_eq!(state["boardId"], board, "upload belongs to this board");
+    assert_eq!(state["containerId"], board, "upload belongs to this board");
     part(case, &upload, &payload).await;
     let completed = case
         .run("completeUpload", upload_at, json!({}))
@@ -93,7 +93,7 @@ async fn part(case: &mut Case, upload: &str, bytes: &[u8]) {
 
 async fn archives(case: &mut Case, board: &str) {
     let archive = case
-        .run("exportBoardArchive", &[("boardId", board)], json!({}))
+        .run("exportContainerArchive", &[("boardId", board)], json!({}))
         .await;
     assert!(
         archive.body.starts_with(b"PK"),

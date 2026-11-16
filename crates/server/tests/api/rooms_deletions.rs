@@ -20,7 +20,7 @@ async fn deleting_cards_boards_and_batches_keeps_the_last_room_body_for_restore(
         assert_ne!(body_of(&card(&th.client, &table.card_id).await), wanted);
         let base = format!("/w/{TEST_WORKSPACE_ID}");
         let block = format!("{base}/boards/{}/blocks/{}", table.board_id, table.card_id);
-        let board = format!("{base}/boards/{}", table.board_id);
+        let board = format!("{base}/containers/{}", table.board_id);
         match target {
             "card" => th.client.delete(&block).await.check_no_content(),
             "board" => th.client.delete(&board).await.check_no_content(),
@@ -28,7 +28,7 @@ async fn deleting_cards_boards_and_batches_keeps_the_last_room_body_for_restore(
                 .client
                 .delete_json(
                     &format!("{base}/boards-and-blocks"),
-                    &json!({"boards": [table.board_id], "blocks": [table.card_id]}),
+                    &json!({"containers": [table.board_id], "blocks": [table.card_id]}),
                 )
                 .await
                 .check_no_content(),

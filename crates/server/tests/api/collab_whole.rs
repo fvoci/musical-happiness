@@ -303,8 +303,8 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
     let whole = paragraphs(&["written with the boards"]);
     let patch = |read_at: i64| {
         json!({
-            "boardIds": [read_before.board_id],
-            "boardPatches": [{"title": "the board"}],
+            "containerIds": [read_before.board_id],
+            "containerPatches": [{"title": "the board"}],
             "blockIds": [e.card_id],
             "blockPatches": [{"body": whole, "readAt": read_at}],
         })

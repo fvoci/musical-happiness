@@ -235,9 +235,12 @@ async fn a_guest_member_of_a_template_board_reads_its_blocks() {
         })
         .await
         .check_ok();
-    let at = format!("{TEST_WS}/boards/{}", template.id);
+    let at = format!("{TEST_WS}/containers/{}", template.id);
     ts.client2.get(&at).await.check_ok();
-    ts.client2.get(&format!("{at}/blocks")).await.check_ok();
+    ts.client2
+        .get(&format!("{TEST_WS}/boards/{}/blocks", template.id))
+        .await
+        .check_ok();
     ts.teardown().await;
 }
 

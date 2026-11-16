@@ -61,17 +61,17 @@ async fn handle_get_deleted_cards(
 ///
 /// One page of the workspace's boards that are in the trash and that the user was an admin
 /// of when they were deleted, or every one of them for an administrator of the
-/// workspace, which is who `undeleteBoard` lets bring them back: each
+/// workspace, which is who `undeleteContainer` lets bring them back: each
 /// with its identifier, its title, when it was deleted and by whom. The last deleted
 /// first; the pages cut that order. A `page` or `perPage` that is no whole number is
 /// 400. For users of the workspace.
 ///
 /// The wikis in the trash are in the same list, which go there and come back as boards
-/// do (`deleteBoard`, `undeleteBoard`): each entry says its `kind`.
+/// do (`deleteContainer`, `undeleteContainer`): each entry says its `kind`.
 #[utoipa::path(
     get,
-    path = "/w/{workspaceId}/trash/boards",
-    operation_id = "getDeletedBoards",
+    path = "/w/{workspaceId}/trash/containers",
+    operation_id = "getDeletedContainers",
     tag = tag::CONTAINERS,
     params(WorkspaceId, Page, PerPage),
     responses((status = 200, description = "The deleted boards of the page.", body = Vec<DeletedItem>)),

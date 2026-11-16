@@ -18,7 +18,6 @@ use crate::serde_util::null_as_default;
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
 )]
-#[schema(as = BoardType)]
 pub enum ContainerType {
     /// Any member of the workspace may find and join the board.
     #[default]
@@ -45,7 +44,6 @@ impl ContainerType {
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
 )]
 #[serde(rename_all = "lowercase")]
-#[schema(as = BoardKind)]
 pub enum ContainerKind {
     /// A board: cards, their views and their comments.
     #[default]
@@ -277,7 +275,6 @@ pub enum ContainerError {
 // (No doc comment: the doc comment is the description in the API contract.)
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
-#[schema(as = Board)]
 pub struct Container {
     /// The board's identifier.
     #[serde(default)]
@@ -492,7 +489,6 @@ impl Container {
 /// A partial update of a `Board`. Absent members leave the board unchanged.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
-#[schema(as = BoardPatch)]
 pub struct ContainerPatch {
     /// The new board type.
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
@@ -623,11 +619,9 @@ fn property_id(property: &JsonMap) -> Option<String> {
     clippy::struct_excessive_bools,
     reason = "the four scheme flags and `synthetic` are separate members of the wire format"
 )]
-#[schema(as = BoardMember)]
 pub struct ContainerMember {
     /// The identifier of the board.
     #[serde(deserialize_with = "null_as_default")]
-    #[serde(rename = "boardId")]
     pub container_id: String,
     /// The identifier of the user.
     #[serde(deserialize_with = "null_as_default")]

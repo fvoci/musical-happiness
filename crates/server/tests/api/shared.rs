@@ -56,13 +56,16 @@ async fn fixture() -> Fixture {
         .created_json();
     let card_id = card["id"].as_str().expect("an identifier").to_owned();
     ts.client2
-        .post(&format!("{TEST_WS}/boards/{}/join", board.id), &json!({}))
+        .post(
+            &format!("{TEST_WS}/containers/{}/join", board.id),
+            &json!({}),
+        )
         .await
         .check_ok();
     ts.client2
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", board.id),
-            &json!([{"id": "comment", "boardId": board.id, "parentId": card_id, "type": "comment", "title": "fine by me", "createAt": 1, "updateAt": 1}]),
+            &json!([{"id": "comment", "containerId": board.id, "parentId": card_id, "type": "comment", "title": "fine by me", "createAt": 1, "updateAt": 1}]),
         )
         .await
         .check_created();
@@ -70,7 +73,7 @@ async fn fixture() -> Fixture {
     let sharing: Sharing = ts
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", board.id),
             &json!({"enabled": true}),
         )
         .await
@@ -95,7 +98,10 @@ async fn upload(client: &Client, board_id: &str) -> String {
     let file = reqwest::multipart::Part::bytes(b"the shared file".to_vec()).file_name("a.txt");
     let uploaded: Value = Client::send(
         client
-            .request(Method::POST, &format!("{TEST_WS}/boards/{board_id}/files"))
+            .request(
+                Method::POST,
+                &format!("{TEST_WS}/containers/{board_id}/files"),
+            )
             .multipart(reqwest::multipart::Form::new().part("file", file)),
     )
     .await
@@ -226,7 +232,7 @@ async fn a_shared_board_is_not_there_without_its_token() {
 
     f.ts.client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", f.board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", f.board.id),
             &json!({"enabled": false}),
         )
         .await
@@ -236,14 +242,14 @@ async fn a_shared_board_is_not_there_without_its_token() {
     }
     f.ts.client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", f.board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", f.board.id),
             &json!({"enabled": true}),
         )
         .await
         .check_ok();
     let token = f.ts.share(&f.board.id).await;
     f.ts.client
-        .delete(&format!("{TEST_WS}/boards/{}", f.board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", f.board.id))
         .await
         .check_no_content();
     for path in shared_paths(&f.board.id, &f.file_id, &token) {
@@ -264,21 +270,21 @@ async fn the_board_routes_take_no_read_token() {
     let f = fixture().await;
     f.ts.client
         .patch(
-            &format!("{TEST_WS}/boards/{}", f.board.id),
+            &format!("{TEST_WS}/containers/{}", f.board.id),
             &json!({"type": "P"}),
         )
         .await
         .check_ok();
     let outsider = f.ts.add_user("outsider").await;
-    for rest in [
-        String::new(),
-        "/blocks".to_owned(),
-        "/cards".to_owned(),
-        format!("/files/{}", f.file_id),
-        format!("/files/{}/info", f.file_id),
+    for (under, rest) in [
+        ("containers", String::new()),
+        ("boards", "/blocks".to_owned()),
+        ("boards", "/cards".to_owned()),
+        ("containers", format!("/files/{}", f.file_id)),
+        ("containers", format!("/files/{}/info", f.file_id)),
     ] {
         let path = format!(
-            "{TEST_WS}/boards/{}{rest}?readToken={}",
+            "{TEST_WS}/{under}/{}{rest}?readToken={}",
             f.board.id, f.token
         );
         f.ts.anonymous().get(&path).await.check_unauthorized();

@@ -51,7 +51,7 @@ async fn first_organization_takes_back(ts: &TestServer) {
     ts.share(&shared.id).await;
     ts.client
         .post(
-            &format!("/w/{TEST_WORKSPACE_ID}/boards/{}/sharing", shared.id),
+            &format!("/w/{TEST_WORKSPACE_ID}/containers/{}/sharing", shared.id),
             &json!({"enabled": false}),
         )
         .await
