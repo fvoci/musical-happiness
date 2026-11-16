@@ -124,7 +124,7 @@ export class CardStore {
     this.#closed = true;
     this.closeBody();
     for (const upload of this.uploads) upload.cancel();
-    for (const upload of this.#imageUploads) upload.abort();
+    for (const upload of this.#bodyUploads) upload.abort();
   }
 
   #takeDetail(detail: CardDetail): void {
@@ -455,13 +455,13 @@ export class CardStore {
   }
 
   /**
-   * Uploads an image for the body and gives the identifier an image node
-   * names. The editor shows its place meanwhile (not the list of uploads);
-   * the place follows the room's document, whatever others write meanwhile.
+   * Uploads a file for the body and gives the identifier its image or file block
+   * names. The editor shows its place meanwhile (not the list of uploads), which
+   * follows the room's document whatever others write. Closing the card gives it up.
    */
-  async uploadImage(file: File): Promise<string> {
+  async uploadFile(file: File): Promise<string> {
     const controller = new AbortController();
-    this.#imageUploads = [...this.#imageUploads, controller];
+    this.#bodyUploads = [...this.#bodyUploads, controller];
     try {
       const uploaded = await this.#backend.upload(this.#boardId, file, {
         signal: controller.signal,
@@ -471,16 +471,16 @@ export class CardStore {
       if (!controller.signal.aborted) this.board.workspace.report('upload', error);
       throw error;
     } finally {
-      this.#imageUploads = this.#imageUploads.filter((other) => other !== controller);
+      this.#bodyUploads = this.#bodyUploads.filter((other) => other !== controller);
     }
   }
 
-  /** The uploads of images for the body under way. */
-  #imageUploads = $state.raw<AbortController[]>([]);
+  /** The uploads of files for the body under way. */
+  #bodyUploads = $state.raw<AbortController[]>([]);
 
-  /** An image is going up for the body: closing the card now would give it up. */
-  get imagesGoingUp(): boolean {
-    return this.#imageUploads.length > 0;
+  /** A file is going up for the body: closing the card now would give it up. */
+  get filesGoingUp(): boolean {
+    return this.#bodyUploads.length > 0;
   }
 
   /** The bytes of a file of this board; undefined (and told) when they could not be read. */

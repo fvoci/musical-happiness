@@ -9,7 +9,7 @@ import { openLater } from '../doc-opener.ts';
 
 import type { RoomUser } from './rooms.ts';
 import { fail } from './refuse.ts';
-import { copy, imageFileIds, LIMITS } from './shapes.ts';
+import { bodyFileIds, copy, hasFileBlock, LIMITS } from './shapes.ts';
 import type { World } from './world.ts';
 
 /**
@@ -39,14 +39,29 @@ export function checkedBody(
   if (storedSize(body) > LIMITS.bodyBytes) {
     fail(400, 'the body is too large', { field: 'body', limit: LIMITS.bodyBytes });
   }
-  for (const fileId of imageFileIds(body)) {
+  for (const fileId of bodyFileIds(body)) {
     if (world.files.get(fileId)?.containerId !== containerId) {
-      fail(400, 'an image names a file that is not of this board', { field: 'body' });
+      fail(400, 'an image or a file block names a file that is not of this board', {
+        field: 'body',
+      });
     }
   }
   const only = body.content?.length === 1 ? body.content[0] : undefined;
   const empty = only?.type === 'paragraph' && (only.content?.length ?? 0) === 0;
   return empty ? null : copy(body);
+}
+
+/** A comment's body as it is stored, or the server's refusal: a comment has no file block. */
+export function checkedComment(
+  world: World,
+  containerId: string,
+  body: DocNode | null,
+): DocNode | null {
+  const checked = checkedBody(world, containerId, body);
+  if (checked && hasFileBlock(checked)) {
+    fail(400, "a comment's body has no file block", { field: 'body' });
+  }
+  return checked;
 }
 
 /** Opens a card's body in the world's room of it, for a user. */

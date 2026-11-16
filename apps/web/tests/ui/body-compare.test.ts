@@ -57,6 +57,11 @@
  *     module draws into it once the body is in the page (reference-chip.ts,
  *     tested on its own). The place is compared: the element, its class and
  *     the identifier.
+ * 14. What a file block shows of its file: the editor draws its icon, name,
+ *     size and link into the block as it makes it; the view makes the place
+ *     alone, and the same module draws into it once the body is in the page
+ *     (file-view.ts, tested in editor-file-blocks.test.ts). The place is
+ *     compared: the element and the identifier.
  *
  * On both sides:
  *
@@ -76,7 +81,7 @@ import { Editor } from '@tiptap/core';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { bodyExtensions } from '$lib/editor/extensions.ts';
-import { setFileUrlResolver, type FileUrlResolver } from '$lib/editor/files.ts';
+import { setFileSource, type FileSource } from '$lib/editor/files.ts';
 import { renderBody } from '$lib/editor/render.ts';
 import {
   MARK_SPECS,
@@ -128,6 +133,7 @@ const LEFT_OUT = {
   'diagram around its source': 0, // 11
   'block formula around its drawing': 0, // 12
   'what a reference shows': 0, // 13
+  'what a file block shows': 0, // 14
 };
 type LeftOut = keyof typeof LEFT_OUT;
 const leaveOut = (entry: LeftOut): void => {
@@ -201,6 +207,14 @@ function shapeOf(node: Node, side: 'editor' | 'view'): Shape | undefined {
     formula.removeAttribute('aria-describedby');
     return shapeOf(formula, side);
   }
+  if (ofEditor && node.hasAttribute('data-file-block') && node.hasAttribute('data-drawn')) {
+    leaveOut('what a file block shows');
+    const place = node.cloneNode(false) as Element;
+    for (const name of ['data-drawn', 'data-state', 'role', 'aria-label']) {
+      place.removeAttribute(name);
+    }
+    return shapeOf(place, side);
+  }
   if (ofEditor && node.hasAttribute('data-reference') && node.hasAttribute('data-drawn')) {
     leaveOut('what a reference shows');
     const place = node.cloneNode(false) as Element;
@@ -255,15 +269,16 @@ const shapesOf = (parent: ParentNode, side: 'editor' | 'view'): Shape[] =>
     .filter((child) => child !== undefined);
 
 let editor: Editor | undefined;
-let previousResolver: FileUrlResolver;
+let previousResolver: FileSource;
 
 beforeAll(() => {
-  previousResolver = setFileUrlResolver((fileId) =>
-    fileId.startsWith(UNRESOLVED_FILE_PREFIX) ? undefined : `/files/board-1/${fileId}`,
-  );
+  previousResolver = setFileSource({
+    url: (fileId) =>
+      fileId.startsWith(UNRESOLVED_FILE_PREFIX) ? undefined : `/files/board-1/${fileId}`,
+  });
 });
 afterAll(() => {
-  setFileUrlResolver(previousResolver);
+  setFileSource(previousResolver);
 });
 afterEach(() => {
   editor?.destroy();

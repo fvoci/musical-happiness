@@ -25,6 +25,7 @@ import {
   type WorkspaceInfo,
 } from '../state/backend.ts';
 import type { CardPreview } from '../editor/card-preview.ts';
+import type { FileDetails } from '../editor/files.ts';
 import type { LinkedBlock } from '../state/references.ts';
 import type { Wikis } from '../state/wiki-types.ts';
 import type { Container } from '../logic/wire.ts';
@@ -264,6 +265,12 @@ export class SharedBackend implements Backend {
       { containerId, fileId },
       { readToken: this.#readToken },
     );
+  }
+
+  async fileDetails(containerId: string, fileId: string): Promise<FileDetails> {
+    this.#only(containerId);
+    const info = await this.#read<Schemas['FileInfo']>('/files/{fileId}/info', { fileId });
+    return { name: info.name, size: info.size };
   }
 
   fileUrl(containerId: string, fileId: string): string | undefined {

@@ -6,10 +6,16 @@
  *
  * A block copied out of one editor and pasted into another keeps its file
  * (`data-file-id`); an element without one is no file block here.
+ *
+ * In the editor the block is drawn as where a body is only shown
+ * (file-view.ts). It is reached with the arrow keys, which select it, and
+ * Enter then saves its file; a press of its link does the same.
  */
 import { mergeAttributes, Node } from '@tiptap/core';
+import { NodeSelection, Plugin } from '@tiptap/pm/state';
 
 import { FILE_BLOCK_ATTRIBUTE, FILE_ID_ATTRIBUTE } from './drawing.ts';
+import { drawFileBlock, saveFileOf } from './file-view.ts';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -43,6 +49,56 @@ export const FileBlock = Node.create({
 
   renderHTML({ HTMLAttributes }) {
     return ['div', mergeAttributes(HTMLAttributes, { [FILE_BLOCK_ATTRIBUTE]: '' })];
+  },
+
+  addNodeView() {
+    return ({ node, HTMLAttributes }) => {
+      const dom = document.createElement('div');
+      const attributes = mergeAttributes(HTMLAttributes, { [FILE_BLOCK_ATTRIBUTE]: '' });
+      for (const [name, value] of Object.entries(attributes)) {
+        if (value !== null && value !== undefined) dom.setAttribute(name, String(value));
+      }
+      drawFileBlock(dom);
+      return {
+        dom,
+        // A press of the link is the link's; the editor does not take it as selecting the block.
+        stopEvent: (event) =>
+          event.target instanceof Element && event.target.closest('a.doc-file-download') !== null,
+        // What is drawn into the block is no change of the document.
+        ignoreMutation: () => true,
+        // Another file is another block, drawn anew.
+        update: (updated) =>
+          updated.type === node.type && updated.attrs.fileId === node.attrs.fileId,
+      };
+    };
+  },
+
+  // Enter is taken from the key's own event, before the editor's keys: the editor leaves
+  // Enter alone in Chrome on Android (it waits for what the keyboard does to the text),
+  // and a selected block has no text to do it to.
+  addProseMirrorPlugins() {
+    const name = this.name;
+    return [
+      new Plugin({
+        props: {
+          handleDOMEvents: {
+            keydown: (view, event) => {
+              const plain = !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
+              const { selection } = view.state;
+              if (event.key !== 'Enter' || !plain || event.isComposing) return false;
+              if (!(selection instanceof NodeSelection) || selection.node.type.name !== name) {
+                return false;
+              }
+              const dom = view.nodeDOM(selection.from);
+              if (dom instanceof HTMLElement) saveFileOf(dom);
+              // Taken either way: Enter never replaces the selected block.
+              event.preventDefault();
+              return true;
+            },
+          },
+        },
+      }),
+    ];
   },
 
   addCommands() {

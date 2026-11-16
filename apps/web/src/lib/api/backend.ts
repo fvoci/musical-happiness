@@ -914,17 +914,6 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     }
   }
 
-  /** The bytes of a file (`getFile`). */
-  fileBytes(containerId: string, fileId: string): Promise<Blob> {
-    const params = { containerId, fileId };
-    return this.inWorkspaceBytes('/containers/{containerId}/files/{fileId}', params);
-  }
-
-  /** The file's bytes, from the page's own origin: the session's cookie goes along. */
-  fileUrl(containerId: string, fileId: string): string | undefined {
-    return this.inWorkspaceUrl('/containers/{containerId}/files/{fileId}', { containerId, fileId });
-  }
-
   /** The board's or the wiki's changes, from the one connection of the page (`live.ts`). */
   watchContainer(containerId: string, listener: ChangeListener): () => void {
     return this.#live.watch(containerId, listener);

@@ -26,6 +26,7 @@ export interface BodyWords {
   notOpened: () => string;
   lostReset: () => string;
   lostImage: () => string;
+  lostFile: () => string;
   lostFormula: () => string;
 }
 
@@ -43,6 +44,7 @@ export const CARD_WORDS: BodyWords = {
   notOpened: m.card_body_not_opened,
   lostReset: m.card_body_lost_reset,
   lostImage: m.card_body_lost_image,
+  lostFile: m.card_body_lost_file,
   lostFormula: m.card_body_lost_formula,
 };
 
@@ -61,6 +63,7 @@ export const PAGE_WORDS: BodyWords = {
   notOpened: m.wiki_body_not_opened,
   lostReset: m.wiki_body_lost_reset,
   lostImage: m.wiki_body_lost_image,
+  lostFile: m.wiki_body_lost_file,
   lostFormula: m.wiki_body_lost_formula,
 };
 
@@ -109,6 +112,8 @@ export function roomNote(
 
 /** Why an image that went up was not put in: the editor was made anew for another document. */
 export const IMAGE_DROPPED = 'image_dropped';
+/** Why a file that went up was not put in as a file block: the same. */
+export const FILE_DROPPED = 'file_dropped';
 /** Why a formula's source the reader wrote was not put in: the same. */
 export const FORMULA_DROPPED = 'formula_dropped';
 
@@ -116,6 +121,7 @@ export const FORMULA_DROPPED = 'formula_dropped';
 export function lostNote(why: string, words: BodyWords = CARD_WORDS): string {
   if (why === 'document_reset') return words.lostReset();
   if (why === IMAGE_DROPPED) return words.lostImage();
+  if (why === FILE_DROPPED) return words.lostFile();
   if (why === FORMULA_DROPPED) return words.lostFormula();
   if (why === 'update_too_large' || why === 'document_too_large') return m.card_body_lost_large();
   return m.card_body_lost();

@@ -1,15 +1,16 @@
 <script lang="ts">
   import BodyEditor from '$lib/editor/BodyEditor.svelte';
   import BodyView from '$lib/editor/BodyView.svelte';
-  import { setFileUrlResolver } from '$lib/editor/files.ts';
+  import { setFileSource } from '$lib/editor/files.ts';
   import type { DocNode } from '$lib/editor/schema.ts';
 
-  import { PEOPLE, SAMPLE_REFERENCES, sampleFileUrl } from './body-samples.ts';
+  import { PEOPLE, SAMPLE_REFERENCES, sampleFileSource } from './body-samples.ts';
 
   let { doc, editable = true }: { doc: unknown; editable?: boolean } = $props();
 
-  // The stories have no server: pictures are made up from the file identifier.
-  setFileUrlResolver(sampleFileUrl);
+  // The stories have no server: pictures are made up from the file identifier, and the
+  // records of the files of file blocks are the samples'.
+  setFileSource(sampleFileSource);
   const users = Object.entries(PEOPLE).map(([id, name]) => ({ id, name }));
 
   /** What the editor would store; `undefined` until it says, or when it refused the document. */
@@ -25,7 +26,7 @@
       {users}
       resolveUser={(userId: string) => PEOPLE[userId]}
       references={SAMPLE_REFERENCES}
-      uploadImage={() => Promise.resolve(`file-${(uploads += 1)}`)}
+      uploadFile={() => Promise.resolve(`file-${(uploads += 1)}`)}
       placeholder="내용을 입력하세요."
       class="min-h-40 p-4"
       onChange={(next: DocNode | null) => {

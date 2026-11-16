@@ -87,14 +87,14 @@
   /**
    * Whether the card may be left, for another card or for the board. What
    * the reader wrote in the body is sent first. When it does not reach the
-   * server (no connection, not in the room), or an image is still going up
+   * server (no connection, not in the room), or a file is still going up
    * for the body (shown in its place), the card stays open once, so that
    * nothing is lost by a careless tap. Leaving again leaves.
    */
   async function mayLeave(): Promise<boolean> {
     const open = card;
     // Asked before and after the sending: a function, so that the second answer is not taken for the first.
-    const unsaved = (): boolean => (open?.bodyPending ?? false) || (open?.imagesGoingUp ?? false);
+    const unsaved = (): boolean => (open?.bodyPending ?? false) || (open?.filesGoingUp ?? false);
     if (open && unsaved() && held !== open) {
       await open.settleBody();
       if (unsaved() && board.openCard === open) {

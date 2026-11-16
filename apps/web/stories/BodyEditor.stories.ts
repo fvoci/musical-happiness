@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/svelte';
 
 import BodyEditorSample from './BodyEditorSample.svelte';
-import { DIAGRAMS, FORMULAS, INVALID, MIXED, REFERENCES } from './body-samples.ts';
+import { DIAGRAMS, FILES, FORMULAS, INVALID, MIXED, REFERENCES } from './body-samples.ts';
 
 /** The editor of a document body (src/lib/editor/BodyEditor.svelte), with the view of what it would store. */
 const meta = {
@@ -36,3 +36,8 @@ export const ReadOnly: Story = { args: { doc: FORMULAS, editable: false } };
 export const Unreadable: Story = { args: { doc: INVALID } };
 /** References: type `[[` for the cards and pages there are to name; each shows what it names as it is now. */
 export const References: Story = { args: { doc: REFERENCES } };
+/**
+ * File blocks: type `/` for the slash menu and choose "파일", or paste or drop a
+ * file that is no picture. Select a block with the arrows and Enter saves its file.
+ */
+export const Files: Story = { args: { doc: FILES } };

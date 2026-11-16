@@ -6,6 +6,7 @@
 import type { DocNode } from '../../editor/schema.ts';
 
 import { flushContainers } from './bodies.ts';
+import { namesFile } from './shapes.ts';
 import type { StoredBlock, World } from './world.ts';
 
 /** The blocks a copy of the board or wiki takes: all but its comments. */
@@ -14,14 +15,13 @@ export function copiedBlocks(world: World, container: { id: string }): StoredBlo
   return world.blocksOf(container.id).filter((block) => block.type !== 'comment');
 }
 
-/** The body with the files its images show renamed, where `rename` has another name. */
-function renameImages(node: DocNode, rename: (id: string) => string): DocNode {
-  const attrs =
-    node.type === 'image' && typeof node.attrs?.fileId === 'string'
-      ? { attrs: { ...node.attrs, fileId: rename(node.attrs.fileId) } }
-      : {};
+/** The body with the files its images and file blocks name renamed, where `rename` has another name. */
+function renameFiles(node: DocNode, rename: (id: string) => string): DocNode {
+  const attrs = namesFile(node)
+    ? { attrs: { ...node.attrs, fileId: rename(String(node.attrs?.fileId)) } }
+    : {};
   const content = node.content
-    ? { content: node.content.map((each) => renameImages(each, rename)) }
+    ? { content: node.content.map((each) => renameFiles(each, rename)) }
     : {};
   return { ...node, ...attrs, ...content };
 }
@@ -45,7 +45,7 @@ export function giveCopiesFiles(world: World, sourceId: string, copyId: string):
     return made;
   };
   for (const block of world.blocksOf(copyId)) {
-    if (block.body) block.body = renameImages(block.body, renamed);
+    if (block.body) block.body = renameFiles(block.body, renamed);
     if (block.file) block.file = { ...block.file, fileId: renamed(block.file.fileId) };
   }
 }

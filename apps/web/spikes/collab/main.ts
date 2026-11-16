@@ -21,7 +21,7 @@ import './spike.css';
 import '../../src/lib/editor/editor.css';
 
 import { bodyExtensions } from '$lib/editor/extensions.ts';
-import { setFileUrlResolver } from '$lib/editor/files.ts';
+import { setFileSource } from '$lib/editor/files.ts';
 import { isEmptyDoc, toStoredDoc, type DocNode } from '$lib/editor/schema.ts';
 
 import { rawType, shapeOf, typeAt, type RawElement } from '../../tools/ydoc/shape.ts';
@@ -39,7 +39,7 @@ const query = new URLSearchParams(location.search);
 const keepOwnHistory = query.get('undo') === 'both';
 const contentCheck = query.get('check') === '1';
 
-setFileUrlResolver(fakeFileUrl);
+setFileSource({ url: fakeFileUrl });
 
 /** What marks an update as one the relay brought, so that it is not sent back. */
 const RELAY = Symbol('relay');
