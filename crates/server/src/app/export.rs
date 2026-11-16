@@ -103,10 +103,6 @@ impl App {
         let path = Doomed::file(directory.join(format!("{}.boardarchive", new_secret())));
         self.write_archive(path.path(), workspace_id, &boards)
             .await?;
-        for board in &boards {
-            self.metrics()
-                .board_copied(BoardWork::Export, counted_as(board.kind));
-        }
         let file = fs::File::open(path.path())
             .await
             .map_err(|error| io_error(&error))?;
@@ -115,6 +111,11 @@ impl App {
             .await
             .map_err(|error| io_error(&error))?
             .len();
+        // Counted once the archive is there to be sent, whatever becomes of its download.
+        for board in &boards {
+            self.metrics()
+                .board_copied(BoardWork::Export, counted_as(board.kind));
+        }
         Ok(ExportedArchive::new(file, size, path))
     }
 

@@ -285,8 +285,6 @@ impl App {
             .map_err(|error| error.context("error inserting archive blocks"))?;
 
         for board in &created.boards {
-            self.metrics()
-                .board_copied(BoardWork::Import, counted_as(board.kind));
             let admin = BoardMember {
                 board_id: board.id.clone(),
                 user_id: options.modified_by.clone(),
@@ -301,6 +299,9 @@ impl App {
                 };
                 self.add_member_to_board(&member).await?;
             }
+            // Counted once it is made with its members, as it stays whatever comes after.
+            self.metrics()
+                .board_copied(BoardWork::Import, counted_as(board.kind));
         }
 
         created
