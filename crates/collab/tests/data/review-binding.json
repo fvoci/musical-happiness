@@ -2,8 +2,8 @@
   "description": "Additional normal-body vectors from review_binding.mjs using the locked yjs and y-tiptap versions; no editor rendering or repair oracle.",
   "versions": {
     "yjs": "13.6.33",
-    "@tiptap/y-tiptap": "3.2.0",
-    "@tiptap/pm": "3.33.0"
+    "@tiptap/y-tiptap": "3.3.0",
+    "@tiptap/pm": "3.34.0"
   },
   "cases": [
     {

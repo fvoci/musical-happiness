@@ -149,7 +149,7 @@ apps/web/
 | prettier-plugin-tailwindcss                          | 0.8.1   | 2026-07-15 |                                                                                                                                  |
 | @types/node                                          | 26.6.6  | 2026-10-28 | Node 26.13.0에서 작업했다                                                                                                        |
 | subset-font                                          | 2.9.0   | 2026-09-20 | 글꼴 도구. HarfBuzz의 WebAssembly 빌드를 쓴다                                                                                    |
-| @tiptap/core, @tiptap/pm, 확장 15개                  | 3.33.0  | 2026-11-05 | 편집기 스파이크(2026-11-10 18:26 KST 확인). 묶음(`starter-kit`)은 쓰지 않는다                                                    |
+| @tiptap/core, @tiptap/pm, 확장 15개                  | 3.34.0  | 2026-11-13 | 편집기 스파이크(2026-11-10 18:26 KST 확인). 묶음(`starter-kit`)은 쓰지 않는다                                                    |
 | marked                                               | 18.2.0  | 2026-11-09 | 마크다운 가져오기                                                                                                                |
 | fast-check                                           | 4.10.2  | 2026-09-19 | 속성 기반 테스트(2026-11-10 18:45 KST 확인)                                                                                      |
 
