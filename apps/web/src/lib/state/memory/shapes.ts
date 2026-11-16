@@ -108,10 +108,10 @@ export function pageOf(block: StoredBlock): WikiPage {
   };
 }
 
-/** What the listeners of a board are told of a block made or changed: a page, or another block. */
-export function changeOf(boardId: string, block: StoredBlock): Change {
-  if (block.type === 'page') return { kind: 'pages', containerId: boardId, pages: [pageOf(block)] };
-  return { kind: 'blocks', containerId: boardId, blocks: [wireOf(block)] };
+/** What the listeners of a board or a wiki are told of a block made or changed: a page, or another block. */
+export function changeOf(containerId: string, block: StoredBlock): Change {
+  if (block.type === 'page') return { kind: 'pages', containerId, pages: [pageOf(block)] };
+  return { kind: 'blocks', containerId, blocks: [wireOf(block)] };
 }
 
 export function wireOf(block: StoredBlock): BoardView | CardSummary | Comment | Attachment {
@@ -148,12 +148,12 @@ export function imageFileIds(node: DocNode, found: string[] = []): string[] {
 }
 
 export function memberOf(
-  boardId: string,
+  containerId: string,
   userId: string,
   role: 'admin' | 'editor' | 'commenter' | 'viewer',
 ): ContainerMember {
   return {
-    containerId: boardId,
+    containerId,
     userId,
     minimumRole: 'editor',
     schemeAdmin: role === 'admin',

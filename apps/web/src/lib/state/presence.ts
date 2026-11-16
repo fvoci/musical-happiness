@@ -22,8 +22,8 @@ export interface Presence {
   watchPresence(containerId: string, hear: (snapshot: PresenceSnapshot) => void): () => void;
 }
 
-/** Where a backend keeps who is on its boards. */
-export interface PresenceOfBoards {
+/** Where a backend keeps who is on its boards and wikis. */
+export interface PresenceOfContainers {
   readonly presence: Presence;
 }
 

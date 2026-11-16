@@ -19,8 +19,8 @@ export class ContainerPresence {
   #hidden = false;
   #cardId: string | undefined;
 
-  constructor(board: PresencePlace) {
-    this.#place = board;
+  constructor(place: PresencePlace) {
+    this.#place = place;
   }
 
   /**

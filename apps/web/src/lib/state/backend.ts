@@ -32,7 +32,7 @@ import type {
   Card,
 } from '../logic/wire.ts';
 
-import type { PresenceOfBoards } from './presence.ts';
+import type { PresenceOfContainers } from './presence.ts';
 import type { DocRooms } from './body-doc.ts';
 import type { WorkspaceRole } from './people-types.ts';
 import type { OfBodies } from './references.ts';
@@ -269,7 +269,13 @@ export interface UploadedFile {
 // ---------------------------------------------------------------- backend
 
 export interface Backend
-  extends DocRooms, TrashReads, PresenceOfBoards, OfBodies, WikisOfBackend, ContentSearchOfBackend {
+  extends
+    DocRooms,
+    TrashReads,
+    PresenceOfContainers,
+    OfBodies,
+    WikisOfBackend,
+    ContentSearchOfBackend {
   // The reader and the people around them.
   me(): Promise<User>;
   /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */
@@ -455,7 +461,7 @@ export interface Backend
   importArchive(workspaceId: string, file: File, options?: UploadOptions): Promise<Imported>;
 
   // Changes as they happen.
-  /** Listens to the changes of one board. Returns the function that stops listening. */
+  /** Listens to the changes of one board or wiki. Returns the function that stops listening. */
   watchContainer(containerId: string, listener: ChangeListener): () => void;
   /**
    * Listens to the changes of the reader's own things: the boards they can

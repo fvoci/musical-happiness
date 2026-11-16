@@ -211,12 +211,12 @@ export class ReferenceTitles {
     this.#known.set(key, linked);
   }
 
-  #watch(boardId: string): void {
-    if (this.#watched.has(boardId)) return;
-    const stop = this.#workspace.backend.watchContainer(boardId, (change) => {
+  #watch(containerId: string): void {
+    if (this.#watched.has(containerId)) return;
+    const stop = this.#workspace.backend.watchContainer(containerId, (change) => {
       this.#heard(change);
     });
-    this.#watched.set(boardId, stop);
+    this.#watched.set(containerId, stop);
   }
 
   #unwatchAll(): void {

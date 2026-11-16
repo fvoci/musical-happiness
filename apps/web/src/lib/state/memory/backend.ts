@@ -1083,7 +1083,7 @@ export class MemoryBackend implements Backend {
     return this.world.watch({ containerId: undefined, userId: this.userId, listener });
   }
 
-  openDoc(_workspaceId: string, boardId: string, cardId: string, hears: BodyDocHears): BodyDoc {
-    return openMemoryRoom(this.world, this, boardId, cardId, hears);
+  openDoc(_workspaceId: string, containerId: string, cardId: string, hears: BodyDocHears): BodyDoc {
+    return openMemoryRoom(this.world, this, containerId, cardId, hears);
   }
 }

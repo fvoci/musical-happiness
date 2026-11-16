@@ -486,17 +486,17 @@ export class Workspace {
   }
 
   /** A board or a wiki as the backend just answered it: in the sidebar at once (`createWiki`). */
-  receiveContainer(board: Container): void {
-    this.#apply({ kind: 'container', container: board });
+  receiveContainer(container: Container): void {
+    this.#apply({ kind: 'container', container });
   }
 
   /** Copies a board, a wiki or a template into a board (`duplicateContainer`), in the sidebar at once. */
   async duplicateContainer(containerId: string): Promise<Container | undefined> {
     if (!this.info) return undefined;
     try {
-      const board = await this.backend.duplicateContainer(containerId, false, this.info.id);
-      this.#apply({ kind: 'container', container: board });
-      return board;
+      const copy = await this.backend.duplicateContainer(containerId, false, this.info.id);
+      this.#apply({ kind: 'container', container: copy });
+      return copy;
     } catch (error) {
       this.report('save', error);
       return undefined;
@@ -595,11 +595,11 @@ export class Workspace {
     }
   }
 
-  /** Brings a deleted board back, the sidebar read first so it shows where it was filed. */
+  /** Brings a deleted board or wiki back, the sidebar read first so it shows where it was filed. */
   async restoreContainer(containerId: string): Promise<void> {
-    const board = await this.backend.restoreContainer(containerId);
+    const container = await this.backend.restoreContainer(containerId);
     await this.#refresh();
-    this.#apply({ kind: 'container', container: board });
+    this.#apply({ kind: 'container', container });
   }
 
   // --------------------------------------------------------- categories
