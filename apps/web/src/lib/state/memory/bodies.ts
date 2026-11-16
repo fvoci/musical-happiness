@@ -74,11 +74,11 @@ export function flushCard<Card extends { id: string }>(world: World, card: Card)
   return card;
 }
 
-/** The same for every card of boards: before a copy or a template of them, or an archive. */
+/** The same for every card and page of boards and wikis: before a copy of them, or an archive. */
 export function flushBoards(world: World, boards: readonly { id: string }[]): void {
   for (const board of boards) {
     for (const block of world.blocksOf(board.id)) {
-      if (block.type === 'card') flushCard(world, block);
+      if (block.type === 'card' || block.type === 'page') flushCard(world, block);
     }
   }
 }

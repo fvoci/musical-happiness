@@ -201,6 +201,23 @@ impl PageTree {
         Ok(())
     }
 
+    /// Checks that the tree as a whole is within `limits`, as a copy of it would be made
+    /// anew: no page deeper, and no more pages, than they let a wiki have.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockError::PageTooDeep`] or [`BlockError::TooManyPages`], as
+    /// [`PageTree::check_room`] does.
+    pub fn check_whole(&self, limits: PageLimits) -> Result<(), BlockError> {
+        let height = self
+            .siblings("", "")
+            .iter()
+            .map(|top| self.height(&top.id))
+            .max()
+            .unwrap_or(0);
+        Self::default().check_room("", height, self.len(), limits)
+    }
+
     /// Checks that the page `page_id` may move below `parent_id`, with every page below
     /// it: neither the page itself nor a page below it, and no deeper than the limit.
     ///
@@ -484,6 +501,21 @@ mod tests {
             tree.check_room("b", 1, 2, limits(3, 5)),
             Err(BlockError::TooManyPages { limit: 5 })
         );
+    }
+
+    #[test]
+    fn a_whole_tree_is_held_to_its_depth_and_its_count() {
+        let tree = tree();
+        assert_eq!(tree.check_whole(limits(3, 4)), Ok(()));
+        assert_eq!(
+            tree.check_whole(limits(2, 4)),
+            Err(BlockError::PageTooDeep { limit: 2 })
+        );
+        assert_eq!(
+            tree.check_whole(limits(3, 3)),
+            Err(BlockError::TooManyPages { limit: 3 })
+        );
+        assert_eq!(PageTree::default().check_whole(limits(1, 0)), Ok(()));
     }
 
     #[test]

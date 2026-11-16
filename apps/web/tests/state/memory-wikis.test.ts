@@ -64,6 +64,58 @@ describe('a wiki in memory', () => {
     expect(templates.some((board) => board.id === made.wiki.id)).toBe(false);
   });
 
+  it('is copied whole as the server copies it: its tree, under new identifiers; no template', async () => {
+    const made = await aWiki();
+    const top = await made.backend.wiki.createPage(made.wiki.id, { title: 'Welcome' });
+    await made.backend.wiki.createPage(made.wiki.id, { title: 'Below', parentId: top.id });
+    await made.backend.wiki.createPage(made.wiki.id, { title: 'After' });
+    const copy = await made.backend.duplicateBoard(made.wiki.id, false, made.workspaceId);
+    expect(copy).toMatchObject({ kind: 'wiki', title: 'Handbook copy', type: 'P' });
+    expect(await shape({ ...made, wiki: copy })).toEqual(await shape(made));
+    const pages = await made.backend.wiki.pages(copy.id);
+    expect(pages.some((page) => page.id === top.id)).toBe(false);
+    const refused = rejection(made.backend.duplicateBoard(made.wiki.id, true, made.workspaceId));
+    expect((await refused).status).toBe(400);
+  });
+
+  it('is saved in an archive, with the workspace too, and made again as a wiki', async () => {
+    const made = await aWiki();
+    const top = await made.backend.wiki.createPage(made.wiki.id, { title: 'Welcome' });
+    await made.backend.wiki.createPage(made.wiki.id, { title: 'Below', parentId: top.id });
+    const saved = await made.backend.exportBoard(made.wiki.id);
+    const all = await made.backend.exportWorkspace(made.workspaceId);
+    expect(await all.bytes.text()).toContain(made.wiki.id);
+    const file = new File([saved.bytes], saved.name);
+    await made.backend.importArchive(made.workspaceId, file);
+    const wikis = await made.backend.wiki.wikis(made.workspaceId);
+    const again = wikis.find((wiki) => wiki.id !== made.wiki.id);
+    expect(again).toMatchObject({ kind: 'wiki', title: 'Handbook' });
+    expect(await shape({ ...made, wiki: again ?? made.wiki })).toEqual(await shape(made));
+  });
+
+  it('gives a copy files of its own for the pictures of its pages', async () => {
+    const made = await aWiki();
+    const top = await made.backend.wiki.createPage(made.wiki.id, { title: 'Welcome' });
+    const file = {
+      fileId: 'f1',
+      boardId: made.wiki.id,
+      name: 'a.png',
+      size: 1,
+      contentType: 'image/png',
+    };
+    made.world.files.set('f1', file);
+    const stored = made.world.blocks.get(top.id);
+    if (!stored) throw new Error('no page');
+    stored.body = { type: 'doc', content: [{ type: 'image', attrs: { fileId: 'f1' } }] };
+    const copy = await made.backend.duplicateBoard(made.wiki.id, false, made.workspaceId);
+    const [copied] = await made.backend.wiki.pages(copy.id);
+    const body = made.world.blocks.get(copied?.id ?? '')?.body;
+    const shown = body?.content?.[0]?.attrs?.fileId;
+    expect(shown).not.toBe('f1');
+    expect(made.world.files.get(String(shown))?.boardId).toBe(copy.id);
+    expect(made.world.files.get('f1')?.boardId).toBe(made.wiki.id);
+  });
+
   it('is not reached by the operations of cards, nor a board by those of pages', async () => {
     const made = await aWiki();
     expect((await rejection(made.backend.views(made.wiki.id))).status).toBe(404);

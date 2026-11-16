@@ -7,6 +7,7 @@ mod access;
 mod audience;
 mod auth;
 mod blocks;
+mod board_copies;
 mod boards;
 mod boards_and_blocks;
 mod body_versions;

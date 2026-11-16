@@ -490,11 +490,11 @@ export class Workspace {
     this.#apply({ kind: 'board', board });
   }
 
-  /** Makes a board from a template; it keeps the template's title, views and cards. */
-  async createBoardFromTemplate(templateId: string): Promise<Board | undefined> {
+  /** Copies a board, a wiki or a template into a board (`duplicateBoard`), in the sidebar at once. */
+  async duplicateBoard(boardId: string): Promise<Board | undefined> {
     if (!this.info) return undefined;
     try {
-      const board = await this.backend.duplicateBoard(templateId, false, this.info.id);
+      const board = await this.backend.duplicateBoard(boardId, false, this.info.id);
       this.#apply({ kind: 'board', board });
       return board;
     } catch (error) {
@@ -543,7 +543,7 @@ export class Workspace {
     this.report(kind, error);
   });
 
-  /** An archive of the board, for the shell to save. */
+  /** An archive of the board or wiki, for the shell to save. */
   exportBoard(boardId: string): Promise<DownloadedFile | undefined> {
     const board = this.boards.find((one) => one.id === boardId);
     return this.transfers.run('export', `board ${boardId}`, board?.title ?? '', (options) =>
@@ -551,7 +551,7 @@ export class Workspace {
     );
   }
 
-  /** An archive of every board of the workspace the reader may see. */
+  /** An archive of every board and wiki of the workspace the reader may see. */
   exportWorkspace(): Promise<DownloadedFile | undefined> {
     const workspace = this.info;
     if (!workspace) return Promise.resolve(undefined);
@@ -561,7 +561,7 @@ export class Workspace {
   }
 
   /**
-   * Imports the boards of an archive, then reads the boards and the sidebar
+   * Imports the boards and wikis of an archive, then reads them and the sidebar
    * again: the server tells the new boards before their members exist, so
    * nobody hears of them. What it left out, if it went through.
    */

@@ -283,10 +283,19 @@ impl App {
 }
 
 /// What a write of pages whose request names no parent (a restore, a copy) is refused
-/// with: a page that is not there is 404, and one that would be too deep names no member.
+/// with: a page that is not there is 404, and the rest as [`refused_without_member`].
 fn refused_without_parent(error: StoreError) -> AppError {
+    if error.is_not_found() {
+        return AppError::not_found("page");
+    }
+    refused_without_member(error)
+}
+
+/// What a write of pages that names no parent (a copy of a page or a wiki, a restore)
+/// is refused with when the store refuses it: pages that would be too deep name no
+/// member of the request.
+pub(super) fn refused_without_member(error: StoreError) -> AppError {
     match error {
-        error if error.is_not_found() => AppError::not_found("page"),
         StoreError::InvalidBlock {
             source: source @ BlockError::PageTooDeep { limit },
             ..

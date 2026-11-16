@@ -161,6 +161,8 @@ mod websocket_access;
 mod websocket_documents;
 mod websocket_organizations;
 mod websocket_quiet;
+mod wiki_archives;
+mod wiki_copies;
 mod wiki_isolation;
 mod wiki_kinds;
 mod wiki_open;

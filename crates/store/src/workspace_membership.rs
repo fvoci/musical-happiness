@@ -317,6 +317,20 @@ fn role_from(text: &str) -> Result<WorkspaceRole, StoreError> {
         })
 }
 
+/// Whether a workspace in use of the scope's organization has the identifier: read and
+/// not held, for a write that refuses one of another organization, or gone, as not
+/// there before it writes anything.
+pub(crate) async fn is_workspace_here(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
+    sql.bind(Id(workspace_id))
+        .push_bind(" AND org_id = ", scope.org()?)
+        .push_bind(" AND delete_at = ", 0_i64);
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
 /// Holds a workspace in use of the scope's organization against other changes of who
 /// is in it; says whether there is such a workspace. The lock leaves alone whoever
 /// stores a row that refers to the workspace (a board, a membership, a record of the

@@ -97,7 +97,7 @@ test('a board is exported and imported again, and a file that is no archive is r
     buffer: Buffer.from('these are not boards'),
   });
   await expect(page.locator('[data-problem="import"]')).toHaveText(
-    /That file is no archive of boards this app can read\./,
+    /That file is no archive of boards or wikis this app can read\./,
   );
   expect(await boardsTitled(api, made.workspaceId, title)).toHaveLength(2);
 

@@ -857,7 +857,7 @@ describe('templates', () => {
     expect(workspace.boards.map((board) => board.id)).not.toContain(template?.id);
     expect((await workspace.templates()).map((one) => one.id)).toContain(template?.id);
 
-    const made = await workspace.createBoardFromTemplate(template?.id ?? '');
+    const made = await workspace.duplicateBoard(template?.id ?? '');
     expect(made).toMatchObject({ isTemplate: false, title: 'New board template' });
     expect(workspace.boards.map((board) => board.id)).toContain(made?.id);
     const [sourceCards, madeCards] = await Promise.all([

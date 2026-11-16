@@ -13,7 +13,7 @@ use super::common::{Client, ROOT_WORKSPACE_ID};
 use super::db_type_of_the_tests;
 use super::media::Scene;
 
-async fn import_bytes(client: &Client, workspace: &str, bytes: Vec<u8>) {
+pub(super) async fn import_bytes(client: &Client, workspace: &str, bytes: Vec<u8>) {
     let opened = client
         .post(
             &format!("/w/{workspace}/archive/uploads"),

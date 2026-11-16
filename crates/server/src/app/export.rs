@@ -1,4 +1,4 @@
-//! Exporting boards to the archive format of version 3.
+//! Exporting boards and wikis to the archive format of version 3.
 //!
 //! An archive is a ZIP holding `version.json` and, per board, a directory with a
 //! `board.jsonl` and the board's files. Each line of `board.jsonl` is a board, a block
@@ -18,10 +18,12 @@ use tokio::fs;
 use zip::write::{SimpleFileOptions, ZipWriter};
 
 use super::App;
+use super::board_copies::counted_as;
 use super::doomed::Doomed;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
 use crate::error::AppError;
+use crate::metrics::BoardWork;
 
 /// The archive format version this server writes.
 pub(super) const ARCHIVE_VERSION: i64 = 3;
@@ -109,6 +111,11 @@ impl App {
             .await
             .map_err(|error| io_error(&error))?
             .len();
+        // Counted once the archive is there to be sent, whatever becomes of its download.
+        for board in &boards {
+            self.metrics()
+                .board_copied(BoardWork::Export, counted_as(board.kind));
+        }
         Ok(ExportedArchive::new(file, size, path))
     }
 

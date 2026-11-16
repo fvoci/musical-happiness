@@ -1,9 +1,10 @@
-//! Importing boards from the archive format of version 3 (`super::export`).
+//! Importing boards and wikis from the archive format of version 3 (`super::export`).
 //!
 //! Ports `server/app/import.go`. An import generates fresh identifiers for everything,
 //! fixes up references, stores the files, points the blocks at them and adds the
-//! importing user as an admin. The formats of the original (the line-based version 1
-//! and the ZIP of version 2) are refused (`docs/s6-design.md` 3.10).
+//! importing user as an admin. A wiki is made as a wiki, its pages held to the rules of
+//! their tree before anything is stored (`places`). The formats of the original (the
+//! line-based version 1 and the ZIP of version 2) are refused (`docs/s6-design.md` 3.10).
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -14,16 +15,18 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use fvoci_model::{
-    ArchiveHeader, ArchiveLine, Block, Board, BoardKind, BoardMember, BoardsAndBlocks,
-    BoardsAndBlocksError, JsonMap, Renewed, WorkspaceRole, renew_boards_and_blocks_ids_told,
+    ArchiveHeader, ArchiveLine, Block, Board, BoardMember, BoardsAndBlocks, BoardsAndBlocksError,
+    JsonMap, PageLimits, Renewed, WorkspaceRole, renew_boards_and_blocks_ids_told,
 };
 use serde_json::Value;
 use tokio::fs;
 
 use super::App;
+use super::board_copies::counted_as;
 use super::export::ARCHIVE_VERSION;
 use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
+use crate::metrics::BoardWork;
 use crate::permissions;
 use fvoci_store::StoreError;
 
@@ -53,6 +56,8 @@ pub(crate) struct ImportOptions {
     pub(crate) workspace_id: String,
     /// The user who imports, recorded as the modifier and added as an admin.
     pub(crate) modified_by: String,
+    /// How large the tree of a wiki of the archive may be: the organization's limits.
+    pub(crate) page_limits: PageLimits,
 }
 
 impl App {
@@ -71,6 +76,7 @@ impl App {
         let options = ImportOptions {
             workspace_id: workspace_id.to_owned(),
             modified_by: modified_by.to_owned(),
+            page_limits: self.limits().pages,
         };
         self.import_archive(path, &options).await
     }
@@ -293,6 +299,9 @@ impl App {
                 };
                 self.add_member_to_board(&member).await?;
             }
+            // Counted once it is made with its members, as it stays whatever comes after.
+            self.metrics()
+                .board_copied(BoardWork::Import, counted_as(board.kind));
         }
 
         created
@@ -385,55 +394,41 @@ struct StoredBoards {
 /// other kind are cleared, blocks that nothing leads to are dropped, and everything gets
 /// a new identifier; those of the blocks among `told` are given back by the old ones.
 ///
-/// What the store still checks against what is stored is the parent of a block: a
-/// parent that is a board of the same `board.jsonl` other than the block's own. An
-/// archive of this server has one board per `board.jsonl`.
+/// The parent of each block is checked against the archive as the store would check
+/// it against what is stored ([`places::check`]): what the store refuses of an archive
+/// is refused before any of it is stored.
 ///
 /// # Errors
 ///
 /// Returns a bad request if a line is malformed or of an unknown
-/// type, a block has a type that no new block has, a board is of another kind than a
-/// board, the boards and blocks do not fit together, or a board or block is not one the
-/// store takes, with the store's message.
+/// type, a block is not where the kind of its board lets it be ([`places::check`]), the
+/// boards and blocks do not fit together, or a board or block is not one the store
+/// takes, with the store's message.
 async fn parse_board_jsonl(
     jsonl: Bytes,
     options: &ImportOptions,
     told: &HashSet<String>,
 ) -> Result<ParsedBoard, AppError> {
-    // Parsing tens of megabytes of JSON would hold up a worker of the runtime.
+    // Parsing tens of megabytes of JSON, and checking what it holds, would hold up a
+    // worker of the runtime.
     let (workspace_id, modified_by) = (options.workspace_id.clone(), options.modified_by.clone());
+    let limits = options.page_limits;
     let (mut boards_and_blocks, members) = tokio::task::spawn_blocking(move || {
-        parse_archive_lines(&jsonl, &workspace_id, &modified_by)
+        let parsed = parse_archive_lines(&jsonl, &workspace_id, &modified_by)?;
+        // As the store would refuse them, before the first board is stored: an archive
+        // exported before a card's content became its body may hold content blocks,
+        // which no write makes again (`docs/contract-pending.md` 1); a wiki and its pages
+        // are held to the rules and limits of their tree.
+        for board in &parsed.0.boards {
+            board
+                .check_storable()
+                .map_err(|error| AppError::from(StoreError::InvalidBoard(error)))?;
+        }
+        places::check(&parsed.0, limits)?;
+        Ok::<_, AppError>(parsed)
     })
     .await
     .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))??;
-
-    // An archive exported before a card's content became its body may hold content
-    // blocks; none is made again (`docs/contract-pending.md` 1).
-    if let Some(block) = boards_and_blocks
-        .blocks
-        .iter()
-        .find(|block| !block.block_type.is_current())
-    {
-        return Err(AppError::bad_request(format_args!(
-            "the archive's block {}: {}",
-            block.id,
-            fvoci_model::BlockError::type_not_current(&block.block_type)
-        )));
-    }
-    // An archive is of boards. This is refused here and not where the board is stored,
-    // so that the boards before it in the archive are not stored first.
-    if let Some(board) = boards_and_blocks
-        .boards
-        .iter()
-        .find(|board| board.kind != BoardKind::Board)
-    {
-        return Err(AppError::bad_request(format_args!(
-            "the archive's board {} is a {}: an archive makes boards only",
-            board.id,
-            board.kind.as_str()
-        )));
-    }
     clear_values_of_another_kind(&mut boards_and_blocks);
     let orphans = drop_orphans(&mut boards_and_blocks);
     if orphans > 0 {
@@ -459,11 +454,6 @@ async fn parse_board_jsonl(
         }
     };
     // As the store refuses them, with its messages, before anything is stored.
-    for board in &boards_and_blocks.boards {
-        board
-            .validate_card_properties()
-            .map_err(|error| AppError::from(StoreError::InvalidBoard(error.into())))?;
-    }
     for block in &boards_and_blocks.blocks {
         block.validate().map_err(|source| {
             AppError::from(StoreError::InvalidBlock {
@@ -917,6 +907,7 @@ fn with_workspace_named(mut data: Value) -> Value {
     data
 }
 
+mod places;
 mod pointing;
 #[cfg(test)]
 mod tests;

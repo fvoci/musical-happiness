@@ -1,10 +1,10 @@
 //! Which operations reach a board, which a wiki, and which both.
 //!
 //! A wiki is a board of the kind `wiki`. An operation that is about what a board holds
-//! (cards, views, their archive) answers for a wiki as for a board that is not there,
+//! (cards, views) answers for a wiki as for a board that is not there,
 //! an operation on a wiki's pages answers so for a board, and what is the same for
 //! both (the container, who is on it, its sharing, its files, its place in the sidebar
-//! and the trash) reaches either. [`REACHED`] says which is which, in one place, and
+//! and the trash, a copy of it whole and its archive) reaches either. [`REACHED`] says which is which, in one place, and
 //! the test asks every operation of the contract that names a board or something of
 //! one: an operation that is added without a row fails it.
 
@@ -66,9 +66,10 @@ const REACHED: &[(&str, Reaches)] = &[
     ("setBoardCategory", Reaches::Both),
     ("hideBoard", Reaches::Both),
     ("unhideBoard", Reaches::Both),
+    // A copy of it whole, and its archive.
+    ("duplicateBoard", Reaches::Both),
+    ("exportBoardArchive", Reaches::Both),
     // What a board holds.
-    ("exportBoardArchive", Reaches::Boards),
-    ("duplicateBoard", Reaches::Boards),
     ("reorderCardProperties", Reaches::Boards),
     ("createBlocks", Reaches::Boards),
     ("getBlocks", Reaches::Boards),
@@ -545,8 +546,8 @@ fn ids(listed: &ApiResponse) -> Vec<String> {
     listed.iter().map(|entry| text(entry, "id")).collect()
 }
 
-/// The lists of boards and the search are of one kind each; the trash of boards holds
-/// both, and says of each which it is.
+/// The lists of boards and the search are of one kind each; the trash of boards and the
+/// archive of the workspace hold both, and the trash says of each which it is.
 #[tokio::test]
 async fn every_list_is_of_its_kinds() {
     let world = World::start().await;
@@ -579,12 +580,13 @@ async fn every_list_is_of_its_kinds() {
     exported.check_done();
     let archive = zip::ZipArchive::new(std::io::Cursor::new(exported.body))
         .expect("the export is an archive");
-    let boards_in: Vec<String> = archive
+    let boards_in: BTreeSet<String> = archive
         .file_names()
         .filter_map(Result::ok)
         .filter_map(|name| name.strip_suffix("/board.jsonl").map(str::to_owned))
         .collect();
-    assert_eq!(boards_in, the_board, "the export is of boards");
+    let both = BTreeSet::from([board.container.clone(), wiki.container.clone()]);
+    assert_eq!(boards_in, both, "the export is of boards and wikis");
 
     for things in [&board, &wiki] {
         let at = format!("{ROOT_WS}/boards/{}", things.container);

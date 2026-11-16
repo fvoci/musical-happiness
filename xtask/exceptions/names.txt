@@ -231,6 +231,7 @@ crates/server/tests/api/main.rs | team_lifecycle
 crates/server/src/api/boards.rs | team ids and their roles
 crates/server/src/api/boards.rs | surviving teams regain
 crates/server/src/api/boards.rs | deleted teams are skipped
+crates/server/src/api/boards.rs | other members and teams
 crates/store/src/trash.rs | board_team_trash::
 crates/store/src/trash.rs | board_team_access::
 

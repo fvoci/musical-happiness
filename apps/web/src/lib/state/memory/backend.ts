@@ -75,11 +75,12 @@ import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
+import { copiedBlocks, giveCopiesFiles } from './copies.ts';
 import { memberRole, memberFileUrl } from './board-access.ts';
 import { usersAmong, usersNamed } from './users.ts';
 import { changeDisplayName } from './account.ts';
 import { archiveLines, archiveOf } from './archive.ts';
-import { checkedBody, checkedWhole, flushBoards, flushCard, openMemoryRoom } from './bodies.ts';
+import { checkedBody, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, MemoryReferences, renameCopied } from './references.ts';
 import { MemoryContentSearch } from './content-search.ts';
 import { searchBoardsOf } from './search.ts';
@@ -437,7 +438,9 @@ export class MemoryBackend implements Backend {
 
   async duplicateBoard(boardId: string, asTemplate: boolean, workspaceId: string): Promise<Board> {
     await this.#enterWorkspace('duplicateBoard', workspaceId);
-    return this.#copyBoard(this.#board(boardId, 'board'), asTemplate);
+    const source = this.#board(boardId);
+    if (source.kind === 'wiki' && asTemplate) fail(400, 'a wiki is no template');
+    return this.#copyBoard(source, asTemplate);
   }
 
   /** As the server: a copy of the built-in welcome template, without its mark. */
@@ -449,20 +452,11 @@ export class MemoryBackend implements Backend {
           board.isTemplate && board.isBuiltin === true && board.properties.onboarding !== undefined,
       ) ?? fail(404, 'no welcome board');
     const { onboarding: _onboarding, ...properties } = welcome.properties;
-    return this.#insertBoard({ ...welcome, isTemplate: false, properties }, this.#copied(welcome))
-      .id;
+    const blocks = copiedBlocks(this.world, welcome);
+    return this.#insertBoard({ ...welcome, isTemplate: false, properties }, blocks).id;
   }
 
-  /** The blocks a copy of a board takes: all but its comments. */
-  #copied(board: Board): StoredBlock[] {
-    flushBoards(this.world, [board]);
-    return this.world.blocksOf(board.id).filter((block) => block.type !== 'comment');
-  }
-
-  /**
-   * A copy of a board with its views, cards and attachments (comments stay
-   * behind), every identifier new.
-   */
+  /** A copy of a board or a wiki with its blocks but the comments, every identifier new. */
   #copyBoard(source: Board, asTemplate: boolean): Board {
     // The server's titles: a copy of the same kind is "… copy", a template
     // made from a board "New board template", a board from a template keeps it.
@@ -472,7 +466,8 @@ export class MemoryBackend implements Backend {
         : asTemplate
           ? 'New board template'
           : source.title;
-    return this.#insertBoard({ ...source, isTemplate: asTemplate, title }, this.#copied(source));
+    const blocks = copiedBlocks(this.world, source);
+    return this.#insertBoard({ ...source, isTemplate: asTemplate, title }, blocks);
   }
 
   /**
@@ -512,6 +507,7 @@ export class MemoryBackend implements Backend {
         updateAt: now,
       });
     }
+    giveCopiesFiles(this.world, source.id, board.id);
     this.#tellBoard(board);
     return copy(board);
   }
@@ -524,7 +520,7 @@ export class MemoryBackend implements Backend {
    */
   async exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     await this.#enter('exportBoard', options?.signal);
-    const board = this.#board(boardId, 'board');
+    const board = this.#board(boardId);
     // For its members, as on the server (an open board is readable, its parts are not).
     if (!this.#memberIds(boardId).includes(this.userId)) fail(403, 'not a member of the board');
     return archiveOf(this.world, [board], options);
@@ -533,11 +529,10 @@ export class MemoryBackend implements Backend {
   async exportWorkspace(workspaceId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     await this.#enter('exportWorkspace', options?.signal);
     if (workspaceId !== this.world.workspace.id) fail(404, 'no such workspace');
-    // As the server: the reader's boards and the workspace's open ones.
+    // As the server: the reader's boards and wikis, and the workspace's open ones.
     const boards = [...this.world.boards.values()].filter(
       (board) =>
         !board.isTemplate &&
-        board.kind !== 'wiki' &&
         (board.type === 'O' || this.#memberIds(board.id).includes(this.userId)),
     );
     return archiveOf(this.world, boards, options);
