@@ -82,6 +82,9 @@ pub(crate) enum Forgery {
     OtherKey,
     /// It is not signed: `alg` is `none`.
     AlgNone,
+    /// It is signed with the provider's key, and its header names an extension that
+    /// must be understood (`crit`, RFC 7515 4.1.11) and is not.
+    UnknownCritical,
 }
 
 /// What the provider says of who answered (RFC 9207).
@@ -502,7 +505,7 @@ fn id_token(shared: &Shared, person: &Person, forgery: Forgery, nonce: &str) -> 
         }
     }
     match forgery {
-        Forgery::None | Forgery::OtherKey | Forgery::AlgNone => {}
+        Forgery::None | Forgery::OtherKey | Forgery::AlgNone | Forgery::UnknownCritical => {}
         Forgery::Audience => claims["aud"] = json!("another-client"),
         Forgery::Issuer => claims["iss"] = json!("https://another.example.com"),
         Forgery::Expired => {
@@ -511,10 +514,13 @@ fn id_token(shared: &Shared, person: &Person, forgery: Forgery, nonce: &str) -> 
         }
         Forgery::Nonce => claims["nonce"] = json!("another nonce"),
     }
-    let header = if forgery == Forgery::AlgNone {
-        json!({ "alg": "none", "typ": "JWT" })
-    } else {
-        json!({ "alg": "RS256", "typ": "JWT", "kid": "key-1" })
+    let header = match forgery {
+        Forgery::AlgNone => json!({ "alg": "none", "typ": "JWT" }),
+        Forgery::UnknownCritical => json!({
+            "alg": "RS256", "typ": "JWT", "kid": "key-1",
+            "crit": ["urn:example:binding"], "urn:example:binding": true,
+        }),
+        _ => json!({ "alg": "RS256", "typ": "JWT", "kid": "key-1" }),
     };
     let signing_input = format!(
         "{}.{}",

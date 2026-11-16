@@ -451,6 +451,7 @@ async fn forgeries_are_refused() {
         Forgery::Nonce,
         Forgery::OtherKey,
         Forgery::AlgNone,
+        Forgery::UnknownCritical,
     ] {
         fake.forge(forgery);
         assert_eq!(
