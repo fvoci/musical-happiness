@@ -926,35 +926,35 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         ..Block::default()
     };
     let none = serde_json::json!({});
-    // A card, an attachment and a view that stay; an image, a text, a heading in the
-    // trash, a checkbox and a block of the type "board" (no type of ours) that go. The
-    // image is stored as an attachment first, which puts down its file, and then made
-    // an image as an older server stored it.
+    // A card, an attachment, a view and a legacy board block that stay; an image, a
+    // text, a heading in the trash and a checkbox that go. The image is stored as an
+    // attachment first, which puts down its file, and then made an image as an older
+    // server stored it.
     let mut blocks = [
         block("card", none.clone()),
         block("attachment", serde_json::json!({"fileId": "7kept.png"})),
         block("view", none.clone()),
+        block("board", none.clone()),
         block("attachment", serde_json::json!({"fileId": "7image.png"})),
         block("text", none.clone()),
         block("h1", none.clone()),
         block("checkbox", none.clone()),
-        block("board", none.clone()),
     ];
     common::insert_blocks(&test, &mut blocks, &user_id).await;
     // A block below the text and one below the heading, which takes it to the trash:
     // they go with them. (Attachments: a comment is on a card.)
     let mut below = [
         Block {
-            parent_id: blocks[4].id.clone(),
+            parent_id: blocks[5].id.clone(),
             ..block("attachment", none.clone())
         },
         Block {
-            parent_id: blocks[5].id.clone(),
+            parent_id: blocks[6].id.clone(),
             ..block("attachment", none)
         },
     ];
     common::insert_blocks(&test, &mut below, &user_id).await;
-    test.delete_block(&blocks[5].id, &user_id)
+    test.delete_block(&blocks[6].id, &user_id)
         .await
         .expect("the heading goes to the trash");
     test.store.close().await;
@@ -962,7 +962,7 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         &test.database_connection(),
         &format!(
             "UPDATE blocks SET type = 'image' WHERE id = '{}'",
-            blocks[3].id
+            blocks[4].id
         ),
     )
     .await;
@@ -973,10 +973,10 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
     .await;
 
     let store = test.reconnect().await;
-    for kept in &blocks[..3] {
+    for kept in &blocks[..4] {
         store.get_block(&kept.id).await.expect("the block stays");
     }
-    for gone in blocks[3..].iter().chain(&below) {
+    for gone in blocks[4..].iter().chain(&below) {
         let error = store
             .get_block(&gone.id)
             .await
@@ -984,7 +984,7 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         assert!(error.is_not_found(), "{error:?}");
     }
     let error = store
-        .undelete_block(&blocks[5].id, &user_id)
+        .undelete_block(&blocks[6].id, &user_id)
         .await
         .expect_err("nor in the trash");
     assert!(error.is_not_found(), "{error:?}");
