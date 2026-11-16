@@ -276,7 +276,7 @@ async fn an_exported_block_and_member_name_their_board_by_the_archives_name() {
 
 /// Export is allowed for members and refused for non-members and anonymous clients.
 #[tokio::test]
-async fn export_board_access_control() {
+async fn export_container_access_control() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, TEST_WORKSPACE_ID).await;
 

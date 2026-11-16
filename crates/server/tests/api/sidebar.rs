@@ -345,7 +345,7 @@ async fn sidebar_with_boards_from_the_store() {
 /// The board comes from the store rather than from the board routes; it is filed under
 /// the default category when that is created, which is all this test needs of it.
 #[tokio::test]
-async fn hide_unhide_board() {
+async fn hide_unhide_container() {
     let th = Setup::one_user().start().await;
     let user_id = th.client.me().await.id;
     board_with_admin(&th, TEST_WORKSPACE_ID, &user_id).await;

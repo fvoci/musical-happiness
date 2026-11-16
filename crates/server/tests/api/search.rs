@@ -486,7 +486,7 @@ async fn search_routes_of_the_host_application_do_not_exist() {
 /// The search within one workspace, which no route of a standalone server reaches (its caller
 /// in the original is the linkable-boards route).
 #[tokio::test]
-async fn search_boards_for_user_in_workspace() {
+async fn search_containers_for_user_in_workspace() {
     let (th, open, private) = two_boards().await;
     let user = th.client.me().await;
     let other = th.client2.me().await;

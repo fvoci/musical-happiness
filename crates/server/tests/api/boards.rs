@@ -5,7 +5,7 @@
 //!
 //! - `TestGetAllBlocksForBoard`, `TestSearchBoards` and `TestGetTemplates` use routes of
 //!   the blocks, search and templates areas; duplicating a template is covered by
-//!   [`duplicate_board_from_a_template`].
+//!   [`crate::board_copies::duplicate_container_from_a_template`].
 //! - `TestUpdateMember/"should always disable the admin role on update member if the user
 //!   is a guest"` runs in the host-application mode; a standalone server has no guests.
 //! - `TestGetBoardMetadata/"getBoardMetadata query is correct"` (with its "After delete
@@ -3092,7 +3092,7 @@ async fn join_container_join_invalid_board() {
 /// Not in the original's tests; verified on the original: a member leaves a board, the
 /// last admin cannot, and a user who is not a member is refused.
 #[tokio::test]
-async fn leave_board_cases() {
+async fn leave_container_cases() {
     let th = Setup::native().start().await.init_basic().await;
     let board = board_with_users(&th).await;
 

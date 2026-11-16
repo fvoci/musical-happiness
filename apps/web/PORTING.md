@@ -396,7 +396,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 
 `tests/logic/wire-boundary.test.ts`가 이 규칙을 검사한다: `wire.ts`가 아닌 로직 모듈에 `.fields`나 `JSON.parse`·`JSON.stringify`가 나오면 실패하고, `wire*` 테스트와 픽스처(`support/factory.ts`)가 아닌 테스트가 `.fields`를 읽어도 실패한다.
 
-경계 밖에 남은 것은 모든 블록이 최상위에 갖는 멤버다. 다른 모듈이 직접 읽는다: `id`, `title`, `type`, `boardId`, `parentId`, `createdBy`, `modifiedBy`, `createAt`, `updateAt`, `deleteAt`, `limited`. 보드에서는 속성 정의 목록(`PropertyTemplate[]`)을 인자로 받을 뿐 보드 객체를 받지 않는다. 이 이름들이 바뀌면 타입 정의가 `wire.ts`에 있으므로 컴파일러가 쓰는 곳을 전부 짚어 준다.
+경계 밖에 남은 것은 모든 블록이 최상위에 갖는 멤버다. 다른 모듈이 직접 읽는다: `id`, `title`, `type`, `containerId`, `parentId`, `createdBy`, `modifiedBy`, `createAt`, `updateAt`, `deleteAt`, `limited`. 보드에서는 속성 정의 목록(`PropertyTemplate[]`)을 인자로 받을 뿐 보드 객체를 받지 않는다. 이 이름들이 바뀌면 타입 정의가 `wire.ts`에 있으므로 컴파일러가 쓰는 곳을 전부 짚어 준다.
 
 와이어가 바뀌면 사라지거나 달라질 것으로 보이는 부분: `createId`(ID를 서버가 만들게 되면 필요 없다), 날짜 값의 두 형식, `createAttachmentBlock`의 옛 이름 `attachmentId`, `Board.channelId`.
 

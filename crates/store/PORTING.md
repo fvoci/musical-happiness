@@ -55,7 +55,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 
 | 원본 (`store.Store`) | Rust |
 |---|---|
-| `GetBlocks`, `GetBlocksWithParentAndType`, `GetBlocksWithParent`, `GetBlocksWithType`, `GetBlocksForBoard` | `get_blocks(&BlockFilter)` — `BlockFilter::board(id).with_parent(..).with_type(..)` |
+| `GetBlocks`, `GetBlocksWithParentAndType`, `GetBlocksWithParent`, `GetBlocksWithType`, `GetBlocksForBoard` | `get_blocks(&BlockFilter)` — `BlockFilter::container(id).with_parent(..).with_type(..)` |
 | `GetBlocksByIDs` | `get_blocks_by_ids(&[String])` |
 | `GetSubTree2` | `get_subtree(board_id, block_id, &SubtreeQuery)` |
 | `GetBlock` | `get_block(block_id)` |
@@ -130,7 +130,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 그대로 옮기지 못한 단언:
 
 - **직렬화할 수 없는 값**(`"invalid fields data"`, `"invalid properties field board"`): 원본은 JSON 필드에 Go 함수 값을 넣어 직렬화를 실패시킨다. `serde_json` 맵은 그런 값을 담을 수 없어 케이스 자체가 성립하지 않는다(3곳, 테스트 주석에 표시).
-- **부분 결과 + 오류**(의도적 차이 9): `get_blocks_by_ids`, `get_boards_in_workspace_by_ids`, `get_users_list`에서 원본이 오류와 함께 받은 목록의 길이를 검사하는 단언은 다른 조회로 같은 기대값을 확인한다.
+- **부분 결과 + 오류**(의도적 차이 9): `get_blocks_by_ids`, `get_containers_in_workspace_by_ids`, `get_users_list`에서 원본이 오류와 함께 받은 목록의 길이를 검사하는 단언은 다른 조회로 같은 기대값을 확인한다.
 - **`assert.Nil(결과)`와 오류를 함께 보는 단언**: `Result`는 둘을 함께 담지 않는다. 오류 쪽 단언은 유지했다.
 - **`testSaveMember`**: 원본은 반환된 멤버를 검사한다. `save_member`는 값을 돌려주지 않아 같은 멤버를 `get_member_for_container`로 읽어 검사한다.
 - **`testCreateSubscription/"invalid subscription"`**: 원본은 빈 구독자 타입에서 시작한다. enum에는 빈 값이 없어 3단계와 4단계가 같은 호출이다.
@@ -145,7 +145,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 
 **블록 (`sqlstore/blocks.go`)**
 - 새 블록은 호출자가 준 `create_at`이 아니라 현재 시각으로 저장되지만, 호출자의 구조체에는 반영되지 않는다(`:230-262`). 그래서 블록 생성 응답의 `createAt`이 요청 값 그대로다(오라클 확인).
-- 갱신은 `id`와 `board_id`가 모두 맞아야 한다. 다른 보드 ID로 온 갱신은 블록을 건드리지 않지만 history 행은 쓴다(`:283`).
+- 갱신은 `id`와 `container_id`가 모두 맞아야 한다. 다른 보드 ID로 온 갱신은 블록을 건드리지 않지만 history 행은 쓴다(`:283`).
 - 갱신의 history 행은 수정자를 작성자로, 수정 시각을 생성 시각으로 기록한다(`:274-276`, `:309`).
 - 타입 필터가 빈 문자열이거나 `unknown`이면 필터하지 않는다(`:69`).
 - 블록을 지우면 직계 자식만 함께 지운다. ID가 빈 문자열인 블록을 지우면 그 보드의 블록 전부가 지워진다(`:450`, `:929`).

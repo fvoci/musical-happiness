@@ -18,7 +18,7 @@
 | `Board`, `BoardType`, `BoardRole` | `Container`, `ContainerType`, `ContainerRole` | 두 enum은 닫힌 집합 |
 | `Board.IsValid`, `BoardPatch.IsValid` | `Container::validate` → `ContainerError` | 타입·역할 검사는 디코딩 단계로 이동(아래 차이 1) |
 | `BoardPatch.Patch` | `ContainerPatch::apply` | |
-| `BoardMember` | `BoardMember` | |
+| `BoardMember` | `ContainerMember` | |
 | `BoardSearchField`, `BoardSearchFieldFromString` | `ContainerSearchField`, `FromStr` | |
 | `BoardsAndBlocks`, `DeleteBoardsAndBlocks`, `PatchBoardsAndBlocks` 와 각 `IsValid` | `ContainersAndBlocks`, `DeleteContainersAndBlocks`, `PatchContainersAndBlocks`, `validate` → `ContainersAndBlocksError` | |
 | `NewDeleteBoardsAndBlocksFromBabs` | `From<&ContainersAndBlocks> for DeleteContainersAndBlocks` | |
@@ -53,13 +53,13 @@
 | `block_test.go` `TestGenerateBlockIDs` 8개 서브테스트 | `block_ids.rs` `generate_block_ids_*` 8개 (각 테스트의 문서 주석에 원본 서브테스트 이름) |
 | `block_test.go` `TestStampModificationMetadata/base case` | `block_ids.rs` `stamp_modification_metadata_base_case` |
 | `card_test.go` `TestBlock2Card/Good block`, `/Not a card` | `card.rs` `card_from_block_good_block`, `card_from_block_not_a_card` |
-| `boards_and_blocks_test.go` `TestIsValidBoardsAndBlocks` 4개 | `boards_and_blocks.rs` `boards_and_blocks_validate_*` 4개 |
-| `boards_and_blocks_test.go` `TestGenerateBoardsAndBlocksIDs` 2개 | `boards_and_blocks.rs` `generate_boards_and_blocks_ids_*` 2개 |
-| `boards_and_blocks_test.go` `TestIsValidPatchBoardsAndBlocks` 4개 | `boards_and_blocks.rs` `patch_boards_and_blocks_validate_*` 4개 |
+| `boards_and_blocks_test.go` `TestIsValidBoardsAndBlocks` 4개 | `boards_and_blocks.rs` `containers_and_blocks_validate_*` 4개 |
+| `boards_and_blocks_test.go` `TestGenerateBoardsAndBlocksIDs` 2개 | `boards_and_blocks.rs` `generate_containers_and_blocks_ids_*` 2개 |
+| `boards_and_blocks_test.go` `TestIsValidPatchBoardsAndBlocks` 4개 | `boards_and_blocks.rs` `patch_containers_and_blocks_validate_*` 4개 |
 | `boards_and_blocks_test.go` `TestIsValidDeleteBoardsAndBlocks` | 원본에서 주석 처리된 테스트다("TODO fix this"). 그 안의 "no block ids" 케이스는 코드가 돌려주지 않는 오류를 기대한다. `delete_containers_and_blocks_validate_requires_only_containers`가 코드의 실제 동작을 고정한다 |
 | `properties_test.go` (2개 함수) | 해당 없음: `properties.go`를 옮기지 않았다 |
 | `server/services/auth/password_test.go`, `request_parser_test.go` | 서버 크레이트(S3)에서 옮긴다 |
-| `webapp/src/blocks/*.test.ts` 19케이스 | 해당 없음: 전부 클라이언트 쪽 로직이다(`createPatchesFromBlocks`/`createPatchesFromContainers` 11, `FilterClause` 5, 뷰 정렬 3). 서버 모델에 대응하는 타입이 없어 웹앱 트랙의 `fvoci-viewmodel`로 간다 |
+| `webapp/src/blocks/*.test.ts` 19케이스 | 해당 없음: 전부 클라이언트 쪽 로직이다(`createPatchesFromBlocks`/`createPatchesFromBoards` 11, `FilterClause` 5, 뷰 정렬 3). 서버 모델에 대응하는 타입이 없어 웹앱 트랙의 `fvoci-viewmodel`로 간다 |
 
 원본에 테스트가 없어 동작 목록에서 새로 쓴 특성화 테스트: `wire_format.rs`(JSON 멤버 이름, null·누락 처리, 패치 적용), `validation.rs`(블록·보드·인증 요청 검증, 이메일 규칙), `card.rs`의 변환·패치 테스트, `block_ids.rs`의 `cardOrder`·비정상 타입·single-user 케이스.
 

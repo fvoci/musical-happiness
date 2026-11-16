@@ -1284,7 +1284,7 @@ async fn insert_container_update_keeps_workspace_creator_and_creation_time() {
 /// blocks with it, both ways. The original marks them deleted where they are; here they
 /// move to the trash and back.
 #[tokio::test]
-async fn delete_and_undelete_board_take_the_blocks_along() {
+async fn delete_and_undelete_container_take_the_blocks_along() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let deleter_id = common::user(&test, "deleter").await;
