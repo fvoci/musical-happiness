@@ -73,8 +73,13 @@ async function picture(page: Page, name: string): Promise<void> {
   if (project === 'mobile') await page.setViewportSize({ width: 390, height: 844 });
   for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme });
-    // The frame follows the app's theme by a message; give it a frame to paint.
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+    // The app has turned (its root's class) and nothing on it is still fading.
+    await page.waitForFunction(
+      (dark) =>
+        document.documentElement.classList.contains('dark') === dark &&
+        document.getAnimations().every((animation) => animation.playState !== 'running'),
+      theme === 'dark',
+    );
     await page.screenshot({ path: path.join(SCREENS_DIR, `${name}-${project}-${theme}.png`) });
   }
   await page.emulateMedia({ colorScheme: null });
