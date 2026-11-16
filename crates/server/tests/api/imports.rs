@@ -209,26 +209,31 @@ async fn an_archive_that_names_the_workspace_teamid_is_imported() {
     ts.teardown().await;
 }
 
-/// An archive is of boards: one whose board says it is a wiki is refused, and nothing of
-/// it is stored, the boards before the wiki neither. The kind `board`, which an export
-/// writes, is taken.
+/// A board of an archive that says it is a wiki is made a wiki; one that the store would
+/// not take (a wiki that is a template) is refused, and nothing of the archive is
+/// stored, the boards before it neither. The kind `board`, which an export writes, is
+/// taken.
 #[tokio::test]
-async fn an_archive_makes_no_wiki() {
+async fn an_archive_makes_its_wiki_a_wiki_and_refuses_a_template_wiki_whole() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board_of = |kind: &str| {
+    let board_of = |kind: &str, template: bool| {
         json!({"type": "board", "data": {
             "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "kind": kind,
-            "title": format!("Archived {kind}"), "createAt": 1, "updateAt": 1,
+            "isTemplate": template, "title": format!("Archived {kind}"), "createAt": 1,
+            "updateAt": 1,
         }})
     };
-    let archive = |kind: &str| archive_of(&board_of(kind), &[], zip::CompressionMethod::Deflated);
-    import(&ts.client, TEST_WORKSPACE_ID, &archive("wiki"))
-        .await
-        .check_bad_request();
+    let archive = |kind: &str| {
+        archive_of(
+            &board_of(kind, false),
+            &[],
+            zip::CompressionMethod::Deflated,
+        )
+    };
     // A board first and the wiki after it: the board is not stored before the refusal.
-    let wiki_line = format!("{}\n", board_of("wiki")).into_bytes();
+    let wiki_line = format!("{}\n", board_of("wiki", true)).into_bytes();
     let board_then_wiki = archive_of(
-        &board_of("board"),
+        &board_of("board", false),
         &[("b2/board.jsonl", &wiki_line)],
         zip::CompressionMethod::Deflated,
     );
@@ -246,6 +251,9 @@ async fn an_archive_makes_no_wiki() {
     import(&ts.client, TEST_WORKSPACE_ID, &archive("board"))
         .await
         .check_ok();
+    import(&ts.client, TEST_WORKSPACE_ID, &archive("wiki"))
+        .await
+        .check_ok();
     let titles: Vec<String> = boards_of(&ts)
         .await
         .into_iter()
@@ -253,8 +261,11 @@ async fn an_archive_makes_no_wiki() {
         .filter(|title| title.starts_with("Archived"))
         .collect();
     assert_eq!(titles, ["Archived board"]);
-    let wikis = ts.client.get(&format!("{TEST_WS}/wikis")).await;
-    assert_eq!(wikis.value(), json!([]));
+    let wikis = ts.client.get(&format!("{TEST_WS}/wikis")).await.value();
+    let wikis = wikis.as_array().expect("a list");
+    assert_eq!(wikis.len(), 1);
+    assert_eq!(wikis[0]["title"], json!("Archived wiki"));
+    assert_eq!(wikis[0]["kind"], json!("wiki"));
     ts.teardown().await;
 }
 

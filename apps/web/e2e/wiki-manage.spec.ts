@@ -63,6 +63,32 @@ test.describe('a wiki looked after', () => {
     expect(await treeShape(page)).toEqual(['Welcome', '  Getting started', 'Policies']);
   });
 
+  test('a wiki is saved from its menu as an archive and imported again from the settings', async ({
+    page,
+  }, testInfo) => {
+    await openApp(page);
+    await wikiWithPages(page);
+    await showSidebar(page);
+    const saving = page.waitForEvent('download');
+    await sidebar(page)
+      .getByRole('button', { name: 'Menu of the wiki Handbook', exact: true })
+      .click();
+    await page.getByRole('menuitem', { name: 'Export the wiki' }).click();
+    const archive = testInfo.outputPath('wiki.boardarchive');
+    await (await saving).saveAs(archive);
+    await showSidebar(page);
+    await sidebar(page).getByTestId('open-settings').click();
+    await page.getByTestId('settings-dialog').getByTestId('import-archive').setInputFiles(archive);
+    await expect(
+      page.getByTestId('transfers').locator('[data-transfer="import"][data-finished]'),
+    ).toContainText('wiki.boardarchive is imported.');
+    await page.keyboard.press('Escape');
+    await showSidebar(page);
+    const titled = async () =>
+      (await sidebar(page).getByRole('link').allInnerTexts()).filter((text) => text === 'Handbook');
+    await expect.poll(async () => (await titled()).length).toBe(2);
+  });
+
   test('deleting a page asks first, says those below go too, and takes them along', async ({
     page,
   }) => {

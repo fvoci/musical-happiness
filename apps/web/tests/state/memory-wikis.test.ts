@@ -78,6 +78,21 @@ describe('a wiki in memory', () => {
     expect((await refused).status).toBe(400);
   });
 
+  it('is saved in an archive, with the workspace too, and made again as a wiki', async () => {
+    const made = await aWiki();
+    const top = await made.backend.wiki.createPage(made.wiki.id, { title: 'Welcome' });
+    await made.backend.wiki.createPage(made.wiki.id, { title: 'Below', parentId: top.id });
+    const saved = await made.backend.exportBoard(made.wiki.id);
+    const all = await made.backend.exportWorkspace(made.workspaceId);
+    expect(await all.bytes.text()).toContain(made.wiki.id);
+    const file = new File([saved.bytes], saved.name);
+    await made.backend.importArchive(made.workspaceId, file);
+    const wikis = await made.backend.wiki.wikis(made.workspaceId);
+    const again = wikis.find((wiki) => wiki.id !== made.wiki.id);
+    expect(again).toMatchObject({ kind: 'wiki', title: 'Handbook' });
+    expect(await shape({ ...made, wiki: again ?? made.wiki })).toEqual(await shape(made));
+  });
+
   it('gives a copy files of its own for the pictures of its pages', async () => {
     const made = await aWiki();
     const top = await made.backend.wiki.createPage(made.wiki.id, { title: 'Welcome' });

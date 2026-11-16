@@ -520,7 +520,7 @@ export class MemoryBackend implements Backend {
    */
   async exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     await this.#enter('exportBoard', options?.signal);
-    const board = this.#board(boardId, 'board');
+    const board = this.#board(boardId);
     // For its members, as on the server (an open board is readable, its parts are not).
     if (!this.#memberIds(boardId).includes(this.userId)) fail(403, 'not a member of the board');
     return archiveOf(this.world, [board], options);
@@ -529,11 +529,10 @@ export class MemoryBackend implements Backend {
   async exportWorkspace(workspaceId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     await this.#enter('exportWorkspace', options?.signal);
     if (workspaceId !== this.world.workspace.id) fail(404, 'no such workspace');
-    // As the server: the reader's boards and the workspace's open ones.
+    // As the server: the reader's boards and wikis, and the workspace's open ones.
     const boards = [...this.world.boards.values()].filter(
       (board) =>
         !board.isTemplate &&
-        board.kind !== 'wiki' &&
         (board.type === 'O' || this.#memberIds(board.id).includes(this.userId)),
     );
     return archiveOf(this.world, boards, options);

@@ -2,8 +2,8 @@
  * The menus of the sidebar's categories and of its boards and wikis, apart
  * from the list (`SidebarList.svelte`), which is long.
  *
- * A wiki's menu is a board's without what is only a board's: saving it as an
- * archive (the server exports boards) and making a template of it.
+ * A wiki's menu is a board's without what is only a board's: making a
+ * template of it.
  */
 import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
@@ -132,7 +132,7 @@ export function boardActions(menus: SidebarMenus, board: Board, home: Category):
         if (move) void workspace.moveBoard(move.boardId, move.categoryId, move.index);
       },
     }));
-  const saving = wiki ? [] : [exportAction(workspace, board.id, moves.length > 0)];
+  const saving = [exportAction(workspace, board, moves.length > 0)];
   if (menus.guest) return saving;
   return [
     ...moves,
@@ -161,7 +161,6 @@ export function boardActions(menus: SidebarMenus, board: Board, home: Category):
       id: 'hide',
       label: wiki ? m.shell_hide_wiki() : m['HideBoard.MenuOption'](),
       icon: EyeOffIcon,
-      separated: wiki && moves.length > 0,
       run: () => void workspace.hideBoard(board.id),
     },
     {

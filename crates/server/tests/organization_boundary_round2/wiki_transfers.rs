@@ -1,12 +1,19 @@
 //! A wiki of another organization: copied whole only by its own organization's service,
-//! never into a workspace of another.
+//! never into a workspace of another; exported only by it, and imported elsewhere under
+//! identifiers of its own, what it names of its organization nothing there.
 
-use fvoci_model::{Board, BoardKind, BoardKinds, BoardType, NewPage, PageLimits, new_id};
+use fvoci_model::{
+    Board, BoardKind, BoardKinds, BoardType, Body, NewPage, PageLimits, PageNode, new_id,
+};
 use fvoci_store::{BlockFilter, DbType, DuplicateAs, PublicBoards};
 
-use super::common::ROOT_WORKSPACE_ID;
+use serde_json::json;
+use tokio::io::AsyncReadExt as _;
+
+use super::common::{ROOT_WORKSPACE_ID, ROOT_WS};
 use super::db_type_of_the_tests;
 use super::media::Scene;
+use super::transfers::import_bytes;
 
 /// A wiki of organization B with a page: the wiki and the page.
 pub(super) async fn b_wiki(scene: &Scene) -> (Board, String) {
@@ -100,5 +107,82 @@ async fn a_wiki_is_copied_by_its_own_organization_and_into_none_other() {
         .expect("the copy's pages");
     assert_eq!(pages.len(), 1);
     assert_ne!(pages[0].id, page, "the copy's own page");
+    scene.ts.teardown().await;
+}
+
+#[tokio::test]
+async fn a_wiki_of_another_organization_is_imported_with_ids_of_its_own_naming_nothing_there() {
+    if db_type_of_the_tests() != DbType::Postgres {
+        return;
+    }
+    let scene = Scene::new(None).await;
+    let (wiki, page) = b_wiki(&scene).await;
+    // B's page names B's card, which is no block of the archive.
+    let naming = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "reference", "attrs": {"id": scene.card_b.id}}
+    ]}]});
+    let body = Body::parse(naming).expect("a body");
+    scene
+        .b_app
+        .store()
+        .replace_bodies_as_written(&wiki.id, vec![(page.clone(), body)])
+        .await
+        .expect("B's page names B's card");
+    assert!(
+        scene
+            .ts
+            .app
+            .export_archive(ROOT_WORKSPACE_ID, std::slice::from_ref(&wiki.id))
+            .await
+            .is_err(),
+        "A's service cannot export B's wiki"
+    );
+    let mut archive = scene
+        .b_app
+        .export_archive(&scene.b.workspace_id, std::slice::from_ref(&wiki.id))
+        .await
+        .expect("B's service exports B's wiki for its user");
+    let mut bytes = Vec::new();
+    archive
+        .file
+        .read_to_end(&mut bytes)
+        .await
+        .expect("the bytes");
+    drop(archive);
+    import_bytes(&scene.ts.client, ROOT_WORKSPACE_ID, bytes).await;
+
+    let client = &scene.ts.client;
+    let wikis: Vec<Board> = client.get(&format!("{ROOT_WS}/wikis")).await.ok_json();
+    let imported = wikis
+        .iter()
+        .find(|one| one.title == wiki.title)
+        .expect("B's wiki is copied into A");
+    assert_ne!(imported.id, wiki.id);
+    assert_eq!(imported.workspace_id, ROOT_WORKSPACE_ID);
+    let pages: Vec<PageNode> = client
+        .get(&format!("{ROOT_WS}/wikis/{}/pages", imported.id))
+        .await
+        .ok_json();
+    assert_eq!(pages.len(), 1);
+    assert_ne!(pages[0].id, page, "the page has an identifier of its own");
+    let read = client
+        .get(&format!(
+            "{ROOT_WS}/wikis/{}/pages/{}",
+            imported.id, pages[0].id
+        ))
+        .await;
+    let named = read.ok_json::<serde_json::Value>()["body"].to_string();
+    assert!(named.contains(&scene.card_b.id), "the body is as it was");
+    let resolved = client
+        .post(
+            &format!("{ROOT_WS}/references/resolve"),
+            &[scene.card_b.id.as_str()],
+        )
+        .await;
+    assert_eq!(
+        resolved.ok_json::<serde_json::Value>(),
+        json!([]),
+        "B's card is nothing in A"
+    );
     scene.ts.teardown().await;
 }

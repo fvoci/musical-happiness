@@ -221,7 +221,8 @@ describe('the backend in memory keeps a wiki from the operations of cards', () =
       400,
     );
     expect(await status(made.backend.deletedCards(made.wikiId))).toBe(404);
-    expect(await status(made.backend.exportBoard(made.wikiId))).toBe(404);
+    // Saved as an archive as a board is.
+    expect(await status(made.backend.exportBoard(made.wikiId))).toBe(200);
     // A refused change of a page changes nothing of it.
     expect(
       await status(made.backend.wiki.patchPage(made.wikiId, page.id, { title: 'New', icon: 'ab' })),

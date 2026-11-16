@@ -1,7 +1,8 @@
 /**
  * A wiki on the real server copied whole: from its menu in the sidebar, the
  * copy has the same tree and bodies, and its picture is a file of its own
- * with the same bytes.
+ * with the same bytes; saved from its menu as an archive and imported from
+ * the settings into another workspace, the wiki made there is the same.
  */
 import { createHash } from 'node:crypto';
 
@@ -10,7 +11,15 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import { sidebar } from '../e2e/shell.support.ts';
 import { ON_A_WIKI, wikiPlaceOf } from '../e2e/wiki.support.ts';
 
-import { person, register, type Schemas, signedIn, signInOnPage, watchErrors } from './support.ts';
+import {
+  addWorkspace,
+  person,
+  register,
+  type Schemas,
+  signedIn,
+  signInOnPage,
+  watchErrors,
+} from './support.ts';
 
 test.use({ locale: 'en-US' });
 
@@ -156,6 +165,47 @@ test('a wiki is copied from its menu with its tree, its bodies and its picture',
   const copyId = wikiPlaceOf(page.url()).wikiId;
   await expect(sidebar(page).getByRole('link', { name: 'Handbook to copy copy' })).toBeVisible();
   await checkCopied(api, made, made.workspaceId, copyId);
+
+  await api.dispose();
+  expect(errors).toEqual([]);
+});
+
+test('a wiki saved as an archive is made again in another workspace', async ({
+  page,
+  baseURL,
+}, testInfo) => {
+  const base = baseURL ?? '';
+  const owner = person('wiki-archive');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const made = await makeWiki(api, 'Handbook to archive');
+  const second = addWorkspace(base, owner, 'Second');
+
+  const errors = watchErrors(page);
+  await page.goto(`/w/${made.workspaceId}/wikis/${made.wikiId}`);
+  await signInOnPage(page, owner);
+  const saving = page.waitForEvent('download');
+  await sidebar(page)
+    .getByRole('button', { name: 'Menu of the wiki Handbook to archive', exact: true })
+    .click();
+  await page.getByRole('menuitem', { name: 'Export the wiki' }).click();
+  const archive = testInfo.outputPath('wiki.boardarchive');
+  await (await saving).saveAs(archive);
+
+  await page.goto(`/w/${second}`);
+  await sidebar(page).getByTestId('open-settings').click();
+  await page.getByTestId('settings-dialog').getByTestId('import-archive').setInputFiles(archive);
+  await expect(
+    page.getByTestId('transfers').locator('[data-transfer="import"][data-finished]'),
+  ).toContainText('wiki.boardarchive is imported.');
+  const wikis = async () =>
+    answered<Schemas['Board'][]>(await api.get(`/api/v1/w/${second}/wikis`));
+  await expect.poll(async () => (await wikis()).length).toBe(1);
+  const [copy] = await wikis();
+  expect(copy).toMatchObject({ kind: 'wiki', title: 'Handbook to archive', workspaceId: second });
+  await checkCopied(api, made, second, copy?.id ?? '');
+  await page.keyboard.press('Escape');
+  await expect(sidebar(page).getByRole('link', { name: 'Handbook to archive' })).toBeVisible();
 
   await api.dispose();
   expect(errors).toEqual([]);

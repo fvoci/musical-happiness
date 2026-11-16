@@ -1440,12 +1440,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Export the boards of a workspace
-         * @description An archive of the boards of the workspace that the user is a member of with a role,
-         *     and of its open boards for who works in the workspace (also those they have not
-         *     joined), offered as a download with its length, in the format of `exportBoardArchive`,
-         *     and under its limits. 404 unless the user is a member of the workspace; a guest's
-         *     archive has the boards they were invited to.
+         * Export the boards and wikis of a workspace
+         * @description An archive of the boards and wikis of the workspace that the user is a member of
+         *     with a role, and of its open ones for who works in the workspace (also those they
+         *     have not joined), offered as a download with its length, in the format of
+         *     `exportBoardArchive`, and under its limits. 404 unless the user is a member of the
+         *     workspace; a guest's archive has the boards and wikis they were invited to.
          */
         get: operations["exportWorkspaceArchive"];
         put?: never;
@@ -1467,9 +1467,9 @@ export interface paths {
         put?: never;
         /**
          * Import an archive
-         * @description Makes the boards of an archive in the workspace, with the user as their admin. The
-         *     members the archive names for a board become members of it with the roles they had,
-         *     where they are in the workspace. The archive is sent before in parts: open an
+         * @description Makes the boards and wikis of an archive in the workspace, with the user as their
+         *     admin. The members the archive names for a board become members of it with the roles
+         *     they had, where they are in the workspace. The archive is sent before in parts: open an
          *     upload with `createImportUpload`, send its parts with `putUploadPart`, then name
          *     the upload here, in place of `completeUpload`. A part missing is 400 and the upload
          *     stays open for it; otherwise the upload ends with the import, whether it succeeds or
@@ -1486,7 +1486,15 @@ export interface paths {
          *     `board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with
          *     the `limit` passed, and nothing of it is stored. The blocks that show files are
          *     pointed at the board's new copies of them, the images of bodies included; a card
-         *     value that does not fit its property's kind is cleared, as a copy does.
+         *     value that does not fit its property's kind is cleared, as a copy does. A wiki of
+         *     the archive (`kind` `wiki`) is made as a wiki, its pages and the comments on them
+         *     with it. What a write would refuse of an archive's boards, wikis and blocks is 400
+         *     before any of them is stored, with the message the write has: a block of a type of
+         *     the other kind (a page on a board, a card on a wiki), a page below anything but a
+         *     page of its wiki or below a page the archive does not have, pages that are each
+         *     other's parents, a comment on anything but a card or page, a wiki that is a template,
+         *     and a wiki deeper or with more pages than the organization's limits allow (400 with
+         *     the reason `page_too_deep` or `too_many_pages`).
          *
          *     The boards are made one after the other, not all or none: when one of them fails,
          *     those before it stay. The members of a board who are not in the workspace are left
@@ -1700,12 +1708,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Export a board
+         * Export a board or a wiki
          * @description An archive of the board with its blocks, its files and its members, offered as a
          *     download with its length. For the board's members. The archive is a ZIP of version
          *     3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
          *     `block` or `boardMember` per line, in the shapes of this contract, bodies included)
-         *     and the files the blocks show, the images of bodies among them.
+         *     and the files the blocks show, the images of bodies among them. A wiki is written
+         *     as a board is, its `kind` `wiki`: its pages as they stand and the comments on them
+         *     are its blocks (not the pages in its trash, nor the versions of bodies).
          *
          *     A user runs one export at a time, and the server as many as its setting
          *     `max_concurrent_exports` (2 unless set). Over either it is 429 with the reason
