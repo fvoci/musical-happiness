@@ -88,11 +88,19 @@ async function picture(page: Page, name: string): Promise<void> {
 test('a PDF opens in the viewer, and its pages are turned with the buttons and the keys', async ({
   page,
 }) => {
+  // The viewer, its frame and the renderers are fetched when a file is first opened.
+  const fetched: string[] = [];
+  page.on('request', (request) => fetched.push(new URL(request.url()).pathname));
+  const viewerFiles = (): string[] =>
+    fetched.filter((file) => /\/(FileViewer|pdf|docx|viewer-frame)[-.][^/]*$/.test(file));
   await openCard(page);
   const row = await attach(page, '보고서.pdf', koreanPdf(3), 'application/pdf');
+  expect(viewerFiles()).toEqual([]);
   await row.getByRole('link', { name: '보고서.pdf' }).click();
 
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  expect(viewerFiles().some((file) => /\/pdf-[0-9a-f]{16}\.js$/.test(file))).toBe(true);
+  expect(viewerFiles().some((file) => file.includes('/docx-'))).toBe(false);
   await expect(viewer(page).getByRole('heading', { name: '보고서.pdf' })).toBeVisible();
   const counter = page.getByTestId('file-viewer-page');
   await expect(counter).toContainText('1 / 3');
@@ -155,13 +163,29 @@ test('the frame reaches neither the network nor the app', async ({ page }) => {
     };
     return {
       origin: self.origin,
-      fetchApp: await attempt(async () => (await fetch(`${location.origin}/`)).status),
+      // `location.origin` is "null" here; the address is still the app's.
+      fetchApp: await attempt(async () => (await fetch(new URL('/', location.href))).status),
       fetchStatic: await attempt(async () => (await fetch(location.href)).status),
       storage: await attempt(() => localStorage.getItem('fvoci:viewer-probe')),
       cookies: await attempt(() => document.cookie),
       parent: await attempt(() => window.parent.document.title),
     };
   });
+  // A message from another window than the frame (here, the page itself) is not taken.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const done = (event: MessageEvent): void => {
+          if (event.data !== 'probe-done') return;
+          window.removeEventListener('message', done);
+          resolve();
+        };
+        window.addEventListener('message', done);
+        window.postMessage({ kind: 'failed', reason: 'locked' }, '*');
+        window.postMessage('probe-done', '*');
+      }),
+  );
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
   expect(found.origin).toBe('null');
   for (const [what, outcome] of Object.entries(found)) {
     if (what !== 'origin') expect(outcome, what).toMatch(/^refused/);

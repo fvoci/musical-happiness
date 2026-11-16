@@ -99,7 +99,10 @@ export class ViewerSession {
     this.#lang = options.lang;
     this.#onKey = options.onKey;
     this.#limits = options.limits ?? LIMITS;
-    void this.#read();
+    this.#read().catch(() => {
+      // A reader of the bytes that threw rather than answering undefined.
+      if (!this.#gone()) this.#fail('unread');
+    });
   }
 
   async #read(): Promise<void> {
@@ -194,6 +197,8 @@ export class ViewerSession {
         this.pages = message.pages;
         this.page = 1;
         this.status = { name: 'shown', format: status.format };
+        // The keys that scroll a page (arrows, Page Down, Space) then scroll the document.
+        this.#frame?.focus();
         break;
       case 'page':
         this.page = Math.min(message.page, this.pages);

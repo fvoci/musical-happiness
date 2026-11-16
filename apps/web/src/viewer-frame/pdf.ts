@@ -26,6 +26,8 @@ import {
   type RenderTask,
 } from 'pdfjs-dist';
 
+import { PAGE_LIMIT } from '$lib/file-viewer/protocol.ts';
+
 import { BUNDLED_DATA_OPTIONS } from './pdf-data.ts';
 import PdfWorker from './pdf-worker.ts?worker&inline';
 import {
@@ -81,6 +83,8 @@ class Page {
   #drawnAt = 0;
   /** Counts the draws and clears: a draw that is no longer the last one stops. */
   #turn = 0;
+  /** The draw at `#drawnAt` while it runs and once it is done. */
+  #drawing: Promise<void> = Promise.resolve();
 
   readonly number: number;
 
@@ -90,16 +94,26 @@ class Page {
     this.box.dataset.page = String(number);
   }
 
-  /** Sizes the box for `scale` (CSS pixels per PDF unit times the zoom) from the page's own size. */
+  /**
+   * Sizes the box for `scale` (CSS pixels per PDF unit times the zoom): from
+   * the page's own size once it is known, from the size given until then.
+   */
   size(width: number, height: number, scale: number): void {
-    this.box.style.width = `${Math.floor(width * scale)}px`;
-    this.box.style.height = `${Math.floor(height * scale)}px`;
+    const own = this.#proxy?.getViewport({ scale: 1 });
+    this.box.style.width = `${Math.floor((own?.width ?? width) * scale)}px`;
+    this.box.style.height = `${Math.floor((own?.height ?? height) * scale)}px`;
   }
 
-  async draw(document: PDFDocumentProxy, scale: number): Promise<void> {
-    if (this.#drawnAt === scale) return;
+  /** Draws the page at `scale`; a draw at that scale already under way or done is the one waited for. */
+  draw(document: PDFDocumentProxy, scale: number): Promise<void> {
+    if (this.#drawnAt === scale) return this.#drawing;
     this.clear();
     this.#drawnAt = scale;
+    this.#drawing = this.#paint(document, scale);
+    return this.#drawing;
+  }
+
+  async #paint(document: PDFDocumentProxy, scale: number): Promise<void> {
     const turn = this.#turn;
     this.#proxy ??= await document.getPage(this.number);
     if (turn !== this.#turn) return;
@@ -235,6 +249,11 @@ class PdfView implements Drawn {
     }
   }
 
+  /** Draws the first page, the one in view when the document opens; rejects when it cannot be drawn. */
+  drawFirst(): Promise<void> {
+    return this.#pages[0]?.draw(this.#document, this.#scale()) ?? Promise.resolve();
+  }
+
   goTo(page: number): void {
     const box = this.#pages[page - 1]?.box;
     if (!box) return;
@@ -253,8 +272,13 @@ class PdfView implements Drawn {
 
 export const render: Render = async (bytes, place, report: Report) => {
   const document = await open(bytes);
+  // More pages than the viewer takes a document to have: a box for each would be laid out first.
+  if (document.numPages > PAGE_LIMIT) throw new UnreadableFile();
   const first = await document.getPage(1);
   const view = new PdfView(document, place, first, report);
+  // Shown once the reader sees a page, so that the time to draw counts and a page that
+  // cannot be drawn is a failure rather than a white box.
+  await view.drawFirst();
   report.shown(document.numPages);
   return view;
 };

@@ -1,8 +1,8 @@
 /**
  * Word documents (DOCX), with docx-preview.
  *
- * docx-preview turns the document into HTML: a `section` per page as Word
- * breaks them where the document says so. Parts it would draw as raw HTML
+ * docx-preview turns the document into HTML: a `section` per page, where
+ * the document breaks them and where Word last broke them when it saved. Parts it would draw as raw HTML
  * (`altChunk`) and comments are left out. Pictures and embedded fonts become
  * `blob:` addresses, which the frame's policy allows; anything the document
  * links to on the network stays undrawn.
@@ -96,7 +96,9 @@ export const render: Render = async (bytes, place, report) => {
       className: 'docx',
       inWrapper: true,
       breakPages: true,
-      ignoreLastRenderedPageBreak: true,
+      // Pages break where Word last laid the document out, as well as where it says so:
+      // otherwise a document without manual breaks is one long page.
+      ignoreLastRenderedPageBreak: false,
       renderAltChunks: false,
       renderComments: false,
       renderChanges: false,

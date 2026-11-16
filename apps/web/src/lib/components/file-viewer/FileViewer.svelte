@@ -70,7 +70,11 @@
   );
 
   $effect(() => {
-    session.setTheme(display.resolved.theme);
+    const theme = display.resolved.theme;
+    // Only the theme sends it again; the session's status is read, not followed.
+    untrack(() => {
+      session.setTheme(theme);
+    });
   });
 
   $effect(() => () => {
@@ -209,6 +213,11 @@
       {/if}
     </div>
 
+    <!-- In the page from the start, so that the first page is announced as well as the next. -->
+    <p class="sr-only" aria-live="polite" data-testid="file-viewer-announce">
+      {status.name === 'shown' ? m.viewer_page({ page: session.page, pages: session.pages }) : ''}
+    </p>
+
     {#if status.name === 'shown'}
       <footer class="flex min-h-12 items-center justify-center gap-1 border-t p-1">
         <IconButton
@@ -220,11 +229,7 @@
         >
           <ChevronLeftIcon aria-hidden="true" />
         </IconButton>
-        <p
-          class="min-w-16 text-center text-sm tabular-nums"
-          aria-live="polite"
-          data-testid="file-viewer-page"
-        >
+        <p class="min-w-16 text-center text-sm tabular-nums" data-testid="file-viewer-page">
           <span aria-hidden="true">{session.page} / {session.pages}</span>
           <span class="sr-only">{m.viewer_page({ page: session.page, pages: session.pages })}</span>
         </p>
