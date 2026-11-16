@@ -20,6 +20,7 @@ use crate::loose_objects;
 use crate::members;
 use crate::org_admin;
 use crate::trash;
+use crate::workspace_membership;
 
 /// The key of the PostgreSQL advisory lock that the replacement of the built-in
 /// templates holds. Any number that the migrator's lock does not use.
@@ -314,6 +315,10 @@ pub(crate) async fn duplicate_board(
     board.is_template = as_template;
     user_id.clone_into(&mut board.created_by);
     if let Some(workspace_id) = to_workspace {
+        // A workspace of another organization is none, before anything is written.
+        if !workspace_membership::is_workspace_here(scope, workspace_id).await? {
+            return Err(StoreError::not_found("workspace"));
+        }
         workspace_id.clone_into(&mut board.workspace_id);
     }
 
