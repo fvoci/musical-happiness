@@ -143,8 +143,8 @@ export class World {
     return time;
   }
 
-  blocksOf(boardId: string): StoredBlock[] {
-    return [...this.blocks.values()].filter((block) => block.containerId === boardId);
+  blocksOf(containerId: string): StoredBlock[] {
+    return [...this.blocks.values()].filter((block) => block.containerId === containerId);
   }
 
   childrenOf(parentId: string): StoredBlock[] {

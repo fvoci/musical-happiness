@@ -48,7 +48,7 @@
   let working = $state(false);
   let problem = $state<string | undefined>(undefined);
   let links = $state.raw<Invitation[]>([]);
-  const boardLinks = $derived(
+  const containerLinks = $derived(
     links.filter((link) => link.role === 'guest' && link.containerId === containerId),
   );
   const context = $derived({
@@ -162,10 +162,10 @@
         : undefined}
     />
   {/if}
-  {#if boardLinks.length > 0}
+  {#if containerLinks.length > 0}
     <h4 id="{uid}-links" class="text-sm font-medium">{words.guestLinks()}</h4>
     <ul class="grid gap-1" aria-labelledby="{uid}-links" data-testid="share-guest-links">
-      {#each boardLinks as link (link.id)}
+      {#each containerLinks as link (link.id)}
         <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
           <span class="min-w-0 flex-1 text-sm break-words text-muted-foreground">
             {link.recipient

@@ -52,7 +52,9 @@ export async function archiveLines(
  * board `boardId`, the archive's own name, as it always has.
  */
 export function blockOfLine(data: unknown): StoredBlock {
-  return renamed(data as object, 'boardId', 'containerId') as unknown as StoredBlock;
+  const block =
+    typeof data === 'object' && data !== null ? renamed(data, 'boardId', 'containerId') : data;
+  return block as StoredBlock;
 }
 
 /** `value` with its member `from` named `to`, in the same place among the others. */

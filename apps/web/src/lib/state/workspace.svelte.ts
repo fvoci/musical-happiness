@@ -588,7 +588,7 @@ export class Workspace {
           this.#apply({ kind: 'boardDeleted', boardId: containerId });
         },
         () => this.restoreContainer(containerId),
-        'deleteBoard',
+        'deleteContainer',
       );
     } catch (error) {
       this.report('save', error);
@@ -740,7 +740,7 @@ export class Workspace {
       await this.undo.perform(
         () => this.#setContainerHidden(categoryId, containerId, true),
         () => this.#setContainerHidden(categoryId, containerId, false),
-        'hideBoard',
+        'hideContainer',
       );
     } catch (error) {
       this.report('save', error);

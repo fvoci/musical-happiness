@@ -33,12 +33,12 @@ export async function readManagedOnly(
 ): Promise<boolean> {
   const backend = store.workspace.backend;
   try {
-    const [board, members] = await Promise.all([
+    const [container, members] = await Promise.all([
       containerOfWorkspace(backend, store.containerId, store.workspace.info?.id, kind),
       backend.members(store.containerId),
     ]);
-    if (board.type !== 'P' || board.isTemplate) return false;
-    store.container = board;
+    if (container.type !== 'P' || container.isTemplate) return false;
+    store.container = container;
     store.members = members;
     void store.workspace.learnUsers(members.map(memberId), { members: true });
     return true;

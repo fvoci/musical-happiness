@@ -88,7 +88,7 @@ export function filedIndex(
 export interface BoardMove {
   boardId: string;
   categoryId: string;
-  /** The place in the category's own list, as `Workspace.moveBoard` takes it. */
+  /** The place in the category's own list, as `Workspace.moveContainer` takes it. */
   index: number;
 }
 

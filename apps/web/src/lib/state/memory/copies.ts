@@ -9,9 +9,9 @@ import { flushContainers } from './bodies.ts';
 import type { StoredBlock, World } from './world.ts';
 
 /** The blocks a copy of the board or wiki takes: all but its comments. */
-export function copiedBlocks(world: World, board: { id: string }): StoredBlock[] {
-  flushContainers(world, [board]);
-  return world.blocksOf(board.id).filter((block) => block.type !== 'comment');
+export function copiedBlocks(world: World, container: { id: string }): StoredBlock[] {
+  flushContainers(world, [container]);
+  return world.blocksOf(container.id).filter((block) => block.type !== 'comment');
 }
 
 /** The body with the files its images show renamed, where `rename` has another name. */

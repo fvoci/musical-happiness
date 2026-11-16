@@ -47,7 +47,7 @@
   import { Switch } from '$lib/ui/switch/index.js';
 
   import GuestInvite from './GuestInvite.svelte';
-  import BoardTeams from './BoardTeams.svelte';
+  import ContainerTeams from './ContainerTeams.svelte';
   import { ROLE_ORDER, roleOfMember } from './share-logic.ts';
   import { shareWords } from './share-words.ts';
 
@@ -402,7 +402,7 @@
       </section>
 
       {#if access?.people.teams && !isGuest(workspace)}
-        <BoardTeams {workspace} {shareable} teams={access.people.teams} {readOnly} />
+        <ContainerTeams {workspace} {shareable} teams={access.people.teams} {readOnly} />
       {/if}
 
       <!-- The public link. -->

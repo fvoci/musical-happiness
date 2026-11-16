@@ -178,7 +178,7 @@ crates/server/tests/api/wiki_kinds.rs | team
 crates/server/tests/api/role_table.rs | team
 crates/server/tests/api/role_table/*.txt | teams:
 crates/store/tests/store/board_kinds.rs | team
-apps/web/src/lib/features/shell/BoardTeams.svelte
+apps/web/src/lib/features/shell/ContainerTeams.svelte
 crates/model/src/container.rs | inherited from teams
 crates/store/src/containers.rs | container_team_access::
 crates/store/src/containers.rs | push_has_team_role
@@ -201,7 +201,7 @@ crates/server/tests/api/rooms_access.rs | through a team
 crates/server/tests/api/rooms_access.rs | the team member left
 apps/web/src/lib/features/shell/ShareDialog.svelte | team
 apps/web/src/lib/features/shell/share-words.ts | team
-apps/web/src/lib/state/member-writes.ts | boardteams
+apps/web/src/lib/state/member-writes.ts | containerteams
 
 # Team membership is reusable across workspace modules; board effects live on the board side.
 crates/model/src/container_teams.rs
@@ -209,7 +209,7 @@ crates/store/src/container_team_membership.rs
 crates/server/tests/api/team_standing.rs
 apps/web/tests/ui/shell/team-row.test.ts
 apps/web/tests/ui/shell/teams-panel.test.ts
-apps/web/tests/ui/shell/board-teams.test.ts
+apps/web/tests/ui/shell/container-teams.test.ts
 crates/store/src/container_membership.rs | team_role
 crates/store/src/container_membership.rs | container_team_access::
 crates/store/src/invitations.rs | team_role

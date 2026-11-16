@@ -19,7 +19,7 @@ export interface MembersOf {
 
 /**
  * A board or a wiki as the dialogs of its people read and change it
- * (`ShareDialog`, `BoardTeams`): its openness, the role of who joins it, and
+ * (`ShareDialog`, `ContainerTeams`): its openness, the role of who joins it, and
  * its members.
  */
 export interface Shareable extends MembersOf {

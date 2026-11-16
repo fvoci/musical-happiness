@@ -11,18 +11,18 @@ import { fail } from './refuse.ts';
 import type { World } from './world.ts';
 
 /**
- * The reader's role on a board of the `kind` (the server answers a wiki to an
+ * The reader's role on a board or a wiki of the `kind` (the server answers a wiki to an
  * operation of cards as a board that is not there); `any` for one of either.
  */
 export function memberRole(
   world: World,
   userId: string,
-  boardId: string,
+  containerId: string,
   kind: ContainerKind | 'any' = 'board',
 ): Exclude<Role, ''> {
-  const board = world.containers.get(boardId);
+  const board = world.containers.get(containerId);
   if (!board || (kind !== 'any' && (board.kind ?? 'board') !== kind)) fail(404, 'no such board');
-  const role = roleOn(world.members.get(boardId) ?? [], userId);
+  const role = roleOn(world.members.get(containerId) ?? [], userId);
   if (role !== '') return role;
   if (isOpenWiki(board) && world.workspaceMembers.has(userId)) return 'viewer';
   if (board.type === 'O') fail(403, 'access denied to board');
@@ -30,13 +30,13 @@ export function memberRole(
 }
 
 /**
- * Whether the user reads the board: has a role on it, or works in the
+ * Whether the user reads the board or wiki: has a role on it, or works in the
  * workspace of an open wiki.
  */
-export function reads(world: World, userId: string, boardId: string): boolean {
-  const board = world.containers.get(boardId);
+export function reads(world: World, userId: string, containerId: string): boolean {
+  const board = world.containers.get(containerId);
   if (!board) return false;
-  if (roleOn(world.members.get(boardId) ?? [], userId) !== '') return true;
+  if (roleOn(world.members.get(containerId) ?? [], userId) !== '') return true;
   return isOpenWiki(board) && world.workspaceMembers.has(userId);
 }
 
@@ -49,12 +49,12 @@ export function isOpenWiki(board: { type: string; kind?: string }): boolean {
 export function memberFileUrl(
   world: World,
   userId: string,
-  boardId: string,
+  containerId: string,
   fileId: string,
 ): string | undefined {
-  if (!reads(world, userId, boardId)) return undefined;
+  if (!reads(world, userId, containerId)) return undefined;
   const file = world.files.get(fileId);
-  if (file?.containerId !== boardId || !file.blob) return undefined;
+  if (file?.containerId !== containerId || !file.blob) return undefined;
   file.url ??= URL.createObjectURL(file.blob);
   return file.url;
 }

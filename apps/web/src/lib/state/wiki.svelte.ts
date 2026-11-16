@@ -456,8 +456,8 @@ export class WikiStore {
   }
 
   /** The wiki as read for whoever manages it without reading it (`managed-board.ts`). */
-  set container(board: Container | undefined) {
-    this.wiki = board;
+  set container(wiki: Container | undefined) {
+    this.wiki = wiki;
   }
 
   /** Whether anybody of the workspace reads the wiki, and may join it to write. */

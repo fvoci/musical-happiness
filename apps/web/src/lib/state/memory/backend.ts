@@ -92,7 +92,7 @@ import {
   deletion,
   mayManageCards,
   placesOf,
-  takeBoardBack,
+  takeContainerBack,
 } from './trash.ts';
 import type { StoredBlock, StoredCard, StoredView, World } from './world.ts';
 
@@ -199,8 +199,8 @@ export class MemoryBackend implements Backend {
     return { ...card, lastCommentAt: lastCommentAt(this.world.childrenOf(card.id)) };
   }
 
-  #memberIds(boardId: string): string[] {
-    return (this.world.members.get(boardId) ?? []).map((member) => member.userId);
+  #memberIds(containerId: string): string[] {
+    return (this.world.members.get(containerId) ?? []).map((member) => member.userId);
   }
 
   #touch(block: StoredBlock): void {
@@ -408,7 +408,7 @@ export class MemoryBackend implements Backend {
   /** As the server: for who was its admin; filed again where each person had it. */
   async restoreContainer(id: string): Promise<Container> {
     await this.#enter('restoreContainer');
-    const board = takeBoardBack(this.world, this.userId, id);
+    const board = takeContainerBack(this.world, this.userId, id);
     this.#tellContainer(board);
     return copy(board);
   }
@@ -681,12 +681,12 @@ export class MemoryBackend implements Backend {
    * Files a board under a user's default category, as the server does for a
    * new board (not a template) and for a new member of one.
    */
-  #fileAsNew(userId: string, board: Container): void {
-    if (board.isTemplate) return;
+  #fileAsNew(userId: string, container: Container): void {
+    if (container.isTemplate) return;
     const theirs = this.world.categories.get(userId) ?? [];
     const fallback = theirs.find((category) => category.type === 'system');
-    if (!fallback || theirs.some((category) => category.containerIds.includes(board.id))) return;
-    fallback.containerIds.push(board.id);
+    if (!fallback || theirs.some(({ containerIds }) => containerIds.includes(container.id))) return;
+    fallback.containerIds.push(container.id);
     this.world.tellUsers([userId], { kind: 'categories', categories: copy(theirs) });
   }
 
