@@ -60,9 +60,9 @@ impl WebRoot {
     ///
     /// Any origin may read these files: the file viewer's frame has an opaque origin and
     /// loads the app's scripts, style sheets and fonts across origins, and they are the
-    /// public build, sent without credentials. An HTML document is sandboxed
-    /// ([`STATIC_DOCUMENT_POLICY`]); whether it is one is read from the type the file
-    /// service gave it, not from the requested name, which may be percent-encoded.
+    /// public build, sent without credentials. An HTML document is sandboxed (it is the
+    /// viewer's frame); whether it is one is read from the type the file service gave
+    /// it, not from the requested name, which may be percent-encoded.
     pub async fn serve_static(&self, path: &str, request: Request<Body>) -> Response {
         let Ok(uri) = format!("/{path}").parse::<Uri>() else {
             return not_found();

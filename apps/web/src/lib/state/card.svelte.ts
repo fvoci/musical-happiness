@@ -483,16 +483,12 @@ export class CardStore {
     return this.#imageUploads.length > 0;
   }
 
-  /**
-   * The bytes of a file of this board; undefined (and told) when they could
-   * not be read, and undefined (and not told) when `signal` gave them up.
-   */
+  /** A file's bytes; undefined when not read (told), or given up by `signal` (not told). */
   async fileBytes(fileId: string, signal?: AbortSignal): Promise<Blob | undefined> {
     try {
       return await this.#backend.fileBytes(this.#boardId, fileId, signal);
     } catch (error) {
-      if (signal?.aborted) return undefined;
-      this.board.workspace.report('load', error);
+      if (!signal?.aborted) this.board.workspace.report('load', error);
       return undefined;
     }
   }
