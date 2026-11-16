@@ -124,7 +124,7 @@ apps/web/
 | bits-ui                                              | 2.21.0  | 2026-11-11 |                                                                                                                                  |
 | shadcn-svelte (CLI, CSS)                             | 1.8.1   | 2026-11-11 | `shadcn-svelte/tailwind.css`를 가져오므로 의존성이기도 하다                                                                      |
 | cn                                                   | 0.5.2   | 2026-11-02 | 생성된 `utils.ts`가 쓴다                                                                                                         |
-| tailwind-variants                                    | 3.3.1   | 2026-08-03 | `latest`는 4.0.2. CLI가 요구한 범위가 `^3.3.0`이고 4.x는 새 메이저다                                                             |
+| tailwind-variants                                    | 4.0.2   | 2026-11-10 | 4.0에서 `tailwind-merge` 대신 미리 엮은 병합 표를 쓴다. `src/lib/ui`의 `tv()`가 내는 클래스는 3.3.1과 같다                       |
 | tw-animate-css                                       | 1.4.0   | 2025-09-24 |                                                                                                                                  |
 | @lucide/svelte                                       | 1.73.0  | 2026-11-14 |                                                                                                                                  |
 | svelte-sonner                                        | 1.2.3   | 2026-11-02 |                                                                                                                                  |
