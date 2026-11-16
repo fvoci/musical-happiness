@@ -140,7 +140,7 @@ async fn one_orgs_file_reference_cannot_prevent_another_orgs_attachment_edit() {
     let attachment = block(&b.store, &b.board_id, "", BlockType::Attachment, &b.user_id).await;
     let inserted = test
         .execute_unchecked(&format!(
-            "INSERT INTO file_refs (block_id, board_id, name) VALUES ('{}', '{}', 'B-file.txt')",
+            "INSERT INTO file_refs (block_id, container_id, name) VALUES ('{}', '{}', 'B-file.txt')",
             attachment.id, b.board_id
         ))
         .await;
@@ -183,14 +183,14 @@ async fn one_orgs_trash_row_cannot_prevent_another_orgs_deletion() {
     let card = block(&b.store, &b.board_id, "", BlockType::Card, &b.user_id).await;
     let forged = [
         format!(
-            "INSERT INTO deleted_blocks (id, board_id, deleted_at, deletion_id, block) \
+            "INSERT INTO deleted_blocks (id, container_id, deleted_at, deletion_id, block) \
              VALUES ('{}', '{}', 0, '{}', '{{}}')",
             card.id,
             b.board_id,
             new_id()
         ),
         format!(
-            "INSERT INTO deleted_boards (id, workspace_id, deleted_at, deletion_id, board, members, \
+            "INSERT INTO deleted_containers (id, workspace_id, deleted_at, deletion_id, container, members, \
              files) VALUES ('{}', '{}', 0, '{}', '{{}}', '[]', '[]')",
             b.board_id,
             test.workspace_id,
@@ -242,13 +242,13 @@ async fn a_trash_row_under_another_orgs_parent_is_neither_listed_nor_restored() 
         .expect("A's board goes to the trash");
     let moved = [
         format!(
-            "UPDATE deleted_blocks SET board_id = '{0}', \
+            "UPDATE deleted_blocks SET container_id = '{0}', \
              block = jsonb_set(block::jsonb, '{{boardId}}', '\"{0}\"')::json WHERE id = '{1}'",
             b.board_id, card.id
         ),
         format!(
-            "UPDATE deleted_boards SET workspace_id = '{0}', \
-             board = jsonb_set(board::jsonb, '{{workspaceId}}', '\"{0}\"')::json WHERE id = '{1}'",
+            "UPDATE deleted_containers SET workspace_id = '{0}', \
+             container = jsonb_set(container::jsonb, '{{workspaceId}}', '\"{0}\"')::json WHERE id = '{1}'",
             b.workspace_id, ours[1].id
         ),
     ];
@@ -319,7 +319,7 @@ async fn one_orgs_file_reference_keeps_no_file_of_another_alive() {
         .await
         .expect("B's file is recorded, shown by no block");
     test.execute_unchecked(&format!(
-        "INSERT INTO file_refs (block_id, board_id, name) VALUES ('{}', '{}', '{}')",
+        "INSERT INTO file_refs (block_id, container_id, name) VALUES ('{}', '{}', '{}')",
         ours.id, b.board_id, file.stored_name
     ))
     .await
@@ -354,7 +354,7 @@ async fn the_purge_forgets_a_row_whose_block_is_only_another_orgs() {
     let attachment = block(&b.store, &b.board_id, "", BlockType::Attachment, &b.user_id).await;
     let forged = [
         format!(
-            "INSERT INTO file_refs (block_id, board_id, name) VALUES ('{}', '{}', 'A-file.txt')",
+            "INSERT INTO file_refs (block_id, container_id, name) VALUES ('{}', '{}', 'A-file.txt')",
             attachment.id, ours[0].id
         ),
         format!(
@@ -371,7 +371,7 @@ async fn the_purge_forgets_a_row_whose_block_is_only_another_orgs() {
         );
     }
     let b_reference = format!(
-        "INSERT INTO file_refs (block_id, board_id, name) VALUES ('{}', '{}', 'B-file.txt')",
+        "INSERT INTO file_refs (block_id, container_id, name) VALUES ('{}', '{}', 'B-file.txt')",
         attachment.id, b.board_id
     );
     assert_eq!(
@@ -639,14 +639,14 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
         without,
         [
             // Held to its organization by the key to the board: (board_id, org_id).
-            ("blocks", "(board_id, id)"),
+            ("blocks", "(container_id, id)"),
             // An identifier the server makes for the row.
             ("blocks", "(id)"),
-            ("board_members", "(board_id, user_id)"),
-            ("boards", "(id)"),
+            ("container_members", "(container_id, user_id)"),
+            ("containers", "(id)"),
             ("categories", "(id)"),
-            ("category_boards", "(id)"),
-            ("file_info", "(board_id, name)"),
+            ("category_containers", "(id)"),
+            ("file_info", "(container_id, name)"),
             ("file_info", "(id)"),
             // The digest of a secret the server makes; a link is found by it before its
             // organization is known.
@@ -662,7 +662,7 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             ("organizations", "(id)"),
             // One system organization over them all.
             ("organizations", "(is_system) WHERE is_system"),
-            ("sharing", "(board_id)"),
+            ("sharing", "(container_id)"),
             // A secret the server makes.
             ("sharing", "(token)"),
             ("subscriptions", "(block_id, subscriber_id)"),
@@ -680,7 +680,7 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             // removed but with its workspace (0023).
             ("audit_log".to_owned(), "audit_log_kept".to_owned()),
             (
-                "category_boards".to_owned(),
+                "category_containers".to_owned(),
                 "category_boards_board_of_its_organization".to_owned()
             ),
             (

@@ -343,13 +343,13 @@ fn writes_access(text: &str) -> bool {
         "workspace_members",
         "teams",
         "team_members",
-        "board_teams",
+        "container_teams",
         "organization_members",
-        "board_members",
+        "container_members",
         "sharing",
         "workspaces",
         "organizations",
-        "boards",
+        "containers",
         "oidc_providers",
     ];
     let words: Vec<&str> = text
@@ -383,14 +383,14 @@ fn affects_visibility(text: &str) -> bool {
         // A team's people and its roles on boards make board members too.
         "teams",
         "team_members",
-        "board_teams",
+        "container_teams",
         "organization_members",
-        "board_members",
+        "container_members",
         "sharing",
         "workspaces",
         "organizations",
-        "boards",
-        "deleted_boards",
+        "containers",
+        "deleted_containers",
         "deleted_blocks",
         // Which provider an organization takes sessions of (`sso_required`).
         "oidc_providers",
@@ -446,7 +446,7 @@ mod tests {
         );
         assert!(sent);
         let writing = visibility.writing(Tenant::Unset);
-        writing.statement("UPDATE boards SET title = 'later'");
+        writing.statement("UPDATE containers SET title = 'later'");
         writing.settled();
         drop(writing);
         assert!(
@@ -467,7 +467,7 @@ mod tests {
         let of_second = visibility.version(second).await;
         let of_everything = visibility.version(Tenant::Unset).await;
         let writing = visibility.writing(first);
-        writing.statement("UPDATE board_members SET scheme_admin = true");
+        writing.statement("UPDATE container_members SET scheme_admin = true");
         assert!(
             visibility.if_current(of_second, || {}),
             "a writer of the first organization does not hold up the second's dispatch"
@@ -490,12 +490,12 @@ mod tests {
         let of_first = visibility.version(org(1)).await;
         let of_everything = visibility.version(Tenant::Unset).await;
         let writing = visibility.writing(Tenant::System);
-        writing.statement("DELETE FROM deleted_boards WHERE deleted_at < 1");
+        writing.statement("DELETE FROM deleted_containers WHERE deleted_at < 1");
         writing.statement(
-            "DELETE FROM deleted_blocks WHERE NOT EXISTS (SELECT 1 FROM boards b \
-             WHERE b.id = deleted_blocks.board_id)",
+            "DELETE FROM deleted_blocks WHERE NOT EXISTS (SELECT 1 FROM containers b \
+             WHERE b.id = deleted_blocks.container_id)",
         );
-        writing.statement("DELETE FROM blocks WHERE board_id = $1");
+        writing.statement("DELETE FROM blocks WHERE container_id = $1");
         assert!(
             visibility.if_current(of_first, || {}),
             "a pending purge holds up no organization's dispatch"
@@ -536,17 +536,17 @@ mod tests {
         assert!(writes_access("INSERT INTO sharing (id) VALUES ($1)"));
         assert!(writes_access("DELETE FROM users WHERE id = $1"));
         assert!(writes_access(
-            "WITH gone AS (DELETE FROM board_members RETURNING 1) SELECT 1"
+            "WITH gone AS (DELETE FROM container_members RETURNING 1) SELECT 1"
         ));
         assert!(!writes_access("UPDATE users SET props = $1"));
         assert!(!writes_access(
-            "DELETE FROM deleted_boards WHERE deleted_at < $1"
+            "DELETE FROM deleted_containers WHERE deleted_at < $1"
         ));
         assert!(!writes_access(
-            "DELETE FROM deleted_blocks WHERE NOT EXISTS (SELECT 1 FROM boards b)"
+            "DELETE FROM deleted_blocks WHERE NOT EXISTS (SELECT 1 FROM containers b)"
         ));
         assert!(!writes_access(
-            "DELETE FROM blocks WHERE board_id IN (SELECT id FROM boards)"
+            "DELETE FROM blocks WHERE container_id IN (SELECT id FROM containers)"
         ));
     }
 
@@ -565,7 +565,7 @@ mod tests {
                 let visibility = &visibility;
                 scope.spawn(move || {
                     let writing = visibility.writing(org(2));
-                    writing.statement("DELETE FROM board_members");
+                    writing.statement("DELETE FROM container_members");
                     writing.settled();
                     drop(writing);
                     entered.send(()).expect("writer entered");
@@ -581,7 +581,7 @@ mod tests {
     async fn an_abandoned_write_unsettles_its_own_organization_only() {
         let visibility = Visibility::settling_for(Duration::from_secs(60));
         let writing = visibility.writing(org(1));
-        writing.statement("DELETE FROM board_members");
+        writing.statement("DELETE FROM container_members");
         drop(writing);
         assert!(!visibility.version(org(1)).await.cacheable());
         assert!(!visibility.version(Tenant::Unset).await.cacheable());
@@ -602,7 +602,7 @@ mod tests {
     fn a_write_of_a_teams_people_or_roles_moves_the_revision() {
         for statement in [
             "INSERT INTO team_members (team_id, org_id, workspace_id, user_id) VALUES ($1, $2, $3, $4)",
-            "INSERT INTO board_teams (board_id, team_id, workspace_id, org_id, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (board_id, team_id, org_id) DO UPDATE SET role = EXCLUDED.role",
+            "INSERT INTO container_teams (container_id, team_id, workspace_id, org_id, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (container_id, team_id, org_id) DO UPDATE SET role = EXCLUDED.role",
             "DELETE FROM teams WHERE id = $1",
         ] {
             assert!(affects_visibility(statement), "{statement}");
@@ -667,7 +667,7 @@ mod tests {
                 scope.spawn(move || {
                     let writing = visibility.writing(Tenant::Unset);
                     started.send(()).expect("writer starts");
-                    writing.statement("DELETE FROM board_members");
+                    writing.statement("DELETE FROM container_members");
                     entered.send(()).expect("writer entered");
                     writing.settled();
                 });
@@ -697,7 +697,7 @@ mod tests {
             .expect("test store");
         let error: Result<(), StoreError> = store
             .transaction(async |scope| {
-                let write = scope.sql("UPDATE boards SET title = title");
+                let write = scope.sql("UPDATE containers SET title = title");
                 scope.execute(write).await?;
                 let invalid = scope.sql("SELECT missing_visibility_test_column FROM users");
                 scope.fetch_optional(invalid).await?;
@@ -711,7 +711,7 @@ mod tests {
         );
         let reached = tokio::sync::Notify::new();
         let mut writing = Box::pin(store.transaction(async |scope| {
-            let write = scope.sql("UPDATE boards SET title = title");
+            let write = scope.sql("UPDATE containers SET title = title");
             scope.execute(write).await?;
             reached.notify_one();
             std::future::pending::<Result<(), StoreError>>().await

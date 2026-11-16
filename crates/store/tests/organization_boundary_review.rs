@@ -31,7 +31,7 @@ async fn failed_and_cancelled_transactions_do_not_leave_an_organization_on_the_p
         .expect("the organization's board exists");
     let moved = test
         .execute_unchecked(&format!(
-            "UPDATE boards SET org_id = '{other_org}' WHERE id = '{}'",
+            "UPDATE containers SET org_id = '{other_org}' WHERE id = '{}'",
             board.id
         ))
         .await
@@ -59,7 +59,7 @@ async fn failed_and_cancelled_transactions_do_not_leave_an_organization_on_the_p
     ] {
         assert_eq!(
             store
-                .count_rows("boards")
+                .count_rows("containers")
                 .await
                 .expect("a new transaction reads"),
             count,

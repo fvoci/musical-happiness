@@ -251,9 +251,9 @@ async fn has_acting_admin(
     // An admin counts who can act as one: a member of the board's workspace who is no
     // guest. A guest is no more than an editor, and who has left opens nothing.
     let mut sql = scope.sql(
-        "SELECT 1 FROM board_members AS bm JOIN boards AS b ON b.id = bm.board_id \
+        "SELECT 1 FROM container_members AS bm JOIN containers AS b ON b.id = bm.container_id \
          JOIN workspace_members AS wm \
-         ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id WHERE bm.board_id = ",
+         ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id WHERE bm.container_id = ",
     );
     sql.bind(Id(board_id))
         .push_bind(" AND bm.scheme_admin = ", true)

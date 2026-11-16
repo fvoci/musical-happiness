@@ -68,7 +68,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn board_of_card(&self, card_id: &str) -> Result<Option<String>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql("SELECT type, board_id FROM blocks WHERE id = ");
+            let mut sql = scope.sql("SELECT type, container_id FROM blocks WHERE id = ");
             sql.bind(Id(card_id));
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(None);
@@ -466,7 +466,7 @@ impl Store {
                 "SELECT d.block_id, w.org_id FROM body_docs d \
                  JOIN blocks b ON b.id = d.block_id",
                 &scope.same_organization(&[("b", "d")]),
-                " JOIN boards o ON o.id = b.board_id",
+                " JOIN containers o ON o.id = b.container_id",
                 &scope.same_organization(&[("o", "b")]),
                 " JOIN workspaces w ON w.id = o.workspace_id",
                 &scope.same_organization(&[("w", "o")]),

@@ -95,14 +95,14 @@ impl Store {
     ) -> Result<Vec<String>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT s.board_id FROM sharing AS s JOIN boards AS b ON b.id = s.board_id \
+                "SELECT s.container_id FROM sharing AS s JOIN containers AS b ON b.id = s.container_id \
                  JOIN workspaces AS w ON w.id = b.workspace_id WHERE s.enabled = ",
             );
             sql.bind(true).push_bind(" AND w.org_id = ", scope.org()?);
             if let Some(workspace_id) = workspace_id {
                 sql.push_bind(" AND w.id = ", Id(workspace_id));
             }
-            sql.push(" ORDER BY s.board_id");
+            sql.push(" ORDER BY s.container_id");
             scope
                 .fetch_all(sql)
                 .await?
@@ -116,7 +116,7 @@ impl Store {
 
 async fn upsert_sharing(scope: &mut Scope<'_>, sharing: &Sharing) -> Result<(), StoreError> {
     let mut sql = scope
-        .sql("INSERT INTO sharing (board_id, enabled, token, modified_by, update_at) VALUES (");
+        .sql("INSERT INTO sharing (container_id, enabled, token, modified_by, update_at) VALUES (");
     sql.bind(Id(&sharing.board_id))
         .push_bind(", ", sharing.enabled);
     // No token is no value: the column is unique among the tokens there are.
@@ -128,7 +128,7 @@ async fn upsert_sharing(scope: &mut Scope<'_>, sharing: &Sharing) -> Result<(), 
     sql.push_bind(", ", OptId(&sharing.modified_by))
         .push_bind(", ", sharing.update_at)
         .push(
-            ") ON CONFLICT (board_id) DO UPDATE SET enabled = EXCLUDED.enabled, \
+            ") ON CONFLICT (container_id) DO UPDATE SET enabled = EXCLUDED.enabled, \
              token = EXCLUDED.token, modified_by = EXCLUDED.modified_by, \
              update_at = EXCLUDED.update_at",
         );
@@ -141,8 +141,8 @@ async fn find_sharing(
     board_id: &str,
 ) -> Result<Option<Sharing>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT board_id, enabled, token, modified_by, update_at FROM sharing \
-         WHERE board_id = ",
+        "SELECT container_id, enabled, token, modified_by, update_at FROM sharing \
+         WHERE container_id = ",
     );
     sql.bind(Id(board_id));
     let Some(row) = scope.fetch_optional(sql).await? else {

@@ -15,7 +15,7 @@ pub(crate) async fn type_on_board(
 ) -> Result<Option<BlockType>, StoreError> {
     let mut sql = scope.sql("SELECT type FROM blocks WHERE id = ");
     sql.bind(Id(block_id))
-        .push_bind(" AND board_id = ", Id(board_id));
+        .push_bind(" AND container_id = ", Id(board_id));
     match scope.fetch_optional(sql).await? {
         Some(row) => Ok(Some(BlockType::from(row.text(0)?))),
         None => Ok(None),

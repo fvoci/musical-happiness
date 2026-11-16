@@ -20,7 +20,8 @@ impl Store {
     ) -> Result<Vec<BoardTeam>, StoreError> {
         self.with_conn(async |scope| {
             let groups = teams::list(scope, workspace_id).await?;
-            let mut sql = scope.sql("SELECT team_id, role FROM board_teams WHERE board_id = ");
+            let mut sql =
+                scope.sql("SELECT team_id, role FROM container_teams WHERE container_id = ");
             sql.bind(Id(board_id))
                 .push_bind(" AND workspace_id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?);
@@ -77,13 +78,13 @@ impl Store {
             let changes: Vec<BoardMember> = users.iter().map(|user_id| BoardMember { board_id: board_id.to_owned(), user_id: user_id.clone(), ..BoardMember::default() }).collect();
             if let Some(role) = role {
                 record_new_access(scope, &board, &users, by).await?;
-                let mut sql = scope.sql("INSERT INTO board_teams (board_id, team_id, workspace_id, org_id, role) VALUES (");
+                let mut sql = scope.sql("INSERT INTO container_teams (container_id, team_id, workspace_id, org_id, role) VALUES (");
                 sql.bind(Id(board_id)).push_bind(", ", Id(team_id)).push_bind(", ", Id(workspace_id))
                     .push_bind(", ", scope.org()?).push_bind(", ", role.as_str())
-                    .push(") ON CONFLICT (board_id, team_id, org_id) DO UPDATE SET role = EXCLUDED.role");
+                    .push(") ON CONFLICT (container_id, team_id, org_id) DO UPDATE SET role = EXCLUDED.role");
                 scope.execute(sql).await?;
             } else {
-                let mut sql = scope.sql("DELETE FROM board_teams WHERE board_id = ");
+                let mut sql = scope.sql("DELETE FROM container_teams WHERE container_id = ");
                 sql.bind(Id(board_id)).push_bind(" AND team_id = ", Id(team_id)).push_bind(" AND org_id = ", scope.org()?);
                 scope.execute(sql).await?;
             }
@@ -113,7 +114,7 @@ async fn assigned_role(
     board_id: &str,
     team_id: &str,
 ) -> Result<Option<MinimumRole>, StoreError> {
-    let mut sql = scope.sql("SELECT role FROM board_teams WHERE board_id = ");
+    let mut sql = scope.sql("SELECT role FROM container_teams WHERE container_id = ");
     sql.bind(Id(board_id))
         .push_bind(" AND team_id = ", Id(team_id))
         .push_bind(" AND org_id = ", scope.org()?);
@@ -201,13 +202,13 @@ pub(crate) async fn affected(
     team_id: &str,
     only_user: Option<&str>,
 ) -> Result<Vec<BoardMember>, StoreError> {
-    let mut sql = scope.sql("SELECT bt.board_id, tm.user_id FROM board_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id WHERE bt.team_id = ");
+    let mut sql = scope.sql("SELECT bt.container_id, tm.user_id FROM container_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id WHERE bt.team_id = ");
     sql.bind(Id(team_id))
         .push_bind(" AND bt.org_id = ", scope.org()?);
     if let Some(user_id) = only_user {
         sql.push_bind(" AND tm.user_id = ", Id(user_id));
     }
-    sql.push(" ORDER BY bt.board_id, tm.user_id");
+    sql.push(" ORDER BY bt.container_id, tm.user_id");
     scope
         .fetch_all(sql)
         .await?
@@ -229,10 +230,10 @@ pub(crate) async fn joining(
     user_id: &str,
     by: &str,
 ) -> Result<Vec<BoardMember>, StoreError> {
-    let mut sql = scope.sql("SELECT board_id FROM board_teams WHERE team_id = ");
+    let mut sql = scope.sql("SELECT container_id FROM container_teams WHERE team_id = ");
     sql.bind(Id(team_id))
         .push_bind(" AND org_id = ", scope.org()?)
-        .push(" ORDER BY board_id");
+        .push(" ORDER BY container_id");
     let rows = scope.fetch_all(sql).await?;
     let mut changes = Vec::new();
     for row in rows {

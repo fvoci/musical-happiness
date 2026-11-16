@@ -87,7 +87,8 @@ impl Store {
             if new_order.is_empty() {
                 return Ok(());
             }
-            let mut sql = scope.sql("UPDATE category_boards SET sort_order = CASE board_id");
+            let mut sql =
+                scope.sql("UPDATE category_containers SET sort_order = CASE container_id");
             // Preserved quirk: consecutive boards are one apart, starting at the gap. The
             // original adds the gap to the position where it means to multiply by it
             // (server/services/store/sqlstore/category_boards.go:144).
@@ -120,11 +121,11 @@ impl Store {
         visibility: BoardVisibility,
     ) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql("UPDATE category_boards SET hidden = ");
+            let mut sql = scope.sql("UPDATE category_containers SET hidden = ");
             sql.bind(visibility == BoardVisibility::Hidden)
                 .push_bind(" WHERE user_id = ", Id(user_id))
                 .push_bind(" AND category_id = ", Id(category_id))
-                .push_bind(" AND board_id = ", Id(board_id));
+                .push_bind(" AND container_id = ", Id(board_id));
             scope.execute(sql).await?;
             Ok(())
         })
@@ -137,8 +138,8 @@ impl Store {
 /// each organization the user works in.
 fn filed_once(scope: &Scope<'_>) -> &'static str {
     match scope.dialect() {
-        Dialect::Sqlite => "(user_id, board_id)",
-        Dialect::Postgres => "(user_id, board_id, org_id)",
+        Dialect::Sqlite => "(user_id, container_id)",
+        Dialect::Postgres => "(user_id, container_id, org_id)",
     }
 }
 
@@ -166,12 +167,13 @@ async fn category_board_metadata(
     scope: &mut Scope<'_>,
     category_id: &str,
 ) -> Result<Vec<CategoryBoardMetadata>, StoreError> {
-    let mut sql = scope.sql("SELECT board_id, hidden FROM category_boards WHERE category_id = ");
+    let mut sql =
+        scope.sql("SELECT container_id, hidden FROM category_containers WHERE category_id = ");
     // Preserved quirk: the rows are not narrowed to the user the category belongs to, so
     // a board that another user put into this category is listed with it
     // (server/services/store/sqlstore/category_boards.go:42).
     sql.bind(Id(category_id))
-        .push(" ORDER BY sort_order, board_id");
+        .push(" ORDER BY sort_order, container_id");
     scope
         .fetch_all(sql)
         .await?
@@ -206,7 +208,7 @@ pub(crate) async fn add_update_category_board(
     }
 
     let now = now_millis();
-    let mut sql = scope.sql("INSERT INTO category_boards (id, user_id, category_id, board_id, create_at, update_at, sort_order, \
+    let mut sql = scope.sql("INSERT INTO category_containers (id, user_id, category_id, container_id, create_at, update_at, sort_order, \
          hidden) VALUES ");
     for (index, board_id) in board_ids.into_iter().enumerate() {
         sql.push(if index == 0 { "(" } else { ", (" })
@@ -261,7 +263,7 @@ pub(crate) async fn places_of_board(
     board_id: &str,
 ) -> Result<Vec<BoardPlace>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT user_id, category_id, sort_order, hidden FROM category_boards WHERE board_id = ",
+        "SELECT user_id, category_id, sort_order, hidden FROM category_containers WHERE container_id = ",
     );
     sql.bind(Id(board_id)).push(" ORDER BY user_id");
     scope
@@ -299,7 +301,7 @@ pub(crate) async fn put_back(
     let (category_id, sort_order) = if let Some(row) = scope.fetch_optional(sql).await? {
         let category_id = row.id(0)?;
         let mut sql = scope
-            .sql("UPDATE category_boards SET sort_order = sort_order + 1 WHERE category_id = ");
+            .sql("UPDATE category_containers SET sort_order = sort_order + 1 WHERE category_id = ");
         sql.bind(Id(&category_id))
             .push_bind(" AND sort_order >= ", place.sort_order);
         scope.execute(sql).await?;
@@ -317,8 +319,8 @@ pub(crate) async fn put_back(
     };
     let now = now_millis();
     let mut sql = scope.sql(
-        "INSERT INTO category_boards \
-         (id, user_id, category_id, board_id, create_at, update_at, sort_order, hidden) VALUES (",
+        "INSERT INTO category_containers \
+         (id, user_id, category_id, container_id, create_at, update_at, sort_order, hidden) VALUES (",
     );
     sql.bind(Id(&new_id()))
         .push_bind(", ", Id(&place.user_id))

@@ -178,7 +178,7 @@ pub(crate) async fn page_nodes(
 ) -> Result<Vec<PageNode>, StoreError> {
     let mut sql = scope.sql(
         "SELECT id, parent_id, title, fields, create_at, update_at FROM blocks \
-         WHERE board_id = ",
+         WHERE container_id = ",
     );
     sql.bind(Id(wiki_id))
         .push_bind(" AND type = ", BlockType::Page.as_str());
@@ -204,7 +204,7 @@ pub(crate) async fn page_tree(
     scope: &mut Scope<'_>,
     wiki_id: &str,
 ) -> Result<PageTree, StoreError> {
-    let mut sql = scope.sql("SELECT id, parent_id, fields FROM blocks WHERE board_id = ");
+    let mut sql = scope.sql("SELECT id, parent_id, fields FROM blocks WHERE container_id = ");
     sql.bind(Id(wiki_id))
         .push_bind(" AND type = ", BlockType::Page.as_str());
     let mut pages = Vec::new();
@@ -252,7 +252,7 @@ async fn write_order(
     sql.bind(Param::json(&page.fields)?)
         .push_bind(", update_at = ", page.update_at)
         .push_bind(" WHERE id = ", Id(page_id))
-        .push_bind(" AND board_id = ", Id(&page.board_id));
+        .push_bind(" AND container_id = ", Id(&page.board_id));
     scope.execute(sql).await?;
     Ok(page)
 }

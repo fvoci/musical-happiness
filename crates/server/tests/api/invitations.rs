@@ -229,7 +229,7 @@ async fn where_everybody_starts_an_organization_each_has_one_of_their_own() {
             ("workspaces", 1),
             ("organization_members", 1),
             ("workspace_members", 1),
-            ("boards", boards),
+            ("containers", boards),
         ] {
             assert_eq!(
                 store.count_rows(table).await.expect("the rows are counted"),

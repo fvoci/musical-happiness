@@ -53,7 +53,7 @@ impl Store {
                 "SELECT top.block, top.deleted_by, top.deleted_at, \
                  (SELECT COUNT(*) FROM deleted_blocks went \
                  WHERE went.deletion_id = top.deletion_id AND {went_page}) \
-                 FROM deleted_blocks top WHERE top.board_id = "
+                 FROM deleted_blocks top WHERE top.container_id = "
             ));
             sql.bind(Id(wiki_id)).push(&format!(
                 " AND {is_page} AND NOT EXISTS (SELECT 1 FROM deleted_blocks above \
@@ -120,7 +120,7 @@ async fn deletion_of(
 ) -> Result<Deletion, StoreError> {
     let mut sql = scope.sql("SELECT deletion_id, block FROM deleted_blocks WHERE id = ");
     sql.bind(Id(page_id))
-        .push_bind(" AND board_id = ", Id(wiki_id));
+        .push_bind(" AND container_id = ", Id(wiki_id));
     let row = scope
         .fetch_optional(sql)
         .await?

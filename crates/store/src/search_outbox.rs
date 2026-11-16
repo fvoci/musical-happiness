@@ -37,14 +37,14 @@ impl SearchTarget {
     fn as_str(self) -> &'static str {
         match self {
             Self::Block => "block",
-            Self::Board => "board",
+            Self::Board => "container",
         }
     }
 
     fn parse(text: &str) -> Result<Self, StoreError> {
         match text {
             "block" => Ok(Self::Block),
-            "board" => Ok(Self::Board),
+            "container" => Ok(Self::Board),
             other => Err(StoreError::Corrupt {
                 column: "scope",
                 reason: format!("unknown scope {other:?}"),
@@ -286,7 +286,7 @@ impl Store {
             let mut sql = scope.sql(&statement);
             sql.bind(now)
                 .push_bind(", ", now)
-                .push(" FROM boards AS bo JOIN workspaces AS w ON w.id = bo.workspace_id")
+                .push(" FROM containers AS bo JOIN workspaces AS w ON w.id = bo.workspace_id")
                 .push(&scope.same_organization(&[("w", "bo")]))
                 // In the order every writer of several boards takes them.
                 .push(" WHERE bo.is_template = false AND bo.is_builtin = false ORDER BY bo.id")
@@ -340,7 +340,7 @@ pub(crate) async fn note_blocks(scope: &mut Scope<'_>, ids: &[&str]) -> Result<(
         );
         sql.bind(now)
             .push_bind(", ", now)
-            .push(" FROM blocks AS b JOIN boards AS bo ON bo.id = b.board_id")
+            .push(" FROM blocks AS b JOIN containers AS bo ON bo.id = b.container_id")
             .push(&scope.same_organization(&[("bo", "b")]))
             .push(" JOIN workspaces AS w ON w.id = bo.workspace_id")
             .push(&scope.same_organization(&[("w", "bo")]))
@@ -369,7 +369,7 @@ pub(crate) async fn note_board(scope: &mut Scope<'_>, board_id: &str) -> Result<
     );
     sql.bind(now)
         .push_bind(", ", now)
-        .push(" FROM boards AS bo JOIN workspaces AS w ON w.id = bo.workspace_id")
+        .push(" FROM containers AS bo JOIN workspaces AS w ON w.id = bo.workspace_id")
         .push(&scope.same_organization(&[("w", "bo")]))
         .push_bind(" WHERE bo.id = ", Id(board_id))
         .push(NOTED_AGAIN);

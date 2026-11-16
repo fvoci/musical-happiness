@@ -170,12 +170,12 @@ async fn types_on_board(
     };
     let mut types = HashMap::with_capacity(ids.len());
     for chunk in ids.chunks(LOOKUP_CHUNK) {
-        let mut sql = scope.sql("SELECT id, type FROM blocks WHERE board_id = ");
+        let mut sql = scope.sql("SELECT id, type FROM blocks WHERE container_id = ");
         sql.bind(Id(board_id))
             .push(" AND id IN (")
             .bind_list(chunk.iter().map(|id| Id(id)))
             .push(&format!(
-                ") UNION ALL SELECT id, {trashed_type} FROM deleted_blocks WHERE board_id = "
+                ") UNION ALL SELECT id, {trashed_type} FROM deleted_blocks WHERE container_id = "
             ))
             .bind(Id(board_id))
             .push(" AND id IN (")

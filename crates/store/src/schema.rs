@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 38] = [
+const STEPS: [Step; 39] = [
     Step {
         version: 1,
         description: "baseline",
@@ -268,6 +268,12 @@ const STEPS: [Step; 38] = [
         sqlite: include_str!("../schema/sqlite/0040_signup_browser.sql"),
         postgres: include_str!("../schema/postgres/0040_signup_browser.sql"),
     },
+    Step {
+        version: 41,
+        description: "containers",
+        sqlite: include_str!("../schema/sqlite/0041_containers.sql"),
+        postgres: include_str!("../schema/postgres/0041_containers.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -283,6 +289,11 @@ pub(crate) const WORKSPACES_VERSION: i64 = 17;
 /// else of the organization's management.
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const ORG_MANAGEMENT_VERSION: i64 = 23;
+
+/// The migration that renames the tables of the boards and wikis, the containers, and
+/// the columns that name one.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const CONTAINERS_VERSION: i64 = 41;
 
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
@@ -308,19 +319,19 @@ pub(crate) const GLOBAL_TABLES: [&str; 10] = [
 pub(crate) const ORG_TABLES: [&str; 35] = [
     "audit_log",
     "blocks",
-    "board_members",
-    "board_teams",
-    "boards",
+    "container_members",
+    "container_teams",
+    "containers",
     "body_docs",
     "body_links",
     "body_updates",
     "body_version_editors",
     "body_versions",
     "categories",
-    "category_boards",
+    "category_containers",
     "comment_versions",
     "deleted_blocks",
-    "deleted_boards",
+    "deleted_containers",
     "file_info",
     "file_refs",
     "invitations",
@@ -707,28 +718,28 @@ mod tests {
     fn the_check_of_later_migrations_sees_what_it_is_there_to_see() {
         for touching in [
             "UPDATE organizations SET name = 'ours'",
-            "INSERT INTO data_steps (name) SELECT b.title FROM users AS u, boards AS b;",
-            "DELETE FROM sessions USING boards WHERE sessions.user_id = boards.created_by",
-            "ALTER TABLE boards ADD COLUMN color TEXT; UPDATE users SET email = ''",
+            "INSERT INTO data_steps (name) SELECT b.title FROM users AS u, containers AS b;",
+            "DELETE FROM sessions USING containers WHERE sessions.user_id = containers.created_by",
+            "ALTER TABLE containers ADD COLUMN color TEXT; UPDATE users SET email = ''",
             // More than it must be, and meant: `DELETE` is a word here, not a statement.
             "CREATE TABLE notes (org_id UUID REFERENCES organizations (id) ON DELETE CASCADE)",
-            "UPDATE boards SET title = ''",
+            "UPDATE containers SET title = ''",
             "DELETE FROM deleted_blocks WHERE deleted_at < 5;",
             "INSERT INTO file_refs (block_id) VALUES ('x')",
-            "INSERT INTO data_steps (name) SELECT title FROM boards;",
-            "update users set display_name = (select title from boards limit 1)",
+            "INSERT INTO data_steps (name) SELECT title FROM containers;",
+            "update users set display_name = (select title from containers limit 1)",
             "CREATE TABLE copies AS SELECT b.id FROM blocks AS b JOIN workspaces t ON true",
-            "-- a comment\nUPDATE users SET email = '' WHERE id IN (SELECT user_id FROM board_members)",
+            "-- a comment\nUPDATE users SET email = '' WHERE id IN (SELECT user_id FROM container_members)",
         ] {
             assert!(!walled_tables(touching).is_empty(), "{touching}");
             assert!(!begins_in_the_system_scope(touching), "{touching}");
         }
         for not_touching in [
-            "ALTER TABLE boards ADD COLUMN color TEXT NOT NULL DEFAULT '';",
+            "ALTER TABLE containers ADD COLUMN color TEXT NOT NULL DEFAULT '';",
             "CREATE INDEX blocks_title_idx ON blocks (title);",
-            "CREATE TABLE notes (id UUID PRIMARY KEY, board_id UUID REFERENCES boards (id));",
+            "CREATE TABLE notes (id UUID PRIMARY KEY, container_id UUID REFERENCES containers (id));",
             "INSERT INTO data_steps (name) VALUES ('later');",
-            "UPDATE users SET display_name = '' -- not from boards",
+            "UPDATE users SET display_name = '' -- not from containers",
             "UPDATE users SET update_at = (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT;",
             "DELETE FROM sessions WHERE user_id IN (SELECT id FROM (SELECT id FROM users) AS u)",
         ] {
@@ -738,10 +749,12 @@ mod tests {
                 "{not_touching}"
             );
         }
-        let scoped = format!("-- why\n{SYSTEM_SCOPE}\nUPDATE boards SET title = '';");
+        let scoped = format!("-- why\n{SYSTEM_SCOPE}\nUPDATE containers SET title = '';");
         assert!(begins_in_the_system_scope(&scoped), "comments come first");
         assert!(
-            !begins_in_the_system_scope(&format!("UPDATE boards SET title = '';\n{SYSTEM_SCOPE}")),
+            !begins_in_the_system_scope(&format!(
+                "UPDATE containers SET title = '';\n{SYSTEM_SCOPE}"
+            )),
             "the first statement, not a later one"
         );
     }

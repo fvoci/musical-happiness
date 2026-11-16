@@ -927,7 +927,7 @@ async fn categories_written_by_others() {
     execute_raw(
         &test,
         &format!(
-            "INSERT INTO category_boards (id, user_id, category_id, board_id, create_at, \
+            "INSERT INTO category_containers (id, user_id, category_id, container_id, create_at, \
              update_at) VALUES ('{}', '{user_id}', '{custom_type}', '{board_id}', 1, 1)",
             new_id()
         ),

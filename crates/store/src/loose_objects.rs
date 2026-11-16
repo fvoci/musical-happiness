@@ -300,10 +300,16 @@ impl Store {
                     .push_bind(", ", now);
                 if names_org {
                     let board = OptId(board_of(path).unwrap_or_default());
-                    sql.push_bind(", COALESCE((SELECT org_id FROM boards WHERE id = ", board)
-                        .push_bind("), (SELECT org_id FROM deleted_boards WHERE id = ", board)
-                        .push_bind("), ", Id(SYSTEM_ORG_ID))
-                        .push(")");
+                    sql.push_bind(
+                        ", COALESCE((SELECT org_id FROM containers WHERE id = ",
+                        board,
+                    )
+                    .push_bind(
+                        "), (SELECT org_id FROM deleted_containers WHERE id = ",
+                        board,
+                    )
+                    .push_bind("), ", Id(SYSTEM_ORG_ID))
+                    .push(")");
                 }
                 // SQLite reads an upsert after a SELECT only behind a WHERE.
                 sql.push(&format!(" WHERE true ON CONFLICT ({key}) DO NOTHING"));

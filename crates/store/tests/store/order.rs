@@ -70,7 +70,7 @@ async fn boards_come_oldest_first() {
     let fourth = stored_board(store, &workspace_id, &user_id, open("board b")).await;
     set_create_at(
         &test,
-        "boards",
+        "containers",
         &[(&fourth, 100), (&first, 200), (&second, 200), (&third, 300)],
     )
     .await;
@@ -154,7 +154,7 @@ async fn templates_come_oldest_first() {
     for ids in [&own, &builtin] {
         set_create_at(
             &test,
-            "boards",
+            "containers",
             &[(&ids[2], 100), (&ids[0], 200), (&ids[1], 200)],
         )
         .await;
@@ -411,7 +411,7 @@ async fn sidebar_ties_fall_back_to_age() {
     common::execute_raw(
         &test.dbconfig(),
         &format!(
-            "UPDATE category_boards SET sort_order = -10 WHERE board_id = '{}'",
+            "UPDATE category_containers SET sort_order = -10 WHERE container_id = '{}'",
             boards[2].id
         ),
     )
@@ -585,7 +585,7 @@ async fn the_trash_comes_the_last_deleted_first() {
             "deleted_blocks",
             cards.iter().map(|card| card.id.clone()).collect::<Vec<_>>(),
         ),
-        ("deleted_boards", boards.clone()),
+        ("deleted_containers", boards.clone()),
     ] {
         for (id, deleted_at) in ids.iter().zip([200, 200, 100]) {
             common::execute_raw(

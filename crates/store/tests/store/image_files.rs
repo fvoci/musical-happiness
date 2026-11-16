@@ -106,7 +106,7 @@ async fn a_write_that_shows_an_image_newly_needs_the_boards_file() {
     // The record of a file the card shows goes, as a wrong call of the store could
     // make it: the card is written all the same, and so is its copy.
     test.execute_unchecked(&format!(
-        "DELETE FROM file_info WHERE board_id = '{board_id}' AND name = '7kept.png'"
+        "DELETE FROM file_info WHERE container_id = '{board_id}' AND name = '7kept.png'"
     ))
     .await
     .expect("the record goes");
@@ -177,7 +177,7 @@ async fn the_collector_skips_a_record_that_a_write_holds() {
     // The statement of the write, on a connection of the test's own.
     let mut writer = common::connect_past_the_store(&test.dbconfig()).await;
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-        "BEGIN; SELECT name FROM file_info WHERE board_id = '{board_id}' \
+        "BEGIN; SELECT name FROM file_info WHERE container_id = '{board_id}' \
          AND name IN ('7held.png') FOR KEY SHARE"
     )))
     .execute(&mut writer)

@@ -60,7 +60,7 @@ impl Store {
             sql.bind(before)
                 .push(
                     " AND NOT EXISTS (SELECT 1 FROM file_refs r \
-                       WHERE r.board_id = file_info.board_id AND r.name = file_info.name",
+                       WHERE r.container_id = file_info.container_id AND r.name = file_info.name",
                 )
                 .push(&scope.same_organization(&[("r", "file_info")]))
                 .push(")")
@@ -128,7 +128,7 @@ pub(crate) async fn refresh(
     shown.extend(comment_versions::files_of(scope, &block.id).await?);
     shown.extend(body_versions::files_of(scope, &block.id).await?);
     for name in shown {
-        let mut sql = scope.sql("INSERT INTO file_refs (block_id, board_id, name) VALUES (");
+        let mut sql = scope.sql("INSERT INTO file_refs (block_id, container_id, name) VALUES (");
         sql.bind(Id(&block.id))
             .push_bind(", ", Id(&block.board_id))
             .push_bind(", ", name.as_str())
@@ -166,7 +166,7 @@ async fn hold_new_images(
     if new.is_empty() {
         return Ok(());
     }
-    let mut sql = scope.sql("SELECT name FROM file_info WHERE board_id = ");
+    let mut sql = scope.sql("SELECT name FROM file_info WHERE container_id = ");
     sql.bind(Id(&block.board_id))
         .push(" AND name IN (")
         .bind_list(new.iter().copied())
@@ -219,14 +219,14 @@ pub(crate) async fn show_images(
     if new.is_empty() {
         return Ok(());
     }
-    let mut sql = scope.sql("SELECT board_id FROM blocks WHERE id = ");
+    let mut sql = scope.sql("SELECT container_id FROM blocks WHERE id = ");
     sql.bind(Id(block_id));
     let board_id = scope
         .fetch_optional(sql)
         .await?
         .ok_or_else(|| StoreError::not_found(format_args!("block ID={block_id}")))?
         .id(0)?;
-    let mut sql = scope.sql("SELECT name FROM file_info WHERE board_id = ");
+    let mut sql = scope.sql("SELECT name FROM file_info WHERE container_id = ");
     sql.bind(Id(&board_id))
         .push(" AND name IN (")
         .bind_list(new.iter().map(String::as_str))
@@ -247,7 +247,7 @@ pub(crate) async fn show_images(
         });
     }
     for name in &new {
-        let mut sql = scope.sql("INSERT INTO file_refs (block_id, board_id, name) VALUES (");
+        let mut sql = scope.sql("INSERT INTO file_refs (block_id, container_id, name) VALUES (");
         sql.bind(Id(block_id))
             .push_bind(", ", Id(&board_id))
             .push_bind(", ", name.as_str())
@@ -285,7 +285,7 @@ pub(crate) async fn mark(
 ) -> Result<(), StoreError> {
     let changing = [
         "(unreferenced_at IS NULL) = (NOT EXISTS (\
-         SELECT 1 FROM file_refs r WHERE r.board_id = file_info.board_id \
+         SELECT 1 FROM file_refs r WHERE r.container_id = file_info.container_id \
          AND r.name = file_info.name",
         &scope.same_organization(&[("r", "file_info")]),
         "))",
@@ -320,7 +320,7 @@ fn mark_statement(scope: &Scope<'_>, changing: &str) -> Sql {
 
 fn narrow_marks(sql: &mut Sql, only: Option<(&str, &[String])>) {
     if let Some((board_id, names)) = only {
-        sql.push_bind(" AND board_id = ", Id(board_id))
+        sql.push_bind(" AND container_id = ", Id(board_id))
             .push(" AND name IN (")
             .bind_list(names.iter().map(String::as_str))
             .push(")");

@@ -119,7 +119,7 @@ pub(crate) async fn hold_for_new_link(
         return Err(StoreError::not_found("workspace"));
     }
     if let Some((board_id, _)) = link.guest_of {
-        let mut sql = scope.sql("SELECT id FROM boards WHERE id = ");
+        let mut sql = scope.sql("SELECT id FROM containers WHERE id = ");
         sql.bind(Id(board_id))
             .push_bind(" AND workspace_id = ", Id(link.workspace_id))
             .push_bind(" AND is_template = ", false);
@@ -138,8 +138,8 @@ pub(crate) async fn hold_for_new_link(
             .push_bind(" AND workspace_id = ", Id(link.workspace_id));
         // Of the board held above: a link of another board is not held after its own.
         match link.guest_of {
-            Some((board_id, _)) => sql.push_bind(" AND board_id = ", Id(board_id)),
-            None => sql.push(" AND board_id IS NULL"),
+            Some((board_id, _)) => sql.push_bind(" AND container_id = ", Id(board_id)),
+            None => sql.push(" AND container_id IS NULL"),
         };
         sql.push_bind(" AND revoked_at = ", 0_i64)
             .push_bind(" AND expires_at > ", link.now);

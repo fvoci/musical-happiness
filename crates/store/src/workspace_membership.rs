@@ -214,13 +214,13 @@ async fn change_role(
     if to == WorkspaceRole::Guest {
         crate::board_team_membership::remove_workspace_teams(scope, workspace_id, user_id).await?;
         taken_over = hand_over(scope, workspace_id, &boards, user_id, by).await?;
-        let mut sql = scope.sql("UPDATE board_members SET scheme_admin = ");
+        let mut sql = scope.sql("UPDATE container_members SET scheme_admin = ");
         sql.bind(false)
             .push_bind(", scheme_editor = ", true)
             .push_bind(" WHERE user_id = ", Id(user_id))
             .push_bind(" AND scheme_admin = ", true)
             .push_bind(
-                " AND board_id IN (SELECT id FROM boards WHERE workspace_id = ",
+                " AND container_id IN (SELECT id FROM containers WHERE workspace_id = ",
                 Id(workspace_id),
             )
             .push(")");
@@ -273,10 +273,10 @@ async fn remove(
     }
     // A role stored on a board that was not held: one stored since the boards were
     // last listed.
-    let mut sql = scope.sql("DELETE FROM board_members WHERE user_id = ");
+    let mut sql = scope.sql("DELETE FROM container_members WHERE user_id = ");
     sql.bind(Id(user_id))
         .push_bind(
-            " AND board_id IN (SELECT id FROM boards WHERE workspace_id = ",
+            " AND container_id IN (SELECT id FROM containers WHERE workspace_id = ",
             Id(workspace_id),
         )
         .push(")");
@@ -358,7 +358,7 @@ async fn hold_boards_of(
     user_id: &str,
 ) -> Result<Vec<String>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT bm.board_id FROM board_members AS bm JOIN boards AS b ON b.id = bm.board_id \
+        "SELECT bm.container_id FROM container_members AS bm JOIN containers AS b ON b.id = bm.container_id \
          WHERE b.workspace_id = ",
     );
     sql.bind(Id(workspace_id))
@@ -386,7 +386,7 @@ async fn holds_every_board_of(
     held: &[String],
 ) -> Result<bool, StoreError> {
     let mut sql = scope.sql(
-        "SELECT bm.board_id FROM board_members AS bm JOIN boards AS b ON b.id = bm.board_id \
+        "SELECT bm.container_id FROM container_members AS bm JOIN containers AS b ON b.id = bm.container_id \
          WHERE b.workspace_id = ",
     );
     sql.bind(Id(workspace_id))

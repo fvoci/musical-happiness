@@ -93,12 +93,12 @@ pub(crate) async fn remove_workspace_teams(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql("SELECT DISTINCT bt.board_id FROM board_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id WHERE tm.workspace_id = ");
+    let mut sql = scope.sql("SELECT DISTINCT bt.container_id FROM container_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id WHERE tm.workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND tm.user_id = ", Id(user_id))
         .push_bind(" AND tm.org_id = ", scope.org()?)
         .push_bind(
-            " UNION SELECT id FROM boards WHERE workspace_id = ",
+            " UNION SELECT id FROM containers WHERE workspace_id = ",
             Id(workspace_id),
         )
         .push_bind(" AND type = ", "O")

@@ -419,7 +419,7 @@ pub(crate) fn board_select_list(alias: &str) -> String {
 
 /// Starts `SELECT <board columns> FROM boards`.
 fn select_boards(scope: &Scope<'_>) -> Sql {
-    scope.sql(&format!("SELECT {} FROM boards", board_select_list("")))
+    scope.sql(&format!("SELECT {} FROM containers", board_select_list("")))
 }
 
 pub(crate) async fn fetch_boards(
@@ -523,7 +523,7 @@ pub(crate) fn select_boards_of_user(
     kinds: BoardKinds,
 ) -> Sql {
     let mut sql = scope.sql(&format!(
-        "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
+        "SELECT DISTINCT {} FROM containers AS b LEFT JOIN container_members AS bm ON b.id = bm.container_id \
          WHERE b.is_template = ",
         board_select_list("b.")
     ));
@@ -614,7 +614,7 @@ pub(crate) async fn insert_board(
         board.workspace_id = existing.workspace_id;
         board.created_by = existing.created_by;
         board.create_at = existing.create_at;
-        let mut sql = scope.sql("UPDATE boards SET ");
+        let mut sql = scope.sql("UPDATE containers SET ");
         sql.push_bind("modified_by = ", OptId(&board.modified_by))
             .push_bind(", type = ", board.board_type.as_str())
             .push_bind(", minimum_role = ", board.minimum_role.as_str())
@@ -659,7 +659,9 @@ pub(crate) async fn insert_board_row(
     scope: &mut Scope<'_>,
     board: &Board,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql(&format!("INSERT INTO boards ({BOARD_COLUMNS}) VALUES ("));
+    let mut sql = scope.sql(&format!(
+        "INSERT INTO containers ({BOARD_COLUMNS}) VALUES ("
+    ));
     sql.bind(Id(&board.id))
         .push_bind(", ", Id(&board.workspace_id))
         .push_bind(", ", OptId(&board.created_by))
@@ -723,8 +725,8 @@ pub(crate) async fn patch_board(
 /// Starts the query for memberships.
 pub(crate) fn select_members(scope: &Scope<'_>) -> Sql {
     scope.sql(
-        "SELECT bm.board_id, bm.user_id, bm.scheme_admin, bm.scheme_editor, \
-         bm.scheme_commenter, bm.scheme_viewer FROM board_members AS bm",
+        "SELECT bm.container_id, bm.user_id, bm.scheme_admin, bm.scheme_editor, \
+         bm.scheme_commenter, bm.scheme_viewer FROM container_members AS bm",
     )
 }
 
@@ -758,7 +760,7 @@ pub(crate) async fn find_member(
     user_id: &str,
 ) -> Result<Option<BoardMember>, StoreError> {
     let mut sql = select_members(scope);
-    sql.push_bind(" WHERE bm.board_id = ", Id(board_id))
+    sql.push_bind(" WHERE bm.container_id = ", Id(board_id))
         .push_bind(" AND bm.user_id = ", Id(user_id));
     Ok(fetch_members(scope, sql).await?.into_iter().next())
 }
@@ -780,7 +782,7 @@ pub(crate) async fn get_members_for_board(
     board_id: &str,
 ) -> Result<Vec<BoardMember>, StoreError> {
     let mut sql = select_members(scope);
-    sql.push_bind(" WHERE bm.board_id = ", Id(board_id))
+    sql.push_bind(" WHERE bm.container_id = ", Id(board_id))
         .push(" ORDER BY bm.user_id");
     fetch_members(scope, sql).await
 }
@@ -790,7 +792,7 @@ pub(crate) async fn save_member(
     member: &BoardMember,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
-        "INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, \
+        "INSERT INTO container_members (container_id, user_id, scheme_admin, scheme_editor, \
          scheme_commenter, scheme_viewer) VALUES (",
     );
     sql.bind(Id(&member.board_id))
@@ -800,7 +802,7 @@ pub(crate) async fn save_member(
         .push_bind(", ", member.scheme_commenter)
         .push_bind(", ", member.scheme_viewer)
         .push(
-            ") ON CONFLICT (board_id, user_id) DO UPDATE SET \
+            ") ON CONFLICT (container_id, user_id) DO UPDATE SET \
              scheme_admin = EXCLUDED.scheme_admin, scheme_editor = EXCLUDED.scheme_editor, \
              scheme_commenter = EXCLUDED.scheme_commenter, \
              scheme_viewer = EXCLUDED.scheme_viewer",
@@ -831,7 +833,7 @@ pub(crate) async fn lock_board_of_kind(
     scope: &mut Scope<'_>,
     board_id: &str,
 ) -> Result<Option<BoardKind>, StoreError> {
-    let mut sql = scope.sql("SELECT kind FROM boards WHERE id = ");
+    let mut sql = scope.sql("SELECT kind FROM containers WHERE id = ");
     sql.bind(Id(board_id));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR NO KEY UPDATE");
@@ -862,7 +864,7 @@ pub(crate) async fn lock_board_for_deletion(
     scope: &mut Scope<'_>,
     board_id: &str,
 ) -> Result<bool, StoreError> {
-    let mut sql = scope.sql("SELECT id FROM boards WHERE id = ");
+    let mut sql = scope.sql("SELECT id FROM containers WHERE id = ");
     sql.bind(Id(board_id));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
@@ -890,7 +892,7 @@ pub(crate) async fn delete_member(
     board_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql("DELETE FROM board_members WHERE board_id = ");
+    let mut sql = scope.sql("DELETE FROM container_members WHERE container_id = ");
     sql.bind(Id(board_id))
         .push_bind(" AND user_id = ", Id(user_id));
     if scope.execute(sql).await? > 0
@@ -913,11 +915,12 @@ pub(crate) async fn get_builtin_templates(scope: &mut Scope<'_>) -> Result<Vec<B
 
 pub(crate) async fn remove_builtin_templates(scope: &mut Scope<'_>) -> Result<(), StoreError> {
     // The built-in templates are removed for good, past the trash.
-    let mut sql = scope
-        .sql("DELETE FROM blocks WHERE board_id IN (SELECT id FROM boards WHERE is_builtin = ");
+    let mut sql = scope.sql(
+        "DELETE FROM blocks WHERE container_id IN (SELECT id FROM containers WHERE is_builtin = ",
+    );
     sql.bind(true).push(")");
     scope.execute(sql).await?;
-    let mut sql = scope.sql("DELETE FROM boards WHERE is_builtin = ");
+    let mut sql = scope.sql("DELETE FROM containers WHERE is_builtin = ");
     sql.bind(true);
     let count = scope.execute(sql).await?;
     tracing::debug!(count, "removed the built-in templates");

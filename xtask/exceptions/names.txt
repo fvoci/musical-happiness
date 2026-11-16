@@ -114,7 +114,7 @@ crates/store/schema/*/0026_teams.sql
 crates/store/src/teams.rs
 crates/store/src/schema.rs | workspace teams
 crates/store/src/schema.rs | 0026_teams
-crates/store/src/schema.rs | "board_teams"
+crates/store/src/schema.rs | "container_teams"
 crates/store/src/schema.rs | "team_members"
 crates/store/src/schema.rs | "teams",
 crates/store/src/error.rs | to a team
@@ -161,10 +161,14 @@ crates/store/tests/store/tenancy.rs | create_team
 crates/store/tests/store/tenancy.rs | a team is stored
 crates/store/tests/store/tenancy.rs | add_team_member
 crates/store/tests/store/tenancy.rs | a team member is stored
-crates/store/tests/store/tenancy.rs | insert into board_teams (board_id, team_id, workspace_id, role)
+crates/store/tests/store/tenancy.rs | insert into container_teams (container_id, team_id, workspace_id, role)
 crates/store/tests/store/tenancy.rs | the team has a board role
 
 # Workspace people groups, not the retired workspace name (O7b board roles).
+# Migration 41 renames the table of the teams' roles on a board (board_teams).
+crates/store/schema/*/0041_containers.sql
+# The test of migration 41 fills a workspace's team and its role on a board (0026).
+crates/store/tests/store/container_rename.rs
 crates/store/src/board_teams.rs
 crates/store/src/board_team_access.rs
 crates/server/src/api/board_teams.rs
@@ -280,11 +284,11 @@ crates/server/tests/api/rooms_teams.rs
 # board members does: the websocket audience caches the board's members, teams' too.
 crates/store/src/visibility.rs | "teams",
 crates/store/src/visibility.rs | "team_members",
-crates/store/src/visibility.rs | "board_teams",
+crates/store/src/visibility.rs | "container_teams",
 crates/store/src/visibility.rs | a team's people
 crates/store/src/visibility.rs | a_write_of_a_teams_people
 crates/store/src/visibility.rs | INSERT INTO team_members (team_id,
-crates/store/src/visibility.rs | INSERT INTO board_teams (board_id, team_id, workspace_id, org_id, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (board_id, team_id, org_id)
+crates/store/src/visibility.rs | INSERT INTO container_teams (container_id, team_id, workspace_id, org_id, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (container_id, team_id, org_id)
 crates/store/src/visibility.rs | DELETE FROM teams WHERE
 
 # A user's board memberships in every organization count the roles of their teams too.

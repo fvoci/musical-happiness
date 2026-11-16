@@ -81,12 +81,12 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = select_members(scope);
             sql.push(
-                " JOIN boards AS b ON b.id = bm.board_id JOIN workspace_members AS wm \
+                " JOIN containers AS b ON b.id = bm.container_id JOIN workspace_members AS wm \
                  ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id \
                  JOIN workspaces AS w ON w.id = b.workspace_id \
                  JOIN organizations AS o ON o.id = w.org_id",
             )
-            .push_bind(" WHERE bm.board_id = ", Id(board_id))
+            .push_bind(" WHERE bm.container_id = ", Id(board_id))
             .push(" AND w.delete_at = 0 AND o.delete_at = 0")
             .push(&scope.same_organization(&[("bm", "b"), ("wm", "b"), ("w", "b")]))
             .push(" ORDER BY bm.user_id");
@@ -184,7 +184,7 @@ async fn add_member(
     // membership that does not exist.
     hold_board(scope, &member.board_id).await?;
     let mut sql = scope.sql(
-        "INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, \
+        "INSERT INTO container_members (container_id, user_id, scheme_admin, scheme_editor, \
          scheme_commenter, scheme_viewer) VALUES (",
     );
     sql.bind(Id(&member.board_id))
@@ -193,7 +193,7 @@ async fn add_member(
         .push_bind(", ", member.scheme_editor)
         .push_bind(", ", member.scheme_commenter)
         .push_bind(", ", member.scheme_viewer)
-        .push(") ON CONFLICT (board_id, user_id) DO NOTHING");
+        .push(") ON CONFLICT (container_id, user_id) DO NOTHING");
     let added = scope
         .execute(sql)
         .await
@@ -256,7 +256,7 @@ async fn standing_holds(
         return Err(StoreError::not_found("board"));
     }
     let mut sql = scope.sql(
-        "SELECT b.workspace_id FROM boards AS b JOIN workspaces AS w ON w.id = b.workspace_id \
+        "SELECT b.workspace_id FROM containers AS b JOIN workspaces AS w ON w.id = b.workspace_id \
          WHERE w.delete_at = 0 AND b.id = ",
     );
     sql.bind(Id(board_id));

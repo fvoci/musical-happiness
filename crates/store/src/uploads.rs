@@ -23,7 +23,7 @@ pub enum PartRecord {
     Closed,
 }
 
-const UPLOAD_COLUMNS: &str = "id, user_id, board_id, name, size, content_type, part_size, \
+const UPLOAD_COLUMNS: &str = "id, user_id, container_id, name, size, content_type, part_size, \
                               create_at, expires_at, closed_at, multipart_id, path, purpose";
 
 /// What the open upload sessions hold back, for the limits on opening another: counted

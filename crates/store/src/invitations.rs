@@ -27,10 +27,10 @@ use crate::users::InstanceRole;
 use crate::{Standing, Store, signups};
 
 /// The columns of an invitation, in the order [`invitation_from_row`] reads them.
-const COLUMNS: &str = "id, workspace_id, role, board_id, board_role, created_by, create_at, \
+const COLUMNS: &str = "id, workspace_id, role, container_id, container_role, created_by, create_at, \
                        expires_at, max_uses, uses, parent_id, recipient";
 /// [`COLUMNS`] of the table as `i`.
-pub(crate) const COLUMNS_OF_I: &str = "i.id, i.workspace_id, i.role, i.board_id, i.board_role, \
+pub(crate) const COLUMNS_OF_I: &str = "i.id, i.workspace_id, i.role, i.container_id, i.container_role, \
                             i.created_by, i.create_at, i.expires_at, i.max_uses, i.uses, \
                             i.parent_id, i.recipient";
 
@@ -175,7 +175,7 @@ impl Store {
                 None => (WorkspaceRole::Member, "", None),
             };
             let mut sql = scope.sql(
-                "INSERT INTO invitations (id, org_id, workspace_id, role, board_id, board_role, \
+                "INSERT INTO invitations (id, org_id, workspace_id, role, container_id, container_role, \
                  token_hash, created_by, create_at, expires_at, max_uses, parent_id, \
                  recipient) VALUES (",
             );
@@ -690,10 +690,10 @@ async fn forget_board_roles(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql("DELETE FROM board_members WHERE user_id = ");
+    let mut sql = scope.sql("DELETE FROM container_members WHERE user_id = ");
     sql.bind(Id(user_id))
         .push_bind(
-            " AND board_id IN (SELECT id FROM boards WHERE workspace_id = ",
+            " AND container_id IN (SELECT id FROM containers WHERE workspace_id = ",
             Id(workspace_id),
         )
         .push(")");
@@ -784,7 +784,7 @@ pub(crate) fn invitation_from_row(row: &Row) -> Result<Invitation, StoreError> {
         board_role: if board_role.is_empty() {
             None
         } else {
-            Some(board_role.parse().map_err(corrupt("board_role"))?)
+            Some(board_role.parse().map_err(corrupt("container_role"))?)
         },
         created_by: row.id(5)?,
         create_at: row.int(6)?,

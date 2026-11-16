@@ -106,7 +106,7 @@ async fn the_tables_carry_no_prefix() {
     // A statement that names the tables plainly runs, on either database.
     common::execute_raw(
         &test.dbconfig(),
-        "SELECT (SELECT COUNT(*) FROM blocks) + (SELECT COUNT(*) FROM boards) \
+        "SELECT (SELECT COUNT(*) FROM blocks) + (SELECT COUNT(*) FROM containers) \
          + (SELECT COUNT(*) FROM users) + (SELECT COUNT(*) FROM sessions)",
     )
     .await;
@@ -324,7 +324,7 @@ async fn the_schema_refuses_a_board_type_that_is_none() {
     let board_id = &boards[0].id;
 
     for board_type in ["", " ", "X", "o", "p", "OP", "open", "private", "O "] {
-        let error = set_column(&test, "boards", "type", board_type, board_id)
+        let error = set_column(&test, "containers", "type", board_type, board_id)
             .await
             .expect_err(&format!("the board type {board_type:?} is refused"));
         assert!(
@@ -339,7 +339,7 @@ async fn the_schema_refuses_a_board_type_that_is_none() {
         );
     }
     for board_type in [BoardType::Private, BoardType::Open] {
-        let changed = set_column(&test, "boards", "type", board_type.as_str(), board_id)
+        let changed = set_column(&test, "containers", "type", board_type.as_str(), board_id)
             .await
             .expect("a board type that is one is stored");
         assert_eq!(changed, 1, "{board_type:?}: the one row of the board");
@@ -351,7 +351,7 @@ async fn the_schema_refuses_a_board_type_that_is_none() {
     // a type that is one, and refused with one that is none.
     let new_board = |board_type: &str| {
         format!(
-            "INSERT INTO boards (id, workspace_id, type, title, description, icon, \
+            "INSERT INTO containers (id, workspace_id, type, title, description, icon, \
              show_description, is_template, properties, card_properties, create_at, \
              update_at) VALUES ('{}', '{workspace_id}', '{board_type}', '', '', '', FALSE, FALSE, \
              '{{}}', '[]', 1, 1)",
@@ -662,7 +662,7 @@ async fn store_previous_shapes(dbconfig: &str, blocks: &[Block]) {
     let card_fields = r#"{"properties": {"due": "{\"from\":1772679600000}", "note": "{\"from\":1}", "bad": "x"}}"#;
     let view_fields = r#"{"filter": {"operation": "and", "filters": [{"propertyId": "due", "condition": "is", "values": ["1772679600000"]}, {"operation": "or", "filters": [{"propertyId": "note", "condition": "is", "values": ["1"]}]}]}}"#;
     let mut statements = vec![format!(
-        "UPDATE boards SET card_properties = '{definitions}'"
+        "UPDATE containers SET card_properties = '{definitions}'"
     )];
     for (block, fields) in blocks.iter().zip([
         card_fields,

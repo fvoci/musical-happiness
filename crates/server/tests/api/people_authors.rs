@@ -287,7 +287,7 @@ async fn check_authorship(authorship: Authorship) {
     th.app
         .store()
         .execute_unchecked(&format!(
-            "DELETE FROM board_members WHERE board_id = '{}'",
+            "DELETE FROM container_members WHERE container_id = '{}'",
             board.id,
         ))
         .await

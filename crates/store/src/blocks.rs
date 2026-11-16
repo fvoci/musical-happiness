@@ -46,7 +46,7 @@ const BODY_SUMMARY_COLUMNS: &str = "body_version, body_text, body_tasks_total, b
 /// The columns of a listed block: [`BLOCK_COLUMNS`] with no body, and what a list says
 /// about the body in its place.
 const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
-                             fields, create_at, update_at, board_id, NULL, \
+                             fields, create_at, update_at, container_id, NULL, \
                              body IS NOT NULL, body_tasks_total, body_tasks_done";
 
 /// When the last comment on the block `blocks.id` was posted, zero for none: its
@@ -388,7 +388,7 @@ impl Store {
                 let mut sql = scope.sql("UPDATE blocks SET update_at = update_at");
                 push_body(&mut sql, body.as_ref(), BodyColumns::Assign)?;
                 sql.push_bind(" WHERE id = ", Id(&block_id))
-                    .push_bind(" AND board_id = ", Id(board_id));
+                    .push_bind(" AND container_id = ", Id(board_id));
                 if scope.execute(sql).await? == 0 {
                     return Err(StoreError::not_found(format_args!(
                         "block ID={block_id} on board {board_id}"
@@ -473,7 +473,7 @@ impl Store {
             let mut sql = select_blocks(scope);
             sql.push_bind(" WHERE (id = ", Id(block_id))
                 .push_bind(" OR parent_id = ", Id(block_id))
-                .push_bind(") AND board_id = ", Id(board_id))
+                .push_bind(") AND container_id = ", Id(board_id))
                 .push(OLDEST_FIRST);
             let family = fetch_blocks(scope, sql).await?;
             let not_found = || {
@@ -593,7 +593,7 @@ fn filtered_blocks(scope: &Scope<'_>, filter: &BlockFilter, columns: &str) -> Sq
     let mut sql = scope.sql(&format!("SELECT {columns} FROM blocks"));
     sql.push(" WHERE 1 = 1");
     if let Some(board_id) = &filter.board_id {
-        sql.push_bind(" AND board_id = ", Id(board_id));
+        sql.push_bind(" AND container_id = ", Id(board_id));
     }
     if let Some(parent_id) = &filter.parent_id {
         // A block directly on its board has no parent, and whoever writes one may name
@@ -745,7 +745,7 @@ async fn insert_block_at(
             .push_bind(", update_at = ", block.update_at);
         push_body(&mut sql, block.body.as_ref(), BodyColumns::Assign)?;
         sql.push_bind(" WHERE id = ", Id(&block.id))
-            .push_bind(" AND board_id = ", Id(&block.board_id));
+            .push_bind(" AND container_id = ", Id(&block.board_id));
         if scope.execute(sql).await? == 0 {
             return Err(StoreError::not_found(format_args!(
                 "block ID={} on board {}",

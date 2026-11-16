@@ -159,7 +159,7 @@ impl Store {
                 Dialect::Postgres => "block->>'type' = 'card'",
             };
             let mut sql =
-                scope.sql("SELECT block, deleted_by FROM deleted_blocks WHERE board_id = ");
+                scope.sql("SELECT block, deleted_by FROM deleted_blocks WHERE container_id = ");
             sql.bind(Id(board_id)).push(&format!(
                 " AND {is_card} AND NOT EXISTS (SELECT 1 FROM deleted_blocks below \
                  WHERE below.deletion_id = deleted_blocks.deletion_id \
@@ -220,15 +220,15 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if no board of that identifier is in the trash.
     pub async fn get_deleted_board(&self, board_id: &str) -> Result<DeletedBoard, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql =
-                scope.sql("SELECT board, members, deleted_by FROM deleted_boards WHERE id = ");
+            let mut sql = scope
+                .sql("SELECT container, members, deleted_by FROM deleted_containers WHERE id = ");
             sql.bind(Id(board_id));
             let row = scope
                 .fetch_optional(sql)
                 .await?
                 .ok_or_else(board_not_in_trash)?;
             Ok(DeletedBoard {
-                board: from_json(&row, 0, "board")?,
+                board: from_json(&row, 0, "container")?,
                 members: from_json(&row, 1, "members")?,
                 deleted_by: row.id(2)?,
             })
@@ -261,17 +261,17 @@ impl Store {
             // The memberships are the JSON array of the board's members when it went.
             let was_admin = match scope.dialect() {
                 Dialect::Sqlite => {
-                    " AND EXISTS (SELECT 1 FROM json_each(deleted_boards.members) member \
+                    " AND EXISTS (SELECT 1 FROM json_each(deleted_containers.members) member \
                      WHERE json_extract(member.value, '$.schemeAdmin') = 1 \
                      AND json_extract(member.value, '$.userId') = "
                 }
                 Dialect::Postgres => {
-                    " AND EXISTS (SELECT 1 FROM json_array_elements(deleted_boards.members) \
+                    " AND EXISTS (SELECT 1 FROM json_array_elements(deleted_containers.members) \
                      member WHERE member->>'schemeAdmin' = 'true' AND member->>'userId' = "
                 }
             };
             let mut sql = scope
-                .sql("SELECT board, members, deleted_by FROM deleted_boards WHERE workspace_id = ");
+                .sql("SELECT container, members, deleted_by FROM deleted_containers WHERE workspace_id = ");
             sql.bind(Id(workspace_id));
             if let Some(admin_id) = admin_id {
                 sql.push_bind(was_admin, admin_id).push(")");
@@ -287,7 +287,7 @@ impl Store {
                 .iter()
                 .map(|row| {
                     Ok(DeletedBoard {
-                        board: from_json(row, 0, "board")?,
+                        board: from_json(row, 0, "container")?,
                         members: from_json(row, 1, "members")?,
                         deleted_by: row.id(2)?,
                     })
@@ -355,7 +355,7 @@ pub(crate) async fn remove_boards(
     // One statement decides and deletes: a board restored meanwhile is not deleted, and
     // so its files are not doomed.
     let org = loose_objects::org_column(scope);
-    let mut sql = scope.sql("DELETE FROM deleted_boards WHERE ");
+    let mut sql = scope.sql("DELETE FROM deleted_containers WHERE ");
     match which {
         Trashed::Before(deleted_before) => sql.push_bind("deleted_at < ", deleted_before),
         Trashed::OfWorkspace(workspace_id) => sql.push_bind("workspace_id = ", Id(workspace_id)),
@@ -389,11 +389,11 @@ pub(crate) async fn remove_what_they_left(scope: &mut Scope<'_>) -> Result<u64, 
     // back to once the board is neither there nor in the trash of the block's
     // organization.
     let orphans = [
-        "DELETE FROM deleted_blocks WHERE NOT EXISTS (SELECT 1 FROM boards b \
-         WHERE b.id = deleted_blocks.board_id",
+        "DELETE FROM deleted_blocks WHERE NOT EXISTS (SELECT 1 FROM containers b \
+         WHERE b.id = deleted_blocks.container_id",
         &scope.same_organization(&[("b", "deleted_blocks")]),
-        ") AND NOT EXISTS (SELECT 1 FROM deleted_boards d \
-         WHERE d.id = deleted_blocks.board_id",
+        ") AND NOT EXISTS (SELECT 1 FROM deleted_containers d \
+         WHERE d.id = deleted_blocks.container_id",
         &scope.same_organization(&[("d", "deleted_blocks")]),
         ")",
     ]
@@ -476,7 +476,7 @@ pub(crate) async fn hold_deleted_boards(
     if scope.dialect() != Dialect::Postgres {
         return Ok(());
     }
-    let mut sql = scope.sql("SELECT id FROM deleted_boards WHERE workspace_id = ");
+    let mut sql = scope.sql("SELECT id FROM deleted_containers WHERE workspace_id = ");
     sql.bind(Id(workspace_id)).push(" ORDER BY id FOR UPDATE");
     scope.fetch_all(sql).await?;
     Ok(())
@@ -492,7 +492,7 @@ pub(crate) async fn change_member_of_deleted_boards(
     roles: TrashedRoles,
 ) -> Result<(), StoreError> {
     hold_deleted_boards(scope, workspace_id).await?;
-    let mut sql = scope.sql("SELECT id, members FROM deleted_boards WHERE workspace_id = ");
+    let mut sql = scope.sql("SELECT id, members FROM deleted_containers WHERE workspace_id = ");
     sql.bind(Id(workspace_id));
     for row in scope.fetch_all(sql).await? {
         let members: Vec<BoardMember> = from_json(&row, 1, "members")?;
@@ -512,7 +512,7 @@ pub(crate) async fn change_member_of_deleted_boards(
                 }
             })
             .collect();
-        let mut sql = scope.sql("UPDATE deleted_boards SET members = ");
+        let mut sql = scope.sql("UPDATE deleted_containers SET members = ");
         sql.bind(Param::json(&kept)?)
             .push_bind(" WHERE id = ", Id(&row.id(0)?));
         scope.execute(sql).await?;
@@ -593,7 +593,7 @@ async fn put_blocks_in_trash(
         };
         let mut sql = scope.sql(
             "INSERT INTO deleted_blocks \
-             (id, board_id, parent_id, deleted_at, deleted_by, deletion_id, block) VALUES (",
+             (id, container_id, parent_id, deleted_at, deleted_by, deletion_id, block) VALUES (",
         );
         sql.bind(Id(&block.id))
             .push_bind(", ", Id(&block.board_id))
@@ -654,7 +654,7 @@ pub(crate) async fn undelete_block(
 ) -> Result<Block, StoreError> {
     // The trash says which board the block was on. The board must be there to come back
     // to, and is then held: read again under the lock, the block may be restored already.
-    let mut sql = scope.sql("SELECT board_id FROM deleted_blocks WHERE id = ");
+    let mut sql = scope.sql("SELECT container_id FROM deleted_blocks WHERE id = ");
     sql.bind(Id(block_id));
     let row = scope
         .fetch_optional(sql)
@@ -738,8 +738,8 @@ pub(crate) async fn delete_board(
         ..board
     };
     let mut sql = scope.sql(
-        "INSERT INTO deleted_boards \
-         (id, workspace_id, deleted_at, deleted_by, deletion_id, board, members, files, places) \
+        "INSERT INTO deleted_containers \
+         (id, workspace_id, deleted_at, deleted_by, deletion_id, container, members, files, places) \
          VALUES (",
     );
     sql.bind(Id(board_id))
@@ -759,10 +759,10 @@ pub(crate) async fn delete_board(
 
     // The blocks first: a board does not go while it has any. With the board go its
     // memberships, its sharing, its file records and where users filed it (kept above).
-    let mut sql = scope.sql("DELETE FROM blocks WHERE board_id = ");
+    let mut sql = scope.sql("DELETE FROM blocks WHERE container_id = ");
     sql.bind(Id(board_id));
     scope.execute(sql).await?;
-    let mut sql = scope.sql("DELETE FROM boards WHERE id = ");
+    let mut sql = scope.sql("DELETE FROM containers WHERE id = ");
     sql.bind(Id(board_id));
     scope.execute(sql).await?;
     Ok(())
@@ -773,8 +773,9 @@ pub(crate) async fn undelete_board(
     board_id: &str,
     user_id: &str,
 ) -> Result<Board, StoreError> {
-    let mut sql = scope
-        .sql("SELECT board, members, files, deletion_id, places FROM deleted_boards WHERE id = ");
+    let mut sql = scope.sql(
+        "SELECT container, members, files, deletion_id, places FROM deleted_containers WHERE id = ",
+    );
     sql.bind(Id(board_id));
     // Of two requests that restore the board at once, the second waits here and then
     // finds the trash without it.
@@ -785,7 +786,7 @@ pub(crate) async fn undelete_board(
         .fetch_optional(sql)
         .await?
         .ok_or_else(board_not_in_trash)?;
-    let mut board: Board = from_json(&row, 0, "board")?;
+    let mut board: Board = from_json(&row, 0, "container")?;
     let members: Vec<BoardMember> = from_json(&row, 1, "members")?;
     let files: StoredFiles = from_json(&row, 2, "files")?;
     let deletion_id = row.id(3)?;
@@ -842,16 +843,16 @@ pub(crate) async fn undelete_board(
     take_blocks_out_of_trash(scope, &deletion_id, user_id, now, |_| {}).await?;
     // The trash kept no marks: a file that no block of the board shows is counted from
     // now, as at a file's upload, and one that a block shows has none.
-    let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = NULL WHERE board_id = ");
+    let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = NULL WHERE container_id = ");
     sql.bind(Id(board_id));
     scope.execute(sql).await?;
     let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = ");
     sql.bind(now)
-        .push(" WHERE NOT EXISTS (SELECT 1 FROM file_refs r WHERE r.board_id = file_info.board_id AND r.name = file_info.name) AND board_id = ")
+        .push(" WHERE NOT EXISTS (SELECT 1 FROM file_refs r WHERE r.container_id = file_info.container_id AND r.name = file_info.name) AND container_id = ")
         .bind(Id(board_id));
     scope.execute(sql).await?;
 
-    let mut sql = scope.sql("DELETE FROM deleted_boards WHERE id = ");
+    let mut sql = scope.sql("DELETE FROM deleted_containers WHERE id = ");
     sql.bind(Id(board_id));
     scope.execute(sql).await?;
     Ok(board)

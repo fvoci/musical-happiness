@@ -273,7 +273,7 @@ async fn system_templates_are_shared_read_only_and_their_copies_belong_to_the_de
         .b_app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE boards SET title = 'Changed by B' WHERE id = '{}'",
+            "UPDATE containers SET title = 'Changed by B' WHERE id = '{}'",
             builtin.id
         ))
         .await

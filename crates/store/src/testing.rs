@@ -515,6 +515,39 @@ pub async fn migrate_to_the_workspaces(database: &TestDatabase) {
     store.close().await;
 }
 
+/// Brings a test database to the schema as a server left it before the containers were
+/// named so (migration 41): every migration before that one, and none of the changes of
+/// the data that follow the migrations.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_containers(database: &TestDatabase) {
+    let store = Store::open(database.db_type(), database.dbconfig())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(&store, Some(crate::schema::CONTAINERS_VERSION - 1))
+        .await
+        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
+/// Brings a test database to the schema of the migration that named the containers so
+/// (migration 41), and none after it.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_the_containers(database: &TestDatabase) {
+    let store = Store::open(database.db_type(), database.dbconfig())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(&store, Some(crate::schema::CONTAINERS_VERSION))
+        .await
+        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
 /// Brings a test database to the schema as a server left it before the organization's
 /// management (migration 23): every migration before that one, and none of the changes
 /// of the data that follow the migrations.

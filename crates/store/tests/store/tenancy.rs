@@ -102,7 +102,7 @@ async fn the_boards_of_two_organizations_are_out_of_each_others_reach() {
 
     let count = async |store: &Store| {
         store
-            .count_rows("boards")
+            .count_rows("containers")
             .await
             .expect("the boards are counted")
     };
@@ -124,13 +124,13 @@ async fn the_boards_of_two_organizations_are_out_of_each_others_reach() {
     // Nor is it changed or deleted: the statement finds no row.
     let changed = ours
         .execute_unchecked(&format!(
-            "UPDATE boards SET title = 'taken' WHERE id = '{their_board}'"
+            "UPDATE containers SET title = 'taken' WHERE id = '{their_board}'"
         ))
         .await
         .expect("the statement runs");
     assert_eq!(changed, 0, "an update of their board");
     let deleted = ours
-        .execute_unchecked("DELETE FROM boards")
+        .execute_unchecked("DELETE FROM containers")
         .await
         .expect("the statement runs");
     assert_eq!(deleted, 1, "a delete of everything deletes ours");
@@ -141,7 +141,7 @@ async fn the_boards_of_two_organizations_are_out_of_each_others_reach() {
     // to apart from the wall.
     let insert = |org: &str| {
         format!(
-            "INSERT INTO boards (id, org_id, workspace_id, type, title, description, icon, \
+            "INSERT INTO containers (id, org_id, workspace_id, type, title, description, icon, \
              show_description, is_template, properties, card_properties, create_at, update_at) \
              VALUES ('{}', {org}, '{their_workspace}', 'O', '', '', '', false, false, '{{}}', '[]', 0, 0)",
             new_id()
@@ -209,7 +209,7 @@ async fn nothing_of_an_organization_stays_on_a_pooled_connection() {
             (test.system(), 3),
         ] {
             reads.spawn(async move {
-                let counted = store.count_rows("boards").await.expect("counted");
+                let counted = store.count_rows("containers").await.expect("counted");
                 (round, store.tenant(), counted, expected)
             });
         }
@@ -361,7 +361,7 @@ async fn every_table_is_no_organizations_or_behind_the_wall() {
     let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
     let policies = policies(&mut conn).await;
     let wall = policies
-        .get(&("boards".to_owned(), "org_wall".to_owned()))
+        .get(&("containers".to_owned(), "org_wall".to_owned()))
         .expect("boards has the policy")
         .clone();
     let (command, permissive, using, check) = &wall;
@@ -384,7 +384,7 @@ async fn every_table_is_no_organizations_or_behind_the_wall() {
         }
         assert_eq!(policy, "org_templates", "{table} has the policy {policy}");
         assert!(
-            ["boards", "blocks"].contains(&table.as_str()),
+            ["containers", "blocks"].contains(&table.as_str()),
             "{table} lets the templates be read"
         );
         assert_eq!(
@@ -1281,13 +1281,13 @@ async fn assert_every_row_is_behind_the_wall(unset: &Store, ours: &Store) {
         ("workspaces", 2, 1),
         ("organization_members", 4, 0),
         ("workspace_members", 7, 0),
-        ("boards", 2, 1),
-        ("board_members", 2, 1),
+        ("containers", 2, 1),
+        ("container_members", 2, 1),
         ("blocks", 2, 1),
-        ("deleted_boards", 1, 0),
+        ("deleted_containers", 1, 0),
         ("deleted_blocks", 2, 0),
         ("categories", 2, 0),
-        ("category_boards", 2, 0),
+        ("category_containers", 2, 0),
         ("file_info", 1, 1),
         ("file_refs", 2, 0),
         ("sharing", 1, 1),
@@ -1298,7 +1298,7 @@ async fn assert_every_row_is_behind_the_wall(unset: &Store, ours: &Store) {
     ];
     for (table, of_ours, of_the_system) in expected {
         let count = async |store: &Store| store.count_rows(table).await.expect("counted");
-        let read_besides = if ["boards", "blocks"].contains(&table) {
+        let read_besides = if ["containers", "blocks"].contains(&table) {
             of_the_system
         } else {
             0
@@ -1742,7 +1742,7 @@ async fn foreign_keys(conn: &mut sqlx::PgConnection) -> Vec<(String, String, Vec
 async fn a_row_is_held_to_the_organization_of_what_it_hangs_on() {
     // A category takes a built-in template, which is the system organization's: a
     // trigger checks the board when the row is stored (organization_boundary_round2.rs).
-    const NOT_HELD: [(&str, &str); 1] = [("category_boards", "board_id")];
+    const NOT_HELD: [(&str, &str); 1] = [("category_containers", "container_id")];
     if common::db_type() != DbType::Postgres {
         return;
     }
@@ -1819,7 +1819,7 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
              VALUES ('{their_workspace}', '{user_id}', 'admin', 0)"
         ),
         format!(
-            "INSERT INTO sharing (board_id, enabled, token, update_at) \
+            "INSERT INTO sharing (container_id, enabled, token, update_at) \
              VALUES ('{their_board}', true, 'a-forged-token', 0)"
         ),
     ];
@@ -1944,7 +1944,7 @@ async fn a_team_on_board(store: &Store, board: &Board, user_id: &str) {
         .await
         .expect("a team member is stored");
     store.execute_unchecked(&format!(
-        "INSERT INTO board_teams (board_id, team_id, workspace_id, role) VALUES ('{}', '{group}', '{}', 'editor')",
+        "INSERT INTO container_teams (container_id, team_id, workspace_id, role) VALUES ('{}', '{group}', '{}', 'editor')",
         board.id, board.workspace_id
     )).await.expect("the team has a board role");
 }

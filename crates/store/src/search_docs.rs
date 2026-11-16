@@ -50,7 +50,7 @@ pub(crate) fn select_documents(scope: &Scope<'_>, columns: &str) -> Sql {
         Dialect::Postgres => "(b.fields->'isTemplate')::text IS DISTINCT FROM 'true'",
     };
     let mut sql = scope.sql(&format!(
-        "SELECT {columns} FROM blocks AS b JOIN boards AS bo ON bo.id = b.board_id{} \
+        "SELECT {columns} FROM blocks AS b JOIN containers AS bo ON bo.id = b.container_id{} \
          JOIN workspaces AS w ON w.id = bo.workspace_id{} \
          WHERE bo.is_template = false AND bo.is_builtin = false AND {no_card_template} \
          AND b.type IN (",
@@ -115,7 +115,7 @@ impl Store {
     ) -> Result<Vec<SearchDocument>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_documents(scope, DOCUMENT_COLUMNS);
-            sql.push_bind(" AND b.board_id = ", Id(board_id));
+            sql.push_bind(" AND b.container_id = ", Id(board_id));
             if let Some(after) = after {
                 sql.push_bind(" AND b.id > ", Id(after));
             }

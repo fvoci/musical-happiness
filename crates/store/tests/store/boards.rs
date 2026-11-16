@@ -3476,7 +3476,7 @@ async fn the_schema_refuses_a_minimum_role_that_is_none() {
     for role in ["", "admin", "owner"] {
         let refused = common::try_execute_raw(
             &test.dbconfig(),
-            &format!("UPDATE boards SET minimum_role = '{role}' WHERE id = '{board_id}'"),
+            &format!("UPDATE containers SET minimum_role = '{role}' WHERE id = '{board_id}'"),
         )
         .await;
         assert!(refused.is_err(), "{role:?} is stored: {refused:?}");
@@ -3484,7 +3484,7 @@ async fn the_schema_refuses_a_minimum_role_that_is_none() {
     for role in ["viewer", "commenter", "editor"] {
         common::execute_raw(
             &test.dbconfig(),
-            &format!("UPDATE boards SET minimum_role = '{role}' WHERE id = '{board_id}'"),
+            &format!("UPDATE containers SET minimum_role = '{role}' WHERE id = '{board_id}'"),
         )
         .await;
         let board = test.get_board(board_id).await.expect("the board is read");
@@ -3934,7 +3934,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
     common::execute_raw(
         &test.dbconfig(),
         &format!(
-            "UPDATE boards SET is_builtin = TRUE WHERE id = '{}'",
+            "UPDATE containers SET is_builtin = TRUE WHERE id = '{}'",
             board.id
         ),
     )

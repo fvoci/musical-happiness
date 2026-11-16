@@ -112,7 +112,7 @@ impl Store {
             sql.push_bind(" AND subscriber_id = ", Id(subscriber_id))
                 .push(
                     " AND block_id IN (SELECT bl.id FROM blocks AS bl \
-                     JOIN boards AS bo ON bo.id = bl.board_id WHERE bo.workspace_id = ",
+                     JOIN containers AS bo ON bo.id = bl.container_id WHERE bo.workspace_id = ",
                 )
                 .bind(Id(workspace_id))
                 .push(") ORDER BY create_at, block_id");
@@ -230,7 +230,7 @@ pub(crate) async fn end_subscriptions_to_board(
     let mut sql = scope.sql("DELETE FROM subscriptions WHERE subscriber_id = ");
     sql.bind(Id(subscriber_id))
         .push_bind(
-            " AND block_id IN (SELECT id FROM blocks WHERE board_id = ",
+            " AND block_id IN (SELECT id FROM blocks WHERE container_id = ",
             Id(board_id),
         )
         .push(")");

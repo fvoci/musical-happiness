@@ -82,7 +82,7 @@ async fn rows(store: &Store, column: &str, block_id: &str) -> Vec<String> {
     let mut rows = store
         .texts_unchecked(&format!(
             "SELECT CAST(source_id AS TEXT) || '>' || CAST(target_id AS TEXT) || '@' || \
-             CAST(board_id AS TEXT) FROM body_links WHERE CAST({column} AS TEXT) = '{block_id}'"
+             CAST(container_id AS TEXT) FROM body_links WHERE CAST({column} AS TEXT) = '{block_id}'"
         ))
         .await
         .expect("the rows are read");

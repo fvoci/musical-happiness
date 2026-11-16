@@ -62,7 +62,8 @@ pub(crate) async fn refresh(
         .filter(|target| !held.contains(*target))
         .collect();
     for batch in new.chunks(BATCH) {
-        let mut sql = scope.sql("INSERT INTO body_links (source_id, target_id, board_id) VALUES ");
+        let mut sql =
+            scope.sql("INSERT INTO body_links (source_id, target_id, container_id) VALUES ");
         for (index, target) in batch.iter().enumerate() {
             sql.push(if index == 0 { "(" } else { ", (" })
                 .bind(Id(&block.id))

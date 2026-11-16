@@ -391,7 +391,7 @@ impl Store {
             if scope.fetch_optional(sql).await?.is_none() {
                 return Ok(Purged::default());
             }
-            let mut sql = scope.sql("SELECT id FROM boards WHERE workspace_id = ");
+            let mut sql = scope.sql("SELECT id FROM containers WHERE workspace_id = ");
             sql.bind(Id(workspace_id)).push(" ORDER BY id");
             let boards: Vec<String> = scope
                 .fetch_all(sql)
@@ -464,7 +464,7 @@ impl Store {
             } else {
                 let mut sql = scope.sql(
                     "INSERT INTO workspace_members (workspace_id, user_id, role, \
-                     via_org_admin, prior_board_roles, create_at) VALUES (",
+                     via_org_admin, prior_container_roles, create_at) VALUES (",
                 );
                 sql.bind(Id(workspace_id))
                     .push_bind(", ", Id(user_id))
@@ -672,7 +672,7 @@ pub(crate) async fn membership(
     user_id: &str,
 ) -> Result<Option<(WorkspaceRole, Option<Joined>)>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT role, via_org_admin, prior_role, prior_board_roles FROM workspace_members \
+        "SELECT role, via_org_admin, prior_role, prior_container_roles FROM workspace_members \
          WHERE workspace_id = ",
     );
     sql.bind(Id(workspace_id))
@@ -705,7 +705,7 @@ pub(crate) async fn revoke_joinings(
     actor: &AuditActor,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
-        "SELECT wm.workspace_id, wm.prior_role, wm.prior_board_roles \
+        "SELECT wm.workspace_id, wm.prior_role, wm.prior_container_roles \
          FROM workspace_members AS wm \
          JOIN workspaces AS w ON w.id = wm.workspace_id WHERE wm.user_id = ",
     );
@@ -756,7 +756,7 @@ async fn end_joining(
             let mut sql = scope.sql("UPDATE workspace_members SET role = ");
             sql.bind(prior.as_str())
                 .push_bind(", via_org_admin = ", false)
-                .push(", prior_role = NULL, prior_board_roles = NULL");
+                .push(", prior_role = NULL, prior_container_roles = NULL");
             sql
         }
         None => scope.sql("DELETE FROM workspace_members"),

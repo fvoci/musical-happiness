@@ -134,7 +134,7 @@ async fn family_of(
     let mut found = Vec::with_capacity(family.len());
     for ids in family.chunks(PAGES_AT_ONCE) {
         let mut sql = select_blocks(scope);
-        sql.push_bind(" WHERE board_id = ", Id(wiki_id))
+        sql.push_bind(" WHERE container_id = ", Id(wiki_id))
             .push(" AND type = 'page' AND id IN (")
             .bind_list(ids.iter().map(|id| Id(id)))
             .push(")");

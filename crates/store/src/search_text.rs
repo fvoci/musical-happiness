@@ -132,7 +132,7 @@ fn statement(scope: &Scope<'_>, search: &TextSearch<'_>, offset: i64, limit: i64
     let mut sql = select_documents(scope, "b.id");
     sql.push_bind(" AND bo.workspace_id = ", Id(search.workspace_id));
     if let Some(containers) = search.containers {
-        sql.push(" AND b.board_id IN (")
+        sql.push(" AND b.container_id IN (")
             .bind_list(containers.iter().map(|id| Id(id)))
             .push(")");
     }

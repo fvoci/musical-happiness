@@ -537,7 +537,7 @@ async fn writes_elsewhere_read_nothing(
         .for_org(&new_id())
         .expect("an identifier")
         .execute_unchecked(&format!(
-            "UPDATE boards SET title = title WHERE id = '{}'",
+            "UPDATE containers SET title = title WHERE id = '{}'",
             new_id()
         ))
         .await
@@ -706,7 +706,7 @@ async fn revocation_between_dispatch_check_and_queue_is_rechecked() {
             ts.app
                 .store()
                 .execute_unchecked(&format!(
-                    "DELETE FROM board_members WHERE board_id = '{}' AND user_id = '{user}'",
+                    "DELETE FROM container_members WHERE container_id = '{}' AND user_id = '{user}'",
                     board.id
                 ))
                 .await
@@ -875,7 +875,7 @@ async fn a_store_that_cannot_be_read_closes_as_retryable() {
     ts.app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE boards SET title = title WHERE id = '{}'",
+            "UPDATE containers SET title = title WHERE id = '{}'",
             new_id()
         ))
         .await
@@ -934,7 +934,7 @@ async fn a_change_checked_too_often_is_given_up_as_retryable() {
         ts.app
             .store()
             .execute_unchecked(&format!(
-                "UPDATE boards SET title = title WHERE id = '{}'",
+                "UPDATE containers SET title = title WHERE id = '{}'",
                 new_id()
             ))
             .await

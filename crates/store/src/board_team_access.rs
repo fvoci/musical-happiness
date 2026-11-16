@@ -33,17 +33,17 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = boards::select_members(scope);
             sql.push(
-                " JOIN boards b ON b.id = bm.board_id JOIN workspace_members wm \
+                " JOIN containers b ON b.id = bm.container_id JOIN workspace_members wm \
                  ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id \
                  JOIN workspaces w ON w.id = b.workspace_id \
                  JOIN organizations o ON o.id = w.org_id",
             )
-            .push_bind(" WHERE bm.board_id = ", Id(board_id))
+            .push_bind(" WHERE bm.container_id = ", Id(board_id))
             .push(" AND w.delete_at = 0 AND o.delete_at = 0")
             .push(&scope.same_organization(&[("bm", "b"), ("wm", "b"), ("w", "b")]));
             let mut members = boards::fetch_members(scope, sql).await?;
             let mut sql = inherited(scope)?;
-            sql.push_bind(" AND bt.board_id = ", Id(board_id)).push(
+            sql.push_bind(" AND bt.container_id = ", Id(board_id)).push(
                 " AND EXISTS (SELECT 1 FROM organizations o \
                  WHERE o.id = bt.org_id AND o.delete_at = 0)",
             );
@@ -61,7 +61,7 @@ pub(crate) async fn role_for(
     user_id: &str,
 ) -> Result<Option<BoardRole>, StoreError> {
     let mut sql = inherited(scope)?;
-    sql.push_bind(" AND bt.board_id = ", Id(board_id))
+    sql.push_bind(" AND bt.container_id = ", Id(board_id))
         .push_bind(" AND tm.user_id = ", Id(user_id));
     let mut highest = None;
     for row in scope.fetch_all(sql).await? {
@@ -81,7 +81,7 @@ pub(crate) fn parse_role(value: &str) -> Result<MinimumRole, StoreError> {
 }
 
 fn inherited(scope: &Scope<'_>) -> Result<Sql, StoreError> {
-    let mut sql = scope.sql(&format!("SELECT bt.board_id, tm.user_id, bt.role FROM board_teams bt JOIN {} tm ON tm.team_id = bt.team_id AND tm.workspace_id = bt.workspace_id AND tm.org_id = bt.org_id WHERE true", crate::teams::present_members(scope)));
+    let mut sql = scope.sql(&format!("SELECT bt.container_id, tm.user_id, bt.role FROM container_teams bt JOIN {} tm ON tm.team_id = bt.team_id AND tm.workspace_id = bt.workspace_id AND tm.org_id = bt.org_id WHERE true", crate::teams::present_members(scope)));
     sql.push_bind(" AND bt.org_id = ", scope.org()?);
     Ok(sql)
 }
@@ -133,7 +133,7 @@ pub(crate) async fn extend(
 /// A role from a team on board `b`, for the named user expression. This is also used
 /// by the system directory, so the organization is bound through the board's workspace.
 pub(crate) fn push_has_team_role(sql: &mut Sql, scope: &Scope<'_>, user_id: &str) {
-    sql.push(&format!("EXISTS (SELECT 1 FROM board_teams bt JOIN {} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id AND tm.workspace_id = bt.workspace_id WHERE bt.board_id = b.id AND bt.workspace_id = b.workspace_id AND tm.user_id = ", crate::teams::present_members(scope)))
+    sql.push(&format!("EXISTS (SELECT 1 FROM container_teams bt JOIN {} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id AND tm.workspace_id = bt.workspace_id WHERE bt.container_id = b.id AND bt.workspace_id = b.workspace_id AND tm.user_id = ", crate::teams::present_members(scope)))
         .bind(Id(user_id)).push(&scope.same_organization(&[("bt", "b")])).push(")");
 }
 
@@ -142,7 +142,7 @@ pub(crate) fn directory_members(scope: &Scope<'_>) -> String {
     let direct_wall = scope.same_organization(&[("dm", "db"), ("db", "dw")]);
     let team_members = crate::teams::present_members(scope);
     format!(
-        "(SELECT dm.board_id, dm.user_id, dm.scheme_admin, dm.scheme_editor, dm.scheme_commenter, dm.scheme_viewer, dw.org_id FROM board_members dm JOIN boards db ON db.id = dm.board_id JOIN workspaces dw ON dw.id = db.workspace_id WHERE true{direct_wall} UNION ALL SELECT bt.board_id, tm.user_id, false, true, false, false, bt.org_id FROM board_teams bt JOIN {team_members} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id AND tm.workspace_id = bt.workspace_id)"
+        "(SELECT dm.container_id, dm.user_id, dm.scheme_admin, dm.scheme_editor, dm.scheme_commenter, dm.scheme_viewer, dw.org_id FROM container_members dm JOIN containers db ON db.id = dm.container_id JOIN workspaces dw ON dw.id = db.workspace_id WHERE true{direct_wall} UNION ALL SELECT bt.container_id, tm.user_id, false, true, false, false, bt.org_id FROM container_teams bt JOIN {team_members} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id AND tm.workspace_id = bt.workspace_id)"
     )
 }
 
@@ -151,9 +151,9 @@ pub(crate) async fn get_members_for_user(
     user_id: &str,
 ) -> Result<Vec<BoardMember>, StoreError> {
     let mut sql = boards::select_members(scope);
-    sql.push(" JOIN boards AS b ON b.id = bm.board_id WHERE ");
+    sql.push(" JOIN containers AS b ON b.id = bm.container_id WHERE ");
     crate::members::push_own_membership_in_workspace(&mut sql, user_id)
-        .push(" ORDER BY bm.board_id");
+        .push(" ORDER BY bm.container_id");
     let mut members = boards::fetch_members(scope, sql).await?;
     extend_for_user(scope, user_id, &mut members).await?;
     Ok(members)

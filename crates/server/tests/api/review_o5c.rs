@@ -22,7 +22,7 @@ const SLACK: Duration = Duration::from_secs(1);
 async fn category_during_a_system_write(ts: &TestServer, user: &str, name: &str) -> Duration {
     let system = ts.app.store().system();
     let slow = format!(
-        "DELETE FROM deleted_boards WHERE CAST((SELECT pg_sleep({})) AS TEXT) = 'never'",
+        "DELETE FROM deleted_containers WHERE CAST((SELECT pg_sleep({})) AS TEXT) = 'never'",
         HELD.as_secs()
     );
     let pending = tokio::spawn(async move { system.execute_unchecked(&slow).await });
@@ -262,7 +262,7 @@ async fn one_organizations_dispatch_does_not_hold_anothers_writes() {
     let started = Instant::now();
     theirs
         .execute_unchecked(&format!(
-            "UPDATE boards SET title = title WHERE id = '{}'",
+            "UPDATE containers SET title = title WHERE id = '{}'",
             fvoci_model::new_id()
         ))
         .await

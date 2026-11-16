@@ -136,9 +136,9 @@ async fn a_store_that_fails_for_a_moment_empties_no_room_and_one_that_stays_fail
             .expect("the table of the memberships is renamed");
     };
     // For longer than the time between two askings, and less than until the second.
-    rename("board_members", "board_members_away").await;
+    rename("container_members", "container_members_away").await;
     tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
-    rename("board_members_away", "board_members").await;
+    rename("container_members_away", "container_members").await;
     tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
     for peer in [&mut one, &mut two] {
         assert_eq!(peer.incoming(QUIET).await, Incoming::Nothing, "stays in");
@@ -147,7 +147,7 @@ async fn a_store_that_fails_for_a_moment_empties_no_room_and_one_that_stays_fail
     two.settle().await;
     assert_eq!(two.lines(), ["first", "after the store came back"]);
 
-    rename("board_members", "board_members_away").await;
+    rename("container_members", "container_members_away").await;
     for peer in [&mut one, &mut two] {
         let left = peer.text("DOC_LEFT").await;
         assert_eq!(
@@ -155,7 +155,7 @@ async fn a_store_that_fails_for_a_moment_empties_no_room_and_one_that_stays_fail
             json!({"action": "DOC_LEFT", "doc": peer.doc, "reason": "internal"})
         );
     }
-    rename("board_members_away", "board_members").await;
+    rename("container_members_away", "container_members").await;
     no_rooms(&th).await;
     one.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     assert_eq!(one.lines(), ["first", "after the store came back"]);

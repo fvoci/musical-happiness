@@ -289,7 +289,7 @@ async fn the_trash_is_listed_by_kind_and_what_went_before_kinds_is_a_board() {
     common::execute_raw(
         &test.dbconfig(),
         &format!(
-            "UPDATE deleted_boards SET board = {without_kind} WHERE id = '{}'",
+            "UPDATE deleted_containers SET container = {without_kind} WHERE id = '{}'",
             board.id
         ),
     )

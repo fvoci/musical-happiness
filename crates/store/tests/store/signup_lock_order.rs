@@ -197,7 +197,7 @@ async fn an_acceptance_again_and_a_revocation_of_its_link_take_turns() {
 
     if common::db_type() == DbType::Postgres {
         let trashed = format!(
-            "SELECT id FROM deleted_boards WHERE workspace_id = '{}' FOR UPDATE",
+            "SELECT id FROM deleted_containers WHERE workspace_id = '{}' FOR UPDATE",
             test.workspace_id
         );
         let mut gate = Gate::holding(&test, &trashed).await;

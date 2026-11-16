@@ -452,7 +452,7 @@ async fn a_hidden_workspace_in_the_same_organization_also_rejects_legacy_board_c
         .app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE boards SET title = title WHERE workspace_id = '{HIDDEN_WORKSPACE_ID}'"
+            "UPDATE containers SET title = title WHERE workspace_id = '{HIDDEN_WORKSPACE_ID}'"
         ))
         .await
         .expect("the boards of the hidden workspace are counted");

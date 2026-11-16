@@ -20,7 +20,7 @@ pub(crate) async fn of_user(
 ) -> Result<Vec<BoardMember>, StoreError> {
     let mut sql = boards::select_members(scope);
     sql.push(
-        " JOIN boards AS b ON b.id = bm.board_id \
+        " JOIN containers AS b ON b.id = bm.container_id \
          JOIN workspaces AS t ON t.id = b.workspace_id \
          JOIN organizations AS o ON o.id = t.org_id \
          JOIN workspace_members AS wm ON wm.workspace_id = t.id AND wm.user_id = bm.user_id \
@@ -31,7 +31,7 @@ pub(crate) async fn of_user(
     .push(&scope.same_organization(&[("bm", "b"), ("b", "t"), ("wm", "t")]));
     board_kinds::push_kinds(&mut sql, "b.kind", kinds);
     push_opened_by(&mut sql, login_provider);
-    sql.push(" ORDER BY bm.board_id");
+    sql.push(" ORDER BY bm.container_id");
     let mut members = boards::fetch_members(scope, sql).await?;
     extend_across_organizations(scope, user_id, login_provider, kinds, &mut members).await?;
     Ok(members)
@@ -49,10 +49,10 @@ async fn extend_across_organizations(
     members: &mut Vec<BoardMember>,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT bt.board_id, tm.user_id, bt.role FROM board_teams AS bt \
+        "SELECT bt.container_id, tm.user_id, bt.role FROM container_teams AS bt \
          JOIN {} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id \
          AND tm.workspace_id = bt.workspace_id \
-         JOIN boards AS b ON b.id = bt.board_id \
+         JOIN containers AS b ON b.id = bt.container_id \
          JOIN workspaces AS t ON t.id = b.workspace_id \
          JOIN organizations AS o ON o.id = t.org_id WHERE tm.user_id = ",
         crate::teams::present_members(scope)

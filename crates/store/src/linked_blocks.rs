@@ -15,7 +15,7 @@ use crate::db::{Id, Row, Scope};
 use crate::error::StoreError;
 
 /// The columns of a block as a reference shows it ([`shown_block`]): without its body.
-const SHOWN_COLUMNS: &str = "id, board_id, parent_id, type, title, fields, update_at";
+const SHOWN_COLUMNS: &str = "id, container_id, parent_id, type, title, fields, update_at";
 
 /// The member of a card's fields that says it is a template of its board's cards.
 const IS_TEMPLATE_FIELD: &str = "isTemplate";
@@ -46,7 +46,7 @@ fn shown_block(row: &Row) -> Result<Block, StoreError> {
 /// there is at least one, without their bodies. More `AND` conditions may follow.
 fn select_named_on(scope: &Scope<'_>, board_ids: &[&str]) -> crate::db::Sql {
     let mut sql = scope.sql(&format!(
-        "SELECT {SHOWN_COLUMNS} FROM blocks WHERE board_id IN ("
+        "SELECT {SHOWN_COLUMNS} FROM blocks WHERE container_id IN ("
     ));
     sql.bind_list(board_ids.iter().map(|id| Id(id)))
         .push_bind(") AND type IN (", BlockType::Card.as_str())
@@ -115,7 +115,7 @@ impl Store {
         self.with_conn(async |scope| {
             let mut cards = HashSet::new();
             for some in ids.chunks(ASKED_AT_ONCE) {
-                let mut sql = scope.sql("SELECT id FROM blocks WHERE board_id = ");
+                let mut sql = scope.sql("SELECT id FROM blocks WHERE container_id = ");
                 sql.bind(Id(board_id))
                     .push_bind(" AND type = ", block_type.as_str())
                     .push(" AND id IN (")
@@ -165,7 +165,7 @@ impl Store {
                      FROM body_links l JOIN blocks s ON s.id = l.source_id WHERE l.target_id = ",
                 )
                 .bind(Id(target_id))
-                .push(" AND l.board_id IN (")
+                .push(" AND l.container_id IN (")
                 .bind_list(board_ids.iter().map(|id| Id(id)))
                 .push(")) ORDER BY create_at, id");
             if paging.per_page > 0 {

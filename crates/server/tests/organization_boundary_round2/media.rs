@@ -506,7 +506,7 @@ async fn purging_a_trash_row_does_not_delete_another_orgs_file() {
         .app
         .store()
         .execute_unchecked(&format!(
-            "INSERT INTO deleted_boards (id, workspace_id, deleted_at, deletion_id, board, members, \
+            "INSERT INTO deleted_containers (id, workspace_id, deleted_at, deletion_id, container, members, \
              files) VALUES ('{}', '{ROOT_WORKSPACE_ID}', 0, '{}', '{{}}', '[]', '{files}')",
             new_id(),
             new_id()

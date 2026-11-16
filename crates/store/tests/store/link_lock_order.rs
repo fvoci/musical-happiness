@@ -287,7 +287,7 @@ async fn made_while_the_board_is_deleted(made: Made) {
     }
 
     // The deletion stops once it holds the board, as it puts the board in the trash.
-    let mut gate = Gate::before(&test, "INSERT", "deleted_boards", "true").await;
+    let mut gate = Gate::before(&test, "INSERT", "deleted_containers", "true").await;
     let maker = gate.second_store(&test).await;
     let deleter = test.store.clone();
     let by = admin.clone();

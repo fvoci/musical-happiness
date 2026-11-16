@@ -266,7 +266,7 @@ async fn every_board(
     listed: Listed,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT {} FROM boards AS b WHERE b.is_template = ",
+        "SELECT {} FROM containers AS b WHERE b.is_template = ",
         boards::board_select_list("b.")
     ));
     sql.bind(listed == Listed::Templates)
@@ -286,7 +286,7 @@ async fn search_boards_for_user_in_workspace(
     kinds: BoardKinds,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
+        "SELECT DISTINCT {} FROM containers AS b LEFT JOIN container_members AS bm ON b.id = bm.container_id \
          WHERE b.is_template = ",
         boards::board_select_list("b.")
     ));
@@ -328,7 +328,9 @@ impl Store {
             sql.push_bind(" WHERE id = ", Id(block_id))
                 // The block's own board, by its key: what the query costs is the same
                 // whether the block is within reach or not.
-                .push(" AND EXISTS (SELECT 1 FROM boards AS b WHERE b.id = blocks.board_id");
+                .push(
+                    " AND EXISTS (SELECT 1 FROM containers AS b WHERE b.id = blocks.container_id",
+                );
             board_kinds::push_kinds(&mut sql, "b.kind", kinds);
             if let Some(workspace_id) = workspace_id {
                 sql.push_bind(" AND (b.workspace_id = ", Id(workspace_id))
@@ -352,8 +354,8 @@ pub(crate) async fn get_template_boards(
     user_id: &str,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT {} FROM boards AS b LEFT JOIN board_members AS bm \
-         ON b.id = bm.board_id AND bm.user_id = ",
+        "SELECT {} FROM containers AS b LEFT JOIN container_members AS bm \
+         ON b.id = bm.container_id AND bm.user_id = ",
         boards::board_select_list("b.")
     ));
     // Open templates are included even without a membership.
@@ -362,10 +364,10 @@ pub(crate) async fn get_template_boards(
         .push_bind(" AND b.is_builtin = ", false)
         .push_bind(" AND b.workspace_id = ", Id(workspace_id))
         .push_bind(
-            " AND ((bm.board_id IS NULL AND b.type = ",
+            " AND ((bm.container_id IS NULL AND b.type = ",
             BoardType::Open.as_str(),
         )
-        .push(") OR bm.board_id IS NOT NULL OR ");
+        .push(") OR bm.container_id IS NOT NULL OR ");
     crate::board_team_access::push_has_team_role(&mut sql, scope, user_id);
     sql.push(")").push(boards::OLDEST_BOARD_FIRST);
     boards::fetch_boards(scope, sql).await
