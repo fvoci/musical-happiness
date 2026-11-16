@@ -162,7 +162,7 @@ async fn reorder_categories_treats_a_hostile_identifier_as_data() {
 /// it, and as the category of a path it names nothing. None of that changes what is
 /// filed where, nor in which order.
 #[tokio::test]
-async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
+async fn reorder_category_containers_treats_a_hostile_identifier_as_data() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     category_boards(&th.client, ROOT_WORKSPACE_ID).await;

@@ -137,7 +137,7 @@ fn a_patch_does_not_give_a_block_a_type_that_is_not_current() {
 }
 
 #[test]
-fn board_validate_requires_a_workspace() {
+fn container_validate_requires_a_workspace() {
     assert_eq!(
         Container::default().validate(),
         Err(ContainerError::EmptyWorkspaceId)
@@ -154,7 +154,7 @@ fn board_validate_requires_a_workspace() {
 }
 
 #[test]
-fn board_search_field_parses_the_two_wire_names() {
+fn container_search_field_parses_the_two_wire_names() {
     assert_eq!("title".parse(), Ok(ContainerSearchField::Title));
     assert_eq!(
         "property_name".parse(),

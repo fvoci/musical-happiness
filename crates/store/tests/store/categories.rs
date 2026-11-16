@@ -5,7 +5,7 @@
 //! every identifier is generated, and the user and workspace of a category and the boards
 //! put into one are stored first.
 //!
-//! The tests after [`reorder_category_boards`] are not in the original: they pin behavior
+//! The tests after [`reorder_category_containers`] are not in the original: they pin behavior
 //! the original's tests leave open.
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -445,7 +445,7 @@ async fn reorder_categories() {
 
 /// `testReorderCategoryBoards`.
 #[tokio::test]
-async fn reorder_category_boards() {
+async fn reorder_category_containers() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;

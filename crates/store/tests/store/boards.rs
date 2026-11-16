@@ -85,7 +85,7 @@ fn sorted_user_ids(members: &[ContainerMember]) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn get_board() {
+async fn get_container() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace(&test).await;
@@ -128,7 +128,7 @@ async fn get_board() {
 }
 
 #[tokio::test]
-async fn get_boards_for_user_and_workspace() {
+async fn get_containers_for_user_and_workspace() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let other_user_id = common::user(&test, "other-user").await;
@@ -248,7 +248,7 @@ struct BoardsByIdsCase {
 }
 
 #[tokio::test]
-async fn get_boards_in_workspace_by_ids() {
+async fn get_containers_in_workspace_by_ids() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
@@ -331,7 +331,7 @@ async fn get_boards_in_workspace_by_ids() {
 }
 
 #[tokio::test]
-async fn insert_board() {
+async fn insert_container() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let user_id_2 = common::user(&test, "user2").await;
@@ -458,7 +458,7 @@ async fn insert_board() {
     clippy::too_many_lines,
     reason = "one test per test function of the original, whose subtests share a store"
 )]
-async fn patch_board() {
+async fn patch_container() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace(&test).await;
@@ -632,7 +632,7 @@ async fn patch_board() {
     test.teardown().await;
 }
 
-/// The last subtest of [`patch_board`]: a patch that removes one card property and updates another.
+/// The last subtest of [`patch_container`]: a patch that removes one card property and updates another.
 async fn patch_removes_one_card_property_and_updates_another(
     test: &common::TestStore,
     workspace_id: &str,
@@ -681,7 +681,7 @@ async fn patch_removes_one_card_property_and_updates_another(
 }
 
 #[tokio::test]
-async fn delete_board() {
+async fn delete_container() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace(&test).await;
@@ -726,7 +726,7 @@ async fn delete_board() {
 }
 
 #[tokio::test]
-async fn undelete_board() {
+async fn undelete_container() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace(&test).await;
@@ -743,7 +743,7 @@ async fn undelete_board() {
             show_description: true,
             is_template: false,
             properties: object(json!({ "prop_1": "value_1" })),
-            // The original's test data has no `id`; see `patch_board`.
+            // The original's test data has no `id`; see `patch_container`.
             card_properties: vec![object(json!({ "id": "prop_1", "name": "value_1" }))],
             ..new_board(&board_id, &workspace_id, ContainerType::Open)
         };
@@ -849,7 +849,7 @@ async fn undelete_board() {
 }
 
 #[tokio::test]
-async fn insert_board_with_admin() {
+async fn insert_container_with_admin() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
@@ -950,7 +950,7 @@ async fn save_member() {
 }
 
 #[tokio::test]
-async fn get_member_for_board() {
+async fn get_member_for_container() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace(&test).await;
@@ -999,7 +999,7 @@ async fn get_member_for_board() {
 }
 
 #[tokio::test]
-async fn get_members_for_board() {
+async fn get_members_for_container() {
     let test = common::setup().await;
     let user_id_1 = common::user(&test, "user-11").await;
     let user_id_2 = common::user(&test, "user-12").await;
@@ -1137,7 +1137,7 @@ async fn delete_member() {
 /// the templates the server ships with are the ones stored on behalf of no user, and
 /// those are stamped.
 #[tokio::test]
-async fn insert_board_stamps_templates_of_the_global_workspace_with_a_tracking_id() {
+async fn insert_container_stamps_templates_of_the_global_workspace_with_a_tracking_id() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace(&test).await;
@@ -1218,7 +1218,7 @@ async fn insert_board_stamps_templates_of_the_global_workspace_with_a_tracking_i
 /// original leaves the caller's board as the caller filled it in; here it comes back as
 /// it is stored.
 #[tokio::test]
-async fn insert_board_update_keeps_workspace_creator_and_creation_time() {
+async fn insert_container_update_keeps_workspace_creator_and_creation_time() {
     let test = common::setup().await;
     let creator_id = common::user(&test, "creator").await;
     let editor_id = common::user(&test, "editor").await;
@@ -1935,7 +1935,7 @@ impl FullBoard {
 
 /// What a board is made of is not found once the board is deleted, and is in the trash.
 #[tokio::test]
-async fn delete_board_moves_the_board_and_what_is_its_own_to_the_trash() {
+async fn delete_container_moves_the_board_and_what_is_its_own_to_the_trash() {
     let test = common::setup().await;
     let full = FullBoard::store(&test).await;
     let deleter_id = common::user(&test, "deleter").await;
@@ -2023,7 +2023,7 @@ async fn delete_board_moves_the_board_and_what_is_its_own_to_the_trash() {
 }
 
 #[tokio::test]
-async fn delete_board_ends_sharing_category_filing_and_subscriptions() {
+async fn delete_container_ends_sharing_category_filing_and_subscriptions() {
     let test = common::setup().await;
     let full = FullBoard::store(&test).await;
 
@@ -2061,7 +2061,7 @@ async fn delete_board_ends_sharing_category_filing_and_subscriptions() {
 }
 
 #[tokio::test]
-async fn undelete_board_brings_back_the_board_its_blocks_files_and_members() {
+async fn undelete_container_brings_back_the_board_its_blocks_files_and_members() {
     let test = common::setup().await;
     let full = FullBoard::store(&test).await;
     let restorer_id = common::user(&test, "restorer").await;
@@ -2143,7 +2143,7 @@ async fn undelete_board_brings_back_the_board_its_blocks_files_and_members() {
 /// The places in the sidebars come back with the board (user decision 2026-11-11 14:25
 /// KST); its sharing and the subscriptions to its blocks do not.
 #[tokio::test]
-async fn undelete_board_brings_back_category_filing_but_not_sharing_or_subscriptions() {
+async fn undelete_container_brings_back_category_filing_but_not_sharing_or_subscriptions() {
     let test = common::setup().await;
     let full = FullBoard::store(&test).await;
 
@@ -2170,7 +2170,7 @@ async fn undelete_board_brings_back_category_filing_but_not_sharing_or_subscript
 /// The row of a user may be gone by the time a board comes back: their membership stays
 /// behind.
 #[tokio::test]
-async fn undelete_board_leaves_out_the_membership_of_a_user_who_is_gone() {
+async fn undelete_container_leaves_out_the_membership_of_a_user_who_is_gone() {
     let test = common::setup().await;
     let full = FullBoard::store(&test).await;
     let board_id = full.board.id.as_str();
@@ -2218,7 +2218,7 @@ async fn undelete_board_leaves_out_the_membership_of_a_user_who_is_gone() {
 /// A user who is only deactivated still has a row, and a membership can refer to it:
 /// it comes back with the board.
 #[tokio::test]
-async fn undelete_board_brings_back_the_membership_of_a_user_who_was_deactivated() {
+async fn undelete_container_brings_back_the_membership_of_a_user_who_was_deactivated() {
     let test = common::setup().await;
     let full = FullBoard::store(&test).await;
     let board_id = full.board.id.as_str();
@@ -2257,7 +2257,7 @@ async fn undelete_board_brings_back_the_membership_of_a_user_who_was_deactivated
 /// What is in the trash refers to nothing, so the row of the user who made a board can
 /// go while the board is there. The board comes back all the same, as made by nobody.
 #[tokio::test]
-async fn undelete_board_restores_a_board_whose_creator_is_gone_as_made_by_nobody() {
+async fn undelete_container_restores_a_board_whose_creator_is_gone_as_made_by_nobody() {
     let test = common::setup().await;
     let creator_id = common::user(&test, "creator").await;
     let editor_id = common::user(&test, "editor").await;
@@ -2474,7 +2474,7 @@ async fn a_block_deleted_before_its_board_stays_in_the_trash_when_the_board_is_r
 /// Only what is in the trash is restored: a board that exists, an identifier no board
 /// has had and text that is no identifier are not found, and nothing is written.
 #[tokio::test]
-async fn undelete_board_of_what_is_not_in_the_trash_is_not_found_and_writes_nothing() {
+async fn undelete_container_of_what_is_not_in_the_trash_is_not_found_and_writes_nothing() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let other_user_id = common::user(&test, "other-user").await;
@@ -3423,7 +3423,7 @@ const EDITOR: [bool; 4] = [false, true, false, false];
     clippy::too_many_lines,
     reason = "every role a user may hold against every minimum role, on one board"
 )]
-async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
+async fn join_container_gives_the_minimum_role_raises_to_it_and_never_lowers() {
     let test = common::setup().await;
     let owner_id = common::user(&test, "owner").await;
     let user_id = common::user(&test, "joiner").await;

@@ -578,7 +578,7 @@ pub(crate) async fn get_containers_in_workspace_by_ids(
         tracing::warn!(
             found = containers.len(),
             asked = container_ids.len(),
-            "get_boards_in_workspace_by_ids: mismatched number of boards found"
+            "get_containers_in_workspace_by_ids: mismatched number of boards found"
         );
         Err(StoreError::NotAllFound {
             entity: "board",

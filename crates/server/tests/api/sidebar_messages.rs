@@ -158,7 +158,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
 /// Filing, hiding, showing and reordering the boards of a category is sent to the user's
 /// connection.
 #[tokio::test]
-async fn category_board_changes_are_sent_to_the_users_connection() {
+async fn category_container_changes_are_sent_to_the_users_connection() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     category_boards(&th.client, ROOT_WORKSPACE_ID).await;

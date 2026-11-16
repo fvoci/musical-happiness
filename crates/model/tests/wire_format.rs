@@ -153,7 +153,7 @@ fn block_patch_apply_updates_then_deletes() {
 }
 
 #[test]
-fn board_json_members() {
+fn container_json_members() {
     let board = Container {
         id: "b1".to_owned(),
         workspace_id: "0".to_owned(),
@@ -191,7 +191,7 @@ fn board_json_members() {
 }
 
 #[test]
-fn board_requires_a_valid_type_and_role() {
+fn container_requires_a_valid_type_and_role() {
     let minimal: Container = serde_json::from_value(json!({ "type": "O" })).expect("decodes");
     assert_eq!(minimal, Container::default());
     // A board always has a minimum role. One that names none starts with editor.
@@ -230,7 +230,7 @@ fn board_requires_a_valid_type_and_role() {
 }
 
 #[test]
-fn board_patch_apply_merges_card_properties_in_order() {
+fn container_patch_apply_merges_card_properties_in_order() {
     let mut board = Container {
         properties: serde_json::from_value(json!({ "keep": 1, "drop": 2 })).expect("object"),
         card_properties: serde_json::from_value(json!([
@@ -272,7 +272,7 @@ fn board_patch_apply_merges_card_properties_in_order() {
 }
 
 #[test]
-fn board_patch_without_card_property_changes_keeps_them_untouched() {
+fn container_patch_without_card_property_changes_keeps_them_untouched() {
     let card_properties = json!([{ "name": "no id" }, { "id": "a" }]);
     let mut board = Container {
         card_properties: serde_json::from_value(card_properties.clone()).expect("list"),
@@ -291,7 +291,7 @@ fn board_patch_without_card_property_changes_keeps_them_untouched() {
 /// A property that the same patch deletes and updates comes out once, updated, at its
 /// place. (In the original's merge it comes out twice.)
 #[test]
-fn board_patch_deleting_and_updating_a_card_property_keeps_one() {
+fn container_patch_deleting_and_updating_a_card_property_keeps_one() {
     let mut board = Container {
         card_properties: serde_json::from_value(json!([{ "id": "a", "v": 1 }, { "id": "b" }]))
             .expect("list"),
@@ -313,7 +313,7 @@ fn board_patch_deleting_and_updating_a_card_property_keeps_one() {
 }
 
 #[test]
-fn board_member_json_members() {
+fn container_member_json_members() {
     let member = ContainerMember {
         container_id: "b".to_owned(),
         user_id: "u".to_owned(),
@@ -337,7 +337,7 @@ fn board_member_json_members() {
 }
 
 #[test]
-fn patch_boards_and_blocks_json_members() {
+fn patch_containers_and_blocks_json_members() {
     let patch: PatchContainersAndBlocks = serde_json::from_value(json!({
         "containerIds": ["b"], "containerPatches": [{ "title": "t" }],
         "blockIds": ["a"], "blockPatches": [{ "title": "u" }]
@@ -383,7 +383,7 @@ fn category_json_members() {
 }
 
 #[test]
-fn category_boards_json_flattens_the_category() {
+fn category_containers_json_flattens_the_category() {
     let category_boards = CategoryContainers {
         category: Category {
             id: "7c".to_owned(),

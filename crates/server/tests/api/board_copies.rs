@@ -20,7 +20,7 @@ use crate::boards::{
 
 /// `TestDuplicateBoard/"create and duplicate public board"`
 #[tokio::test]
-async fn duplicate_board_create_and_duplicate_public_board() {
+async fn duplicate_container_create_and_duplicate_public_board() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -82,7 +82,7 @@ async fn duplicate_board_create_and_duplicate_public_board() {
 
 /// `TestDuplicateBoard/"create and duplicate public board from a custom category"`
 #[tokio::test]
-async fn duplicate_board_create_and_duplicate_public_board_from_a_custom_category() {
+async fn duplicate_container_create_and_duplicate_public_board_from_a_custom_category() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -163,7 +163,7 @@ async fn duplicate_board_create_and_duplicate_public_board_from_a_custom_categor
 /// `TestDuplicateBoard/"base case"` and `"duplicating board as template should not set
 /// it's category"` in `server/app/boards_test.go`, through the real store.
 #[tokio::test]
-async fn duplicate_board_base_case_and_as_template() {
+async fn duplicate_container_base_case_and_as_template() {
     let th = Setup::native().start().await;
     let user = th.stranger_in(TEST_WORKSPACE_ID).await;
     let board = board_with_admin(
@@ -246,7 +246,7 @@ async fn board_with_a_commented_card(th: &TestServer, user_id: &str) -> Containe
     clippy::too_many_lines,
     reason = "every role against every parameter of the copy, on one board"
 )]
-async fn duplicate_board_permissions_and_parameters() {
+async fn duplicate_container_permissions_and_parameters() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -374,7 +374,7 @@ async fn duplicate_board_permissions_and_parameters() {
 /// duplicates an open template into a board of their own. Verified on the original, also
 /// for a template of the global workspace and for a private template.
 #[tokio::test]
-async fn duplicate_board_from_a_template() {
+async fn duplicate_container_from_a_template() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -475,7 +475,7 @@ async fn duplicate_board_from_a_template() {
 /// A board without blocks is duplicated as a board without blocks. (The original
 /// cannot duplicate it and answers 500.)
 #[tokio::test]
-async fn duplicate_board_without_blocks() {
+async fn duplicate_container_without_blocks() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th
         .create_board(TEST_WORKSPACE_ID, ContainerType::Open)

@@ -40,7 +40,7 @@ fn title_patch(title: &str) -> BlockPatch {
 
 /// `TestIsValidBoardsAndBlocks` / "no boards"
 #[test]
-fn boards_and_blocks_validate_no_boards() {
+fn containers_and_blocks_validate_no_containers() {
     let bab = ContainersAndBlocks {
         containers: vec![],
         blocks: vec![
@@ -53,7 +53,7 @@ fn boards_and_blocks_validate_no_boards() {
 
 /// `TestIsValidBoardsAndBlocks` / "no blocks"
 #[test]
-fn boards_and_blocks_validate_no_blocks() {
+fn containers_and_blocks_validate_no_blocks() {
     let bab = ContainersAndBlocks {
         containers: vec![
             board("board-id-1", ContainerType::Open, ""),
@@ -66,7 +66,7 @@ fn boards_and_blocks_validate_no_blocks() {
 
 /// `TestIsValidBoardsAndBlocks` / "block that doesn't belong to the boards"
 #[test]
-fn boards_and_blocks_validate_block_that_does_not_belong_to_the_boards() {
+fn containers_and_blocks_validate_block_that_does_not_belong_to_the_boards() {
     let bab = ContainersAndBlocks {
         containers: vec![
             board("board-id-1", ContainerType::Open, ""),
@@ -88,7 +88,7 @@ fn boards_and_blocks_validate_block_that_does_not_belong_to_the_boards() {
 
 /// `TestIsValidBoardsAndBlocks` / "valid boards and blocks"
 #[test]
-fn boards_and_blocks_validate_valid() {
+fn containers_and_blocks_validate_valid() {
     let bab = ContainersAndBlocks {
         containers: vec![
             board("board-id-1", ContainerType::Open, ""),
@@ -105,7 +105,7 @@ fn boards_and_blocks_validate_valid() {
 
 /// `TestGenerateBoardsAndBlocksIDs` / "invalid boards and blocks"
 #[test]
-fn generate_boards_and_blocks_ids_invalid_boards_and_blocks() {
+fn generate_containers_and_blocks_ids_invalid_boards_and_blocks() {
     let bab = ContainersAndBlocks {
         containers: vec![],
         blocks: vec![
@@ -122,7 +122,7 @@ fn generate_boards_and_blocks_ids_invalid_boards_and_blocks() {
 /// Boards that are stored already get new identifiers also when they have no blocks,
 /// and a block of a board that is not among them is left out.
 #[test]
-fn renew_boards_and_blocks_ids_takes_boards_without_blocks() {
+fn renew_containers_and_blocks_ids_takes_boards_without_blocks() {
     let renewed = renew_containers_and_blocks_ids(ContainersAndBlocks {
         containers: vec![board("board-id-1", ContainerType::Open, "title")],
         blocks: vec![],
@@ -152,7 +152,7 @@ fn renew_boards_and_blocks_ids_takes_boards_without_blocks() {
 /// among the blocks names it; a block that was not asked for is not told, nor is what
 /// is no block of the boards.
 #[test]
-fn renew_boards_and_blocks_ids_told_tells_the_new_identifiers_asked_for() {
+fn renew_containers_and_blocks_ids_told_tells_the_new_identifiers_asked_for() {
     let told = ["block-id-1", "block-id-3"];
     let renewed = renew_containers_and_blocks_ids_told(
         ContainersAndBlocks {
@@ -173,7 +173,7 @@ fn renew_boards_and_blocks_ids_told_tells_the_new_identifiers_asked_for() {
 /// `TestGenerateBoardsAndBlocksIDs` / "correctly generates IDs for all the boards and
 /// links the blocks to them, with new IDs too"
 #[test]
-fn generate_boards_and_blocks_ids_links_blocks_to_new_board_ids() {
+fn generate_containers_and_blocks_ids_links_blocks_to_new_board_ids() {
     let bab = ContainersAndBlocks {
         containers: vec![
             board("board-id-1", ContainerType::Open, "board1"),
@@ -234,7 +234,7 @@ fn generate_boards_and_blocks_ids_links_blocks_to_new_board_ids() {
 
 /// `TestIsValidPatchBoardsAndBlocks` / "no board ids"
 #[test]
-fn patch_boards_and_blocks_validate_no_board_ids() {
+fn patch_containers_and_blocks_validate_no_container_ids() {
     let pbab = PatchContainersAndBlocks {
         container_ids: vec![],
         container_patches: vec![],
@@ -252,7 +252,7 @@ fn patch_boards_and_blocks_validate_no_board_ids() {
 
 /// `TestIsValidPatchBoardsAndBlocks` / "missmatch board IDs and patches"
 #[test]
-fn patch_boards_and_blocks_validate_mismatched_board_ids_and_patches() {
+fn patch_containers_and_blocks_validate_mismatched_container_ids_and_patches() {
     let pbab = PatchContainersAndBlocks {
         container_ids: ids(&["board-id-1", "board-id-2"]),
         container_patches: vec![ContainerPatch {
@@ -270,7 +270,7 @@ fn patch_boards_and_blocks_validate_mismatched_board_ids_and_patches() {
 
 /// `TestIsValidPatchBoardsAndBlocks` / "missmatch block IDs and patches"
 #[test]
-fn patch_boards_and_blocks_validate_mismatched_block_ids_and_patches() {
+fn patch_containers_and_blocks_validate_mismatched_block_ids_and_patches() {
     let pbab = PatchContainersAndBlocks {
         container_ids: ids(&["board-id-1", "board-id-2"]),
         container_patches: vec![
@@ -300,7 +300,7 @@ fn patch_boards_and_blocks_validate_mismatched_block_ids_and_patches() {
 
 /// `TestIsValidPatchBoardsAndBlocks` / "valid"
 #[test]
-fn patch_boards_and_blocks_validate_valid() {
+fn patch_containers_and_blocks_validate_valid() {
     let pbab = PatchContainersAndBlocks {
         container_ids: ids(&["board-id-1", "board-id-2"]),
         container_patches: vec![
@@ -323,7 +323,7 @@ fn patch_boards_and_blocks_validate_valid() {
 /// "no block ids" case expects an error the code never returns, so the three cases below
 /// pin what the code does instead.
 #[test]
-fn delete_boards_and_blocks_validate_requires_only_boards() {
+fn delete_containers_and_blocks_validate_requires_only_containers() {
     let no_boards = DeleteContainersAndBlocks {
         containers: vec![],
         blocks: ids(&["block-id-1"]),
@@ -349,7 +349,7 @@ fn delete_boards_and_blocks_validate_requires_only_boards() {
 /// Not in the original suite: the delete request built from created boards and blocks
 /// lists their identifiers in order.
 #[test]
-fn delete_boards_and_blocks_from_boards_and_blocks() {
+fn delete_containers_and_blocks_from_containers_and_blocks() {
     let bab = ContainersAndBlocks {
         containers: vec![board("board-id-1", ContainerType::Open, "")],
         blocks: vec![

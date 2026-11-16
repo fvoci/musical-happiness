@@ -268,7 +268,7 @@ async fn member_changes_are_broadcast() {
 /// private, the workspace's users who are not members of it are told that they lost or gained
 /// access (`server/app/boards.go:402-432`).
 #[tokio::test]
-async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
+async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -373,7 +373,7 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
 /// Duplicating a board tells its new owner about the copy, its blocks and the
 /// membership (`server/app/boards.go:209-224`).
 #[tokio::test]
-async fn duplicate_board_is_broadcast() {
+async fn duplicate_container_is_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let board = board_with_admin(

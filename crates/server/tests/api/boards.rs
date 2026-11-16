@@ -986,7 +986,7 @@ async fn create_board_template_create_private_board_template_and_its_blocks() {
 
 /// `TestGetBoard/"a non authenticated user should be rejected"`
 #[tokio::test]
-async fn get_board_a_non_authenticated_user_should_be_rejected() {
+async fn get_container_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
 
     let response = get_board(&th.anonymous(), "boar-id").await;
@@ -1002,7 +1002,7 @@ async fn get_board_a_non_authenticated_user_should_be_rejected() {
 
 /// `TestGetBoard/"valid read token should be enough to get the board"`
 #[tokio::test]
-async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
+async fn get_container_valid_read_token_should_be_enough_to_get_the_board() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let board = board_with_admin(
@@ -1065,7 +1065,7 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
 
 /// `TestGetBoard/"nonexisting board"`
 #[tokio::test]
-async fn get_board_nonexisting_board() {
+async fn get_container_nonexisting_board() {
     let th = Setup::native().start().await.init_basic().await;
 
     for board_id in [UNKNOWN_ID, "nonexistent board"] {
@@ -1078,7 +1078,7 @@ async fn get_board_nonexisting_board() {
 /// `TestGetBoard/"a user that doesn't have permissions to a private board cannot
 /// retrieve it"`
 #[tokio::test]
-async fn get_board_a_user_without_permissions_to_a_private_board_cannot_retrieve_it() {
+async fn get_container_a_user_without_permissions_to_a_private_board_cannot_retrieve_it() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let board = board_without_members(
@@ -1106,7 +1106,7 @@ async fn get_board_a_user_without_permissions_to_a_private_board_cannot_retrieve
 
 /// `TestGetBoard/"a user that has permissions to a private board can retrieve it"`
 #[tokio::test]
-async fn get_board_a_user_with_permissions_to_a_private_board_can_retrieve_it() {
+async fn get_container_a_user_with_permissions_to_a_private_board_can_retrieve_it() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let board = board_with_admin(
@@ -1125,7 +1125,7 @@ async fn get_board_a_user_with_permissions_to_a_private_board_can_retrieve_it() 
 /// `TestGetBoard/"a user that doesn't have permissions to a public board but have them
 /// to its workspace can retrieve it"`
 #[tokio::test]
-async fn get_board_a_user_with_permissions_to_the_workspace_can_retrieve_a_public_board() {
+async fn get_container_a_user_with_permissions_to_the_workspace_can_retrieve_a_public_board() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let board = board_without_members(
@@ -1172,7 +1172,7 @@ async fn stored_board(th: &TestServer, board_id: &str) -> Container {
 
 /// `TestPatchBoard/"a non authenticated user should be rejected"`
 #[tokio::test]
-async fn patch_board_a_non_authenticated_user_should_be_rejected() {
+async fn patch_container_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let initial_title = "title 1";
     let board = board_without_members(
@@ -1195,7 +1195,7 @@ async fn patch_board_a_non_authenticated_user_should_be_rejected() {
 
 /// `TestPatchBoard/"non existing board"`
 #[tokio::test]
-async fn patch_board_non_existing_board() {
+async fn patch_container_non_existing_board() {
     let th = Setup::native().start().await.init_basic().await;
 
     for board_id in [UNKNOWN_ID, "non-existing-board"] {
@@ -1207,7 +1207,7 @@ async fn patch_board_non_existing_board() {
 
 /// `TestPatchBoard/"invalid patch on a board with permissions"`
 #[tokio::test]
-async fn patch_board_invalid_patch_on_a_board_with_permissions() {
+async fn patch_container_invalid_patch_on_a_board_with_permissions() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let board = board_with_admin(
@@ -1256,7 +1256,7 @@ async fn patch_board_invalid_patch_on_a_board_with_permissions() {
 
 /// `TestPatchBoard/"valid patch on a board with permissions"`
 #[tokio::test]
-async fn patch_board_valid_patch_on_a_board_with_permissions() {
+async fn patch_container_valid_patch_on_a_board_with_permissions() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let board = board_with_admin(
@@ -1282,7 +1282,7 @@ async fn patch_board_valid_patch_on_a_board_with_permissions() {
 
 /// `TestPatchBoard/"valid patch on a board without permissions"`
 #[tokio::test]
-async fn patch_board_valid_patch_on_a_board_without_permissions() {
+async fn patch_container_valid_patch_on_a_board_without_permissions() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let initial_title = "title";
@@ -1312,7 +1312,7 @@ async fn patch_board_valid_patch_on_a_board_without_permissions() {
 /// Verified on the original: an editor changes a board's title, but only an admin its
 /// type and minimum role; each refusal has its own message.
 #[tokio::test]
-async fn patch_board_permissions_by_what_the_patch_touches() {
+async fn patch_container_permissions_by_what_the_patch_touches() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -1396,7 +1396,7 @@ async fn patch_board_permissions_by_what_the_patch_touches() {
 
 /// `TestDeleteBoard/"a non authenticated user should be rejected"`
 #[tokio::test]
-async fn delete_board_a_non_authenticated_user_should_be_rejected() {
+async fn delete_container_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let board = board_without_members(
         &th,
@@ -1417,7 +1417,7 @@ async fn delete_board_a_non_authenticated_user_should_be_rejected() {
 
 /// `TestDeleteBoard/"a user without permissions should be rejected"`
 #[tokio::test]
-async fn delete_board_a_user_without_permissions_should_be_rejected() {
+async fn delete_container_a_user_without_permissions_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let board = board_without_members(
         &th,
@@ -1443,7 +1443,7 @@ async fn delete_board_a_user_without_permissions_should_be_rejected() {
 
 /// `TestDeleteBoard/"non existing board"`
 #[tokio::test]
-async fn delete_board_non_existing_board() {
+async fn delete_container_non_existing_board() {
     let th = Setup::native().start().await.init_basic().await;
 
     for board_id in [UNKNOWN_ID, "non-existing-board"] {
@@ -1458,7 +1458,7 @@ async fn delete_board_non_existing_board() {
 
 /// `TestDeleteBoard/"an existing board should be correctly deleted"`
 #[tokio::test]
-async fn delete_board_an_existing_board_should_be_correctly_deleted() {
+async fn delete_container_an_existing_board_should_be_correctly_deleted() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let board = board_with_admin(
@@ -1508,7 +1508,7 @@ async fn assert_board_is_gone(th: &TestServer, board_id: &str) {
 
 /// `TestUndeleteBoard/"a non authenticated user should be rejected"`
 #[tokio::test]
-async fn undelete_board_a_non_authenticated_user_should_be_rejected() {
+async fn undelete_container_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let board = board_without_members(
         &th,
@@ -1530,7 +1530,7 @@ async fn undelete_board_a_non_authenticated_user_should_be_rejected() {
 
 /// `TestUndeleteBoard/"a user without membership should be rejected"`
 #[tokio::test]
-async fn undelete_board_a_user_without_membership_should_be_rejected() {
+async fn undelete_container_a_user_without_membership_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let board = board_without_members(
         &th,
@@ -1555,7 +1555,7 @@ async fn undelete_board_a_user_without_membership_should_be_rejected() {
 /// rejected"`. The original gives the membership to a user who is not the one asking;
 /// here the asking user is an editor as well, which is the case the name describes.
 #[tokio::test]
-async fn undelete_board_a_user_with_membership_but_without_permissions_should_be_rejected() {
+async fn undelete_container_a_user_with_membership_but_without_permissions_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let stranger = th.stranger().await;
@@ -1581,7 +1581,7 @@ async fn undelete_board_a_user_with_membership_but_without_permissions_should_be
 
 /// `TestUndeleteBoard/"non existing board"`
 #[tokio::test]
-async fn undelete_board_non_existing_board() {
+async fn undelete_container_non_existing_board() {
     let th = Setup::native().start().await.init_basic().await;
 
     for board_id in [UNKNOWN_ID, "non-existing-board"] {
@@ -1593,7 +1593,7 @@ async fn undelete_board_non_existing_board() {
 
 /// `TestUndeleteBoard/"an existing deleted board should be correctly undeleted"`
 #[tokio::test]
-async fn undelete_board_an_existing_deleted_board_should_be_correctly_undeleted() {
+async fn undelete_container_an_existing_deleted_board_should_be_correctly_undeleted() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let board = board_with_admin(
@@ -1643,7 +1643,7 @@ async fn board_with_users(th: &TestServer) -> Container {
 
 /// `TestGetMembersForBoard/"a non authenticated user should be rejected"`
 #[tokio::test]
-async fn get_members_for_board_a_non_authenticated_user_should_be_rejected() {
+async fn get_members_for_container_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let board = board_with_users(&th).await;
 
@@ -1655,7 +1655,7 @@ async fn get_members_for_board_a_non_authenticated_user_should_be_rejected() {
 
 /// `TestGetMembersForBoard/"a user without permissions should be rejected"`
 #[tokio::test]
-async fn get_members_for_board_a_user_without_permissions_should_be_rejected() {
+async fn get_members_for_container_a_user_without_permissions_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await;
     let board = board_with_users(&th).await;
@@ -1677,7 +1677,7 @@ async fn get_members_for_board_a_user_without_permissions_should_be_rejected() {
 
 /// `TestGetMembersForBoard/"non existing board"`
 #[tokio::test]
-async fn get_members_for_board_non_existing_board() {
+async fn get_members_for_container_non_existing_board() {
     let th = Setup::native().start().await.init_basic().await;
 
     for board_id in [UNKNOWN_ID, "non-existing-board"] {
@@ -1692,7 +1692,7 @@ async fn get_members_for_board_non_existing_board() {
 /// `server/app/boards_test.go`: members are answered as stored, nobody is raised to
 /// admin.
 #[tokio::test]
-async fn get_members_for_board_should_correctly_return_board_members_for_a_valid_board() {
+async fn get_members_for_container_should_correctly_return_board_members_for_a_valid_board() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -2342,7 +2342,7 @@ async fn add_member_permissions_by_board_type_and_role() {
 /// `TestAddMemberToBoard/"base case"` in `server/app/boards_test.go`, through the real
 /// store.
 #[tokio::test]
-async fn add_member_to_board_base_case() {
+async fn add_member_to_container_base_case() {
     let th = Setup::native().start().await;
     let creator = th.stranger().await;
     let user = stored_user(&th, "member").await;
@@ -2384,7 +2384,7 @@ async fn add_member_to_board_base_case() {
 /// `TestAddMemberToBoard/"return existing non-synthetic membership if any"` in
 /// `server/app/boards_test.go`, through the real store.
 #[tokio::test]
-async fn add_member_to_board_return_existing_non_synthetic_membership_if_any() {
+async fn add_member_to_container_return_existing_non_synthetic_membership_if_any() {
     let th = Setup::native().start().await;
     let creator = th.stranger().await;
     let user = stored_user(&th, "member").await;
@@ -2775,7 +2775,7 @@ async fn delete_member_should_not_leave_a_board_without_any_admin() {
 
 /// `TestJoinBoard/"create and join public board"`
 #[tokio::test]
-async fn join_board_create_and_join_public_board() {
+async fn join_container_create_and_join_public_board() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -2817,7 +2817,7 @@ async fn join_board_create_and_join_public_board() {
 /// `TestJoinBoard/"create and join public board should match the minimumRole in the
 /// membership"`, for every minimum role a board can have.
 #[tokio::test]
-async fn join_board_should_match_the_minimum_role_in_the_membership() {
+async fn join_container_should_match_the_minimum_role_in_the_membership() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await;
 
@@ -2859,7 +2859,7 @@ async fn join_board_should_match_the_minimum_role_in_the_membership() {
 /// membership when MinimumRole is empty"`: a board that says nothing about its minimum
 /// role has editor.
 #[tokio::test]
-async fn join_board_should_match_editor_role_when_the_board_names_no_minimum_role() {
+async fn join_container_should_match_editor_role_when_the_board_names_no_minimum_role() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await;
     let board: Container = th
@@ -3019,7 +3019,7 @@ async fn a_member_below_the_minimum_role_has_the_role_they_were_given() {
 /// copy; joining made anyone its editor, and the built-in templates are open boards of
 /// the workspace every user is in. (The original lets anyone join them.)
 #[tokio::test]
-async fn join_board_refuses_a_template() {
+async fn join_container_refuses_a_template() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let template = board_with_admin(
@@ -3047,7 +3047,7 @@ async fn join_board_refuses_a_template() {
 
 /// `TestJoinBoard/"create and join private board (should not succeed)"`
 #[tokio::test]
-async fn join_board_create_and_join_private_board_should_not_succeed() {
+async fn join_container_create_and_join_private_board_should_not_succeed() {
     let th = Setup::native().start().await.init_basic().await;
     let board: Container = th
         .client
@@ -3077,7 +3077,7 @@ async fn join_board_create_and_join_private_board_should_not_succeed() {
 
 /// `TestJoinBoard/"join invalid board"`
 #[tokio::test]
-async fn join_board_join_invalid_board() {
+async fn join_container_join_invalid_board() {
     let th = Setup::native().start().await.init_basic().await;
 
     for board_id in [UNKNOWN_ID, "nonexistent-board-ID"] {
@@ -3136,7 +3136,7 @@ async fn leave_board_cases() {
 /// `TestPatchBoard/"base case, title patch"` in `server/app/boards_test.go`, through the
 /// real store.
 #[tokio::test]
-async fn app_patch_board_base_case_title_patch() {
+async fn app_patch_container_base_case_title_patch() {
     let th = Setup::native().start().await;
     let user = th.stranger_in(TEST_WORKSPACE_ID).await;
     let board = board_with_admin(

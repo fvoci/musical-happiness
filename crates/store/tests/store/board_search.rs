@@ -24,7 +24,7 @@ struct SearchCase<'a> {
     clippy::too_many_lines,
     reason = "one test per test function of the original, whose subtests share a store"
 )]
-async fn search_boards_for_user() {
+async fn search_containers_for_user() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id_1 = common::workspace_of(&test, &[&user_id]).await;
@@ -171,7 +171,7 @@ async fn search_boards_for_user() {
 }
 
 #[tokio::test]
-async fn search_boards_for_user_in_workspace() {
+async fn search_containers_for_user_in_workspace() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
 
@@ -198,7 +198,7 @@ async fn search_boards_for_user_in_workspace() {
 
 /// `server/services/store/sqlstore/board.go:713-753`.
 #[tokio::test]
-async fn search_boards_for_user_in_workspace_finds_open_boards_and_own_private_boards() {
+async fn search_containers_for_user_in_workspace_finds_open_boards_and_own_private_boards() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let other_user_id = common::user(&test, "other-user").await;

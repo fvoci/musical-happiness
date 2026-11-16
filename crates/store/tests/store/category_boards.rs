@@ -1,7 +1,7 @@
 //! Port of `server/services/store/storetests/categoryBoards.go`.
 //!
 //! One test per test function of the original; its subtests are the commented sections.
-//! The tests after [`set_board_visibility`] are not in the original: they pin behavior
+//! The tests after [`set_container_visibility`] are not in the original: they pin behavior
 //! the original's tests leave open.
 //!
 //! The original names its categories, users, workspaces and boards with fixed strings, and
@@ -80,7 +80,7 @@ fn board_ids(metadata: &[CategoryContainerMetadata]) -> Vec<&str> {
 
 /// `testGetUserCategoryBoards`.
 #[tokio::test]
-async fn get_user_category_boards() {
+async fn get_user_category_containers() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
@@ -198,7 +198,7 @@ async fn get_user_category_boards() {
 
 /// `testAddUpdateCategoryBoard`.
 #[tokio::test]
-async fn add_update_category_board() {
+async fn add_update_category_container() {
     let test = common::setup().await;
     let store = &test.store;
     let sidebar = Sidebar::create(store).await;
@@ -301,7 +301,7 @@ async fn add_update_category_board() {
 
 /// `testSetBoardVisibility`.
 #[tokio::test]
-async fn set_board_visibility() {
+async fn set_container_visibility() {
     let test = common::setup().await;
     let store = &test.store;
     let sidebar = Sidebar::create(store).await;
@@ -494,7 +494,7 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
 /// (`server/services/store/sqlstore/category_boards.go:146`), and is then listed first
 /// on SQLite and last on PostgreSQL.
 #[tokio::test]
-async fn reorder_category_boards_keeps_the_sort_order_of_unlisted_boards() {
+async fn reorder_category_containers_keeps_the_sort_order_of_unlisted_boards() {
     let test = common::setup().await;
     let store = &test.store;
     let sidebar = Sidebar::create(store).await;

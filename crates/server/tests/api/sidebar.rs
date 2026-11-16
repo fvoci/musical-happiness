@@ -860,7 +860,7 @@ async fn delete_category_trying_to_delete_system_category() {
 ///
 /// The function is private; deleting a category is what calls it.
 #[tokio::test]
-async fn move_boards_to_default_category_when_default_category_already_exists() {
+async fn move_containers_to_default_category_when_default_category_already_exists() {
     let th = Setup::native().start().await;
     let user_id = stored_user(&th).await;
     let system = default_category(&th, &user_id, TEST_WORKSPACE_ID).await;
@@ -906,7 +906,7 @@ async fn move_boards_to_default_category_when_default_category_already_exists() 
 
 /// `TestMoveBoardsToDefaultCategory/"When default category doesn't already exists"`
 #[tokio::test]
-async fn move_boards_to_default_category_when_default_category_doesnt_already_exists() {
+async fn move_containers_to_default_category_when_default_category_doesnt_already_exists() {
     let th = Setup::native().start().await;
     let user_id = stored_user(&th).await;
     // Created without listing the categories first, so there is no default one yet. The
@@ -1121,7 +1121,7 @@ async fn verify_new_categories_match_existing_different_category_counts() {
 
 /// `TestGetUserCategoryBoards/"user had no default category and had boards"`
 #[tokio::test]
-async fn get_user_category_boards_user_had_no_default_category_and_had_boards() {
+async fn get_user_category_containers_user_had_no_default_category_and_had_boards() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     let mut boards = Vec::new();
@@ -1153,7 +1153,7 @@ async fn get_user_category_boards_user_had_no_default_category_and_had_boards() 
 
 /// `TestGetUserCategoryBoards/"user had no default category BUT had no boards"`
 #[tokio::test]
-async fn get_user_category_boards_user_had_no_default_category_but_had_no_boards() {
+async fn get_user_category_containers_user_had_no_default_category_but_had_no_boards() {
     let th = Setup::native().start().await.init_basic().await;
 
     let response = th.client.get(&format!("{ROOT_WS}/categories")).await;
@@ -1190,10 +1190,10 @@ async fn get_user_category_boards_user_had_no_default_category_but_had_no_boards
     th.teardown().await;
 }
 
-/// `TestGetUserCategoryBoards/"user already had a default Boards category with boards in
-/// it"`
+/// `TestGetUserCategoryBoards/"user already had a default Boards category with boards in it"`
 #[tokio::test]
-async fn get_user_category_boards_user_already_had_a_default_boards_category_with_boards_in_it() {
+async fn get_user_category_containers_user_already_had_a_default_boards_category_with_boards_in_it()
+{
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     board_with_admin(&th, ROOT_WORKSPACE_ID, &user.id).await;
@@ -1218,7 +1218,7 @@ async fn get_user_category_boards_user_already_had_a_default_boards_category_wit
 ///
 /// The function is private; listing the categories of a user who has none calls it.
 #[tokio::test]
-async fn create_boards_category_user_doesnt_have_any_boards_implicit_or_explicit() {
+async fn create_containers_category_user_doesnt_have_any_boards_implicit_or_explicit() {
     let th = Setup::native().start().await;
     let user_id = stored_user(&th).await;
 
@@ -1244,7 +1244,7 @@ async fn create_boards_category_user_doesnt_have_any_boards_implicit_or_explicit
 /// Implicit access comes from the host application in the original. What a standalone
 /// server has of it are open boards that the user can see without being a member.
 #[tokio::test]
-async fn create_boards_category_user_has_implicit_access_to_some_board() {
+async fn create_containers_category_user_has_implicit_access_to_some_board() {
     let th = Setup::native().start().await;
     let user_id = stored_user(&th).await;
     for _ in 0..3 {
@@ -1268,7 +1268,7 @@ async fn create_boards_category_user_has_implicit_access_to_some_board() {
 
 /// `TestCreateBoardsCategory/"user has explicit access to some board"`
 #[tokio::test]
-async fn create_boards_category_user_has_explicit_access_to_some_board() {
+async fn create_containers_category_user_has_explicit_access_to_some_board() {
     let th = Setup::native().start().await;
     let user_id = stored_user(&th).await;
     let mut boards = Vec::new();
@@ -1308,7 +1308,7 @@ async fn create_boards_category_user_has_explicit_access_to_some_board() {
 
 /// `TestCreateBoardsCategory/"user has both implicit and explicit access to some board"`
 #[tokio::test]
-async fn create_boards_category_user_has_both_implicit_and_explicit_access_to_some_board() {
+async fn create_containers_category_user_has_both_implicit_and_explicit_access_to_some_board() {
     let th = Setup::native().start().await;
     let user_id = stored_user(&th).await;
     let own = board_with_admin(&th, TEST_WORKSPACE_ID, &user_id).await;
@@ -1375,7 +1375,7 @@ async fn listed_board_ids(th: &TestServer, user_id: &str, category_id: &str) -> 
 
 /// `TestReorderCategoryBoards/"base case"`
 #[tokio::test]
-async fn reorder_category_boards_base_case() {
+async fn reorder_category_containers_base_case() {
     let th = Setup::native().start().await;
     let user_id = stored_user(&th).await;
     let (created, boards) = category_with_boards(&th, &user_id, 2).await;
@@ -1404,7 +1404,7 @@ async fn reorder_category_boards_base_case() {
 
 /// `TestReorderCategoryBoards/"not specifying all boards"`
 #[tokio::test]
-async fn reorder_category_boards_not_specifying_all_boards() {
+async fn reorder_category_containers_not_specifying_all_boards() {
     let th = Setup::native().start().await;
     let user_id = stored_user(&th).await;
     let (created, boards) = category_with_boards(&th, &user_id, 3).await;
@@ -2107,7 +2107,7 @@ async fn reorder_categories_over_the_api() {
 
 /// A board reorder request must name the boards of the category and nothing else.
 #[tokio::test]
-async fn reorder_category_boards_over_the_api() {
+async fn reorder_category_containers_over_the_api() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     let default_id = category_boards(&th.client, ROOT_WORKSPACE_ID).await[0]
@@ -2191,7 +2191,7 @@ async fn reorder_category_boards_over_the_api() {
 
 /// Filing a board under a category: the answer, the move, and the refusals.
 #[tokio::test]
-async fn update_category_board_over_the_api() {
+async fn update_category_container_over_the_api() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.me_as_no_admin(&th.client).await;
     let board = board_with_admin(&th, ROOT_WORKSPACE_ID, &user.id).await;

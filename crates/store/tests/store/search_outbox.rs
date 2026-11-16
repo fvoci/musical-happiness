@@ -593,7 +593,7 @@ async fn a_row_that_could_not_be_sent_waits_and_is_due_at_once_when_noted_again(
 }
 
 #[tokio::test]
-async fn every_board_is_listed_for_an_index_and_the_index_remembered() {
+async fn every_container_is_listed_for_an_index_and_the_index_remembered() {
     let test = common::setup().await;
     let store = &test.store;
     store.keep_search_outbox();

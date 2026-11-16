@@ -50,7 +50,7 @@ fvoci 서버 전체에 걸친 사실을 적는 문서다. 서버는 `crates/` �
 | # | 항목 | 지금 | 단계 |
 |---|---|---|---|
 | 1 | **사용자 설정(preferences)의 카테고리 값** | 닫힘. `preferences` 테이블의 `category`는 `settings`와 `client` 둘이다(S6 G절의 "표시 설정에서 바뀐 것"). 옛 제품 이름은 DB에 없다 | S2, S6에서 정리됨 |
-| 2 | **viewer·commenter의 카드 단건 조회** | 닫힘(2026-11-10). `GET /cards/{id}`는 `ViewBoard` 권한으로 읽는다. `crates/server/PORTING.md` 의도적 차이 45 | S4 |
+| 2 | **viewer·commenter의 카드 단건 조회** | 닫힘(2026-11-10). `GET /cards/{id}`는 `ContainerPermission::View` 권한으로 읽는다. `crates/server/PORTING.md` 의도적 차이 45 | S4 |
 | 3 | **보안 결정 대기 항목.** 고치면 정상 클라이언트의 동작이나 와이어 형식이 바뀌는 보안 관련 항목이다. `crates/server/PORTING.md`의 "보안 결정 대기" 표(S1~)에 모았다 | S6에서 정리됨. 어느 항목을 어디서 고쳤는지는 표 아래 | S3–S4, S6 |
 | 4 | **의존성 보안 권고.** 번들 SQLite의 RUSTSEC-2026-0459 | 고치지 않고 `deny.toml`에 사유와 함께 예외로 둔다. sqlx가 올라가면 예외를 지운다. 아래 "결정 4의 조사" | S5 |
 
@@ -324,11 +324,11 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 | 세션 토큰, 초대의 토큰, 저장 파일 이름은 식별자 생성기를 쓰지 않는다. 운영체제 난수 256비트, base64url 43자 | 설계 3.3. UUIDv7은 앞이 시각이고 한 밀리초 안에서는 카운터가 이어진다 | `fvoci_server::auth::secret::new_secret` |
 | **워크스페이스(원본의 팀).** 루트 워크스페이스는 처음 시작할 때 UUIDv7으로 만들어진다(가장 오래된 워크스페이스가 루트다). 워크스페이스 `0`은 없다. `GET /w/{workspaceId}`는 그 워크스페이스만 답하고 다른 ID는 404다. 경로가 가리키는 워크스페이스에 사용자가 없으면 `/w/` 아래 라우트 전부가 404 `workspace not found`, 본문이 가리키면 400 `no such workspace`이다 | 설계의 결정 6(팀은 유지, 루트 팀도 UUIDv7). 보존한 quirk "`GET /teams/{아무 ID}`는 루트 팀을 답한다"가 닫혔다. 가입 토큰은 관리자만 본다(아래 "관리자에서 바뀐 것") | `App::{root_workspace, workspace}`, `api::workspace::InWorkspace` |
 | **내장 템플릿은 표식 열로 구분한다.** `boards.is_builtin`(와이어 `isBuiltin`). 만든 사용자가 없는(`createdBy`가 빈) 템플릿이다. 시스템 조직의 워크스페이스에 속하고(`crates/store/src/directory.rs`의 고정 ID) 모든 워크스페이스에 제공된다: `GET /w/{workspaceId}/templates`가 그 워크스페이스의 템플릿과 내장 템플릿을 함께 답한다. `system`이라는 사용자와 내장 템플릿의 관리자 멤버십은 없다. 클라이언트가 보낸 `isBuiltin`은 무시한다. 사용자가 루트 워크스페이스에 만든 템플릿은 `trackingTemplateId`를 받지 않는다(전에는 팀 `0`의 템플릿이면 받았다) | 설계의 결정 6. 온보딩(S18)이 "시스템이 만든 보드"를 `createdBy`의 글자가 아니라 이 열로 본다 | `Store::{get_builtin_templates, remove_builtin_templates}`, `app/templates.rs` |
-| **채널이 없다.** 보드와 패치의 `channelId` 멤버, 채널 열, 채널 권한 검사가 없다. 패치에 `channelId`가 와도 무시한다 | 설계의 결정 4에서 이 단계로 미뤄 둔 것 | 모델 `Board`, `BoardPatch` |
+| **채널이 없다.** 보드와 패치의 `channelId` 멤버, 채널 열, 채널 권한 검사가 없다. 패치에 `channelId`가 와도 무시한다 | 설계의 결정 4에서 이 단계로 미뤄 둔 것 | 모델 `Container`, `ContainerPatch` |
 | **파일.** 저장 이름은 비밀 값 + 확장자다(템플릿 보드에 올려도 같다. 전에는 클라이언트의 이름을 그대로 썼다). 파일 기록(`file_info`)에 기본 키, `board_id`, 저장 이름(`name`), 올린 이름(`original_name`)이 있고, 파일은 `(보드, 저장 이름)`으로 찾는다. 기록이 없는 파일은 어느 보드로도 나가지 않는다. 정보 JSON은 `id`, `createAt`, `name`, `extension`, `size`다. 쓰이지 않던 채움 멤버 여섯과 삭제 표시(`delete_at`, `archived`)는 없다 | 설계 3.2·3.9. S16의 "파일은 한 보드의 것"이 경로 문자열이 아니라 열이 됐다. 이름의 첫 글자를 떼어 기록을 찾던 규칙이 없어졌다 | `app/files.rs`, `store/file_info.rs` |
 | 읽기 토큰만으로(세션 없이, 또는 토큰 없이는 읽지 못하는 사용자가) 읽은 보드와 블록에는 사용자 ID가 없다(`createdBy`·`modifiedBy`, 멘션, 사람 속성과 뷰 필터의 값) | 설계의 결정 7. UUIDv7이 그 사용자의 가입 시각을 드러낸다 | `Board::hide_people`, `Block::hide_people` |
 | 사용자 이름과 이메일은 대소문자와 무관하게 하나뿐이다(유일 색인 `lower(…)`). 조회도 대소문자를 무시한다. 동시에 온 가입 둘 가운데 하나는 409다(전에는 둘 다 들어갔다) | 설계 3.9. SQLite의 `lower()`는 ASCII만 접는다(PostgreSQL은 DB의 로케일을 따른다). 두 DB의 차이로 적어 둔다 | `store/users.rs`, `StoreError::Conflict` |
-| 보드에 바로 달린 블록에는 부모가 없다. 복제와 가져오기에서 "부모 = 보드 ID"는 빈 `parentId`가 된다(전에는 복사본이 **원본** 보드의 ID를 부모로 들고 있었다). 가져오기는 부모가 아카이브에 없는 블록을 건너뛴다(내장 템플릿의 주인 없는 블록 38개가 이제 저장되지 않는다. 어느 카드에도 속하지 않아 화면에 보인 적이 없다) | UUID 열에는 옛 형식의 ID가 들어갈 수 없다. 부모의 외래 키와 그 규칙은 아래 "삭제와 복원에서 바뀐 것"의 "부모" 행에 있다 | `fvoci_model::renew_boards_and_blocks_ids`, `app/import.rs`의 `drop_orphans` |
+| 보드에 바로 달린 블록에는 부모가 없다. 복제와 가져오기에서 "부모 = 보드 ID"는 빈 `parentId`가 된다(전에는 복사본이 **원본** 보드의 ID를 부모로 들고 있었다). 가져오기는 부모가 아카이브에 없는 블록을 건너뛴다(내장 템플릿의 주인 없는 블록 38개가 이제 저장되지 않는다. 어느 카드에도 속하지 않아 화면에 보인 적이 없다) | UUID 열에는 옛 형식의 ID가 들어갈 수 없다. 부모의 외래 키와 그 규칙은 아래 "삭제와 복원에서 바뀐 것"의 "부모" 행에 있다 | `fvoci_model::renew_containers_and_blocks_ids`, `app/import.rs`의 `drop_orphans` |
 | 스키마에서 뺀 것: `blocks.root_id`·`channel_id`, `boards.channel_id`, `categories.channel_id`, `sharing.workspace_id`, `subscriptions.workspace_id`, `board_members.roles`, `users.mfa_secret`·`auth_service`·`auth_data`·`props`, 테이블 `notification_hints`·`system_settings`·`board_members_history`. 길이 제한이 붙은 `VARCHAR`는 `TEXT`로, 대부분의 열은 `NOT NULL`로 | 설계 3.1. 쓰이지 않거나 값이 하나뿐이었다. 저장소의 쓰이지 않는 함수(`get_board_count`, `get_active_user_count`, `update_user`, `update_session`, 시스템 설정 등)도 함께 지웠다 | `crates/store/schema/` |
 
 **회귀 하네스.** UUID를 `<id:N>`으로, 43자 비밀 값을 `<secret:N>`으로 바꾼다. 내장 템플릿의 속성 ID(옛 형식 27자)는 식별자로 보지 않아 스냅샷에 그대로 나온다. 아카이브의 상수다.
@@ -363,18 +363,18 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 |---|---|---|
 | **history 테이블이 없다.** `blocks_history`, `boards_history`와 그 위의 함수(`get_block_history`, `get_board_history`, `get_subtree`, `get_block_history_descendants`), 수정마다 한 줄씩 쌓던 기록, 같은 밀리초의 충돌을 피하던 장치를 모두 지웠다 | 설계 5.3의 C. 수정 이력을 쓰는 기능이 없다 | `crates/store/src/{blocks,boards,db}.rs` |
 | **휴지통.** 보드와 블록의 테이블에는 살아 있는 것만 있다. 지우면 `deleted_boards`·`deleted_blocks`로 통째(JSON) 옮기고, 복원하면 되옮긴다. 한 번의 삭제로 함께 지워진 블록은 같은 `deletion_id`를 갖고 함께 돌아온다. 블록을 지우면 **아래의 모든 깊이**가 함께 간다(전에는 바로 아래 한 단계만) | 설계 5.3. 외래 키가 예외 없이 선다 | `crates/store/src/trash.rs` |
-| 보드를 지우면 블록 전부, 멤버십, 파일 기록이 휴지통으로 가고, 공유, 사용자가 넣어 둔 카테고리 자리, 블록의 구독은 끝난다. 복원하면 보드, 그때 함께 지워진 블록, 파일 기록, 멤버십이 돌아온다. 공유, 카테고리 자리, 구독은 돌아오지 않는다. 사용자 행이 그사이 없어진 멤버십은 돌아오지 않고(비활성화된 사용자의 것은 돌아온다), 만든 사람의 행이 없어진 보드·블록은 만든 사람이 빈 채로 돌아온다 | 설계 5.3. **설계와 다른 점:** `deleted_boards`에 `files`(파일 기록)와 `deletion_id`, `workspace_id` 열을 더 뒀다. 파일 기록이 보드를 따라 지워지므로(CASCADE) 복원하려면 담아 둬야 한다 | `Store::{delete_board, undelete_board, get_deleted_board}` |
-| **휴지통에 없는 것의 복원은 404다.** 삭제되지 않은 블록·보드의 undelete(전에는 200), 있었던 적 없는 것, 보드가 휴지통에 있는 블록, 놓여 있던 블록이 없는 블록 | 설계 5.3의 "없어지는 지금의 동작" | `App::{undelete_block, undelete_board}` |
-| 보드 복원의 권한은 휴지통에 담긴 그때의 멤버십으로 본다. 삭제 권한이 있던 멤버만 되살린다. 다른 멤버는 403, 멤버가 아니던 사람과 휴지통에 없는 보드는 404 | 멤버십이 보드와 함께 휴지통에 간다. 전에는 지워진 보드의 멤버십이 남아 있었다(보존한 quirk가 닫혔다) | `api/boards.rs`의 `handle_undelete_board` |
+| 보드를 지우면 블록 전부, 멤버십, 파일 기록이 휴지통으로 가고, 공유, 사용자가 넣어 둔 카테고리 자리, 블록의 구독은 끝난다. 복원하면 보드, 그때 함께 지워진 블록, 파일 기록, 멤버십이 돌아온다. 공유, 카테고리 자리, 구독은 돌아오지 않는다. 사용자 행이 그사이 없어진 멤버십은 돌아오지 않고(비활성화된 사용자의 것은 돌아온다), 만든 사람의 행이 없어진 보드·블록은 만든 사람이 빈 채로 돌아온다 | 설계 5.3. **설계와 다른 점:** `deleted_containers`에 `files`(파일 기록)와 `deletion_id`, `workspace_id` 열을 더 뒀다. 파일 기록이 보드를 따라 지워지므로(CASCADE) 복원하려면 담아 둬야 한다 | `Store::{delete_container, undelete_container, get_deleted_container}` |
+| **휴지통에 없는 것의 복원은 404다.** 삭제되지 않은 블록·보드의 undelete(전에는 200), 있었던 적 없는 것, 보드가 휴지통에 있는 블록, 놓여 있던 블록이 없는 블록 | 설계 5.3의 "없어지는 지금의 동작" | `App::{undelete_block, undelete_container}` |
+| 보드 복원의 권한은 휴지통에 담긴 그때의 멤버십으로 본다. 삭제 권한이 있던 멤버만 되살린다. 다른 멤버는 403, 멤버가 아니던 사람과 휴지통에 없는 보드는 404 | 멤버십이 보드와 함께 휴지통에 간다. 전에는 지워진 보드의 멤버십이 남아 있었다(보존한 quirk가 닫혔다) | `api/containers.rs`의 `handle_undelete_container` |
 | **보존 기간.** 휴지통의 것은 `trash_retention_days`(기본 30, 1 이상) 뒤에 영구히 지운다. 한 시간마다 돈다. 보드가 영구히 없어진 블록도 그때 지운다 | 설계 5.10의 결정 | `Store::purge_trash`, `lib.rs`의 `start_trash_purge` |
 | **외래 키.** 두 DB 모두 강제한다(SQLite는 연결마다 `foreign_keys`를 명시해 켠다). 보드 → 팀, 블록 → 보드·부모 블록(같은 보드의 블록이어야 한다: `(board_id, parent_id)` 복합 키), 멤버십·공유·카테고리 자리·파일 기록 → 보드(CASCADE), 구독 → 블록·사용자(CASCADE), 세션·설정·카테고리·멤버십 → 사용자(CASCADE), 만든 사람·고친 사람 → 사용자. **설계와 다른 점:** 블록의 보드·부모 참조는 `RESTRICT`가 아니라 동작을 적지 않았다(`NO ACTION`). `RESTRICT`는 문장 안에서 바로 검사해서 부모와 자식을 한 문장으로 지울 수 없다. 스토어를 거치지 않는 삭제를 DB가 막는 것은 같다 | 설계 3.9·5.3 | `crates/store/schema/` |
-| **부모.** 보드에 바로 달린 블록은 부모가 없다(`parentId`가 빈 값). 보드 ID를 부모로 보내면 비워서 저장하고 그렇게 답한다. `POST /boards/{id}/cards`도 그렇다. 부모는 같은 보드에 있는 블록이어야 한다: 없거나 다른 보드의 블록이면 400(`parentId`), 둘의 답은 같다. 수정이 블록을 자기 아래로 옮기면 400이다. 한 요청 안에서는 자식이 부모보다 먼저 와도 된다 | 외래 키. 다른 보드의 카드를 부모로 내세우던 것이 저장되지 않는다 | `blocks::insert_block`, `BlockError::{ParentNotOnBoard, ParentBelowBlock}` |
+| **부모.** 보드에 바로 달린 블록은 부모가 없다(`parentId`가 빈 값). 보드 ID를 부모로 보내면 비워서 저장하고 그렇게 답한다. `POST /boards/{id}/cards`도 그렇다. 부모는 같은 보드에 있는 블록이어야 한다: 없거나 다른 보드의 블록이면 400(`parentId`), 둘의 답은 같다. 수정이 블록을 자기 아래로 옮기면 400이다. 한 요청 안에서는 자식이 부모보다 먼저 와도 된다 | 외래 키. 다른 보드의 카드를 부모로 내세우던 것이 저장되지 않는다 | `blocks::insert_block`, `BlockError::{ParentNotOnContainer, ParentBelowBlock}` |
 | **만든 시각은 서버가 정한다.** 새 블록의 `createAt`은 저장한 시각이고 응답에도 그 값이 나온다. 전에는 저장은 지금으로 하고 응답은 요청의 값을 돌려줬다(카드 생성의 응답과 저장 값이 달랐던 quirk가 닫혔다). 블록 목록은 만든 시각, 다음 ID의 순서다 | 목록 순서의 기준이다 | `blocks::insert_block` |
 | **구독과 카테고리는 정말로 지운다.** 구독 해제는 줄을 지운다(다시 구독하면 새 구독이다). 구독된 상태에서 다시 구독하면 있는 구독을 답한다(만든 시각은 그대로, 알림 시각만 지금. 전에는 응답만 새 구독처럼 보였다). 블록이 지워지면 구독도 끝나고 복원해도 돌아오지 않는다. 카테고리 삭제는 줄을 지우고, 응답과 WebSocket 메시지는 지우기 직전의 모습에 `deleteAt`을 채운 것이다 | 설계 5.3 | `store/{subscriptions,categories}.rs`, `app/category.rs` |
 | 파일 기록에는 삭제 표시가 없다. 이미지 블록을 지워도 파일 기록은 남는다(보드와 함께 가고 함께 돌아온다). 파일 자체의 수거는 다음 묶음(5.7)이다 | 파일 기록에 삭제 표시가 없다 | `fvoci_model::FileInfo` |
 | **멤버십 변경이 원자적이다.** 추가는 "없으면 넣고, 있으면 있는 것을 답한다"가 한 문장이다. 역할 변경과 제거는 "다른 관리자가 있는가"의 확인과 쓰기가 한 트랜잭션에서 보드 줄을 잠그고 한다. 관리자 둘이 동시에 물러나면 하나는 409 `last_admin`이다 | 앞 단계들이 미뤄 둔 경합 둘이다(멤버 추가, 마지막 관리자. F절) | `Store::{add_member, change_member, remove_member}`, `MemberChange` |
-| **보드마다 쓰기는 한 번에 하나다.** 블록의 쓰기·삭제·복원, 보드의 삭제, 멤버십 변경은 읽기 전에 보드 줄을 잠근다(PostgreSQL의 `FOR NO KEY UPDATE`. 보드 삭제만 `FOR UPDATE`다, J절의 M3. SQLite는 쓰는 트랜잭션이 처음부터 DB를 잡는다). 여러 보드에 걸친 쓰기는 ID 순서로 잠근다 | 하위 에이전트의 경합 테스트가 PostgreSQL에서 찾은 셋: 같은 블록의 동시 삭제가 500, 동시 복원이 500, 카드를 지우는 동안 그 아래에 넣은 블록이 어디에도 남지 않음(데이터 손실). 읽은 것과 지우는 것이 서로 다른 스냅샷을 봤다 | `boards::{lock_board, lock_boards}` |
-| 보드가 지워지면 멤버였던 사람에게 알린다. 멤버십이 보드와 함께 가므로 지우기 전에 읽은 멤버에게 보낸다 | 전에는 지워진 보드의 멤버십이 남아 있어서 지운 뒤에 찾았다 | `ws.rs`의 `broadcast_board_delete`, `broadcast_block_delete_with_board` |
+| **보드마다 쓰기는 한 번에 하나다.** 블록의 쓰기·삭제·복원, 보드의 삭제, 멤버십 변경은 읽기 전에 보드 줄을 잠근다(PostgreSQL의 `FOR NO KEY UPDATE`. 보드 삭제만 `FOR UPDATE`다, J절의 M3. SQLite는 쓰는 트랜잭션이 처음부터 DB를 잡는다). 여러 보드에 걸친 쓰기는 ID 순서로 잠근다 | 하위 에이전트의 경합 테스트가 PostgreSQL에서 찾은 셋: 같은 블록의 동시 삭제가 500, 동시 복원이 500, 카드를 지우는 동안 그 아래에 넣은 블록이 어디에도 남지 않음(데이터 손실). 읽은 것과 지우는 것이 서로 다른 스냅샷을 봤다 | `containers::{lock_container, lock_containers}` |
+| 보드가 지워지면 멤버였던 사람에게 알린다. 멤버십이 보드와 함께 가므로 지우기 전에 읽은 멤버에게 보낸다 | 전에는 지워진 보드의 멤버십이 남아 있어서 지운 뒤에 찾았다 | `ws.rs`의 `broadcast_container_delete`, `broadcast_block_delete_with_container` |
 | `DELETE /boards-and-blocks`가 나열한 블록은 그 보드들의 블록인지만 확인한다. 보드가 모든 블록을 한 번의 삭제로 휴지통에 데려간다. "부모 다음에 나열한 블록은 못 찾아 실패"하던 quirk가 닫혔다 | 보드가 돌아올 때 함께 돌아와야 한다 | `store/boards_and_blocks.rs` |
 
 **고정하는 것.** 회귀 시나리오 `trash`가 블록 삭제의 실행 취소(깊은 자식, 자식으로 되살리기, 따로 지운 자식), 구독이 끝나고 돌아오지 않는 것, 보드 삭제와 복원(멤버·블록이 돌아오는 것, 역할별 403·404)을 고정한다.
@@ -384,7 +384,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 에이전트가 찾아 고친 것:
 
 - 위 표의 경합 셋.
-- `duplicate_board`가 부모보다 오래된 블록에서 실패하던 것. 만든 시각 순서로 넣다가 부모가 아직 없었다. 부모 먼저 넣는다.
+- `duplicate_container`가 부모보다 오래된 블록에서 실패하던 것. 만든 시각 순서로 넣다가 부모가 아직 없었다. 부모 먼저 넣는다.
 - 만든 사람의 행이 없어진 것을 되살릴 때의 500.
 - 수정으로 부모의 순환을 만들 수 있던 것.
 - 여러 보드에 걸친 쓰기의 교착 가능성.
@@ -445,10 +445,10 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 |---|---|---|
 | **보드에는 늘 최소 역할이 있다.** `viewer`, `commenter`, `editor` 가운데 하나이고 새 보드의 기본값은 `editor`다. 빈 값과 `admin`은 최소 역할이 아니다: 만들 때나 고칠 때 보내면 400 `invalid-board-minimum-role`. 스키마도 막는다(`NOT NULL DEFAULT 'editor'`, `CHECK`) | 설계 5.10의 결정. 누구나 참여해 관리자가 되는 보드는 두지 않는다 | `fvoci_model::MinimumRole`, `crates/store/schema/` |
 | 멤버 추가(역할 관리 권한이 없는 추가자)와 참여(join) 모두 보드의 최소 역할을 준다. 전에는 빈 값일 때 추가는 viewer, join은 editor였다(F절에 남겼던 불일치가 닫혔다). 역할 관리 권한이 있는 추가자는 전처럼 요청한 역할을 준다 | 설계 5.10의 결정 | `api/members.rs` |
-| **다시 참여하면 최소 역할로 올린다. 내리지는 않는다.** 최소 역할보다 낮은 멤버(역할이 하나도 없는 멤버 포함)가 join하면 그 역할이 되고, 같거나 높은 멤버(관리자 포함)는 그대로다. 읽고 쓰는 것이 한 트랜잭션이라 동시에 온 join은 멤버십 하나를 만든다 | 설계 5.10의 결정 | `Store::join_board`, `Joined`, `App::join_board` |
+| **다시 참여하면 최소 역할로 올린다. 내리지는 않는다.** 최소 역할보다 낮은 멤버(역할이 하나도 없는 멤버 포함)가 join하면 그 역할이 되고, 같거나 높은 멤버(관리자 포함)는 그대로다. 읽고 쓰는 것이 한 트랜잭션이라 동시에 온 join은 멤버십 하나를 만든다 | 설계 5.10의 결정 | `Store::join_container`, `Joined`, `App::join_container` |
 | **멤버의 권한은 멤버가 가진 역할이다(해석, 확인 필요).** 전에는 보드의 최소 역할을 모든 멤버가 "가진 것으로" 쳤다(빈 값이 기본이라 평소에는 효과가 없었다). 이제 모든 보드에 최소 역할이 있고 기본이 `editor`라서 그 규칙을 두면 어느 보드에도 editor보다 낮은 멤버가 있을 수 없다: 관리자가 viewer로 추가해도 편집할 수 있고, "낮은 멤버가 다시 참여하면 올린다"는 결정이 뜻을 잃는다. 그래서 최소 역할은 "참여·추가가 주는 역할"로만 쓰고 권한 계산에서는 뺐다. 최소 역할을 올려도 이미 있는 멤버는 다시 참여할 때까지 그대로다 | 결정의 넷째 줄("역할 관리 권한이 있는 추가자는 요청한 역할을 준다")과 셋째 줄이 성립하려면 이 해석이어야 한다고 판단했다. 사용자가 다르게 뜻했다면 `member_has_permission` 한 곳을 되돌리면 된다 | `permissions::member_has_permission` |
 | 멤버십 JSON에서 `minimumRole`이 빠졌다. 보드의 것이고 보드가 답한다. 전에는 읽은 멤버십에는 보드의 값이, 추가의 응답에는 빈 값이 들어 있었다 | 권한 계산에 쓰지 않는다. 같은 멤버십이 길에 따라 달리 보였다 | `fvoci_model::BoardMember` |
-| `BoardRole`에 "없음"이 없다(viewer, commenter, editor, admin). 가져오기는 S6까지 아카이브의 `minimumRole`이 빈 값이거나 이 서버가 모르는 값이면 기본값으로 뒀다(옛 형식의 아카이브는 빈 값이다). S7의 아카이브 판 3부터는 이 서버가 쓴 값만 오므로 모르는 값은 400이다 | 타입이 잘못된 상태를 담지 못하게 | `fvoci_model::BoardRole` |
+| `BoardRole`에 "없음"이 없다(viewer, commenter, editor, admin). 가져오기는 S6까지 아카이브의 `minimumRole`이 빈 값이거나 이 서버가 모르는 값이면 기본값으로 뒀다(옛 형식의 아카이브는 빈 값이다). S7의 아카이브 판 3부터는 이 서버가 쓴 값만 오므로 모르는 값은 400이다 | 타입이 잘못된 상태를 담지 못하게 | `fvoci_model::ContainerRole` |
 
 **고정하는 것.** 회귀 시나리오 `members`가 빈 값·`admin`의 거절, 최소 역할보다 낮게 추가된 멤버가 그 역할대로 막히는 것, 다시 참여해 올라가는 것, 더 높은 멤버와 관리자가 그대로인 것을 고정한다. 테스트: API `boards::joining_again_raises_…`, `a_member_below_the_minimum_role_has_the_role_they_were_given` 등, 스토어 `boards::join_board_…`, `the_schema_refuses_a_minimum_role_that_is_none`, `joining_at_once_makes_one_membership`.
 
@@ -596,7 +596,7 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 
 **남은 문제(이 리뷰에서 넘긴 것).**
 
-- 보드 잠금(`lock_board`)이 트랜잭션 안에서만 불린다는 것을 타입이 보장하지 않는다(M12). 새 호출을 넣을 때 사람이 지켜야 한다.
+- 보드 잠금(`lock_container`)이 트랜잭션 안에서만 불린다는 것을 타입이 보장하지 않는다(M12). 새 호출을 넣을 때 사람이 지켜야 한다.
 - 세션 API의 토큰 다이제스트와 시각 인자가 맨 문자열·정수다(M13).
 - 사용자를 비활성화하는 함수가 없다. 넣을 때는 마지막 관리자 규칙 때문에 `instance` 줄을 잠가야 한다(M18).
 - 따로 지운 블록의 파일은 수거되지 않는다(M5·S8의 나머지, 설계 5.7의 `file_refs`).
@@ -715,7 +715,7 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 | `GET /w/{workspaceId}/categories` | 카테고리는 `sortOrder`, 같으면 만든 시각, ID. 카테고리 안의 보드는 사용자가 정한 순서, 같으면 보드 ID |
 | `GET /subscriptions/{subscriber}` | 만든 시각, 블록 ID |
 
-- **멤버십에는 시각이 없다.** `board_members`에 참여한 시각의 열이 없어 "참여한 순서"로는 줄 수 없다. 그래서 ID 순서다. 참여 순서가 필요해지면 열을 더하는 마이그레이션이 든다(남은 문제).
+- **멤버십에는 시각이 없다.** `container_members`에 참여한 시각의 열이 없어 "참여한 순서"로는 줄 수 없다. 그래서 ID 순서다. 참여 순서가 필요해지면 열을 더하는 마이그레이션이 든다(남은 문제).
 - **카테고리의 같을 때 기준을 이름에서 만든 시각으로 바꿨다(내 판단).** 이름의 순서는 DB의 정렬 규칙(collation)에 달려 SQLite와 PostgreSQL이 다를 수 있다. 같은 `sortOrder`는 스토어를 거치면 생기지 않는다(만들 때마다 다른 것들을 민다). 사용자 목록을 이름순으로 하지 않은 것도 같은 이유다.
 - 알림을 받을 구독자의 목록(라우트가 아니다)도 같을 때 구독자 ID로 정했다.
 
@@ -773,9 +773,9 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 - 핸들러마다 `#[utoipa::path(...)]`가 경로, 이름(`operationId`), 매개변수, 본문, 답을 적는다. 핸들러의 문서 주석 첫 줄이 요약이고 나머지가 설명이다. `routes()`는 `routes!(...)`로 핸들러를 넣으므로 **실제 라우터와 계약이 같은 정의에서 나온다**(`api/mod.rs`의 `routes()` 하나를 `router()`와 `contract::document()`가 함께 쓴다). 주석을 달지 않은 핸들러는 라우터에 들어갈 길이 없다. 계약 밖에 남긴 것은 `/ws`, 정적 파일, 관리자 소켓의 두 라우트다.
 - 경로 매개변수의 이름을 계약의 표기(`{boardId}`)로 맞췄다. axum의 경로 문자열에서 이름만 바뀐 것이라 바깥에서는 보이지 않는다. 구독의 두 경로는 라우터에서 첫 자리의 이름이 하나(`{blockOrSubscriberId}`)여야 해서 문서를 만든 뒤 `{blockId}`, `{subscriberId}`로 고쳐 적는다(`contract::RENAMED_PATHS`).
 - 스키마는 와이어 타입(`fvoci-model`)의 `ToSchema`에서 나온다. 이 타입들은 너그럽게 읽으려고 멤버마다 기본값을 두는데, 그대로 내면 모든 멤버가 "없을 수 있음"이 된다. 그래서 문서를 만든 뒤 JSON 단계에서 고친다(`api/contract.rs`): 기본값을 지우고, 표 `SCHEMAS`가 스키마마다 늘 있는 멤버를 정한다(답으로 나가는 엔티티는 전부, 패치는 없음, `Sharing`의 `token`·`updateAt`, `Invitation`의 `token`처럼 빌 때 빠지는 멤버는 따로 적음). 표에 없는 스키마가 생기거나 표에만 있는 이름이 남으면 문서를 만드는 일이 실패한다.
-- 만들기와 고치기의 요청은 답과 모양이 달라 문서 전용 타입으로 따로 적었다(`api/contract/bodies.rs`의 `NewBoard`, `NewBlock`, `NewBoardsAndBlocks`, `NewCard`, `NewCategory`, `CategoryUpdate`, `NewMember`, `MemberRoles`, `SharingRequest`, `NewSubscription`, `AdminChange`, `SettingsChange`, `FileForm`). 서버는 이 타입으로 해석하지 않는다. **손으로 쓴 것이라 해석하는 쪽과 어긋날 수 있다**(남은 문제).
+- 만들기와 고치기의 요청은 답과 모양이 달라 문서 전용 타입으로 따로 적었다(`api/contract/bodies.rs`의 `NewBoard`, `NewBlock`, `NewContainersAndBlocks`, `NewCard`, `NewCategory`, `CategoryUpdate`, `NewMember`, `MemberRoles`, `SharingRequest`, `NewSubscription`, `AdminChange`, `SettingsChange`, `FileForm`). 서버는 이 타입으로 해석하지 않는다. **손으로 쓴 것이라 해석하는 쪽과 어긋날 수 있다**(남은 문제).
 - 멤버를 정하지 않은 객체(`fields`, `properties`, `cardProperties`의 항목, 팀의 `settings`)는 `additionalProperties: true`로 적는다. 아무 말도 없으면 타입 생성기가 "늘 빈 객체"로 읽는다.
-- 인증은 문서 전체의 기본이 `sessionCookie` 또는 `bearerToken`이다. 세션이 필요 없는 다섯(`login`, `register`, `getClientConfig`, `hello`, `ping`)은 `security: [{}]`, 읽기 토큰으로도 되는 넷(`getBoard`, `getBlocks`, `getFile`, `getFileInfo`)은 셋 가운데 하나다. CSRF 헤더와 `Origin` 규칙은 머리말에 글로 적었다.
+- 인증은 문서 전체의 기본이 `sessionCookie` 또는 `bearerToken`이다. 세션이 필요 없는 다섯(`login`, `register`, `getClientConfig`, `hello`, `ping`)은 `security: [{}]`, 읽기 토큰으로도 되는 넷(`getContainer`, `getBlocks`, `getFile`, `getFileInfo`)은 셋 가운데 하나다. CSRF 헤더와 `Origin` 규칙은 머리말에 글로 적었다.
 - 오류는 조작마다 4xx를 늘어놓지 않고 모든 조작의 `default`가 `Problem`이다. 429와 `Retry-After`만 `login`, `register`, `changePassword`에 따로 적었다.
 - 출력은 멤버 이름순, 두 칸 들여쓰기, 끝에 줄바꿈이다. 같은 서버는 늘 같은 바이트를 낸다.
 
