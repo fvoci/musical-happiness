@@ -126,7 +126,7 @@ async fn test_database(role: DatabaseRole, directory: &Path) -> TestDatabase {
 pub(crate) struct Setup {
     /// Whether `user1` is registered and signed in on both clients at the start.
     one_user: bool,
-    public_shared_boards: bool,
+    allow_public_links: bool,
     base_path: String,
     configure: Vec<fn(&mut Configuration)>,
     admin_socket: Option<PathBuf>,
@@ -163,7 +163,7 @@ impl Setup {
     /// `SetupTestHelperLocalMode`: native authentication with public sharing turned on.
     pub(crate) fn local_mode() -> Self {
         Self {
-            public_shared_boards: true,
+            allow_public_links: true,
             ..Self::default()
         }
     }
@@ -284,7 +284,7 @@ impl Setup {
             web_app_path: web_app_path.display().to_string(),
             file_storage: "local".to_owned(),
             file_storage_path: directory.join("uploads").display().to_string(),
-            allow_public_links: self.public_shared_boards,
+            allow_public_links: self.allow_public_links,
             // Pings are tested on their own; elsewhere they would only be noise.
             skip_websocket_pings: true,
             // Importing the templates is slow; only tests that ask for them pay it.

@@ -624,7 +624,7 @@ fn port_of(th: &TestServer) -> u16 {
 /// `serve_https` with `cert.pem` and `key.pem` (`server/web/webserver.go:113-121`): the server
 /// speaks TLS, and only TLS.
 #[tokio::test]
-async fn use_ssl_serves_over_tls() {
+async fn serve_https_serves_over_tls() {
     let directory = certificate_directory();
     let (tls_files, root) = write_certificate(&directory);
     let th = Setup::native()
@@ -681,7 +681,7 @@ async fn use_ssl_serves_over_tls() {
 /// A client that does not know the certificate does not get through, and the server
 /// keeps serving the ones that do.
 #[tokio::test]
-async fn use_ssl_failed_handshakes_do_not_disturb_the_server() {
+async fn serve_https_failed_handshakes_do_not_disturb_the_server() {
     let directory = certificate_directory();
     let (tls_files, root) = write_certificate(&directory);
     let th = Setup::native()
@@ -720,7 +720,7 @@ async fn use_ssl_failed_handshakes_do_not_disturb_the_server() {
 /// missing (`server/web/webserver.go:113`). An operator who asked for TLS must not end up
 /// serving sessions and passwords in the clear: the server refuses to serve.
 #[tokio::test]
-async fn use_ssl_without_certificate_files_refuses_to_serve() {
+async fn serve_https_without_certificate_files_refuses_to_serve() {
     let directory = certificate_directory();
     let tls_files = TlsFiles {
         certificate: directory.join("cert.pem"),
@@ -760,7 +760,7 @@ async fn use_ssl_without_certificate_files_refuses_to_serve() {
 
 /// One of the two files is not enough, and the refusal names the one that is missing.
 #[tokio::test]
-async fn use_ssl_with_a_certificate_but_no_key_refuses_to_serve() {
+async fn serve_https_with_a_certificate_but_no_key_refuses_to_serve() {
     let directory = certificate_directory();
     let (tls_files, _root) = write_certificate(&directory);
     std::fs::remove_file(&tls_files.key).expect("the key file is removed");
@@ -783,7 +783,7 @@ async fn use_ssl_with_a_certificate_but_no_key_refuses_to_serve() {
 
 /// Without `serve_https` the certificate files are not looked at: plain HTTP, as asked.
 #[tokio::test]
-async fn without_use_ssl_missing_certificate_files_do_not_matter() {
+async fn without_serve_https_missing_certificate_files_do_not_matter() {
     let directory = certificate_directory();
     let tls_files = TlsFiles {
         certificate: directory.join("cert.pem"),

@@ -70,16 +70,6 @@ impl<'de> serde::de::Visitor<'de> for UnreadKeysVisitor {
     }
 }
 
-/// Nothing: the keys that are not read are no setting, and the tests that write the
-/// defaults out see the settings only.
-#[cfg(test)]
-impl serde::Serialize for UnreadKeys {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeMap as _;
-        serializer.serialize_map(Some(0))?.end()
-    }
-}
-
 /// The settings of the S3 file backend, the object `file_storage_s3`.
 #[derive(Clone, Default, Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]
@@ -106,6 +96,7 @@ pub struct AmazonS3Config {
     /// The keys of the object that no setting reads. Last: it takes what the others
     /// leave.
     #[serde(flatten)]
+    #[cfg_attr(test, serde(skip_serializing))]
     pub unread: UnreadKeys,
 }
 
@@ -335,6 +326,7 @@ pub struct Configuration {
     /// The keys of the file that no setting reads. Last: it takes what the others,
     /// the flattened ones among them, leave.
     #[serde(flatten)]
+    #[cfg_attr(test, serde(skip_serializing))]
     pub unread: UnreadKeys,
 }
 
