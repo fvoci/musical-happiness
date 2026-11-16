@@ -379,7 +379,7 @@ test("a wiki's page shows the carets of who write it, by the name the server kno
   ).json()) as Schemas['Container'];
   const boraApi = await signedIn(base, bora);
   const [adaId, boraId] = [await userId(api), await userId(boraApi)];
-  await api.post(`${inWorkspace}/boards/${wiki.id}/members`, {
+  await api.post(`${inWorkspace}/containers/${wiki.id}/members`, {
     data: { userId: boraId, schemeViewer: true, schemeCommenter: true, schemeEditor: true },
   });
   const made = (await (

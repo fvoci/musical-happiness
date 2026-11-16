@@ -235,6 +235,45 @@ async fn export_has_the_download_headers() {
     ts.teardown().await;
 }
 
+/// The lines of `board.jsonl` keep the archive's names: a block and a member name their
+/// board `boardId`, as the original's archives and ours always have, never `containerId`.
+#[tokio::test]
+async fn an_exported_block_and_member_name_their_board_by_the_archives_name() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = board_with_card(&ts, TEST_WORKSPACE_ID).await;
+    let response = export_board(&ts.client, &board).await;
+    response.check_ok();
+    let mut zip = zip::ZipArchive::new(Cursor::new(response.body.clone())).expect("a zip");
+    let jsonl = zip
+        .file_names()
+        .filter_map(Result::ok)
+        .find(|name| name.ends_with("board.jsonl"))
+        .map(std::borrow::Cow::into_owned)
+        .expect("a board.jsonl is present");
+    let mut lines = String::new();
+    zip.by_name(&jsonl)
+        .expect("board.jsonl")
+        .read_to_string(&mut lines)
+        .expect("read");
+    let mut kinds = Vec::new();
+    for line in lines.lines() {
+        let line: serde_json::Value = serde_json::from_str(line).expect("a JSON line");
+        let kind = line["type"].as_str().expect("a line type").to_owned();
+        if kind == "block" || kind == "boardMember" {
+            assert_eq!(line["data"]["boardId"], board.id.as_str(), "{line}");
+            assert!(line["data"].get("containerId").is_none(), "{line}");
+        }
+        kinds.push(kind);
+    }
+    for kind in ["board", "block", "boardMember"] {
+        assert!(
+            kinds.iter().any(|one| one == kind),
+            "a {kind} line: {kinds:?}"
+        );
+    }
+    ts.teardown().await;
+}
+
 /// Export is allowed for members and refused for non-members and anonymous clients.
 #[tokio::test]
 async fn export_board_access_control() {
@@ -661,7 +700,7 @@ async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
     let block = |id: &str, parent: &str, kind: &str| {
         line(
             "block",
-            serde_json::json!({"id": id, "containerId": "b1", "parentId": parent, "type": kind,
+            serde_json::json!({"id": id, "boardId": "b1", "parentId": parent, "type": kind,
                                "title": id, "createAt": 1, "updateAt": 1}),
         )
     };
@@ -793,7 +832,7 @@ fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> {
     };
     let card = |id: &str, board_id: &str| {
         serde_json::json!({"type": "block", "data": {
-            "id": id, "containerId": board_id, "type": "card", "title": "card", "createAt": 1,
+            "id": id, "boardId": board_id, "type": "card", "title": "card", "createAt": 1,
             "updateAt": 1,
         }})
     };
@@ -828,11 +867,11 @@ fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> {
 async fn an_archive_with_a_refused_board_stores_nothing() {
     let ts = Setup::native().start().await.init_basic().await;
     let older_type = serde_json::json!({"type": "block", "data": {
-        "id": "t2", "containerId": "b2", "parentId": "c2", "type": "text", "title": "text",
+        "id": "t2", "boardId": "b2", "parentId": "c2", "type": "text", "title": "text",
         "createAt": 1, "updateAt": 1,
     }});
     let oversized = serde_json::json!({"type": "block", "data": {
-        "id": "c3", "containerId": "b2", "type": "card", "title": "big", "createAt": 1,
+        "id": "c3", "boardId": "b2", "type": "card", "title": "big", "createAt": 1,
         "updateAt": 1, "fields": {"note": "x".repeat(70_000)},
     }});
     for (block, says) in [

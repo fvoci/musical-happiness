@@ -50,7 +50,7 @@ async function twoOnAPage(
   const [found] = (await (
     await api.get(`${inWorkspace}/users`, { params: { search: colleague.username } })
   ).json()) as Schemas['User'][];
-  await api.post(`${inWorkspace}/boards/${wiki.id}/members`, {
+  await api.post(`${inWorkspace}/containers/${wiki.id}/members`, {
     data: {
       userId: found?.id,
       schemeViewer: true,

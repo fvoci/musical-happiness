@@ -313,7 +313,7 @@ test('a commenter deletes their own comment and brings it back with undo; somebo
   await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
-        boardId: board.boardId,
+        containerId: board.boardId,
         parentId: cardId,
         type: 'comment',
         title: '',

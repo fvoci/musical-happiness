@@ -484,7 +484,13 @@ fn archive(card_properties: &Value, values: Value) -> Vec<u8> {
         "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Imported",
         "cardProperties": card_properties, "createAt": 1, "updateAt": 1,
     }});
-    let block = json!({"type": "block", "data": card_block("b1", values)});
+    // An archive names a block's board `boardId`.
+    let mut data = card_block("b1", values);
+    let board_id = data
+        .as_object_mut()
+        .and_then(|block| block.remove("containerId"));
+    data["boardId"] = board_id.expect("the card names its board");
+    let block = json!({"type": "block", "data": data});
     let options = zip::write::SimpleFileOptions::default();
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer.start_file("version.json", options).expect("start");

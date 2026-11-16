@@ -31,7 +31,7 @@ fn archive(lines: &[Value]) -> Vec<u8> {
 
 fn block(id: &str, kind: &str, created_by: &str, modified_by: &str) -> Value {
     json!({"type": "block", "data": {
-        "id": id, "containerId": "board", "parentId": "board", "type": kind, "title": id,
+        "id": id, "boardId": "board", "parentId": "board", "type": kind, "title": id,
         "createdBy": created_by, "modifiedBy": modified_by, "createAt": 1, "updateAt": 1,
     }})
 }
@@ -91,7 +91,7 @@ async fn everything_imported_is_the_importers_whoever_the_archive_names() {
         "the colleague works in the workspace"
     );
     let comment = json!({"type": "block", "data": {
-        "id": "comment", "containerId": "board", "parentId": "theirs", "type": "comment",
+        "id": "comment", "boardId": "board", "parentId": "theirs", "type": "comment",
         "title": "", "createdBy": outsider, "modifiedBy": outsider, "createAt": 1,
         "updateAt": 1,
         "body": {"type": "doc", "content": [

@@ -342,7 +342,7 @@ export function newBoardAndViewOf(
 }
 
 /**
- * A change of a board, as `patchBoard` takes it. A minimum role the
+ * A change of a board, as `patchContainer` takes it. A minimum role the
  * contract does not have (none, or admin) is refused here as the server
  * would refuse it.
  */

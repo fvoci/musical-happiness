@@ -141,7 +141,7 @@ export class ServerRequests implements TrashReads {
    */
   protected workspaceOf<P extends Record<string, string>>(
     params: P,
-    workspaceId = this.#placeOf(params.containerId ?? params.boardId) ?? this.#workspaceId,
+    workspaceId = this.#placeOf(params.containerId || params.boardId) || this.#workspaceId,
   ): P & { workspaceId: string } {
     if (workspaceId === undefined) {
       throw new BackendError(500, { detail: 'no workspace was entered' });

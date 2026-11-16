@@ -154,7 +154,7 @@ test('people are shown by display name and login name wherever the board names t
     {
       data: [
         {
-          boardId: board.boardId,
+          containerId: board.boardId,
           parentId: cardId,
           type: 'comment',
           title: '',

@@ -1,5 +1,5 @@
 /**
- * What a copy of a board or a wiki takes (`duplicateBoard`), as the server
+ * What a copy of a board or a wiki takes (`duplicateContainer`), as the server
  * copies: its blocks but the comments, with what is typed in them now, and
  * the files they show given copies of their own on the copy.
  */

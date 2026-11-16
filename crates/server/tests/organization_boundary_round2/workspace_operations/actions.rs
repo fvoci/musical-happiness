@@ -95,7 +95,7 @@ async fn wikis(case: &mut Case) {
     let wiki = case.remember(&made, "id");
     assert_eq!(made["kind"], "wiki", "a wiki is made as one");
     case.present("getWikis", &[], &wiki).await;
-    case.present("getContainer", &[("boardId", &wiki)], &wiki)
+    case.present("getContainer", &[("containerId", &wiki)], &wiki)
         .await;
     pages(case, &wiki).await;
 }

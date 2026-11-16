@@ -128,7 +128,7 @@ async function cardsInEveryView(
           {
             type: 'view',
             parentId: board.boardId,
-            boardId: board.boardId,
+            containerId: board.boardId,
             title: kind,
             fields: { viewType: kind },
             createAt: Date.now(),

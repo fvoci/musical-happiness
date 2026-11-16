@@ -223,7 +223,7 @@ pub(crate) async fn duplicate_board(client: &Client, board_id: &str, query: &str
     duplicate_board_in(client, TEST_WORKSPACE_ID, board_id, query).await
 }
 
-/// `duplicateBoard` of a board of the workspace.
+/// `duplicateContainer` of a board of the workspace.
 pub(crate) async fn duplicate_board_in(
     client: &Client,
     workspace_id: &str,

@@ -105,7 +105,7 @@ test('a board is read by its public link without signing in, and not when the li
         {
           type: 'comment',
           parentId: cardId,
-          boardId: board.boardId,
+          containerId: board.boardId,
           title: '',
           body: { type: 'doc', content: [paragraph('The broad beans did well last year.')] },
           createAt: Date.now(),
@@ -120,7 +120,7 @@ test('a board is read by its public link without signing in, and not when the li
       {
         type: 'view',
         parentId: board.boardId,
-        boardId: board.boardId,
+        containerId: board.boardId,
         title: 'Table of it all',
         fields: { viewType: 'table', visiblePropertyIds: ['status', 'note'] },
         createAt: Date.now(),
@@ -288,7 +288,7 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
     ).ok(),
   ).toBe(true);
   const shared = (await (
-    await api.post(`${at}/boards/${wiki.id}/sharing`, { data: { enabled: true } })
+    await api.post(`${at}/containers/${wiki.id}/sharing`, { data: { enabled: true } })
   ).json()) as Schemas['Sharing'];
   const token = shared.token ?? '';
 
@@ -371,7 +371,7 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
 
   // The link turned off: the same "not found" as any other.
   expect(
-    (await api.post(`${at}/boards/${wiki.id}/sharing`, { data: { enabled: false } })).ok(),
+    (await api.post(`${at}/containers/${wiki.id}/sharing`, { data: { enabled: false } })).ok(),
   ).toBe(true);
   await page.reload();
   await expect(page.getByTestId('not-found')).toBeVisible();

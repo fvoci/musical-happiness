@@ -154,7 +154,8 @@ BEGIN
 END;
 
 -- What the trash keeps as JSON names a block's and a member's board or wiki
--- `containerId`, and a file's `container_id`, as the model does from now on.
+-- `containerId`, and a file's `container_id`, as the model does from now on. A list
+-- keeps its order (`key` is the place in it).
 UPDATE deleted_blocks
 SET block = json_set(json_remove(block, '$.boardId'), '$.containerId',
     json_extract(block, '$.boardId'))
@@ -165,7 +166,7 @@ SET members = (
         WHEN json_type(m.value, '$.boardId') IS NULL THEN json(m.value)
         ELSE json_set(json_remove(m.value, '$.boardId'), '$.containerId',
             json_extract(m.value, '$.boardId'))
-    END)
+    END ORDER BY m.key)
     FROM json_each(deleted_containers.members) AS m
 )
 WHERE EXISTS (
@@ -178,7 +179,7 @@ SET files = (
         WHEN json_type(f.value, '$.board_id') IS NULL THEN json(f.value)
         ELSE json_set(json_remove(f.value, '$.board_id'), '$.container_id',
             json_extract(f.value, '$.board_id'))
-    END)
+    END ORDER BY f.key)
     FROM json_each(deleted_containers.files) AS f
 )
 WHERE EXISTS (

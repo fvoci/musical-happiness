@@ -219,7 +219,7 @@ fn board_line(id: &str, kind: &str, title: &str) -> Value {
 
 fn block_line(id: &str, board: &str, parent: &str, block_type: &str) -> Value {
     json!({"type": "block", "data": {
-        "id": id, "containerId": board, "parentId": parent, "type": block_type,
+        "id": id, "boardId": board, "parentId": parent, "type": block_type,
         "title": id, "createAt": 1, "updateAt": 1,
     }})
 }

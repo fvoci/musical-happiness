@@ -74,7 +74,7 @@ test('a comment somebody else posts moves the card in a view sorted by last upda
     {
       data: [
         {
-          boardId: board.boardId,
+          containerId: board.boardId,
           parentId: talked,
           type: 'comment',
           title: '',

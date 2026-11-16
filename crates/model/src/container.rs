@@ -486,7 +486,7 @@ impl Container {
     }
 }
 
-/// A partial update of a `Board`. Absent members leave the board unchanged.
+/// A partial update of a `Container`. Absent members leave the board unchanged.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ContainerPatch {

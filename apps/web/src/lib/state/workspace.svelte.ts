@@ -490,7 +490,7 @@ export class Workspace {
     this.#apply({ kind: 'board', board });
   }
 
-  /** Copies a board, a wiki or a template into a board (`duplicateBoard`), in the sidebar at once. */
+  /** Copies a board, a wiki or a template into a board (`duplicateContainer`), in the sidebar at once. */
   async duplicateBoard(boardId: string): Promise<Board | undefined> {
     if (!this.info) return undefined;
     try {

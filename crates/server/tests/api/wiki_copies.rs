@@ -1,4 +1,4 @@
-//! Copying a wiki whole (`duplicateBoard` of a wiki): its pages as they stand, their
+//! Copying a wiki whole (`duplicateContainer` of a wiki): its pages as they stand, their
 //! tree and bodies, the images given files of their own, and what a body names among
 //! the wiki's pages named by the copies; not its comments, versions, trash, members or
 //! public link. A wiki is no template, and the copy is held to the limits.

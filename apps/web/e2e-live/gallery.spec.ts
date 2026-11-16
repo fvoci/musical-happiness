@@ -69,7 +69,7 @@ test('a gallery shows each card’s first picture and the start of its text, rea
     await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
       data: [
         {
-          boardId: board.boardId,
+          containerId: board.boardId,
           type: 'view',
           title: 'Gallery',
           createAt: 1,

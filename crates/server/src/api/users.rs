@@ -130,7 +130,7 @@ async fn handle_patch_me(
 /// sessions made through its provider leaves its boards out of another session's list.
 /// A board the user has a role on only through a team of its workspace is listed too
 /// (`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. A
-/// wiki the user is on is listed as a board is, under its identifier as `boardId`. By
+/// wiki the user is on is listed as a board is, under its identifier as `containerId`. By
 /// the identifier of the board.
 #[utoipa::path(
     get,

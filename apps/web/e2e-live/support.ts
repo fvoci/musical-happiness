@@ -268,7 +268,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
     await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.id}/blocks`, {
       data: [
         {
-          boardId: board.id,
+          containerId: board.id,
           type: 'view',
           title: 'By status',
           createAt: 1,

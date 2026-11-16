@@ -87,8 +87,8 @@ fn with_the_new_values(
 }
 
 /// The JSON a column of the trash keeps, as it is compared: the migration writes it
-/// again in its own layout (PostgreSQL's `jsonb` orders the members of an object), so
-/// the members of every object are in the order of their names.
+/// again in its own layout (SQLite puts a renamed member last), so the members of every
+/// object are in the order of their names; a list keeps its own order.
 fn comparable(
     table: &str,
     columns: &[String],
@@ -234,7 +234,9 @@ async fn indexes(database: &fvoci_store::testing::TestDatabase) -> Vec<String> {
 /// it, an invitation of a guest onto it, a link of a body on it, the search's note of
 /// it, the roles an administrator held on it before joining the workspace as the
 /// organization's administrator, and the records of two people put on it; and the
-/// trash's JSON as the server wrote it, a member's and a file's board and a block's.
+/// trash's JSON as the server wrote it, two members' and two files' board and a block's
+/// after its fields, which hold a `\u0000` (PostgreSQL's `json` keeps it, `jsonb`
+/// refuses it) and a member of their own named `boardId`, which is not the block's.
 fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> String {
     let board = before.id("board");
     let card = before.id("card");
@@ -276,10 +278,14 @@ fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> St
          ('{joined}', {org}, '{workspace}', '{admin}', 'person', 'self_added_to_board', \
          '{board}', NULL, 2); \
          UPDATE deleted_boards SET \
-         members = '[{{\"boardId\":\"{deleted}\",\"userId\":\"{admin}\",\"schemeAdmin\":true}}]', \
-         files = '[{{\"id\":\"f\",\"board_id\":\"{deleted}\",\"stored_name\":\"s\"}}]' \
+         members = '[{{\"boardId\":\"{deleted}\",\"userId\":\"{admin}\",\"schemeAdmin\":true}}, \
+         {{\"boardId\":\"{deleted}\",\"userId\":\"{member}\",\"schemeViewer\":true}}]', \
+         files = '[{{\"id\":\"f\",\"board_id\":\"{deleted}\",\"stored_name\":\"s\"}}, \
+         {{\"id\":\"g\",\"board_id\":\"{deleted}\",\"stored_name\":\"t\"}}]' \
          WHERE id = '{deleted}'; \
-         UPDATE deleted_blocks SET block = '{{\"type\":\"card\",\"boardId\":\"{board}\"}}' \
+         UPDATE deleted_blocks SET \
+         block = '{{\"type\":\"card\",\"fields\":{{\"note\":\"a\\u0000b\",\"boardId\":\"kept\"}}, \
+         \"boardId\":\"{board}\"}}' \
          WHERE id = '{deleted_card}'; \
          DELETE FROM data_steps;"
     )

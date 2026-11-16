@@ -1417,7 +1417,7 @@ async fn card_properties_are_put_in_order_and_the_board_is_told() {
     assert_eq!(ids(&stored), [json!("c"), json!("a"), json!("b")]);
     assert_eq!(stored["modifiedBy"], json!(user1.id), "{stored}");
 
-    // An editor may, as with patchBoard; the board is marked as changed by them.
+    // An editor may, as with patchContainer; the board is marked as changed by them.
     let answered: Vec<String> = editor_client.put(&path, &["b", "c", "a"]).await.ok_json();
     assert_eq!(answered, ["b", "c", "a"]);
     let by_editor = th

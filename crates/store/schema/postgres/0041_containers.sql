@@ -157,34 +157,17 @@ ALTER TABLE audit_log ADD CONSTRAINT audit_log_action_check CHECK (action IN (
     'email_verified_by_operator'));
 
 -- What the trash keeps as JSON names a block's and a member's board or wiki
--- `containerId`, and a file's `container_id`, as the model does from now on.
+-- `containerId`, and a file's `container_id`, as the model does from now on. The JSON
+-- is rewritten as text, never parsed: PostgreSQL's `jsonb` and `json_each` refuse a
+-- `\u0000` that a `json` value keeps. A member and a file are flat objects, so every
+-- member so named is theirs. A block's own comes after its `fields` and `body` (as the
+-- server writes a block, and as `jsonb` orders its members), so it is the last one.
 UPDATE deleted_blocks
-SET block = ((block::jsonb - 'boardId')
-             || jsonb_build_object('containerId', block::jsonb -> 'boardId'))::json
-WHERE block::jsonb ? 'boardId';
+SET block = regexp_replace(block::text, '^(.*)"boardId"(\s*):', '\1"containerId"\2:')::json
+WHERE block::text ~ '"boardId"\s*:';
 UPDATE deleted_containers
-SET members = (
-    SELECT json_agg(CASE
-        WHEN e.m ? 'boardId'
-            THEN (e.m - 'boardId') || jsonb_build_object('containerId', e.m -> 'boardId')
-        ELSE e.m
-    END ORDER BY e.n)
-    FROM jsonb_array_elements(deleted_containers.members::jsonb) WITH ORDINALITY AS e (m, n)
-)
-WHERE EXISTS (
-    SELECT 1 FROM jsonb_array_elements(deleted_containers.members::jsonb) AS e (m)
-    WHERE e.m ? 'boardId'
-);
+SET members = regexp_replace(members::text, '"boardId"(\s*):', '"containerId"\1:', 'g')::json
+WHERE members::text ~ '"boardId"\s*:';
 UPDATE deleted_containers
-SET files = (
-    SELECT json_agg(CASE
-        WHEN e.f ? 'board_id'
-            THEN (e.f - 'board_id') || jsonb_build_object('container_id', e.f -> 'board_id')
-        ELSE e.f
-    END ORDER BY e.n)
-    FROM jsonb_array_elements(deleted_containers.files::jsonb) WITH ORDINALITY AS e (f, n)
-)
-WHERE EXISTS (
-    SELECT 1 FROM jsonb_array_elements(deleted_containers.files::jsonb) AS e (f)
-    WHERE e.f ? 'board_id'
-);
+SET files = regexp_replace(files::text, '"board_id"(\s*):', '"container_id"\1:', 'g')::json
+WHERE files::text ~ '"board_id"\s*:';

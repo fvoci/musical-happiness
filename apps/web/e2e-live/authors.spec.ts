@@ -56,7 +56,7 @@ test('a departed writer of an earlier revision is named when the comment history
   const posted = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
-        boardId: board.boardId,
+        containerId: board.boardId,
         parentId: board.cards['A conversation'],
         type: 'comment',
         title: '',
@@ -118,7 +118,7 @@ test('a departed comment author is named without opening the comment history', a
     {
       data: [
         {
-          boardId: board.boardId,
+          containerId: board.boardId,
           parentId: board.cards['Kept conversation'],
           type: 'comment',
           title: '',
@@ -169,7 +169,7 @@ test('a departed editor of a card is named under the card’s “Last updated by
   });
   const workspace = `/api/v1/w/${board.workspaceId}`;
   const cardId = board.cards['Before the change'] ?? '';
-  const patched = await api.patch(`${workspace}/boards/${board.boardId}`, {
+  const patched = await api.patch(`${workspace}/containers/${board.boardId}`, {
     data: {
       updatedCardProperties: [
         { id: 'changer', name: 'Changed by', type: 'updatedBy', options: [] },

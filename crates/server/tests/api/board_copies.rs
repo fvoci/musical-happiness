@@ -1,4 +1,4 @@
-//! Copies of boards and templates (`duplicateBoard`).
+//! Copies of boards and templates (`duplicateContainer`).
 
 use fvoci_model::{
     Block, BlockType, Category, Container, ContainerMember, ContainerType, ContainersAndBlocks,

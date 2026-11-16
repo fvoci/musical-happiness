@@ -84,7 +84,7 @@ test('an image pasted into the body is a file of the board, and is drawn from th
   // Every reading of a file answers with it.
   const files: number[] = [];
   page.on('response', (response) => {
-    if (/\/api\/v1\/w\/[^/]+\/boards\/[^/]+\/files\//.test(response.url())) {
+    if (/\/api\/v1\/w\/[^/]+\/containers\/[^/]+\/files\//.test(response.url())) {
       files.push(response.status());
     }
   });

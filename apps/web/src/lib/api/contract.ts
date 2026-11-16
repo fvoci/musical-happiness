@@ -237,7 +237,7 @@ export interface paths {
          *     the registration is removed and the answer is 403 with the reason
          *     `invitation_required`. A registration made by the link of an invitation
          *     (`acceptInvitation`) is let in as the acceptance would have let it in, and the answer
-         *     names the board of a guest's link (`boardId`); if the link lets nobody in any more
+         *     names the board of a guest's link (`containerId`); if the link lets nobody in any more
          *     (revoked, or who made it may no longer invite), the registration is removed and the
          *     answer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as
          *     registrations are, and too many are 429.
@@ -322,7 +322,7 @@ export interface paths {
          *     already stays what they are. A guest's link puts the account on its board, in the
          *     link's role or the higher one the account has there: who is no member of the
          *     workspace becomes a guest of it (and no member of its organization), and who is one
-         *     stays what they are in it. The answer names the board then (`boardId`). The account
+         *     stays what they are in it. The answer names the board then (`containerId`). The account
          *     is made, the membership stored and the use of the link counted together or not at
          *     all, and an acceptance that changes nothing uses nothing of the link.
          *
@@ -372,7 +372,7 @@ export interface paths {
          * @description What the link of `token` shows to whoever holds it, before they accept it and
          *     whether they are signed in or not: the name of the workspace it leads into and the
          *     name of who made it (the name they are shown by, or their login name), and for a
-         *     guest's link the title of the board (`boardTitle`).
+         *     guest's link the title of the board (`containerTitle`).
          *
          *     A token that lets nobody in is 404 with the reason `invitation_unavailable`, as
          *     `acceptInvitation` answers it and whatever is wrong with it. A link for one guest
@@ -1296,7 +1296,7 @@ export interface paths {
          *     sessions made through its provider leaves its boards out of another session's list.
          *     A board the user has a role on only through a team of its workspace is listed too
          *     (`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. A
-         *     wiki the user is on is listed as a board is, under its identifier as `boardId`. By
+         *     wiki the user is on is listed as a board is, under its identifier as `containerId`. By
          *     the identifier of the board.
          */
         get: operations["getMyMemberships"];
@@ -1632,7 +1632,7 @@ export interface paths {
          *     boards, all or none. The request names at least one board, and every block it names
          *     is on one of its boards: blocks alone are not changed this way. Each board needs
          *     what `patchContainer` needs, each block what `patchBlock` needs; a board's patch that
-         *     names a `kind` is 400 at `/boardPatches/{index}/kind`.
+         *     names a `kind` is 400 at `/containerPatches/{index}/kind`.
          */
         patch: operations["patchBoardsAndBlocks"];
         trace?: never;
@@ -2236,7 +2236,8 @@ export interface paths {
          * @description An archive of the board with its blocks, its files and its members, offered as a
          *     download with its length. For the board's members. The archive is a ZIP of version
          *     3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
-         *     `block` or `boardMember` per line, in the shapes of this contract, bodies included)
+         *     `block` or `boardMember` per line, in the shapes of this contract, bodies included,
+         *     but that a block and a member name their board or wiki `boardId`, not `containerId`)
          *     and the files the blocks show, the images of bodies among them. A wiki is written
          *     as a board is, its `kind` `wiki`: its pages as they stand and the comments on them
          *     are its blocks (not the pages in its trash, nor the versions of bodies).
@@ -2676,7 +2677,7 @@ export interface paths {
          *     workspace's organization too.
          *
          *     With the `role` `guest` the link lets one person, once, onto the board or the wiki
-         *     `boardId` of the workspace, in the role `boardRole` (`viewer`, `commenter` or
+         *     `containerId` of the workspace, in the role `containerRole` (`viewer`, `commenter` or
          *     `editor`; an editor if left out): a guest of the workspace, who sees that board or
          *     wiki and nothing else of it.
          *     Who adds members to the board makes one (its admins, and the workspace's
@@ -4356,7 +4357,7 @@ export interface components {
             /** @description The identifier of the user. */
             userId: string;
         };
-        /** @description A partial update of a `Board`. Absent members leave the board unchanged. */
+        /** @description A partial update of a `Container`. Absent members leave the board unchanged. */
         ContainerPatch: {
             /** @description Identifiers of card property definitions to remove. */
             deletedCardProperties?: string[];
@@ -4400,7 +4401,7 @@ export interface components {
         ContainerType: "O" | "P";
         /** @description Boards and the blocks that belong to them, created together. */
         ContainersAndBlocks: {
-            /** @description The blocks; each must belong to one of `boards`. */
+            /** @description The blocks; each must belong to one of `containers`. */
             blocks: components["schemas"]["Block"][];
             /** @description The boards. */
             containers: components["schemas"]["Container"][];

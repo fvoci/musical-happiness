@@ -232,7 +232,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return boards.map(boardOf);
   }
 
-  /** `duplicateBoard` into the workspace (`toWorkspace`). The copy is the first board of the answer. */
+  /** `duplicateContainer` into the workspace (`toWorkspace`). The copy is the first board of the answer. */
   async duplicateBoard(boardId: string, asTemplate: boolean, workspaceId: string): Promise<Board> {
     const made = await this.inWorkspace<Schemas['ContainersAndBlocks']>(
       '/containers/{containerId}/duplicate',
@@ -253,7 +253,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return started.boardId;
   }
 
-  /** To the server's trash, with its blocks and members (`deleteBoard`, board admins only). */
+  /** To the server's trash, with its blocks and members (`deleteContainer`, board admins only). */
   async deleteBoard(containerId: string): Promise<void> {
     await this.inWorkspace('/containers/{containerId}', { containerId }, { method: 'DELETE' });
   }
@@ -337,7 +337,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return users.map(userOf);
   }
 
-  /** Joins an open board (`joinBoard`), with its minimum role. */
+  /** Joins an open board (`joinContainer`), with its minimum role. */
   async joinBoard(boardId: string): Promise<BoardMember> {
     return memberOf(
       await this.inWorkspace<Schemas['ContainerMember']>(
@@ -441,8 +441,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   /**
    * Files a board under a category and puts it at its place: two requests,
-   * since the server files a board (`setBoardCategory`) without a place and
-   * orders a category's boards (`reorderCategoryBoards`) apart. The order is
+   * since the server files a board (`setContainerCategory`) without a place and
+   * orders a category's boards (`reorderCategoryContainers`) apart. The order is
    * made from the category as it is after the filing, read again.
    */
   moveBoardToCategory(
@@ -867,7 +867,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     this.#uploading += 1;
   }
 
-  /** `exportBoardArchive`, read with its progress. */
+  /** `exportContainerArchive`, read with its progress. */
   exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     return downloadWithProgress(
       this.#http,

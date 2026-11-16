@@ -192,7 +192,7 @@ fn new_block_problem(
 /// boards, all or none. The request names at least one board, and every block it names
 /// is on one of its boards: blocks alone are not changed this way. Each board needs
 /// what `patchContainer` needs, each block what `patchBlock` needs; a board's patch that
-/// names a `kind` is 400 at `/boardPatches/{index}/kind`.
+/// names a `kind` is 400 at `/containerPatches/{index}/kind`.
 #[utoipa::path(
     patch,
     path = "/w/{workspaceId}/boards-and-blocks",

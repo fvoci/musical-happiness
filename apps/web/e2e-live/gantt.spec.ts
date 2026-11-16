@@ -279,7 +279,7 @@ test('"display by" chosen for a view that named no date can be taken back on the
   const made = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
-        boardId: board.boardId,
+        containerId: board.boardId,
         type: 'view',
         title: 'Bare Gantt',
         createAt: 1,

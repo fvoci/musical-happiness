@@ -680,7 +680,7 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 | `admins` | `old path: renew the token` | 404 |
 | `files` | `old path: upload`, `old path: download`, `old path: info` | 404 |
 | `categories` | `old path: reorder categories` | 404. 이제 ID가 `reorder`인 카테고리의 수정으로 읽히고 그런 카테고리는 없다 |
-| `categories` | `old path: reorder boards` | 405. `.../categories/{category}/boards/{board}`의 경로와 겹치고 그 라우트에 `PUT`이 없다 |
+| `categories` | `old path: reorder boards` | 404. 보드를 카테고리에 넣는 라우트가 `.../categories/{category}/containers/{container}`로 옮겨 겹치는 라우트가 없다(그 전에는 그 라우트에 `PUT`이 없어 405) |
 | `blocks` | `list: the old name of the parameter is no filter` | 200, 거르지 않은 목록 |
 | `sharing` | `board with the token under the old name of the parameter` | 401 |
 

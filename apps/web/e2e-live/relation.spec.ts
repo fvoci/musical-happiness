@@ -201,7 +201,7 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
   const gantt = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
-        boardId: board.boardId,
+        containerId: board.boardId,
         type: 'view',
         title: 'Plan',
         createAt: 1,

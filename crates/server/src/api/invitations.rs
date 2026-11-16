@@ -61,7 +61,7 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
 /// workspace's organization too.
 ///
 /// With the `role` `guest` the link lets one person, once, onto the board or the wiki
-/// `boardId` of the workspace, in the role `boardRole` (`viewer`, `commenter` or
+/// `containerId` of the workspace, in the role `containerRole` (`viewer`, `commenter` or
 /// `editor`; an editor if left out): a guest of the workspace, who sees that board or
 /// wiki and nothing else of it.
 /// Who adds members to the board makes one (its admins, and the workspace's
@@ -268,7 +268,7 @@ async fn handle_set_guest_invitations(ws: InWorkspace, body: Bytes) -> ApiResult
 /// What the link of `token` shows to whoever holds it, before they accept it and
 /// whether they are signed in or not: the name of the workspace it leads into and the
 /// name of who made it (the name they are shown by, or their login name), and for a
-/// guest's link the title of the board (`boardTitle`).
+/// guest's link the title of the board (`containerTitle`).
 ///
 /// A token that lets nobody in is 404 with the reason `invitation_unavailable`, as
 /// `acceptInvitation` answers it and whatever is wrong with it. A link for one guest
@@ -334,7 +334,7 @@ async fn handle_preview_invitation(
 /// already stays what they are. A guest's link puts the account on its board, in the
 /// link's role or the higher one the account has there: who is no member of the
 /// workspace becomes a guest of it (and no member of its organization), and who is one
-/// stays what they are in it. The answer names the board then (`boardId`). The account
+/// stays what they are in it. The answer names the board then (`containerId`). The account
 /// is made, the membership stored and the use of the link counted together or not at
 /// all, and an acceptance that changes nothing uses nothing of the link.
 ///

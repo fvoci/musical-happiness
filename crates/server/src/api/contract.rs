@@ -690,7 +690,7 @@ fn require_members(name: &str, schema: &mut Value, members: Members) -> Result<(
 }
 
 /// Takes the brackets off the names that the descriptions link to in the Rust
-/// documentation they are also: ``[`Container`]`` reads `` `Board` `` in the contract.
+/// documentation they are also: ``[`Container`]`` reads `` `Container` `` in the contract.
 fn plain_descriptions(value: &mut Value) {
     match value {
         Value::Object(members) => {

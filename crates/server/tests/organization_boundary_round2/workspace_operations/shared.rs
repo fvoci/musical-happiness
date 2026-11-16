@@ -89,13 +89,13 @@ pub(super) async fn exercise_wiki(case: &mut Case) {
         .await
         .value();
     let page = case.remember(&made, "id");
-    let at = &[("boardId", wiki.as_str())];
+    let at = &[("containerId", wiki.as_str())];
     let sharing = case
         .run("setSharing", at, json!({"enabled": true}))
         .await
         .value();
     let token = sharing["token"].as_str().expect("read token");
-    let of_page = &[("boardId", wiki.as_str()), ("pageId", page.as_str())];
+    let of_page = &[("containerId", wiki.as_str()), ("pageId", page.as_str())];
     for (operation, params, expected) in [
         ("getSharedPageTree", &at[..], &page),
         ("getSharedPage", &of_page[..], &page),

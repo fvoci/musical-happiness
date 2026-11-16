@@ -42,7 +42,7 @@ pub struct ContainersAndBlocks {
     /// The boards.
     #[serde(deserialize_with = "null_as_default")]
     pub containers: Vec<Container>,
-    /// The blocks; each must belong to one of `boards`.
+    /// The blocks; each must belong to one of `containers`.
     #[serde(deserialize_with = "null_as_default")]
     pub blocks: Vec<Block>,
 }

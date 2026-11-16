@@ -71,7 +71,8 @@ pub(super) async fn require_import_access(
 /// An archive of the board with its blocks, its files and its members, offered as a
 /// download with its length. For the board's members. The archive is a ZIP of version
 /// 3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
-/// `block` or `boardMember` per line, in the shapes of this contract, bodies included)
+/// `block` or `boardMember` per line, in the shapes of this contract, bodies included,
+/// but that a block and a member name their board or wiki `boardId`, not `containerId`)
 /// and the files the blocks show, the images of bodies among them. A wiki is written
 /// as a board is, its `kind` `wiki`: its pages as they stand and the comments on them
 /// are its blocks (not the pages in its trash, nor the versions of bodies).
