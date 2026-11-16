@@ -32,6 +32,7 @@
     type ViewedFile,
   } from '$lib/file-viewer/session.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { getLocale } from '$lib/i18n/paraglide/runtime.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
   import { humanFileSize } from '$lib/logic/format.ts';
@@ -50,6 +51,7 @@
     () =>
       new ViewerSession(file, {
         theme: () => display.resolved.theme,
+        lang: getLocale,
         onKey: (key) => {
           command(key);
         },

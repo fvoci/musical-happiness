@@ -135,18 +135,18 @@ describe('a message from the frame is taken only in one of its shapes', () => {
 describe('a message from the app, in the frame', () => {
   it('opens a file of a kind the viewer draws, with its bytes', () => {
     const buffer = new ArrayBuffer(4);
-    expect(readToFrame({ kind: 'open', format: 'docx', bytes: buffer, theme: 'dark' })).toEqual({
-      kind: 'open',
-      format: 'docx',
-      bytes: buffer,
-      theme: 'dark',
-    });
-    expect(
-      readToFrame({ kind: 'open', format: 'html', bytes: buffer, theme: 'dark' }),
-    ).toBeUndefined();
-    expect(
-      readToFrame({ kind: 'open', format: 'pdf', bytes: new Uint8Array(4), theme: 'dark' }),
-    ).toBeUndefined();
+    const open = { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko' };
+    expect(readToFrame(open)).toEqual(open);
+    expect(readToFrame({ ...open, lang: 'zh-Hans' })).toEqual({ ...open, lang: 'zh-Hans' });
+    for (const wrong of [
+      { ...open, format: 'html' },
+      { ...open, bytes: new Uint8Array(4) },
+      { ...open, lang: 'ko"><script>' },
+      { ...open, lang: '' },
+      { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark' },
+    ]) {
+      expect(readToFrame(wrong), JSON.stringify(wrong)).toBeUndefined();
+    }
   });
 
   it('zooms within its range and goes to a page', () => {

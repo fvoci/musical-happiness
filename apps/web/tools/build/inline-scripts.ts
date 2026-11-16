@@ -89,24 +89,21 @@ export function cspHashes(): Plugin {
   };
 }
 
-/** The file of `static/` the file viewer draws in (vite.config.ts). */
-export const VIEWER_FRAME_FILE = 'viewer-frame.html';
-
 /**
  * Headers every file under `static/` carries, as the server sends them
  * (crates/server/src/web.rs).
  *
- * - `Access-Control-Allow-Origin: *`: the viewer's frame has no origin of
- *   its own, so loading the app's scripts, style sheets and fonts is a
+ * - `Access-Control-Allow-Origin: *`: the file viewer's frame has no origin
+ *   of its own, so loading the app's scripts, style sheets and fonts is a
  *   cross-origin request for it. The files are the public build; nothing
  *   is sent with them that a stranger could not fetch.
- * - The frame's document is sandboxed by a header too, so that opened as a
- *   page of its own it has no origin either.
+ * - An HTML document there (the viewer's frame) is sandboxed by a header too,
+ *   so that opened as a page of its own it has no origin either.
  */
 export function staticHeaders(fileName: string): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': '*',
-    ...(path.basename(fileName) === VIEWER_FRAME_FILE
+    ...(path.extname(fileName) === '.html'
       ? { 'Content-Security-Policy': 'sandbox allow-scripts' }
       : {}),
   };

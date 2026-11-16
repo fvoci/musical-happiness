@@ -37,7 +37,10 @@ impl Fixture {
         write("static/app-0123456789abcdef.js.gz", "GZIP-BYTES");
         write("static/app-0123456789abcdef.js.zst", "ZSTD-BYTES");
         write("static/sub/nested.css", "body{}");
-        write("static/viewer-frame.html", "<!doctype html><title>frame</title>");
+        write(
+            "static/viewer-frame.html",
+            "<!doctype html><title>frame</title>",
+        );
         write("secret.txt", "outside static");
         let web = WebRoot::new(&dir, server_root);
         Self { dir, web }
@@ -104,7 +107,11 @@ async fn static_files_may_be_read_from_any_origin() {
     for path in ["main.js", "app-0123456789abcdef.js", "sub/nested.css"] {
         let response = fixture.get(path, &[]).await;
         assert_eq!(response.status(), StatusCode::OK, "{path}");
-        assert_eq!(header(&response, &ACCESS_CONTROL_ALLOW_ORIGIN), "*", "{path}");
+        assert_eq!(
+            header(&response, &ACCESS_CONTROL_ALLOW_ORIGIN),
+            "*",
+            "{path}"
+        );
         assert!(
             response.headers().get(CONTENT_SECURITY_POLICY).is_none(),
             "{path} is not sandboxed"
@@ -112,20 +119,32 @@ async fn static_files_may_be_read_from_any_origin() {
     }
 }
 
-/// Opened on its own, the viewer's frame is sandboxed as it is in the app's iframe.
+/// Opened on its own, the viewer's frame is sandboxed as it is in the app's iframe, by
+/// whatever name reaches it.
 #[tokio::test]
 async fn the_viewer_frame_is_sandboxed() {
     let fixture = Fixture::new("http://localhost:8000");
 
-    let response = fixture.get("viewer-frame.html", &[]).await;
+    for path in [
+        "viewer-frame.html",
+        "viewer%2Dframe.html",
+        "viewer-frame%2Ehtml",
+    ] {
+        let response = fixture.get(path, &[]).await;
 
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        header(&response, &CONTENT_SECURITY_POLICY),
-        "sandbox allow-scripts"
-    );
-    assert_eq!(header(&response, &ACCESS_CONTROL_ALLOW_ORIGIN), "*");
-    assert_eq!(header(&response, &CACHE_CONTROL), "no-cache");
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(
+            header(&response, &CONTENT_SECURITY_POLICY),
+            "sandbox allow-scripts",
+            "{path}"
+        );
+        assert_eq!(
+            header(&response, &ACCESS_CONTROL_ALLOW_ORIGIN),
+            "*",
+            "{path}"
+        );
+        assert_eq!(header(&response, &CACHE_CONTROL), "no-cache", "{path}");
+    }
 }
 
 #[tokio::test]

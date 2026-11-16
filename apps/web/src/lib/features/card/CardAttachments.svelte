@@ -280,7 +280,7 @@
     file={{
       name: attachment.name,
       size: attachment.size,
-      read: () => card.fileBytes(attachment.fileId),
+      read: (signal?: AbortSignal) => card.fileBytes(attachment.fileId, signal),
     }}
     onClose={closeViewer}
   />

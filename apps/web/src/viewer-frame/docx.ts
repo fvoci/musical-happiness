@@ -14,7 +14,7 @@
  */
 import { renderAsync } from 'docx-preview';
 
-import { followPages, UnreadableFile, type Drawn, type Render } from './renderer.ts';
+import { PageFollower, UnreadableFile, type Drawn, type Render, type Report } from './renderer.ts';
 
 /** What every font family of the document falls back to: the app's families, as the frame's style sheet has them. */
 const FALLBACK = '"Noto Sans", "Noto Sans KR", sans-serif';
@@ -44,11 +44,14 @@ class DocxView implements Drawn {
   readonly #width: number;
   #zoom = 1;
 
-  constructor(place: HTMLElement) {
+  readonly #follower: PageFollower;
+
+  constructor(place: HTMLElement, report: Report) {
     this.#place = place;
     const first = place.querySelector('section.docx');
     this.#width = first instanceof HTMLElement ? first.offsetWidth : 816;
     this.#layOut();
+    this.#follower = new PageFollower(() => this.pages, report);
     let resizing: ReturnType<typeof setTimeout> | undefined;
     window.addEventListener('resize', () => {
       clearTimeout(resizing);
@@ -68,7 +71,10 @@ class DocxView implements Drawn {
   }
 
   goTo(page: number): void {
-    this.pages[page - 1]?.scrollIntoView({ block: 'start' });
+    const section = this.pages[page - 1];
+    if (!section) return;
+    section.scrollIntoView({ block: 'start' });
+    this.#follower.pin(page);
   }
 
   zoom(zoom: number): void {
@@ -101,9 +107,7 @@ export const render: Render = async (bytes, place, report) => {
     throw new UnreadableFile();
   }
   fallBack(styles, body);
-  const view = new DocxView(body);
-  const pages = Math.max(1, view.pages.length);
-  followPages(() => view.pages, report);
-  report.shown(pages);
+  const view = new DocxView(body, report);
+  report.shown(Math.max(1, view.pages.length));
   return view;
 };

@@ -28,8 +28,11 @@ export interface ViewedFile {
   name: string;
   /** Its size as recorded, in bytes; 0 when unknown. */
   size: number;
-  /** Its bytes; undefined when they could not be read (the reason is told elsewhere). */
-  read: () => Promise<Blob | undefined>;
+  /**
+   * Its bytes; undefined when they could not be read (the reason is told
+   * elsewhere) or the reading was given up through `signal`.
+   */
+  read: (signal?: AbortSignal) => Promise<Blob | undefined>;
 }
 
 export interface Limits {
@@ -73,18 +76,27 @@ export class ViewerSession {
   readonly file: ViewedFile;
   readonly #limits: Limits;
   readonly #theme: () => Theme;
+  readonly #lang: () => string;
   readonly #onKey: (key: ViewerKey) => void;
+  /** Gives up the reading, and stands for "closed". */
+  readonly #abort = new AbortController();
   #bytes: ArrayBuffer | undefined;
   #frame: HTMLIFrameElement | undefined;
   #timer: ReturnType<typeof setTimeout> | undefined;
-  #closed = false;
 
   constructor(
     file: ViewedFile,
-    options: { theme: () => Theme; onKey: (key: ViewerKey) => void; limits?: Limits },
+    options: {
+      theme: () => Theme;
+      /** The app's language, for the document's text. */
+      lang: () => string;
+      onKey: (key: ViewerKey) => void;
+      limits?: Limits;
+    },
   ) {
     this.file = file;
     this.#theme = options.theme;
+    this.#lang = options.lang;
     this.#onKey = options.onKey;
     this.#limits = options.limits ?? LIMITS;
     void this.#read();
@@ -95,7 +107,7 @@ export class ViewerSession {
       this.status = { name: 'too-large' };
       return;
     }
-    const blob = await this.file.read();
+    const blob = await this.file.read(this.#abort.signal);
     if (this.#gone()) return;
     if (!blob) {
       this.status = { name: 'failed', reason: 'unread' };
@@ -124,10 +136,20 @@ export class ViewerSession {
       if (event.source === null || event.source !== frame.contentWindow) return;
       this.#receive(event.data);
     };
+    // The frame's document loads once. Another load is the frame gone
+    // somewhere else (the frame stops a document's links; this is the second
+    // guard): whatever is in it now is not ours to show.
+    let loads = 0;
+    const onLoad = (): void => {
+      loads += 1;
+      if (loads > 1) this.#fail('renderer');
+    };
     window.addEventListener('message', onMessage);
+    frame.addEventListener('load', onLoad);
     this.#wait(this.#limits.ready);
     return () => {
       window.removeEventListener('message', onMessage);
+      frame.removeEventListener('load', onLoad);
       clearTimeout(this.#timer);
       if (this.#frame === frame) this.#frame = undefined;
     };
@@ -136,9 +158,14 @@ export class ViewerSession {
   #wait(milliseconds: number): void {
     clearTimeout(this.#timer);
     this.#timer = setTimeout(() => {
-      // Taking the status off "opening" takes the frame out of the page.
-      this.status = { name: 'failed', reason: 'slow' };
+      this.#fail('slow');
     }, milliseconds);
+  }
+
+  /** Taking the status off "opening" and "shown" takes the frame out of the page. */
+  #fail(reason: Extract<Status, { name: 'failed' }>['reason']): void {
+    clearTimeout(this.#timer);
+    this.status = { name: 'failed', reason };
   }
 
   #send(message: ToFrame, transfer: Transferable[] = []): void {
@@ -157,7 +184,8 @@ export class ViewerSession {
         if (status.name !== 'opening' || !bytes) return;
         // Handed over, not copied: the app keeps the blob for "Download".
         this.#bytes = undefined;
-        this.#send({ kind: 'open', format: status.format, bytes, theme: this.#theme() }, [bytes]);
+        const open = { format: status.format, bytes, theme: this.#theme(), lang: this.#lang() };
+        this.#send({ kind: 'open', ...open }, [bytes]);
         this.#wait(this.#limits.draw);
         break;
       }
@@ -171,8 +199,7 @@ export class ViewerSession {
         this.page = Math.min(message.page, this.pages);
         break;
       case 'failed':
-        clearTimeout(this.#timer);
-        this.status = { name: 'failed', reason: message.reason };
+        this.#fail(message.reason);
         break;
       case 'key':
         this.#onKey(message.key);
@@ -210,14 +237,14 @@ export class ViewerSession {
     }
   }
 
-  /** Whether the viewer was closed meanwhile (a method: a field would stay narrowed across `await`). */
+  /** Whether the viewer was closed meanwhile. */
   #gone(): boolean {
-    return this.#closed;
+    return this.#abort.signal.aborted;
   }
 
-  /** Stops everything: the frame goes with the component that holds it. */
+  /** Stops everything: the reading, the timers; the frame goes with the component that holds it. */
   close(): void {
-    this.#closed = true;
+    this.#abort.abort();
     this.#bytes = undefined;
     clearTimeout(this.#timer);
   }

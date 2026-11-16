@@ -202,7 +202,8 @@ createServer((request, response) => {
       'Cache-Control': 'no-cache',
       'X-Content-Type-Options': 'nosniff',
       Vary: 'Accept-Encoding',
-      ...staticHeaders(file),
+      // The app's own files, as the server sends them; not the other folders' pages.
+      ...(apps.has(name) && rest[0] === 'static' ? staticHeaders(file) : {}),
       ...(encoding ? { 'Content-Encoding': encoding.name } : {}),
     })
     .end(readFileSync(encoding ? file + encoding.extension : file));

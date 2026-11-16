@@ -42,6 +42,22 @@ function setTheme(theme: Theme): void {
 
 const keys = new Set<string>(VIEWER_KEYS);
 
+/**
+ * Keeps a document's links from taking the frame away: a link a document
+ * carries would load another page in the frame, with scripts and the network,
+ * inside the app's dialog. Only links to a place in the document itself go.
+ */
+function holdLinks(): void {
+  const hold = (event: MouseEvent): void => {
+    const link = event.target instanceof Element ? event.target.closest('a, area') : null;
+    if (!link) return;
+    const target = link.getAttribute('href') ?? link.getAttribute('xlink:href') ?? '';
+    if (!target.startsWith('#')) event.preventDefault();
+  };
+  document.addEventListener('click', hold, true);
+  document.addEventListener('auxclick', hold, true);
+}
+
 function forwardKeys(): void {
   document.addEventListener('keydown', (event) => {
     if (event.ctrlKey || event.metaKey || event.altKey || !keys.has(event.key)) return;
@@ -75,6 +91,8 @@ function start(): void {
         if (opened) return;
         opened = true;
         setTheme(message.theme);
+        // The language of the app: what a screen reader reads the document's text in.
+        document.documentElement.lang = message.lang;
         RENDERERS[message.format]()
           .then((render) => render(message.bytes, place, report))
           .then((result) => {
@@ -106,6 +124,7 @@ function start(): void {
     }
   });
   forwardKeys();
+  holdLinks();
   tell({ kind: 'ready' });
 }
 

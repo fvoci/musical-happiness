@@ -1,24 +1,25 @@
 /*
-  The frame's own look: a column of pages on the app's page colour, light or
-  dark as the app is. The pages keep the document's colours.
+  The frame's own look: a column of pages, light or dark as the app is. The
+  frame paints no background, so the app's colour behind it (the viewer's
+  `bg-muted`) shows through; that holds while the frame's `color-scheme` is
+  the app's, which the theme message keeps. The pages keep the document's
+  own colours; their edges use the system's colours, as the app's tokens are
+  not loaded here.
 */
 :root {
-  --frame-background: #f4f4f5;
-  --page-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+  --page-shadow: 0 1px 3px color-mix(in srgb, CanvasText 25%, transparent);
   color-scheme: light;
   font-family: 'Noto Sans', 'Noto Sans KR', sans-serif;
 }
 
 :root.dark {
-  --frame-background: #18181b;
-  --page-shadow: 0 1px 3px rgb(0 0 0 / 0.6);
   color-scheme: dark;
 }
 
 html,
 body {
   margin: 0;
-  background: var(--frame-background);
+  background: transparent;
 }
 
 .pages {
@@ -106,7 +107,7 @@ body {
 }
 
 .textLayer ::selection {
-  background: rgb(0 0 255 / 0.25);
+  background: color-mix(in srgb, Highlight 40%, transparent);
 }
 
 .textLayer br::selection {

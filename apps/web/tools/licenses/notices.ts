@@ -9,7 +9,8 @@
  * - packages whose data a tool of this project turned into source files, when
  *   those files are in the bundle ("derived": the emoji lists, from CLDR),
  * - the data files of pdf.js the file viewer bundles, under their own
- *   licences (pdfjs-data.ts),
+ *   licences (pdfjs-data.ts), and packages inside another package's
+ *   prebuilt bundle (prebuilt.ts),
  * - the fonts the font tool produced,
  * - the fonts of the formula library, when that library is in the bundle
  *   (katex-fonts.ts: its package names only the licence of its code).
@@ -28,6 +29,7 @@ import exceptions from './exceptions.json' with { type: 'json' };
 import { katexFontLicense } from './katex-fonts.ts';
 import { readPackageLicense, statedLicense, type PackageLicense } from './packages.ts';
 import { pdfjsDataLicenses } from './pdfjs-data.ts';
+import { prebuiltLicenses } from './prebuilt.ts';
 import { isAllowed, readAllowedLicenses } from './policy.ts';
 
 const WEB_ROOT = path.resolve(import.meta.dirname, '../..');
@@ -120,6 +122,10 @@ export function thirdPartyNotices(): Plugin {
         }
         // The file viewer's pdf.js data: other people's files, under their own licences.
         for (const item of pdfjsDataLicenses(bundledModules)) byName.set(item.name, item);
+        // Packages inside another package's prebuilt bundle (prebuilt.ts).
+        for (const item of prebuiltLicenses([...byName.keys()])) {
+          if (!byName.has(item.name)) byName.set(item.name, item);
+        }
 
         const allowed = new Set(readAllowedLicenses());
         const refused = [...byName.values()].filter((item) => !isAllowed(item.identifier, allowed));

@@ -26,39 +26,66 @@ export class UnreadableFile extends Error {}
 
 export type Render = (bytes: ArrayBuffer, place: HTMLElement, report: Report) => Promise<Drawn>;
 
+/** How long after a page is brought into view the scrolling it caused is let be, in milliseconds. */
+const PIN_SETTLES = 150;
+
 /**
- * Follows which page is most in view while the document scrolls, and tells
- * the viewer when that changes. `pages` are the page elements in order.
+ * Follows which page is in view while the document scrolls, and tells the
+ * viewer when that changes. The page in view is the one across the line a
+ * quarter of the way down the frame: a page brought into view by its top
+ * (`pin`) is the page in view, however small the pages are drawn.
  */
-export function followPages(pages: () => readonly Element[], report: Report): () => void {
-  let current = 0;
-  let frame = 0;
-  const measure = (): void => {
-    frame = 0;
-    const middle = window.innerHeight / 2;
+export class PageFollower {
+  readonly #pages: () => readonly Element[];
+  readonly #report: Report;
+  #current = 0;
+  #frame = 0;
+  /** When a page was last brought into view: the scroll that follows does not move the count. */
+  #pinnedAt = -Infinity;
+
+  constructor(pages: () => readonly Element[], report: Report) {
+    this.#pages = pages;
+    this.#report = report;
+    const onScroll = (): void => {
+      if (this.#frame !== 0) return;
+      this.#frame = requestAnimationFrame(() => {
+        this.#measure();
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    this.#measure();
+  }
+
+  /** Takes `page` (from 1) as the page in view: it was just brought to the top. */
+  pin(page: number): void {
+    this.#pinnedAt = performance.now();
+    this.#tell(page);
+  }
+
+  #measure(): void {
+    this.#frame = 0;
+    if (performance.now() - this.#pinnedAt < PIN_SETTLES) return;
+    const line = window.innerHeight / 4;
     let best = 1;
     let bestDistance = Infinity;
-    pages().forEach((page, index) => {
+    this.#pages().forEach((page, index) => {
       const box = page.getBoundingClientRect();
       const distance =
-        box.top <= middle && box.bottom >= middle
+        box.top <= line && box.bottom >= line
           ? 0
-          : Math.min(Math.abs(box.top - middle), Math.abs(box.bottom - middle));
+          : Math.min(Math.abs(box.top - line), Math.abs(box.bottom - line));
       if (distance < bestDistance) {
         bestDistance = distance;
         best = index + 1;
       }
     });
-    if (best !== current) {
-      current = best;
-      report.page(best);
-    }
-  };
-  const onScroll = (): void => {
-    if (frame === 0) frame = requestAnimationFrame(measure);
-  };
-  window.addEventListener('scroll', onScroll, { passive: true });
-  window.addEventListener('resize', onScroll, { passive: true });
-  measure();
-  return onScroll;
+    this.#tell(best);
+  }
+
+  #tell(page: number): void {
+    if (page === this.#current) return;
+    this.#current = page;
+    this.#report.page(page);
+  }
 }

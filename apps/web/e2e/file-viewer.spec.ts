@@ -4,14 +4,15 @@
  * the frame the renderers run in kept off the network and the app's storage.
  *
  * With `FVOCI_SCREENS=1` the tests also take pictures of each state into
- * `target/viewer-p1/` (light and dark), at every size the project runs at.
+ * `target/viewer-p1/` (light and dark), at every size the project runs at
+ * (the phone at 390 pixels).
  */
 import { closeSync, ftruncateSync, openSync, writeSync } from 'node:fs';
 import path from 'node:path';
 
 import { expect, test, type FrameLocator, type Locator, type Page } from '@playwright/test';
 
-import { DOCX_TEXT, koreanDocx, koreanPdf } from '../tests/support/viewer-files.ts';
+import { DOCX_LINK, DOCX_TEXT, koreanDocx, koreanPdf } from '../tests/support/viewer-files.ts';
 
 import { boardPath } from './address.ts';
 
@@ -68,6 +69,8 @@ const frameOf = (page: Page): FrameLocator =>
 async function picture(page: Page, name: string): Promise<void> {
   if (!SCREENS) return;
   const project = test.info().project.name;
+  // The phone pictures at the narrowest width the app is drawn for.
+  if (project === 'mobile') await page.setViewportSize({ width: 390, height: 844 });
   for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme });
     // The frame follows the app's theme by a message; give it a frame to paint.
@@ -186,7 +189,18 @@ test('a Word document in Korean shows its header, its table and its picture', as
     .getByText(DOCX_TEXT.title)
     .evaluate((element) => getComputedStyle(element).fontFamily);
   expect(family).toContain('Noto Sans KR');
+  await expect(frame.locator('html')).toHaveAttribute('lang', 'en');
   await picture(page, 'docx');
+
+  // A link of the document goes nowhere: the frame keeps the document, and the viewer its pages.
+  const link = pageOne.getByRole('link', { name: DOCX_TEXT.link });
+  await expect(link).toHaveAttribute('href', DOCX_LINK);
+  await link.click();
+  await link.click({ button: 'middle' });
+  await expect(pageOne).toContainText(DOCX_TEXT.title);
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  const inside = page.frames().find((each) => each.url().endsWith('/static/viewer-frame.html'));
+  expect(inside, 'the frame is still on its own document').toBeDefined();
 });
 
 test('a file of a kind the viewer does not draw is offered as a download', async ({ page }) => {

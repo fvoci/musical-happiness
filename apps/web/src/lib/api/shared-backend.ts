@@ -257,12 +257,13 @@ export class SharedBackend implements Backend {
     return this.#read<Schemas['Block'][]>('/blocks', {}, { parentId, type });
   }
 
-  fileBytes(containerId: string, fileId: string): Promise<Blob> {
+  fileBytes(containerId: string, fileId: string, signal?: AbortSignal): Promise<Blob> {
     this.#only(containerId);
     return this.#http.bytes(
       '/api/v1/shared/{containerId}/files/{fileId}',
       { containerId, fileId },
       { readToken: this.#readToken },
+      signal,
     );
   }
 

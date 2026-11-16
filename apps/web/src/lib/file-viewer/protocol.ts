@@ -35,7 +35,7 @@ export const ZOOM_MIN = 0.25;
 export const ZOOM_MAX = 4;
 
 export type ToFrame =
-  | { kind: 'open'; format: FormatId; bytes: ArrayBuffer; theme: Theme }
+  | { kind: 'open'; format: FormatId; bytes: ArrayBuffer; theme: Theme; lang: string }
   | { kind: 'page'; page: number }
   | { kind: 'zoom'; zoom: number }
   | { kind: 'theme'; theme: Theme };
@@ -62,6 +62,10 @@ const isPage = (value: unknown): value is number =>
   Number.isInteger(value) && (value as number) >= 1 && (value as number) <= PAGE_LIMIT;
 
 const isTheme = (value: unknown): value is Theme => value === 'light' || value === 'dark';
+
+/** A language tag such as `ko` or `pt-BR`. */
+const isLanguage = (value: unknown): value is string =>
+  typeof value === 'string' && /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8}){0,3}$/.test(value);
 
 const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T =>
   typeof value === 'string' && (list as readonly string[]).includes(value);
@@ -100,10 +104,11 @@ export function readFromFrame(data: unknown): FromFrame | undefined {
 export function readToFrame(data: unknown): ToFrame | undefined {
   switch (kindOf(data)) {
     case 'open': {
-      const fields = exactly(data, ['kind', 'format', 'bytes', 'theme']);
+      const fields = exactly(data, ['kind', 'format', 'bytes', 'theme', 'lang']);
       if (!fields || !isFormatId(fields.format) || !isTheme(fields.theme)) return undefined;
-      if (!(fields.bytes instanceof ArrayBuffer)) return undefined;
-      return { kind: 'open', format: fields.format, bytes: fields.bytes, theme: fields.theme };
+      if (!(fields.bytes instanceof ArrayBuffer) || !isLanguage(fields.lang)) return undefined;
+      const { format, bytes, theme, lang } = fields;
+      return { kind: 'open', format, bytes, theme, lang };
     }
     case 'page': {
       const page = exactly(data, ['kind', 'page'])?.page;

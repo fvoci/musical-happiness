@@ -29,7 +29,7 @@ import {
 import { BUNDLED_DATA_OPTIONS } from './pdf-data.ts';
 import PdfWorker from './pdf-worker.ts?worker&inline';
 import {
-  followPages,
+  PageFollower,
   LockedFile,
   UnreadableFile,
   type Drawn,
@@ -143,6 +143,8 @@ class Page {
     this.#turn += 1;
     this.#task?.cancel();
     this.#text?.cancel();
+    // What the worker keeps for the page (its operator list, its fonts' use) goes too.
+    this.#proxy?.cleanup();
     this.#task = undefined;
     this.#text = undefined;
     this.#drawnAt = 0;
@@ -164,7 +166,9 @@ class PdfView implements Drawn {
   readonly #height: number;
   #zoom = 1;
 
-  constructor(document: PDFDocumentProxy, place: HTMLElement, first: PDFPageProxy) {
+  readonly #follower: PageFollower;
+
+  constructor(document: PDFDocumentProxy, place: HTMLElement, first: PDFPageProxy, report: Report) {
     this.#document = document;
     const { width, height } = first.getViewport({ scale: 1 });
     this.#width = width;
@@ -184,6 +188,7 @@ class PdfView implements Drawn {
     );
     this.#layOut();
     for (const page of this.#pages) this.#observer.observe(page.box);
+    this.#follower = new PageFollower(() => this.boxes, report);
     let resizing: ReturnType<typeof setTimeout> | undefined;
     window.addEventListener('resize', () => {
       clearTimeout(resizing);
@@ -231,7 +236,10 @@ class PdfView implements Drawn {
   }
 
   goTo(page: number): void {
-    this.#pages[page - 1]?.box.scrollIntoView({ block: 'start' });
+    const box = this.#pages[page - 1]?.box;
+    if (!box) return;
+    box.scrollIntoView({ block: 'start' });
+    this.#follower.pin(page);
   }
 
   zoom(zoom: number): void {
@@ -246,8 +254,7 @@ class PdfView implements Drawn {
 export const render: Render = async (bytes, place, report: Report) => {
   const document = await open(bytes);
   const first = await document.getPage(1);
-  const view = new PdfView(document, place, first);
-  followPages(() => view.boxes, report);
+  const view = new PdfView(document, place, first, report);
   report.shown(document.numPages);
   return view;
 };

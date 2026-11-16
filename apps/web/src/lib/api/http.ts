@@ -130,15 +130,19 @@ export class Http {
     return `${this.basePath}${filled}${text ? `?${text}` : ''}`;
   }
 
-  /** Reads the bytes at a path (a file). Rejects as `request` does. */
+  /** Reads the bytes at a path (a file), until `signal` gives up. Rejects as `request` does. */
   async bytes(
     path: ApiPath,
     params: Record<string, string> = {},
     query: RequestOptions['query'] = {},
+    signal?: AbortSignal,
   ): Promise<Blob> {
     let response: Response;
     try {
-      response = await fetch(this.url(path, params, query), { credentials: this.#credentials });
+      response = await fetch(this.url(path, params, query), {
+        credentials: this.#credentials,
+        signal,
+      });
     } catch {
       throw new BackendError(0, { detail: `GET ${path}: no answer` });
     }
