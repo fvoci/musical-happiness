@@ -80,7 +80,7 @@ async fn try_and_come_back_with(
         .await
         .expect("the provider answers");
     let back = location_of(&authorized);
-    let root = ts.app.config().server_root.trim_end_matches('/').to_owned();
+    let root = ts.app.config().server_url.trim_end_matches('/').to_owned();
     let path = back
         .strip_prefix(&root)
         .expect("under the server's address");

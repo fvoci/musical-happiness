@@ -260,7 +260,7 @@ async fn the_operations_on_the_local_disk_are_measured() {
 async fn an_upload_past_its_limit_is_no_failure_of_the_storage() {
     let server = Setup::native()
         .metrics_at("127.0.0.1:0")
-        .configure(|config| config.max_file_size = 1)
+        .configure(|config| config.max_file_bytes = 1)
         .start()
         .await
         .init_basic()

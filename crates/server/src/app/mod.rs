@@ -157,7 +157,7 @@ struct Inner {
     webhook: Webhook,
     /// The client of the organizations' providers.
     oidc: Fetcher,
-    /// The Prometheus metrics, kept if `prometheusaddress` is set.
+    /// The Prometheus metrics, kept if `metrics_address` is set.
     metrics: Metrics,
     /// Work that continues after a response was sent: websocket broadcasts and webhooks.
     background: TaskTracker,
@@ -221,11 +221,11 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns an error if `serverRoot` or an allowed origin is no URL, if webhooks
-    /// are configured and their HTTP client cannot be set up, or if `prometheusaddress`
+    /// Returns an error if `server_url` or an allowed origin is no URL, if webhooks
+    /// are configured and their HTTP client cannot be set up, or if `metrics_address`
     /// is no address.
     pub fn new(config: Configuration, store: Store, files: FileBackend) -> anyhow::Result<Self> {
-        let metrics = if config.metrics_address()?.is_some() {
+        let metrics = if config.metrics_listen_address()?.is_some() {
             Metrics::kept()?
         } else {
             Metrics::none()
@@ -248,7 +248,7 @@ impl App {
             usize::try_from(config.password_hash_queue).unwrap_or(usize::MAX),
             std::time::Duration::from_secs(config.password_hash_queue_seconds),
         );
-        let ping_interval = (config.websocket_ping_seconds > 0)
+        let ping_interval = (!config.skip_websocket_pings)
             .then(|| std::time::Duration::from_secs(config.websocket_ping_seconds));
         let ws = Hub::new(
             Audience::new(store.clone()),
@@ -257,8 +257,8 @@ impl App {
             metrics.clone(),
         );
         let files = files.measured(metrics.clone());
-        let web = WebRoot::new(&config.web_path, &config.server_root);
-        let webhook = Webhook::new(config.webhook_update.clone())
+        let web = WebRoot::new(&config.web_app_path, &config.server_url);
+        let webhook = Webhook::new(config.block_change_webhooks.clone())
             .context("unable to set up the webhook client")?;
         let oidc = Fetcher::new(
             if config.oidc_allow_private_addresses {
@@ -291,7 +291,7 @@ impl App {
                 mail: mail::Mailer::new(
                     &config.smtp,
                     &config.mail,
-                    &config.server_root,
+                    &config.server_url,
                     metrics.clone(),
                 )?,
                 config,
@@ -321,7 +321,7 @@ impl App {
         })
     }
 
-    /// The Prometheus metrics; they do nothing unless `prometheusaddress` is set.
+    /// The Prometheus metrics; they do nothing unless `metrics_address` is set.
     pub fn metrics(&self) -> &Metrics {
         &self.inner.metrics
     }
@@ -590,8 +590,8 @@ impl App {
         let config = self.config();
         let limits = self.limits();
         ClientConfig {
-            enable_public_shared_boards: config.enable_public_shared_boards,
-            teammate_name_display: config.teammate_name_display.clone(),
+            enable_public_shared_boards: config.allow_public_links,
+            teammate_name_display: config.name_display.clone(),
             feature_flags: config.feature_flags.clone(),
             max_file_size: limits.largest_file,
             max_import_size: limits.largest_import,

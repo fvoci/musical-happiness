@@ -1,18 +1,16 @@
-//! That no key of the configuration file is given twice: with the same letters or in
-//! letters of different cases, at the top or inside `filess3config`. The decoded JSON
-//! cannot tell: its object keeps one value of a key, the last; so the text is read for
-//! its keys.
+//! That no key of the configuration file is given twice, at the top or inside
+//! `file_storage_s3`. The decoded JSON cannot tell: its object keeps one value of a key,
+//! the last; so the text is read for its keys.
 
 use std::collections::BTreeSet;
 use std::fmt;
 
 use serde::de::{DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
 
-/// The one object whose keys are checked inside the file's.
-const NESTED: &str = "filess3config";
+use super::NESTED;
 
-/// Checks that every key of the JSON object `text` and of its `filess3config` is given
-/// once, regardless of case. The error names the key, never a value.
+/// Checks that every key of the JSON object `text` and of its `file_storage_s3` is given
+/// once. The error names the key, never a value.
 ///
 /// # Errors
 ///
@@ -48,7 +46,6 @@ impl<'de> Visitor<'de> for Keys {
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
         let mut seen = BTreeSet::new();
         while let Some(key) = map.next_key::<String>()? {
-            let key = key.to_lowercase();
             if !seen.insert(key.clone()) {
                 let name = match self.prefix {
                     Some(prefix) => format!("{prefix}.{key}"),
@@ -107,21 +104,17 @@ mod tests {
     fn a_key_given_twice_is_named_without_its_values() {
         for (text, key) in [
             (
-                r#"{"prometheustoken": "secret-a", "prometheustoken": ""}"#,
-                "prometheustoken",
+                r#"{"metrics_token": "secret-a", "metrics_token": ""}"#,
+                "metrics_token",
+            ),
+            (r#"{"foo": 1, "foo": 2}"#, "foo"),
+            (
+                r#"{"file_storage_s3": {"bucket": "secret-a", "bucket": "secret-b"}}"#,
+                "file_storage_s3.bucket",
             ),
             (
-                r#"{"prometheusToken": "secret-a", "prometheustoken": ""}"#,
-                "prometheustoken",
-            ),
-            (r#"{"Foo": 1, "foo": 2}"#, "foo"),
-            (
-                r#"{"filesS3Config": {"Bucket": "secret-a", "bucket": "secret-b"}}"#,
-                "filess3config.bucket",
-            ),
-            (
-                r#"{"filess3config": {"secret": "secret-a", "secret": "secret-b"}}"#,
-                "filess3config.secret",
+                r#"{"file_storage_s3": {"secret": "secret-a", "secret": "secret-b"}}"#,
+                "file_storage_s3.secret",
             ),
         ] {
             let error = check_each_once(text).expect_err(text).to_string();
@@ -138,17 +131,20 @@ mod tests {
         for text in [
             "{}",
             r#"{"a": null, "b": [1, {"c": 1, "c": 2}], "d": {"e": 1, "e": 2}, "f": true}"#,
-            r#"{"filess3config": null, "x": 1.5, "y": -3, "z": "text"}"#,
-            r#"{"featureflags": {"Flag": "1", "flag": "2"}}"#,
-            r#"{"filess3config": {"bucket": "a", "region": "b"}}"#,
+            r#"{"file_storage_s3": null, "x": 1.5, "y": -3, "z": "text"}"#,
+            r#"{"feature_flags": {"flag": "1", "flag": "2"}}"#,
+            r#"{"file_storage_s3": {"bucket": "a", "region": "b"}}"#,
+            // Keys that differ in case are two keys.
+            r#"{"metrics_token": "a", "Metrics_Token": "b"}"#,
+            r#"{"file_storage_s3": {"bucket": "a", "Bucket": "b"}}"#,
             // Values of every kind where an object belongs: the error that it is none
             // is the configuration's, and says no value.
-            r#"{"filess3config": true}"#,
-            r#"{"filess3config": -1}"#,
-            r#"{"filess3config": 1.5}"#,
-            r#"{"filess3config": 18446744073709551616}"#,
-            r#"{"filess3config": "x\nyé"}"#,
-            r#"{"filess3config": [1, {"a": 1, "a": 2}]}"#,
+            r#"{"file_storage_s3": true}"#,
+            r#"{"file_storage_s3": -1}"#,
+            r#"{"file_storage_s3": 1.5}"#,
+            r#"{"file_storage_s3": 18446744073709551616}"#,
+            r#"{"file_storage_s3": "x\nyé"}"#,
+            r#"{"file_storage_s3": [1, {"a": 1, "a": 2}]}"#,
         ] {
             check_each_once(text).expect(text);
         }

@@ -150,7 +150,7 @@ async fn the_marker_is_a_cookie_of_the_browser_that_opens_nothing() {
         .smtp(smtp.settings())
         .configure(|config| {
             config.mail.email_verification = true;
-            config.server_root = "https://boards.example.com".to_owned();
+            config.server_url = "https://boards.example.com".to_owned();
         })
         .start()
         .await;

@@ -11,7 +11,7 @@ pub(crate) struct AdminSocket;
 
 impl AdminSocket {
     pub(crate) fn start(_path: &Path, _router: Router) -> anyhow::Result<Self> {
-        bail!("enablelocalmode needs Unix sockets, which this platform does not have")
+        bail!("serve_admin_socket needs Unix sockets, which this platform does not have")
     }
 
     pub(crate) async fn stop(self) {}

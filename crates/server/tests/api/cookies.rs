@@ -13,7 +13,7 @@ use crate::common::{
     USER1_USERNAME,
 };
 
-/// The origin the test servers take for their own: the default `serverRoot`.
+/// The origin the test servers take for their own: the default `server_url`.
 const OWN_ORIGIN: &str = "http://localhost:8000";
 const FOREIGN_ORIGIN: &str = "https://evil.example";
 
@@ -103,12 +103,12 @@ async fn login_sets_the_session_cookie_and_the_body_carries_no_token() {
     th.teardown().await;
 }
 
-/// Where the server is reached over HTTPS, which `serverRoot` says, the cookie is
+/// Where the server is reached over HTTPS, which `server_url` says, the cookie is
 /// `Secure` and has the name browsers bind to one host, and only that name is read.
 #[tokio::test]
 async fn over_https_the_cookie_is_secure_and_bound_to_the_host() {
     let th = Setup::native()
-        .configure(|config| config.server_root = "https://boards.example.com".to_owned())
+        .configure(|config| config.server_url = "https://boards.example.com".to_owned())
         .start()
         .await
         .init_basic()

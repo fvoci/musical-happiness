@@ -577,17 +577,14 @@ pub(crate) mod socket {
         assert!(!socket.exists(), "the socket file is removed");
     }
 
-    /// `enablelocalmode` is off unless asked for, and the socket has its documented place.
+    /// `serve_admin_socket` is off unless asked for, and the socket has its documented place.
     #[tokio::test]
     async fn admin_socket_is_closed_by_default() {
         let th = Setup::native().start().await;
 
         let config = th.app.config();
-        assert!(!config.enable_local_mode, "off by default");
-        assert_eq!(
-            config.local_mode_socket_location,
-            "/var/tmp/fvoci_local.socket"
-        );
+        assert!(!config.serve_admin_socket, "off by default");
+        assert_eq!(config.admin_socket_path, "/var/tmp/fvoci_local.socket");
         th.teardown().await;
     }
 }
@@ -624,7 +621,7 @@ fn port_of(th: &TestServer) -> u16 {
         .expect("the address ends with a port")
 }
 
-/// `usessl` with `cert.pem` and `key.pem` (`server/web/webserver.go:113-121`): the server
+/// `serve_https` with `cert.pem` and `key.pem` (`server/web/webserver.go:113-121`): the server
 /// speaks TLS, and only TLS.
 #[tokio::test]
 async fn use_ssl_serves_over_tls() {
@@ -632,7 +629,7 @@ async fn use_ssl_serves_over_tls() {
     let (tls_files, root) = write_certificate(&directory);
     let th = Setup::native()
         .tls_files(tls_files)
-        .configure(|config| config.use_ssl = true)
+        .configure(|config| config.serve_https = true)
         .start()
         .await;
     let port = port_of(&th);
@@ -689,7 +686,7 @@ async fn use_ssl_failed_handshakes_do_not_disturb_the_server() {
     let (tls_files, root) = write_certificate(&directory);
     let th = Setup::native()
         .tls_files(tls_files)
-        .configure(|config| config.use_ssl = true)
+        .configure(|config| config.serve_https = true)
         .start()
         .await;
     let port = port_of(&th);
@@ -719,7 +716,7 @@ async fn use_ssl_failed_handshakes_do_not_disturb_the_server() {
     let _ = std::fs::remove_dir_all(&directory);
 }
 
-/// Not in the original, which serves plain HTTP when `usessl` is set and the files are
+/// Not in the original, which serves plain HTTP when `serve_https` is set and the files are
 /// missing (`server/web/webserver.go:113`). An operator who asked for TLS must not end up
 /// serving sessions and passwords in the clear: the server refuses to serve.
 #[tokio::test]
@@ -731,7 +728,7 @@ async fn use_ssl_without_certificate_files_refuses_to_serve() {
     };
     let th = Setup::native()
         .tls_files(tls_files)
-        .configure(|config| config.use_ssl = true)
+        .configure(|config| config.serve_https = true)
         .start()
         .await;
     let port = port_of(&th);
@@ -739,7 +736,12 @@ async fn use_ssl_without_certificate_files_refuses_to_serve() {
     let error = th.stop().await.expect_err("serving is refused");
 
     let message = format!("{error:#}");
-    for expected in ["usessl is set", "cert.pem", "key.pem", "turn usessl off"] {
+    for expected in [
+        "serve_https is set",
+        "cert.pem",
+        "key.pem",
+        "turn serve_https off",
+    ] {
         assert!(
             message.contains(expected),
             "{expected:?} is missing from the refusal: {message}"
@@ -764,7 +766,7 @@ async fn use_ssl_with_a_certificate_but_no_key_refuses_to_serve() {
     std::fs::remove_file(&tls_files.key).expect("the key file is removed");
     let th = Setup::native()
         .tls_files(tls_files)
-        .configure(|config| config.use_ssl = true)
+        .configure(|config| config.serve_https = true)
         .start()
         .await;
 
@@ -779,7 +781,7 @@ async fn use_ssl_with_a_certificate_but_no_key_refuses_to_serve() {
     let _ = std::fs::remove_dir_all(&directory);
 }
 
-/// Without `usessl` the certificate files are not looked at: plain HTTP, as asked.
+/// Without `serve_https` the certificate files are not looked at: plain HTTP, as asked.
 #[tokio::test]
 async fn without_use_ssl_missing_certificate_files_do_not_matter() {
     let directory = certificate_directory();

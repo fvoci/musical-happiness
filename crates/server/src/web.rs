@@ -19,7 +19,7 @@ const NOT_FOUND_BODY: &str = "404 page not found\n";
 /// The placeholder in `index.html` that is replaced with the base URL.
 const BASE_URL_PLACEHOLDER: &str = "{{.BaseURL}}";
 
-/// The web app directory (`webpath`) and how it is served.
+/// The web app directory (`web_app_path`) and how it is served.
 #[derive(Debug, Clone)]
 pub struct WebRoot {
     root: PathBuf,
@@ -27,7 +27,7 @@ pub struct WebRoot {
 }
 
 impl WebRoot {
-    /// Creates the web root for the `webpath` and `serverRoot` settings.
+    /// Creates the web root for the `web_app_path` and `server_url` settings.
     pub fn new(web_path: impl AsRef<Path>, server_root: &str) -> Self {
         Self {
             root: web_path.as_ref().to_path_buf(),
@@ -35,7 +35,7 @@ impl WebRoot {
         }
     }
 
-    /// The path the web app is served under: the path part of `serverRoot`.
+    /// The path the web app is served under: the path part of `server_url`.
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
@@ -126,10 +126,10 @@ pub fn not_found() -> Response {
         .into_response()
 }
 
-/// Returns the path part of the `serverRoot` URL, which is the base URL of the web app.
+/// Returns the path part of the `server_url` URL, which is the base URL of the web app.
 ///
 /// The path is taken as it is: a trailing slash stays, and a URL without a path gives the
-/// empty string. A `serverRoot` that is not a URL also gives the empty string.
+/// empty string. A `server_url` that is not a URL also gives the empty string.
 pub fn base_url(server_root: &str) -> String {
     let Some((_, rest)) = server_root.split_once("://") else {
         return String::new();
@@ -166,7 +166,7 @@ mod tests {
             ("https://localhost:8080/#!@$@#@", "/"),
         ];
         for (server_root, want) in cases {
-            assert_eq!(base_url(server_root), want, "serverRoot {server_root}");
+            assert_eq!(base_url(server_root), want, "server_url {server_root}");
         }
     }
 

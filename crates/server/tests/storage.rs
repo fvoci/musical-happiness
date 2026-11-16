@@ -236,10 +236,10 @@ fn s3_config() -> AmazonS3Config {
         secret_access_key: std::env::var("FVOCI_S3_TEST_SECRET_KEY")
             .unwrap_or_else(|_| "any".to_owned()),
         bucket: var("FVOCI_S3_TEST_BUCKET"),
-        path_prefix: "storage-tests".to_owned(),
+        key_prefix: "storage-tests".to_owned(),
         region: std::env::var("FVOCI_S3_TEST_REGION").unwrap_or_else(|_| "us-east-1".to_owned()),
         endpoint: var("FVOCI_S3_TEST_ENDPOINT"),
-        ssl: var("FVOCI_S3_TEST_SSL") == "true",
+        https: var("FVOCI_S3_TEST_SSL") == "true",
         ..AmazonS3Config::default()
     }
 }
@@ -339,12 +339,4 @@ async fn s3_multipart_upload() {
 fn s3_settings_are_checked() {
     let error = S3Files::new(&AmazonS3Config::default()).expect_err("no bucket");
     assert!(matches!(error, StorageError::Config(_)), "got {error:?}");
-
-    let sign_v2 = AmazonS3Config {
-        bucket: "b".to_owned(),
-        sign_v2: true,
-        ..AmazonS3Config::default()
-    };
-    let error = S3Files::new(&sign_v2).expect_err("version 2 signing");
-    assert!(error.to_string().contains("SignV2"), "got {error}");
 }

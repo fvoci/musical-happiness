@@ -1,4 +1,4 @@
-//! The administration socket: `enablelocalmode`.
+//! The administration socket: `serve_admin_socket`.
 
 use std::fs::Permissions;
 use std::io;

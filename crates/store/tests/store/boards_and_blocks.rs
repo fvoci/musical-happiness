@@ -960,7 +960,7 @@ async fn duplicate_container_copies_a_board_without_blocks() {
     // A comment stored before a comment had to be on a card: on the board itself, the
     // card gone.
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!(
             "UPDATE blocks SET parent_id = NULL WHERE id = '{}'",
             comment.id

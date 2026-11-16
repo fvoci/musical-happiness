@@ -60,7 +60,7 @@ impl Linker {
         Self {
             http,
             base_url: ts.base_url.clone(),
-            server_root: ts.app.config().server_root.clone(),
+            server_root: ts.app.config().server_url.clone(),
         }
     }
 

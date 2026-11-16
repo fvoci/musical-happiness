@@ -16,7 +16,7 @@ pub(crate) enum Database {
 }
 
 impl Database {
-    /// The value of the `db` label: the name of the `dbtype` setting.
+    /// The value of the `db` label: the name of the `database_kind` setting.
     fn as_str(self) -> &'static str {
         match self {
             Self::Sqlite => "sqlite3",

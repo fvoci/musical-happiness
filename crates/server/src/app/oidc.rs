@@ -174,14 +174,14 @@ impl std::fmt::Debug for FinishedLogin {
 
 impl App {
     /// The address the provider of the organization `org_id` sends a browser back to:
-    /// from the server's own address (`serverRoot`), never from what a request says its
+    /// from the server's own address (`server_url`), never from what a request says its
     /// host is. Each organization has its own, so that what one organization's provider
     /// sends back is never taken for another's (a mix-up of providers); it is known
     /// before the provider is set, and stays when the provider is changed.
     pub fn oidc_redirect_uri(&self, org_id: &str) -> String {
         format!(
             "{}{CALLBACK_PATH}/{org_id}",
-            self.config().server_root.trim_end_matches('/')
+            self.config().server_url.trim_end_matches('/')
         )
     }
 

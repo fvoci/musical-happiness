@@ -141,7 +141,7 @@ async fn on_the_disk_the_comparison_reports_and_dooms_only_when_asked() {
 fn own_bucket(config: &mut Configuration) {
     let bucket = std::env::var("FVOCI_S3_TEST_BUCKET").unwrap_or_default();
     crate::uploads::configure_s3(config, &bucket);
-    config.files_s3_config.path_prefix = format!("reconcile-tests/{}", new_id());
+    config.file_storage_s3.key_prefix = format!("reconcile-tests/{}", new_id());
 }
 
 #[tokio::test]

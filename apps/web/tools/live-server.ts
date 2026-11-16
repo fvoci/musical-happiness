@@ -127,28 +127,28 @@ if (database) {
 }
 const storage = organizations
   ? {
-      dbtype: 'postgres',
+      database_kind: 'postgres',
       ...(JSON.parse(readFileSync(path.join(data, 'database.json'), 'utf8')) as {
-        dbconfig: string;
+        database_connection: string;
       }),
       org_creation: 'open',
     }
-  : { dbtype: 'sqlite3', dbconfig: path.join(data, 'fvoci.db') };
+  : { database_kind: 'sqlite3', database_connection: path.join(data, 'fvoci.db') };
 const origin = `http://localhost:${port}`;
 writeFileSync(
   path.join(data, 'config.json'),
   JSON.stringify(
     {
-      serverRoot: origin,
+      server_url: origin,
       smtp_host: '127.0.0.1',
       smtp_port: smtpPort,
       smtp_tls: 'none',
       mail_from: 'sender@example.test',
       port,
-      localOnly: true,
+      listen_loopback_only: true,
       ...storage,
-      webpath: dist,
-      filespath: path.join(data, 'files'),
+      web_app_path: dist,
+      file_storage_path: path.join(data, 'files'),
       // Every test signs in and registers from one address, several at a time
       // when the runner has more than one worker: no limit by address, as for a
       // server whose users all come from one.
@@ -157,10 +157,10 @@ writeFileSync(
       // MiB goes up in more than one part.
       upload_part_bytes: 5 * 1024 * 1024,
       // A board shared by a read token, to see what an anonymous reader gets.
-      enablepublicsharedboards: true,
+      allow_public_links: true,
       // The operator's commands (`e2e-live/sso-operator.spec.ts`).
-      enablelocalmode: true,
-      localmodesocketlocation: socket,
+      serve_admin_socket: true,
+      admin_socket_path: socket,
       ...(verifying ? { email_verification: true } : {}),
     },
     null,

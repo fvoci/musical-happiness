@@ -301,7 +301,7 @@ async fn the_trash_is_listed_by_kind_and_what_went_before_kinds_is_a_board() {
         DbType::Postgres => "(container::jsonb - 'kind')::json",
     };
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!(
             "UPDATE deleted_containers SET container = {without_kind} WHERE id = '{}'",
             board.id

@@ -7,13 +7,13 @@ fn no_env(_: &str) -> Option<String> {
 #[test]
 fn empty_object_gives_the_defaults() {
     let config = Configuration::parse("{}", no_env).expect("an empty object is valid");
-    assert_eq!(config.server_root, "http://localhost:8000");
+    assert_eq!(config.server_url, "http://localhost:8000");
     assert_eq!(config.port, 8000);
-    assert_eq!(config.db_type, "sqlite3");
-    assert_eq!(config.db_config, "./fvoci.db");
-    assert_eq!(config.web_path, "./pack");
-    assert_eq!(config.files_driver, "local");
-    assert_eq!(config.files_path, "./files");
+    assert_eq!(config.database_kind, "sqlite3");
+    assert_eq!(config.database_connection, "./fvoci.db");
+    assert_eq!(config.web_app_path, "./pack");
+    assert_eq!(config.file_storage, "local");
+    assert_eq!(config.file_storage_path, "./files");
     assert_eq!(config.session_idle_days, 14);
     assert_eq!(config.session_max_days, 90);
     assert_eq!(config.session_idle_millis(), 14 * 24 * 60 * 60 * 1000);
@@ -25,7 +25,7 @@ fn empty_object_gives_the_defaults() {
         std::time::Duration::from_hours(30 * 24)
     );
     assert_eq!(config.upload_part_bytes, 8 * 1024 * 1024);
-    assert_eq!(config.max_file_size, 100 * 1024 * 1024);
+    assert_eq!(config.max_file_bytes, 100 * 1024 * 1024);
     assert_eq!(config.max_pending_upload_bytes, 2 * 1024 * 1024 * 1024);
     assert_eq!(config.max_import_bytes, 256 * 1024 * 1024);
     assert_eq!(config.max_comment_versions, 50);
@@ -36,11 +36,8 @@ fn empty_object_gives_the_defaults() {
     assert_eq!(config.server_lock_wait_seconds, 30);
     assert_eq!(config.tmp_dir(), std::path::Path::new("./files/.tmp"));
     assert_eq!(config.auth_mode, "native");
-    assert_eq!(config.teammate_name_display, "username");
-    assert_eq!(
-        config.local_mode_socket_location,
-        "/var/tmp/fvoci_local.socket"
-    );
+    assert_eq!(config.name_display, "username");
+    assert_eq!(config.admin_socket_path, "/var/tmp/fvoci_local.socket");
     assert_eq!(config.websocket_ping_seconds, 30);
     assert!(
         config.compress_responses,
@@ -59,77 +56,137 @@ fn a_port_of_zero_and_s3_settings_that_are_no_object_are_refused() {
     let config = Configuration::parse(r#"{"port": 0}"#, no_env).expect("read");
     let error = config.check().expect_err("port 0 is refused");
     assert!(error.to_string().contains("port"), "{error}");
-    let Err(error) = Configuration::parse(r#"{"filesS3Config": "x"}"#, no_env) else {
+    let Err(error) = Configuration::parse(r#"{"file_storage_s3": "x"}"#, no_env) else {
         panic!("a string is no S3 settings");
     };
-    assert!(error.to_string().contains("filess3config"), "{error}");
-    Configuration::parse(r#"{"filesS3Config": null}"#, no_env).expect("null is no settings");
+    assert!(error.to_string().contains("file_storage_s3"), "{error}");
+    Configuration::parse(r#"{"file_storage_s3": null}"#, no_env).expect("null is no settings");
 }
 
-/// A file written for the original server, with its unknown keys, but for the
-/// settings this server replaced: those are refused, see
-/// `a_removed_key_is_refused_when_it_is_set_to_something`.
+/// The keys of a file are matched as they are written: another case, or a name of the
+/// original server's configuration, is no setting, and is named in the warning of the
+/// keys that are not read (without its value).
 #[test]
-fn reads_a_configuration_file_of_the_original() {
+fn keys_are_read_only_as_written_and_the_others_are_named_in_a_warning() {
     let text = r#"{
-            "serverRoot": "http://localhost:8000",
-            "port": 8000,
-            "dbtype": "sqlite3",
-            "dbconfig": "./boards.db?_busy_timeout=5000",
-            "postgres_dbconfig": "dbname=boards sslmode=disable",
-            "useSSL": false,
-            "webpath": "./webapp/pack",
-            "filespath": "./files",
-            "telemetry": true,
-            "prometheusaddress": "",
-            "localOnly": false,
-            "enableLocalMode": true,
-            "localModeSocketLocation": "/var/tmp/boards_local.socket",
-            "authMode": "native",
-            "enablePublicSharedBoards": false
+            "PORT": 8088,
+            "Listen_Loopback_Only": true,
+            "serverRoot": "https://hidden.example",
+            "dbconfig": "postgres://u:hunter2@h/db",
+            "enablePublicSharedBoards": true,
+            "file_storage_s3": {"Bucket": "b", "accesskeyid": "s3cr3t", "bucket": "a"}
         }"#;
-    let config = Configuration::parse(text, no_env).expect("the original file is valid");
-    assert_eq!(config.db_config, "./boards.db?_busy_timeout=5000");
-    assert_eq!(config.web_path, "./webapp/pack");
-    assert!(config.enable_local_mode, "enableLocalMode is read");
+    let config = Configuration::parse(text, no_env).expect("valid JSON");
+    assert_eq!(config.port, 8000, "PORT is not port");
+    assert!(!config.listen_loopback_only, "another case is another key");
+    assert_eq!(config.server_url, "http://localhost:8000");
+    assert_eq!(config.database_connection, "./fvoci.db");
+    assert!(!config.allow_public_links);
+    assert_eq!(config.file_storage_s3.bucket, "a");
+    assert_eq!(config.file_storage_s3.access_key_id, "");
     assert_eq!(
-        config.local_mode_socket_location,
-        "/var/tmp/boards_local.socket"
+        config.unread_keys(),
+        [
+            "Listen_Loopback_Only",
+            "PORT",
+            "dbconfig",
+            "enablePublicSharedBoards",
+            "serverRoot",
+            "file_storage_s3.Bucket",
+            "file_storage_s3.accesskeyid",
+        ]
     );
+    let warnings = config.check().expect("unread keys are no error");
+    assert_eq!(warnings.len(), 1, "one line: {warnings:?}");
+    assert_eq!(
+        warnings[0],
+        "the configuration file has keys that no setting reads: Listen_Loopback_Only, PORT, \
+         dbconfig, enablePublicSharedBoards, serverRoot, file_storage_s3.Bucket, \
+         file_storage_s3.accesskeyid"
+    );
+    for value in ["hunter2", "s3cr3t", "hidden.example"] {
+        assert!(!warnings[0].contains(value), "{value}: {warnings:?}");
+        assert!(!format!("{config:?}").contains(value), "{value}");
+    }
 }
 
+/// The keys of the settings that are read in groups of their own (mail, search, editing
+/// together, wikis) are read, not named as unread; so are the keys the environment
+/// sets.
 #[test]
-fn keys_match_without_regard_to_case() {
-    let text = r#"{"PORT": 8088, "LocalOnly": true, "filesS3Config": {"Bucket": "b", "SSL": true, "AccessKeyID": "k"}}"#;
-    let config = Configuration::parse(text, no_env).expect("valid");
-    assert_eq!(config.port, 8088);
-    assert!(config.local_only, "localOnly is read whatever its case");
-    assert_eq!(config.files_s3_config.bucket, "b");
-    assert_eq!(config.files_s3_config.access_key_id, "k");
-    assert!(
-        config.files_s3_config.ssl,
-        "nested keys are case-insensitive too"
-    );
+fn the_keys_of_every_setting_are_read() {
+    let text = r#"{"smtp_host": "mail.example", "search_index": "other", "collab_workers": 2,
+        "wiki_pages": 9, "mail_per_second": 3, "feature_flags": {"a": "b"},
+        "file_storage_s3": {"bucket": "b", "server_side_encryption": true}}"#;
+    let env = |name: &str| (name == "FVOCI_FILE_STORAGE_S3_REGION").then(|| "r".to_owned());
+    let config = Configuration::parse(text, env).expect("valid");
+    assert_eq!(config.unread_keys(), Vec::<String>::new());
+    assert_eq!(config.smtp.smtp_host, "mail.example");
+    assert_eq!(config.collab.collab_workers, 2);
+    assert!(config.file_storage_s3.server_side_encryption);
+    assert_eq!(config.file_storage_s3.region, "r");
+    let defaults = code_defaults();
+    let every_key: Map<String, Value> = defaults
+        .iter()
+        .filter(|(key, _)| !key.contains('.'))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    let config = Configuration::parse(&Value::Object(every_key).to_string(), no_env)
+        .expect("the defaults, written out, are read");
+    assert_eq!(config.unread_keys(), Vec::<String>::new());
+}
+
+/// The websockets are pinged every 1 to 59 seconds: a Ping must come back within the
+/// quiet limit of a connection, 90 seconds, with 30 to spare. None at all is no setting.
+#[test]
+fn the_ping_period_is_one_to_fifty_nine_seconds() {
+    let check = |seconds: u64| {
+        Configuration {
+            websocket_ping_seconds: seconds,
+            ..Configuration::default()
+        }
+        .check()
+    };
+    for refused in [0, 60, 89, 90, u64::MAX] {
+        let error = check(refused).expect_err("out of the range").to_string();
+        assert!(
+            error.contains("websocket_ping_seconds"),
+            "{refused}: {error}"
+        );
+    }
+    for accepted in [1, 30, 59] {
+        assert_eq!(
+            check(accepted).expect("in the range"),
+            Vec::<String>::new(),
+            "{accepted}"
+        );
+    }
+    let env = |name: &str| (name == "FVOCI_WEBSOCKET_PING_SECONDS").then(|| "0".to_owned());
+    let config = Configuration::parse("{}", env).expect("read");
+    assert!(config.check().is_err(), "0 from the environment too");
 }
 
 #[test]
 fn environment_overrides_the_file_and_the_defaults() {
     let env = |name: &str| match name {
         "FVOCI_PORT" => Some("9001".to_owned()),
-        "FVOCI_DBCONFIG" => Some("postgres://u@h/db".to_owned()),
-        "FVOCI_ENABLEPUBLICSHAREDBOARDS" => Some("true".to_owned()),
-        "FVOCI_WEBHOOK_UPDATE" => Some("http://a/hook, http://b/hook".to_owned()),
+        "FVOCI_DATABASE_CONNECTION" => Some("postgres://u@h/db".to_owned()),
+        "FVOCI_ALLOW_PUBLIC_LINKS" => Some("true".to_owned()),
+        "FVOCI_BLOCK_CHANGE_WEBHOOKS" => Some("http://a/hook, http://b/hook".to_owned()),
         "FVOCI_SESSION_IDLE_DAYS" => Some("3".to_owned()),
         _ => None,
     };
     let config = Configuration::parse(r#"{"port": 8000}"#, env).expect("valid");
     assert_eq!(config.port, 9001);
-    assert_eq!(config.db_config, "postgres://u@h/db");
+    assert_eq!(config.database_connection, "postgres://u@h/db");
     assert!(
-        config.enable_public_shared_boards,
+        config.allow_public_links,
         "a flag is read from the environment"
     );
-    assert_eq!(config.webhook_update, ["http://a/hook", "http://b/hook"]);
+    assert_eq!(
+        config.block_change_webhooks,
+        ["http://a/hook", "http://b/hook"]
+    );
     assert_eq!(config.session_idle_days, 3);
 }
 
@@ -138,48 +195,41 @@ fn environment_overrides_the_file_and_the_defaults() {
 #[test]
 fn the_environment_overrides_the_s3_settings_but_not_the_credentials() {
     let env = |name: &str| match name {
-        "FVOCI_FILESS3CONFIG_BUCKET" => Some("from-env".to_owned()),
-        "FVOCI_FILESS3CONFIG_SSL" => Some("on".to_owned()),
-        "FVOCI_FILESS3CONFIG_TIMEOUT" => Some("5000".to_owned()),
-        "FVOCI_FILESS3CONFIG_SIGNV2" => Some("true".to_owned()),
+        "FVOCI_FILE_STORAGE_S3_BUCKET" => Some("from-env".to_owned()),
+        "FVOCI_FILE_STORAGE_S3_HTTPS" => Some("on".to_owned()),
+        "FVOCI_FILE_STORAGE_S3_TIMEOUT_MS" => Some("5000".to_owned()),
         _ => None,
     };
-    let file = r#"{"FilesS3Config": {"Bucket": "from-file", "Region": "eu-west-1"}}"#;
-    for text in [file, "{}", r#"{"filess3config": null}"#] {
+    let file = r#"{"file_storage_s3": {"bucket": "from-file", "region": "eu-west-1"}}"#;
+    for text in [file, "{}", r#"{"file_storage_s3": null}"#] {
         let s3 = Configuration::parse(text, env)
             .expect("valid")
-            .files_s3_config;
+            .file_storage_s3;
         assert_eq!(s3.bucket, "from-env", "{text}");
-        assert!(s3.ssl, "{text}");
-        assert_eq!(s3.timeout, 5000, "{text}");
+        assert!(s3.https, "{text}");
+        assert_eq!(s3.timeout_ms, 5000, "{text}");
     }
     let s3 = Configuration::parse(file, env)
         .expect("valid")
-        .files_s3_config;
+        .file_storage_s3;
     assert_eq!(
         s3.region, "eu-west-1",
         "the keys the environment leaves stay"
     );
-    let bad = |name: &str| (name == "FVOCI_FILESS3CONFIG_SSE").then(|| "maybe".to_owned());
+    let bad = |name: &str| {
+        (name == "FVOCI_FILE_STORAGE_S3_SERVER_SIDE_ENCRYPTION").then(|| "maybe".to_owned())
+    };
     assert!(
         Configuration::parse("{}", bad).is_err(),
         "an unreadable flag"
     );
-    let amazon = Configuration::parse(r#"{"filesdriver": "amazons3"}"#, env).expect("valid");
-    assert!(
-        amazon.check().is_err(),
-        "the signing scheme from the environment is checked"
-    );
-    for name in [
-        "FVOCI_FILESS3CONFIG_ACCESSKEYID",
-        "FVOCI_FILESS3CONFIG_SECRETACCESSKEY",
-    ] {
-        let credentials = |asked: &str| (asked == name).then(|| "key".to_owned());
-        let error = Configuration::parse("{}", credentials).expect_err("not read, refused");
-        assert!(error.to_string().contains("AWS_ACCESS_KEY_ID"), "{name}");
-    }
-    let blank = |asked: &str| (asked == "FVOCI_FILESS3CONFIG_SECRETACCESSKEY").then(String::new);
-    Configuration::parse("{}", blank).expect("a blank credential variable is not in the way");
+    // The credentials have no variable of their own: the S3 client reads AWS_*.
+    let credentials =
+        |name: &str| (name == "FVOCI_FILE_STORAGE_S3_ACCESS_KEY_ID").then(|| "key".to_owned());
+    let s3 = Configuration::parse("{}", credentials)
+        .expect("valid")
+        .file_storage_s3;
+    assert_eq!(s3.access_key_id, "", "not read");
 }
 
 #[test]
@@ -198,57 +248,7 @@ fn bad_input_is_an_error() {
 }
 
 #[test]
-fn a_removed_key_is_refused_when_it_is_set_to_something() {
-    let error = |text: &str| {
-        Configuration::parse(text, no_env)
-            .expect_err("a removed key that says something is refused")
-            .to_string()
-    };
-    assert!(error(r#"{"dbtableprefix": "fb_"}"#).contains("search_path"));
-    assert!(error(r#"{"DBTablePrefix": "fb_"}"#).contains("dbtableprefix"));
-    let env = |name: &str| (name == "FVOCI_DBTABLEPREFIX").then(|| "fb_".to_owned());
-    assert!(
-        Configuration::parse("{}", env).is_err(),
-        "the environment variable of a removed key is refused too"
-    );
-    // The session settings of the original are seconds with another meaning; a file
-    // that sets them is told what there is instead.
-    assert!(error(r#"{"session_expire_time": 2592000}"#).contains("session_idle_days"));
-    assert!(error(r#"{"session_refresh_time": 18000}"#).contains("ten minutes"));
-    // The settings that did nothing (user decision 2026-11-11 11:05 KST).
-    assert!(error(r#"{"logging_cfg_json": "{}"}"#).contains("FVOCI_LOG_LEVEL"));
-    assert!(error(r#"{"audit_cfg_file": "a.json"}"#).contains("audit"));
-    assert!(error(r#"{"FilesS3Config": {"Trace": true}}"#).contains("filess3config.trace"));
-    let env = |name: &str| (name == "FVOCI_FILESS3CONFIG_TRACE").then(|| "false".to_owned());
-    let error = Configuration::parse("{}", env).expect_err("its variable, even false");
-    assert!(error.to_string().contains("filess3config.trace"));
-    // A file written for the original server usually carries the key, empty.
-    Configuration::parse(
-        r#"{"dbtableprefix": "", "logging_cfg_file": "", "audit_cfg_json": "",
-                "filess3config": {"Trace": false}}"#,
-        no_env,
-    )
-    .expect("a removed key that says nothing is not in the way");
-}
-
-#[test]
-fn the_old_name_of_the_sender_is_refused_with_the_new_one() {
-    let error = Configuration::parse(r#"{"smtp_from": "sender@example.test"}"#, no_env)
-        .expect_err("the sender under its old name is not passed over")
-        .to_string();
-    assert!(error.contains("smtp_from"), "{error}");
-    assert!(error.contains("mail_from"), "{error}");
-    assert!(error.contains("FVOCI_MAIL_FROM"), "{error}");
-    assert!(!error.contains("sender@example.test"), "{error}");
-    let env = |name: &str| (name == "FVOCI_SMTP_FROM").then(|| "sender@example.test".to_owned());
-    let error = Configuration::parse("{}", env)
-        .expect_err("its variable too")
-        .to_string();
-    assert!(
-        error.contains("FVOCI_SMTP_FROM"),
-        "the variable is named: {error}"
-    );
-    assert!(error.contains("mail_from"), "{error}");
+fn the_sender_is_mail_from() {
     let config = Configuration::parse(r#"{"mail_from": "sender@example.test"}"#, no_env)
         .expect("the sender under its name");
     assert_eq!(config.smtp.mail_from, "sender@example.test");
@@ -261,10 +261,10 @@ fn the_old_name_of_the_sender_is_refused_with_the_new_one() {
 fn the_metrics_address_is_host_and_port() {
     let address = |text: &str| {
         Configuration {
-            prometheus_address: text.to_owned(),
+            metrics_address: text.to_owned(),
             ..Configuration::default()
         }
-        .metrics_address()
+        .metrics_listen_address()
         .expect("a valid address")
     };
     assert_eq!(address(""), None, "no metrics");
@@ -285,13 +285,13 @@ fn the_metrics_address_is_host_and_port() {
 
 #[test]
 fn metrics_without_a_host_listen_on_the_loopback_of_a_local_only_server() {
-    let address = |local_only: bool| {
+    let address = |listen_loopback_only: bool| {
         Configuration {
-            prometheus_address: ":9092".to_owned(),
-            local_only,
+            metrics_address: ":9092".to_owned(),
+            listen_loopback_only,
             ..Configuration::default()
         }
-        .metrics_address()
+        .metrics_listen_address()
         .expect("a valid address")
         .expect("metrics are kept")
     };
@@ -312,7 +312,7 @@ fn check_rejects_what_the_server_cannot_honor() {
             .expect_err("the setting is not supported")
             .to_string()
     };
-    assert!(error(r#"{"authMode": "other"}"#).contains("authMode"));
+    assert!(error(r#"{"auth_mode": "other"}"#).contains("auth_mode"));
     for address in [
         "9092",
         "localhost",
@@ -322,13 +322,13 @@ fn check_rejects_what_the_server_cannot_honor() {
         "host:70000",
         "a b:1",
     ] {
-        let text = format!(r#"{{"prometheusaddress": "{address}"}}"#);
+        let text = format!(r#"{{"metrics_address": "{address}"}}"#);
         assert!(
-            error(&text).contains("prometheusaddress"),
+            error(&text).contains("metrics_address"),
             "{address} is refused"
         );
     }
-    assert!(error(r#"{"filesdriver": "ftp"}"#).contains("filesdriver"));
+    assert!(error(r#"{"file_storage": "ftp"}"#).contains("file_storage"));
     // Zero would not mean "no limit" to anyone who reads it as "nothing".
     assert!(error(r#"{"max_request_bytes": 0}"#).contains("max_request_bytes"));
     assert!(error(r#"{"trash_retention_days": 0}"#).contains("trash_retention_days"));
@@ -337,12 +337,12 @@ fn check_rejects_what_the_server_cannot_honor() {
     assert!(error(r#"{"max_pending_upload_bytes": 0}"#).contains("max_pending_upload_bytes"));
     for size in ["0", "-1", "83886080001"] {
         assert!(
-            error(&format!(r#"{{"maxfilesize": {size}}}"#)).contains("maxfilesize"),
+            error(&format!(r#"{{"max_file_bytes": {size}}}"#)).contains("max_file_bytes"),
             "{size}"
         );
     }
     assert!(
-        error(r#"{"maxfilesize": 2000, "max_pending_upload_bytes": 1999}"#)
+        error(r#"{"max_file_bytes": 2000, "max_pending_upload_bytes": 1999}"#)
             .contains("max_pending_upload_bytes")
     );
     for size in ["0", "83886080001"] {
@@ -353,7 +353,7 @@ fn check_rejects_what_the_server_cannot_honor() {
     }
     assert!(
         error(
-            r#"{"maxfilesize": 2000, "max_import_bytes": 3000, "max_pending_upload_bytes": 2500}"#
+            r#"{"max_file_bytes": 2000, "max_import_bytes": 3000, "max_pending_upload_bytes": 2500}"#
         )
         .contains("max_import_bytes")
     );
@@ -375,10 +375,6 @@ fn check_rejects_what_the_server_cannot_honor() {
     }
     assert!(error(r#"{"session_idle_days": 0}"#).contains("session_idle_days"));
     assert!(error(r#"{"session_max_days": 0}"#).contains("session_max_days"));
-    assert!(
-        error(r#"{"filesdriver": "amazons3", "filess3config": {"SignV2": true}}"#)
-            .contains("SignV2")
-    );
 }
 
 #[test]
@@ -417,13 +413,13 @@ fn https_behind_a_proxy_nobody_named_is_warned_about() {
             .check()
             .expect("accepted")
     };
-    let behind = warnings(r#"{"serverRoot": "https://boards.example.com"}"#);
+    let behind = warnings(r#"{"server_url": "https://boards.example.com"}"#);
     assert_eq!(behind.len(), 1, "{behind:?}");
     assert!(behind[0].contains("trusted_proxies"), "{behind:?}");
     for quiet in [
-        r#"{"serverRoot": "https://boards.example.com", "trusted_proxies": ["10.0.0.0/8"]}"#,
-        r#"{"serverRoot": "https://boards.example.com", "usessl": true}"#,
-        r#"{"serverRoot": "http://localhost:8000"}"#,
+        r#"{"server_url": "https://boards.example.com", "trusted_proxies": ["10.0.0.0/8"]}"#,
+        r#"{"server_url": "https://boards.example.com", "serve_https": true}"#,
+        r#"{"server_url": "http://localhost:8000"}"#,
     ] {
         assert!(warnings(quiet).is_empty(), "{quiet}");
     }
@@ -454,7 +450,7 @@ fn the_request_limit_defaults_to_four_mebibytes_and_can_be_set() {
 
 #[test]
 fn debug_output_hides_secrets() {
-    let text = r#"{"dbconfig": "postgres://u:hunter2@h/db", "filess3config": {"SecretAccessKey": "s3cr3t"}}"#;
+    let text = r#"{"database_connection": "postgres://u:hunter2@h/db", "file_storage_s3": {"secret_access_key": "s3cr3t"}}"#;
     let debug = format!("{:?}", Configuration::parse(text, no_env).expect("valid"));
     assert!(
         !debug.contains("hunter2") && !debug.contains("s3cr3t"),
@@ -474,12 +470,10 @@ fn repository_file(path: &str) -> String {
 /// What `docs/configuration.md` says about the keys.
 #[derive(Debug, Default)]
 struct Documented {
-    /// The default of each key, lower-cased, as JSON.
+    /// The default of each key, as JSON.
     defaults: BTreeMap<String, Value>,
     /// The environment variable of each key that has one.
     env: BTreeMap<String, String>,
-    /// The removed keys.
-    removed: Vec<String>,
     /// The variables of "그 밖의 환경 변수", as written.
     other_env: Vec<String>,
 }
@@ -490,7 +484,7 @@ fn code(cell: &str) -> Option<&str> {
 }
 
 /// Reads the tables of the document: the rows of the sections "키: …" are keys, and
-/// those of "없앤 키" are removed keys.
+/// those of "그 밖의 환경 변수" are variables.
 fn documented(text: &str) -> Documented {
     let mut documented = Documented::default();
     let mut section = "";
@@ -510,7 +504,7 @@ fn documented(text: &str) -> Documented {
             documented.other_env.push(key.to_owned());
             continue;
         }
-        let key = key.to_lowercase();
+        let key = key.to_owned();
         if section.starts_with("키:") {
             assert!(cells.len() >= 5, "a row of five cells: {line}");
             let default = code(cells[3]).unwrap_or_else(|| panic!("a default: {line}"));
@@ -523,15 +517,13 @@ fn documented(text: &str) -> Documented {
                 documented.defaults.insert(key.clone(), default).is_none(),
                 "{key} is documented once"
             );
-        } else if section == "없앤 키" {
-            documented.removed.push(key);
         }
     }
     documented
 }
 
-/// The keys of the configuration and their defaults, the keys of `filess3config`
-/// as `filess3config.<key>`.
+/// The keys of the configuration and their defaults, the keys of `file_storage_s3`
+/// as `file_storage_s3.<key>`.
 fn code_defaults() -> BTreeMap<String, Value> {
     let Value::Object(keys) =
         serde_json::to_value(Configuration::default()).expect("the defaults serialize")
@@ -541,7 +533,7 @@ fn code_defaults() -> BTreeMap<String, Value> {
     let mut defaults = BTreeMap::new();
     for (key, value) in keys {
         match value {
-            Value::Object(inner) if key == "filess3config" => {
+            Value::Object(inner) if key == NESTED => {
                 for (inner_key, inner_value) in inner {
                     defaults.insert(format!("{key}.{inner_key}"), inner_value);
                 }
@@ -559,7 +551,7 @@ fn code_defaults() -> BTreeMap<String, Value> {
 fn org_creation_is_first_user_only_or_open_and_open_needs_postgresql() {
     let with = |org_creation: &str, db_type: &str| Configuration {
         org_creation: org_creation.to_owned(),
-        db_type: db_type.to_owned(),
+        database_kind: db_type.to_owned(),
         ..Configuration::default()
     };
     assert_eq!(Configuration::default().org_creation, "first_user_only");
@@ -608,14 +600,6 @@ fn the_configuration_document_lists_every_key() {
     assert_eq!(
         documented.env, env,
         "docs/configuration.md names the environment variables the server reads"
-    );
-    let removed: Vec<String> = REMOVED_KEYS
-        .iter()
-        .map(|(key, _)| (*key).to_owned())
-        .collect();
-    assert_eq!(
-        documented.removed, removed,
-        "docs/configuration.md lists the removed keys"
     );
     for (key, variable) in ENV_ONLY {
         assert!(
@@ -667,7 +651,7 @@ fn the_secret_key_is_read_from_the_environment_only() {
         "{said}"
     );
 
-    let in_file = format!(r#"{{"Secret_Key": "{text}"}}"#);
+    let in_file = format!(r#"{{"secret_key": "{text}"}}"#);
     let refused = Configuration::parse(&in_file, no_env).expect_err("not from the file");
     let said = format!("{refused:#}");
     assert!(

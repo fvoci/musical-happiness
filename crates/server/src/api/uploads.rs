@@ -1,4 +1,4 @@
-//! Uploads in parts (`docs/s6-design.md` 5.6): a file of up to `maxfilesize` sent in
+//! Uploads in parts (`docs/s6-design.md` 5.6): a file of up to `max_file_bytes` sent in
 //! parts the server sizes, each checked against its SHA-256, and resumed where it
 //! stopped.
 

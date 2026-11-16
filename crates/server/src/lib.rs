@@ -87,7 +87,7 @@ pub struct Server {
     app: App,
     base_path: String,
     tls_files: TlsFiles,
-    /// The listener of the metrics, if `prometheusaddress` is set.
+    /// The listener of the metrics, if `metrics_address` is set.
     metrics_listener: Option<tokio::net::TcpListener>,
     /// The lock of the server of the database, held from the start to the shutdown.
     lock: Option<app::HeldLock>,
@@ -104,7 +104,7 @@ impl Server {
     /// Returns an error if the configuration asks for something unsupported, the
     /// database or the file storage cannot be set up, another process holds the lock of
     /// the server of the database for longer than `server_lock_wait_seconds`, or the
-    /// metrics listener cannot listen at `prometheusaddress`.
+    /// metrics listener cannot listen at `metrics_address`.
     pub async fn new(config: Configuration, base_path: &str) -> anyhow::Result<Self> {
         for warning in config.check()? {
             tracing::warn!("{warning}");
@@ -120,7 +120,7 @@ impl Server {
         let skip_template_init = config.skip_template_init;
         let app = App::new(config, store, files)?;
         // Before the slow work below: an address that is taken is reported at once.
-        let metrics_listener = match app.config().metrics_address()? {
+        let metrics_listener = match app.config().metrics_listen_address()? {
             Some(address) => Some(metrics_listener::bind(&address).await?),
             None => None,
         };
@@ -154,7 +154,7 @@ impl Server {
         })
     }
 
-    /// Reads the certificate and the key for `usessl` from these files instead of
+    /// Reads the certificate and the key for `serve_https` from these files instead of
     /// `./cert/cert.pem` and `./cert/key.pem`.
     #[must_use]
     pub fn with_tls_files(mut self, tls_files: TlsFiles) -> Self {
@@ -162,7 +162,7 @@ impl Server {
         self
     }
 
-    /// The address the metrics are served at; `None` if `prometheusaddress` is empty,
+    /// The address the metrics are served at; `None` if `metrics_address` is empty,
     /// and nothing listens for them.
     pub fn metrics_address(&self) -> Option<SocketAddr> {
         self.metrics_listener
@@ -277,15 +277,15 @@ impl Server {
     /// Serves connections from `listener` until `shutdown` completes, then waits for
     /// notifications in flight and closes the database.
     ///
-    /// Connections are served over TLS if the configuration has `usessl`. While serving,
-    /// the administration socket is open if the configuration has `enablelocalmode`,
-    /// the metrics are served, over plain HTTP, if it has `prometheusaddress`, and once
+    /// Connections are served over TLS if the configuration has `serve_https`. While serving,
+    /// the administration socket is open if the configuration has `serve_admin_socket`,
+    /// the metrics are served, over plain HTTP, if it has `metrics_address`, and once
     /// at the start and then every hour the sessions that have ended are deleted and
     /// the trash is purged of what has been in it for too long.
     ///
     /// # Errors
     ///
-    /// Returns an error, before any connection is accepted, if `usessl` is set and the
+    /// Returns an error, before any connection is accepted, if `serve_https` is set and the
     /// certificate or the key is missing or cannot be used, or the administration socket
     /// cannot be opened. Returns an error if accepting connections fails.
     pub async fn serve(
@@ -390,11 +390,11 @@ impl Server {
 
     /// The TLS settings to serve with, or `None` to serve plain HTTP.
     ///
-    /// With `usessl` a missing certificate or key is an error. The original serves plain
+    /// With `serve_https` a missing certificate or key is an error. The original serves plain
     /// HTTP then, without a word (`server/web/webserver.go:113`): an operator who asked
     /// for TLS would be sending sessions and passwords in the clear without knowing.
     fn tls_config(&self) -> anyhow::Result<Option<tls::ServerConfig>> {
-        if !self.app.config().use_ssl {
+        if !self.app.config().serve_https {
             return Ok(None);
         }
         let missing = self.tls_files.missing();
@@ -404,8 +404,8 @@ impl Server {
                 .map(|path| path.display().to_string())
                 .collect();
             bail!(
-                "usessl is set, but there is no file {}; provide the certificate and the key, \
-                 or turn usessl off to serve plain HTTP",
+                "serve_https is set, but there is no file {}; provide the certificate and the key, \
+                 or turn serve_https off to serve plain HTTP",
                 missing.join(" and no file ")
             );
         }
@@ -415,10 +415,10 @@ impl Server {
     /// Opens the administration socket if the configuration asks for it.
     fn start_admin_socket(&self) -> anyhow::Result<Option<AdminSocket>> {
         let config = self.app.config();
-        if !config.enable_local_mode {
+        if !config.serve_admin_socket {
             return Ok(None);
         }
-        let path = std::path::Path::new(&config.local_mode_socket_location);
+        let path = std::path::Path::new(&config.admin_socket_path);
         AdminSocket::start(path, self.admin_router())
             .with_context(|| format!("opening the administration socket {}", path.display()))
             .map(Some)
@@ -452,7 +452,7 @@ impl Server {
 }
 
 /// Serves the metrics from `listener` until `stop` is cancelled, in a task of its own.
-/// Plain HTTP, whatever `usessl` says, and without the request log: a scrape every few
+/// Plain HTTP, whatever `serve_https` says, and without the request log: a scrape every few
 /// seconds would fill it.
 fn spawn_metrics_server(
     listener: tokio::net::TcpListener,
@@ -476,7 +476,7 @@ fn spawn_metrics_server(
 /// Returns the address the server listens on, in the original's notation: `localhost:8000`
 /// for a local-only server, `:8000` for all interfaces.
 pub fn listen_address(config: &Configuration) -> String {
-    if config.local_only {
+    if config.listen_loopback_only {
         format!("localhost:{}", config.port)
     } else {
         format!(":{}", config.port)

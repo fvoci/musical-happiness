@@ -20,7 +20,7 @@ use super::{FileStream, ObjectListing, StorageError, StoredObject};
 use crate::config::AmazonS3Config;
 use crate::metrics::{FilesBackend, FilesOperation, Metrics};
 
-/// Files kept in a bucket of an S3-compatible object store, the `filess3config` setting.
+/// Files kept in a bucket of an S3-compatible object store, the `file_storage_s3` setting.
 ///
 /// A stored path such as `boards/20240131/7abc.png` is the object key, after the
 /// configured path prefix.
@@ -42,18 +42,12 @@ impl S3Files {
     ///
     /// # Errors
     ///
-    /// Returns [`StorageError::Config`] if no bucket is set, version 2 signing is asked
-    /// for, or the object store client cannot be built from the settings.
+    /// Returns [`StorageError::Config`] if no bucket is set, or the object store client
+    /// cannot be built from the settings.
     pub fn new(config: &AmazonS3Config) -> Result<Self, StorageError> {
         if config.bucket.is_empty() {
             return Err(StorageError::Config(
-                "filess3config.Bucket is empty".to_owned(),
-            ));
-        }
-        if config.sign_v2 {
-            return Err(StorageError::Config(
-                "filess3config.SignV2 is not supported; requests are signed with version 4"
-                    .to_owned(),
+                "file_storage_s3.bucket is empty".to_owned(),
             ));
         }
 
@@ -71,20 +65,20 @@ impl S3Files {
         if !config.endpoint.is_empty() {
             // A custom endpoint means an S3-compatible server, which is addressed by path
             // (`host/bucket/key`), not by a bucket subdomain.
-            let scheme = if config.ssl { "https" } else { "http" };
+            let scheme = if config.https { "https" } else { "http" };
             builder = builder
                 .with_endpoint(format!("{scheme}://{}", config.endpoint))
                 .with_virtual_hosted_style_request(false);
         }
-        builder = builder.with_allow_http(!config.ssl);
-        if config.sse {
+        builder = builder.with_allow_http(!config.https);
+        if config.server_side_encryption {
             // Server-side encryption with keys managed by the object store (SSE-S3).
             let key: AmazonS3ConfigKey = "aws_server_side_encryption"
                 .parse()
                 .map_err(|error: object_store::Error| StorageError::Config(error.to_string()))?;
             builder = builder.with_config(key, "AES256");
         }
-        if let Ok(millis @ 1..) = u64::try_from(config.timeout) {
+        if let Ok(millis @ 1..) = u64::try_from(config.timeout_ms) {
             builder = builder.with_client_options(
                 ClientOptions::new().with_timeout(Duration::from_millis(millis)),
             );
@@ -98,7 +92,7 @@ impl S3Files {
         Ok(Self {
             store,
             multipart,
-            prefix: config.path_prefix.trim_matches('/').to_owned(),
+            prefix: config.key_prefix.trim_matches('/').to_owned(),
             metrics: Metrics::none(),
         })
     }

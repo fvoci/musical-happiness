@@ -1,6 +1,6 @@
 //! File storage: where uploaded images and attachments live.
 //!
-//! Two backends exist, selected by the `filesdriver` setting: a directory on the local
+//! Two backends exist, selected by the `file_storage` setting: a directory on the local
 //! disk and an S3-compatible object store. Both store a file under the same relative path
 //! the original server uses, so an existing files directory or bucket keeps working.
 //!
@@ -91,15 +91,15 @@ impl FileBackend {
     ///
     /// # Errors
     ///
-    /// Returns [`StorageError::Config`] if `filesdriver` names no known backend or the
+    /// Returns [`StorageError::Config`] if `file_storage` names no known backend or the
     /// S3 settings cannot be used.
     pub fn from_config(config: &Configuration) -> Result<Self, StorageError> {
-        let backend = match config.files_driver.as_str() {
-            "local" => Self::Local(LocalFiles::new(&config.files_path)),
-            "amazons3" => Self::S3(S3Files::new(&config.files_s3_config)?),
+        let backend = match config.file_storage.as_str() {
+            "local" => Self::Local(LocalFiles::new(&config.file_storage_path)),
+            "amazons3" => Self::S3(S3Files::new(&config.file_storage_s3)?),
             other => {
                 return Err(StorageError::Config(format!(
-                    "unknown filesdriver {other:?}"
+                    "unknown file_storage {other:?}"
                 )));
             }
         };

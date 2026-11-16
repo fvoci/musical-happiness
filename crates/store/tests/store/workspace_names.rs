@@ -30,9 +30,9 @@ async fn names_stored_twice_are_told_apart_even_where_the_new_name_is_taken() {
         workspace(&newer, "Design", 2),
         workspace(&other, &format!("Design ({newer})"), 3),
     ];
-    common::execute_raw(&common::raw_dbconfig(&database), &statements.concat()).await;
+    common::execute_raw(&common::raw_connection(&database), &statements.concat()).await;
 
-    let store = Store::connect(database.db_type(), database.dbconfig())
+    let store = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("the migration goes through");
     let mut names: Vec<(String, String)> = store

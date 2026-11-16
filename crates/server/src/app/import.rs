@@ -92,7 +92,7 @@ impl App {
     /// Returns a bad request if the file is not a ZIP, has no `version.json` or one of
     /// another version, or holds what does not fit together; a 413 for an archive of
     /// more than 10,000 entries, whose entries unpack to more than 1 GiB together, or
-    /// with a `board.jsonl` of more than 64 MiB or a file larger than `maxfilesize`; and
+    /// with a `board.jsonl` of more than 64 MiB or a file larger than `max_file_bytes`; and
     /// the store's error if a board cannot be stored.
     pub(crate) async fn import_archive(
         &self,

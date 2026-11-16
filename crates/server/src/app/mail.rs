@@ -110,7 +110,7 @@ impl Mailer {
         if way.is_some() && is_loopback_root(server_root) {
             tracing::warn!(
                 server_root,
-                "mail is sent, but serverroot is a loopback address: its links lead nowhere \
+                "mail is sent, but server_url is a loopback address: its links lead nowhere \
                  for their recipients"
             );
         }

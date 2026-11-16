@@ -119,15 +119,15 @@ impl Running {
         let database = TestDatabase::create(&directory).await;
         let key = base64::engine::general_purpose::STANDARD.encode([9_u8; 32]);
         let config = Configuration {
-            enable_local_mode: cfg!(unix),
-            local_mode_socket_location: std::env::temp_dir()
+            serve_admin_socket: cfg!(unix),
+            admin_socket_path: std::env::temp_dir()
                 .join(format!("fvoci-operator-{}.sock", new_id()))
                 .display()
                 .to_string(),
-            db_type: database.db_type().as_str().to_owned(),
-            db_config: database.dbconfig().to_owned(),
-            files_driver: "local".to_owned(),
-            files_path: directory.join("uploads").display().to_string(),
+            database_kind: database.db_type().as_str().to_owned(),
+            database_connection: database.database_connection().to_owned(),
+            file_storage: "local".to_owned(),
+            file_storage_path: directory.join("uploads").display().to_string(),
             skip_template_init: true,
             login_address_attempts_per_minute: 0,
             password_hash_concurrency: 1,
@@ -137,7 +137,7 @@ impl Running {
             oidc_extra_root_certificates: vec![fake.certificate_der.clone()],
             ..Configuration::default()
         };
-        let root = config.server_root.clone();
+        let root = config.server_url.clone();
         let server = Server::new(config, "").await.expect("the server starts");
         let app = server.app().clone();
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -367,7 +367,7 @@ async fn global_commands_stay_out_of_the_organizations_log(
         .await
         .expect("records");
     let http = reqwest::Client::builder()
-        .unix_socket(server.app.config().local_mode_socket_location.as_str())
+        .unix_socket(server.app.config().admin_socket_path.as_str())
         .timeout(Duration::from_secs(10))
         .build()
         .expect("socket client");

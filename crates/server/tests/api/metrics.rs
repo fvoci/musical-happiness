@@ -1,4 +1,4 @@
-//! The Prometheus metrics: kept only if `prometheusaddress` is set, and served on a
+//! The Prometheus metrics: kept only if `metrics_address` is set, and served on a
 //! listener of their own.
 
 use std::time::Duration;
@@ -152,7 +152,7 @@ async fn a_metrics_address_that_is_taken_keeps_the_server_from_starting() {
         .expect("the server does not start");
     let error = format!("{error:#}");
     assert!(
-        error.contains("prometheusaddress"),
+        error.contains("metrics_address"),
         "the setting is named: {error}"
     );
     drop(taken);
@@ -770,7 +770,7 @@ async fn attempts_the_login_limits_refuse_are_counted_by_limit() {
 async fn a_local_only_server_serves_metrics_without_a_host_on_its_loopback() {
     let server = Setup::native()
         .metrics_at(":0")
-        .configure(|config| config.local_only = true)
+        .configure(|config| config.listen_loopback_only = true)
         .start()
         .await;
     let address = server.metrics_address.expect("the server keeps metrics");
@@ -784,7 +784,7 @@ async fn with_a_token_set_a_scrape_must_send_it() {
     const TOKEN: &str = "a-token-for-the-scrapes-of-32-chars";
     let server = Setup::native()
         .metrics_at("127.0.0.1:0")
-        .configure(|config| TOKEN.clone_into(&mut config.prometheus_token))
+        .configure(|config| TOKEN.clone_into(&mut config.metrics_token))
         .start()
         .await;
     let address = server.metrics_address.expect("the server keeps metrics");

@@ -225,11 +225,11 @@ async fn the_token_of_an_invitation_is_not_logged_stored_or_answered_again() {
     .expect("the index page is written");
     let database = TestDatabase::create(&directory).await;
     let config = Configuration {
-        db_type: database.db_type().as_str().to_owned(),
-        db_config: database.dbconfig().to_owned(),
-        web_path: web_path.display().to_string(),
-        files_driver: "local".to_owned(),
-        files_path: directory.join("uploads").display().to_string(),
+        database_kind: database.db_type().as_str().to_owned(),
+        database_connection: database.database_connection().to_owned(),
+        web_app_path: web_path.display().to_string(),
+        file_storage: "local".to_owned(),
+        file_storage_path: directory.join("uploads").display().to_string(),
         skip_template_init: true,
         login_address_attempts_per_minute: 0,
         ..Configuration::default()

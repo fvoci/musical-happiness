@@ -531,7 +531,7 @@ impl App {
 
     /// Posts the blocks to the webhooks, one after the other, in the background.
     fn notify_webhooks(&self, blocks: &[Block]) {
-        if self.config().webhook_update.is_empty() {
+        if self.config().block_change_webhooks.is_empty() {
             return;
         }
         let app = self.clone();

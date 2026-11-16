@@ -81,11 +81,11 @@ async fn ping_returns_metadata_on_success() {
 async fn get_client_config() {
     let th = Setup::local_mode()
         .configure(|config| {
-            config.teammate_name_display = "username".to_owned();
+            config.name_display = "username".to_owned();
             config
                 .feature_flags
                 .insert("newBoardsEditor".to_owned(), "true".to_owned());
-            config.max_file_size = 1234;
+            config.max_file_bytes = 1234;
         })
         .start()
         .await;
@@ -337,7 +337,7 @@ async fn an_answer_without_a_result_has_no_body_and_no_content_type() {
 async fn base_path_prefixes_every_route() {
     let th = Setup::native()
         .base_path(&format!("{ROOT_WS}/boards"))
-        .configure(|config| config.server_root = "https://example.com/boards".to_owned())
+        .configure(|config| config.server_url = "https://example.com/boards".to_owned())
         .start()
         .await
         .init_basic()
@@ -497,7 +497,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
 #[tokio::test]
 async fn static_file_names_are_decoded_once() {
     let th = Setup::native().start().await;
-    let directory = std::path::Path::new(&th.app.config().web_path).join("static");
+    let directory = std::path::Path::new(&th.app.config().web_app_path).join("static");
     std::fs::write(directory.join("with space.js"), "spaced").expect("a file is written");
     std::fs::write(directory.join("100%.txt"), "percent").expect("a file is written");
 

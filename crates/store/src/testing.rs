@@ -50,9 +50,9 @@ pub fn db_type_of_the_tests() -> DbType {
 #[derive(Debug)]
 pub struct TestDatabase {
     db_type: DbType,
-    dbconfig: String,
-    /// The `dbconfig` of the role that owns the tables, where that is another role.
-    owner_dbconfig: Option<String>,
+    database_connection: String,
+    /// The `database_connection` of the role that owns the tables, where that is another role.
+    owner_database_connection: Option<String>,
     cleanup: Cleanup,
 }
 
@@ -140,8 +140,8 @@ impl TestDatabase {
                 let path = directory.join(format!("{name}.db"));
                 Self {
                     db_type,
-                    dbconfig: format!("{}?_busy_timeout=5000", path.display()),
-                    owner_dbconfig: None,
+                    database_connection: format!("{}?busy_timeout_ms=5000", path.display()),
+                    owner_database_connection: None,
                     cleanup: Cleanup::SqliteFile(path),
                 }
             }
@@ -171,7 +171,7 @@ impl TestDatabase {
                 }
                 let (own_role, connect_as) = if role == Role::BypassRls {
                     // The role passes every policy of the cluster: its password is its
-                    // own, made here and kept nowhere but in the test's `dbconfig`.
+                    // own, made here and kept nowhere but in the test's `database_connection`.
                     let own_role = format!("r_{name}");
                     let password = new_id();
                     run(
@@ -203,8 +203,8 @@ impl TestDatabase {
                 let separator = if connect_as.contains('?') { '&' } else { '?' };
                 Self {
                     db_type,
-                    dbconfig: format!("{connect_as}{separator}search_path={schema}"),
-                    owner_dbconfig: None,
+                    database_connection: format!("{connect_as}{separator}search_path={schema}"),
+                    owner_database_connection: None,
                     cleanup: Cleanup::PostgresSchema {
                         url,
                         schema,
@@ -218,8 +218,8 @@ impl TestDatabase {
     /// Creates an empty database whose tables are not the tests' role's: on PostgreSQL a
     /// schema that `owner` owns, in which the role of [`CONN_STRING_ENV`] may only use
     /// the tables (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, and the sequences), as a server
-    /// is installed apart from the administrator who migrates. [`TestDatabase::dbconfig`]
-    /// connects as the tests' role and [`TestDatabase::owner_dbconfig`] as the owner. On
+    /// is installed apart from the administrator who migrates. [`TestDatabase::database_connection`]
+    /// connects as the tests' role and [`TestDatabase::owner_database_connection`] as the owner. On
     /// SQLite, which has no roles, it is a database like any other.
     ///
     /// # Panics
@@ -285,8 +285,8 @@ impl TestDatabase {
         };
         Self {
             db_type: DbType::Postgres,
-            dbconfig: in_schema(&tests_url),
-            owner_dbconfig: Some(in_schema(&owner_url)),
+            database_connection: in_schema(&tests_url),
+            owner_database_connection: Some(in_schema(&owner_url)),
             cleanup: Cleanup::PostgresSchema {
                 url: superuser_url,
                 schema,
@@ -295,10 +295,12 @@ impl TestDatabase {
         }
     }
 
-    /// The `dbconfig` string that connects as the role that owns the tables: that of a
-    /// database made by [`TestDatabase::create_owned_apart`], else [`TestDatabase::dbconfig`].
-    pub fn owner_dbconfig(&self) -> &str {
-        self.owner_dbconfig.as_deref().unwrap_or(&self.dbconfig)
+    /// The `database_connection` string that connects as the role that owns the tables: that of a
+    /// database made by [`TestDatabase::create_owned_apart`], else [`TestDatabase::database_connection`].
+    pub fn owner_database_connection(&self) -> &str {
+        self.owner_database_connection
+            .as_deref()
+            .unwrap_or(&self.database_connection)
     }
 
     /// The kind of database this is.
@@ -306,9 +308,9 @@ impl TestDatabase {
         self.db_type
     }
 
-    /// The `dbconfig` string that connects to this database.
-    pub fn dbconfig(&self) -> &str {
-        &self.dbconfig
+    /// The `database_connection` string that connects to this database.
+    pub fn database_connection(&self) -> &str {
+        &self.database_connection
     }
 
     /// The path of the database file, if this is an SQLite database.
@@ -401,15 +403,15 @@ pub fn latest_migration() -> i64 {
     crate::schema::latest_version()
 }
 
-/// Brings the schema that `dbconfig` connects to up to the migrations up to `version`,
+/// Brings the schema that `database_connection` connects to up to the migrations up to `version`,
 /// and none of the changes of the data that follow the migrations: a database as an
 /// older server left it.
 ///
 /// # Panics
 ///
 /// Panics if the database cannot be reached or migrated.
-pub async fn migrate_up_to(db_type: DbType, dbconfig: &str, version: i64) {
-    let store = Store::open(db_type, dbconfig)
+pub async fn migrate_up_to(db_type: DbType, database_connection: &str, version: i64) {
+    let store = Store::open(db_type, database_connection)
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(version))
@@ -418,15 +420,15 @@ pub async fn migrate_up_to(db_type: DbType, dbconfig: &str, version: i64) {
     store.close().await;
 }
 
-/// Removes the record of migration `version` from the schema `dbconfig` connects to,
+/// Removes the record of migration `version` from the schema `database_connection` connects to,
 /// as its owner: the schema then reads as behind this build while its tables are
 /// unchanged, for the tests of a migration asked for while a server serves it.
 ///
 /// # Panics
 ///
 /// Panics if the database cannot be reached or the record cannot be removed.
-pub async fn forget_migration(db_type: DbType, dbconfig: &str, version: i64) {
-    let store = Store::open(db_type, dbconfig)
+pub async fn forget_migration(db_type: DbType, database_connection: &str, version: i64) {
+    let store = Store::open(db_type, database_connection)
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     store
@@ -456,7 +458,7 @@ pub const ORG_TABLES: [&str; 35] = crate::schema::ORG_TABLES;
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_organizations(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.dbconfig())
+    let store = Store::open(database.db_type(), database.database_connection())
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(crate::schema::ORGANIZATIONS_VERSION - 1))
@@ -473,7 +475,7 @@ pub async fn migrate_to_before_organizations(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_the_organizations(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.dbconfig())
+    let store = Store::open(database.db_type(), database.database_connection())
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(crate::schema::ORGANIZATIONS_VERSION))
@@ -490,7 +492,7 @@ pub async fn migrate_to_the_organizations(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_workspaces(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.dbconfig())
+    let store = Store::open(database.db_type(), database.database_connection())
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(crate::schema::WORKSPACES_VERSION - 1))
@@ -506,7 +508,7 @@ pub async fn migrate_to_before_workspaces(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_the_workspaces(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.dbconfig())
+    let store = Store::open(database.db_type(), database.database_connection())
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(crate::schema::WORKSPACES_VERSION))
@@ -523,7 +525,7 @@ pub async fn migrate_to_the_workspaces(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_containers(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.dbconfig())
+    let store = Store::open(database.db_type(), database.database_connection())
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(crate::schema::CONTAINERS_VERSION - 1))
@@ -539,7 +541,7 @@ pub async fn migrate_to_before_containers(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_the_containers(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.dbconfig())
+    let store = Store::open(database.db_type(), database.database_connection())
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(crate::schema::CONTAINERS_VERSION))
@@ -556,7 +558,7 @@ pub async fn migrate_to_the_containers(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_org_management(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.dbconfig())
+    let store = Store::open(database.db_type(), database.database_connection())
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(crate::schema::ORG_MANAGEMENT_VERSION - 1))
@@ -571,7 +573,7 @@ pub async fn migrate_to_before_org_management(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_audit_actors(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.dbconfig())
+    let store = Store::open(database.db_type(), database.database_connection())
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(26))
@@ -586,7 +588,7 @@ pub async fn migrate_to_before_audit_actors(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_session_origin(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.dbconfig())
+    let store = Store::open(database.db_type(), database.database_connection())
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(27))
@@ -602,7 +604,7 @@ pub async fn migrate_to_before_session_origin(database: &TestDatabase) {
 ///
 /// Panics if the database cannot be reached or migrated.
 pub async fn migrate_to_before_signups(database: &TestDatabase) {
-    let store = Store::open(database.db_type(), database.dbconfig())
+    let store = Store::open(database.db_type(), database.database_connection())
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(35))

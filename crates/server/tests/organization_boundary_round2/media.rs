@@ -402,14 +402,14 @@ async fn local_files_tokens_uploads_and_housekeeping_stay_in_their_organizations
 }
 
 fn s3(config: &mut Configuration) {
-    "amazons3".clone_into(&mut config.files_driver);
+    "amazons3".clone_into(&mut config.file_storage);
     config.upload_part_bytes = 5 * 1024 * 1024;
-    config.files_s3_config = AmazonS3Config {
+    config.file_storage_s3 = AmazonS3Config {
         access_key_id: "any".to_owned(),
         secret_access_key: "any".to_owned(),
         bucket: std::env::var("FVOCI_S3_TEST_BUCKET").expect("the test bucket"),
         endpoint: std::env::var("FVOCI_S3_TEST_ENDPOINT").expect("the test endpoint"),
-        path_prefix: "organization-review-round2".to_owned(),
+        key_prefix: "organization-review-round2".to_owned(),
         region: "us-east-1".to_owned(),
         ..AmazonS3Config::default()
     };

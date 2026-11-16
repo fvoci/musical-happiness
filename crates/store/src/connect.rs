@@ -1,16 +1,16 @@
-//! Turning the server's `dbtype` and `dbconfig` settings into connection options.
+//! Turning the server's `database_kind` and `database_connection` settings into
+//! connection options.
 //!
-//! `dbconfig` keeps the form that existing configuration files use, so they keep
-//! working: a file path with optional `?_busy_timeout=...` for
-//! SQLite, and a `postgres://` URL or a `key=value` list for PostgreSQL. Parameters this
-//! server does not understand are an error rather than silently dropped, so a setting
-//! that has no effect is noticed at startup.
+//! `database_connection` is the path of an SQLite file (or `:memory:`), with
+//! `?busy_timeout_ms=...` if need be, or a `postgres://` URL. Parameters this server does
+//! not understand are an error rather than silently dropped, so a setting that has no
+//! effect is noticed at startup.
 
 use std::str::FromStr;
 use std::time::Duration;
 
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+use sqlx::sqlite::SqliteConnectOptions;
 
 use crate::error::StoreError;
 
@@ -24,7 +24,7 @@ pub enum DbType {
 }
 
 impl DbType {
-    /// Returns the name used in the `dbtype` setting.
+    /// Returns the name used in the `database_kind` setting.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Sqlite => "sqlite3",
@@ -40,17 +40,14 @@ impl FromStr for DbType {
         match name {
             "sqlite3" => Ok(Self::Sqlite),
             "postgres" => Ok(Self::Postgres),
-            "mysql" => Err(StoreError::Config(
-                "dbtype \"mysql\" is not supported; use \"sqlite3\" or \"postgres\"".to_owned(),
-            )),
             other => Err(StoreError::Config(format!(
-                "unknown dbtype {other:?}; use \"sqlite3\" or \"postgres\""
+                "unknown database_kind {other:?}; use \"sqlite3\" or \"postgres\""
             ))),
         }
     }
 }
 
-/// Connection settings for SQLite derived from a `dbconfig` string.
+/// Connection settings for SQLite derived from a `database_connection`.
 #[derive(Debug, Clone)]
 pub(crate) struct SqliteSettings {
     pub(crate) options: SqliteConnectOptions,
@@ -60,53 +57,28 @@ pub(crate) struct SqliteSettings {
     pub(crate) busy_timeout: Duration,
 }
 
-/// Parses a SQLite `dbconfig`: `[file:]<path>[?<param>=<value>&...]`.
-///
-/// Recognized parameters are `_busy_timeout` / `_timeout` (milliseconds), `cache`
-/// (`shared` or `private`), `mode` (`ro`, `rw`, `rwc` or `memory`), and `_journal_mode` /
-/// `_journal`. The path `:memory:` or `mode=memory` selects an in-memory database.
-pub(crate) fn sqlite_settings(dbconfig: &str) -> Result<SqliteSettings, StoreError> {
-    let (path, query) = dbconfig.split_once('?').unwrap_or((dbconfig, ""));
-    let path = path.strip_prefix("file:").unwrap_or(path);
+/// The parameter of an SQLite `database_connection` that sets how long a statement
+/// waits for another writer, in milliseconds.
+const BUSY_TIMEOUT: &str = "busy_timeout_ms";
+
+/// Parses an SQLite `database_connection`: `<path>[?busy_timeout_ms=<milliseconds>]`.
+/// The path `:memory:` is a database in memory, of this store alone.
+pub(crate) fn sqlite_settings(connection: &str) -> Result<SqliteSettings, StoreError> {
+    let (path, query) = connection.split_once('?').unwrap_or((connection, ""));
     if path.is_empty() {
         return Err(StoreError::Config(
-            "dbconfig names no database file".to_owned(),
+            "database_connection names no database file".to_owned(),
         ));
     }
 
-    let mut in_memory = path == ":memory:";
-    let mut read_only = false;
-    let mut create = true;
+    let in_memory = path == ":memory:";
     let mut busy_timeout = Duration::from_secs(5);
-    let mut journal_mode = None;
-
     for (key, value) in query_pairs(query) {
-        match key {
-            "_busy_timeout" | "_timeout" => {
-                let millis: u64 = value.parse().map_err(|_| {
-                    StoreError::Config(format!(
-                        "dbconfig parameter {key}={value:?} is not a number"
-                    ))
-                })?;
-                busy_timeout = Duration::from_millis(millis);
-            }
-            // Every connection of one store shares one database whatever this says.
-            "cache" if matches!(value, "shared" | "private") => {}
-            "mode" => match value {
-                "memory" => in_memory = true,
-                "ro" => (read_only, create) = (true, false),
-                "rw" => create = false,
-                "rwc" => {}
-                _ => return Err(unsupported_value(key, value)),
-            },
-            "_journal_mode" | "_journal" => {
-                journal_mode = Some(
-                    SqliteJournalMode::from_str(value)
-                        .map_err(|_| unsupported_value(key, value))?,
-                );
-            }
-            _ => return Err(unsupported_parameter(key)),
+        if key != BUSY_TIMEOUT {
+            return Err(unsupported_parameter(key));
         }
+        let millis: u64 = value.parse().map_err(|_| not_a_number(key, value))?;
+        busy_timeout = Duration::from_millis(millis);
     }
 
     let mut options = if in_memory {
@@ -116,15 +88,11 @@ pub(crate) fn sqlite_settings(dbconfig: &str) -> Result<SqliteSettings, StoreErr
     } else {
         SqliteConnectOptions::new()
             .filename(path)
-            .create_if_missing(create)
-            .read_only(read_only)
+            .create_if_missing(true)
     };
     // SQLite enforces foreign keys only where a connection asks for it. The schema
     // relies on them: said here, and not left to the driver's default.
     options = options.foreign_keys(true).busy_timeout(busy_timeout);
-    if let Some(journal_mode) = journal_mode {
-        options = options.journal_mode(journal_mode);
-    }
     Ok(SqliteSettings {
         options,
         in_memory,
@@ -132,7 +100,7 @@ pub(crate) fn sqlite_settings(dbconfig: &str) -> Result<SqliteSettings, StoreErr
     })
 }
 
-/// Connection settings for PostgreSQL derived from a `dbconfig` string.
+/// Connection settings for PostgreSQL derived from a `database_connection`.
 #[derive(Debug, Clone)]
 pub(crate) struct PostgresSettings {
     pub(crate) options: PgConnectOptions,
@@ -140,33 +108,23 @@ pub(crate) struct PostgresSettings {
     pub(crate) connect_timeout: Option<Duration>,
 }
 
-/// Parses a PostgreSQL `dbconfig`: a `postgres://` URL or a `key=value` list.
+/// Parses a PostgreSQL `database_connection`: a `postgres://` (or `postgresql://`) URL.
 ///
 /// Recognized parameters are `sslmode`, `sslrootcert`, `sslcert`, `sslkey`,
-/// `application_name`, `search_path`, `connect_timeout` (seconds), and
-/// `binary_parameters`, which is accepted and ignored. The `key=value` form also takes
-/// `host`, `port`, `user`, `password` and `dbname`.
-pub(crate) fn postgres_settings(dbconfig: &str) -> Result<PostgresSettings, StoreError> {
-    let is_url = dbconfig.starts_with("postgres://") || dbconfig.starts_with("postgresql://");
-    let (mut options, pairs) = if is_url {
-        let (base, query) = dbconfig.split_once('?').unwrap_or((dbconfig, ""));
-        let options = PgConnectOptions::from_str(base)
-            .map_err(|error| StoreError::Config(format!("dbconfig is not a valid URL: {error}")))?;
-        (options, query_pairs(query).collect::<Vec<_>>())
-    } else {
-        let pairs = dbconfig
-            .split_whitespace()
-            .map(|pair| {
-                pair.split_once('=').ok_or_else(|| {
-                    StoreError::Config(format!("dbconfig item {pair:?} is not key=value"))
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        (PgConnectOptions::new(), pairs)
-    };
+/// `application_name`, `search_path` and `connect_timeout` (seconds).
+pub(crate) fn postgres_settings(connection: &str) -> Result<PostgresSettings, StoreError> {
+    if !(connection.starts_with("postgres://") || connection.starts_with("postgresql://")) {
+        return Err(StoreError::Config(
+            "database_connection is no postgres:// URL".to_owned(),
+        ));
+    }
+    let (base, query) = connection.split_once('?').unwrap_or((connection, ""));
+    let mut options = PgConnectOptions::from_str(base).map_err(|error| {
+        StoreError::Config(format!("database_connection is not a valid URL: {error}"))
+    })?;
 
     let mut connect_timeout = None;
-    for (key, value) in pairs {
+    for (key, value) in query_pairs(query) {
         options = match key {
             "sslmode" => options
                 .ssl_mode(PgSslMode::from_str(value).map_err(|_| unsupported_value(key, value))?),
@@ -176,23 +134,10 @@ pub(crate) fn postgres_settings(dbconfig: &str) -> Result<PostgresSettings, Stor
             "application_name" => options.application_name(value),
             "search_path" => options.options([("search_path", value)]),
             "connect_timeout" => {
-                let seconds: u64 = value.parse().map_err(|_| {
-                    StoreError::Config(format!(
-                        "dbconfig parameter {key}={value:?} is not a number"
-                    ))
-                })?;
+                let seconds: u64 = value.parse().map_err(|_| not_a_number(key, value))?;
                 connect_timeout = Some(Duration::from_secs(seconds));
                 options
             }
-            // A setting of the original driver about how it encodes parameters.
-            "binary_parameters" => options,
-            "host" if !is_url => options.host(value),
-            "port" if !is_url => {
-                options.port(value.parse().map_err(|_| unsupported_value(key, value))?)
-            }
-            "user" if !is_url => options.username(value),
-            "password" if !is_url => options.password(value),
-            "dbname" if !is_url => options.database(value),
             _ => return Err(unsupported_parameter(key)),
         };
     }
@@ -212,12 +157,20 @@ fn query_pairs(query: &str) -> impl Iterator<Item = (&str, &str)> {
 }
 
 fn unsupported_parameter(key: &str) -> StoreError {
-    StoreError::Config(format!("dbconfig parameter {key:?} is not supported"))
+    StoreError::Config(format!(
+        "database_connection parameter {key:?} is not supported"
+    ))
 }
 
 fn unsupported_value(key: &str, value: &str) -> StoreError {
     StoreError::Config(format!(
-        "dbconfig parameter {key}={value:?} is not supported"
+        "database_connection parameter {key}={value:?} is not supported"
+    ))
+}
+
+fn not_a_number(key: &str, value: &str) -> StoreError {
+    StoreError::Config(format!(
+        "database_connection parameter {key}={value:?} is not a number"
     ))
 }
 
@@ -241,69 +194,74 @@ mod tests {
         );
         assert_eq!(DbType::Sqlite.as_str(), "sqlite3");
         assert_eq!(DbType::Postgres.as_str(), "postgres");
-        assert!(config_error("mysql".parse::<DbType>()).contains("not supported"));
-        assert!(config_error("sqlite".parse::<DbType>()).contains("unknown dbtype"));
+        for unknown in ["mysql", "sqlite", "Postgres"] {
+            assert!(
+                config_error(unknown.parse::<DbType>()).contains("unknown database_kind"),
+                "{unknown}"
+            );
+        }
     }
 
-    /// The `dbconfig` values found in the original's configuration files, documentation
-    /// and tests.
     #[test]
-    fn sqlite_dbconfig_forms_of_the_original() {
-        let plain = sqlite_settings("./data/boards.db").expect("a plain path");
+    fn sqlite_connections() {
+        let plain = sqlite_settings("./data/fvoci.db").expect("a plain path");
         assert!(!plain.in_memory, "a path is a file database");
         assert_eq!(
             plain.options.get_filename().to_str(),
-            Some("./data/boards.db")
+            Some("./data/fvoci.db")
         );
+        assert_eq!(plain.busy_timeout, Duration::from_secs(5), "the default");
 
-        let with_timeout = sqlite_settings("./boards.db?_busy_timeout=5000").expect("a timeout");
+        let with_timeout = sqlite_settings("./fvoci.db?busy_timeout_ms=1500").expect("a timeout");
         assert_eq!(
             with_timeout.options.get_filename().to_str(),
-            Some("./boards.db")
+            Some("./fvoci.db")
         );
+        assert_eq!(with_timeout.busy_timeout, Duration::from_millis(1500));
 
-        let memory =
-            sqlite_settings("file::memory:?cache=shared&_busy_timeout=5000").expect("in memory");
+        let memory = sqlite_settings(":memory:?busy_timeout_ms=5000").expect("in memory");
         assert!(memory.in_memory, ":memory: is an in-memory database");
-
-        let by_mode = sqlite_settings("file:test.db?mode=memory&cache=shared").expect("mode");
-        assert!(by_mode.in_memory, "mode=memory is an in-memory database");
     }
 
     #[test]
-    fn sqlite_dbconfig_rejects_what_it_does_not_understand() {
+    fn sqlite_connections_refuse_what_they_do_not_understand() {
         assert!(config_error(sqlite_settings("")).contains("no database file"));
         assert!(config_error(sqlite_settings("a.db?_loc=UTC")).contains("\"_loc\""));
-        assert!(config_error(sqlite_settings("a.db?_busy_timeout=soon")).contains("not a number"));
-        assert!(config_error(sqlite_settings("a.db?mode=fast")).contains("mode=\"fast\""));
-        assert!(config_error(sqlite_settings("a.db?cache=big")).contains("\"cache\""));
+        assert!(
+            config_error(sqlite_settings("a.db?busy_timeout_ms=soon")).contains("not a number")
+        );
+        for other in [
+            "_busy_timeout=5000",
+            "mode=memory",
+            "cache=shared",
+            "_journal=WAL",
+        ] {
+            let (key, _) = other.split_once('=').expect("a pair");
+            assert!(
+                config_error(sqlite_settings(&format!("a.db?{other}")))
+                    .contains(&format!("{key:?} is not supported")),
+                "{other}"
+            );
+        }
     }
 
     #[test]
-    fn postgres_dbconfig_forms_of_the_original() {
+    fn postgres_connections() {
         let url = postgres_settings(
-            "postgres://boardsuser:secret@db.example/boards?sslmode=disable&connect_timeout=10",
+            "postgres://fvoci:secret@db.example/fvoci?sslmode=disable&connect_timeout=10",
         )
         .expect("the documented URL form");
         assert_eq!(url.options.get_host(), "db.example");
-        assert_eq!(url.options.get_username(), "boardsuser");
-        assert_eq!(url.options.get_database(), Some("boards"));
+        assert_eq!(url.options.get_username(), "fvoci");
+        assert_eq!(url.options.get_database(), Some("fvoci"));
         assert_eq!(url.connect_timeout, Some(Duration::from_secs(10)));
 
-        let pairs = postgres_settings("dbname=boards sslmode=disable host=h port=5433 user=u")
-            .expect("the key=value form");
-        assert_eq!(pairs.options.get_database(), Some("boards"));
-        assert_eq!(pairs.options.get_host(), "h");
-        assert_eq!(pairs.options.get_port(), 5433);
-        assert_eq!(pairs.options.get_username(), "u");
-        assert_eq!(pairs.connect_timeout, None);
-
-        postgres_settings("postgres://u@h/db?binary_parameters=yes&search_path=s")
-            .expect("binary_parameters is accepted and search_path is supported");
+        postgres_settings("postgresql://u@h/db?search_path=s&application_name=a")
+            .expect("search_path and application_name are supported");
     }
 
     #[test]
-    fn postgres_dbconfig_rejects_what_it_does_not_understand() {
+    fn postgres_connections_refuse_what_they_do_not_understand() {
         assert!(
             config_error(postgres_settings("postgres://u@h/db?fallback=1"))
                 .contains("\"fallback\"")
@@ -311,7 +269,14 @@ mod tests {
         assert!(
             config_error(postgres_settings("postgres://u@h/db?sslmode=maybe")).contains("sslmode")
         );
-        assert!(config_error(postgres_settings("dbname")).contains("not key=value"));
+        assert!(
+            config_error(postgres_settings("dbname=fvoci sslmode=disable"))
+                .contains("no postgres:// URL")
+        );
+        assert!(
+            config_error(postgres_settings("postgres://u@h/db?binary_parameters=yes"))
+                .contains("\"binary_parameters\"")
+        );
         assert!(
             config_error(postgres_settings("postgres://u@h/db?host=other")).contains("\"host\"")
         );
