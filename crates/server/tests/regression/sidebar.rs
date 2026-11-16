@@ -97,34 +97,25 @@ pub(crate) async fn categories(s: &mut Session) {
         .user(&alice)
         .await;
 
-    s.post("file a board", &format!("{path}/{category}/boards/{board}"))
-        .user(&alice)
-        .await;
+    let place = format!("{path}/{category}/containers/{board}");
+    s.post("file a board", &place).user(&alice).await;
     s.post(
         "file the second board",
-        &format!("{path}/{category}/boards/{other}"),
+        &format!("{path}/{category}/containers/{other}"),
     )
     .user(&alice)
     .await;
     s.get("list after filing", &path).user(&alice).await;
-    s.put("hide", &format!("{path}/{category}/boards/{board}/hide"))
+    s.put("hide", &format!("{place}/hide")).user(&alice).await;
+    s.put("hide: other user", &format!("{place}/hide"))
+        .user(&bob)
+        .await;
+    s.get("list after hiding", &path).user(&alice).await;
+    s.put("unhide", &format!("{place}/unhide"))
         .user(&alice)
         .await;
-    s.put(
-        "hide: other user",
-        &format!("{path}/{category}/boards/{board}/hide"),
-    )
-    .user(&bob)
-    .await;
-    s.get("list after hiding", &path).user(&alice).await;
-    s.put(
-        "unhide",
-        &format!("{path}/{category}/boards/{board}/unhide"),
-    )
-    .user(&alice)
-    .await;
 
-    let reorder_boards = format!("{path}/{category}/board-order");
+    let reorder_boards = format!("{path}/{category}/container-order");
     s.put("reorder boards", &reorder_boards)
         .json(json!([other, board]))
         .user(&alice)
@@ -196,7 +187,7 @@ pub(crate) async fn categories(s: &mut Session) {
     // Last, because in the original these requests changed state while being refused.
     s.post(
         "file a board: other user's category",
-        &format!("{path}/{archive}/boards/{other}"),
+        &format!("{path}/{archive}/containers/{other}"),
     )
     .user(&bob)
     .await;
@@ -205,7 +196,7 @@ pub(crate) async fn categories(s: &mut Session) {
         .await;
     s.post(
         "file a board: unknown category",
-        &format!("{path}/unknown-category/boards/{other}"),
+        &format!("{path}/unknown-category/containers/{other}"),
     )
     .user(&alice)
     .await;
@@ -227,8 +218,8 @@ pub(crate) async fn sharing(s: &mut Session) {
     )
     .await;
     let card = id_of(&created[0]);
-    let path = format!("{ROOT_API}/boards/{board}/sharing");
-    let board_path = format!("{ROOT_API}/boards/{board}");
+    let path = format!("{ROOT_API}/containers/{board}/sharing");
+    let board_path = format!("{ROOT_API}/containers/{board}");
     let shared_path = format!("{API}/shared/{board}");
 
     s.get("get: none yet", &path).user(&alice).await;
@@ -259,7 +250,7 @@ pub(crate) async fn sharing(s: &mut Session) {
     s.get("get: editor", &path).user(&bob).await;
     s.get(
         "get: unknown board",
-        &format!("{ROOT_API}/boards/unknown-board/sharing"),
+        &format!("{ROOT_API}/containers/unknown-board/sharing"),
     )
     .user(&alice)
     .await;
@@ -303,13 +294,13 @@ pub(crate) async fn sharing(s: &mut Session) {
     .await;
     s.post(
         "insert with the read token",
-        &format!("{board_path}/blocks?readToken={token}"),
+        &format!("{ROOT_API}/boards/{board}/blocks?readToken={token}"),
     )
     .json(json!([block("x1", &board, "card", "x", "", json!({}))]))
     .await;
     s.patch(
         "patch with the read token",
-        &format!("{board_path}/blocks/{card}?readToken={token}"),
+        &format!("{ROOT_API}/boards/{board}/blocks/{card}?readToken={token}"),
     )
     .json(json!({"title": "hijack"}))
     .await;

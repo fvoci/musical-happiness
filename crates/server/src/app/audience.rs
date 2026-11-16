@@ -7,10 +7,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use cache::Cache;
-use fvoci_model::{Block, BlockType, BoardKind, BoardMember, Body, PersonProperties};
+use fvoci_model::{Block, BlockType, Body, ContainerKind, ContainerMember, PersonProperties};
 use fvoci_store::{Store, StoreError, Tenant, VisibilityVersion, WorkspaceAccess};
 
-use crate::permissions::BoardScope;
+use crate::permissions::ContainerScope;
 
 /// The boards as the websocket hub asks about them: who the members of a board are,
 /// which of its properties name users, and which board a block is of. The hub is made
@@ -26,9 +26,9 @@ pub struct Audience {
 #[derive(Debug, Default)]
 struct Caches {
     workspaces: Cache<(String, String), Option<WorkspaceAccess>>,
-    members: Cache<(Tenant, String), Vec<BoardMember>>,
+    members: Cache<(Tenant, String), Vec<ContainerMember>>,
     people: Cache<(Tenant, String), PersonProperties>,
-    scopes: Cache<(Tenant, String), Option<(String, BoardScope)>>,
+    scopes: Cache<(Tenant, String), Option<(String, ContainerScope)>>,
     shares: Cache<(String, String), bool>,
 }
 
@@ -81,7 +81,7 @@ impl Audience {
                         .store
                         .shared_container(board_id, read_token)
                         .await?
-                        .is_some_and(|shared| shared.kind == BoardKind::Board))
+                        .is_some_and(|shared| shared.kind == ContainerKind::Board))
                 },
             )
             .await
@@ -154,38 +154,41 @@ impl Audience {
     /// # Errors
     ///
     /// Returns the store's error if the query fails.
-    pub async fn members(&self, board_id: &str) -> Result<Vec<BoardMember>, StoreError> {
+    pub async fn members(&self, container_id: &str) -> Result<Vec<ContainerMember>, StoreError> {
         self.cache
             .members
             .read(
                 &self.store,
-                (self.store.tenant(), board_id.to_owned()),
-                || async { self.store.effective_board_members(board_id).await },
+                (self.store.tenant(), container_id.to_owned()),
+                || async { self.store.effective_container_members(container_id).await },
             )
             .await
     }
 
-    /// Who the board is there for besides its members ([`BoardScope::of`]), if it is a
+    /// Who the board is there for besides its members ([`ContainerScope::of`]), if it is a
     /// board of the workspace `workspace_id`; `None` for a board of another workspace,
     /// and for one that is not there, in the trash among them.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the board cannot be read.
-    pub async fn board_scope(
+    pub async fn container_scope(
         &self,
         workspace_id: &str,
-        board_id: &str,
-    ) -> Result<Option<BoardScope>, StoreError> {
+        container_id: &str,
+    ) -> Result<Option<ContainerScope>, StoreError> {
         let placed = self
             .cache
             .scopes
             .read(
                 &self.store,
-                (self.store.tenant(), board_id.to_owned()),
+                (self.store.tenant(), container_id.to_owned()),
                 || async {
-                    match self.store.get_board(board_id).await {
-                        Ok(board) => Ok(Some((board.workspace_id.clone(), BoardScope::of(&board)))),
+                    match self.store.get_container(container_id).await {
+                        Ok(container) => Ok(Some((
+                            container.workspace_id.clone(),
+                            ContainerScope::of(&container),
+                        ))),
                         Err(error) if error.is_not_found() => Ok(None),
                         Err(error) => Err(error),
                     }
@@ -202,13 +205,22 @@ impl Audience {
     /// # Errors
     ///
     /// Returns the store's error if there is no such board, or it cannot be read.
-    pub async fn person_properties(&self, board_id: &str) -> Result<PersonProperties, StoreError> {
+    pub async fn person_properties(
+        &self,
+        container_id: &str,
+    ) -> Result<PersonProperties, StoreError> {
         self.cache
             .people
             .read(
                 &self.store,
-                (self.store.tenant(), board_id.to_owned()),
-                || async { Ok(self.store.get_board(board_id).await?.person_properties()) },
+                (self.store.tenant(), container_id.to_owned()),
+                || async {
+                    Ok(self
+                        .store
+                        .get_container(container_id)
+                        .await?
+                        .person_properties())
+                },
             )
             .await
     }
@@ -224,7 +236,7 @@ impl Audience {
     ///
     /// Returns the store's error if either cannot be read: the block is not sent then.
     pub async fn unsaid_by_link(&self, block: &Block) -> Result<UnsaidByLink, StoreError> {
-        let people = self.person_properties(&block.board_id).await?;
+        let people = self.person_properties(&block.container_id).await?;
         let named = block
             .body
             .as_ref()
@@ -232,7 +244,7 @@ impl Audience {
             .unwrap_or_default();
         let shown = self
             .store
-            .blocks_on_board_among(&block.board_id, BlockType::Card, &named)
+            .blocks_on_container_among(&block.container_id, BlockType::Card, &named)
             .await?;
         Ok(UnsaidByLink { people, shown })
     }
@@ -244,9 +256,9 @@ impl Audience {
 #[derive(Debug, Clone, Copy)]
 pub struct Former<'a> {
     /// The board's members, as they were.
-    pub members: &'a [BoardMember],
+    pub members: &'a [ContainerMember],
     /// Who the board was there for besides its members.
-    pub scope: BoardScope,
+    pub scope: ContainerScope,
 }
 
 /// What a block is sent without to whoever reads its board by the link alone

@@ -7,24 +7,24 @@ it('keeps a pending filing when the preceding write echoes, then reads the store
   const { workspace, backend, world } = setup(await loadTemplates());
   await workspace.load();
   const [first, second] = workspace.sidebar;
-  const board = first?.boards[0];
+  const board = first?.containers[0];
   if (!board || !second || !workspace.me) throw new Error('unexpected seed');
   const before = structuredClone(workspace.categories);
   let release: (() => void) | undefined;
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const send = backend.moveBoardToCategory.bind(backend);
-  vi.spyOn(backend, 'moveBoardToCategory').mockImplementation(async (...args) => {
+  const send = backend.moveContainerToCategory.bind(backend);
+  vi.spyOn(backend, 'moveContainerToCategory').mockImplementation(async (...args) => {
     await held;
     await send(...args);
   });
-  const moving = workspace.moveBoard(board.id, second.category.id, 0);
+  const moving = workspace.moveContainer(board.id, second.category.id, 0);
   world.tellUsers([workspace.me.id], { kind: 'categories', categories: before });
   await settle();
   try {
-    expect(workspace.sidebar[0]?.boards.map((one) => one.id)).not.toContain(board.id);
-    expect(workspace.sidebar[1]?.boards[0]?.id).toBe(board.id);
+    expect(workspace.sidebar[0]?.containers.map((one) => one.id)).not.toContain(board.id);
+    expect(workspace.sidebar[1]?.containers[0]?.id).toBe(board.id);
   } finally {
     release?.();
     await moving;

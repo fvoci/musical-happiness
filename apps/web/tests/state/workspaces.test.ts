@@ -47,7 +47,7 @@ describe('the workspace entered', () => {
     expect(workspace.status).toBe('ready');
     expect(workspace.entered).toBe('ready');
     expect(workspace.info).toEqual(first);
-    expect(workspace.boards.length).toBeGreaterThan(0);
+    expect(workspace.containers.length).toBeGreaterThan(0);
   });
 
   it('is the one this user was last in when it is still theirs, and the first when it is not', async () => {
@@ -77,7 +77,7 @@ describe('the workspace entered', () => {
     expect(workspace.entered).toBe('missing');
     expect(workspace.asked).toBe('not-theirs');
     expect(workspace.info).toBeUndefined();
-    expect(workspace.boards).toEqual([]);
+    expect(workspace.containers).toEqual([]);
     expect(readBoards).not.toHaveBeenCalled();
   });
 
@@ -106,10 +106,10 @@ describe('entering another workspace', () => {
     Object.assign(backend, { enter: entered });
     await workspace.load();
     expect(entered).toHaveBeenLastCalledWith(first.id);
-    const board = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    const board = workspace.sidebar.flatMap((entry) => entry.containers)[0];
     if (!board) throw new Error('no board');
     const store = await workspace.openBoard(board.id);
-    await workspace.hideBoard(board.id);
+    await workspace.hideContainer(board.id);
     expect(workspace.canUndo).toBe(true);
 
     await workspace.enter(OTHER.id);
@@ -117,24 +117,24 @@ describe('entering another workspace', () => {
     expect(workspace.info).toEqual(OTHER);
     expect(workspace.entered).toBe('ready');
     expect(workspace.board).toBeUndefined();
-    expect(workspace.boards).toEqual([]);
+    expect(workspace.containers).toEqual([]);
     expect(workspace.categories).toEqual([]);
     expect(workspace.users).toEqual([]);
     expect(workspace.canUndo).toBe(false);
     // The board left hears nothing any more.
     const before = store.board?.title;
-    await backend.patchBoard(board.id, { title: 'Changed elsewhere' });
+    await backend.patchContainer(board.id, { title: 'Changed elsewhere' });
     await settle();
     expect(store.board?.title).toBe(before);
 
     await workspace.enter(first.id);
-    expect(workspace.boards.map((one) => one.id)).toContain(board.id);
+    expect(workspace.containers.map((one) => one.id)).toContain(board.id);
   });
 
   it('does not remember a change of the workspace left that was still under way', async () => {
     const { workspace, backend } = twoWorkspaces();
     await workspace.load();
-    const board = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    const board = workspace.sidebar.flatMap((entry) => entry.containers)[0];
     if (!board) throw new Error('no board');
     const store = await workspace.openBoard(board.id);
     const card = store.cards[0];
@@ -216,7 +216,7 @@ describe('entering another workspace', () => {
     answer([]);
     await slow;
     expect(workspace.info).toEqual(first);
-    expect(workspace.boards.length).toBeGreaterThan(0);
+    expect(workspace.containers.length).toBeGreaterThan(0);
   });
 
   it('does nothing for the workspace it is in already', async () => {
@@ -232,11 +232,11 @@ describe('a board of another workspace', () => {
   it('is missing when opened from this one, as one that is not there', async () => {
     const { workspace, world } = setup();
     await workspace.load();
-    const board = workspace.boards[0];
+    const board = workspace.containers[0];
     if (!board) throw new Error('no board');
-    const stored = world.boards.get(board.id);
+    const stored = world.containers.get(board.id);
     if (!stored) throw new Error('not in the world');
-    world.boards.set(board.id, { ...stored, workspaceId: OTHER.id });
+    world.containers.set(board.id, { ...stored, workspaceId: OTHER.id });
     const store = await workspace.openBoard(board.id);
     expect(store.missing).toBe(true);
     expect(store.board).toBeUndefined();
@@ -246,14 +246,14 @@ describe('a board of another workspace', () => {
   it('is not put into the sidebar when its change is heard', async () => {
     const { workspace, backend, world } = setup();
     await workspace.load();
-    const board = workspace.boards[0];
+    const board = workspace.containers[0];
     if (!board) throw new Error('no board');
-    const stored = world.boards.get(board.id);
+    const stored = world.containers.get(board.id);
     if (!stored) throw new Error('not in the world');
-    world.boards.set(board.id, { ...stored, workspaceId: OTHER.id });
-    await backend.patchBoard(board.id, { title: 'Moved' });
+    world.containers.set(board.id, { ...stored, workspaceId: OTHER.id });
+    await backend.patchContainer(board.id, { title: 'Moved' });
     await settle();
-    expect(workspace.boards.find((one) => one.id === board.id)?.title).not.toBe('Moved');
+    expect(workspace.containers.find((one) => one.id === board.id)?.title).not.toBe('Moved');
   });
 });
 
@@ -263,16 +263,16 @@ describe('entering another workspace while an undo or redo of the one left is wr
     it(`keeps the new workspace's history empty when the ${action} is answered late`, async () => {
       const { workspace, backend } = twoWorkspaces();
       await workspace.load();
-      const board = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+      const board = workspace.sidebar.flatMap((entry) => entry.containers)[0];
       if (!board) throw new Error('no board');
-      await workspace.hideBoard(board.id);
+      await workspace.hideContainer(board.id);
       if (action === 'redo') await workspace.undoLast();
 
       let answer = (): void => undefined;
       const pending = new Promise<void>((resolve) => {
         answer = resolve;
       });
-      const writing = vi.spyOn(backend, 'setBoardHidden').mockReturnValueOnce(pending);
+      const writing = vi.spyOn(backend, 'setContainerHidden').mockReturnValueOnce(pending);
       const applying = action === 'undo' ? workspace.undoLast() : workspace.redoLast();
       // Entered once the write has begun: the undo or redo is being carried out, not waiting.
       await vi.waitFor(() => {
@@ -309,7 +309,7 @@ describe('an answer that would take the reader somewhere', () => {
     expect(await making).toBeUndefined();
     backend.latency = 0;
     await workspace.enter(first.id);
-    expect(workspace.boards.map((board) => board.title)).toContain('Left behind');
+    expect(workspace.containers.map((board) => board.title)).toContain('Left behind');
   });
 
   it('is not handed on to one who went to another workspace and came back', async () => {
@@ -325,7 +325,7 @@ describe('an answer that would take the reader somewhere', () => {
   it('of a board, is not handed on once another board is open', async () => {
     const { workspace, backend } = twoWorkspaces(setup([SMALL, { ...SMALL, key: 'small-2' }]));
     await workspace.load();
-    const [one, two] = workspace.sidebar.flatMap((entry) => entry.boards);
+    const [one, two] = workspace.sidebar.flatMap((entry) => entry.containers);
     if (!one || !two) throw new Error('the seed has fewer than two boards');
     const store = await workspace.openBoard(one.id);
     backend.latency = 20;
@@ -337,7 +337,7 @@ describe('an answer that would take the reader somewhere', () => {
   it('of a board, is handed on while that board is open', async () => {
     const { workspace } = twoWorkspaces();
     await workspace.load();
-    const [one] = workspace.sidebar.flatMap((entry) => entry.boards);
+    const [one] = workspace.sidebar.flatMap((entry) => entry.containers);
     if (!one) throw new Error('the seed has no board');
     const store = await workspace.openBoard(one.id);
     const card = await whileHere(store, () => store.createCard({ title: 'Kept' }));

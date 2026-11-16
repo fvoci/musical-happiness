@@ -84,7 +84,7 @@ test('an image pasted into the body is a file of the board, and is drawn from th
   // Every reading of a file answers with it.
   const files: number[] = [];
   page.on('response', (response) => {
-    if (/\/api\/v1\/w\/[^/]+\/boards\/[^/]+\/files\//.test(response.url())) {
+    if (/\/api\/v1\/w\/[^/]+\/containers\/[^/]+\/files\//.test(response.url())) {
       files.push(response.status());
     }
   });
@@ -109,7 +109,7 @@ test('an image pasted into the body is a file of the board, and is drawn from th
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   const [fileId] = imagesIn((await stored()).body as unknown as Node);
   const file = await api.get(
-    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/files/${fileId ?? ''}`,
+    `/api/v1/w/${board.workspaceId}/containers/${board.boardId}/files/${fileId ?? ''}`,
   );
   expect(file.status()).toBe(200);
   expect(Buffer.from(await file.body()).equals(Buffer.from(PNG, 'base64'))).toBe(true);

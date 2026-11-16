@@ -83,8 +83,9 @@
   const memberLinks = $derived(links.filter((link) => link.role === 'member'));
   const guestLinks = $derived(links.filter((link) => link.role === 'guest'));
 
-  const boardTitle = (boardId: string | undefined): string =>
-    workspace.boards.find((board) => board.id === boardId)?.title || m.invite_board_untitled();
+  const containerTitle = (containerId: string | undefined): string =>
+    workspace.containers.find((board) => board.id === containerId)?.title ||
+    m.invite_board_untitled();
 
   function problemOf(error: unknown, otherwise: string): string {
     if (isBackendError(error) && error.reason === 'last_admin')
@@ -274,11 +275,11 @@
               link.recipient
                 ? m.people_guest_link_row_to({
                     recipient: link.recipient,
-                    board: boardTitle(link.boardId),
+                    board: containerTitle(link.containerId),
                     ends: displayDate(link.expiresAt, context),
                   })
                 : m.people_guest_link_row({
-                    board: boardTitle(link.boardId),
+                    board: containerTitle(link.containerId),
                     ends: displayDate(link.expiresAt, context),
                   }),
             )}

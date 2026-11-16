@@ -354,14 +354,14 @@ async fn a_new_account_at_the_address_its_guest_link_was_mailed_to_needs_no_conf
     let th = Setup::native().start().await.init_basic().await;
     let th = switched_on(th, &smtp).await;
     let board = th
-        .create_board(ROOT_WORKSPACE_ID, fvoci_model::BoardType::Open)
+        .create_board(ROOT_WORKSPACE_ID, fvoci_model::ContainerType::Open)
         .await;
     let links = format!("/w/{ROOT_WORKSPACE_ID}/invitations");
     let link: Invitation = th
         .client
         .post(
             &links,
-            &json!({"role": "guest", "boardId": board.id, "boardRole": "viewer"}),
+            &json!({"role": "guest", "containerId": board.id, "containerRole": "viewer"}),
         )
         .await
         .created_json();
@@ -386,7 +386,7 @@ async fn a_new_account_at_the_address_its_guest_link_was_mailed_to_needs_no_conf
         .await;
     accepted.check_status(StatusCode::OK);
     assert_eq!(
-        accepted.value()["boardId"],
+        accepted.value()["containerId"],
         board.id.as_str(),
         "onto its board"
     );

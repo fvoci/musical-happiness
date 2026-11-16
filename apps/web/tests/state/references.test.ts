@@ -53,10 +53,10 @@ function world() {
   if (!alpha || !beta || !gamma) throw new Error('the seed has no such cards');
   const workspaceId = made.world.workspace.id;
   const write = async (cardId: string, body: DocNode): Promise<void> => {
-    const now = await made.backend.card(alpha.boardId, cardId);
-    await made.backend.writeCardBody(alpha.boardId, cardId, { body, readAt: now.updateAt });
+    const now = await made.backend.card(alpha.containerId, cardId);
+    await made.backend.writeCardBody(alpha.containerId, cardId, { body, readAt: now.updateAt });
   };
-  return { ...made, boardId: alpha.boardId, workspaceId, alpha, beta, gamma, write };
+  return { ...made, boardId: alpha.containerId, workspaceId, alpha, beta, gamma, write };
 }
 
 afterEach(() => {
@@ -69,8 +69,22 @@ describe('references, in memory', () => {
     const ids = [alpha.id, UNKNOWN, beta.id, alpha.id];
     const found = await backend.references.resolve(workspaceId, ids);
     expect(found).toEqual([
-      { id: alpha.id, kind: 'card', title: 'Alpha', icon: '', boardId, boardKind: 'board' },
-      { id: beta.id, kind: 'card', title: 'Beta', icon: '', boardId, boardKind: 'board' },
+      {
+        id: alpha.id,
+        kind: 'card',
+        title: 'Alpha',
+        icon: '',
+        containerId: boardId,
+        containerKind: 'board',
+      },
+      {
+        id: beta.id,
+        kind: 'card',
+        title: 'Beta',
+        icon: '',
+        containerId: boardId,
+        containerKind: 'board',
+      },
     ]);
 
     // Off the board, a card that is there is told as one that is not: the same answer.
@@ -86,12 +100,12 @@ describe('references, in memory', () => {
     const { backend, other, workspaceId } = world();
     const wiki = await backend.wiki.createWiki(workspaceId, { title: 'Handbook', type: 'P' });
     const page = await backend.wiki.createPage(wiki.id, { title: 'Road plan' });
-    const told = { id: page.id, kind: 'page', title: 'Road plan', icon: '', boardId: wiki.id };
+    const told = { id: page.id, kind: 'page', title: 'Road plan', icon: '', containerId: wiki.id };
     expect(await backend.references.resolve(workspaceId, [page.id])).toEqual([
-      { ...told, boardKind: 'wiki' },
+      { ...told, containerKind: 'wiki' },
     ]);
     expect(await backend.references.search(workspaceId, 'road')).toEqual([
-      { ...told, boardKind: 'wiki' },
+      { ...told, containerKind: 'wiki' },
     ]);
     expect(await backend.references.to(workspaceId, page.id)).toEqual([]);
     // Not on the private wiki: the page is as nothing is.
@@ -144,8 +158,8 @@ describe('references, in memory', () => {
   it('points the references of a copied board at the copies, and leaves what was not copied', async () => {
     const { backend, world: stored, workspaceId, boardId, alpha, beta, write } = world();
     await write(beta.id, naming(alpha.id, UNKNOWN));
-    const copy = await backend.duplicateBoard(boardId, false, workspaceId);
-    const copies = [...stored.blocks.values()].filter((block) => block.boardId === copy.id);
+    const copy = await backend.duplicateContainer(boardId, false, workspaceId);
+    const copies = [...stored.blocks.values()].filter((block) => block.containerId === copy.id);
     const copied = (title: string) =>
       copies.find((block) => block.type === 'card' && block.title === title);
     expect(copied('Alpha')?.id).not.toBe(alpha.id);
@@ -182,8 +196,8 @@ describe('references, from the server', () => {
     kind: 'card',
     title: 'Plan',
     icon: '',
-    boardId: 'b',
-    boardKind: 'board',
+    containerId: 'b',
+    containerKind: 'board',
   };
 
   it('asks the three operations under the workspace', async () => {
@@ -246,7 +260,14 @@ describe('references, for a reader by a public link', () => {
     });
     const { references } = new SharedBackend('', 'b1', 't');
     expect(await references.resolve('', ['c1', UNKNOWN])).toEqual([
-      { id: 'c1', kind: 'card', title: 'Plan', icon: '🚀', boardId: 'b1', boardKind: 'board' },
+      {
+        id: 'c1',
+        kind: 'card',
+        title: 'Plan',
+        icon: '🚀',
+        containerId: 'b1',
+        containerKind: 'board',
+      },
     ]);
     expect(sent).toEqual(['GET /api/v1/shared/b1/cards?perPage=0&readToken=t']);
 

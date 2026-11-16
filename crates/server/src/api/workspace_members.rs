@@ -12,7 +12,7 @@ use utoipa_axum::routes;
 
 use super::contract::params::{UserId, WorkerWorkspaceId};
 use super::contract::tag;
-use super::workspace::Ws;
+use super::workspace::InWorkspace;
 use super::{ApiResult, decode_object, json_response, no_content};
 use crate::app::App;
 use crate::error::AppError;
@@ -33,7 +33,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 ///
 /// Returns 404 for a guest of the workspace, and 403 for anybody else who is no
 /// administrator of it.
-fn managing(ws: Ws) -> Result<Ws, AppError> {
+fn managing(ws: InWorkspace) -> Result<InWorkspace, AppError> {
     let ws = ws.require_no_guest()?;
     if !permissions::allows_in_workspace(ws.actor(), WorkspacePermission::ManageMembers) {
         return Err(AppError::forbidden(
@@ -66,7 +66,7 @@ struct MemberPlace {
     params(WorkerWorkspaceId),
     responses((status = 200, description = "The members.", body = Vec<WorkspaceMember>)),
 )]
-async fn handle_get_workspace_members(ws: Ws) -> ApiResult {
+async fn handle_get_workspace_members(ws: InWorkspace) -> ApiResult {
     let ws = managing(ws)?;
     Ok(json_response(
         &ws.app.workspace_members(&ws.workspace_id).await?,
@@ -99,7 +99,7 @@ async fn handle_get_workspace_members(ws: Ws) -> ApiResult {
     responses((status = 200, description = "The member.", body = WorkspaceMember)),
 )]
 async fn handle_set_workspace_role(
-    ws: Ws,
+    ws: InWorkspace,
     Path(place): Path<MemberPlace>,
     body: Bytes,
 ) -> ApiResult {
@@ -141,7 +141,10 @@ async fn handle_set_workspace_role(
     params(WorkerWorkspaceId, UserId),
     responses((status = 204, description = "The member is out of the workspace.")),
 )]
-async fn handle_remove_workspace_member(ws: Ws, Path(place): Path<MemberPlace>) -> ApiResult {
+async fn handle_remove_workspace_member(
+    ws: InWorkspace,
+    Path(place): Path<MemberPlace>,
+) -> ApiResult {
     let ws = managing(ws)?;
     ws.app
         .remove_workspace_member(&ws.workspace_id, &place.user_id, &ws.session.user_id)

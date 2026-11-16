@@ -76,7 +76,7 @@ test('a file of two parts is attached on the server and downloads as the same by
   expect(stored).toMatchObject({ title: 'scan.bin', fields: { size: bytes.length } });
   const fileId = String(stored?.fields.fileId);
   const fetched = await api.get(
-    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/files/${fileId}`,
+    `/api/v1/w/${board.workspaceId}/containers/${board.boardId}/files/${fileId}`,
   );
   expect(sha(await fetched.body())).toBe(sha(bytes));
 

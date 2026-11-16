@@ -1,7 +1,7 @@
 //! The blocks of a shared board as its link reads them: nobody is named, and nothing
 //! but the board's blocks is read.
 
-use fvoci_model::{Block, BlockType, Board};
+use fvoci_model::{Block, BlockType, Container};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -23,7 +23,7 @@ async fn board_with_people(th: &TestServer, board_id: &str, me: &str, editor: &s
     ]);
     th.client
         .patch(
-            &format!("{TEST_WS}/boards/{board_id}"),
+            &format!("{TEST_WS}/containers/{board_id}"),
             &json!({"updatedCardProperties": people}),
         )
         .await
@@ -147,7 +147,8 @@ async fn get_blocks_with_a_read_token() {
     let content = card_with_content(&th, &boards).await;
     let read_token = th.share(&boards.board.id).await;
     let anonymous = th.anonymous();
-    let with_token = |board: &Board| format!("/shared/{}/blocks?readToken={read_token}", board.id);
+    let with_token =
+        |board: &Container| format!("/shared/{}/blocks?readToken={read_token}", board.id);
 
     let blocks: Vec<Block> = anonymous.get(&with_token(&boards.board)).await.ok_json();
     assert_eq!(

@@ -24,7 +24,7 @@ struct EmailVerified {
     workspace_id: String,
     /// For a guest's link: the board it was let onto.
     #[serde(skip_serializing_if = "Option::is_none")]
-    board_id: Option<String>,
+    container_id: Option<String>,
     /// Whether the registration started its organization, rather than joining one by
     /// the link of an invitation.
     organization_started: bool,
@@ -129,7 +129,7 @@ async fn request(
 /// the registration is removed and the answer is 403 with the reason
 /// `invitation_required`. A registration made by the link of an invitation
 /// (`acceptInvitation`) is let in as the acceptance would have let it in, and the answer
-/// names the board of a guest's link (`boardId`); if the link lets nobody in any more
+/// names the board of a guest's link (`containerId`); if the link lets nobody in any more
 /// (revoked, or who made it may no longer invite), the registration is removed and the
 /// answer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as
 /// registrations are, and too many are 429.
@@ -174,7 +174,7 @@ async fn complete(
         .await?;
     let answer = EmailVerified {
         workspace_id: signed_in.confirmed.workspace_id,
-        board_id: signed_in.confirmed.board_id,
+        container_id: signed_in.confirmed.container_id,
         organization_started: signed_in.confirmed.started_organization,
     };
     let response = with_session_cookie(&app, &signed_in.session_token, json_response(&answer));

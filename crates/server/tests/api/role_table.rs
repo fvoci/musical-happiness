@@ -138,23 +138,23 @@ fn shared_ops() -> Vec<Op> {
 fn container_ops() -> Vec<Op> {
     use Body::{Json, None};
     vec![
-        op("container: get", Method::GET, "/boards/{c}", None),
+        op("container: get", Method::GET, "/containers/{c}", None),
         op(
             "container: patch title",
             Method::PATCH,
-            "/boards/{c}",
+            "/containers/{c}",
             Json(|_, _| json!({"title": "changed"})),
         ),
         op(
             "container: patch type",
             Method::PATCH,
-            "/boards/{c}",
+            "/containers/{c}",
             Json(|things, _| json!({"type": things.scope.wire()})),
         ),
         op(
             "container: change type",
             Method::PATCH,
-            "/boards/{c}",
+            "/containers/{c}",
             Json(|things, _| {
                 let other = match things.scope {
                     Scope::Invited => Scope::Open,
@@ -163,68 +163,73 @@ fn container_ops() -> Vec<Op> {
                 json!({"type": other.wire()})
             }),
         ),
-        op("container: delete", Method::DELETE, "/boards/{c}", None),
+        op("container: delete", Method::DELETE, "/containers/{c}", None),
         Op {
             prepare: Prepare::DeleteContainer,
             ..op(
                 "container: undelete",
                 Method::POST,
-                "/boards/{c}/undelete",
+                "/containers/{c}/undelete",
                 Json(|_, _| json!({})),
             )
         },
         Op {
             prepare: Prepare::DeleteContainer,
-            ..op("trash: list", Method::GET, "/trash/boards", None)
+            ..op("trash: list", Method::GET, "/trash/containers", None)
         },
-        op("members: list", Method::GET, "/boards/{c}/members", None),
+        op(
+            "members: list",
+            Method::GET,
+            "/containers/{c}/members",
+            None,
+        ),
         op(
             "members: add",
             Method::POST,
-            "/boards/{c}/members",
+            "/containers/{c}/members",
             Json(|things, people| {
                 let (board, user) = (&things.container, &people.extra);
-                json!({"boardId": board, "userId": user, "schemeViewer": true})
+                json!({"containerId": board, "userId": user, "schemeViewer": true})
             }),
         ),
         op(
             "members: update",
             Method::PUT,
-            "/boards/{c}/members/{viewer}",
+            "/containers/{c}/members/{viewer}",
             Json(|things, people| {
                 let (board, user) = (&things.container, &people.viewer);
-                json!({"boardId": board, "userId": user, "schemeCommenter": true})
+                json!({"containerId": board, "userId": user, "schemeCommenter": true})
             }),
         ),
         op(
             "members: remove",
             Method::DELETE,
-            "/boards/{c}/members/{commenter}",
+            "/containers/{c}/members/{commenter}",
             None,
         ),
         op(
             "members: join",
             Method::POST,
-            "/boards/{c}/join",
+            "/containers/{c}/join",
             Json(|_, _| json!({})),
         ),
         op(
             "members: leave",
             Method::POST,
-            "/boards/{c}/leave",
+            "/containers/{c}/leave",
             Json(|_, _| json!({})),
         ),
-        op("teams: list", Method::GET, "/boards/{c}/teams", None),
+        op("teams: list", Method::GET, "/containers/{c}/teams", None),
         op(
             "teams: set",
             Method::PUT,
-            "/boards/{c}/teams/{team}",
+            "/containers/{c}/teams/{team}",
             Json(|_, _| json!({"role": "editor"})),
         ),
         op(
             "teams: remove",
             Method::DELETE,
-            "/boards/{c}/teams/{team}",
+            "/containers/{c}/teams/{team}",
             None,
         ),
     ]
@@ -235,43 +240,43 @@ fn container_ops() -> Vec<Op> {
 fn holding_ops() -> Vec<Op> {
     use Body::{File, Json, None};
     vec![
-        op("sharing: get", Method::GET, "/boards/{c}/sharing", None),
+        op("sharing: get", Method::GET, "/containers/{c}/sharing", None),
         op(
             "sharing: set",
             Method::POST,
-            "/boards/{c}/sharing",
+            "/containers/{c}/sharing",
             Json(|_, _| json!({"enabled": true})),
         ),
-        op("files: upload", Method::POST, "/boards/{c}/files", File),
-        op("files: get", Method::GET, "/boards/{c}/files/{f}", None),
+        op("files: upload", Method::POST, "/containers/{c}/files", File),
+        op("files: get", Method::GET, "/containers/{c}/files/{f}", None),
         op(
             "files: info",
             Method::GET,
-            "/boards/{c}/files/{f}/info",
+            "/containers/{c}/files/{f}/info",
             None,
         ),
         op(
             "uploads: open",
             Method::POST,
-            "/boards/{c}/uploads",
+            "/containers/{c}/uploads",
             Json(|_, _| json!({"name": "parts.bin", "size": 4})),
         ),
         op(
             "sidebar: category",
             Method::POST,
-            "/categories/{category}/boards/{c}",
+            "/categories/{category}/containers/{c}",
             Json(|_, _| json!({})),
         ),
         op(
             "sidebar: hide",
             Method::PUT,
-            "/categories/{category}/boards/{c}/hide",
+            "/categories/{category}/containers/{c}/hide",
             None,
         ),
         op(
             "sidebar: unhide",
             Method::PUT,
-            "/categories/{category}/boards/{c}/unhide",
+            "/categories/{category}/containers/{c}/unhide",
             None,
         ),
         op("references: to", Method::GET, "/references/to/{p}", None),
@@ -308,7 +313,7 @@ fn board_ops() -> Vec<Op> {
             Method::POST,
             "/boards/{c}/blocks",
             Json(|things, _| {
-                json!([{"boardId": things.container, "parentId": things.block, "type": "comment",
+                json!([{"containerId": things.container, "parentId": things.block, "type": "comment",
                         "title": "said", "createAt": 1, "updateAt": 1}])
             }),
         ),
@@ -322,13 +327,13 @@ fn board_ops() -> Vec<Op> {
         op(
             "board: duplicate",
             Method::POST,
-            "/boards/{c}/duplicate",
+            "/containers/{c}/duplicate",
             Json(|_, _| json!({})),
         ),
         op(
             "board: export",
             Method::GET,
-            "/boards/{c}/archive/export",
+            "/containers/{c}/archive/export",
             None,
         ),
     ]
@@ -593,7 +598,7 @@ async fn make(people: &People, kind: Kind, scope: Scope) -> Things {
     let made = owner.post(&at, &json!({"type": scope.wire()})).await;
     done(&made);
     let container = text(&made.value(), "id");
-    let at = format!("{TEST_WS}/boards/{container}");
+    let at = format!("{TEST_WS}/containers/{container}");
     let mut roles = vec![
         (&people.editor, "schemeEditor"),
         (&people.commenter, "schemeCommenter"),
@@ -603,7 +608,7 @@ async fn make(people: &People, kind: Kind, scope: Scope) -> Things {
         roles.push((&people.guest, "schemeEditor"));
     }
     for (user, flag) in roles {
-        let mut member = json!({"boardId": container, "userId": user});
+        let mut member = json!({"containerId": container, "userId": user});
         member[flag] = json!(true);
         done(&owner.post(&format!("{at}/members"), &member).await);
         done(&owner.put(&format!("{at}/members/{user}"), &member).await);
@@ -627,7 +632,10 @@ async fn make(people: &People, kind: Kind, scope: Scope) -> Things {
     match kind {
         Kind::Board => {
             let card = owner
-                .post(&format!("{at}/cards"), &json!({"title": "a card"}))
+                .post(
+                    &format!("{TEST_WS}/boards/{container}/cards"),
+                    &json!({"title": "a card"}),
+                )
                 .await;
             done(&card);
             Things {
@@ -682,7 +690,7 @@ async fn prepare(people: &People, op: &Op, things: &Things) {
         Prepare::DeleteContainer => {
             done(
                 &owner
-                    .delete(&format!("{TEST_WS}/boards/{}", things.container))
+                    .delete(&format!("{TEST_WS}/containers/{}", things.container))
                     .await,
             );
         }

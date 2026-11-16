@@ -267,7 +267,7 @@ async fn malformed_and_server_evicted_documents_leave_no_workspace_watch() {
     peer.joined(TEST_WORKSPACE_ID, &room.card_id).await;
     ts.client
         .delete(&format!(
-            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user}",
+            "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user}",
             room.board_id
         ))
         .await
@@ -344,7 +344,7 @@ async fn an_admission_read_before_admin_revocation_is_asked_again() {
         let at = format!("/org/{org}/workspaces/{workspace}");
         ts.client.post_empty(&format!("{at}/join")).await.check_ok();
         let board = ts
-            .create_board(&workspace, fvoci_model::BoardType::Private)
+            .create_board(&workspace, fvoci_model::ContainerType::Private)
             .await;
         let card: fvoci_model::Card = ts
             .client

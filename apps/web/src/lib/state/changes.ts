@@ -1,5 +1,5 @@
 /** The changes the backend tells as they happen, part of the data boundary (`backend.ts`). */
-import type { Board, BoardMember, BoardView } from '../logic/wire.ts';
+import type { Container, ContainerMember, BoardView } from '../logic/wire.ts';
 
 import type { AccountSettings, Attachment, CardSummary, Category, Comment } from './backend.ts';
 import type { WikiPage } from './wiki-types.ts';
@@ -11,18 +11,22 @@ import type { WikiPage } from './wiki-types.ts';
  * does nothing.
  */
 export type Change =
-  | { kind: 'board'; board: Board }
-  | { kind: 'boardDeleted'; boardId: string }
+  | { kind: 'container'; container: Container }
+  | { kind: 'containerDeleted'; containerId: string }
   /** Blocks that were added or changed. A card comes as its summary. */
-  | { kind: 'blocks'; boardId: string; blocks: (BoardView | CardSummary | Comment | Attachment)[] }
+  | {
+      kind: 'blocks';
+      containerId: string;
+      blocks: (BoardView | CardSummary | Comment | Attachment)[];
+    }
   /**
    * Blocks deleted: only the one the deletion was asked for, not what went
    * with it (the cards of a view do not go; the pages below a page do).
    */
-  | { kind: 'blocksDeleted'; boardId: string; blockIds: string[] }
-  /** Pages of a wiki (`boardId`) that were made or changed, without their bodies. */
-  | { kind: 'pages'; boardId: string; pages: WikiPage[] }
-  | { kind: 'members'; boardId: string; members: BoardMember[] }
+  | { kind: 'blocksDeleted'; containerId: string; blockIds: string[] }
+  /** Pages of a wiki (`containerId`) that were made or changed, without their bodies. */
+  | { kind: 'pages'; containerId: string; pages: WikiPage[] }
+  | { kind: 'members'; containerId: string; members: ContainerMember[] }
   | { kind: 'categories'; categories: Category[] }
   | { kind: 'settings'; settings: AccountSettings }
   /**

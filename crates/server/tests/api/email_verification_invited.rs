@@ -63,16 +63,16 @@ impl Scene {
     /// A new link of ada's: for members, or for a guest of a new board of hers.
     async fn link(&self, role: Role) -> Invitation {
         let request = if role == Role::Guest {
-            let board: fvoci_model::Board = self
+            let board: fvoci_model::Container = self
                 .ada
-                .create_board(&fvoci_model::Board {
+                .create_board(&fvoci_model::Container {
                     workspace_id: self.workspace_id.clone(),
-                    board_type: fvoci_model::BoardType::Open,
-                    ..fvoci_model::Board::default()
+                    container_type: fvoci_model::ContainerType::Open,
+                    ..fvoci_model::Container::default()
                 })
                 .await
                 .created_json();
-            json!({"role": "guest", "boardId": board.id, "boardRole": "viewer"})
+            json!({"role": "guest", "containerId": board.id, "containerRole": "viewer"})
         } else {
             json!({"role": "member"})
         };

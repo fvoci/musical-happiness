@@ -11,7 +11,7 @@
 
   import ShareDialog from '$lib/features/shell/ShareDialog.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardKind } from '$lib/logic/wire.ts';
+  import type { ContainerKind } from '$lib/logic/wire.ts';
   import { joinManaged, readManagedOnly, type Managed } from '$lib/state/managed-board.ts';
   import type { Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -23,7 +23,7 @@
     workspace: Workspace;
     board: Managed;
     /** Which of the two it is: a board's address names a board, a wiki's a wiki. */
-    kind?: BoardKind;
+    kind?: ContainerKind;
     /** Whether it is still the one shown: joined after it went, it is not read. */
     shown: () => boolean;
     router: Router;
@@ -68,7 +68,7 @@
   <div class="grid h-full place-items-center p-6">
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
   </div>
-{:else if managed === 'no' || !board.board}
+{:else if managed === 'no' || !board.container}
   <NotFound {router} />
 {:else}
   <div
@@ -77,7 +77,7 @@
   >
     <div class="flex max-w-md flex-col items-center gap-3">
       <h2 class="text-lg font-medium">
-        {board.board.icon ? `${board.board.icon} ` : ''}{board.board.title ||
+        {board.container.icon ? `${board.container.icon} ` : ''}{board.container.title ||
           (wiki ? m.wiki_untitled() : m['Sidebar.untitled-board']())}
       </h2>
       <p class="text-muted-foreground">
@@ -100,9 +100,9 @@
   <ShareDialog
     bind:open={membersOpen}
     {workspace}
-    {board}
+    shareable={board}
     linkOf={(readToken: string) =>
-      new URL(router.href({ boardId: board.boardId, readToken }), location.href).href}
+      new URL(router.href({ boardId: board.containerId, readToken }), location.href).href}
     membersOnly
   />
 {/if}

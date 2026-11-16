@@ -1,5 +1,5 @@
 /**
- * The archives on their way down or up (`Workspace.exportBoard`,
+ * The archives on their way down or up (`Workspace.exportContainer`,
  * `exportWorkspace`, `importArchive`), for the reader to watch: their
  * progress and their end.
  */

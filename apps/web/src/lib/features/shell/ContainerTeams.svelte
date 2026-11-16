@@ -11,23 +11,23 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Shareable, Workspace } from '$lib/state/index.ts';
-  import type { BoardTeam, Team, TeamRole, Teams } from '$lib/state/team-types.ts';
+  import type { ContainerTeam, Team, TeamRole, Teams } from '$lib/state/team-types.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { shareWords } from './share-words.ts';
 
   interface Props {
     workspace: Workspace;
-    board: Shareable;
+    shareable: Shareable;
     teams: Teams;
     readOnly?: boolean;
   }
 
-  let { workspace, board, teams, readOnly = false }: Props = $props();
-  const words = $derived(shareWords(board.board?.kind));
+  let { workspace, shareable, teams, readOnly = false }: Props = $props();
+  const words = $derived(shareWords(shareable.container?.kind));
   const id = $props.id();
   const place = $derived(workspace.info?.id);
-  let assigned = $state.raw<BoardTeam[]>([]);
+  let assigned = $state.raw<ContainerTeam[]>([]);
   let groups = $state.raw<Team[]>([]);
   let selected = $state('');
   let role = $state<TeamRole>('editor');
@@ -45,18 +45,18 @@
     viewer: () => m['BoardMember.schemeViewer'](),
   };
 
-  async function read(workspaceId: string, boardId: string): Promise<void> {
+  async function read(workspaceId: string, containerId: string): Promise<void> {
     const current = ++reading;
     // A failure to read the last workspace or board says nothing of this one.
     unread = false;
     try {
-      const [all, onBoard] = await Promise.all([
+      const [all, onContainer] = await Promise.all([
         teams.list(workspaceId),
-        teams.onBoard(workspaceId, boardId),
+        teams.onContainer(workspaceId, containerId),
       ]);
       if (current !== reading) return;
       groups = all;
-      assigned = onBoard;
+      assigned = onContainer;
       unread = false;
     } catch {
       if (current === reading) unread = true;
@@ -65,8 +65,8 @@
 
   $effect(() => {
     // Member messages also refresh this external view after another person's changes.
-    const request = { place, boardId: board.boardId, members: board.members };
-    if (request.place) void read(request.place, request.boardId);
+    const request = { place, containerId: shareable.containerId, members: shareable.members };
+    if (request.place) void read(request.place, request.containerId);
     return () => {
       reading += 1;
     };
@@ -78,15 +78,15 @@
     busy = true;
     problem = '';
     try {
-      if (next) await teams.assign(place, board.boardId, teamId, next);
-      else await teams.unassign(place, board.boardId, teamId);
+      if (next) await teams.assign(place, shareable.containerId, teamId, next);
+      else await teams.unassign(place, shareable.containerId, teamId);
       selected = '';
       return true;
     } catch {
       problem = m.teams_failed();
       return false;
     } finally {
-      await read(place, board.boardId);
+      await read(place, shareable.containerId);
       busy = false;
     }
   }

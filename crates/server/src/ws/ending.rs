@@ -130,12 +130,12 @@ impl Listeners {
 
     /// Stops the connection following the board by its read token, with every block
     /// it followed of it, and tells it so.
-    fn end_board(&mut self, id: ListenerId, board_id: &str) -> bool {
+    fn end_container(&mut self, id: ListenerId, container_id: &str) -> bool {
         let Some(permit) = self.by_id.get(&id).and_then(|listener| {
             listener
-                .shared_boards
+                .shared_containers
                 .iter()
-                .find(|permit| permit.board == board_id)
+                .find(|permit| permit.container == container_id)
                 .cloned()
         }) else {
             return false;
@@ -146,10 +146,10 @@ impl Listeners {
     /// Stops the connection following the board by its read token, with every block it
     /// followed of it and those it asked for now (`block_ids`, of `workspace_id`), and
     /// tells it so: for a subscription found ended as it was checked again.
-    fn end_board_with(
+    fn end_container_with(
         &mut self,
         id: ListenerId,
-        board_id: &str,
+        container_id: &str,
         workspace_id: &str,
         block_ids: &[String],
     ) -> bool {
@@ -158,9 +158,9 @@ impl Listeners {
             .get(&id)
             .and_then(|listener| {
                 listener
-                    .shared_boards
+                    .shared_containers
                     .iter()
-                    .find(|permit| permit.board == board_id)
+                    .find(|permit| permit.container == container_id)
             })
             .map(|permit| permit.blocks.clone())
             .unwrap_or_default();
@@ -216,22 +216,22 @@ impl Hub {
 
     /// Stops the connection following the board by its read token, with every block it
     /// followed of it and those it asks for now, and tells it so.
-    pub(super) fn end_board_with(
+    pub(super) fn end_container_with(
         &self,
         id: ListenerId,
-        board_id: &str,
+        container_id: &str,
         workspace_id: &str,
         block_ids: &[String],
     ) {
         let told = self
             .listeners()
-            .end_board_with(id, board_id, workspace_id, block_ids);
+            .end_container_with(id, container_id, workspace_id, block_ids);
         self.count_told("UNSUBSCRIBED_BLOCKS", usize::from(told));
     }
 
     /// Stops the connection following the board by its read token, and tells it so.
-    pub(super) fn end_board(&self, id: ListenerId, board_id: &str) {
-        let told = self.listeners().end_board(id, board_id);
+    pub(super) fn end_container(&self, id: ListenerId, container_id: &str) {
+        let told = self.listeners().end_container(id, container_id);
         self.count_told("UNSUBSCRIBED_BLOCKS", usize::from(told));
     }
 
@@ -275,24 +275,24 @@ impl Hub {
     /// that token stops opening the board: sharing is turned off, the board is shared
     /// anew under another token, or the board is deleted. A reader with the new link
     /// follows it again.
-    pub fn end_readers_of_board(&self, board_id: &str) {
+    pub fn end_readers_of_container(&self, container_id: &str) {
         let mut listeners = self.listeners();
-        listeners.revoked.board(board_id);
-        listeners.end_shared_visits(board_id);
+        listeners.revoked.container(container_id);
+        listeners.end_shared_visits(container_id);
         let ids: Vec<ListenerId> = listeners
             .by_id
             .iter()
             .filter(|(_, listener)| {
                 listener
-                    .shared_boards
+                    .shared_containers
                     .iter()
-                    .any(|permit| permit.board == board_id)
+                    .any(|permit| permit.container == container_id)
             })
             .map(|(id, _)| *id)
             .collect();
         let told = ids
             .into_iter()
-            .filter(|id| listeners.end_board(*id, board_id))
+            .filter(|id| listeners.end_container(*id, container_id))
             .count();
         drop(listeners);
         self.count_told("UNSUBSCRIBED_BLOCKS", told);

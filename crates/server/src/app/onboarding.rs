@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use fvoci_model::{BoardPatch, BoardType, UserPreferencesPatch};
+use fvoci_model::{ContainerPatch, ContainerType, UserPreferencesPatch};
 use fvoci_store::DuplicateAs;
 
 use super::App;
@@ -62,25 +62,25 @@ impl App {
         let onboarding_board_id = self.onboarding_board_id().await?;
 
         let (boards_and_blocks, _members) = self
-            .duplicate_board(
+            .duplicate_container(
                 &onboarding_board_id,
                 user_id,
                 workspace_id,
                 DuplicateAs::Copy,
             )
             .await?;
-        let [board] = boards_and_blocks.boards.as_slice() else {
+        let [board] = boards_and_blocks.containers.as_slice() else {
             return Err(AppError::internal("new board wasn't created"));
         };
         let board_id = board.id.clone();
 
         // The copy is a user's board, not the built-in template: it loses the mark.
-        let patch = BoardPatch {
-            board_type: Some(BoardType::Private),
+        let patch = ContainerPatch {
+            container_type: Some(ContainerType::Private),
             deleted_properties: vec![ONBOARDING_PROPERTY.to_owned()],
-            ..BoardPatch::default()
+            ..ContainerPatch::default()
         };
-        self.patch_board(&patch, &board_id, user_id).await?;
+        self.patch_container(&patch, &board_id, user_id).await?;
         Ok(board_id)
     }
 

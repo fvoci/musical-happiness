@@ -9,7 +9,7 @@
 
 use std::io::{Cursor, Write as _};
 
-use fvoci_model::{Block, Board, Card};
+use fvoci_model::{Block, Card, Container};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -65,7 +65,7 @@ async fn new_board(client: &Client, card_properties: Value) -> ApiResponse {
 
 fn card_block(board_id: &str, properties: Value) -> Value {
     let mut block = json!({
-        "id": "c1", "boardId": board_id, "parentId": board_id, "type": "card", "title": "Card",
+        "id": "c1", "containerId": board_id, "parentId": board_id, "type": "card", "title": "Card",
         "schema": 1, "createAt": 1, "updateAt": 1, "fields": {},
     });
     block["fields"]["properties"] = properties;
@@ -90,8 +90,8 @@ fn check_refused(response: &ApiResponse, what: &str) {
 
 /// A private board of the first user with one well-formed definition and one card that
 /// has a value for it.
-async fn board_with_card(th: &TestServer) -> (Board, Card) {
-    let board: Board = new_board(
+async fn board_with_card(th: &TestServer) -> (Container, Card) {
+    let board: Container = new_board(
         &th.client,
         json!([{"id": "p1", "name": "Status", "type": "select", "options": []}]),
     )
@@ -109,7 +109,7 @@ async fn board_with_card(th: &TestServer) -> (Board, Card) {
 }
 
 async fn board_count(client: &Client) -> usize {
-    let boards: Vec<Board> = client.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let boards: Vec<Container> = client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     boards.len()
 }
 
@@ -146,7 +146,7 @@ async fn a_board_with_a_malformed_card_property_definition_is_not_created() {
 async fn a_board_patch_with_a_malformed_card_property_definition_changes_nothing() {
     let th = Setup::native().start().await.init_basic().await;
     let (board, _card) = board_with_card(&th).await;
-    let path = format!("{TEST_WS}/boards/{}", board.id);
+    let path = format!("{TEST_WS}/containers/{}", board.id);
 
     for (what, definition) in malformed_definitions() {
         let response = th
@@ -158,7 +158,7 @@ async fn a_board_patch_with_a_malformed_card_property_definition_changes_nothing
             .await;
         check_refused(&response, what);
     }
-    let stored: Board = th.client.get(&path).await.ok_json();
+    let stored: Container = th.client.get(&path).await.ok_json();
     assert_eq!(
         stored.title, "Properties",
         "the title was not changed either"
@@ -191,7 +191,10 @@ async fn well_formed_card_property_definitions_are_stored_as_sent() {
     let patched: Value = th
         .client
         .patch(
-            &format!("{TEST_WS}/boards/{}", board["id"].as_str().expect("an id")),
+            &format!(
+                "{TEST_WS}/containers/{}",
+                board["id"].as_str().expect("an id")
+            ),
             &json!({"updatedCardProperties": [added]}),
         )
         .await
@@ -208,7 +211,7 @@ async fn well_formed_card_property_definitions_are_stored_as_sent() {
 #[tokio::test]
 async fn a_block_with_malformed_properties_is_not_inserted() {
     let th = Setup::native().start().await.init_basic().await;
-    let board: Board = new_board(&th.client, json!([])).await.created_json();
+    let board: Container = new_board(&th.client, json!([])).await.created_json();
     let path = format!("{TEST_WS}/boards/{}/blocks", board.id);
 
     for (what, value) in malformed_values() {
@@ -403,7 +406,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
     let th = Setup::native().start().await.init_basic().await;
     let request = |card_properties: Value, values: Value| {
         json!({
-            "boards": [{
+            "containers": [{
                 "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Both",
                 "cardProperties": card_properties,
             }],
@@ -437,7 +440,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
         )
         .await
         .created_json();
-    let board_id = created["boards"][0]["id"].as_str().expect("a board id");
+    let board_id = created["containers"][0]["id"].as_str().expect("a board id");
     let block_id = created["blocks"][0]["id"].as_str().expect("a block id");
 
     for (what, board_patch, block_patch) in [
@@ -457,16 +460,16 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
             .patch(
                 &format!("{TEST_WS}/boards-and-blocks"),
                 &json!({
-                    "boardIds": [board_id], "boardPatches": [board_patch],
+                    "containerIds": [board_id], "containerPatches": [board_patch],
                     "blockIds": [block_id], "blockPatches": [block_patch],
                 }),
             )
             .await;
         check_refused(&response, what);
     }
-    let board: Board = th
+    let board: Container = th
         .client
-        .get(&format!("{TEST_WS}/boards/{board_id}"))
+        .get(&format!("{TEST_WS}/containers/{board_id}"))
         .await
         .ok_json();
     assert_eq!(board.title, "Both", "the board is as it was");
@@ -481,7 +484,13 @@ fn archive(card_properties: &Value, values: Value) -> Vec<u8> {
         "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Imported",
         "cardProperties": card_properties, "createAt": 1, "updateAt": 1,
     }});
-    let block = json!({"type": "block", "data": card_block("b1", values)});
+    // An archive names a block's board `boardId`.
+    let mut data = card_block("b1", values);
+    let board_id = data
+        .as_object_mut()
+        .and_then(|block| block.remove("containerId"));
+    data["boardId"] = board_id.expect("the card names its board");
+    let block = json!({"type": "block", "data": data});
     let options = zip::write::SimpleFileOptions::default();
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer.start_file("version.json", options).expect("start");
@@ -539,7 +548,7 @@ async fn an_archive_with_malformed_property_data_is_refused() {
 #[tokio::test]
 async fn date_properties_hold_date_values() {
     let th = Setup::native().start().await.init_basic().await;
-    let board: Board = new_board(
+    let board: Container = new_board(
         &th.client,
         json!([
             {"id": "due", "name": "Due", "type": "date"},
@@ -639,7 +648,7 @@ async fn date_properties_hold_date_values() {
 #[tokio::test]
 async fn values_left_behind_by_a_change_of_definitions_stay_until_written() {
     let th = Setup::native().start().await.init_basic().await;
-    let board: Board = new_board(
+    let board: Container = new_board(
         &th.client,
         json!([
             {"id": "due", "name": "Due", "type": "date"},
@@ -658,7 +667,7 @@ async fn values_left_behind_by_a_change_of_definitions_stay_until_written() {
         .created_json();
     th.client
         .patch(
-            &format!("{TEST_WS}/boards/{}", board.id),
+            &format!("{TEST_WS}/containers/{}", board.id),
             &json!({"deletedCardProperties": ["due"],
                     "updatedCardProperties": [{"id": "note", "name": "Note", "type": "date"}]}),
         )
@@ -705,7 +714,7 @@ async fn values_left_behind_by_a_change_of_definitions_stay_until_written() {
     );
     assert_eq!(copy_values["note"], json!({"from": "2026-03-06"}), "{copy}");
     th.client
-        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/duplicate", board.id))
         .await
         .check_status(StatusCode::CREATED);
 
@@ -721,7 +730,7 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
     let (board, card) = board_with_card(&th).await;
     th.client
         .patch(
-            &format!("{TEST_WS}/boards/{}", board.id),
+            &format!("{TEST_WS}/containers/{}", board.id),
             &json!({"updatedCardProperties": [{"id": "due", "name": "Due", "type": "date"}]}),
         )
         .await
@@ -730,7 +739,7 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
     let text = json!({"updatedFields": {"properties": {"p1": "open", "due": "soon"}}});
     check_refused(&th.client.patch(&block_path, &text).await, "patchBlock");
     let request = json!({
-        "boardIds": [board.id], "boardPatches": [{"title": "n"}],
+        "containerIds": [board.id], "containerPatches": [{"title": "n"}],
         "blockIds": [card.id], "blockPatches": [text],
     });
     check_refused(
@@ -756,7 +765,7 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
     )
     .await
     .check_ok();
-    let boards: Vec<Board> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let boards: Vec<Container> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let imported = boards
         .iter()
         .find(|board| board.title == "Imported")

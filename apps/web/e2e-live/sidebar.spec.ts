@@ -33,10 +33,10 @@ test.use({ locale: 'en-US' });
 async function stored(
   api: APIRequestContext,
   workspaceId: string,
-): Promise<Schemas['CategoryBoards'][]> {
+): Promise<Schemas['CategoryContainers'][]> {
   const answer = await api.get(`/api/v1/w/${workspaceId}/categories`);
   expect(answer.ok()).toBe(true);
-  return (await answer.json()) as Schemas['CategoryBoards'][];
+  return (await answer.json()) as Schemas['CategoryContainers'][];
 }
 
 /** The names of the reader's categories on the server, in their order. */
@@ -85,7 +85,7 @@ test('categories and the boards under them are kept on the server and show in th
   const home = defaults?.name ?? '';
   // The sidebar names it in the reader's language, whatever the server stored.
   const general = 'General';
-  expect(defaults?.boardMetadata.map((entry) => entry.boardId).sort()).toEqual(
+  expect(defaults?.containerMetadata.map((entry) => entry.containerId).sort()).toEqual(
     [alpha.boardId, beta.boardId].sort(),
   );
 
@@ -127,8 +127,8 @@ test('categories and the boards under them are kept on the server and show in th
   await expect.poll(() => boardsIn(second, 'Projects')).toEqual(['Beta', 'Alpha']);
   await expect
     .poll(async () =>
-      (await storedCategory(api, workspaceId, 'Projects'))?.boardMetadata.map(
-        (entry) => entry.boardId,
+      (await storedCategory(api, workspaceId, 'Projects'))?.containerMetadata.map(
+        (entry) => entry.containerId,
       ),
     )
     .toEqual([beta.boardId, alpha.boardId]);
@@ -141,8 +141,8 @@ test('categories and the boards under them are kept on the server and show in th
   await expect.poll(() => boardsIn(second, 'Projects')).toEqual(['Alpha', 'Beta']);
   await expect
     .poll(async () =>
-      (await storedCategory(api, workspaceId, 'Projects'))?.boardMetadata.map(
-        (entry) => entry.boardId,
+      (await storedCategory(api, workspaceId, 'Projects'))?.containerMetadata.map(
+        (entry) => entry.containerId,
       ),
     )
     .toEqual([alpha.boardId, beta.boardId]);
@@ -168,10 +168,10 @@ test('categories and the boards under them are kept on the server and show in th
   await first.getByTestId('undo').click();
   await expect.poll(() => boardsIn(second, 'Projects')).toEqual(['Alpha', 'Beta']);
   await expect
-    .poll(async () => (await storedCategory(api, workspaceId, 'Projects'))?.boardMetadata)
+    .poll(async () => (await storedCategory(api, workspaceId, 'Projects'))?.containerMetadata)
     .toEqual([
-      { boardId: alpha.boardId, hidden: false },
-      { boardId: beta.boardId, hidden: false },
+      { containerId: alpha.boardId, hidden: false },
+      { containerId: beta.boardId, hidden: false },
     ]);
 
   // Hidden: gone from both tabs, still filed, hidden on the server.
@@ -179,10 +179,10 @@ test('categories and the boards under them are kept on the server and show in th
   await expect(boardLink(second, 'Alpha')).toHaveCount(0);
   await expect(boardLink(first, 'Alpha')).toHaveCount(0);
   await expect
-    .poll(async () => (await storedCategory(api, workspaceId, 'Projects'))?.boardMetadata)
+    .poll(async () => (await storedCategory(api, workspaceId, 'Projects'))?.containerMetadata)
     .toEqual([
-      { boardId: alpha.boardId, hidden: true },
-      { boardId: beta.boardId, hidden: false },
+      { containerId: alpha.boardId, hidden: true },
+      { containerId: beta.boardId, hidden: false },
     ]);
 
   // Deleted: its boards go back to the default category.
@@ -203,11 +203,11 @@ test('categories and the boards under them are kept on the server and show in th
   await expect.poll(() => mine(second, general)).toContain('Alpha');
   await expect
     .poll(async () =>
-      (await storedCategory(api, workspaceId, home))?.boardMetadata.find(
-        (entry) => entry.boardId === alpha.boardId,
+      (await storedCategory(api, workspaceId, home))?.containerMetadata.find(
+        (entry) => entry.containerId === alpha.boardId,
       ),
     )
-    .toEqual({ boardId: alpha.boardId, hidden: false });
+    .toEqual({ containerId: alpha.boardId, hidden: false });
   await chooseFromMenu(first, boardMenu(first, 'Alpha'), 'hide');
 
   // As it was left, after a reload.

@@ -37,9 +37,9 @@
     const board = record.targetName ?? m.audit_a_board();
     const workspace = record.targetName ?? '';
     switch (record.action) {
-      case 'self_added_to_board':
+      case 'self_added_to_container':
         return m.audit_self_added_to_board({ actor, board });
-      case 'added_to_board':
+      case 'added_to_container':
         return m.audit_added_to_board({ actor, subject, board });
       case 'org_admin_joined':
         return m.audit_org_admin_joined({ actor });

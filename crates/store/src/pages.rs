@@ -13,7 +13,7 @@ use fvoci_model::{
 use serde_json::Value;
 
 use crate::db::{Id, Param, Scope, now_millis};
-use crate::{Store, StoreError, blocks, boards, comment_places, page_places};
+use crate::{Store, StoreError, blocks, comment_places, containers, page_places};
 
 /// What a write of the tree changed: the page it was about, and the siblings whose
 /// orders were made anew to leave it room.
@@ -45,12 +45,12 @@ impl Store {
         user_id: &str,
     ) -> Result<PageWrite, StoreError> {
         self.transaction(async |scope| {
-            let Some(kind) = boards::lock_board_of_kind(scope, wiki_id).await? else {
+            let Some(kind) = containers::lock_container_of_kind(scope, wiki_id).await? else {
                 return Err(StoreError::not_found(format_args!("board ID={wiki_id}")));
             };
             let mut page = Block {
                 id: new_id(),
-                board_id: wiki_id.to_owned(),
+                container_id: wiki_id.to_owned(),
                 block_type: BlockType::Page,
                 title: new.title.clone(),
                 ..Block::default()
@@ -74,8 +74,9 @@ impl Store {
             let parent_type = if page.parent_id.is_empty() {
                 None
             } else {
-                let found = comment_places::type_on_board(scope, &page.parent_id, wiki_id).await?;
-                Some(found.ok_or_else(|| invalid(BlockError::ParentNotOnBoard))?)
+                let found =
+                    comment_places::type_on_container(scope, &page.parent_id, wiki_id).await?;
+                Some(found.ok_or_else(|| invalid(BlockError::ParentNotOnContainer))?)
             };
             page_places::check(&page, kind, parent_type.as_ref())?;
             let tree = page_tree(scope, wiki_id).await?;
@@ -112,12 +113,14 @@ impl Store {
     ) -> Result<PageWrite, StoreError> {
         self.transaction(async |scope| {
             let not_found = || StoreError::not_found(format_args!("page ID={page_id}"));
-            boards::lock_board_of_kind(scope, wiki_id)
+            containers::lock_container_of_kind(scope, wiki_id)
                 .await?
                 .ok_or_else(not_found)?;
             let mut page = blocks::find_block(scope, page_id)
                 .await?
-                .filter(|block| block.board_id == wiki_id && block.block_type == BlockType::Page)
+                .filter(|block| {
+                    block.container_id == wiki_id && block.block_type == BlockType::Page
+                })
                 .ok_or_else(not_found)?;
             let invalid = |source| StoreError::InvalidBlock {
                 id: page_id.to_owned(),
@@ -178,7 +181,7 @@ pub(crate) async fn page_nodes(
 ) -> Result<Vec<PageNode>, StoreError> {
     let mut sql = scope.sql(
         "SELECT id, parent_id, title, fields, create_at, update_at FROM blocks \
-         WHERE board_id = ",
+         WHERE container_id = ",
     );
     sql.bind(Id(wiki_id))
         .push_bind(" AND type = ", BlockType::Page.as_str());
@@ -204,7 +207,7 @@ pub(crate) async fn page_tree(
     scope: &mut Scope<'_>,
     wiki_id: &str,
 ) -> Result<PageTree, StoreError> {
-    let mut sql = scope.sql("SELECT id, parent_id, fields FROM blocks WHERE board_id = ");
+    let mut sql = scope.sql("SELECT id, parent_id, fields FROM blocks WHERE container_id = ");
     sql.bind(Id(wiki_id))
         .push_bind(" AND type = ", BlockType::Page.as_str());
     let mut pages = Vec::new();
@@ -252,7 +255,7 @@ async fn write_order(
     sql.bind(Param::json(&page.fields)?)
         .push_bind(", update_at = ", page.update_at)
         .push_bind(" WHERE id = ", Id(page_id))
-        .push_bind(" AND board_id = ", Id(&page.board_id));
+        .push_bind(" AND container_id = ", Id(&page.container_id));
     scope.execute(sql).await?;
     Ok(page)
 }

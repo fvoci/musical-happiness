@@ -11,7 +11,7 @@ use axum::extract::{Extension, Path, State};
 use axum::http::{Extensions, HeaderMap, StatusCode};
 use axum::response::IntoResponse as _;
 use fvoci_model::{
-    AcceptInvitation, AcceptedInvitation, BoardRole, GuestInvitationsChange, Invitation,
+    AcceptInvitation, AcceptedInvitation, ContainerRole, GuestInvitationsChange, Invitation,
     InvitationPreview, InvitationToken, NewInvitation, Workspace, WorkspaceRole,
 };
 use serde::Deserialize;
@@ -23,12 +23,12 @@ use super::contract::params::{InvitationId, WorkerWorkspaceId};
 use super::contract::tag;
 use super::session::optional_session_of;
 use super::signup_cookie::{marker_of, with_marker};
-use super::workspace::{Ws, WsModule};
+use super::workspace::{InContainer, InWorkspace};
 use super::{ApiResult, OptionalSession, created, decode_object, json_response, no_content};
 use crate::app::{Accepting, Admission, App, Inviting};
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
-use crate::permissions::{self, BoardPermission, WorkspacePermission};
+use crate::permissions::{self, ContainerPermission, WorkspacePermission};
 
 /// Where the account to make is in the request that accepts a link: a JSON Pointer.
 const ACCOUNT: &str = "/account";
@@ -61,7 +61,7 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
 /// workspace's organization too.
 ///
 /// With the `role` `guest` the link lets one person, once, onto the board or the wiki
-/// `boardId` of the workspace, in the role `boardRole` (`viewer`, `commenter` or
+/// `containerId` of the workspace, in the role `containerRole` (`viewer`, `commenter` or
 /// `editor`; an editor if left out): a guest of the workspace, who sees that board or
 /// wiki and nothing else of it.
 /// Who adds members to the board makes one (its admins, and the workspace's
@@ -80,14 +80,14 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
     request_body = NewInvitation,
     responses((status = 201, description = "The invitation, with its token.", body = Invitation)),
 )]
-async fn handle_create_invitation(WsModule(ws): WsModule, body: Bytes) -> ApiResult {
+async fn handle_create_invitation(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let request: NewInvitation = decode_object(&body)?;
     let inviting = match request.role {
         WorkspaceRole::Member => {
             for (given, field) in [
-                (request.board_id.is_some(), "boardId"),
-                (request.board_role.is_some(), "boardRole"),
+                (request.container_id.is_some(), "containerId"),
+                (request.container_role.is_some(), "containerRole"),
             ] {
                 if given {
                     return Err(
@@ -119,34 +119,37 @@ async fn handle_create_invitation(WsModule(ws): WsModule, body: Bytes) -> ApiRes
 
 /// The board and the role a request invites a guest to, once the user may invite one
 /// there.
-async fn guest_of<'r>(ws: &Ws, request: &'r NewInvitation) -> Result<Inviting<'r>, AppError> {
-    let Some(board_id) = request.board_id.as_deref() else {
+async fn guest_of<'r>(
+    ws: &InWorkspace,
+    request: &'r NewInvitation,
+) -> Result<Inviting<'r>, AppError> {
+    let Some(container_id) = request.container_id.as_deref() else {
         return Err(
             AppError::bad_request("an invitation for a guest names the board")
-                .with_field("boardId"),
+                .with_field("containerId"),
         );
     };
-    let role = request.board_role.unwrap_or(BoardRole::Editor);
+    let role = request.container_role.unwrap_or(ContainerRole::Editor);
     if !permissions::may_hold(WorkspaceRole::Guest, role) {
         return Err(
             AppError::bad_request("a guest is an editor of a board at most")
-                .with_field("boardRole"),
+                .with_field("containerRole"),
         );
     }
     // A board the user does not see, and one of another workspace, is not there.
     let (access, invites) = ws
         .app
-        .guest_inviter(&ws.session.user_id, &ws.workspace_id, board_id)
+        .guest_inviter(&ws.session.user_id, &ws.workspace_id, container_id)
         .await?
         .filter(|(access, _)| access.grant.sees())
         .ok_or_else(|| AppError::not_found("board"))?;
-    if access.board.is_template {
+    if access.container.is_template {
         return Err(
             AppError::bad_request("a guest is invited to a board, not to a template")
-                .with_field("boardId"),
+                .with_field("containerId"),
         );
     }
-    if !access.grant.allows(BoardPermission::ManageBoardRoles) {
+    if !access.grant.allows(ContainerPermission::ManageRoles) {
         return Err(AppError::forbidden(
             "only who adds the members of the board invites guests to it",
         ));
@@ -156,7 +159,7 @@ async fn guest_of<'r>(ws: &Ws, request: &'r NewInvitation) -> Result<Inviting<'r
             "guests are not invited to the boards of this workspace",
         ));
     }
-    Ok(Inviting::Guest { board_id, role })
+    Ok(Inviting::Guest { container_id, role })
 }
 
 /// The invitations of a workspace
@@ -178,7 +181,7 @@ async fn guest_of<'r>(ws: &Ws, request: &'r NewInvitation) -> Result<Inviting<'r
     params(WorkerWorkspaceId),
     responses((status = 200, description = "The invitations.", body = Vec<Invitation>)),
 )]
-async fn handle_get_invitations(ws: Ws) -> ApiResult {
+async fn handle_get_invitations(ws: InWorkspace) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let invitations = ws
         .app
@@ -211,7 +214,10 @@ struct InvitationPlace {
     params(WorkerWorkspaceId, InvitationId),
     responses((status = 204, description = "The invitation is revoked.")),
 )]
-async fn handle_revoke_invitation(ws: Ws, Path(place): Path<InvitationPlace>) -> ApiResult {
+async fn handle_revoke_invitation(
+    ws: InWorkspace,
+    Path(place): Path<InvitationPlace>,
+) -> ApiResult {
     let ws = ws.require_no_guest()?;
     ws.app
         .revoke_invitation(
@@ -242,7 +248,7 @@ async fn handle_revoke_invitation(ws: Ws, Path(place): Path<InvitationPlace>) ->
     request_body = GuestInvitationsChange,
     responses((status = 200, description = "The workspace.", body = Workspace)),
 )]
-async fn handle_set_guest_invitations(ws: Ws, body: Bytes) -> ApiResult {
+async fn handle_set_guest_invitations(ws: InWorkspace, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let change: GuestInvitationsChange = decode_object(&body)?;
     if !permissions::allows_in_workspace(ws.actor(), WorkspacePermission::SwitchGuestInvitations) {
@@ -262,7 +268,7 @@ async fn handle_set_guest_invitations(ws: Ws, body: Bytes) -> ApiResult {
 /// What the link of `token` shows to whoever holds it, before they accept it and
 /// whether they are signed in or not: the name of the workspace it leads into and the
 /// name of who made it (the name they are shown by, or their login name), and for a
-/// guest's link the title of the board (`boardTitle`).
+/// guest's link the title of the board (`containerTitle`).
 ///
 /// A token that lets nobody in is 404 with the reason `invitation_unavailable`, as
 /// `acceptInvitation` answers it and whatever is wrong with it. A link for one guest
@@ -328,7 +334,7 @@ async fn handle_preview_invitation(
 /// already stays what they are. A guest's link puts the account on its board, in the
 /// link's role or the higher one the account has there: who is no member of the
 /// workspace becomes a guest of it (and no member of its organization), and who is one
-/// stays what they are in it. The answer names the board then (`boardId`). The account
+/// stays what they are in it. The answer names the board then (`containerId`). The account
 /// is made, the membership stored and the use of the link counted together or not at
 /// all, and an acceptance that changes nothing uses nothing of the link.
 ///

@@ -73,7 +73,7 @@ pub(crate) async fn templates(s: &mut Session) {
         .user(&alice)
         .unrecorded()
         .await;
-    s.get("my template", &format!("{ROOT_API}/boards/{custom}"))
+    s.get("my template", &format!("{ROOT_API}/containers/{custom}"))
         .user(&alice)
         .await;
     let onboard = s
@@ -83,7 +83,7 @@ pub(crate) async fn templates(s: &mut Session) {
     let tour_board = onboard.string("boardId");
     s.get(
         "onboarding board",
-        &format!("{ROOT_API}/boards/{tour_board}"),
+        &format!("{ROOT_API}/containers/{tour_board}"),
     )
     .user(&alice)
     .await;
@@ -128,7 +128,7 @@ pub(crate) async fn files(s: &mut Session) {
 
     let [alice, bob] = s.users("files", ["alice", "bob"]).await;
     let board = new_board(s, &alice, "Board with files", "P", json!({})).await;
-    let upload = format!("{ROOT_API}/boards/{board}/files");
+    let upload = format!("{ROOT_API}/containers/{board}/files");
     let png = || multipart("file", "pixel.png", &PNG, "image/png");
 
     let uploaded = s.post("upload", &upload).payload(png()).user(&alice).await;
@@ -158,7 +158,7 @@ pub(crate) async fn files(s: &mut Session) {
     s.post("upload: anonymous", &upload).payload(png()).await;
     s.post(
         "upload: unknown board",
-        &format!("{ROOT_API}/boards/unknown-board/files"),
+        &format!("{ROOT_API}/containers/unknown-board/files"),
     )
     .payload(png())
     .user(&alice)
@@ -168,7 +168,7 @@ pub(crate) async fn files(s: &mut Session) {
         .user(&alice)
         .await;
 
-    let files = format!("{ROOT_API}/boards/{board}/files");
+    let files = format!("{ROOT_API}/containers/{board}/files");
     let download = format!("{files}/{file_id}");
     // The paths that named the workspace with the board are gone.
     let old_files = format!("{API}/files/teams/{ROOT_WORKSPACE_ID}/{board}/{file_id}");
@@ -230,7 +230,7 @@ pub(crate) async fn files(s: &mut Session) {
 
     // A shared board serves its files to holders of the read token.
     let read_token = s
-        .post("share", &format!("{ROOT_API}/boards/{board}/sharing"))
+        .post("share", &format!("{ROOT_API}/containers/{board}/sharing"))
         .json(json!({"enabled": true}))
         .user(&alice)
         .await
@@ -287,7 +287,7 @@ pub(crate) async fn files(s: &mut Session) {
     .await;
     s.post(
         "duplicate the board with files",
-        &format!("{ROOT_API}/boards/{board}/duplicate"),
+        &format!("{ROOT_API}/containers/{board}/duplicate"),
     )
     .user(&alice)
     .unrecorded()
@@ -353,7 +353,7 @@ pub(crate) async fn archive(s: &mut Session) {
     )
     .await;
     let file_id = s
-        .post("upload", &format!("{ROOT_API}/boards/{board}/files"))
+        .post("upload", &format!("{ROOT_API}/containers/{board}/files"))
         .payload(multipart("file", "pixel.png", &PNG, "image/png"))
         .user(&alice)
         .unrecorded()
@@ -401,7 +401,7 @@ pub(crate) async fn archive(s: &mut Session) {
     )
     .await;
 
-    let export = format!("{ROOT_API}/boards/{board}/archive/export");
+    let export = format!("{ROOT_API}/containers/{board}/archive/export");
     let exported = s.get("export", &export).user(&alice).unrecorded().await;
     s.note(
         "export status and type",
@@ -413,7 +413,7 @@ pub(crate) async fn archive(s: &mut Session) {
     s.get("export: anonymous", &export).await;
     s.get(
         "export: unknown board",
-        &format!("{ROOT_API}/boards/unknown-board/archive/export"),
+        &format!("{ROOT_API}/containers/unknown-board/archive/export"),
     )
     .user(&alice)
     .await;
@@ -474,7 +474,7 @@ pub(crate) async fn archive(s: &mut Session) {
     .await;
     s.get(
         "imported members",
-        &format!("{ROOT_API}/boards/{copy}/members"),
+        &format!("{ROOT_API}/containers/{copy}/members"),
     )
     .user(&bob)
     .await;
@@ -489,7 +489,7 @@ pub(crate) async fn archive(s: &mut Session) {
     let imported_file = string_member(&images.json()[0]["fields"], "fileId");
     s.get(
         "imported file",
-        &format!("{ROOT_API}/boards/{copy}/files/{imported_file}"),
+        &format!("{ROOT_API}/containers/{copy}/files/{imported_file}"),
     )
     .user(&bob)
     .await;

@@ -506,10 +506,10 @@ impl Collab {
 async fn announce(app: &App, card_id: &str) {
     let announced = async {
         let block = app.store().get_block(card_id).await?;
-        let board = app.store().get_board(&block.board_id).await?;
-        Ok::<_, fvoci_store::StoreError>((block, board))
+        let container = app.store().get_container(&block.container_id).await?;
+        Ok::<_, fvoci_store::StoreError>((block, container))
     };
-    let (block, board) = match announced.await {
+    let (block, container) = match announced.await {
         Ok(read) => read,
         Err(error) => {
             tracing::error!(%error, card_id, "cannot read a card whose body was written to tell of it");
@@ -520,7 +520,7 @@ async fn announce(app: &App, card_id: &str) {
     app.spawn_background(async move {
         app_of_task
             .ws()
-            .broadcast_block_change(&board.workspace_id, &block)
+            .broadcast_block_change(&container.workspace_id, &block)
             .await;
         app_of_task.webhook().notify_update(&block).await;
     });

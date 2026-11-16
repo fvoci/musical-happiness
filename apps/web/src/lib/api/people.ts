@@ -4,7 +4,7 @@
  * server backend, whose requests about the members of a board have the same names.
  */
 import type {
-  GuestBoardRole,
+  GuestContainerRole,
   Invitation,
   People,
   WorkspaceMember,
@@ -21,7 +21,7 @@ function invitationOf(link: Schemas['Invitation']): Invitation {
   return {
     id: link.id,
     role: link.role === 'guest' ? 'guest' : 'member',
-    ...(link.boardId ? { boardId: link.boardId } : {}),
+    ...(link.containerId ? { containerId: link.containerId } : {}),
     createdBy: link.createdBy,
     createAt: link.createAt,
     expiresAt: link.expiresAt,
@@ -84,10 +84,10 @@ export class ServerPeople implements People {
 
   async inviteGuest(
     workspaceId: string,
-    boardId: string,
-    role: GuestBoardRole,
+    containerId: string,
+    role: GuestContainerRole,
   ): Promise<Invitation> {
-    return this.#invite(workspaceId, { role: 'guest', boardId, boardRole: role });
+    return this.#invite(workspaceId, { role: 'guest', containerId, containerRole: role });
   }
 
   async #invite(workspaceId: string, request: Schemas['NewInvitation']): Promise<Invitation> {

@@ -7,13 +7,13 @@ mod access;
 mod audience;
 mod auth;
 mod blocks;
-mod board_copies;
-mod boards;
-mod boards_and_blocks;
 mod body_versions;
 mod cards;
 mod category;
-mod category_boards;
+mod category_containers;
+mod container_copies;
+mod containers;
+mod containers_and_blocks;
 mod doomed;
 mod download;
 mod export;
@@ -66,11 +66,11 @@ mod users;
 mod workspace_members;
 mod workspaces;
 
-pub use access::{BoardAccess, DeletedBoardAccess, as_managed};
+pub use access::{ContainerAccess, DeletedContainerAccess, as_managed};
 pub use audience::{Audience, Former, UnsaidByLink};
 pub use blocks::ChangeNotification;
 pub use cards::CardPreviews;
-pub use category_boards::DEFAULT_CATEGORY_BOARDS;
+pub use category_containers::DEFAULT_CATEGORY_CONTAINERS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
 pub use housekeeping::WorkspacesPurged;
@@ -102,7 +102,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 
-use fvoci_model::{BoardKinds, ClientConfig};
+use fvoci_model::{ClientConfig, ContainerKinds};
 use fvoci_store::{Store, Tenant};
 use serde::Serialize;
 use tokio_util::task::TaskTracker;
@@ -141,7 +141,7 @@ pub struct App {
     workspace: Option<Arc<str>>,
     /// The kinds of board this handle reaches ([`App::reaching`]): a board of another
     /// kind is not there for it, nor what is on one.
-    kinds: BoardKinds,
+    kinds: ContainerKinds,
 }
 
 #[derive(Debug)]
@@ -285,7 +285,7 @@ impl App {
             store,
             ws,
             workspace: None,
-            kinds: BoardKinds::Every,
+            kinds: ContainerKinds::Every,
             inner: Arc::new(Inner {
                 reset_limiter: LoginLimiter::new(Limits::from_config(&config)),
                 mail: mail::Mailer::new(
@@ -361,19 +361,19 @@ impl App {
     /// until it is narrowed: what is the same for a board and a wiki (who is on it, its
     /// files, the rooms of its bodies) is asked of both.
     #[must_use]
-    pub fn reaching(mut self, kinds: BoardKinds) -> Self {
+    pub fn reaching(mut self, kinds: ContainerKinds) -> Self {
         self.kinds = kinds;
         self
     }
 
     /// The kinds of board this handle reaches ([`App::reaching`]).
     #[must_use]
-    pub fn kinds(&self) -> BoardKinds {
+    pub fn kinds(&self) -> ContainerKinds {
         self.kinds
     }
 
     /// The same handle, for a request that names the workspace in its path: a board of
-    /// another workspace, and what is on it, is not there for it ([`App::board_access`]),
+    /// another workspace, and what is on it, is not there for it ([`App::container_access`]),
     /// but for the built-in templates, which are every workspace's.
     #[must_use]
     pub fn in_workspace(&self, workspace_id: &str) -> Self {
@@ -398,9 +398,9 @@ impl App {
     /// what is on it and to what is stored for it asks here, or reads a list of the
     /// handle's kinds.
     #[must_use]
-    pub fn reaches_board(&self, board: &fvoci_model::Board) -> bool {
-        self.kinds.holds(board.kind)
-            && (board.is_builtin || self.reaches_workspace(&board.workspace_id))
+    pub fn reaches_container(&self, container: &fvoci_model::Container) -> bool {
+        self.kinds.holds(container.kind)
+            && (container.is_builtin || self.reaches_workspace(&container.workspace_id))
     }
 
     /// The database, as this handle reaches it.

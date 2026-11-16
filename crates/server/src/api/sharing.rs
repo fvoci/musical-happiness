@@ -9,16 +9,15 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::SharingRequest;
-use super::contract::params::BoardId;
-use super::contract::params::MemberWorkspaceId;
+use super::contract::params::{ContainerId, MemberWorkspaceId};
 use super::contract::tag;
-use super::workspace::WsModule;
+use super::workspace::InContainer;
 
 use super::{ApiResult, json_response};
-use super::{decode_json, json_object, require_board_permission};
+use super::{decode_json, json_object, require_container_permission};
 use crate::app::App;
 use crate::error::{AppError, Reason};
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(handle_post_sharing, handle_get_sharing))
@@ -29,17 +28,17 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 async fn require_share_permission(
     app: &App,
     user_id: &str,
-    board_id: &str,
+    container_id: &str,
 ) -> Result<(), AppError> {
-    require_board_permission(
+    require_container_permission(
         app,
         user_id,
-        board_id,
-        BoardPermission::ShareBoard,
+        container_id,
+        ContainerPermission::Share,
         "access denied to sharing the board",
     )
     .await?;
-    app.board(board_id).await?;
+    app.container(container_id).await?;
     Ok(())
 }
 
@@ -49,23 +48,23 @@ async fn require_share_permission(
 /// shared is not shared. For the board's admins.
 #[utoipa::path(
     get,
-    path = "/w/{workspaceId}/boards/{boardId}/sharing",
+    path = "/w/{workspaceId}/containers/{containerId}/sharing",
     operation_id = "getSharing",
     tag = tag::SHARING,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     responses((status = 200, description = "The sharing state.", body = Sharing)),
 )]
 async fn handle_get_sharing(
-    WsModule(ws): WsModule,
-    Path((_, board_id)): Path<(String, String)>,
+    InContainer(ws): InContainer,
+    Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
-    require_share_permission(&ws.app, &ws.session.user_id, &board_id).await?;
-    let sharing = ws.app.sharing(&board_id).await?;
-    tracing::debug!(board_id, enabled = sharing.enabled, "GET sharing");
+    require_share_permission(&ws.app, &ws.session.user_id, &container_id).await?;
+    let sharing = ws.app.sharing(&container_id).await?;
+    tracing::debug!(container_id, enabled = sharing.enabled, "GET sharing");
     Ok(json_response(&sharing))
 }
 
-/// Reads the body of `POST /boards/{boardId}/sharing`: `enabled`, a boolean, and
+/// Reads the body of `POST /containers/{containerId}/sharing`: `enabled`, a boolean, and
 /// optionally `regenerate`, a boolean. A `token` is refused, `null` too: the server
 /// makes it.
 fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
@@ -112,10 +111,10 @@ fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
 /// reason `public_links_off`; stopping it is not. For the board's admins.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards/{boardId}/sharing",
+    path = "/w/{workspaceId}/containers/{containerId}/sharing",
     operation_id = "setSharing",
     tag = tag::SHARING,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     request_body = SharingRequest,
     responses((
         status = 200,
@@ -124,15 +123,15 @@ fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
     )),
 )]
 async fn handle_post_sharing(
-    WsModule(ws): WsModule,
-    Path((_, board_id)): Path<(String, String)>,
+    InContainer(ws): InContainer,
+    Path((_, container_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    require_share_permission(&ws.app, &ws.session.user_id, &board_id).await?;
+    require_share_permission(&ws.app, &ws.session.user_id, &container_id).await?;
 
     if !ws.app.config().enable_public_shared_boards {
         tracing::warn!(
-            board_id,
+            container_id,
             user_id = %ws.session.user_id,
             "Attempt to turn on sharing for board via API failed, sharing off in configuration."
         );
@@ -145,8 +144,8 @@ async fn handle_post_sharing(
     let change = sharing_change(&body)?;
     let sharing = ws
         .app
-        .set_sharing(&board_id, change, &ws.session.user_id)
+        .set_sharing(&container_id, change, &ws.session.user_id)
         .await?;
-    tracing::debug!(board_id, enabled = sharing.enabled, "POST sharing");
+    tracing::debug!(container_id, enabled = sharing.enabled, "POST sharing");
     Ok(json_response(&sharing))
 }

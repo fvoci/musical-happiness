@@ -1,8 +1,8 @@
 /** Direct and inherited board roles as carried by membership responses. */
 export type MemberRole = 'viewer' | 'commenter' | 'editor' | 'admin' | '';
 
-export interface BoardMember {
-  boardId: string;
+export interface ContainerMember {
+  containerId: string;
   userId: string;
   roles?: string;
   minimumRole: MemberRole;

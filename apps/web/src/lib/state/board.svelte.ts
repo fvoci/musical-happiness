@@ -15,9 +15,8 @@ import {
   createBoardView,
   viewGrouping,
   viewQuery,
-  type BlockPatch,
-  type Board,
-  type BoardMember,
+  type Container,
+  type ContainerMember,
   type BoardView,
   type Card,
   type MemberRole,
@@ -29,54 +28,63 @@ import {
   isBackendError,
   isCardBlock,
   isViewBlock,
-  type BoardRole,
+  type ContainerRole,
   type CardDraft,
-  type CardPatch,
   type CardSummary,
   type Change,
   type ViewDraft,
 } from './backend.ts';
 import { copyOfCard } from './card-copy.ts';
-import { BlockWrites, BoardWrites, patchCardOrStored, patchViewOrStored } from './board-writes.ts';
+import { BoardWrites, cardWritesOf, viewWritesOf } from './board-writes.ts';
 import { dropCardsOn } from './card-drop.ts';
 import { CardStore } from './card.svelte.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
 import { authorIds, memberId } from './user-names.ts';
 import { readBoard } from './board-load.ts';
-import { boardOfWorkspace, roleOf, type CardDrop } from './board-parts.ts';
+import { containerOfWorkspace, roleOf, type CardDrop } from './board-parts.ts';
 import { MemberWrites } from './member-writes.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
-  applyCardPatch,
-  applyViewPatch,
-  boardPatches,
+  containerPatches,
   cardPatches,
   isEmptyBlockPatch,
-  isEmptyBoardPatch,
+  isEmptyContainerPatch,
   isEmptyCardPatch,
   viewPatches,
 } from './patches.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { restoreCard } from './trash.svelte.ts';
-import { put, reread, take } from './write.ts';
+import { reread, take } from './write.ts';
 
 export type { CardDrop } from './board-parts.ts';
 
 export class BoardStore {
   readonly workspace: Workspace;
   readonly boardId: string;
+  /** The board as the dialogs of a board's or a wiki's people name it (`Shareable`). */
+  get containerId(): string {
+    return this.boardId;
+  }
+
+  get container(): Container | undefined {
+    return this.board;
+  }
+
+  set container(board: Container | undefined) {
+    this.board = board;
+  }
 
   status = $state<LoadStatus>('idle');
   /** The board does not exist, or the reader may not see it: the two look the same. */
   missing = $state(false);
   /** The board is open and the reader no member of it: shown with a way to join (`join`). */
   joinable = $state(false);
-  board = $state.raw<Board | undefined>(undefined);
+  board = $state.raw<Container | undefined>(undefined);
   views = $state.raw<BoardView[]>([]);
   /** Every card of the board, card templates included, in no order. */
   cards = $state.raw<CardSummary[]>([]);
-  members = $state.raw<BoardMember[]>([]);
+  members = $state.raw<ContainerMember[]>([]);
   /** The card that is open, if one is. */
   openCard = $state.raw<CardStore | undefined>(undefined);
 
@@ -145,24 +153,8 @@ export class BoardStore {
   /** Keeps the cards' `lastCommentAt` current between readings. */
   readonly #lastComments = lastCommentsOf(this);
   readonly #boardWrites = new BoardWrites(this);
-  readonly #cardWrites = new BlockWrites('updatedProperties', 'deletedProperties', {
-    shown: (cardId: string) => this.card(cardId),
-    apply: applyCardPatch<CardSummary>,
-    show: (card: CardSummary) => (this.cards = put(this.cards, card)),
-    answered: (card: CardSummary) => {
-      this.cards = take(this.cards, card);
-      this.openCard?.cardChanged(card);
-    },
-    send: (cardId: string, patch: CardPatch, own: (key: string) => boolean) =>
-      patchCardOrStored(this, cardId, patch, own),
-  });
-  readonly #viewWrites = new BlockWrites<BoardView, BlockPatch>('updatedFields', 'deletedFields', {
-    shown: (viewId) => this.view(viewId),
-    apply: applyViewPatch,
-    show: (view) => (this.views = put(this.views, view)),
-    answered: (view) => (this.views = take(this.views, view)),
-    send: (viewId, patch, own) => patchViewOrStored(this, viewId, patch, own),
-  });
+  readonly #cardWrites = cardWritesOf(this);
+  readonly #viewWrites = viewWritesOf(this);
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
   #refreshing = 0;
   /** Adding, changing and taking off members (`member-writes.ts`). */
@@ -185,7 +177,7 @@ export class BoardStore {
     try {
       // Listen first: a change made while the lists are being read is not lost.
       this.#stopWatching?.();
-      this.#stopWatching = this.#backend.watchBoard(this.boardId, (change) => {
+      this.#stopWatching = this.#backend.watchContainer(this.boardId, (change) => {
         this.#apply(change);
       });
       const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
@@ -210,7 +202,11 @@ export class BoardStore {
    */
   async #explainRefusal(): Promise<boolean> {
     try {
-      const board = await boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id);
+      const board = await containerOfWorkspace(
+        this.#backend,
+        this.boardId,
+        this.workspace.info?.id,
+      );
       if (board.type !== 'O' || board.isTemplate) return false;
       this.board = board;
       return true;
@@ -225,7 +221,7 @@ export class BoardStore {
     if (this.joining) return false;
     this.joining = true;
     try {
-      await this.#backend.joinBoard(this.boardId);
+      await this.#backend.joinContainer(this.boardId);
     } catch (error) {
       // Made private or deleted meanwhile: there is nothing to join.
       if (isBackendError(error) && error.status === 404) {
@@ -265,18 +261,13 @@ export class BoardStore {
 
   /** The cards a view shows, in its order, for a search text. */
   cardsOf(view: BoardView, searchText = ''): Card[] {
-    return cardsOfView(
-      this.realCards,
-      this.board?.cardProperties ?? [],
-      viewQuery(view),
-      searchText,
-      {
-        usernameOf: (userId) => this.workspace.userName(userId),
-        locale: this.workspace.locale,
-        timeZone: this.workspace.regional.timeZone,
-        cardTitle: (cardId) => this.cardsById.get(cardId)?.title,
-      },
-    );
+    const properties = this.board?.cardProperties ?? [];
+    return cardsOfView(this.realCards, properties, viewQuery(view), searchText, {
+      usernameOf: (userId) => this.workspace.userName(userId),
+      locale: this.workspace.locale,
+      timeZone: this.workspace.regional.timeZone,
+      cardTitle: (cardId) => this.cardsById.get(cardId)?.title,
+    });
   }
 
   /**
@@ -309,15 +300,15 @@ export class BoardStore {
 
   #apply(change: Change): void {
     switch (change.kind) {
-      case 'board':
+      case 'container':
         // Deleted and brought back: everything of it is read again.
         if (this.missing) {
           void this.load();
           break;
         }
-        if (this.#boardWrites.receive(change.board)) this.#takeBoard(change.board);
+        if (this.#boardWrites.receive(change.container)) this.#takeBoard(change.container);
         break;
-      case 'boardDeleted':
+      case 'containerDeleted':
         // An open board may only have been closed to the reader (taken off
         // it): read again, it shows as one to join, or as gone.
         if (this.board?.type === 'O' && !this.board.isTemplate && !this.#closed) {
@@ -647,7 +638,7 @@ export class BoardStore {
   // -------------------------------------------------------------- board
 
   /** As `take` (write.ts) does for cards and views. */
-  #takeBoard(board: Board): void {
+  #takeBoard(board: Container): void {
     if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
   }
 
@@ -656,13 +647,13 @@ export class BoardStore {
    * definitions of its card properties. `change` returns a new object.
    */
   async changeBoard(
-    change: (board: Board) => Board,
+    change: (board: Container) => Container,
     description = 'changeBoard',
     groupId?: string,
   ): Promise<void> {
     if (!this.board) return;
-    const [forward, backward] = boardPatches(change(this.board), this.board);
-    if (isEmptyBoardPatch(forward)) return;
+    const [forward, backward] = containerPatches(change(this.board), this.board);
+    if (isEmptyContainerPatch(forward)) return;
     await this.#perform(
       () => this.#boardWrites.write(forward, backward),
       () => this.#boardWrites.write(backward, forward),
@@ -699,16 +690,16 @@ export class BoardStore {
   }
 
   /** The role somebody gets by joining the board. Members keep theirs. */
-  async setMinimumRole(role: BoardRole): Promise<void> {
+  async setMinimumRole(role: ContainerRole): Promise<void> {
     await this.changeBoard((board) => ({ ...board, minimumRole: role }), 'changeMinimumRole');
   }
 
   /** Makes a person of the workspace a member. Somebody who is a member already keeps their role. */
-  addMember(userId: string, role: BoardRole): Promise<void> {
+  addMember(userId: string, role: ContainerRole): Promise<void> {
     return this.#people.add(userId, role);
   }
 
-  setMemberRole(userId: string, role: BoardRole): Promise<void> {
+  setMemberRole(userId: string, role: ContainerRole): Promise<void> {
     return this.#people.setRole(userId, role);
   }
 

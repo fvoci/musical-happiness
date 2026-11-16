@@ -4,8 +4,8 @@
 
 use std::collections::HashSet;
 
-use fvoci_model::{Board, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole};
-use fvoci_store::{PublicBoards, Tenant};
+use fvoci_model::{Container, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole};
+use fvoci_store::{PublicContainers, Tenant};
 
 use super::{App, Asker, as_managed, sso};
 use crate::error::AppError;
@@ -134,9 +134,9 @@ impl App {
     /// Returns the store's error if the board's sharing cannot be read: that is no
     /// "no", and answered as one it would tell a reader with a good link that the link
     /// is dead.
-    pub async fn enter_shared_board(
+    pub async fn enter_shared_container(
         &self,
-        board_id: &str,
+        container_id: &str,
         read_token: &str,
     ) -> Result<Option<Self>, AppError> {
         if read_token.is_empty() {
@@ -144,7 +144,7 @@ impl App {
         }
         let shared = self
             .authenticator()
-            .shared_by_read_token(board_id, read_token)
+            .shared_by_read_token(container_id, read_token)
             .await?;
         shared
             .map(|shared| {
@@ -169,7 +169,7 @@ impl App {
     /// Whether the user works in the workspace: a member of the workspace who is no guest.
     /// This is what the routes that name a workspace in their body or query, and not under
     /// `/w/{workspaceId}`, ask before anything else; for anybody else the workspace is not
-    /// there. The routes under a workspace ask it of their path (`Ws::require_no_guest`).
+    /// there. The routes under a workspace ask it of their path (`InWorkspace::require_no_guest`).
     ///
     /// A guest of a workspace is on the boards they were invited to and reaches those
     /// by their board; what a member of the workspace may do (see its boards, make one,
@@ -209,7 +209,7 @@ impl App {
     /// ([`App::reaching`]): an administrator of the workspace every one of it, those they
     /// do not read without their description and properties ([`as_managed`]); whoever
     /// else those they are a member of and the open ones
-    /// ([`App::readable_workspace_boards`]). Templates are left out. Oldest first.
+    /// ([`App::readable_workspace_containers`]). Templates are left out. Oldest first.
     ///
     /// The handle is the one a member entered the workspace with
     /// ([`App::enter_workspace`]).
@@ -217,31 +217,31 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if the query fails.
-    pub async fn workspace_boards(
+    pub async fn workspace_containers(
         &self,
         user_id: &str,
         workspace_id: &str,
         role: WorkspaceRole,
-    ) -> Result<Vec<Board>, AppError> {
+    ) -> Result<Vec<Container>, AppError> {
         let readable = self
-            .readable_workspace_boards(user_id, workspace_id, role)
+            .readable_workspace_containers(user_id, workspace_id, role)
             .await?;
         if role != WorkspaceRole::Admin {
             return Ok(readable);
         }
         // What the administrator does not read is listed as who only manages it sees it.
-        let read: HashSet<String> = readable.into_iter().map(|board| board.id).collect();
+        let read: HashSet<String> = readable.into_iter().map(|container| container.id).collect();
         let every = self
             .store()
-            .get_boards_of_workspace(workspace_id, self.kinds())
+            .get_containers_of_workspace(workspace_id, self.kinds())
             .await?;
         Ok(every
             .into_iter()
-            .map(|board| {
-                if read.contains(&board.id) {
-                    board
+            .map(|container| {
+                if read.contains(&container.id) {
+                    container
                 } else {
-                    as_managed(board)
+                    as_managed(container)
                 }
             })
             .collect())
@@ -254,17 +254,17 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if the query fails.
-    pub async fn readable_workspace_boards(
+    pub async fn readable_workspace_containers(
         &self,
         user_id: &str,
         workspace_id: &str,
         role: WorkspaceRole,
-    ) -> Result<Vec<Board>, AppError> {
-        let public_boards = match role {
-            WorkspaceRole::Guest => PublicBoards::Exclude,
-            WorkspaceRole::Admin | WorkspaceRole::Member => PublicBoards::Include,
+    ) -> Result<Vec<Container>, AppError> {
+        let public_containers = match role {
+            WorkspaceRole::Guest => PublicContainers::Exclude,
+            WorkspaceRole::Admin | WorkspaceRole::Member => PublicContainers::Include,
         };
-        self.boards_for_user_and_workspace(user_id, workspace_id, public_boards)
+        self.containers_for_user_and_workspace(user_id, workspace_id, public_containers)
             .await
     }
 

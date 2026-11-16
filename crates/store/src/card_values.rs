@@ -16,7 +16,7 @@ use fvoci_model::{
 };
 use serde_json::Value;
 
-use crate::boards;
+use crate::containers;
 use crate::db::{Dialect, Id, Scope};
 use crate::error::StoreError;
 
@@ -71,7 +71,7 @@ pub(crate) async fn check_written(
     if written.is_empty() {
         return Ok(Vec::new());
     }
-    let Some(board) = boards::find_board(scope, &block.board_id).await? else {
+    let Some(board) = containers::find_container(scope, &block.container_id).await? else {
         return Ok(Vec::new());
     };
     let invalid = |source: BlockError| StoreError::InvalidBlock {
@@ -106,7 +106,7 @@ pub(crate) async fn check_written(
         if !ids.is_empty() {
             named.push(NamedCards {
                 block_id: block.id.clone(),
-                board_id: block.board_id.clone(),
+                board_id: block.container_id.clone(),
                 property: property.clone(),
                 ids,
             });
@@ -170,12 +170,12 @@ async fn types_on_board(
     };
     let mut types = HashMap::with_capacity(ids.len());
     for chunk in ids.chunks(LOOKUP_CHUNK) {
-        let mut sql = scope.sql("SELECT id, type FROM blocks WHERE board_id = ");
+        let mut sql = scope.sql("SELECT id, type FROM blocks WHERE container_id = ");
         sql.bind(Id(board_id))
             .push(" AND id IN (")
             .bind_list(chunk.iter().map(|id| Id(id)))
             .push(&format!(
-                ") UNION ALL SELECT id, {trashed_type} FROM deleted_blocks WHERE board_id = "
+                ") UNION ALL SELECT id, {trashed_type} FROM deleted_blocks WHERE container_id = "
             ))
             .bind(Id(board_id))
             .push(" AND id IN (")

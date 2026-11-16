@@ -60,17 +60,17 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardMetadata": [
+        "collapsed": false,
+        "containerMetadata": [
           {
-            "boardId": "<id:3>",
+            "containerId": "<id:3>",
             "hidden": false
           },
           {
-            "boardId": "<id:4>",
+            "containerId": "<id:4>",
             "hidden": false
           }
         ],
-        "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:5>",
@@ -90,8 +90,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardMetadata": [],
         "collapsed": false,
+        "containerMetadata": [],
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:6>",
@@ -238,8 +238,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardMetadata": [],
         "collapsed": true,
+        "containerMetadata": [],
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:9>",
@@ -251,8 +251,8 @@
         "workspaceId": "<id:1>"
       },
       {
-        "boardMetadata": [],
         "collapsed": false,
+        "containerMetadata": [],
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:8>",
@@ -264,17 +264,17 @@
         "workspaceId": "<id:1>"
       },
       {
-        "boardMetadata": [
+        "collapsed": false,
+        "containerMetadata": [
           {
-            "boardId": "<id:3>",
+            "containerId": "<id:3>",
             "hidden": false
           },
           {
-            "boardId": "<id:4>",
+            "containerId": "<id:4>",
             "hidden": false
           }
         ],
-        "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:5>",
@@ -374,13 +374,13 @@
   },
   {
     "name": "file a board",
-    "request": "POST /api/v1/w/<id:1>/categories/<id:8>/boards/<id:3> as cat-alice",
+    "request": "POST /api/v1/w/<id:1>/categories/<id:8>/containers/<id:3> as cat-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "file the second board",
-    "request": "POST /api/v1/w/<id:1>/categories/<id:8>/boards/<id:4> as cat-alice",
+    "request": "POST /api/v1/w/<id:1>/categories/<id:8>/containers/<id:4> as cat-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
@@ -391,8 +391,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardMetadata": [],
         "collapsed": true,
+        "containerMetadata": [],
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:9>",
@@ -404,17 +404,17 @@
         "workspaceId": "<id:1>"
       },
       {
-        "boardMetadata": [
+        "collapsed": true,
+        "containerMetadata": [
           {
-            "boardId": "<id:3>",
+            "containerId": "<id:3>",
             "hidden": false
           },
           {
-            "boardId": "<id:4>",
+            "containerId": "<id:4>",
             "hidden": false
           }
         ],
-        "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:8>",
@@ -426,8 +426,8 @@
         "workspaceId": "<id:1>"
       },
       {
-        "boardMetadata": [],
         "collapsed": false,
+        "containerMetadata": [],
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:5>",
@@ -442,13 +442,13 @@
   },
   {
     "name": "hide",
-    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/boards/<id:3>/hide as cat-alice",
+    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/containers/<id:3>/hide as cat-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "hide: other user",
-    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/boards/<id:3>/hide as cat-bob",
+    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/containers/<id:3>/hide as cat-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -467,8 +467,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardMetadata": [],
         "collapsed": true,
+        "containerMetadata": [],
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:9>",
@@ -480,17 +480,17 @@
         "workspaceId": "<id:1>"
       },
       {
-        "boardMetadata": [
+        "collapsed": true,
+        "containerMetadata": [
           {
-            "boardId": "<id:3>",
+            "containerId": "<id:3>",
             "hidden": true
           },
           {
-            "boardId": "<id:4>",
+            "containerId": "<id:4>",
             "hidden": false
           }
         ],
-        "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:8>",
@@ -502,8 +502,8 @@
         "workspaceId": "<id:1>"
       },
       {
-        "boardMetadata": [],
         "collapsed": false,
+        "containerMetadata": [],
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:5>",
@@ -518,13 +518,13 @@
   },
   {
     "name": "unhide",
-    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/boards/<id:3>/unhide as cat-alice",
+    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/containers/<id:3>/unhide as cat-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "reorder boards",
-    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/board-order as cat-alice",
+    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/container-order as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -534,7 +534,7 @@
   },
   {
     "name": "reorder boards: missing one",
-    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/board-order as cat-alice",
+    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/container-order as cat-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -548,7 +548,7 @@
   },
   {
     "name": "reorder boards: unknown board",
-    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/board-order as cat-alice",
+    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/container-order as cat-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -562,7 +562,7 @@
   },
   {
     "name": "reorder boards: other user",
-    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/board-order as cat-bob",
+    "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/container-order as cat-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -577,15 +577,15 @@
   {
     "name": "old path: reorder boards",
     "request": "PUT /api/v1/w/<id:1>/categories/<id:8>/boards/reorder as cat-alice",
-    "status": 405,
+    "status": 404,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "method not allowed",
+      "detail": "route not found",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
-      "status": 405,
-      "title": "Method not allowed",
-      "type": "/problems/method-not-allowed"
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -648,8 +648,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardMetadata": [],
         "collapsed": true,
+        "containerMetadata": [],
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:9>",
@@ -661,17 +661,17 @@
         "workspaceId": "<id:1>"
       },
       {
-        "boardMetadata": [
+        "collapsed": true,
+        "containerMetadata": [
           {
-            "boardId": "<id:4>",
+            "containerId": "<id:4>",
             "hidden": false
           },
           {
-            "boardId": "<id:3>",
+            "containerId": "<id:3>",
             "hidden": false
           }
         ],
-        "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:8>",
@@ -683,8 +683,8 @@
         "workspaceId": "<id:1>"
       },
       {
-        "boardMetadata": [],
         "collapsed": false,
+        "containerMetadata": [],
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:5>",
@@ -780,8 +780,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardMetadata": [],
         "collapsed": true,
+        "containerMetadata": [],
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:9>",
@@ -793,17 +793,17 @@
         "workspaceId": "<id:1>"
       },
       {
-        "boardMetadata": [
+        "collapsed": false,
+        "containerMetadata": [
           {
-            "boardId": "<id:4>",
+            "containerId": "<id:4>",
             "hidden": false
           },
           {
-            "boardId": "<id:3>",
+            "containerId": "<id:3>",
             "hidden": false
           }
         ],
-        "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:5>",
@@ -818,7 +818,7 @@
   },
   {
     "name": "file a board: other user's category",
-    "request": "POST /api/v1/w/<id:1>/categories/<id:9>/boards/<id:4> as cat-bob",
+    "request": "POST /api/v1/w/<id:1>/categories/<id:9>/containers/<id:4> as cat-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -837,8 +837,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardMetadata": [],
         "collapsed": true,
+        "containerMetadata": [],
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:9>",
@@ -850,17 +850,17 @@
         "workspaceId": "<id:1>"
       },
       {
-        "boardMetadata": [
+        "collapsed": false,
+        "containerMetadata": [
           {
-            "boardId": "<id:4>",
+            "containerId": "<id:4>",
             "hidden": false
           },
           {
-            "boardId": "<id:3>",
+            "containerId": "<id:3>",
             "hidden": false
           }
         ],
-        "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:5>",
@@ -875,7 +875,7 @@
   },
   {
     "name": "file a board: unknown category",
-    "request": "POST /api/v1/w/<id:1>/categories/unknown-category/boards/<id:4> as cat-alice",
+    "request": "POST /api/v1/w/<id:1>/categories/unknown-category/containers/<id:4> as cat-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -894,8 +894,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardMetadata": [],
         "collapsed": true,
+        "containerMetadata": [],
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:9>",
@@ -907,17 +907,17 @@
         "workspaceId": "<id:1>"
       },
       {
-        "boardMetadata": [
+        "collapsed": false,
+        "containerMetadata": [
           {
-            "boardId": "<id:4>",
+            "containerId": "<id:4>",
             "hidden": false
           },
           {
-            "boardId": "<id:3>",
+            "containerId": "<id:3>",
             "hidden": false
           }
         ],
-        "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:5>",

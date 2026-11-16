@@ -12,7 +12,7 @@ const member = (
     Record<'schemeAdmin' | 'schemeEditor' | 'schemeCommenter' | 'schemeViewer', boolean>
   >,
 ) => ({
-  boardId: 'b',
+  containerId: 'b',
   userId: 'u',
   minimumRole: '' as const,
   synthetic: false,

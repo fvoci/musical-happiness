@@ -80,16 +80,16 @@ pub(crate) struct AccessChange {
 
 impl AccessChange {
     /// Whether the change may have reached the card `card_id` (none if empty) of the
-    /// board `board_id` of the workspace `workspace_id`, behind `wall`; for anybody
+    /// board `container_id` of the workspace `workspace_id`, behind `wall`; for anybody
     /// there, whichever user's facts it was about.
     pub(crate) fn reaches(
         &self,
         wall: Wall,
         workspace_id: &str,
-        board_id: &str,
+        container_id: &str,
         card_id: &str,
     ) -> bool {
-        self.tenant == wall.0 && self.scope.reaches(card_id, board_id, workspace_id)
+        self.tenant == wall.0 && self.scope.reaches(card_id, container_id, workspace_id)
     }
 
     /// Whether the change is about `user_id`'s facts (or everybody's).
@@ -278,7 +278,7 @@ mod tests {
     }
 
     fn raise(walls: &Walls) {
-        walls.raise(Tenant::default(), AccessScope::board("board"));
+        walls.raise(Tenant::default(), AccessScope::container("board"));
     }
 
     #[test]

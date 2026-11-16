@@ -7,7 +7,7 @@
 //! (`App::require_session_opens_instance`), and the organization the link of an
 //! invitation leads into (`App::require_session_opens_organization`). The boards a
 //! user lists across organizations leave out those of an organization the session
-//! does not open (`Store::board_memberships_of_user`). It is asked of
+//! does not open (`Store::container_memberships_of_user`). It is asked of
 //! every request: the sessions stay, and one that does not open an organization still
 //! opens the others.
 

@@ -9,7 +9,9 @@
 
 use std::time::Duration;
 
-use fvoci_model::{Block, BlockType, Board, BoardMember, BoardType, SubscriberType, Subscription};
+use fvoci_model::{
+    Block, BlockType, Container, ContainerMember, ContainerType, SubscriberType, Subscription,
+};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -88,14 +90,14 @@ async fn insert_card(client: &Client, board_id: &str) -> Block {
 /// the user's identifier.
 async fn create_test_subscriptions(client: &Client, count: usize) -> (Vec<Subscription>, String) {
     let user = client.me().await;
-    let board = Board {
+    let board = Container {
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
-        board_type: BoardType::Open,
+        container_type: ContainerType::Open,
         create_at: 1,
         update_at: 1,
-        ..Board::default()
+        ..Container::default()
     };
-    let board: Board = client.create_board(&board).await.created_json();
+    let board: Container = client.create_board(&board).await.created_json();
 
     let mut subscriptions = Vec::with_capacity(count);
     for _ in 0..count {
@@ -259,7 +261,9 @@ async fn create_subscription_validation() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
     let other = th.client2.me().await.id;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let card = insert_card(&th.client, &board.id).await;
     let without = |member: &str| {
         let mut body = request(&card.id, &me);
@@ -363,7 +367,9 @@ async fn create_subscription_validation() {
 async fn create_subscription_answer_and_subscribing_again() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let card = insert_card(&th.client, &board.id).await;
     let before = fvoci_server::auth::now_millis();
 
@@ -450,7 +456,9 @@ async fn subscriptions_of_another_user_are_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await.id;
     let user2 = th.client2.me().await.id;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let card = insert_card(&th.client, &board.id).await;
     let subscription = subscribe(&th.client, &card.id, &user1).await;
 
@@ -486,7 +494,9 @@ async fn subscriptions_of_another_user_are_refused() {
 async fn delete_subscription_twice() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let card = insert_card(&th.client, &board.id).await;
     let response = unsubscribe(&th.client, &card.id, &me).await;
     check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
@@ -507,7 +517,9 @@ async fn delete_subscription_twice() {
 async fn a_subscription_ends_with_its_block() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let card = insert_card(&th.client, &board.id).await;
     subscribe(&th.client, &card.id, &me).await;
     let block_path = format!("{TEST_WS}/boards/{}/blocks/{}", board.id, card.id);
@@ -543,7 +555,9 @@ async fn a_subscription_ends_with_its_block() {
 async fn subscription_changes_are_not_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let card = insert_card(&th.client, &board.id).await;
     assert!(
         th.app.finish_background(BACKGROUND).await,
@@ -574,8 +588,12 @@ async fn subscription_changes_are_not_broadcast() {
 async fn subscription_to_a_block_of_a_board_the_user_cannot_view_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let outsider = th.client2.me().await.id;
-    let private_board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
-    let open_board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let private_board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
+    let open_board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
     // The request names a block and no board, so a block the user cannot read answers
     // as one that does not exist: nothing is said about the blocks of other boards.
@@ -598,7 +616,7 @@ async fn subscription_to_a_block_of_a_board_the_user_cannot_view_is_refused() {
     // Once they have joined the open board, they can subscribe to its cards.
     let card = insert_card(&th.client, &open_board.id).await;
     th.client2
-        .post_empty(&format!("{TEST_WS}/boards/{}/join", open_board.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/join", open_board.id))
         .await
         .check_ok();
     let subscription = subscribe(&th.client2, &card.id, &outsider).await;
@@ -642,7 +660,7 @@ async fn subscription_by_every_member_of_the_board_still_works() {
     let viewer_id = viewer.me().await.id;
     th.client
         .delete(&format!(
-            "{TEST_WS}/boards/{}/members/{viewer_id}",
+            "{TEST_WS}/containers/{}/members/{viewer_id}",
             board.id
         ))
         .await
@@ -674,12 +692,14 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     let mut cards = Vec::new();
     let mut boards = Vec::new();
     for _ in 0..2 {
-        let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
-        let member = BoardMember {
-            board_id: board.id.clone(),
+        let board = th
+            .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+            .await;
+        let member = ContainerMember {
+            container_id: board.id.clone(),
             user_id: user2_id.clone(),
             scheme_editor: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
         th.client.add_member(&member).await.check_ok();
         cards.push(insert_card(&th.client, &board.id).await);
@@ -692,7 +712,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     // A removal that is refused ends nothing: an editor may not remove a member.
     th.client2
         .delete(&format!(
-            "{TEST_WS}/boards/{}/members/{admin_id}",
+            "{TEST_WS}/containers/{}/members/{admin_id}",
             boards[0].id
         ))
         .await
@@ -706,7 +726,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     // Removed by the admin.
     th.client
         .delete(&format!(
-            "{TEST_WS}/boards/{}/members/{user2_id}",
+            "{TEST_WS}/containers/{}/members/{user2_id}",
             boards[0].id
         ))
         .await
@@ -725,7 +745,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
 
     // Leaving by oneself.
     th.client2
-        .post_empty(&format!("{TEST_WS}/boards/{}/leave", boards[1].id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/leave", boards[1].id))
         .await
         .check_no_content();
     assert_eq!(
@@ -735,11 +755,11 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     );
 
     // A member again, the user subscribes again.
-    let member = BoardMember {
-        board_id: boards[0].id.clone(),
+    let member = ContainerMember {
+        container_id: boards[0].id.clone(),
         user_id: user2_id.clone(),
         scheme_viewer: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     th.client.add_member(&member).await.check_ok();
     subscribe(&th.client2, &cards[0].id, &user2_id).await;

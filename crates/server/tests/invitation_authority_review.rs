@@ -5,7 +5,7 @@ mod common;
 
 use std::time::Duration;
 
-use fvoci_model::{Board, Invitation, new_id};
+use fvoci_model::{Container, Invitation, new_id};
 use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, Store, StoreError};
 use reqwest::StatusCode;
@@ -101,7 +101,7 @@ fn member_path(user_id: &str) -> String {
     format!("/w/{ROOT_WORKSPACE_ID}/members/{user_id}")
 }
 
-async fn private_board(client: &Client, title: &str) -> Board {
+async fn private_board(client: &Client, title: &str) -> Container {
     client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
@@ -193,7 +193,7 @@ async fn a_new_board_keeps_an_admin_during(loss: MembershipLoss) {
     let admin = th.client.me().await.id;
     let leaving = th.client2.me().await.id;
     let existing = private_board(&th.client2, "Existing board").await;
-    let gate = RowGate::hold(th.app.store(), "boards", &existing.id).await;
+    let gate = RowGate::hold(th.app.store(), "containers", &existing.id).await;
     let manager = th.client.clone();
     let changing = tokio::spawn(async move {
         match loss {
@@ -213,7 +213,7 @@ async fn a_new_board_keeps_an_admin_during(loss: MembershipLoss) {
     let members = th
         .app
         .store()
-        .get_members_for_board(&created.id)
+        .get_members_for_container(&created.id)
         .await
         .expect("the new board's roles are read");
     th.teardown().await;
@@ -257,8 +257,8 @@ async fn a_board_made_after_a_removal_listed_the_boards_keeps_an_admin() {
     // The removal lists the boards, then waits at the maker's role on one of them.
     let gate = RowGate::hold_where(
         th.app.store(),
-        "board_members",
-        &format!("board_id = '{}' AND user_id = '{leaving}'", existing.id),
+        "container_members",
+        &format!("container_id = '{}' AND user_id = '{leaving}'", existing.id),
     )
     .await;
     let manager = th.client.clone();
@@ -302,14 +302,14 @@ async fn a_board_made_after_a_removal_listed_the_boards_keeps_an_admin() {
     let created = creating.await.expect("the making of the board completes");
     let boards = store
         .texts_unchecked(&format!(
-            "SELECT id::text FROM boards WHERE title = '{TITLE}'"
+            "SELECT id::text FROM containers WHERE title = '{TITLE}'"
         ))
         .await
         .expect("the boards of the title are read");
     let admins = match boards.first() {
         Some(board_id) => store
             .texts_unchecked(&format!(
-                "SELECT user_id::text FROM board_members WHERE board_id = '{board_id}' \
+                "SELECT user_id::text FROM container_members WHERE container_id = '{board_id}' \
                  AND scheme_admin"
             ))
             .await

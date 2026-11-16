@@ -35,7 +35,7 @@
     isBackendError,
     isGuest,
     peopleOf,
-    type BoardRole,
+    type ContainerRole,
     type Shareable,
     type Sharing,
     type User,
@@ -47,14 +47,14 @@
   import { Switch } from '$lib/ui/switch/index.js';
 
   import GuestInvite from './GuestInvite.svelte';
-  import BoardTeams from './BoardTeams.svelte';
+  import ContainerTeams from './ContainerTeams.svelte';
   import { ROLE_ORDER, roleOfMember } from './share-logic.ts';
   import { shareWords } from './share-words.ts';
 
   interface Props {
     open: boolean;
     workspace: Workspace;
-    board: Shareable;
+    shareable: Shareable;
     /** The whole address of the public link with a read token. */
     linkOf: (readToken: string) => string;
     /**
@@ -72,7 +72,7 @@
   let {
     open = $bindable(),
     workspace,
-    board,
+    shareable,
     linkOf,
     membersOnly = false,
     readOnly = false,
@@ -80,7 +80,7 @@
   }: Props = $props();
 
   const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
-  const words = $derived(shareWords(board.board?.kind));
+  const words = $derived(shareWords(shareable.container?.kind));
 
   const uid = $props.id();
   const compact = $derived(page.stage === 'compact');
@@ -92,7 +92,7 @@
     },
   );
 
-  const ROLE_LABELS: Record<BoardRole, () => string> = {
+  const ROLE_LABELS: Record<ContainerRole, () => string> = {
     admin: () => m['BoardMember.schemeAdmin'](),
     editor: () => m['BoardMember.schemeEditor'](),
     commenter: () => m['BoardMember.schemeCommenter'](),
@@ -107,14 +107,14 @@
   /** Inviting a guest by a link, where the backend has that. */
   const access = $derived(peopleOf(workspace));
 
-  const isOpen = $derived(board.board?.type === 'O');
-  const minimumRole = $derived<BoardRole>(
-    board.board?.minimumRole && board.board.minimumRole !== 'admin'
-      ? board.board.minimumRole
+  const isOpen = $derived(shareable.container?.type === 'O');
+  const minimumRole = $derived<ContainerRole>(
+    shareable.container?.minimumRole && shareable.container.minimumRole !== 'admin'
+      ? shareable.container.minimumRole
       : 'editor',
   );
   /** The role a person is added with: what joining gives on an open board, an editor otherwise. */
-  const addedRole = $derived<BoardRole>(isOpen ? minimumRole : 'editor');
+  const addedRole = $derived<ContainerRole>(isOpen ? minimumRole : 'editor');
 
   // ------------------------------------------------------- adding people
 
@@ -127,7 +127,7 @@
 
   const candidates = $derived(
     (query.trim() === '' ? workspace.workspaceUsers : found).filter(
-      (user) => !board.members.some((member) => member.userId === user.id && !member.synthetic),
+      (user) => !shareable.members.some((member) => member.userId === user.id && !member.synthetic),
     ),
   );
 
@@ -160,7 +160,7 @@
     sharing = undefined;
     sharingOff = false;
     try {
-      sharing = await workspace.backend.sharing(board.boardId);
+      sharing = await workspace.backend.sharing(shareable.containerId);
     } catch (error) {
       workspace.report('load', error);
     }
@@ -171,7 +171,7 @@
     sharingBusy = true;
     copied = false;
     try {
-      sharing = await workspace.backend.setSharing(board.boardId, { enabled, regenerate });
+      sharing = await workspace.backend.setSharing(shareable.containerId, { enabled, regenerate });
     } catch (error) {
       if (isBackendError(error) && error.reason === 'sharing_disabled') sharingOff = true;
       else workspace.report('save', error);
@@ -203,12 +203,12 @@
   /** The row that held the focus goes away: the focus goes to the search. */
   async function addMember(user: User): Promise<void> {
     searchField?.focus();
-    await board.addMember(user.id, addedRole);
+    await shareable.addMember(user.id, addedRole);
   }
 
   async function removeMember(userId: string): Promise<void> {
     searchField?.focus();
-    await board.removeMember(userId);
+    await shareable.removeMember(userId);
   }
 
   async function copyLink(): Promise<void> {
@@ -266,7 +266,7 @@
             <Switch
               checked={isOpen}
               data-testid="share-open"
-              onCheckedChange={(checked: boolean) => void board.setOpen(checked)}
+              onCheckedChange={(checked: boolean) => void shareable.setOpen(checked)}
             />
           </label>
           {#if isOpen}
@@ -277,7 +277,7 @@
                 data-testid="share-minimum-role"
                 value={minimumRole}
                 onchange={(event) =>
-                  void board.setMinimumRole(event.currentTarget.value as BoardRole)}
+                  void shareable.setMinimumRole(event.currentTarget.value as ContainerRole)}
               >
                 {#each MINIMUM_ROLES as role (role)}
                   <option value={role}>{ROLE_LABELS[role]()}</option>
@@ -288,8 +288,13 @@
         </section>
       {/if}
 
-      {#if access && !readOnly && !isGuest(workspace) && !board.board?.isTemplate}
-        <GuestInvite {workspace} {access} boardId={board.boardId} kind={board.board?.kind} />
+      {#if access && !readOnly && !isGuest(workspace) && !shareable.container?.isTemplate}
+        <GuestInvite
+          {workspace}
+          {access}
+          containerId={shareable.containerId}
+          kind={shareable.container?.kind}
+        />
       {/if}
 
       <!-- The members. -->
@@ -304,7 +309,7 @@
           {m.share_members_title()}
         </h3>
         <ul class="grid grid-cols-1 gap-1" data-testid="share-members">
-          {#each board.orderedMembers.filter((member) => !member.synthetic) as member (member.userId)}
+          {#each shareable.orderedMembers.filter((member) => !member.synthetic) as member (member.userId)}
             {@const name = nameOf(member.userId)}
             {@const mine = member.userId === workspace.me?.id}
             {@const memberRole = roleOfMember(member)}
@@ -329,7 +334,10 @@
                   disabled={mine}
                   value={memberRole}
                   onchange={(event) =>
-                    void board.setMemberRole(member.userId, event.currentTarget.value as BoardRole)}
+                    void shareable.setMemberRole(
+                      member.userId,
+                      event.currentTarget.value as ContainerRole,
+                    )}
                 >
                   {#if memberRole === 'none'}
                     <option value="none" disabled>{m.share_role_none()}</option>
@@ -394,7 +402,7 @@
       </section>
 
       {#if access?.people.teams && !isGuest(workspace)}
-        <BoardTeams {workspace} {board} teams={access.people.teams} {readOnly} />
+        <ContainerTeams {workspace} {shareable} teams={access.people.teams} {readOnly} />
       {/if}
 
       <!-- The public link. -->

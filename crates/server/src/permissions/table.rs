@@ -2,45 +2,44 @@
 //! what the product promises, and the whole grant of the case is pinned: a permission a
 //! row does not name is one the user does not have.
 
-use fvoci_model::{BoardRole, OrgRole, WorkspaceRole};
+use fvoci_model::{ContainerRole, OrgRole, WorkspaceRole};
 
-use super::BoardPermission::{
-    CommentBoardCards, DeleteBoard, JoinBoard, ListMembers, ManageBoardCards,
-    ManageBoardProperties, ManageBoardRoles, ManageBoardType, ManageOthersComments, SeeBoard,
-    ShareBoard, ViewBoard,
+use super::ContainerPermission::{
+    CommentCards, Delete, Join, ListMembers, ManageCards, ManageOthersComments, ManageProperties,
+    ManageRoles, ManageType, See, Share, View,
 };
-use super::BoardScope::{BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate};
+use super::ContainerScope::{BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate};
 use super::{
-    Actor, BoardFacts, BoardPermission, BoardScope, DocMode, Grant, doc_mode, grant,
-    highest_board_role,
+    Actor, ContainerFacts, ContainerPermission, ContainerScope, DocMode, Grant, doc_mode, grant,
+    highest_container_role,
 };
 
-const VIEWER: &[BoardPermission] = &[SeeBoard, ViewBoard, ListMembers];
-const COMMENTER: &[BoardPermission] = &[SeeBoard, ViewBoard, ListMembers, CommentBoardCards];
-const EDITOR: &[BoardPermission] = &[
-    SeeBoard,
-    ViewBoard,
+const VIEWER: &[ContainerPermission] = &[See, View, ListMembers];
+const COMMENTER: &[ContainerPermission] = &[See, View, ListMembers, CommentCards];
+const EDITOR: &[ContainerPermission] = &[
+    See,
+    View,
     ListMembers,
-    CommentBoardCards,
-    ManageBoardCards,
-    ManageBoardProperties,
+    CommentCards,
+    ManageCards,
+    ManageProperties,
 ];
-const ADMIN: &[BoardPermission] = &[
-    SeeBoard,
-    ViewBoard,
+const ADMIN: &[ContainerPermission] = &[
+    See,
+    View,
     ListMembers,
-    CommentBoardCards,
-    ManageBoardCards,
-    ManageBoardProperties,
-    ManageBoardType,
-    ManageBoardRoles,
-    DeleteBoard,
-    ShareBoard,
+    CommentCards,
+    ManageCards,
+    ManageProperties,
+    ManageType,
+    ManageRoles,
+    Delete,
+    Share,
     ManageOthersComments,
 ];
-const NOTHING: &[BoardPermission] = &[];
+const NOTHING: &[ContainerPermission] = &[];
 /// What a workspace's administrator does with a board they have no role on.
-const MANAGE: &[BoardPermission] = &[SeeBoard, ListMembers, ManageBoardRoles, DeleteBoard];
+const MANAGE: &[ContainerPermission] = &[See, ListMembers, ManageRoles, Delete];
 
 const fn actor(org: Option<OrgRole>, workspace: Option<WorkspaceRole>) -> Actor {
     Actor { org, workspace }
@@ -62,17 +61,17 @@ pub(super) const STRANGER: Actor = actor(None, None);
 struct Row {
     case: &'static str,
     actor: Actor,
-    scope: BoardScope,
-    role: Option<BoardRole>,
-    allowed: &'static [BoardPermission],
+    scope: ContainerScope,
+    role: Option<ContainerRole>,
+    allowed: &'static [ContainerPermission],
 }
 
 const fn row(
     case: &'static str,
     actor: Actor,
-    scope: BoardScope,
-    role: Option<BoardRole>,
-    allowed: &'static [BoardPermission],
+    scope: ContainerScope,
+    role: Option<ContainerRole>,
+    allowed: &'static [ContainerPermission],
 ) -> Row {
     Row {
         case,
@@ -89,36 +88,36 @@ const ROWS: &[Row] = &[
         "a viewer views",
         MEMBER,
         InvitedOnly,
-        Some(BoardRole::Viewer),
+        Some(ContainerRole::Viewer),
         VIEWER,
     ),
     row(
         "a commenter comments",
         MEMBER,
         InvitedOnly,
-        Some(BoardRole::Commenter),
+        Some(ContainerRole::Commenter),
         COMMENTER,
     ),
     row(
         "an editor edits",
         MEMBER,
         InvitedOnly,
-        Some(BoardRole::Editor),
+        Some(ContainerRole::Editor),
         EDITOR,
     ),
     row(
         "an admin manages",
         MEMBER,
         InvitedOnly,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         ADMIN,
     ),
     row(
         "a role is the same on an open board",
         MEMBER,
         Open,
-        Some(BoardRole::Viewer),
-        &[SeeBoard, ViewBoard, ListMembers, JoinBoard],
+        Some(ContainerRole::Viewer),
+        &[See, View, ListMembers, Join],
     ),
     // A workspace is unknown to who is no member of it.
     row(
@@ -140,7 +139,7 @@ const ROWS: &[Row] = &[
         "a stranger with a stored role: nothing",
         STRANGER,
         InvitedOnly,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         NOTHING,
     ),
     // Whoever works in the workspace sees its open boards, and joins them to read.
@@ -149,7 +148,7 @@ const ROWS: &[Row] = &[
         MEMBER,
         Open,
         None,
-        &[SeeBoard, JoinBoard],
+        &[See, Join],
     ),
     row(
         "a member: no invited-only board",
@@ -176,7 +175,7 @@ const ROWS: &[Row] = &[
         "an editor of an open template edits it",
         MEMBER,
         OpenTemplate,
-        Some(BoardRole::Editor),
+        Some(ContainerRole::Editor),
         EDITOR,
     ),
     // A template the server ships with is every user's to read and copy.
@@ -221,35 +220,35 @@ const ROWS: &[Row] = &[
         "an invited guest views",
         GUEST,
         InvitedOnly,
-        Some(BoardRole::Viewer),
+        Some(ContainerRole::Viewer),
         VIEWER,
     ),
     row(
         "an invited guest edits",
         GUEST,
         InvitedOnly,
-        Some(BoardRole::Editor),
+        Some(ContainerRole::Editor),
         EDITOR,
     ),
     row(
         "a guest on an open board is no more than invited",
         GUEST,
         Open,
-        Some(BoardRole::Editor),
+        Some(ContainerRole::Editor),
         EDITOR,
     ),
     row(
         "a guest stored as admin is an editor: no link, no members",
         GUEST,
         InvitedOnly,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         EDITOR,
     ),
     row(
         "a guest from outside the organization alike",
         OUTSIDE_GUEST,
         InvitedOnly,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         EDITOR,
     ),
     // A workspace's administrator lists and manages its boards: sees them, lists and
@@ -274,39 +273,21 @@ const ROWS: &[Row] = &[
         WORKSPACE_ADMIN,
         Open,
         None,
-        &[
-            SeeBoard,
-            JoinBoard,
-            ListMembers,
-            ManageBoardRoles,
-            DeleteBoard,
-        ],
+        &[See, Join, ListMembers, ManageRoles, Delete],
     ),
     row(
         "a workspace admin reads an open template",
         WORKSPACE_ADMIN,
         OpenTemplate,
         None,
-        &[
-            SeeBoard,
-            ViewBoard,
-            ListMembers,
-            ManageBoardRoles,
-            DeleteBoard,
-        ],
+        &[See, View, ListMembers, ManageRoles, Delete],
     ),
     row(
         "a workspace admin who made themselves a viewer reads",
         WORKSPACE_ADMIN,
         InvitedOnly,
-        Some(BoardRole::Viewer),
-        &[
-            SeeBoard,
-            ViewBoard,
-            ListMembers,
-            ManageBoardRoles,
-            DeleteBoard,
-        ],
+        Some(ContainerRole::Viewer),
+        &[See, View, ListMembers, ManageRoles, Delete],
     ),
     row(
         "a workspace admin restores a board in the trash",
@@ -335,7 +316,7 @@ const ROWS: &[Row] = &[
         "an org admin outside the workspace, stored as board admin: nothing",
         ORG_ADMIN_ONLY,
         InvitedOnly,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         NOTHING,
     ),
     row(
@@ -343,7 +324,7 @@ const ROWS: &[Row] = &[
         ORG_ADMIN_IN_WORKSPACE,
         Open,
         None,
-        &[SeeBoard, JoinBoard],
+        &[See, Join],
     ),
     row(
         "an org admin outside the workspace manages none of its boards",
@@ -365,28 +346,22 @@ const ROWS: &[Row] = &[
         "an org admin who joined reads an invited-only board as its member",
         ORG_ADMIN_JOINED,
         InvitedOnly,
-        Some(BoardRole::Viewer),
-        &[
-            SeeBoard,
-            ViewBoard,
-            ListMembers,
-            ManageBoardRoles,
-            DeleteBoard,
-        ],
+        Some(ContainerRole::Viewer),
+        &[See, View, ListMembers, ManageRoles, Delete],
     ),
     // Who was removed from the workspace opens nothing with the roles left on its boards.
     row(
         "removed: an admin role left opens nothing",
         REMOVED,
         InvitedOnly,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         NOTHING,
     ),
     row(
         "removed: an open board is gone",
         REMOVED,
         Open,
-        Some(BoardRole::Editor),
+        Some(ContainerRole::Editor),
         NOTHING,
     ),
     row(
@@ -408,19 +383,19 @@ const ROWS: &[Row] = &[
         "trash: its admin brings it back",
         MEMBER,
         IN_THE_TRASH,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         ADMIN,
     ),
     row(
         "trash: who has left the workspace brings nothing back",
         REMOVED,
         IN_THE_TRASH,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         NOTHING,
     ),
 ];
 
-const IN_THE_TRASH: BoardScope = InvitedOnly;
+const IN_THE_TRASH: ContainerScope = InvitedOnly;
 
 /// Who only manages a board is told that its content is not there; who sees it any
 /// other way is told that it is refused.
@@ -428,54 +403,48 @@ const IN_THE_TRASH: BoardScope = InvitedOnly;
 fn who_only_manages_a_board_is_told_its_content_is_not_there() {
     let managed = grant(
         WORKSPACE_ADMIN,
-        BoardFacts {
+        ContainerFacts {
             team_role: None,
             scope: InvitedOnly,
             role: None,
         },
     );
-    for permission in [
-        ViewBoard,
-        CommentBoardCards,
-        ManageBoardCards,
-        ManageOthersComments,
-        ShareBoard,
-    ] {
+    for permission in [View, CommentCards, ManageCards, ManageOthersComments, Share] {
         assert!(managed.hides(permission), "{permission:?}");
     }
-    for permission in [ManageBoardProperties, ManageBoardType, JoinBoard] {
+    for permission in [ManageProperties, ManageType, Join] {
         assert!(!managed.hides(permission), "{permission:?}");
     }
     let open = grant(
         WORKSPACE_ADMIN,
-        BoardFacts {
+        ContainerFacts {
             team_role: None,
             scope: Open,
             role: None,
         },
     );
     assert!(
-        !open.hides(ViewBoard),
+        !open.hides(View),
         "an open board is refused as to any worker"
     );
     let member = grant(
         MEMBER,
-        BoardFacts {
+        ContainerFacts {
             team_role: None,
             scope: InvitedOnly,
-            role: Some(BoardRole::Viewer),
+            role: Some(ContainerRole::Viewer),
         },
     );
-    assert!(!member.hides(ManageBoardCards), "a viewer is refused");
+    assert!(!member.hides(ManageCards), "a viewer is refused");
     let stranger = grant(
         STRANGER,
-        BoardFacts {
+        ContainerFacts {
             team_role: None,
             scope: InvitedOnly,
             role: None,
         },
     );
-    assert!(stranger.hides(DeleteBoard), "no board for a stranger");
+    assert!(stranger.hides(Delete), "no board for a stranger");
 }
 
 #[test]
@@ -485,15 +454,15 @@ fn the_trash_is_open_to_nobody() {
     assert_eq!(InvitedOnly.in_the_trash(), InvitedOnly);
 }
 
-fn exactly(permissions: &[BoardPermission]) -> Vec<BoardPermission> {
-    BoardPermission::ALL
+fn exactly(permissions: &[ContainerPermission]) -> Vec<ContainerPermission> {
+    ContainerPermission::ALL
         .into_iter()
         .filter(|permission| permissions.contains(permission))
         .collect()
 }
 
-fn granted(grant: Grant) -> Vec<BoardPermission> {
-    BoardPermission::ALL
+fn granted(grant: Grant) -> Vec<ContainerPermission> {
+    ContainerPermission::ALL
         .into_iter()
         .filter(|permission| grant.allows(*permission))
         .collect()
@@ -505,7 +474,7 @@ fn every_row_of_the_table_holds() {
     for row in ROWS {
         let got = granted(grant(
             row.actor,
-            BoardFacts {
+            ContainerFacts {
                 team_role: None,
                 scope: row.scope,
                 role: row.role,
@@ -530,7 +499,7 @@ fn who_sees_is_who_is_refused_and_who_reads_is_who_sees() {
     for row in ROWS {
         let grant = grant(
             row.actor,
-            BoardFacts {
+            ContainerFacts {
                 team_role: None,
                 scope: row.scope,
                 role: row.role,
@@ -548,27 +517,40 @@ fn who_sees_is_who_is_refused_and_who_reads_is_who_sees() {
 #[test]
 fn a_guest_is_given_no_more_than_editor() {
     use super::may_hold;
-    for role in [BoardRole::Viewer, BoardRole::Commenter, BoardRole::Editor] {
+    for role in [
+        ContainerRole::Viewer,
+        ContainerRole::Commenter,
+        ContainerRole::Editor,
+    ] {
         assert!(
             may_hold(WorkspaceRole::Guest, role),
             "a guest may be {role:?}"
         );
     }
     assert!(
-        !may_hold(WorkspaceRole::Guest, BoardRole::Admin),
+        !may_hold(WorkspaceRole::Guest, ContainerRole::Admin),
         "no guest is a board admin"
     );
     assert!(
-        may_hold(WorkspaceRole::Member, BoardRole::Admin),
+        may_hold(WorkspaceRole::Member, ContainerRole::Admin),
         "a member may be"
     );
     assert!(
-        may_hold(WorkspaceRole::Admin, BoardRole::Admin),
+        may_hold(WorkspaceRole::Admin, ContainerRole::Admin),
         "a workspace admin may be"
     );
-    assert_eq!(highest_board_role(WorkspaceRole::Guest), BoardRole::Editor);
-    assert_eq!(highest_board_role(WorkspaceRole::Member), BoardRole::Admin);
-    assert_eq!(highest_board_role(WorkspaceRole::Admin), BoardRole::Admin);
+    assert_eq!(
+        highest_container_role(WorkspaceRole::Guest),
+        ContainerRole::Editor
+    );
+    assert_eq!(
+        highest_container_role(WorkspaceRole::Member),
+        ContainerRole::Admin
+    );
+    assert_eq!(
+        highest_container_role(WorkspaceRole::Admin),
+        ContainerRole::Admin
+    );
 }
 
 #[test]
@@ -576,7 +558,7 @@ fn a_guest_sees_of_the_people_who_is_on_its_boards() {
     use fvoci_store::Reach;
     assert_eq!(
         super::people_reach(WorkspaceRole::Guest),
-        Reach::SharedBoards
+        Reach::SharedContainers
     );
     assert_eq!(super::people_reach(WorkspaceRole::Member), Reach::Workspace);
     assert_eq!(super::people_reach(WorkspaceRole::Admin), Reach::Workspace);
@@ -584,26 +566,26 @@ fn a_guest_sees_of_the_people_who_is_on_its_boards() {
 
 #[test]
 fn a_role_is_the_highest_of_its_flags() {
-    use fvoci_model::BoardMember;
-    let member = |admin, editor, commenter, viewer| BoardMember {
+    use fvoci_model::ContainerMember;
+    let member = |admin, editor, commenter, viewer| ContainerMember {
         scheme_admin: admin,
         scheme_editor: editor,
         scheme_commenter: commenter,
         scheme_viewer: viewer,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     assert_eq!(super::role_of(&member(false, false, false, false)), None);
     assert_eq!(
         super::role_of(&member(false, false, false, true)),
-        Some(BoardRole::Viewer)
+        Some(ContainerRole::Viewer)
     );
     assert_eq!(
         super::role_of(&member(false, true, false, true)),
-        Some(BoardRole::Editor)
+        Some(ContainerRole::Editor)
     );
     assert_eq!(
         super::role_of(&member(true, false, false, false)),
-        Some(BoardRole::Admin)
+        Some(ContainerRole::Admin)
     );
 }
 
@@ -619,21 +601,21 @@ fn a_comment_is_brought_back_by_who_may_undo_its_deletion() {
             "ann",
             "ann",
             CommentAction::Change,
-            CommentBoardCards,
+            CommentCards,
         ),
         (
             "the author deletes it",
             "ann",
             "ann",
             CommentAction::Delete,
-            CommentBoardCards,
+            CommentCards,
         ),
         (
             "the author brings back what they deleted",
             "ann",
             "ann",
             CommentAction::Undelete { deleted_by: "ann" },
-            CommentBoardCards,
+            CommentCards,
         ),
         (
             "the author does not bring back what an admin deleted",
@@ -698,8 +680,8 @@ fn who_sees_whom_of_the_people() {
     use super::{Person, sees_person};
     const MEMBER: WorkspaceRole = WorkspaceRole::Member;
     const GUEST: WorkspaceRole = WorkspaceRole::Guest;
-    let member = |shares_a_board, wrote_where_seer_reads| Person::Member {
-        shares_a_board,
+    let member = |shares_a_container, wrote_where_seer_reads| Person::Member {
+        shares_a_container,
         wrote_where_seer_reads,
     };
     let outside = |wrote_where_seer_reads| Person::Outside {
@@ -815,49 +797,49 @@ const ROOM_ROWS: &[RoomRow] = &[
         "an admin writes",
         MEMBER,
         InvitedOnly,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         WRITE,
     ),
     room(
         "an editor writes",
         MEMBER,
         InvitedOnly,
-        Some(BoardRole::Editor),
+        Some(ContainerRole::Editor),
         WRITE,
     ),
     room(
         "a commenter reads",
         MEMBER,
         InvitedOnly,
-        Some(BoardRole::Commenter),
+        Some(ContainerRole::Commenter),
         READ,
     ),
     room(
         "a viewer reads",
         MEMBER,
         InvitedOnly,
-        Some(BoardRole::Viewer),
+        Some(ContainerRole::Viewer),
         READ,
     ),
     room(
         "an invited guest who edits writes",
         GUEST,
         InvitedOnly,
-        Some(BoardRole::Editor),
+        Some(ContainerRole::Editor),
         WRITE,
     ),
     room(
         "an invited guest who views reads",
         GUEST,
         InvitedOnly,
-        Some(BoardRole::Viewer),
+        Some(ContainerRole::Viewer),
         READ,
     ),
     room(
         "an editor of an open template writes",
         MEMBER,
         OpenTemplate,
-        Some(BoardRole::Editor),
+        Some(ContainerRole::Editor),
         WRITE,
     ),
     room(
@@ -897,7 +879,7 @@ const ROOM_ROWS: &[RoomRow] = &[
         "who left the workspace, with a role left",
         REMOVED,
         InvitedOnly,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         None,
     ),
     room("a stranger", STRANGER, Open, None, None),
@@ -905,7 +887,7 @@ const ROOM_ROWS: &[RoomRow] = &[
         "a stranger with a stored role",
         STRANGER,
         InvitedOnly,
-        Some(BoardRole::Editor),
+        Some(ContainerRole::Editor),
         None,
     ),
 ];
@@ -914,16 +896,16 @@ const ROOM_ROWS: &[RoomRow] = &[
 struct RoomRow {
     case: &'static str,
     actor: Actor,
-    scope: BoardScope,
-    role: Option<BoardRole>,
+    scope: ContainerScope,
+    role: Option<ContainerRole>,
     mode: Option<DocMode>,
 }
 
 const fn room(
     case: &'static str,
     actor: Actor,
-    scope: BoardScope,
-    role: Option<BoardRole>,
+    scope: ContainerScope,
+    role: Option<ContainerRole>,
     mode: Option<DocMode>,
 ) -> RoomRow {
     RoomRow {
@@ -941,7 +923,7 @@ const WRITE: Option<DocMode> = Some(DocMode::Write);
 #[test]
 fn who_enters_the_room_of_a_body_and_how() {
     for row in ROOM_ROWS {
-        let facts = BoardFacts {
+        let facts = ContainerFacts {
             team_role: None,
             scope: row.scope,
             role: row.role,

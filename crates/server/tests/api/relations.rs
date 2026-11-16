@@ -3,7 +3,7 @@
 //! trash may be named, and a card of a board the writer cannot see is answered as one
 //! that is not there.
 
-use fvoci_model::{Block, Board, BoardType, Card, new_id};
+use fvoci_model::{Block, Card, Container, ContainerType, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -21,12 +21,12 @@ const REASON: &str = "relation_card_not_found";
 /// A private board of the first user with a relation property and a text property, and
 /// cards on it.
 struct Related {
-    board: Board,
+    board: Container,
     cards: Vec<Card>,
 }
 
 async fn related_board(client: &Client, cards: usize) -> Related {
-    let board: Board = client
+    let board: Container = client
         .post(
             &format!("{TEST_WS}/boards"),
             &json!({
@@ -104,7 +104,7 @@ fn comparable(response: &ApiResponse) -> (StatusCode, Value) {
 
 /// A card of a board the first user cannot see: the second user's private board.
 async fn hidden_card(th: &TestServer) -> String {
-    let board: Board = th
+    let board: Container = th
         .client2
         .post(
             &format!("{TEST_WS}/boards"),
@@ -129,7 +129,7 @@ async fn view_of(client: &Client, board_id: &str) -> String {
         .post(
             &format!("{TEST_WS}/boards/{board_id}/blocks"),
             &json!([{
-                "id": "v", "boardId": board_id, "parentId": board_id, "type": "view",
+                "id": "v", "containerId": board_id, "parentId": board_id, "type": "view",
                 "title": "Table", "schema": 1, "createAt": 1, "updateAt": 1,
                 "fields": {"viewType": "table"},
             }]),
@@ -321,11 +321,11 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
     check_refused(&created, REASON, "/properties");
 
     let mut block = json!({
-        "id": "c", "boardId": board.id, "parentId": board.id, "type": "card", "title": "c",
+        "id": "c", "containerId": board.id, "parentId": board.id, "type": "card", "title": "c",
         "schema": 1, "createAt": 1, "updateAt": 1, "fields": {"properties": {RELATION: refused}},
     });
     let view = json!({
-        "id": "v", "boardId": board.id, "parentId": board.id, "type": "view", "title": "v",
+        "id": "v", "containerId": board.id, "parentId": board.id, "type": "view", "title": "v",
         "schema": 1, "createAt": 1, "updateAt": 1, "fields": {},
     });
     let blocks = th
@@ -363,7 +363,7 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
         .patch(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "boardIds": [board.id], "boardPatches": [{}],
+                "containerIds": [board.id], "containerPatches": [{}],
                 "blockIds": [card],
                 "blockPatches": [{"updatedFields": {"properties": {RELATION: refused}}}],
             }),
@@ -371,14 +371,14 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
         .await;
     check_refused(&both, REASON, "/blockPatches/0/updatedFields");
 
-    block["boardId"] = json!("b");
+    block["containerId"] = json!("b");
     block["parentId"] = json!("b");
     let new_board = th
         .client
         .post(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "boards": [{
+                "containers": [{
                     "id": "b", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "new",
                     "cardProperties": [{"id": RELATION, "type": "relation"}],
                 }],
@@ -403,7 +403,7 @@ async fn new_cards_of_one_request_may_name_each_other() {
     let there = &cards[0].id;
     let card = |id: &str, names: Value| {
         json!({
-            "id": id, "boardId": board.id, "parentId": board.id, "type": "card", "title": id,
+            "id": id, "containerId": board.id, "parentId": board.id, "type": "card", "title": id,
             "schema": 1, "createAt": 1, "updateAt": 1, "fields": {"properties": {RELATION: names}},
         })
     };
@@ -424,15 +424,15 @@ async fn new_cards_of_one_request_may_name_each_other() {
         .post(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "boards": [{
+                "containers": [{
                     "id": "nb", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "new",
                     "cardProperties": [{"id": RELATION, "type": "relation"}],
                 }],
                 "blocks": [
-                    {"id": "x", "boardId": "nb", "parentId": "nb", "type": "card", "title": "x",
+                    {"id": "x", "containerId": "nb", "parentId": "nb", "type": "card", "title": "x",
                      "schema": 1, "createAt": 1, "updateAt": 1,
                      "fields": {"properties": {RELATION: ["y"]}}},
-                    {"id": "y", "boardId": "nb", "parentId": "nb", "type": "card", "title": "y",
+                    {"id": "y", "containerId": "nb", "parentId": "nb", "type": "card", "title": "y",
                      "schema": 1, "createAt": 1, "updateAt": 1,
                      "fields": {"properties": {RELATION: ["x"]}}},
                 ],
@@ -517,7 +517,7 @@ async fn a_change_of_the_property_kind_leaves_the_values_alone() {
     patch_relation(&th.client, card, json!([other]))
         .await
         .check_ok();
-    let path = format!("{TEST_WS}/boards/{}", board.id);
+    let path = format!("{TEST_WS}/containers/{}", board.id);
     for kind in ["text", "relation"] {
         th.client
             .patch(
@@ -540,10 +540,12 @@ async fn a_change_of_the_property_kind_leaves_the_values_alone() {
 async fn the_board_of_a_relation_is_the_board_of_the_card() {
     let th = Setup::native().start().await.init_basic().await;
     let Related { cards, .. } = related_board(&th.client, 1).await;
-    let other = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let other = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     th.client
         .patch(
-            &format!("{TEST_WS}/boards/{}", other.id),
+            &format!("{TEST_WS}/containers/{}", other.id),
             &json!({"updatedCardProperties": [{"id": RELATION, "type": "relation"}]}),
         )
         .await
@@ -581,7 +583,7 @@ async fn a_block_that_becomes_a_card_has_its_relations_checked() {
             .post(
                 &blocks,
                 &json!([{
-                    "id": id, "boardId": board.id, "parentId": board.id, "type": "view",
+                    "id": id, "containerId": board.id, "parentId": board.id, "type": "view",
                     "title": id, "schema": 1, "createAt": 1, "updateAt": 1,
                     "fields": {"viewType": "table", "properties": value},
                 }]),

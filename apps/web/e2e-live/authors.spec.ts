@@ -48,15 +48,15 @@ test('a departed writer of an earlier revision is named when the comment history
     title: 'Kept revisions',
     cards: [{ title: 'A conversation', status: 'To do' }],
   });
-  const prefix = `/api/v1/w/${board.workspaceId}/boards/${board.boardId}`;
+  const prefix = `/api/v1/w/${board.workspaceId}/containers/${board.boardId}`;
   const added = await api.post(`${prefix}/members`, {
     data: { userId: writerId, schemeAdmin: true },
   });
   expect(added.ok(), await added.text()).toBe(true);
-  const posted = await api.post(`${prefix}/blocks`, {
+  const posted = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
-        boardId: board.boardId,
+        containerId: board.boardId,
         parentId: board.cards['A conversation'],
         type: 'comment',
         title: '',
@@ -69,7 +69,7 @@ test('a departed writer of an earlier revision is named when the comment history
   });
   expect(posted.ok(), await posted.text()).toBe(true);
   const [comment] = (await posted.json()) as Schemas['Block'][];
-  const path = `${prefix}/blocks/${comment?.id ?? ''}`;
+  const path = `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks/${comment?.id ?? ''}`;
   await revise(writer, path, 'Words from the departed writer');
   await revise(api, path, 'Current words');
   const admin = await signedIn(base, ADMIN);
@@ -108,25 +108,28 @@ test('a departed comment author is named without opening the comment history', a
     title: 'Remembered authors',
     cards: [{ title: 'Kept conversation', status: 'To do' }],
   });
-  const prefix = `/api/v1/w/${board.workspaceId}/boards/${board.boardId}`;
+  const prefix = `/api/v1/w/${board.workspaceId}/containers/${board.boardId}`;
   const added = await api.post(`${prefix}/members`, {
     data: { userId: writerId, schemeCommenter: true },
   });
   expect(added.ok(), await added.text()).toBe(true);
-  const posted = await writer.post(`${prefix}/blocks`, {
-    data: [
-      {
-        boardId: board.boardId,
-        parentId: board.cards['Kept conversation'],
-        type: 'comment',
-        title: '',
-        fields: {},
-        createAt: 1,
-        updateAt: 1,
-        body: body('Words that remain after leaving'),
-      },
-    ],
-  });
+  const posted = await writer.post(
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`,
+    {
+      data: [
+        {
+          containerId: board.boardId,
+          parentId: board.cards['Kept conversation'],
+          type: 'comment',
+          title: '',
+          fields: {},
+          createAt: 1,
+          updateAt: 1,
+          body: body('Words that remain after leaving'),
+        },
+      ],
+    },
+  );
   expect(posted.ok(), await posted.text()).toBe(true);
   const admin = await signedIn(base, ADMIN);
   const removed = await admin.delete(`/api/v1/w/${board.workspaceId}/members/${writerId}`);
@@ -166,7 +169,7 @@ test('a departed editor of a card is named under the card’s “Last updated by
   });
   const workspace = `/api/v1/w/${board.workspaceId}`;
   const cardId = board.cards['Before the change'] ?? '';
-  const patched = await api.patch(`${workspace}/boards/${board.boardId}`, {
+  const patched = await api.patch(`${workspace}/containers/${board.boardId}`, {
     data: {
       updatedCardProperties: [
         { id: 'changer', name: 'Changed by', type: 'updatedBy', options: [] },

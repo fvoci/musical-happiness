@@ -15,8 +15,8 @@ export interface LinkedBlock {
   /** Its icon; empty for none. */
   icon: string;
   /** The board or the wiki it is on. */
-  boardId: string;
-  boardKind: 'board' | 'wiki';
+  containerId: string;
+  containerKind: 'board' | 'wiki';
 }
 
 /** How many references are resolved in one request (the server's limit). */

@@ -36,7 +36,7 @@ mod webhooks;
 #[path = "organization_boundary_round2/wiki_transfers.rs"]
 mod wiki_transfers;
 
-use fvoci_model::{Board, OrgRole, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{Container, OrgRole, Workspace, WorkspaceRole, new_id};
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
 use reqwest::{Method, StatusCode};
@@ -63,7 +63,10 @@ async fn uploaded(client: &Client, board_id: &str, bytes: &[u8]) -> ApiResponse 
     let file = reqwest::multipart::Part::bytes(bytes.to_vec()).file_name("private.txt");
     Client::send(
         client
-            .request(Method::POST, &format!("{ROOT_WS}/boards/{board_id}/files"))
+            .request(
+                Method::POST,
+                &format!("{ROOT_WS}/containers/{board_id}/files"),
+            )
             .multipart(reqwest::multipart::Form::new().part("file", file)),
     )
     .await
@@ -77,7 +80,7 @@ enum AfterRemoval {
 
 struct FormerMember {
     ts: TestServer,
-    board: Board,
+    board: Container,
     card_id: String,
     file_id: String,
     upload_id: String,
@@ -94,7 +97,7 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
     };
     let ts = setup.start().await.init_basic().await;
     let user_id = ts.client2.me().await.id;
-    let board: Board = ts
+    let board: Container = ts
         .client2
         .post(
             &format!("{ROOT_WS}/boards"),
@@ -124,7 +127,7 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
     let upload = ts
         .client2
         .post(
-            &format!("{ROOT_WS}/boards/{}/uploads", board.id),
+            &format!("{ROOT_WS}/containers/{}/uploads", board.id),
             &json!({
                 "name": "after-removal.txt", "size": 0
             }),
@@ -177,11 +180,11 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
     }
 }
 
-fn read_paths(board: &Board, card_id: &str, file_id: &str) -> Vec<(String, String)> {
+fn read_paths(board: &Container, card_id: &str, file_id: &str) -> Vec<(String, String)> {
     vec![
         (
-            format!("{ROOT_WS}/boards/{}", board.id),
-            format!("{ROOT_WS}/boards/{UNKNOWN_ID}"),
+            format!("{ROOT_WS}/containers/{}", board.id),
+            format!("{ROOT_WS}/containers/{UNKNOWN_ID}"),
         ),
         (
             format!("{ROOT_WS}/boards/{}/blocks", board.id),
@@ -192,32 +195,32 @@ fn read_paths(board: &Board, card_id: &str, file_id: &str) -> Vec<(String, Strin
             format!("{ROOT_WS}/boards/{UNKNOWN_ID}/cards"),
         ),
         (
-            format!("{ROOT_WS}/boards/{}/members", board.id),
-            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/members"),
+            format!("{ROOT_WS}/containers/{}/members", board.id),
+            format!("{ROOT_WS}/containers/{UNKNOWN_ID}/members"),
         ),
         (
-            format!("{ROOT_WS}/boards/{}/sharing", board.id),
-            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/sharing"),
+            format!("{ROOT_WS}/containers/{}/sharing", board.id),
+            format!("{ROOT_WS}/containers/{UNKNOWN_ID}/sharing"),
         ),
         (
             format!("{ROOT_WS}/boards/{}/trash/cards", board.id),
             format!("{ROOT_WS}/boards/{UNKNOWN_ID}/trash/cards"),
         ),
         (
-            format!("{ROOT_WS}/boards/{}/archive/export", board.id),
-            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/archive/export"),
+            format!("{ROOT_WS}/containers/{}/archive/export", board.id),
+            format!("{ROOT_WS}/containers/{UNKNOWN_ID}/archive/export"),
         ),
         (
             format!("{ROOT_WS}/cards/{card_id}"),
             format!("{ROOT_WS}/cards/{UNKNOWN_ID}"),
         ),
         (
-            format!("{ROOT_WS}/boards/{}/files/{file_id}", board.id),
-            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/files/{file_id}"),
+            format!("{ROOT_WS}/containers/{}/files/{file_id}", board.id),
+            format!("{ROOT_WS}/containers/{UNKNOWN_ID}/files/{file_id}"),
         ),
         (
-            format!("{ROOT_WS}/boards/{}/files/{file_id}/info", board.id),
-            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/files/{file_id}/info"),
+            format!("{ROOT_WS}/containers/{}/files/{file_id}/info", board.id),
+            format!("{ROOT_WS}/containers/{UNKNOWN_ID}/files/{file_id}/info"),
         ),
     ]
 }
@@ -249,7 +252,7 @@ async fn id_routes_after_removal(destination: AfterRemoval) {
     for (method, path, body) in [
         (
             Method::PATCH,
-            format!("{ROOT_WS}/boards/{}", board.id),
+            format!("{ROOT_WS}/containers/{}", board.id),
             json!({"title": "Modified after removal"}),
         ),
         (
@@ -269,7 +272,7 @@ async fn id_routes_after_removal(destination: AfterRemoval) {
         ),
         (
             Method::POST,
-            format!("{ROOT_WS}/boards/{}/uploads", board.id),
+            format!("{ROOT_WS}/containers/{}/uploads", board.id),
             json!({"name": "new.txt", "size": 0}),
         ),
         (
@@ -299,7 +302,7 @@ async fn id_routes_after_removal(destination: AfterRemoval) {
     let stored_title = ts
         .app
         .store()
-        .get_board(&board.id)
+        .get_container(&board.id)
         .await
         .expect("the board remains")
         .title;
@@ -327,7 +330,7 @@ async fn identifier_routes_reject_a_user_who_now_belongs_only_to_another_org() {
 async fn a_former_workspace_admin_cannot_restore_its_deleted_board() {
     let ts = Setup::native().start().await.init_basic().await;
     let user_id = ts.client2.me().await.id;
-    let board: Board = ts
+    let board: Container = ts
         .client2
         .post(
             &format!("{ROOT_WS}/boards"),
@@ -338,7 +341,7 @@ async fn a_former_workspace_admin_cannot_restore_its_deleted_board() {
         .await
         .created_json();
     ts.client2
-        .delete(&format!("{ROOT_WS}/boards/{}", board.id))
+        .delete(&format!("{ROOT_WS}/containers/{}", board.id))
         .await
         .check_no_content();
     ts.app
@@ -351,11 +354,11 @@ async fn a_former_workspace_admin_cannot_restore_its_deleted_board() {
     let response = ts
         .client2
         .post(
-            &format!("{ROOT_WS}/boards/{}/undelete", board.id),
+            &format!("{ROOT_WS}/containers/{}/undelete", board.id),
             &json!({}),
         )
         .await;
-    let restored = ts.app.store().get_board(&board.id).await.is_ok();
+    let restored = ts.app.store().get_container(&board.id).await.is_ok();
     ts.teardown().await;
     assert_eq!(
         (response.status, restored),

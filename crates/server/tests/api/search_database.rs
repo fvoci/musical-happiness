@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use fvoci_model::{Board, BoardType, SearchHit, new_id};
+use fvoci_model::{Container, ContainerType, SearchHit, new_id};
 use fvoci_server::config::search::SearchSettings;
 use reqwest::StatusCode;
 
@@ -61,9 +61,13 @@ async fn without_a_search_server_the_letters_of_titles_and_bodies_are_found() {
         .await
         .init_basic()
         .await;
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Support"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Open,
+            "Support",
+        ))
         .await
         .created_json();
     let made = async |title: &str, text: &str, at: i64| {
@@ -107,9 +111,13 @@ async fn without_a_search_server_the_letters_of_titles_and_bodies_are_found() {
     let nul = search(&th.client, TEST_WS, "환\0불").await;
     let blank = hits(&th.client, &[("q", "   ")]).await;
     // The second user reads a board of their own, which does not hold the word.
-    let theirs: Board = th
+    let theirs: Container = th
         .client2
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Theirs"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Private,
+            "Theirs",
+        ))
         .await
         .created_json();
     new_card(&th.client2, &theirs.id, "다른 말", "다른 말").await;
@@ -183,7 +191,8 @@ async fn a_search_of_the_database_that_runs_past_its_time_is_a_503() {
         .await
         .init_basic()
         .await;
-    th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    th.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
     let late = search(&th.client, TEST_WS, "환불").await;
     let me = th.client.get("/users/me").await;
@@ -200,9 +209,9 @@ async fn a_search_of_the_database_that_runs_past_its_time_is_a_503() {
 async fn a_search_server_that_is_down_is_not_stood_in_for_by_the_database() {
     let fake = FakeSearch::start().await;
     let th = started(&fake).await;
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Open"))
+        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Open"))
         .await
         .created_json();
     new_card(&th.client, &board.id, "환불 안내", "환불규정").await;
@@ -228,7 +237,8 @@ async fn a_user_searches_the_database_only_so_often() {
         .await
         .init_basic()
         .await;
-    th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    th.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
     // One a second, and two at once after a pause: of eight at once, some wait.
     let sent = Instant::now();
@@ -259,11 +269,15 @@ async fn a_user_of_more_boards_than_a_search_server_is_asked_about_finds_in_them
     let user1 = th.client.me().await.id;
     let mut last = String::new();
     for number in 0..1001 {
-        let mut board = new_board(TEST_WORKSPACE_ID, BoardType::Private, &format!("b{number}"));
+        let mut board = new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Private,
+            &format!("b{number}"),
+        );
         board.id = new_id();
         th.app
             .store()
-            .insert_board_with_admin(&mut board, &user1)
+            .insert_container_with_admin(&mut board, &user1)
             .await
             .expect("a board is stored");
         last = board.id;
@@ -273,7 +287,7 @@ async fn a_user_of_more_boards_than_a_search_server_is_asked_about_finds_in_them
     let stranger = th.stranger_in(TEST_WORKSPACE_ID).await;
     let theirs = crate::boards::board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Private, "Theirs"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Theirs"),
         &stranger,
     )
     .await;

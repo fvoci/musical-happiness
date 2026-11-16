@@ -38,14 +38,17 @@ async fn answers(client: &Client, wiki: &str, page: &str) -> [u16; 6] {
         client.get(&pages).await,
         client.get(&format!("{pages}/{page}")).await,
         client
-            .get(&format!("{TEST_WS}/boards/{wiki}/members"))
+            .get(&format!("{TEST_WS}/containers/{wiki}/members"))
             .await,
         client.post(&pages, &json!({"title": "made"})).await,
         client
             .patch(&format!("{pages}/{page}"), &json!({"title": "changed"}))
             .await,
         client
-            .patch(&format!("{TEST_WS}/boards/{wiki}"), &json!({"type": "O"}))
+            .patch(
+                &format!("{TEST_WS}/containers/{wiki}"),
+                &json!({"type": "O"}),
+            )
             .await,
     ]
     .map(|response| response.status.as_u16())
@@ -66,7 +69,7 @@ async fn retitle(client: &Client, wiki: &str, page: &str, title: &str) {
 async fn make(admin: &Client, wiki: &str, wiki_type: &str) {
     admin
         .patch(
-            &format!("{TEST_WS}/boards/{wiki}"),
+            &format!("{TEST_WS}/containers/{wiki}"),
             &json!({"type": wiki_type}),
         )
         .await
@@ -86,7 +89,7 @@ async fn told_until(socket: &mut WorkspaceSocket, enough: impl Fn(&[Value]) -> b
         }
     }
     heard.retain(|told| {
-        ["UPDATE_BLOCK", "UPDATE_BOARD"].contains(&told["action"].as_str().unwrap_or(""))
+        ["UPDATE_BLOCK", "UPDATE_CONTAINER"].contains(&told["action"].as_str().unwrap_or(""))
     });
     heard
 }
@@ -98,9 +101,9 @@ fn has_block(id: &str) -> impl Fn(&[Value]) -> bool + '_ {
 
 /// Whether the board or wiki `id` was told as deleted.
 fn is_gone(told: &Value, id: &str) -> bool {
-    told["action"] == json!("UPDATE_BOARD")
-        && told["board"]["id"] == json!(id)
-        && told["board"]["deleteAt"] != json!(0)
+    told["action"] == json!("UPDATE_CONTAINER")
+        && told["container"]["id"] == json!(id)
+        && told["container"]["deleteAt"] != json!(0)
 }
 
 /// The identifiers of the blocks, boards and wikis among what was told, each once.
@@ -111,7 +114,7 @@ fn about(heard: &[Value]) -> std::collections::BTreeSet<String> {
             let of = if told["action"] == json!("UPDATE_BLOCK") {
                 &told["block"]["id"]
             } else {
-                &told["board"]["id"]
+                &told["container"]["id"]
             };
             of.as_str().expect("an identifier").to_owned()
         })
@@ -141,7 +144,7 @@ async fn an_open_wiki_is_read_without_joining_and_written_in_once_joined() {
     assert_eq!(read["title"], json!("A page"));
 
     member
-        .post(&format!("{TEST_WS}/boards/{wiki}/join"), &json!({}))
+        .post(&format!("{TEST_WS}/containers/{wiki}/join"), &json!({}))
         .await
         .check_ok();
     let joined = answers(member, &wiki, &page).await;
@@ -149,7 +152,7 @@ async fn an_open_wiki_is_read_without_joining_and_written_in_once_joined() {
     assert_eq!(joined[5], 403, "and does not manage the wiki");
 
     member
-        .post(&format!("{TEST_WS}/boards/{wiki}/leave"), &json!({}))
+        .post(&format!("{TEST_WS}/containers/{wiki}/leave"), &json!({}))
         .await
         .check_no_content();
     assert_eq!(
@@ -173,7 +176,7 @@ async fn joining_an_open_wiki_gives_its_minimum_role() {
     let (wiki, page) = wiki_of(&th.client, "O").await;
     th.client
         .patch(
-            &format!("{TEST_WS}/boards/{wiki}"),
+            &format!("{TEST_WS}/containers/{wiki}"),
             &json!({"minimumRole": "viewer"}),
         )
         .await
@@ -181,7 +184,7 @@ async fn joining_an_open_wiki_gives_its_minimum_role() {
 
     let joined: Value = th
         .client2
-        .post(&format!("{TEST_WS}/boards/{wiki}/join"), &json!({}))
+        .post(&format!("{TEST_WS}/containers/{wiki}/join"), &json!({}))
         .await
         .ok_json();
     let roles = [
@@ -270,7 +273,7 @@ async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join()
         .check_ok();
     th.client
         .patch(
-            &format!("{TEST_WS}/boards/{open}"),
+            &format!("{TEST_WS}/containers/{open}"),
             &json!({"title": "renamed"}),
         )
         .await
@@ -305,20 +308,20 @@ async fn who_works_there_is_told_the_changes_of_an_open_wiki_they_did_not_join()
 
     make(&th.client, &open, "O").await;
     th.client
-        .delete(&format!("{TEST_WS}/boards/{board}"))
+        .delete(&format!("{TEST_WS}/containers/{board}"))
         .await
         .check_no_content();
     th.client
-        .delete(&format!("{TEST_WS}/boards/{open}"))
+        .delete(&format!("{TEST_WS}/containers/{open}"))
         .await
         .check_no_content();
     let heard = told_until(&mut socket, |heard| {
         heard.iter().any(|told| is_gone(told, &open))
     })
     .await;
-    let reopened = heard
-        .iter()
-        .any(|told| told["board"]["id"] == json!(open) && told["board"]["type"] == json!("O"));
+    let reopened = heard.iter().any(|told| {
+        told["container"]["id"] == json!(open) && told["container"]["type"] == json!("O")
+    });
     assert!(reopened, "made open: {heard:?}");
     assert!(
         heard.iter().any(|told| is_gone(told, &open)),
@@ -360,12 +363,12 @@ async fn who_did_not_join_an_open_wiki_reads_in_the_rooms_of_its_pages() {
     );
 
     th.client2
-        .post(&format!("{TEST_WS}/boards/{wiki}/join"), &json!({}))
+        .post(&format!("{TEST_WS}/containers/{wiki}/join"), &json!({}))
         .await
         .check_ok();
     assert_eq!(reader.text("DOC_MODE").await["mode"], json!("write"));
     th.client2
-        .post(&format!("{TEST_WS}/boards/{wiki}/leave"), &json!({}))
+        .post(&format!("{TEST_WS}/containers/{wiki}/leave"), &json!({}))
         .await
         .check_no_content();
     assert_eq!(

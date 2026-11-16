@@ -9,15 +9,18 @@
 
 mod block_reads_and_patches;
 mod blocks;
+mod blocks_and_deletion;
 mod board_kinds;
 mod board_search;
 mod boards;
 mod boards_and_blocks;
 mod body_links;
 mod body_versions;
+mod builtin_templates;
 mod categories;
 mod category_boards;
 mod common;
+mod container_rename;
 mod file_info;
 mod image_files;
 mod instance_role_scope;

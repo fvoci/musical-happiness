@@ -12,8 +12,8 @@
 mod common;
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Board, BoardKinds, BoardType, Body, BodyChange, Category,
-    FileInfo, Upload, UploadPurpose, new_id,
+    Block, BlockPatch, BlockType, Body, BodyChange, Category, Container, ContainerKinds,
+    ContainerType, FileInfo, Upload, UploadPurpose, new_id,
 };
 use fvoci_store::{DbType, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Store};
 
@@ -33,7 +33,7 @@ async fn block(
 ) -> Block {
     let mut block = Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         parent_id: parent_id.to_owned(),
         block_type,
         ..Block::default()
@@ -81,7 +81,7 @@ async fn one_orgs_history_row_cannot_prevent_another_orgs_comment_edit() {
     let card = block(&b.store, &b.board_id, "", BlockType::Card, &b.user_id).await;
     let mut comment = Block {
         id: new_id(),
-        board_id: b.board_id.clone(),
+        container_id: b.board_id.clone(),
         parent_id: card.id.clone(),
         block_type: BlockType::Comment,
         body: Some(body("B's original comment")),
@@ -140,7 +140,7 @@ async fn one_orgs_file_reference_cannot_prevent_another_orgs_attachment_edit() {
     let attachment = block(&b.store, &b.board_id, "", BlockType::Attachment, &b.user_id).await;
     let inserted = test
         .execute_unchecked(&format!(
-            "INSERT INTO file_refs (block_id, board_id, name) VALUES ('{}', '{}', 'B-file.txt')",
+            "INSERT INTO file_refs (block_id, container_id, name) VALUES ('{}', '{}', 'B-file.txt')",
             attachment.id, b.board_id
         ))
         .await;
@@ -183,14 +183,14 @@ async fn one_orgs_trash_row_cannot_prevent_another_orgs_deletion() {
     let card = block(&b.store, &b.board_id, "", BlockType::Card, &b.user_id).await;
     let forged = [
         format!(
-            "INSERT INTO deleted_blocks (id, board_id, deleted_at, deletion_id, block) \
+            "INSERT INTO deleted_blocks (id, container_id, deleted_at, deletion_id, block) \
              VALUES ('{}', '{}', 0, '{}', '{{}}')",
             card.id,
             b.board_id,
             new_id()
         ),
         format!(
-            "INSERT INTO deleted_boards (id, workspace_id, deleted_at, deletion_id, board, members, \
+            "INSERT INTO deleted_containers (id, workspace_id, deleted_at, deletion_id, container, members, \
              files) VALUES ('{}', '{}', 0, '{}', '{{}}', '[]', '[]')",
             b.board_id,
             test.workspace_id,
@@ -206,8 +206,8 @@ async fn one_orgs_trash_row_cannot_prevent_another_orgs_deletion() {
     }
     let deleted_card = b.store.delete_block(&card.id, &b.user_id).await;
     let restored_card = b.store.undelete_block(&card.id, &b.user_id).await;
-    let deleted_board = b.store.delete_board(&b.board_id, &b.user_id).await;
-    let restored_board = b.store.undelete_board(&b.board_id, &b.user_id).await;
+    let deleted_board = b.store.delete_container(&b.board_id, &b.user_id).await;
+    let restored_board = b.store.undelete_container(&b.board_id, &b.user_id).await;
     test.teardown().await;
     assert!(
         deleted_card.is_ok() && restored_card.is_ok(),
@@ -219,8 +219,8 @@ async fn one_orgs_trash_row_cannot_prevent_another_orgs_deletion() {
     );
 }
 
-/// A row of A's trash that names B's board or workspace (`deleted_blocks.board_id`,
-/// `deleted_boards.workspace_id`, which have no key: what they name may be in the trash
+/// A row of A's trash that names B's board or workspace (`deleted_blocks.container_id`,
+/// `deleted_containers.workspace_id`, which have no key: what they name may be in the trash
 /// too) is not among what B finds in its trash, and does not come back into B's board
 /// or workspace: the keys of the live tables refuse it.
 #[tokio::test]
@@ -237,18 +237,18 @@ async fn a_trash_row_under_another_orgs_parent_is_neither_listed_nor_restored() 
     test.delete_block(&card.id, &user_id)
         .await
         .expect("A's card goes to the trash");
-    test.delete_board(&ours[1].id, &user_id)
+    test.delete_container(&ours[1].id, &user_id)
         .await
         .expect("A's board goes to the trash");
     let moved = [
         format!(
-            "UPDATE deleted_blocks SET board_id = '{0}', \
+            "UPDATE deleted_blocks SET container_id = '{0}', \
              block = jsonb_set(block::jsonb, '{{boardId}}', '\"{0}\"')::json WHERE id = '{1}'",
             b.board_id, card.id
         ),
         format!(
-            "UPDATE deleted_boards SET workspace_id = '{0}', \
-             board = jsonb_set(board::jsonb, '{{workspaceId}}', '\"{0}\"')::json WHERE id = '{1}'",
+            "UPDATE deleted_containers SET workspace_id = '{0}', \
+             container = jsonb_set(container::jsonb, '{{workspaceId}}', '\"{0}\"')::json WHERE id = '{1}'",
             b.workspace_id, ours[1].id
         ),
     ];
@@ -267,14 +267,19 @@ async fn a_trash_row_under_another_orgs_parent_is_neither_listed_nor_restored() 
         .expect("B's trash of the board");
     let b_boards = b
         .store
-        .get_deleted_boards(&b.workspace_id, Some(&user_id), None, BoardKinds::Boards)
+        .get_deleted_containers(
+            &b.workspace_id,
+            Some(&user_id),
+            None,
+            ContainerKinds::Boards,
+        )
         .await
         .expect("B's trash of the workspace");
     let restored_card = test.undelete_block(&card.id, &user_id).await;
-    let restored_board = test.undelete_board(&ours[1].id, &user_id).await;
+    let restored_board = test.undelete_container(&ours[1].id, &user_id).await;
     let b_blocks = b
         .store
-        .get_blocks(&fvoci_store::BlockFilter::board(&b.board_id))
+        .get_blocks(&fvoci_store::BlockFilter::container(&b.board_id))
         .await
         .expect("B's blocks");
     test.teardown().await;
@@ -291,7 +296,7 @@ async fn a_trash_row_under_another_orgs_parent_is_neither_listed_nor_restored() 
     );
 }
 
-/// A reference of A's (`file_refs.board_id` has no key: the block may be in the
+/// A reference of A's (`file_refs.container_id` has no key: the block may be in the
 /// trash) that names B's board and the stored name of B's file does not keep that
 /// file shown when the housekeeping, which reaches every organization, marks the files
 /// that no block shows: the file is collected as one that nothing of B shows.
@@ -307,7 +312,7 @@ async fn one_orgs_file_reference_keeps_no_file_of_another_alive() {
     let b = other(&test).await;
     let file = FileInfo {
         id: new_id(),
-        board_id: b.board_id.clone(),
+        container_id: b.board_id.clone(),
         stored_name: "B-file.txt".to_owned(),
         name: "B-file.txt".to_owned(),
         path: "B/B-file.txt".to_owned(),
@@ -319,7 +324,7 @@ async fn one_orgs_file_reference_keeps_no_file_of_another_alive() {
         .await
         .expect("B's file is recorded, shown by no block");
     test.execute_unchecked(&format!(
-        "INSERT INTO file_refs (block_id, board_id, name) VALUES ('{}', '{}', '{}')",
+        "INSERT INTO file_refs (block_id, container_id, name) VALUES ('{}', '{}', '{}')",
         ours.id, b.board_id, file.stored_name
     ))
     .await
@@ -354,7 +359,7 @@ async fn the_purge_forgets_a_row_whose_block_is_only_another_orgs() {
     let attachment = block(&b.store, &b.board_id, "", BlockType::Attachment, &b.user_id).await;
     let forged = [
         format!(
-            "INSERT INTO file_refs (block_id, board_id, name) VALUES ('{}', '{}', 'A-file.txt')",
+            "INSERT INTO file_refs (block_id, container_id, name) VALUES ('{}', '{}', 'A-file.txt')",
             attachment.id, ours[0].id
         ),
         format!(
@@ -371,7 +376,7 @@ async fn the_purge_forgets_a_row_whose_block_is_only_another_orgs() {
         );
     }
     let b_reference = format!(
-        "INSERT INTO file_refs (block_id, board_id, name) VALUES ('{}', '{}', 'B-file.txt')",
+        "INSERT INTO file_refs (block_id, container_id, name) VALUES ('{}', '{}', 'B-file.txt')",
         attachment.id, b.board_id
     );
     assert_eq!(
@@ -454,7 +459,7 @@ async fn the_versions_of_a_template_comment_in_the_trash_follow_it_into_its_orga
 }
 
 /// An upload goes to a board of its organization, or an import to a workspace of it
-/// (`uploads.board_id` names either, and has no key: the board may go to the trash and
+/// (`uploads.container_id` names either, and has no key: the board may go to the trash and
 /// for good while the upload's row stays for its clean-up). The schema checks it when
 /// the row is stored.
 #[tokio::test]
@@ -470,7 +475,7 @@ async fn an_upload_names_a_board_or_a_workspace_of_its_own_organization() {
         id: new_id(),
         user_id: user_id.clone(),
         purpose,
-        board_id: target.to_owned(),
+        container_id: target.to_owned(),
         workspace_id: target.to_owned(),
         name: "upload.bin".to_owned(),
         size: 1,
@@ -510,7 +515,7 @@ async fn an_upload_names_a_board_or_a_workspace_of_its_own_organization() {
 }
 
 /// A category of a user's takes a board of its organization or a built-in template,
-/// the system organization's (`category_boards.board_id` refers to the board without
+/// the system organization's (`category_containers.container_id` refers to the board without
 /// the organization), and the same user files the same template in two
 /// organizations, once in each.
 #[tokio::test]
@@ -524,15 +529,15 @@ async fn a_category_takes_a_board_of_its_organization_or_a_template() {
     let system = test
         .for_org(SYSTEM_ORG_ID)
         .expect("the system organization");
-    let mut template = Board {
+    let mut template = Container {
         id: new_id(),
         workspace_id: SYSTEM_WORKSPACE_ID.to_owned(),
-        board_type: BoardType::Open,
+        container_type: ContainerType::Open,
         is_template: true,
-        ..Board::default()
+        ..Container::default()
     };
     system
-        .insert_board(&mut template, &user_id)
+        .insert_container(&mut template, &user_id)
         .await
         .expect("the template is stored");
     let category = |store: &Store, workspace_id: &str| {
@@ -556,22 +561,22 @@ async fn a_category_takes_a_board_of_its_organization_or_a_template() {
     let theirs = category(&b.store, &b.workspace_id).await;
 
     let b_board = test
-        .add_update_category_board(&user_id, &ours, std::slice::from_ref(&b.board_id))
+        .add_update_category_container(&user_id, &ours, std::slice::from_ref(&b.board_id))
         .await;
     let filed_in_a = test
-        .add_update_category_board(&user_id, &ours, std::slice::from_ref(&template.id))
+        .add_update_category_container(&user_id, &ours, std::slice::from_ref(&template.id))
         .await;
     let filed_in_b = b
         .store
-        .add_update_category_board(&user_id, &theirs, std::slice::from_ref(&template.id))
+        .add_update_category_container(&user_id, &theirs, std::slice::from_ref(&template.id))
         .await;
     let sidebar_of_a = test
-        .get_user_category_boards(&user_id, &test.workspace_id)
+        .get_user_category_containers(&user_id, &test.workspace_id)
         .await
         .expect("A's sidebar");
     let sidebar_of_b = b
         .store
-        .get_user_category_boards(&user_id, &b.workspace_id)
+        .get_user_category_containers(&user_id, &b.workspace_id)
         .await
         .expect("B's sidebar");
     test.teardown().await;
@@ -589,8 +594,8 @@ async fn a_category_takes_a_board_of_its_organization_or_a_template() {
     for filed in [&sidebar_of_a, &sidebar_of_b] {
         let boards: Vec<&str> = filed
             .iter()
-            .flat_map(|category| &category.board_metadata)
-            .map(|board| board.board_id.as_str())
+            .flat_map(|category| &category.container_metadata)
+            .map(|board| board.container_id.as_str())
             .collect();
         assert_eq!(boards, [template.id.as_str()], "{filed:?}");
     }
@@ -638,15 +643,15 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
     assert_eq!(
         without,
         [
-            // Held to its organization by the key to the board: (board_id, org_id).
-            ("blocks", "(board_id, id)"),
+            // Held to its organization by the key to the container: (container_id, org_id).
+            ("blocks", "(container_id, id)"),
             // An identifier the server makes for the row.
             ("blocks", "(id)"),
-            ("board_members", "(board_id, user_id)"),
-            ("boards", "(id)"),
             ("categories", "(id)"),
-            ("category_boards", "(id)"),
-            ("file_info", "(board_id, name)"),
+            ("category_containers", "(id)"),
+            ("container_members", "(container_id, user_id)"),
+            ("containers", "(id)"),
+            ("file_info", "(container_id, name)"),
             ("file_info", "(id)"),
             // The digest of a secret the server makes; a link is found by it before its
             // organization is known.
@@ -662,7 +667,7 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             ("organizations", "(id)"),
             // One system organization over them all.
             ("organizations", "(is_system) WHERE is_system"),
-            ("sharing", "(board_id)"),
+            ("sharing", "(container_id)"),
             // A secret the server makes.
             ("sharing", "(token)"),
             ("subscriptions", "(block_id, subscriber_id)"),
@@ -680,8 +685,8 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             // removed but with its workspace (0023).
             ("audit_log".to_owned(), "audit_log_kept".to_owned()),
             (
-                "category_boards".to_owned(),
-                "category_boards_board_of_its_organization".to_owned()
+                "category_containers".to_owned(),
+                "category_containers_container_of_its_organization".to_owned()
             ),
             (
                 "uploads".to_owned(),

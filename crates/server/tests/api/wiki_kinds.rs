@@ -31,25 +31,25 @@ enum Reaches {
 
 /// Every operation whose path names a board, a wiki, or something that is of one (a
 /// block, a file, an upload), and the kinds it reaches: the extractor of its handler
-/// (`Ws` for boards, `WsWiki` for wikis, `WsModule` for both; the token of a shared
+/// (`InWorkspace` for boards, `InWiki` for wikis, `InContainer` for both; the token of a shared
 /// board or wiki opens its own kind's routes). What names one in its body or its query is asked in
 /// [`what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing`].
 const REACHED: &[(&str, Reaches)] = &[
     // The container itself, in the trash too.
-    ("getBoard", Reaches::Both),
-    ("patchBoard", Reaches::Both),
-    ("deleteBoard", Reaches::Both),
-    ("undeleteBoard", Reaches::Both),
+    ("getContainer", Reaches::Both),
+    ("patchContainer", Reaches::Both),
+    ("deleteContainer", Reaches::Both),
+    ("undeleteContainer", Reaches::Both),
     // Who is on it.
     ("getMembers", Reaches::Both),
     ("addMember", Reaches::Both),
     ("updateMember", Reaches::Both),
     ("removeMember", Reaches::Both),
-    ("joinBoard", Reaches::Both),
-    ("leaveBoard", Reaches::Both),
-    ("getBoardTeams", Reaches::Both),
-    ("setBoardTeam", Reaches::Both),
-    ("removeBoardTeam", Reaches::Both),
+    ("joinContainer", Reaches::Both),
+    ("leaveContainer", Reaches::Both),
+    ("getContainerTeams", Reaches::Both),
+    ("setContainerTeam", Reaches::Both),
+    ("removeContainerTeam", Reaches::Both),
     // Its sharing: a board's link reads its cards, a wiki's its pages.
     ("getSharing", Reaches::Both),
     ("setSharing", Reaches::Both),
@@ -63,12 +63,12 @@ const REACHED: &[(&str, Reaches)] = &[
     ("completeUpload", Reaches::Both),
     ("deleteUpload", Reaches::Both),
     // Its place in the sidebar.
-    ("setBoardCategory", Reaches::Both),
-    ("hideBoard", Reaches::Both),
-    ("unhideBoard", Reaches::Both),
+    ("setContainerCategory", Reaches::Both),
+    ("hideContainer", Reaches::Both),
+    ("unhideContainer", Reaches::Both),
     // A copy of it whole, and its archive.
-    ("duplicateBoard", Reaches::Both),
-    ("exportBoardArchive", Reaches::Both),
+    ("duplicateContainer", Reaches::Both),
+    ("exportContainerArchive", Reaches::Both),
     // What a board holds.
     ("reorderCardProperties", Reaches::Boards),
     ("createBlocks", Reaches::Boards),
@@ -110,7 +110,7 @@ const REACHED: &[(&str, Reaches)] = &[
     // What names a card or a page from a body: a card and a page name each other.
     ("getReferencesTo", Reaches::Both),
     // What the holder of a read token reads.
-    ("getSharedBoard", Reaches::Both),
+    ("getSharedContainer", Reaches::Both),
     ("getSharedBlocks", Reaches::Boards),
     ("getSharedCards", Reaches::Boards),
     ("getSharedFile", Reaches::Both),
@@ -120,7 +120,8 @@ const REACHED: &[(&str, Reaches)] = &[
 ];
 
 /// The parameters of a path that name a board or a wiki, or something that is of one.
-const NAMING: [&str; 8] = [
+const NAMING: [&str; 9] = [
+    "{containerId}",
     "{boardId}",
     "{wikiId}",
     "{cardId}",
@@ -203,8 +204,8 @@ impl World {
         let made = client.post(&made_at, &json!({"type": "P"})).await;
         made.check_done();
         let container = text(&made.value(), "id");
-        let at = format!("{ROOT_WS}/boards/{container}");
-        let member = json!({"boardId": container, "userId": self.other, "schemeEditor": true});
+        let at = format!("{ROOT_WS}/containers/{container}");
+        let member = json!({"containerId": container, "userId": self.other, "schemeEditor": true});
         client
             .post(&format!("{at}/members"), &member)
             .await
@@ -296,7 +297,7 @@ impl World {
             .post(
                 &format!("{at}/blocks"),
                 &json!([{
-                    "boardId": board, "parentId": card, "type": "comment", "body": text_of,
+                    "containerId": board, "parentId": card, "type": "comment", "body": text_of,
                     "createAt": 1, "updateAt": 1,
                 }]),
             )
@@ -318,11 +319,14 @@ impl World {
     /// Brings `things` to where the operation does something: what it brings back is
     /// in the trash first.
     async fn prepare(&self, operation: &str, things: &Things) {
-        let at = format!("{ROOT_WS}/boards/{}", things.container);
+        let at = format!("{ROOT_WS}/containers/{}", things.container);
         let deleted = match operation {
-            "undeleteBoard" => self.ts.client.delete(&at).await,
+            "undeleteContainer" => self.ts.client.delete(&at).await,
             "undeleteBlock" => {
-                let block = format!("{at}/blocks/{}", things.block);
+                let block = format!(
+                    "{ROOT_WS}/boards/{}/blocks/{}",
+                    things.container, things.block
+                );
                 self.ts.client.delete(&block).await
             }
             "undeletePage" => {
@@ -361,6 +365,7 @@ impl World {
         let path = template
             .trim_start_matches("/api/v1")
             .replace("{workspaceId}", ROOT_WORKSPACE_ID)
+            .replace("{containerId}", &things.container)
             .replace("{boardId}", &things.container)
             .replace("{wikiId}", &things.container)
             .replace("{cardId}", block)
@@ -398,13 +403,13 @@ impl World {
     /// The body an operation is sent with: one it takes.
     fn body(&self, operation: &str, things: &Things) -> Value {
         match operation {
-            "patchBoard" | "patchBlock" | "patchCard" | "patchPage" => {
+            "patchContainer" | "patchBlock" | "patchCard" | "patchPage" => {
                 json!({"title": "changed"})
             }
             "addMember" | "updateMember" => {
-                json!({"boardId": things.container, "userId": self.other, "schemeViewer": true})
+                json!({"containerId": things.container, "userId": self.other, "schemeViewer": true})
             }
-            "setBoardTeam" => json!({"role": "editor"}),
+            "setContainerTeam" => json!({"role": "editor"}),
             "setSharing" => json!({"enabled": false}),
             "createUpload" => json!({"name": "more.bin", "size": 4}),
             "patchBlocks" => {
@@ -569,7 +574,7 @@ async fn every_list_is_of_its_kinds() {
     assert_eq!(boards.value()[0]["kind"], "board");
     let titled = json!({"title": "findable"});
     for things in [&board, &wiki] {
-        let at = format!("{ROOT_WS}/boards/{}", things.container);
+        let at = format!("{ROOT_WS}/containers/{}", things.container);
         client.patch(&at, &titled).await.check_done();
     }
     let found = client
@@ -589,10 +594,10 @@ async fn every_list_is_of_its_kinds() {
     assert_eq!(boards_in, both, "the export is of boards and wikis");
 
     for things in [&board, &wiki] {
-        let at = format!("{ROOT_WS}/boards/{}", things.container);
+        let at = format!("{ROOT_WS}/containers/{}", things.container);
         client.delete(&at).await.check_done();
     }
-    let trash = client.get(&format!("{ROOT_WS}/trash/boards")).await;
+    let trash = client.get(&format!("{ROOT_WS}/trash/containers")).await;
     trash.check_done();
     let mut listed: Vec<(String, String)> = trash
         .value()
@@ -616,7 +621,7 @@ async fn every_list_is_of_its_kinds() {
     );
     let again = client
         .post(
-            &format!("{ROOT_WS}/boards/{}/undelete", board.container),
+            &format!("{ROOT_WS}/containers/{}/undelete", board.container),
             &json!({}),
         )
         .await;
@@ -645,7 +650,7 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     // A board is not made a wiki of, one at a time or with blocks.
     let as_wiki = json!({"id": "made", "type": "P", "kind": "wiki", "title": "no board"});
     let card =
-        json!({"id": "card", "boardId": "made", "type": "card", "createAt": 1, "updateAt": 1});
+        json!({"id": "card", "containerId": "made", "type": "card", "createAt": 1, "updateAt": 1});
     let one = client
         .post(
             &format!("{ROOT_WS}/boards"),
@@ -655,10 +660,10 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     let many = client
         .post(
             &format!("{ROOT_WS}/boards-and-blocks"),
-            &json!({"boards": [as_wiki], "blocks": [card]}),
+            &json!({"containers": [as_wiki], "blocks": [card]}),
         )
         .await;
-    for (refused, at) in [(one, "/kind"), (many, "/boards/0/kind")] {
+    for (refused, at) in [(one, "/kind"), (many, "/containers/0/kind")] {
         refused.check_bad_request();
         assert_eq!(refused.refused_at(), at, "{}", refused.text());
     }
@@ -680,8 +685,8 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     let together = format!("{ROOT_WS}/boards-and-blocks");
     same(Method::PATCH, &together, &|id| {
         json!({
-            "boardIds": [id],
-            "boardPatches": [{"title": "changed"}],
+            "containerIds": [id],
+            "containerPatches": [{"title": "changed"}],
             "blockIds": [board.block],
             "blockPatches": [{"title": "changed"}],
         })
@@ -690,11 +695,11 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     same(
         Method::DELETE,
         &together,
-        &|id| json!({"boards": [id], "blocks": [board.block]}),
+        &|id| json!({"containers": [id], "blocks": [board.block]}),
     )
     .await;
     let copied =
-        json!([{"boardId": board.container, "type": "card", "createAt": 1, "updateAt": 1}]);
+        json!([{"containerId": board.container, "type": "card", "createAt": 1, "updateAt": 1}]);
     let from = async |source: &str| {
         let path = format!(
             "{ROOT_WS}/boards/{}/blocks?sourceBoardId={source}",
@@ -721,14 +726,14 @@ async fn what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing
     client
         .post(
             &format!("{ROOT_WS}/invitations"),
-            &json!({"role": "guest", "boardId": wiki.container}),
+            &json!({"role": "guest", "containerId": wiki.container}),
         )
         .await
         .check_done();
 
     // The wiki is as it was, and so is the board's card.
     let read = client
-        .get(&format!("{ROOT_WS}/boards/{}", wiki.container))
+        .get(&format!("{ROOT_WS}/containers/{}", wiki.container))
         .await;
     read.check_done();
     assert_ne!(read.value()["title"], "changed");
@@ -758,8 +763,8 @@ async fn the_audit_names_a_wiki_as_it_names_a_board() {
         let id = text(&container.value(), "id");
         administrator
             .post(
-                &format!("{ROOT_WS}/boards/{id}/members"),
-                &json!({"boardId": id, "userId": world.me, "schemeAdmin": true}),
+                &format!("{ROOT_WS}/containers/{id}/members"),
+                &json!({"containerId": id, "userId": world.me, "schemeAdmin": true}),
             )
             .await
             .check_done();
@@ -792,7 +797,7 @@ async fn a_patch_that_names_a_kind_is_refused() {
         world.make(Reaches::Wikis).await,
     );
     for (things, own) in [(&board, "board"), (&wiki, "wiki")] {
-        let at = format!("{ROOT_WS}/boards/{}", things.container);
+        let at = format!("{ROOT_WS}/containers/{}", things.container);
         for kind in ["board", "wiki", "page", ""] {
             let refused = client
                 .patch(&at, &json!({"kind": kind, "title": "changed"}))
@@ -815,7 +820,7 @@ async fn a_patch_that_names_a_kind_is_refused() {
         .post(&format!("{ROOT_WS}/boards"), &json!({"type": "P"}))
         .await;
     unseen.check_done();
-    let unseen = format!("{ROOT_WS}/boards/{}", text(&unseen.value(), "id"));
+    let unseen = format!("{ROOT_WS}/containers/{}", text(&unseen.value(), "id"));
     let (with_kind, without) = (
         world
             .ts
@@ -835,14 +840,14 @@ async fn a_patch_that_names_a_kind_is_refused() {
         .patch(
             &format!("{ROOT_WS}/boards-and-blocks"),
             &json!({
-                "boardIds": [board.container],
-                "boardPatches": [{"kind": "wiki"}],
+                "containerIds": [board.container],
+                "containerPatches": [{"kind": "wiki"}],
                 "blockIds": [],
                 "blockPatches": [],
             }),
         )
         .await;
     together.check_bad_request();
-    assert_eq!(together.refused_at(), "/boardPatches/0/kind");
+    assert_eq!(together.refused_at(), "/containerPatches/0/kind");
     world.ts.teardown().await;
 }

@@ -1,7 +1,7 @@
 //! A shared board read by its link: `/shared/{boardId}` with the read token, and no
 //! session.
 
-use fvoci_model::{Board, Sharing, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{Container, Sharing, Workspace, WorkspaceRole, new_id};
 use fvoci_store::DbType;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -14,7 +14,7 @@ use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer, U
 /// second user, and a file.
 struct Fixture {
     ts: TestServer,
-    board: Board,
+    board: Container,
     card_id: String,
     file_id: String,
     token: String,
@@ -26,7 +26,7 @@ async fn fixture() -> Fixture {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let me = ts.client.me().await;
     let other = ts.client2.me().await;
-    let board: Board = ts
+    let board: Container = ts
         .client
         .post(
             &format!("{TEST_WS}/boards"),
@@ -56,13 +56,16 @@ async fn fixture() -> Fixture {
         .created_json();
     let card_id = card["id"].as_str().expect("an identifier").to_owned();
     ts.client2
-        .post(&format!("{TEST_WS}/boards/{}/join", board.id), &json!({}))
+        .post(
+            &format!("{TEST_WS}/containers/{}/join", board.id),
+            &json!({}),
+        )
         .await
         .check_ok();
     ts.client2
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", board.id),
-            &json!([{"id": "comment", "boardId": board.id, "parentId": card_id, "type": "comment", "title": "fine by me", "createAt": 1, "updateAt": 1}]),
+            &json!([{"id": "comment", "containerId": board.id, "parentId": card_id, "type": "comment", "title": "fine by me", "createAt": 1, "updateAt": 1}]),
         )
         .await
         .check_created();
@@ -70,7 +73,7 @@ async fn fixture() -> Fixture {
     let sharing: Sharing = ts
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", board.id),
             &json!({"enabled": true}),
         )
         .await
@@ -95,7 +98,10 @@ async fn upload(client: &Client, board_id: &str) -> String {
     let file = reqwest::multipart::Part::bytes(b"the shared file".to_vec()).file_name("a.txt");
     let uploaded: Value = Client::send(
         client
-            .request(Method::POST, &format!("{TEST_WS}/boards/{board_id}/files"))
+            .request(
+                Method::POST,
+                &format!("{TEST_WS}/containers/{board_id}/files"),
+            )
             .multipart(reqwest::multipart::Form::new().part("file", file)),
     )
     .await
@@ -205,7 +211,7 @@ async fn a_shared_board_is_not_there_without_its_token() {
         assert_eq!(not_there(path.clone()).await, absent, "{path}");
     }
     // Another board's file, with this board's token, is a file that is not there.
-    let other: Board =
+    let other: Container =
         f.ts.client
             .post(
                 &format!("{TEST_WS}/boards"),
@@ -226,7 +232,7 @@ async fn a_shared_board_is_not_there_without_its_token() {
 
     f.ts.client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", f.board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", f.board.id),
             &json!({"enabled": false}),
         )
         .await
@@ -236,14 +242,14 @@ async fn a_shared_board_is_not_there_without_its_token() {
     }
     f.ts.client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", f.board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", f.board.id),
             &json!({"enabled": true}),
         )
         .await
         .check_ok();
     let token = f.ts.share(&f.board.id).await;
     f.ts.client
-        .delete(&format!("{TEST_WS}/boards/{}", f.board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", f.board.id))
         .await
         .check_no_content();
     for path in shared_paths(&f.board.id, &f.file_id, &token) {
@@ -264,21 +270,21 @@ async fn the_board_routes_take_no_read_token() {
     let f = fixture().await;
     f.ts.client
         .patch(
-            &format!("{TEST_WS}/boards/{}", f.board.id),
+            &format!("{TEST_WS}/containers/{}", f.board.id),
             &json!({"type": "P"}),
         )
         .await
         .check_ok();
     let outsider = f.ts.add_user("outsider").await;
-    for rest in [
-        String::new(),
-        "/blocks".to_owned(),
-        "/cards".to_owned(),
-        format!("/files/{}", f.file_id),
-        format!("/files/{}/info", f.file_id),
+    for (under, rest) in [
+        ("containers", String::new()),
+        ("boards", "/blocks".to_owned()),
+        ("boards", "/cards".to_owned()),
+        ("containers", format!("/files/{}", f.file_id)),
+        ("containers", format!("/files/{}/info", f.file_id)),
     ] {
         let path = format!(
-            "{TEST_WS}/boards/{}{rest}?readToken={}",
+            "{TEST_WS}/{under}/{}{rest}?readToken={}",
             f.board.id, f.token
         );
         f.ts.anonymous().get(&path).await.check_unauthorized();
@@ -339,14 +345,14 @@ async fn a_board_of_a_second_organization_is_read_by_its_link() {
         .add_workspace_member(&workspace.id, &owner.id, WorkspaceRole::Member)
         .await
         .expect("a member of the second organization");
-    let mut board = Board {
+    let mut board = Container {
         id: new_id(),
         workspace_id: workspace.id.clone(),
         title: "Elsewhere".to_owned(),
-        ..Board::default()
+        ..Container::default()
     };
     theirs
-        .insert_board_with_admin(&mut board, &owner.id)
+        .insert_container_with_admin(&mut board, &owner.id)
         .await
         .expect("a board of the second organization");
     let token = ts

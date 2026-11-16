@@ -8,7 +8,7 @@ import {
 } from '../state/presence.ts';
 
 interface Watcher {
-  boardId: string;
+  containerId: string;
   hear: (snapshot: PresenceSnapshot) => void;
 }
 
@@ -41,8 +41,8 @@ export class LivePresence implements Presence {
     this.#wanted();
   }
 
-  watchPresence(boardId: string, hear: Watcher['hear']): () => void {
-    const watcher = { boardId, hear };
+  watchPresence(containerId: string, hear: Watcher['hear']): () => void {
+    const watcher = { containerId, hear };
     this.#watchers.add(watcher);
     this.#wanted();
     return () => {
@@ -76,23 +76,24 @@ export class LivePresence implements Presence {
 
   #renew(): void {
     if (!this.#up) return;
-    this.#send({ action: 'SET_PRESENCE', boardId: '', ...this.#visit });
+    this.#send({ action: 'SET_PRESENCE', containerId: '', ...this.#visit });
   }
 
   text(message: Record<string, unknown>): boolean {
     if (message.action !== 'UPDATE_PRESENCE') return false;
-    const { boardId, people, anonymousCount, hiddenCount } = message;
+    const { containerId, people, anonymousCount, hiddenCount } = message;
     if (
-      typeof boardId !== 'string' ||
+      typeof containerId !== 'string' ||
       !Array.isArray(people) ||
       !people.every(isPerson) ||
       !isCount(anonymousCount) ||
       !isCount(hiddenCount)
     )
       return true;
-    if (boardId !== this.#visit?.boardId) return true;
+    if (containerId !== this.#visit?.containerId) return true;
     for (const watcher of this.#watchers) {
-      if (watcher.boardId === boardId) watcher.hear({ people, anonymousCount, hiddenCount });
+      if (watcher.containerId === containerId)
+        watcher.hear({ people, anonymousCount, hiddenCount });
     }
     return true;
   }
@@ -103,7 +104,7 @@ function sameVisit(a: PresenceVisit | null, b: PresenceVisit | null): boolean {
   if (!a || !b) return a === b;
   return (
     a.workspaceId === b.workspaceId &&
-    a.boardId === b.boardId &&
+    a.containerId === b.containerId &&
     (a.cardId ?? '') === (b.cardId ?? '')
   );
 }

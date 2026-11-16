@@ -3,8 +3,8 @@
 //! log that records it and is never changed.
 
 use fvoci_model::{
-    AuditAction, Block, BlockType, Board, BoardMember, BoardType, FileInfo, OrgRole, Workspace,
-    WorkspaceRole, new_id,
+    AuditAction, Block, BlockType, Container, ContainerMember, ContainerType, FileInfo, OrgRole,
+    Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditEntry, AuditPlace, DbType, InstanceRole, Joining, LooseState, OrgRoleChange, Paging,
@@ -51,15 +51,15 @@ async fn named_workspace(store: &Store, name: &str, actor_id: &str) -> String {
 
 /// A private board of the workspace whose admin is `user_id`.
 async fn private_board(store: &Store, workspace_id: &str, user_id: &str) -> String {
-    let mut board = Board {
+    let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        board_type: BoardType::Private,
-        ..Board::default()
+        container_type: ContainerType::Private,
+        ..Container::default()
     };
     common::works_in(store, workspace_id, user_id).await;
     store
-        .insert_board_with_admin(&mut board, user_id)
+        .insert_container_with_admin(&mut board, user_id)
         .await
         .expect("the board is stored");
     board.id
@@ -68,7 +68,7 @@ async fn private_board(store: &Store, workspace_id: &str, user_id: &str) -> Stri
 fn file_of(board_id: &str, stored_name: &str) -> FileInfo {
     FileInfo {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         stored_name: stored_name.to_owned(),
         name: format!("uploaded as {stored_name}"),
         extension: ".png".to_owned(),
@@ -152,7 +152,7 @@ async fn a_workspace_in_the_trash_goes_for_good_as_its_boards_do() {
             .await
             .expect("the file is recorded");
     }
-    test.delete_board(&trashed_before, &admin)
+    test.delete_container(&trashed_before, &admin)
         .await
         .expect("a board of it is in the trash already");
     assert_eq!(
@@ -219,12 +219,17 @@ async fn a_workspace_in_the_trash_goes_for_good_as_its_boards_do() {
         "its audit log went"
     );
     for board_id in [&board, &trashed_before] {
-        let error = test.get_board(board_id).await.expect_err("gone");
+        let error = test.get_container(board_id).await.expect_err("gone");
         assert!(error.is_not_found(), "{error:?}");
-        let error = test.get_deleted_board(board_id).await.expect_err("gone");
+        let error = test
+            .get_deleted_container(board_id)
+            .await
+            .expect_err("gone");
         assert!(error.is_not_found(), "{error:?}");
     }
-    test.get_board(&other).await.expect("the other board stays");
+    test.get_container(&other)
+        .await
+        .expect("the other board stays");
     test.get_file_info(&other, "7c.png")
         .await
         .expect("the other board's file stays");
@@ -301,15 +306,20 @@ async fn leaving_a_workspace_joined_gives_back_what_one_was() {
         role_in(&test, &workspace, &admin).await,
         Some(WorkspaceRole::Admin)
     );
-    let as_viewer = BoardMember {
-        board_id: taken.clone(),
+    let as_viewer = ContainerMember {
+        container_id: taken.clone(),
         user_id: admin.clone(),
         scheme_viewer: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     test.add_member_recorded(
         &as_viewer,
-        &AuditEntry::new(&workspace, &admin, AuditAction::SelfAddedToBoard, &taken),
+        &AuditEntry::new(
+            &workspace,
+            &admin,
+            AuditAction::SelfAddedToContainer,
+            &taken,
+        ),
     )
     .await
     .expect("the admin makes themselves a member of a private board");
@@ -331,11 +341,11 @@ async fn leaving_a_workspace_joined_gives_back_what_one_was() {
         Some(WorkspaceRole::Member),
         "a member again"
     );
-    test.get_member_for_board(&had, &admin)
+    test.get_member_for_container(&had, &admin)
         .await
         .expect("the role they had before stays");
     let error = test
-        .get_member_for_board(&taken, &admin)
+        .get_member_for_container(&taken, &admin)
         .await
         .expect_err("the role they gave themselves goes");
     assert!(error.is_not_found(), "{error:?}");
@@ -343,7 +353,11 @@ async fn leaving_a_workspace_joined_gives_back_what_one_was() {
         log_of(&test, &workspace).await,
         [
             (AuditAction::OrgAdminJoined, admin.clone(), String::new()),
-            (AuditAction::SelfAddedToBoard, admin.clone(), String::new()),
+            (
+                AuditAction::SelfAddedToContainer,
+                admin.clone(),
+                String::new()
+            ),
             (AuditAction::OrgAdminLeft, admin.clone(), String::new()),
         ]
     );
@@ -528,18 +542,18 @@ async fn the_roles_on_boards_go_back_to_what_they_were_when_one_joined() {
             .expect("a member");
     }
     let read = private_board(&test, &workspace, &owner).await;
-    let as_viewer = BoardMember {
-        board_id: read.clone(),
+    let as_viewer = ContainerMember {
+        container_id: read.clone(),
         user_id: admin.clone(),
         scheme_viewer: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     test.add_member(&as_viewer).await.expect("a viewer of it");
 
     test.join_workspace_as_org_admin(&workspace, &admin)
         .await
         .expect("joined");
-    test.change_member(&BoardMember {
+    test.change_member(&ContainerMember {
         scheme_admin: true,
         ..as_viewer.clone()
     })
@@ -551,7 +565,7 @@ async fn the_roles_on_boards_go_back_to_what_they_were_when_one_joined() {
         .expect("left");
 
     let held = test
-        .get_member_for_board(&read, &admin)
+        .get_member_for_container(&read, &admin)
         .await
         .expect("the role they had stays");
     assert!(
@@ -559,7 +573,7 @@ async fn the_roles_on_boards_go_back_to_what_they_were_when_one_joined() {
         "a viewer again: {held:?}"
     );
     let error = test
-        .get_member_for_board(&made, &admin)
+        .get_member_for_container(&made, &admin)
         .await
         .expect_err("the board made meanwhile is not theirs");
     assert!(error.is_not_found(), "{error:?}");
@@ -581,22 +595,22 @@ async fn a_board_deleted_while_one_was_joined_comes_back_as_it_was_for_them() {
             .expect("a member");
     }
     let read = private_board(&test, &workspace, &owner).await;
-    let as_viewer = BoardMember {
-        board_id: read.clone(),
+    let as_viewer = ContainerMember {
+        container_id: read.clone(),
         user_id: admin.clone(),
         scheme_viewer: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     test.add_member(&as_viewer).await.expect("a viewer of it");
     let theirs_before = private_board(&test, &workspace, &admin).await;
-    test.delete_board(&theirs_before, &admin)
+    test.delete_container(&theirs_before, &admin)
         .await
         .expect("deleted before the joining");
 
     test.join_workspace_as_org_admin(&workspace, &admin)
         .await
         .expect("joined");
-    test.change_member(&BoardMember {
+    test.change_member(&ContainerMember {
         scheme_admin: true,
         ..as_viewer.clone()
     })
@@ -604,22 +618,24 @@ async fn a_board_deleted_while_one_was_joined_comes_back_as_it_was_for_them() {
     .expect("the admin raises their own role");
     let made = private_board(&test, &workspace, &admin).await;
     for board in [&read, &made] {
-        test.delete_board(board, &admin).await.expect("deleted");
+        test.delete_container(board, &admin).await.expect("deleted");
     }
     test.leave_workspace_as_org_admin(&workspace, &admin)
         .await
         .expect("left");
     for board in [&read, &made, &theirs_before] {
-        test.undelete_board(board, &owner).await.expect("restored");
+        test.undelete_container(board, &owner)
+            .await
+            .expect("restored");
     }
     let kept = test
-        .get_member_for_board(&theirs_before, &admin)
+        .get_member_for_container(&theirs_before, &admin)
         .await
         .expect("a board of theirs from before stays theirs");
     assert!(kept.scheme_admin, "its admin still: {kept:?}");
 
     let held = test
-        .get_member_for_board(&read, &admin)
+        .get_member_for_container(&read, &admin)
         .await
         .expect("the role they had comes back");
     assert!(
@@ -627,7 +643,7 @@ async fn a_board_deleted_while_one_was_joined_comes_back_as_it_was_for_them() {
         "a viewer again: {held:?}"
     );
     let error = test
-        .get_member_for_board(&made, &admin)
+        .get_member_for_container(&made, &admin)
         .await
         .expect_err("the board made meanwhile is not theirs");
     assert!(error.is_not_found(), "{error:?}");
@@ -667,13 +683,18 @@ async fn who_administers_no_more_changes_nothing() {
     }
     let added = test
         .add_member_recorded(
-            &BoardMember {
-                board_id: board.clone(),
+            &ContainerMember {
+                container_id: board.clone(),
                 user_id: former.clone(),
                 scheme_viewer: true,
-                ..BoardMember::default()
+                ..ContainerMember::default()
             },
-            &AuditEntry::new(&workspace, &former, AuditAction::SelfAddedToBoard, &board),
+            &AuditEntry::new(
+                &workspace,
+                &former,
+                AuditAction::SelfAddedToContainer,
+                &board,
+            ),
         )
         .await
         .expect_err("no manager of it");
@@ -806,7 +827,7 @@ async fn card_with_body(store: &Store, board_id: &str, user_id: &str) -> String 
     let mut card = Block {
         body: crate::body_links::body_naming("kept", &[&id]),
         id,
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type: BlockType::Card,
         ..Block::default()
     };
@@ -956,7 +977,7 @@ async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
         .expect("joined");
     let made = private_board(&test, &workspace, &admin).await;
     let seen = test
-        .get_member_for_board(&made, &admin)
+        .get_member_for_container(&made, &admin)
         .await
         .expect("its admin");
     let stale = Standing {
@@ -969,11 +990,11 @@ async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
         .await
         .expect("taken back");
 
-    let as_admin = |user_id: &str| BoardMember {
-        board_id: made.clone(),
+    let as_admin = |user_id: &str| ContainerMember {
+        container_id: made.clone(),
         user_id: user_id.to_owned(),
         scheme_admin: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     let added = test
         .add_member_asked(&as_admin(&accomplice), stale)
@@ -986,13 +1007,13 @@ async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
         .expect_err("not as they were");
     assert!(changed.is_not_found(), "{changed:?}");
     for user in [&accomplice, &admin] {
-        let found = test.get_member_for_board(&made, user).await;
+        let found = test.get_member_for_container(&made, user).await;
         assert!(found.is_err_and(|error| error.is_not_found()), "{user}");
     }
 
     let theirs = private_board(&test, &workspace, &owner).await;
     let owner_row = test
-        .get_member_for_board(&theirs, &owner)
+        .get_member_for_container(&theirs, &owner)
         .await
         .expect("its admin");
     let holds = Standing {
@@ -1001,11 +1022,11 @@ async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
         member: Some(&owner_row),
         team_role: None,
     };
-    let viewer = BoardMember {
-        board_id: theirs.clone(),
+    let viewer = ContainerMember {
+        container_id: theirs.clone(),
         user_id: accomplice.clone(),
         scheme_viewer: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     assert_eq!(
         test.add_member_asked(&viewer, holds)
@@ -1054,5 +1075,5 @@ async fn the_boards_of_a_workspace_that_goes_for_good_are_noted_for_the_search()
         [],
         "in the trash it is there for nobody, as it is"
     );
-    assert_eq!(gone, [(fvoci_store::SearchTarget::Board, board)]);
+    assert_eq!(gone, [(fvoci_store::SearchTarget::Container, board)]);
 }

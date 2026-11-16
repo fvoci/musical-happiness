@@ -1,8 +1,8 @@
 //! Users and their preferences.
 
 use fvoci_model::{
-    BoardKinds, BoardMember, Session, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
-    WorkspaceRole,
+    ContainerKinds, ContainerMember, Session, User, UserPreferencesPatch, UserSettings,
+    UserSettingsPatch, WorkspaceRole,
 };
 use fvoci_store::{AdminChange, InstanceRole, Looking, Preference, Sight};
 
@@ -20,13 +20,16 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if the memberships cannot be read.
-    pub async fn board_memberships(&self, session: &Session) -> Result<Vec<BoardMember>, AppError> {
+    pub async fn container_memberships(
+        &self,
+        session: &Session,
+    ) -> Result<Vec<ContainerMember>, AppError> {
         Ok(self
             .store()
-            .board_memberships_of_user(
+            .container_memberships_of_user(
                 &session.user_id,
                 session.login_provider_id(),
-                BoardKinds::Every,
+                ContainerKinds::Every,
             )
             .await?)
     }

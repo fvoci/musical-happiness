@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::{BoardMember, WorkspaceRole};
+use fvoci_model::{ContainerMember, WorkspaceRole};
 use serde_json::{Value, json};
 
 use crate::common::{Setup, TEST_WORKSPACE_ID};
@@ -185,7 +185,7 @@ async fn a_caret_is_gone_with_its_member() {
     let again = one.caret().await;
     th.client
         .delete(&format!(
-            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user2}",
+            "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user2}",
             t.board_id
         ))
         .await
@@ -256,11 +256,11 @@ async fn a_caret_stays_in_its_organization() {
     let th = Setup::native().start().await.init_basic().await;
     let (_table, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let (theirs, workspace_id, board_id) = crate::workspaces::another_organization(&th).await;
-    let members = theirs.get_members_for_board(&board_id).await;
+    let members = theirs.get_members_for_container(&board_id).await;
     let owner = members.expect("their members")[0].user_id.clone();
     let mut theirs_card = Block {
         id: fvoci_model::new_id(),
-        board_id: board_id.clone(),
+        container_id: board_id.clone(),
         block_type: BlockType::Card,
         title: "theirs".to_owned(),
         ..Block::default()
@@ -274,11 +274,11 @@ async fn a_caret_stays_in_its_organization() {
         .add_workspace_member(&workspace_id, &user2, WorkspaceRole::Guest)
         .await
         .expect("let into their workspace");
-    let member = BoardMember {
-        board_id,
+    let member = ContainerMember {
+        container_id: board_id,
         user_id: user2,
         scheme_editor: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     theirs.save_member(&member).await.expect("invited");
     let mut there = Peer::connect(&th.client2, 103).await;
@@ -503,7 +503,7 @@ async fn a_held_member_is_told_no_caret_until_the_check_keeps_them() {
     let removed = async {
         th.client
             .delete(&format!(
-                "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user2}",
+                "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user2}",
                 t.board_id
             ))
             .await

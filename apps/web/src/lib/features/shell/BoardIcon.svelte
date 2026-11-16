@@ -13,7 +13,7 @@
   import BookOpenIcon from '@lucide/svelte/icons/book-open';
 
   import { avatarInitial } from '$lib/components/avatar/avatar.ts';
-  import type { BoardKind } from '$lib/logic/wire.ts';
+  import type { ContainerKind } from '$lib/logic/wire.ts';
 
   interface Props {
     icon: string | undefined;
@@ -21,7 +21,7 @@
     /** The reader's language, for where a character ends and how it is uppercased. */
     locale: string;
     /** A board when left out. */
-    kind?: BoardKind | undefined;
+    kind?: ContainerKind | undefined;
   }
 
   let { icon, title, locale, kind }: Props = $props();

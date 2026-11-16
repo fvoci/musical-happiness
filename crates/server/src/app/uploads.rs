@@ -186,7 +186,7 @@ impl FileToUpload {
 }
 
 impl App {
-    /// Opens a session for `user_id` to upload a file to `board_id`. The caller has
+    /// Opens a session for `user_id` to upload a file to `container_id`. The caller has
     /// checked that the user may upload files to the board.
     ///
     /// # Errors
@@ -199,10 +199,10 @@ impl App {
     pub async fn create_upload(
         &self,
         user_id: &str,
-        board_id: &str,
+        container_id: &str,
         new: FileToUpload,
     ) -> Result<Upload, AppError> {
-        self.open_upload(user_id, UploadPurpose::File, board_id, new)
+        self.open_upload(user_id, UploadPurpose::File, container_id, new)
             .await
     }
 
@@ -283,7 +283,7 @@ impl App {
         let path = multipart
             .map(|_| FilePlace::new(target, &new.name).path)
             .unwrap_or_default();
-        let (board_id, workspace_id) = match purpose {
+        let (container_id, workspace_id) = match purpose {
             UploadPurpose::File => (target.to_owned(), String::new()),
             UploadPurpose::Import => (String::new(), target.to_owned()),
         };
@@ -291,7 +291,7 @@ impl App {
             id: new_secret(),
             user_id: user_id.to_owned(),
             purpose,
-            board_id,
+            container_id,
             workspace_id,
             name: new.name,
             size: new.size,
@@ -637,7 +637,7 @@ impl App {
         // record.
         let size = u64::try_from(upload.size).unwrap_or_default();
         let place = FilePlace::at(&upload.path, &upload.name);
-        let recorded = self.record_file(&upload.board_id, place, size).await;
+        let recorded = self.record_file(&upload.container_id, place, size).await;
         // A record whose answer was lost may be there all the same.
         if recorded.is_err() && self.remove_if_unrecorded(upload).await.is_none() {
             // Left closed for the clean-up to look at again.
@@ -685,7 +685,7 @@ impl App {
         directory: &Path,
     ) -> Result<String, AppError> {
         let mut reader = parts_reader(parts, directory).await?;
-        self.save_file(&mut reader, &upload.board_id, &upload.name)
+        self.save_file(&mut reader, &upload.container_id, &upload.name)
             .await
     }
 

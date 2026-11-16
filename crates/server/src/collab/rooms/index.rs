@@ -19,7 +19,7 @@ pub(super) struct Index {
 struct Shelf {
     by_card: HashMap<String, Arc<Room>>,
     /// The cards of each board that have a room.
-    by_board: HashMap<String, HashSet<String>>,
+    by_container: HashMap<String, HashSet<String>>,
 }
 
 impl Index {
@@ -37,8 +37,8 @@ impl Index {
         );
         let of_tenant = self.by_tenant.entry(tenant).or_default();
         of_tenant
-            .by_board
-            .entry(room.board_id.clone())
+            .by_container
+            .entry(room.container_id.clone())
             .or_default()
             .insert(room.card_id.clone());
         of_tenant.by_card.insert(room.card_id.clone(), room);
@@ -48,10 +48,10 @@ impl Index {
     pub(super) fn remove(&mut self, tenant: Tenant, card_id: &str) -> Option<Arc<Room>> {
         let of_tenant = self.by_tenant.get_mut(&tenant)?;
         let room = of_tenant.by_card.remove(card_id)?;
-        if let Some(cards) = of_tenant.by_board.get_mut(&room.board_id) {
+        if let Some(cards) = of_tenant.by_container.get_mut(&room.container_id) {
             cards.remove(card_id);
             if cards.is_empty() {
-                of_tenant.by_board.remove(&room.board_id);
+                of_tenant.by_container.remove(&room.container_id);
             }
         }
         if of_tenant.by_card.is_empty() {
@@ -91,10 +91,10 @@ impl Index {
                 .cloned()
                 .collect()
         };
-        if let Some(boards) = scope.named_boards() {
-            let mut cards = boards
+        if let Some(containers) = scope.named_containers() {
+            let mut cards = containers
                 .iter()
-                .filter_map(|board_id| of_tenant.by_board.get(board_id))
+                .filter_map(|container_id| of_tenant.by_container.get(container_id))
                 .flatten();
             named(&mut cards)
         } else if let Some(card_ids) = scope.named_cards() {

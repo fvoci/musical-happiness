@@ -273,7 +273,7 @@ impl Card {
         let summary = block.body.as_ref().map(Body::summary).unwrap_or_default();
         let mut card = Self {
             id: block.id.clone(),
-            board_id: block.board_id.clone(),
+            board_id: block.container_id.clone(),
             created_by: block.created_by.clone(),
             modified_by: block.modified_by.clone(),
             title: block.title.clone(),
@@ -318,7 +318,7 @@ impl From<Card> for Block {
             create_at: card.create_at,
             update_at: card.update_at,
             delete_at: card.delete_at,
-            board_id: card.board_id,
+            container_id: card.board_id,
             edited_at: 0,
         }
     }

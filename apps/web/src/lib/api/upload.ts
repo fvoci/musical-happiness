@@ -119,10 +119,10 @@ function newUploadOf(file: File): Schemas['NewUpload'] {
   return { name: file.name, size: file.size, ...(file.type ? { contentType: file.type } : {}) };
 }
 
-/** A file of a board: opened by `createUpload`, ended into a file by `completeUpload`. */
+/** A file of a board or a wiki: opened by `createUpload`, ended into a file by `completeUpload`. */
 export function uploadInParts(
   http: Http,
-  { workspaceId, boardId }: { workspaceId: string; boardId: string },
+  { workspaceId, containerId }: { workspaceId: string; containerId: string },
   file: File,
   options: UploadOptions = {},
 ): Promise<UploadedFile> {
@@ -133,8 +133,8 @@ export function uploadInParts(
     options,
     () =>
       http.request<Schemas['UploadOpened']>(
-        underWorkspace('/boards/{boardId}/uploads'),
-        { workspaceId, boardId },
+        underWorkspace('/containers/{containerId}/uploads'),
+        { workspaceId, containerId },
         { method: 'POST', json: newUploadOf(file) },
       ),
     async (uploadId, signal) => {

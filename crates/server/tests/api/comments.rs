@@ -196,7 +196,7 @@ async fn a_comment_is_on_a_card_and_has_nothing_below_it() {
         .patch(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "boardIds": [board_id], "boardPatches": [{}],
+                "containerIds": [board_id], "containerPatches": [{}],
                 "blockIds": [attachment.id], "blockPatches": [under_comment],
             }),
         )
@@ -438,7 +438,7 @@ async fn a_comment_is_changed_by_its_author_or_an_admin() {
     let many = format!("{TEST_WS}/boards/{board_id}/blocks");
     let together = |patch: Value| {
         json!({
-            "boardIds": [board_id], "boardPatches": [{}],
+            "containerIds": [board_id], "containerPatches": [{}],
             "blockIds": [comment.id], "blockPatches": [patch],
         })
     };
@@ -634,7 +634,7 @@ async fn a_commenter_changes_the_text_of_their_comment_but_does_not_move_it() {
         .await
         .check_error(StatusCode::FORBIDDEN, refused);
     let moved_together = json!({
-        "boardIds": [board_id], "boardPatches": [{}],
+        "containerIds": [board_id], "containerPatches": [{}],
         "blockIds": [own.id], "blockPatches": [{"parentId": second.id}],
     });
     boards
@@ -687,7 +687,7 @@ async fn an_editor_moves_their_own_comment_and_an_admin_anybodys() {
         .patch(
             &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
-                "boardIds": [board_id], "boardPatches": [{}],
+                "containerIds": [board_id], "containerPatches": [{}],
                 "blockIds": [editors.id], "blockPatches": [{"parentId": content.card.id}],
             }),
         )

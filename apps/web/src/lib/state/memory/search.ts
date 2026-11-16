@@ -1,5 +1,5 @@
 /** Finding boards by title in memory, as the server's `searchWorkspaceBoards` does. */
-import type { Board } from '../../logic/wire.ts';
+import type { Container } from '../../logic/wire.ts';
 
 import { copy } from './shapes.ts';
 import type { World } from './world.ts';
@@ -15,7 +15,7 @@ export function searchBoardsOf(
   userId: string,
   workspaceId: string,
   query: string,
-): Board[] {
+): Container[] {
   const words = query
     .toLowerCase()
     .split(' ')
@@ -23,7 +23,7 @@ export function searchBoardsOf(
   if (words.length === 0) return [];
   const isMember = (boardId: string): boolean =>
     (world.members.get(boardId) ?? []).some((member) => member.userId === userId);
-  return [...world.boards.values()]
+  return [...world.containers.values()]
     .filter(
       (board) =>
         !board.isTemplate &&

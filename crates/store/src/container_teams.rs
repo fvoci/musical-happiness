@@ -1,27 +1,31 @@
 //! Assigning workspace groups to boards, with authorization and audit in the transaction.
 
 use fvoci_model::{
-    AuditAction, Board, BoardMember, BoardTeam, BoardType, MinimumRole, WorkspaceRole,
+    AuditAction, Container, ContainerMember, ContainerTeam, ContainerType, MinimumRole,
+    WorkspaceRole,
 };
 
 use crate::audit::{self, AuditEntry};
 use crate::db::{Id, Scope};
-use crate::{Store, StoreError, board_team_access, boards, org_admin, teams, workspace_membership};
+use crate::{
+    Store, StoreError, container_team_access, containers, org_admin, teams, workspace_membership,
+};
 
 impl Store {
     /// Lists a board's assigned teams, including their current members.
     ///
     /// # Errors
     /// Returns the database error if the teams or their roles cannot be read.
-    pub async fn board_teams(
+    pub async fn container_teams(
         &self,
         workspace_id: &str,
-        board_id: &str,
-    ) -> Result<Vec<BoardTeam>, StoreError> {
+        container_id: &str,
+    ) -> Result<Vec<ContainerTeam>, StoreError> {
         self.with_conn(async |scope| {
             let groups = teams::list(scope, workspace_id).await?;
-            let mut sql = scope.sql("SELECT team_id, role FROM board_teams WHERE board_id = ");
-            sql.bind(Id(board_id))
+            let mut sql =
+                scope.sql("SELECT team_id, role FROM container_teams WHERE container_id = ");
+            sql.bind(Id(container_id))
                 .push_bind(" AND workspace_id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?);
             let rows = scope.fetch_all(sql).await?;
@@ -29,9 +33,9 @@ impl Store {
             for team in groups {
                 for row in &rows {
                     if row.id(0)? == team.id {
-                        assigned.push(BoardTeam {
+                        assigned.push(ContainerTeam {
                             team,
-                            role: board_team_access::parse_role(&row.text(1)?)?,
+                            role: container_team_access::parse_role(&row.text(1)?)?,
                         });
                         break;
                     }
@@ -50,41 +54,57 @@ impl Store {
     /// # Errors
     /// Returns not found for a missing or mismatched board/team or a revoked actor,
     /// or the database error. Audit records and the assignment commit together.
-    pub async fn set_board_team(
+    pub async fn set_container_team(
         &self,
         workspace_id: &str,
-        board_id: &str,
+        container_id: &str,
         team_id: &str,
         role: Option<MinimumRole>,
         by: &str,
-    ) -> Result<Vec<BoardMember>, StoreError> {
+    ) -> Result<Vec<ContainerMember>, StoreError> {
         self.transaction(async |scope| {
             org_admin::hold_organization_row(scope).await?;
             if !workspace_membership::hold_workspace(scope, workspace_id).await? {
                 return Err(StoreError::not_found("workspace"));
             }
-            boards::hold_board(scope, board_id).await?;
-            let board = boards::get_board(scope, board_id).await?;
-            if board.workspace_id != workspace_id { return Err(StoreError::not_found("board")); }
-            require_manager(scope, &board, by).await?;
+            containers::hold_container(scope, container_id).await?;
+            let container = containers::get_container(scope, container_id).await?;
+            if container.workspace_id != workspace_id {
+                return Err(StoreError::not_found("board"));
+            }
+            require_manager(scope, &container, by).await?;
             teams::require_team(scope, workspace_id, team_id).await?;
             // Giving the role it has, or taking away one it does not have, changes
             // nobody's access and is told to nobody.
-            if assigned_role(scope, board_id, team_id).await? == role {
+            if assigned_role(scope, container_id, team_id).await? == role {
                 return Ok(Vec::new());
             }
             let users = people(scope, team_id).await?;
-            let changes: Vec<BoardMember> = users.iter().map(|user_id| BoardMember { board_id: board_id.to_owned(), user_id: user_id.clone(), ..BoardMember::default() }).collect();
+            let changes: Vec<ContainerMember> = users
+                .iter()
+                .map(|user_id| ContainerMember {
+                    container_id: container_id.to_owned(),
+                    user_id: user_id.clone(),
+                    ..ContainerMember::default()
+                })
+                .collect();
             if let Some(role) = role {
-                record_new_access(scope, &board, &users, by).await?;
-                let mut sql = scope.sql("INSERT INTO board_teams (board_id, team_id, workspace_id, org_id, role) VALUES (");
-                sql.bind(Id(board_id)).push_bind(", ", Id(team_id)).push_bind(", ", Id(workspace_id))
+                record_new_access(scope, &container, &users, by).await?;
+                let mut sql = scope.sql(
+                    "INSERT INTO container_teams (container_id, team_id, workspace_id, org_id, \
+                     role) VALUES (",
+                );
+                sql.bind(Id(container_id))
+                    .push_bind(", ", Id(team_id))
+                    .push_bind(", ", Id(workspace_id))
                     .push_bind(", ", scope.org()?).push_bind(", ", role.as_str())
-                    .push(") ON CONFLICT (board_id, team_id, org_id) DO UPDATE SET role = EXCLUDED.role");
+                    .push(") ON CONFLICT (container_id, team_id, org_id) DO UPDATE SET role = EXCLUDED.role");
                 scope.execute(sql).await?;
             } else {
-                let mut sql = scope.sql("DELETE FROM board_teams WHERE board_id = ");
-                sql.bind(Id(board_id)).push_bind(" AND team_id = ", Id(team_id)).push_bind(" AND org_id = ", scope.org()?);
+                let mut sql = scope.sql("DELETE FROM container_teams WHERE container_id = ");
+                sql.bind(Id(container_id))
+                    .push_bind(" AND team_id = ", Id(team_id))
+                    .push_bind(" AND org_id = ", scope.org()?);
                 scope.execute(sql).await?;
             }
             end_lost_subscriptions(scope, &changes, TemplateAccess::CurrentMembership).await?;
@@ -93,11 +113,15 @@ impl Store {
     }
 }
 
-async fn require_manager(scope: &mut Scope<'_>, board: &Board, by: &str) -> Result<(), StoreError> {
-    let role = org_admin::membership(scope, &board.workspace_id, by)
+async fn require_manager(
+    scope: &mut Scope<'_>,
+    container: &Container,
+    by: &str,
+) -> Result<(), StoreError> {
+    let role = org_admin::membership(scope, &container.workspace_id, by)
         .await?
         .map(|(role, _)| role);
-    let direct = boards::find_member(scope, &board.id, by).await?;
+    let direct = containers::find_member(scope, &container.id, by).await?;
     if role == Some(WorkspaceRole::Admin)
         || (role == Some(WorkspaceRole::Member) && direct.is_some_and(|m| m.scheme_admin))
     {
@@ -107,20 +131,20 @@ async fn require_manager(scope: &mut Scope<'_>, board: &Board, by: &str) -> Resu
     }
 }
 
-/// The role the team `team_id` has on the board `board_id`; `None` if it has none.
+/// The role the team `team_id` has on the board `container_id`; `None` if it has none.
 async fn assigned_role(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
     team_id: &str,
 ) -> Result<Option<MinimumRole>, StoreError> {
-    let mut sql = scope.sql("SELECT role FROM board_teams WHERE board_id = ");
-    sql.bind(Id(board_id))
+    let mut sql = scope.sql("SELECT role FROM container_teams WHERE container_id = ");
+    sql.bind(Id(container_id))
         .push_bind(" AND team_id = ", Id(team_id))
         .push_bind(" AND org_id = ", scope.org()?);
     scope
         .fetch_optional(sql)
         .await?
-        .map(|row| board_team_access::parse_role(&row.text(0)?))
+        .map(|row| container_team_access::parse_role(&row.text(0)?))
         .transpose()
 }
 
@@ -143,12 +167,16 @@ pub(crate) async fn people(
         .collect()
 }
 
-async fn reads(scope: &mut Scope<'_>, board_id: &str, user_id: &str) -> Result<bool, StoreError> {
-    let direct = boards::find_member(scope, board_id, user_id)
+async fn reads(
+    scope: &mut Scope<'_>,
+    container_id: &str,
+    user_id: &str,
+) -> Result<bool, StoreError> {
+    let direct = containers::find_member(scope, container_id, user_id)
         .await?
         .and_then(|m| m.role());
     Ok(direct
-        .max(board_team_access::role_for(scope, board_id, user_id).await?)
+        .max(container_team_access::role_for(scope, container_id, user_id).await?)
         .is_some())
 }
 
@@ -156,14 +184,14 @@ async fn reads(scope: &mut Scope<'_>, board_id: &str, user_id: &str) -> Result<b
 /// also covers an administrator joining a team already assigned to private boards.
 pub(crate) async fn record_new_access(
     scope: &mut Scope<'_>,
-    board: &Board,
+    container: &Container,
     users: &[String],
     by: &str,
 ) -> Result<(), StoreError> {
-    if board.board_type == BoardType::Open || reads(scope, &board.id, by).await? {
+    if container.container_type == ContainerType::Open || reads(scope, &container.id, by).await? {
         return Ok(());
     }
-    if org_admin::membership(scope, &board.workspace_id, by)
+    if org_admin::membership(scope, &container.workspace_id, by)
         .await?
         .map(|(role, _)| role)
         != Some(WorkspaceRole::Admin)
@@ -171,22 +199,22 @@ pub(crate) async fn record_new_access(
         return Ok(());
     }
     for user_id in users {
-        if reads(scope, &board.id, user_id).await? {
+        if reads(scope, &container.id, user_id).await? {
             continue;
         }
         let entry = if user_id == by {
             AuditEntry::new(
-                &board.workspace_id,
+                &container.workspace_id,
                 by,
-                AuditAction::SelfAddedToBoard,
-                &board.id,
+                AuditAction::SelfAddedToContainer,
+                &container.id,
             )
         } else {
             AuditEntry::new(
-                &board.workspace_id,
+                &container.workspace_id,
                 by,
-                AuditAction::AddedToBoard,
-                &board.id,
+                AuditAction::AddedToContainer,
+                &container.id,
             )
             .with_subject(user_id)
         };
@@ -200,23 +228,23 @@ pub(crate) async fn affected(
     scope: &mut Scope<'_>,
     team_id: &str,
     only_user: Option<&str>,
-) -> Result<Vec<BoardMember>, StoreError> {
-    let mut sql = scope.sql("SELECT bt.board_id, tm.user_id FROM board_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id WHERE bt.team_id = ");
+) -> Result<Vec<ContainerMember>, StoreError> {
+    let mut sql = scope.sql("SELECT bt.container_id, tm.user_id FROM container_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id WHERE bt.team_id = ");
     sql.bind(Id(team_id))
         .push_bind(" AND bt.org_id = ", scope.org()?);
     if let Some(user_id) = only_user {
         sql.push_bind(" AND tm.user_id = ", Id(user_id));
     }
-    sql.push(" ORDER BY bt.board_id, tm.user_id");
+    sql.push(" ORDER BY bt.container_id, tm.user_id");
     scope
         .fetch_all(sql)
         .await?
         .iter()
         .map(|row| {
-            Ok(BoardMember {
-                board_id: row.id(0)?,
+            Ok(ContainerMember {
+                container_id: row.id(0)?,
                 user_id: row.id(1)?,
-                ..BoardMember::default()
+                ..ContainerMember::default()
             })
         })
         .collect()
@@ -228,22 +256,22 @@ pub(crate) async fn joining(
     team_id: &str,
     user_id: &str,
     by: &str,
-) -> Result<Vec<BoardMember>, StoreError> {
-    let mut sql = scope.sql("SELECT board_id FROM board_teams WHERE team_id = ");
+) -> Result<Vec<ContainerMember>, StoreError> {
+    let mut sql = scope.sql("SELECT container_id FROM container_teams WHERE team_id = ");
     sql.bind(Id(team_id))
         .push_bind(" AND org_id = ", scope.org()?)
-        .push(" ORDER BY board_id");
+        .push(" ORDER BY container_id");
     let rows = scope.fetch_all(sql).await?;
     let mut changes = Vec::new();
     for row in rows {
-        let board_id = row.id(0)?;
-        boards::hold_board(scope, &board_id).await?;
-        let board = boards::get_board(scope, &board_id).await?;
-        record_new_access(scope, &board, &[user_id.to_owned()], by).await?;
-        changes.push(BoardMember {
-            board_id,
+        let container_id = row.id(0)?;
+        containers::hold_container(scope, &container_id).await?;
+        let container = containers::get_container(scope, &container_id).await?;
+        record_new_access(scope, &container, &[user_id.to_owned()], by).await?;
+        changes.push(ContainerMember {
+            container_id,
             user_id: user_id.to_owned(),
-            ..BoardMember::default()
+            ..ContainerMember::default()
         });
     }
     Ok(changes)
@@ -259,16 +287,16 @@ pub(crate) enum TemplateAccess {
 /// Removing one source preserves subscriptions while another reading permission remains.
 pub(crate) async fn end_lost_subscriptions(
     scope: &mut Scope<'_>,
-    changes: &[BoardMember],
+    changes: &[ContainerMember],
     template_access: TemplateAccess,
 ) -> Result<(), StoreError> {
     for member in changes {
-        if !reads(scope, &member.board_id, &member.user_id).await?
+        if !reads(scope, &member.container_id, &member.user_id).await?
             && !reads_template(scope, member, template_access).await?
         {
-            crate::subscriptions::end_subscriptions_to_board(
+            crate::subscriptions::end_subscriptions_to_container(
                 scope,
-                &member.board_id,
+                &member.container_id,
                 &member.user_id,
             )
             .await?;
@@ -279,18 +307,18 @@ pub(crate) async fn end_lost_subscriptions(
 
 async fn reads_template(
     scope: &mut Scope<'_>,
-    member: &BoardMember,
+    member: &ContainerMember,
     access: TemplateAccess,
 ) -> Result<bool, StoreError> {
     if matches!(access, TemplateAccess::Ending) {
         return Ok(false);
     }
-    let board = boards::get_board(scope, &member.board_id).await?;
-    if !board.is_template || board.board_type != BoardType::Open {
+    let container = containers::get_container(scope, &member.container_id).await?;
+    if !container.is_template || container.container_type != ContainerType::Open {
         return Ok(false);
     }
     Ok(
-        org_admin::membership(scope, &board.workspace_id, &member.user_id)
+        org_admin::membership(scope, &container.workspace_id, &member.user_id)
             .await?
             .is_some_and(|(role, _)| role != WorkspaceRole::Guest),
     )

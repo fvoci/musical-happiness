@@ -54,8 +54,8 @@ test('a board is made with its first view, changed, deleted and brought back', a
   await expect(page).toHaveURL(ON_A_VIEW);
   const { workspaceId, boardId, viewId } = placeOf(page.url());
   const board = (await (
-    await api.get(`/api/v1/w/${workspaceId}/boards/${boardId}`)
-  ).json()) as Schemas['Board'];
+    await api.get(`/api/v1/w/${workspaceId}/containers/${boardId}`)
+  ).json()) as Schemas['Container'];
   const status = board.cardProperties.find((template) => template.type === 'select');
   expect(status?.name).toBe('Status');
   const [first, ...others] = await views(api, { workspaceId, boardId });
@@ -65,10 +65,10 @@ test('a board is made with its first view, changed, deleted and brought back', a
   // Filed under the reader's default category by the server.
   const categories = (await (
     await api.get(`/api/v1/w/${board.workspaceId}/categories`)
-  ).json()) as Schemas['CategoryBoards'][];
-  expect(categories.flatMap((one) => one.boardMetadata.map((entry) => entry.boardId))).toContain(
-    boardId,
-  );
+  ).json()) as Schemas['CategoryContainers'][];
+  expect(
+    categories.flatMap((one) => one.containerMetadata.map((entry) => entry.containerId)),
+  ).toContain(boardId);
 
   // Its title.
   const title = page.getByTestId('top-bar').getByTestId('board-title');
@@ -80,8 +80,8 @@ test('a board is made with its first view, changed, deleted and brought back', a
       async () =>
         (
           (await (
-            await api.get(`/api/v1/w/${workspaceId}/boards/${boardId}`)
-          ).json()) as Schemas['Board']
+            await api.get(`/api/v1/w/${workspaceId}/containers/${boardId}`)
+          ).json()) as Schemas['Container']
         ).title,
     )
     .toBe('Launch plan');
@@ -101,7 +101,7 @@ test('a board is made with its first view, changed, deleted and brought back', a
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(boardLink(page, 'Launch plan')).toHaveCount(0);
   await expect
-    .poll(async () => (await api.get(`/api/v1/w/${workspaceId}/boards/${boardId}`)).status())
+    .poll(async () => (await api.get(`/api/v1/w/${workspaceId}/containers/${boardId}`)).status())
     .toBe(404);
   await expect(page.getByTestId('not-found')).toBeVisible();
   await page.getByTestId('undo').click();
@@ -109,7 +109,7 @@ test('a board is made with its first view, changed, deleted and brought back', a
   // The page, which showed it as gone, shows it again.
   await expect(title).toHaveValue('Launch plan');
   await expect(page.getByTestId('not-found')).toHaveCount(0);
-  expect((await api.get(`/api/v1/w/${workspaceId}/boards/${boardId}`)).status()).toBe(200);
+  expect((await api.get(`/api/v1/w/${workspaceId}/containers/${boardId}`)).status()).toBe(200);
   expect(await views(api, { workspaceId, boardId })).toHaveLength(2);
 
   // Brought back, it is filed nowhere; hidden, it is filed first and stays hidden.
@@ -118,12 +118,12 @@ test('a board is made with its first view, changed, deleted and brought back', a
     .poll(async () => {
       const categories = (await (
         await api.get(`/api/v1/w/${board.workspaceId}/categories`)
-      ).json()) as Schemas['CategoryBoards'][];
+      ).json()) as Schemas['CategoryContainers'][];
       return categories
-        .flatMap((one) => one.boardMetadata)
-        .find((entry) => entry.boardId === boardId);
+        .flatMap((one) => one.containerMetadata)
+        .find((entry) => entry.containerId === boardId);
     })
-    .toEqual({ boardId, hidden: true });
+    .toEqual({ containerId: boardId, hidden: true });
   await page.waitForTimeout(500);
   await expect(boardLink(page, 'Launch plan')).toHaveCount(0);
   await expect(page.locator('[data-problem]')).toHaveCount(0);

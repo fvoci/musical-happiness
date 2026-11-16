@@ -240,7 +240,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
   const workspaceId = plan.workspaceId ?? workspaces[0]?.id ?? '';
   const statuses = plan.statuses ?? ['To do', 'Doing', 'Done'];
   const options = Object.fromEntries(statuses.map((name, at) => [name, `opt-${at}`]));
-  const board = await json<Schemas['Board']>(
+  const board = await json<Schemas['Container']>(
     await api.post(`/api/v1/w/${workspaceId}/boards`, {
       data: {
         type: plan.type ?? 'P',
@@ -268,7 +268,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
     await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.id}/blocks`, {
       data: [
         {
-          boardId: board.id,
+          containerId: board.id,
           type: 'view',
           title: 'By status',
           createAt: 1,
@@ -312,7 +312,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
     const user = found.find((candidate) => candidate.username === who.username);
     if (!user) throw new Error(`no user ${who.username}`);
     await ok(
-      await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.id}/members`, {
+      await api.post(`/api/v1/w/${board.workspaceId}/containers/${board.id}/members`, {
         data: {
           userId: user.id,
           schemeViewer: true,

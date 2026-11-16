@@ -4,7 +4,7 @@
 //! (`permissions::WorkspacePermission::ManageMembers`); what a change of role makes of
 //! a member is `permissions::may_become`.
 
-use fvoci_model::{BoardMember, BoardRole, WorkspaceMember, WorkspaceRole, is_id};
+use fvoci_model::{ContainerMember, ContainerRole, WorkspaceMember, WorkspaceRole, is_id};
 use fvoci_store::MembershipChange;
 
 use super::App;
@@ -148,9 +148,9 @@ impl App {
         self.collab()
             .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
             .await;
-        for board_id in taken_over {
+        for container_id in taken_over {
             self.collab()
-                .recheck_access(self, AccessScope::board(board_id).of_user(by))
+                .recheck_access(self, AccessScope::container(container_id).of_user(by))
                 .await;
         }
     }
@@ -180,19 +180,19 @@ impl App {
     ) -> Result<Vec<String>, AppError> {
         match change {
             MembershipChange::Done { taken_over } => {
-                for board_id in taken_over.iter().cloned() {
+                for container_id in taken_over.iter().cloned() {
                     tracing::info!(
                         workspace_id,
-                        board_id,
+                        container_id,
                         by,
                         "a board passed to who manages the workspace"
                     );
-                    let admin = BoardMember {
-                        board_id,
+                    let admin = ContainerMember {
+                        container_id,
                         user_id: by.to_owned(),
-                        ..BoardMember::default()
+                        ..ContainerMember::default()
                     }
-                    .with_role(Some(BoardRole::Admin));
+                    .with_role(Some(ContainerRole::Admin));
                     self.broadcast_member_change_in_background(workspace_id.to_owned(), admin);
                 }
                 Ok(taken_over)

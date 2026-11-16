@@ -1,6 +1,6 @@
 //! The previews the card list gives when asked.
 
-use fvoci_model::{Board, BoardType, new_id};
+use fvoci_model::{Container, ContainerType, new_id};
 use serde_json::{Value, json};
 
 use crate::cards::cards_path;
@@ -11,8 +11,10 @@ use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
 /// first user, whose body has a mention, a text whose cut falls before an emoji, an image
 /// in a list and another after it; and "without", with no body. Returns the board, the
 /// file of the image in the list, and the first user's identifier.
-async fn board_with_previewed_card(th: &TestServer) -> (Board, String, String) {
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+async fn board_with_previewed_card(th: &TestServer) -> (Container, String, String) {
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let me = th.client.me().await;
     let upload = crate::files::upload(&th.client, &board.id, "picture.png", b"png").await;
     upload.check_created();
@@ -22,7 +24,7 @@ async fn board_with_previewed_card(th: &TestServer) -> (Board, String, String) {
     let later_id = crate::files::uploaded_id(&later);
     th.client
         .patch(
-            &format!("{TEST_WS}/boards/{}", board.id),
+            &format!("{TEST_WS}/containers/{}", board.id),
             &json!({"updatedCardProperties": [
                 {"id": "owner", "name": "Owner", "type": "person", "options": []},
             ]}),
@@ -45,10 +47,10 @@ async fn board_with_previewed_card(th: &TestServer) -> (Board, String, String) {
         {"type": "image", "attrs": {"fileId": later_id}},
         paragraph("more"),
     ]});
-    let with_body = json!({"id": new_id(), "boardId": board.id, "type": "card", "title": "with",
+    let with_body = json!({"id": new_id(), "containerId": board.id, "type": "card", "title": "with",
                            "createAt": 1, "updateAt": 1, "body": body,
                            "fields": {"properties": {"owner": me.id}}});
-    let without = json!({"id": new_id(), "boardId": board.id, "type": "card", "title": "without",
+    let without = json!({"id": new_id(), "containerId": board.id, "type": "card", "title": "without",
                          "createAt": 1, "updateAt": 1});
     th.client
         .post(

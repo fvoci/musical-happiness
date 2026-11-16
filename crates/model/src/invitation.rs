@@ -9,7 +9,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::NewAccount;
-use crate::board::{BoardKind, BoardRole};
+use crate::container::{ContainerKind, ContainerRole};
 use crate::organization::WorkspaceRole;
 use crate::serde_util::null_as_default;
 
@@ -31,11 +31,11 @@ pub struct Invitation {
     pub role: WorkspaceRole,
     /// For a guest: the board or the wiki they are invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub board_id: Option<String>,
+    pub container_id: Option<String>,
     /// For a guest: their role on that board, `viewer`, `commenter` or `editor`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>)]
-    pub board_role: Option<BoardRole>,
+    pub container_role: Option<ContainerRole>,
     /// The identifier of the user who made the link.
     pub created_by: String,
     /// When the link was made, in milliseconds since the Unix epoch.
@@ -67,8 +67,8 @@ impl fmt::Debug for Invitation {
             .field("id", &self.id)
             .field("workspace_id", &self.workspace_id)
             .field("role", &self.role)
-            .field("board_id", &self.board_id)
-            .field("board_role", &self.board_role)
+            .field("container_id", &self.container_id)
+            .field("container_role", &self.container_role)
             .field("created_by", &self.created_by)
             .field("expires_at", &self.expires_at)
             .field("max_uses", &self.max_uses)
@@ -86,12 +86,12 @@ pub struct NewInvitation {
     pub role: WorkspaceRole,
     /// For a guest: the board or the wiki they are invited to. Not for a member.
     #[serde(default)]
-    pub board_id: Option<String>,
+    pub container_id: Option<String>,
     /// For a guest: their role on that board, `viewer`, `commenter` or `editor`; an
     /// editor if left out. Not for a member.
     #[serde(default)]
     #[schema(value_type = Option<String>)]
-    pub board_role: Option<BoardRole>,
+    pub container_role: Option<ContainerRole>,
 }
 
 /// A request that carries the token of a link and nothing else.
@@ -121,10 +121,10 @@ pub struct InvitationPreview {
     pub inviter_name: String,
     /// For a guest: the title of the board or the wiki they are invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub board_title: Option<String>,
+    pub container_title: Option<String>,
     /// For a guest: which of the two it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub board_kind: Option<BoardKind>,
+    pub container_kind: Option<ContainerKind>,
 }
 
 /// A request to accept a link.
@@ -161,10 +161,10 @@ pub struct AcceptedInvitation {
     pub workspace_id: String,
     /// For a guest: the board or the wiki they were invited to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub board_id: Option<String>,
+    pub container_id: Option<String>,
     /// For a guest: which of the two it is, so that they are sent to its own address.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub board_kind: Option<BoardKind>,
+    pub container_kind: Option<ContainerKind>,
 }
 
 /// A request to email an existing invitation to one or more recipients.

@@ -1,4 +1,4 @@
-//! Copying a wiki whole (`duplicateBoard` of a wiki): its pages as they stand, their
+//! Copying a wiki whole (`duplicateContainer` of a wiki): its pages as they stand, their
 //! tree and bodies, the images given files of their own, and what a body names among
 //! the wiki's pages named by the copies; not its comments, versions, trash, members or
 //! public link. A wiki is no template, and the copy is held to the limits.
@@ -6,7 +6,8 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    BoardKind, BoardMember, BoardType, BoardsAndBlocks, NewPage, PageLimits, PageNode,
+    ContainerKind, ContainerMember, ContainerType, ContainersAndBlocks, NewPage, PageLimits,
+    PageNode,
 };
 use serde_json::{Value, json};
 
@@ -92,13 +93,17 @@ pub(crate) fn titled_id(tree: &[PageNode], title: &str) -> String {
 async fn duplicate(client: &Client, board_id: &str, query: &str) -> crate::common::ApiResponse {
     client
         .post(
-            &format!("{TEST_WS}/boards/{board_id}/duplicate{query}"),
+            &format!("{TEST_WS}/containers/{board_id}/duplicate{query}"),
             &json!({}),
         )
         .await
 }
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the pages, their bodies and their images, checked on one copy"
+)]
 async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_copies() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let client = &ts.client;
@@ -127,7 +132,7 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
         .check_created();
     client
         .post(
-            &format!("{TEST_WS}/boards/{wiki}/sharing"),
+            &format!("{TEST_WS}/containers/{wiki}/sharing"),
             &json!({"enabled": true}),
         )
         .await
@@ -135,21 +140,25 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
     let other = ts.client2.me().await.id;
     client
         .post(
-            &format!("{TEST_WS}/boards/{wiki}/members"),
-            &json!({"boardId": wiki, "userId": other, "schemeEditor": true}),
+            &format!("{TEST_WS}/containers/{wiki}/members"),
+            &json!({"containerId": wiki, "userId": other, "schemeEditor": true}),
         )
         .await
         .check_ok();
 
-    let copies: BoardsAndBlocks = duplicate(client, &wiki, "").await.created_json();
-    let copy = &copies.boards[0];
-    assert_eq!(copy.kind, BoardKind::Wiki);
+    let copies: ContainersAndBlocks = duplicate(client, &wiki, "").await.created_json();
+    let copy = &copies.containers[0];
+    assert_eq!(copy.kind, ContainerKind::Wiki);
     assert_eq!(copy.title, "Handbook copy");
     assert_eq!(
         (copy.description.as_str(), copy.icon.as_str()),
         ("how we work", "📗")
     );
-    assert_eq!(copy.board_type, BoardType::Private, "a copy is private");
+    assert_eq!(
+        copy.container_type,
+        ContainerType::Private,
+        "a copy is private"
+    );
     assert_ne!(copy.id, wiki);
 
     // The same tree, in the same order, without the page in the trash.
@@ -198,7 +207,10 @@ async fn a_wiki_is_copied_with_its_pages_bodies_and_images_and_names_its_own_cop
         .to_owned();
     assert_ne!(copied_file, file);
     let read = client
-        .get(&format!("{TEST_WS}/boards/{}/files/{copied_file}", copy.id))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{copied_file}",
+            copy.id
+        ))
         .await;
     read.check_ok();
     assert_eq!(read.body, b"a picture\n");
@@ -225,8 +237,8 @@ async fn check_left_behind(ts: &TestServer, copy: &str, copy_a: &str) {
         .await
         .expect("the trash");
     assert!(trash.is_empty(), "nothing of the trash is copied");
-    let members: Vec<BoardMember> = client
-        .get(&format!("{TEST_WS}/boards/{copy}/members"))
+    let members: Vec<ContainerMember> = client
+        .get(&format!("{TEST_WS}/containers/{copy}/members"))
         .await
         .ok_json();
     let me = client.me().await.id;
@@ -236,7 +248,7 @@ async fn check_left_behind(ts: &TestServer, copy: &str, copy_a: &str) {
         "who copies it administers the copy"
     );
     let sharing = client
-        .get(&format!("{TEST_WS}/boards/{copy}/sharing"))
+        .get(&format!("{TEST_WS}/containers/{copy}/sharing"))
         .await;
     sharing.check_ok();
     assert_eq!(sharing.value()["enabled"], json!(false), "no public link");
@@ -341,10 +353,10 @@ async fn a_wiki_is_copied_into_another_workspace_of_its_copier_with_its_files() 
     write(client, &wiki, &a, &image).await;
     let me = client.me().await.id;
     let other = crate::boards::another_workspace(&ts, &me).await;
-    let copies: BoardsAndBlocks = duplicate(client, &wiki, &format!("?toWorkspace={other}"))
+    let copies: ContainersAndBlocks = duplicate(client, &wiki, &format!("?toWorkspace={other}"))
         .await
         .created_json();
-    let copy = &copies.boards[0];
+    let copy = &copies.containers[0];
     assert_eq!(copy.workspace_id, other);
     let at = format!("/w/{other}");
     let copy_a = titled_id(&tree_of(client, &at, &copy.id).await, "Welcome");
@@ -355,7 +367,7 @@ async fn a_wiki_is_copied_into_another_workspace_of_its_copier_with_its_files() 
         .to_owned();
     assert_ne!(copied_file, file);
     let read = client
-        .get(&format!("{at}/boards/{}/files/{copied_file}", copy.id))
+        .get(&format!("{at}/containers/{}/files/{copied_file}", copy.id))
         .await;
     read.check_ok();
     assert_eq!(read.body, b"a picture\n");

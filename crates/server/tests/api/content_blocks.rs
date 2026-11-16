@@ -7,7 +7,7 @@
 //! `server/app/content_blocks_test.go` went with it; `crates/server/PORTING.md` lists
 //! them.
 
-use fvoci_model::{Block, BlockType, BoardType, new_id};
+use fvoci_model::{Block, BlockType, ContainerType, new_id};
 
 use crate::common::{Setup, TEST_WORKSPACE_ID};
 
@@ -16,10 +16,12 @@ use crate::common::{Setup, TEST_WORKSPACE_ID};
 #[tokio::test]
 async fn moving_a_content_block_is_no_route() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let block = |id: &str, parent: &str, block_type: BlockType| Block {
         id: id.to_owned(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         parent_id: parent.to_owned(),
         block_type,
         create_at: 1,

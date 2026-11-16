@@ -33,12 +33,12 @@ function inviteOnlyBoard(): MemoryBackend {
     type: 'P' as const,
     title: 'Hidden',
   };
-  world.boards.set(board.id, board);
+  world.containers.set(board.id, board);
   world.members.set(board.id, [memberOf(board.id, 'someone-else', 'admin')]);
   const block = (id: string, type: Block['type'], title: string): Block => ({
     id,
     type,
-    boardId: 'b',
+    containerId: 'b',
     parentId: 'b',
     createdBy: 'someone-else',
     modifiedBy: 'someone-else',
@@ -69,7 +69,7 @@ function inviteOnlyBoard(): MemoryBackend {
   });
   world.files.set(file.fileId, {
     ...file,
-    boardId: 'b',
+    containerId: 'b',
     blob: new Blob(['Example file']),
     url: 'blob:example',
   });
@@ -111,7 +111,7 @@ describe('a board the reader is not a member of', () => {
 
   it('still lets the reader see the board and its members, to manage them', async () => {
     const backend = inviteOnlyBoard();
-    expect(await statusOf(backend.board('b'))).toBe('ok');
+    expect(await statusOf(backend.container('b'))).toBe('ok');
     expect(await statusOf(backend.members('b'))).toBe('ok');
   });
 });
@@ -135,7 +135,7 @@ describe('membership changes', () => {
 
   it('asks nonmembers of an open board to join instead of returning its content', async () => {
     const backend = inviteOnlyBoard();
-    const board = backend.world.boards.get('b');
+    const board = backend.world.containers.get('b');
     if (!board) throw new Error('missing test board');
     board.type = 'O';
     expect(await statusOf(backend.views('b'))).toBe(403);

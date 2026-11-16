@@ -5,7 +5,7 @@
 //! the first go once the other waits for it, and asks that both end as they should; on
 //! SQLite, whose writers take turns, the two run one after the other.
 
-use fvoci_model::{BoardRole, DeleteBoardsAndBlocks, GuestInvitationsChange, Invitation};
+use fvoci_model::{ContainerRole, DeleteContainersAndBlocks, GuestInvitationsChange, Invitation};
 use fvoci_store::{DbType, MailedTo, NewLink, StoreError};
 
 use crate::common::{self, TestStore};
@@ -23,7 +23,10 @@ fn mailed_like<'a>(
 ) -> NewLink<'a> {
     NewLink {
         workspace_id,
-        guest_of: parent.board_id.as_deref().map(|id| (id, BoardRole::Viewer)),
+        guest_of: parent
+            .container_id
+            .as_deref()
+            .map(|id| (id, ContainerRole::Viewer)),
         token_hash,
         created_by: &parent.created_by,
         now: NOW,
@@ -69,7 +72,7 @@ async fn revoking_a_link_and_deleting_its_board_wait_for_each_other() {
     let admin = common::user(&test, "admin").await;
     let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
     let board_id = boards[0].id.clone();
-    let guest_of = Some((board_id.as_str(), BoardRole::Viewer));
+    let guest_of = Some((board_id.as_str(), ContainerRole::Viewer));
     let parent = link(&test, &admin, "parent", guest_of, None).await;
     let child = test
         .create_invitation(&mailed_like(&test.workspace_id, &parent, "child"))
@@ -78,7 +81,9 @@ async fn revoking_a_link_and_deleting_its_board_wait_for_each_other() {
     if common::db_type() != DbType::Postgres {
         let revoked = test.revoke_invitation(&test.workspace_id, &parent.id, None, NOW);
         assert!(revoked.await.expect("revoked"));
-        test.delete_board(&board_id, &admin).await.expect("deleted");
+        test.delete_container(&board_id, &admin)
+            .await
+            .expect("deleted");
         let child = test.unended_invitation("child", NOW).await.expect("asked");
         assert_eq!(child, None, "the child went with its board");
         test.teardown().await;
@@ -111,7 +116,7 @@ async fn revoking_a_link_and_deleting_its_board_wait_for_each_other() {
     });
     let revoking = gate.stopped(&revoke).await;
     let by = admin.clone();
-    let delete = tokio::spawn(async move { deleter.delete_board(&board_id, &by).await });
+    let delete = tokio::spawn(async move { deleter.delete_container(&board_id, &by).await });
     gate.waits_for(revoking, &delete).await;
     gate.open().await;
 
@@ -133,17 +138,17 @@ async fn turning_guest_links_off_and_deleting_their_boards_wait_for_each_other()
     let test = common::setup().await;
     let admin = common::user(&test, "admin").await;
     let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 2).await;
-    let on_board = |at: usize| Some((boards[at].id.as_str(), BoardRole::Viewer));
+    let on_board = |at: usize| Some((boards[at].id.as_str(), ContainerRole::Viewer));
     let first = link(&test, &admin, "first", on_board(0), None).await;
     let second = link(&test, &admin, "second", on_board(1), None).await;
-    let both = DeleteBoardsAndBlocks {
-        boards: vec![boards[1].id.clone(), boards[0].id.clone()],
+    let both = DeleteContainersAndBlocks {
+        containers: vec![boards[1].id.clone(), boards[0].id.clone()],
         blocks: Vec::new(),
     };
     if common::db_type() != DbType::Postgres {
         let turned = test.set_guest_invitations(&test.workspace_id, OFF, &admin);
         turned.await.expect("turned off");
-        let deleted = test.delete_boards_and_blocks(&both, &admin);
+        let deleted = test.delete_containers_and_blocks(&both, &admin);
         deleted.await.expect("deleted");
         test.teardown().await;
         return;
@@ -167,7 +172,8 @@ async fn turning_guest_links_off_and_deleting_their_boards_wait_for_each_other()
         tokio::spawn(async move { turner.set_guest_invitations(&workspace_id, OFF, &by).await });
     let turning = gate.stopped(&turn_off).await;
     let by = admin.clone();
-    let delete = tokio::spawn(async move { deleter.delete_boards_and_blocks(&both, &by).await });
+    let delete =
+        tokio::spawn(async move { deleter.delete_containers_and_blocks(&both, &by).await });
     gate.waits_for(turning, &delete).await;
     gate.open().await;
 
@@ -187,7 +193,7 @@ async fn a_link_mailed_while_guest_links_are_turned_off_waits_and_is_not_made() 
     let test = common::setup().await;
     let admin = common::user(&test, "admin").await;
     let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
-    let guest_of = Some((boards[0].id.as_str(), BoardRole::Viewer));
+    let guest_of = Some((boards[0].id.as_str(), ContainerRole::Viewer));
     let parent = link(&test, &admin, "parent", guest_of, None).await;
     if common::db_type() != DbType::Postgres {
         let turned = test.set_guest_invitations(&test.workspace_id, OFF, &admin);
@@ -271,10 +277,12 @@ async fn made_while_the_board_is_deleted(made: Made) {
     let admin = common::user(&test, "admin").await;
     let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
     let board_id = boards[0].id.clone();
-    let guest_of = Some((board_id.as_str(), BoardRole::Viewer));
+    let guest_of = Some((board_id.as_str(), ContainerRole::Viewer));
     let parent = link(&test, &admin, "parent", guest_of, None).await;
     if common::db_type() != DbType::Postgres {
-        test.delete_board(&board_id, &admin).await.expect("deleted");
+        test.delete_container(&board_id, &admin)
+            .await
+            .expect("deleted");
         let answer = test
             .create_invitation(&on_the_board(&test.workspace_id, &parent, made))
             .await;
@@ -287,11 +295,11 @@ async fn made_while_the_board_is_deleted(made: Made) {
     }
 
     // The deletion stops once it holds the board, as it puts the board in the trash.
-    let mut gate = Gate::before(&test, "INSERT", "deleted_boards", "true").await;
+    let mut gate = Gate::before(&test, "INSERT", "deleted_containers", "true").await;
     let maker = gate.second_store(&test).await;
     let deleter = test.store.clone();
     let by = admin.clone();
-    let delete = tokio::spawn(async move { deleter.delete_board(&board_id, &by).await });
+    let delete = tokio::spawn(async move { deleter.delete_container(&board_id, &by).await });
     let deleting = gate.stopped(&delete).await;
     let workspace_id = test.workspace_id.clone();
     let making = tokio::spawn(async move {
@@ -323,7 +331,7 @@ async fn a_link_mailed_before_guest_links_are_turned_off_is_revoked_with_them() 
     let test = common::setup().await;
     let admin = common::user(&test, "admin").await;
     let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
-    let guest_of = Some((boards[0].id.as_str(), BoardRole::Viewer));
+    let guest_of = Some((boards[0].id.as_str(), ContainerRole::Viewer));
     let parent = link(&test, &admin, "parent", guest_of, None).await;
     if common::db_type() != DbType::Postgres {
         let child = mailed_like(&test.workspace_id, &parent, "child");

@@ -27,11 +27,11 @@
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardPlace } from '$lib/logic/urls.ts';
-  import type { Board } from '$lib/logic/wire.ts';
+  import type { ContainerPlace } from '$lib/logic/urls.ts';
+  import type { Container } from '$lib/logic/wire.ts';
   import {
     administers,
-    boardTrash,
+    containerTrash,
     isGuest,
     peopleOf,
     shownWiki,
@@ -54,10 +54,10 @@
     workspace: Workspace;
     /** The board on the page. */
     boardId: string | undefined;
-    boardHref: (board: BoardPlace) => string;
+    boardHref: (board: ContainerPlace) => string;
     /** The sidebar is a column beside the board: its button folds it. Otherwise it closes the drawer. */
     beside: boolean;
-    onOpenBoard: (board: BoardPlace) => void;
+    onOpenBoard: (board: ContainerPlace) => void;
     onClose: () => void;
     onAddBoard: () => void;
     onOpenSettings: () => void;
@@ -140,30 +140,34 @@
   let trash = $state.raw<Trash | undefined>(undefined);
 
   function openTrash(): void {
-    trash = boardTrash(workspace);
+    trash = containerTrash(workspace);
     trashOpen = true;
     void trash.read();
   }
 
   // ------------------------------------------------------------ deleting
 
-  type Asked = { kind: 'board'; board: Board } | { kind: 'category'; category: Category };
+  type Asked = { kind: 'board'; board: Container } | { kind: 'category'; category: Category };
   let asked = $state.raw<Asked | undefined>(undefined);
   let askOpen = $state(false);
   const askedWiki = $derived(asked?.kind === 'board' && asked.board.kind === 'wiki');
 
   const titleOf = shownTitle;
 
-  async function deleteBoard(board: Board): Promise<void> {
+  async function deleteBoard(board: Container): Promise<void> {
     const here = await whileHere(workspace, async () => {
-      await workspace.deleteBoard(board.id);
+      await workspace.deleteContainer(board.id);
       return true;
     });
     // The page showed the board that is gone: show the first one that is left.
-    if (!here || board.id !== boardId || workspace.boards.some((left) => left.id === board.id)) {
+    if (
+      !here ||
+      board.id !== boardId ||
+      workspace.containers.some((left) => left.id === board.id)
+    ) {
       return;
     }
-    const next = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    const next = workspace.sidebar.flatMap((entry) => entry.containers)[0];
     if (next) onOpenBoard(next);
   }
 
@@ -175,7 +179,7 @@
 
   /** Copies the board or wiki whole and opens the copy. */
   async function duplicateBoard(boardId: string): Promise<void> {
-    const made = await whileHere(workspace, () => workspace.duplicateBoard(boardId));
+    const made = await whileHere(workspace, () => workspace.duplicateContainer(boardId));
     if (made) onOpenBoard(made);
   }
 
@@ -270,7 +274,7 @@
     }}
     onTemplateFromBoard={(id: string) => void templateFromBoard(id)}
     onDuplicateBoard={(id: string) => void duplicateBoard(id)}
-    onDeleteBoard={(board: Board) => {
+    onDeleteBoard={(board: Container) => {
       asked = { kind: 'board', board };
       askOpen = true;
     }}

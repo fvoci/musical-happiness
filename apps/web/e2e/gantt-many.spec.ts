@@ -35,11 +35,11 @@ async function openMany(page: Page, info: TestInfo): Promise<number> {
     const workspaces = await backend.workspaces();
     const boards = await backend.boards(workspaces[0]?.id ?? '');
     const boardId = boards.find((board) => board.title === 'Sprint Planner')?.id ?? '';
-    const due = (await backend.board(boardId)).cardProperties.find(
+    const due = (await backend.container(boardId)).cardProperties.find(
       (property) => property.name === 'Due Date',
     );
     if (!due) throw new Error('no board "Sprint Planner" with a Due Date');
-    await backend.patchBoard(boardId, {
+    await backend.patchContainer(boardId, {
       updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
     });
     // From a month before today on: the cards are around today whenever this runs.

@@ -5,7 +5,7 @@ import {
   type PresenceSnapshot,
   type PresenceVisit,
 } from '../presence.ts';
-import { reads } from './board-access.ts';
+import { reads } from './container-access.ts';
 import type { World } from './world.ts';
 
 interface Visit {
@@ -15,7 +15,7 @@ interface Visit {
   seen: number;
 }
 interface Watcher {
-  boardId: string;
+  containerId: string;
   hear: (snapshot: PresenceSnapshot) => void;
   before: string;
 }
@@ -44,8 +44,8 @@ export class MemoryPresence implements Presence {
     this.#stopIfUnused();
   }
 
-  watchPresence(boardId: string, hear: Watcher['hear']): () => void {
-    const watcher = { boardId, hear, before: '' };
+  watchPresence(containerId: string, hear: Watcher['hear']): () => void {
+    const watcher = { containerId, hear, before: '' };
     this.#watchers.add(watcher);
     this.#start();
     return () => {
@@ -55,13 +55,13 @@ export class MemoryPresence implements Presence {
   }
 
   #valid(place: PresenceVisit, userId: string): boolean {
-    const board = this.#world.boards.get(place.boardId);
+    const board = this.#world.containers.get(place.containerId);
     if (board?.workspaceId !== place.workspaceId) return false;
     if (!reads(this.#world, userId, board.id)) return false;
     if (!place.cardId) return true;
     const card = this.#world.blocks.get(place.cardId);
     // A wiki's page is visited as a card is.
-    return card?.boardId === board.id && (card.type === 'card' || card.type === 'page');
+    return card?.containerId === board.id && (card.type === 'card' || card.type === 'page');
   }
 
   #start(): void {
@@ -108,7 +108,7 @@ export class MemoryPresence implements Presence {
     if (typeof message.place !== 'object') return;
     const place = message.place as PresenceVisit;
     if (
-      typeof place.boardId !== 'string' ||
+      typeof place.containerId !== 'string' ||
       typeof place.workspaceId !== 'string' ||
       (place.cardId !== undefined && typeof place.cardId !== 'string')
     )
@@ -132,7 +132,7 @@ export class MemoryPresence implements Presence {
     }
     this.#stopIfUnused();
     for (const watcher of this.#watchers) {
-      const snapshot = this.#snapshot(watcher.boardId);
+      const snapshot = this.#snapshot(watcher.containerId);
       const next = JSON.stringify(snapshot);
       if (next !== watcher.before) {
         watcher.before = next;
@@ -141,8 +141,8 @@ export class MemoryPresence implements Presence {
     }
   }
 
-  #snapshot(boardId: string): PresenceSnapshot {
-    if (!this.#visit || this.#visit.boardId !== boardId) return EMPTY_PRESENCE;
+  #snapshot(containerId: string): PresenceSnapshot {
+    if (!this.#visit || this.#visit.containerId !== containerId) return EMPTY_PRESENCE;
     const visits = new Map(this.#remote);
     for (const peer of worlds.get(this.#world) ?? []) {
       if (peer.#visit)
@@ -155,7 +155,8 @@ export class MemoryPresence implements Presence {
     }
     const people = new Map<string, Set<string>>();
     for (const visit of visits.values()) {
-      if (visit.place.boardId !== boardId || !this.#valid(visit.place, visit.userId)) continue;
+      if (visit.place.containerId !== containerId || !this.#valid(visit.place, visit.userId))
+        continue;
       let cards = people.get(visit.userId);
       if (!cards) {
         cards = new Set();

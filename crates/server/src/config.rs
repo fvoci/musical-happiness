@@ -213,9 +213,9 @@ pub struct Configuration {
     /// How many connections may read one shared board by its public link at once:
     /// following its blocks by the link's read token, or visiting it with that token.
     /// One more is not taken, and is not counted among the board's anonymous readers.
-    pub public_link_connections_per_board: u32,
+    pub public_link_connections_per_container: u32,
     /// How many of a board's connections by its public link may come from one address
-    /// (an IPv6 address counted by its /64), within `public_link_connections_per_board`.
+    /// (an IPv6 address counted by its /64), within `public_link_connections_per_container`.
     pub public_link_connections_per_address: u32,
     /// Whether the JSON answers of the API are compressed (gzip, brotli or zstd, as the
     /// client's `Accept-Encoding` asks). On unless set: a proxy in front that compresses
@@ -247,7 +247,7 @@ pub struct Configuration {
     /// How many earlier versions of a comment's body the server keeps: the first one,
     /// with which the comment was posted, and the newest. At least 1.
     pub max_comment_versions: u32,
-    /// How many exports (`exportBoardArchive`, `exportWorkspaceArchive`) the server runs at
+    /// How many exports (`exportContainerArchive`, `exportWorkspaceArchive`) the server runs at
     /// once; a user runs one at a time. An export runs until its archive is sent. At
     /// least 1.
     pub max_concurrent_exports: u32,
@@ -347,7 +347,7 @@ impl Default for Configuration {
             oidc_extra_root_certificates: Vec::new(),
             org_creation: ORG_CREATION_FIRST_USER_ONLY.to_owned(),
             websocket_ping_seconds: 30,
-            public_link_connections_per_board: 200,
+            public_link_connections_per_container: 200,
             public_link_connections_per_address: 10,
             compress_responses: true,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
@@ -427,8 +427,8 @@ impl std::fmt::Debug for Configuration {
             .field("server_lock_wait_seconds", &self.server_lock_wait_seconds)
             .field("websocket_ping_seconds", &self.websocket_ping_seconds)
             .field(
-                "public_link_connections_per_board",
-                &self.public_link_connections_per_board,
+                "public_link_connections_per_container",
+                &self.public_link_connections_per_container,
             )
             .field(
                 "public_link_connections_per_address",

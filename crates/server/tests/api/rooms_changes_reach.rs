@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::{BoardMember, BoardType};
+use fvoci_model::{ContainerMember, ContainerType};
 use serde_json::json;
 use tokio::time::Instant;
 
@@ -67,7 +67,9 @@ async fn admitted_again_for(
 async fn a_change_of_another_board_does_not_admit_a_joining_member_again() {
     let th = seldom().start().await.init_basic().await;
     let t = table(&th, &paragraphs(&["first"])).await;
-    let elsewhere = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let elsewhere = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let user = th.client2.me().await.id;
     give(&th, &t.board_id, &user, "editor").await;
     let mut peer = Peer::connect(&th.client2, 102).await;
@@ -104,7 +106,9 @@ async fn a_periodic_answer_is_applied_though_another_board_changed_meanwhile() {
         .init_basic()
         .await;
     let (t, _owner, mut member) = two_in_a_room(&th, &paragraphs(&["first"])).await;
-    let elsewhere = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let elsewhere = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let user = th.client2.me().await.id;
     // A pass that read before the store changed: let go without reading again.
     let (read, go) = th.app.collab().pause_next_recheck();
@@ -113,11 +117,11 @@ async fn a_periodic_answer_is_applied_though_another_board_changed_meanwhile() {
         .expect("the periodic check reads");
     th.app
         .store()
-        .save_member(&BoardMember {
-            board_id: t.board_id.clone(),
+        .save_member(&ContainerMember {
+            container_id: t.board_id.clone(),
             user_id: user.clone(),
             scheme_viewer: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         })
         .await
         .expect("the member is made a reader in the store alone");

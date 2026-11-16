@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use super::App;
 use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
-use fvoci_model::{BoardMember, Team, is_id, team_name};
+use fvoci_model::{ContainerMember, Team, is_id, team_name};
 use fvoci_store::{StoreError, Taken};
 
 /// A store's refusal of a team name another team of the workspace has, as the problem
@@ -27,23 +27,29 @@ impl App {
     ///
     /// # Errors
     /// Returns the store error if the list cannot be read.
-    pub async fn board_teams(
+    pub async fn container_teams(
         &self,
         workspace_id: &str,
-        board_id: &str,
-    ) -> Result<Vec<fvoci_model::BoardTeam>, AppError> {
-        Ok(self.store().board_teams(workspace_id, board_id).await?)
+        container_id: &str,
+    ) -> Result<Vec<fvoci_model::ContainerTeam>, AppError> {
+        Ok(self
+            .store()
+            .container_teams(workspace_id, container_id)
+            .await?)
     }
 
     /// Current people on the board, with direct and inherited roles kept separate.
     ///
     /// # Errors
     /// Returns the store error if either membership source cannot be read.
-    pub async fn effective_board_members(
+    pub async fn effective_container_members(
         &self,
-        board_id: &str,
-    ) -> Result<Vec<BoardMember>, AppError> {
-        Ok(self.store().effective_board_members(board_id).await?)
+        container_id: &str,
+    ) -> Result<Vec<ContainerMember>, AppError> {
+        Ok(self
+            .store()
+            .effective_container_members(container_id)
+            .await?)
     }
 
     /// Lists teams, including their nonguest members.
@@ -172,17 +178,17 @@ impl App {
     ///
     /// # Errors
     /// Returns the store's refusal or database error.
-    pub async fn set_board_team(
+    pub async fn set_container_team(
         &self,
         workspace_id: &str,
-        board_id: &str,
+        container_id: &str,
         team_id: &str,
         role: Option<fvoci_model::MinimumRole>,
         by: &str,
     ) -> Result<(), AppError> {
         let changes = self
             .store()
-            .set_board_team(workspace_id, board_id, team_id, role, by)
+            .set_container_team(workspace_id, container_id, team_id, role, by)
             .await?;
         self.tell_team_changes(workspace_id, changes).await;
         Ok(())
@@ -191,11 +197,12 @@ impl App {
     /// Rechecks the card rooms of the boards whose team roles changed, for the people
     /// those roles reach, before the change is answered, then asks their clients to
     /// read the boards' members again, in the background.
-    async fn tell_team_changes(&self, workspace_id: &str, changes: Vec<BoardMember>) {
+    async fn tell_team_changes(&self, workspace_id: &str, changes: Vec<ContainerMember>) {
         if changes.is_empty() {
             return;
         }
-        let boards: BTreeSet<&String> = changes.iter().map(|change| &change.board_id).collect();
+        let containers: BTreeSet<&String> =
+            changes.iter().map(|change| &change.container_id).collect();
         let people: BTreeSet<&str> = changes
             .iter()
             .map(|change| change.user_id.as_str())
@@ -203,13 +210,13 @@ impl App {
         // Every change of a team is the team's people on the team's boards, so the
         // boards and people together name no pair the change did not reach.
         self.collab()
-            .recheck_access(self, AccessScope::boards(boards).of_users(people))
+            .recheck_access(self, AccessScope::containers(containers).of_users(people))
             .await;
         let (app, workspace_id) = (self.clone(), workspace_id.to_owned());
         self.spawn_background(async move {
             for member in changes {
                 app.ws()
-                    .broadcast_member_delete(&workspace_id, &member.board_id, &member.user_id)
+                    .broadcast_member_delete(&workspace_id, &member.container_id, &member.user_id)
                     .await;
             }
         });

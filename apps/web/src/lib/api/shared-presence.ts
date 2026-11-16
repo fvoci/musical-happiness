@@ -5,7 +5,7 @@ import { LivePresence } from './live-presence.ts';
 
 export class SharedPresence implements Presence {
   readonly #url: string;
-  readonly #boardId: string;
+  readonly #containerId: string;
   readonly #live: LivePresence;
   #socket: WebSocket | undefined;
   #heartbeat: Heartbeat | undefined;
@@ -13,11 +13,11 @@ export class SharedPresence implements Presence {
   #retry: ReturnType<typeof setTimeout> | undefined;
   #wait = 500;
 
-  constructor(basePath: string, boardId: string, readToken: string) {
+  constructor(basePath: string, containerId: string, readToken: string) {
     const url = new URL(`${basePath}/ws`, location.href);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     this.#url = url.href;
-    this.#boardId = boardId;
+    this.#containerId = containerId;
     this.#live = new LivePresence(
       (command) => {
         this.#socket?.send(JSON.stringify({ ...command, workspaceId: '', readToken }));
@@ -30,7 +30,7 @@ export class SharedPresence implements Presence {
   }
 
   setPresence(visit: PresenceVisit | null): void {
-    this.#live.setPresence(visit?.boardId === this.#boardId ? visit : null);
+    this.#live.setPresence(visit?.containerId === this.#containerId ? visit : null);
   }
 
   watchPresence: Presence['watchPresence'] = () => () => undefined;

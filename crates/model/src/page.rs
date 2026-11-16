@@ -2,7 +2,7 @@
 //! its siblings, and a page as its wiki's tree lists it.
 //!
 //! A page is a block of the type `page` ([`crate::BlockType::Page`]) of a wiki
-//! ([`crate::BoardKind::Wiki`]): its title is the block's, its text the block's body,
+//! ([`crate::ContainerKind::Wiki`]): its title is the block's, its text the block's body,
 //! and its icon and its place among the pages of the same parent are among the block's
 //! fields ([`PAGE_ICON_FIELD`], [`PAGE_ORDER_FIELD`]).
 
@@ -237,7 +237,7 @@ impl From<Block> for Page {
             icon: text_field(&block.fields, PAGE_ICON_FIELD),
             order: text_field(&block.fields, PAGE_ORDER_FIELD),
             id: block.id,
-            wiki_id: block.board_id,
+            wiki_id: block.container_id,
             parent_id: block.parent_id,
             title: block.title,
             body: block.body,
@@ -566,7 +566,7 @@ mod tests {
 
         let with = |field: &str, value: Value| {
             let mut block = Block {
-                board_id: "w".to_owned(),
+                container_id: "w".to_owned(),
                 block_type: BlockType::Page,
                 ..Block::default()
             };
@@ -606,7 +606,7 @@ mod tests {
 
         let mut block = Block {
             id: "p".to_owned(),
-            board_id: "w".to_owned(),
+            container_id: "w".to_owned(),
             parent_id: "above".to_owned(),
             block_type: BlockType::Page,
             title: "Welcome".to_owned(),

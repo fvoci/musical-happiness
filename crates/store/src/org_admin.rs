@@ -391,19 +391,19 @@ impl Store {
             if scope.fetch_optional(sql).await?.is_none() {
                 return Ok(Purged::default());
             }
-            let mut sql = scope.sql("SELECT id FROM boards WHERE workspace_id = ");
+            let mut sql = scope.sql("SELECT id FROM containers WHERE workspace_id = ");
             sql.bind(Id(workspace_id)).push(" ORDER BY id");
-            let boards: Vec<String> = scope
+            let containers: Vec<String> = scope
                 .fetch_all(sql)
                 .await?
                 .iter()
                 .map(|row| row.id(0))
                 .collect::<Result<_, _>>()?;
-            for board_id in &boards {
-                trash::delete_board(scope, board_id, "").await?;
+            for container_id in &containers {
+                trash::delete_container(scope, container_id, "").await?;
             }
             let mut purged =
-                trash::remove_boards(scope, Trashed::OfWorkspace(workspace_id)).await?;
+                trash::remove_containers(scope, Trashed::OfWorkspace(workspace_id)).await?;
             purged.records += trash::remove_what_they_left(scope).await?;
             for table in ["categories", "workspace_members"] {
                 let mut sql = scope.sql(&format!("DELETE FROM {table} WHERE workspace_id = "));
@@ -457,14 +457,14 @@ impl Store {
                 sql.bind(WorkspaceRole::Admin.as_str())
                     .push_bind(", via_org_admin = ", true)
                     .push_bind(", prior_role = ", prior.as_str())
-                    .push_bind(", prior_board_roles = ", held.as_str())
+                    .push_bind(", prior_container_roles = ", held.as_str())
                     .push_bind(" WHERE workspace_id = ", Id(workspace_id))
                     .push_bind(" AND user_id = ", Id(user_id));
                 scope.execute(sql).await?;
             } else {
                 let mut sql = scope.sql(
                     "INSERT INTO workspace_members (workspace_id, user_id, role, \
-                     via_org_admin, prior_board_roles, create_at) VALUES (",
+                     via_org_admin, prior_container_roles, create_at) VALUES (",
                 );
                 sql.bind(Id(workspace_id))
                     .push_bind(", ", Id(user_id))
@@ -672,7 +672,7 @@ pub(crate) async fn membership(
     user_id: &str,
 ) -> Result<Option<(WorkspaceRole, Option<Joined>)>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT role, via_org_admin, prior_role, prior_board_roles FROM workspace_members \
+        "SELECT role, via_org_admin, prior_role, prior_container_roles FROM workspace_members \
          WHERE workspace_id = ",
     );
     sql.bind(Id(workspace_id))
@@ -705,7 +705,7 @@ pub(crate) async fn revoke_joinings(
     actor: &AuditActor,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
-        "SELECT wm.workspace_id, wm.prior_role, wm.prior_board_roles \
+        "SELECT wm.workspace_id, wm.prior_role, wm.prior_container_roles \
          FROM workspace_members AS wm \
          JOIN workspaces AS w ON w.id = wm.workspace_id WHERE wm.user_id = ",
     );
@@ -749,14 +749,15 @@ async fn end_joining(
 ) -> Result<(), StoreError> {
     joinings::give_back_roles(scope, workspace_id, user_id, &joined.held).await?;
     if joined.prior.is_none() || joined.prior == Some(WorkspaceRole::Guest) {
-        crate::board_team_membership::remove_workspace_teams(scope, workspace_id, user_id).await?;
+        crate::container_team_membership::remove_workspace_teams(scope, workspace_id, user_id)
+            .await?;
     }
     let mut sql = match joined.prior {
         Some(prior) => {
             let mut sql = scope.sql("UPDATE workspace_members SET role = ");
             sql.bind(prior.as_str())
                 .push_bind(", via_org_admin = ", false)
-                .push(", prior_role = NULL, prior_board_roles = NULL");
+                .push(", prior_role = NULL, prior_container_roles = NULL");
             sql
         }
         None => scope.sql("DELETE FROM workspace_members"),

@@ -1,6 +1,6 @@
 /**
  * A list of what is in the trash, and bringing one back: the boards of the
- * workspace the reader was an admin of (`boardTrash`), the cards of a board
+ * workspace the reader was an admin of (`containerTrash`), the cards of a board
  * (`cardTrash`, for its editors), or the pages of a wiki (`pageTrash`, for its
  * editors). Nothing is deleted for good here: the
  * server empties its trash after a while by itself.
@@ -116,15 +116,15 @@ export class Trash {
   }
 }
 
-/** The boards of the reader's workspace in the trash that they were an admin of. */
-export function boardTrash(workspace: Workspace): Trash {
+/** The boards and wikis of the reader's workspace in the trash that they were an admin of. */
+export function containerTrash(workspace: Workspace): Trash {
   return new Trash(
     workspace,
     async (paging) => {
       const info = workspace.info;
-      return info ? workspace.backend.deletedBoards(info.id, paging) : [];
+      return info ? workspace.backend.deletedContainers(info.id, paging) : [];
     },
-    (boardId) => workspace.restoreBoard(boardId),
+    (containerId) => workspace.restoreContainer(containerId),
   );
 }
 

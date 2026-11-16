@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Block, BlockType, BoardType, OrgRole, WorkspaceRole, new_id};
+use fvoci_model::{Block, BlockType, ContainerType, OrgRole, WorkspaceRole, new_id};
 use fvoci_server::ws::SubscriptionPause;
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
@@ -119,7 +119,7 @@ impl EndShare {
     ];
 
     async fn apply(self, ts: &TestServer, board: &str) {
-        let at = format!("/w/{TEST_WORKSPACE_ID}/boards/{board}");
+        let at = format!("/w/{TEST_WORKSPACE_ID}/containers/{board}");
         match self {
             Self::Off => ts
                 .client
@@ -156,10 +156,12 @@ impl EndShare {
 async fn public_subscription_ends(ending: EndShare, moment: Moment) {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let user = ts.client.me().await.id;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let mut card = Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Card,
         ..Block::default()
     };
@@ -347,12 +349,16 @@ async fn demoting_an_organization_administrator_ends_the_joined_subscription() {
 async fn an_unrelated_revocation_does_not_end_a_validating_subscription() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let user = ts.client.me().await.id;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
-    let unrelated = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
+    let unrelated = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     ts.share(&unrelated.id).await;
     let mut card = Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Card,
         ..Block::default()
     };
@@ -477,7 +483,7 @@ async fn updated(socket: &mut Socket, phase: &str) {
 async fn stored_card(ts: &TestServer, board: &str, user: &str) -> Block {
     let mut block = Block {
         id: new_id(),
-        board_id: board.to_owned(),
+        container_id: board.to_owned(),
         block_type: BlockType::Card,
         ..Block::default()
     };
@@ -537,7 +543,7 @@ async fn writes_elsewhere_read_nothing(
         .for_org(&new_id())
         .expect("an identifier")
         .execute_unchecked(&format!(
-            "UPDATE boards SET title = title WHERE id = '{}'",
+            "UPDATE containers SET title = title WHERE id = '{}'",
             new_id()
         ))
         .await
@@ -575,14 +581,16 @@ async fn dispatch_reuses_authorization_reads_until_visibility_changes() {
     use std::sync::atomic::Ordering;
     let ts = Setup::local_mode().start().await.init_basic().await;
     let user = ts.client.me().await.id;
-    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+    let board = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .await;
     assert!(
         ts.app.finish_background(WAIT).await,
         "fixture announcements finish before subscribing"
     );
     let mut block = Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Card,
         ..Block::default()
     };
@@ -658,14 +666,16 @@ async fn revocation_between_dispatch_check_and_queue_is_rechecked() {
     for public in [false, true] {
         let ts = Setup::local_mode().start().await.init_basic().await;
         let user = ts.client.me().await.id;
-        let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+        let board = ts
+            .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+            .await;
         assert!(
             ts.app.finish_background(WAIT).await,
             "fixture announcements finish before subscribing"
         );
         let mut block = Block {
             id: new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             block_type: BlockType::Card,
             ..Block::default()
         };
@@ -706,7 +716,7 @@ async fn revocation_between_dispatch_check_and_queue_is_rechecked() {
             ts.app
                 .store()
                 .execute_unchecked(&format!(
-                    "DELETE FROM board_members WHERE board_id = '{}' AND user_id = '{user}'",
+                    "DELETE FROM container_members WHERE container_id = '{}' AND user_id = '{user}'",
                     board.id
                 ))
                 .await
@@ -859,7 +869,9 @@ async fn a_store_that_cannot_be_read_closes_as_retryable() {
         .await
         .init_basic()
         .await;
-    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let subscription = json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID});
     let mut following = ts.client.connect_websocket().await;
     subscribe(
@@ -875,7 +887,7 @@ async fn a_store_that_cannot_be_read_closes_as_retryable() {
     ts.app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE boards SET title = title WHERE id = '{}'",
+            "UPDATE containers SET title = title WHERE id = '{}'",
             new_id()
         ))
         .await
@@ -884,7 +896,7 @@ async fn a_store_that_cannot_be_read_closes_as_retryable() {
 
     ts.app
         .ws()
-        .broadcast_board_change(ROOT_WORKSPACE_ID, &board)
+        .broadcast_container_change(ROOT_WORKSPACE_ID, &board)
         .await;
     let try_again = (1013, "try again".to_owned());
     assert_eq!(close_frame(&mut following).await, try_again, "a recipient");
@@ -909,7 +921,9 @@ async fn a_store_that_cannot_be_read_closes_as_retryable() {
 #[tokio::test]
 async fn a_change_checked_too_often_is_given_up_as_retryable() {
     let ts = Setup::local_mode().start().await.init_basic().await;
-    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let mut socket = ts.client.connect_websocket().await;
     subscribe(
         &ts,
@@ -922,7 +936,7 @@ async fn a_change_checked_too_often_is_given_up_as_retryable() {
     let app = ts.app.clone();
     let sending = tokio::spawn(async move {
         app.ws()
-            .broadcast_board_change(ROOT_WORKSPACE_ID, &board)
+            .broadcast_container_change(ROOT_WORKSPACE_ID, &board)
             .await;
     });
     // Eight checks in all, each overtaken by a write that moves the revision.
@@ -934,7 +948,7 @@ async fn a_change_checked_too_often_is_given_up_as_retryable() {
         ts.app
             .store()
             .execute_unchecked(&format!(
-                "UPDATE boards SET title = title WHERE id = '{}'",
+                "UPDATE containers SET title = title WHERE id = '{}'",
                 new_id()
             ))
             .await

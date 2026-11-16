@@ -10,10 +10,10 @@
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDate } from '$lib/logic/format.ts';
-  import type { BoardKind } from '$lib/logic/wire.ts';
+  import type { ContainerKind } from '$lib/logic/wire.ts';
   import {
     isBackendError,
-    type GuestBoardRole,
+    type GuestContainerRole,
     type Invitation,
     type PeopleAccess,
     type Workspace,
@@ -26,30 +26,30 @@
   interface Props {
     workspace: Workspace;
     access: PeopleAccess;
-    boardId: string;
-    kind?: BoardKind | undefined;
+    containerId: string;
+    kind?: ContainerKind | undefined;
   }
 
-  let { workspace, access, boardId, kind }: Props = $props();
+  let { workspace, access, containerId, kind }: Props = $props();
   const words = $derived(shareWords(kind));
 
   const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
 
   const uid = $props.id();
-  const ROLES: readonly GuestBoardRole[] = ['editor', 'commenter', 'viewer'];
-  const ROLE_LABELS: Record<GuestBoardRole, () => string> = {
+  const ROLES: readonly GuestContainerRole[] = ['editor', 'commenter', 'viewer'];
+  const ROLE_LABELS: Record<GuestContainerRole, () => string> = {
     editor: () => m['BoardMember.schemeEditor'](),
     commenter: () => m['BoardMember.schemeCommenter'](),
     viewer: () => m['BoardMember.schemeViewer'](),
   };
 
-  let role = $state<GuestBoardRole>('editor');
+  let role = $state<GuestContainerRole>('editor');
   let made = $state.raw<{ address: string; token: string } | undefined>(undefined);
   let working = $state(false);
   let problem = $state<string | undefined>(undefined);
   let links = $state.raw<Invitation[]>([]);
-  const boardLinks = $derived(
-    links.filter((link) => link.role === 'guest' && link.boardId === boardId),
+  const containerLinks = $derived(
+    links.filter((link) => link.role === 'guest' && link.containerId === containerId),
   );
   const context = $derived({
     locale: workspace.locale,
@@ -101,7 +101,7 @@
     problem = undefined;
     made = undefined;
     try {
-      const link = await access.people.inviteGuest(workspaceId, boardId, role);
+      const link = await access.people.inviteGuest(workspaceId, containerId, role);
       made =
         link.token === undefined
           ? undefined
@@ -162,10 +162,10 @@
         : undefined}
     />
   {/if}
-  {#if boardLinks.length > 0}
+  {#if containerLinks.length > 0}
     <h4 id="{uid}-links" class="text-sm font-medium">{words.guestLinks()}</h4>
     <ul class="grid gap-1" aria-labelledby="{uid}-links" data-testid="share-guest-links">
-      {#each boardLinks as link (link.id)}
+      {#each containerLinks as link (link.id)}
         <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
           <span class="min-w-0 flex-1 text-sm break-words text-muted-foreground">
             {link.recipient

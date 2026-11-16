@@ -9,18 +9,18 @@ import type { Workspace } from './workspace.svelte.ts';
 /** Where the reader is: a board, or a wiki. */
 export interface PresencePlace {
   readonly workspace: Workspace;
-  readonly boardId: string;
+  readonly containerId: string;
 }
 
-export class BoardPresence {
-  readonly #board: PresencePlace;
+export class ContainerPresence {
+  readonly #place: PresencePlace;
   snapshot = $state.raw<PresenceSnapshot>(EMPTY_PRESENCE);
   #active = false;
   #hidden = false;
   #cardId: string | undefined;
 
-  constructor(board: PresencePlace) {
-    this.#board = board;
+  constructor(place: PresencePlace) {
+    this.#place = place;
   }
 
   /**
@@ -28,7 +28,7 @@ export class BoardPresence {
    * can be made first where a component derives it (`boardPresence`).
    */
   get others(): readonly PresentPerson[] {
-    return this.snapshot.people.filter((person) => person.userId !== this.#board.workspace.me?.id);
+    return this.snapshot.people.filter((person) => person.userId !== this.#place.workspace.me?.id);
   }
 
   /** How many others are on the board, named or not. */
@@ -42,12 +42,12 @@ export class BoardPresence {
   }
 
   start(): () => void {
-    const presence = this.#board.workspace.backend.presence;
+    const presence = this.#place.workspace.backend.presence;
     this.#active = true;
     this.#hidden = false;
-    const stop = presence.watchPresence(this.#board.boardId, (snapshot) => {
+    const stop = presence.watchPresence(this.#place.containerId, (snapshot) => {
       this.snapshot = snapshot;
-      void this.#board.workspace.learnUsers(snapshot.people.map((person) => person.userId));
+      void this.#place.workspace.learnUsers(snapshot.people.map((person) => person.userId));
     });
     let hiding: ReturnType<typeof setTimeout> | undefined;
     const visibility = (): void => {
@@ -85,25 +85,25 @@ export class BoardPresence {
 
   #send(): void {
     if (!this.#active) return;
-    this.#board.workspace.backend.presence.setPresence(
+    this.#place.workspace.backend.presence.setPresence(
       this.#hidden
         ? null
         : {
-            workspaceId: this.#board.workspace.info?.id ?? '',
-            boardId: this.#board.boardId,
+            workspaceId: this.#place.workspace.info?.id ?? '',
+            containerId: this.#place.containerId,
             cardId: this.#cardId,
           },
     );
   }
 }
 
-const presences = new WeakMap<BoardStore, BoardPresence>();
+const presences = new WeakMap<BoardStore, ContainerPresence>();
 
 /** Who is on `board`, kept beside the board's store for as long as it is. */
-export function boardPresence(board: BoardStore): BoardPresence {
+export function boardPresence(board: BoardStore): ContainerPresence {
   let presence = presences.get(board);
   if (!presence) {
-    presence = new BoardPresence(board);
+    presence = new ContainerPresence(board);
     presences.set(board, presence);
   }
   return presence;

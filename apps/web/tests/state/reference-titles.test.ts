@@ -67,7 +67,7 @@ describe('the titles of what references name', () => {
     titles.of(alpha.id);
     await settle();
     // What the reader is told when another takes them off the board (removeMember).
-    world.tellUsers([backend.userId], { kind: 'boardDeleted', boardId: board.boardId });
+    world.tellUsers([backend.userId], { kind: 'containerDeleted', containerId: board.boardId });
     await settle();
     expect(titles.of(alpha.id)).toBeNull();
   });
@@ -187,10 +187,10 @@ describe('the titles of what references name', () => {
 
   it('ask again what is held of a workspace that is entered again, and follow none of the one left', async () => {
     const { backend, workspace, alpha, titles } = await opened();
-    const watch = backend.watchBoard.bind(backend);
+    const watch = backend.watchContainer.bind(backend);
     const stops: ReturnType<typeof vi.fn>[] = [];
-    vi.spyOn(backend, 'watchBoard').mockImplementation((boardId, listener) => {
-      const stop = vi.fn(watch(boardId, listener));
+    vi.spyOn(backend, 'watchContainer').mockImplementation((containerId, listener) => {
+      const stop = vi.fn(watch(containerId, listener));
       stops.push(stop);
       return stop;
     });
@@ -222,7 +222,7 @@ describe('the titles of what references name', () => {
     titles.of(below.id);
     await settle();
     // Drawn with the answer: the wiki is followed from then on.
-    expect(titles.of(top.id)).toMatchObject({ kind: 'page', title: 'Top', boardKind: 'wiki' });
+    expect(titles.of(top.id)).toMatchObject({ kind: 'page', title: 'Top', containerKind: 'wiki' });
     titles.of(below.id);
     await settle();
 

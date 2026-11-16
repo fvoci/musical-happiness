@@ -39,7 +39,7 @@ pub(super) struct Revocations {
     /// password.
     workspaces: HashMap<String, u64>,
     /// A board whose read token stopped opening it.
-    boards: HashMap<String, u64>,
+    containers: HashMap<String, u64>,
 }
 
 /// What a workspace subscription is of, to be measured against what was taken back.
@@ -72,11 +72,11 @@ impl Revocations {
     }
 
     /// Whether what concerns a connection of `user_id` (empty without a session)
-    /// following blocks of `board_id` by its read token was taken back after `since`.
-    pub(super) fn of_board_since(&self, user_id: &str, board_id: &str, since: u64) -> bool {
+    /// following blocks of `container_id` by its read token was taken back after `since`.
+    pub(super) fn of_container_since(&self, user_id: &str, container_id: &str, since: u64) -> bool {
         self.unknown_since(since)
             || after(&self.users, user_id, since)
-            || after(&self.boards, board_id, since)
+            || after(&self.containers, container_id, since)
     }
 
     pub(super) fn everyone(&mut self) {
@@ -117,9 +117,9 @@ impl Revocations {
         self.count(earlier);
     }
 
-    pub(super) fn board(&mut self, board_id: &str) {
+    pub(super) fn container(&mut self, container_id: &str) {
         let now = self.next();
-        let earlier = self.boards.insert(board_id.to_owned(), now);
+        let earlier = self.containers.insert(container_id.to_owned(), now);
         self.count(earlier);
     }
 
@@ -137,7 +137,7 @@ impl Revocations {
             self.users_in_workspaces.clear();
             self.users_in_orgs.clear();
             self.workspaces.clear();
-            self.boards.clear();
+            self.containers.clear();
             self.kept = 0;
             self.forgotten = self.now;
         }
@@ -186,7 +186,7 @@ mod tests {
         revoked.user_in_workspace("one", "w1");
         revoked.user_in_org("two", "o2");
         revoked.workspace("w3");
-        revoked.board("b1");
+        revoked.container("b1");
         assert!(revoked.of_workspace_since(followed("one", "w1", "o1"), before));
         assert!(
             !revoked.of_workspace_since(followed("one", "w2", "o1"), before),
@@ -198,16 +198,16 @@ mod tests {
             "the same user in another organization"
         );
         assert!(revoked.of_workspace_since(followed("three", "w3", "o1"), before));
-        assert!(revoked.of_board_since("", "b1", before));
-        assert!(!revoked.of_board_since("", "b2", before));
+        assert!(revoked.of_container_since("", "b1", before));
+        assert!(!revoked.of_container_since("", "b2", before));
         let after = revoked.now();
         assert!(!revoked.of_workspace_since(followed("one", "w1", "o1"), after));
         revoked.user("one");
         assert!(revoked.of_workspace_since(followed("one", "w2", "o2"), after));
-        assert!(revoked.of_board_since("one", "b2", after));
+        assert!(revoked.of_container_since("one", "b2", after));
         revoked.everyone();
         assert!(revoked.of_workspace_since(followed("four", "w4", "o4"), after));
-        assert!(revoked.of_board_since("", "b2", after));
+        assert!(revoked.of_container_since("", "b2", after));
     }
 
     /// What is kept by name is bounded; a check that began before it was forgotten is
@@ -216,8 +216,8 @@ mod tests {
     fn what_is_forgotten_checks_older_subscriptions_again() {
         let mut revoked = Revocations::default();
         let before = revoked.now();
-        for board in 0..=KEPT {
-            revoked.board(&format!("b{board}"));
+        for container in 0..=KEPT {
+            revoked.container(&format!("b{container}"));
         }
         assert!(revoked.kept <= KEPT, "{} kept by name", revoked.kept);
         assert!(
@@ -226,9 +226,9 @@ mod tests {
         );
         let after = revoked.now();
         assert!(!revoked.of_workspace_since(followed("one", "w1", "o1"), after));
-        revoked.board("b-late");
-        assert!(revoked.of_board_since("", "b-late", after));
-        assert!(!revoked.of_board_since("", "b0", after));
+        revoked.container("b-late");
+        assert!(revoked.of_container_since("", "b-late", after));
+        assert!(!revoked.of_container_since("", "b0", after));
     }
 
     /// A check begun as much is kept as may be is not checked again by the forgetting
@@ -236,17 +236,17 @@ mod tests {
     #[test]
     fn a_check_begun_at_the_bound_is_measured_as_before() {
         let mut revoked = Revocations::default();
-        for board in 0..KEPT {
-            revoked.board(&format!("b{board}"));
+        for container in 0..KEPT {
+            revoked.container(&format!("b{container}"));
         }
         assert_eq!(revoked.kept, KEPT, "as much as may be kept");
         let edge = revoked.now();
-        revoked.board("x");
+        revoked.container("x");
         assert_eq!(revoked.kept, 1, "the rest forgotten");
         assert!(
             !revoked.of_workspace_since(followed("one", "w1", "o1"), edge),
             "nothing it concerns was forgotten after it began"
         );
-        assert!(revoked.of_board_since("", "x", edge));
+        assert!(revoked.of_container_since("", "x", edge));
     }
 }

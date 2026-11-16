@@ -17,7 +17,7 @@ export {
   type Attachment,
   type Backend,
   type BoardDraft,
-  type BoardRole,
+  type ContainerRole,
   type CardDetail,
   type CardDraft,
   type CardPatch,
@@ -60,7 +60,7 @@ export { changeDisplayName } from './account.ts';
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';
 export type {
-  GuestBoardRole,
+  GuestContainerRole,
   Invitation,
   InvitationMail,
   People,
@@ -77,7 +77,7 @@ export type { LinkedBlock } from './references.ts';
 export { byCreation, byTitle, type SidebarCategory } from './order.ts';
 export { type Transfer } from './transfers.svelte.ts';
 export { type EnterStatus } from './workspace-entry.ts';
-export { boardTrash, cardTrash, pageTrash, Trash, type TrashStatus } from './trash.svelte.ts';
+export { containerTrash, cardTrash, pageTrash, Trash, type TrashStatus } from './trash.svelte.ts';
 export {
   Workspace,
   type LoadStatus,

@@ -3,7 +3,9 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Board, BoardMember, BoardType, BoardsAndBlocks, Category, new_id};
+use fvoci_model::{
+    Category, Container, ContainerMember, ContainerType, ContainersAndBlocks, new_id,
+};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -123,20 +125,26 @@ async fn board_changes_are_broadcast_to_the_members() {
     let mut socket2 =
         WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &user2.id).await;
 
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Roadmap"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Open,
+            "Roadmap",
+        ))
         .await
         .created_json();
-    let message = socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;
+    let message = socket1
+        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .await;
     assert_eq!(
         message["workspaceId"],
         json!(TEST_WORKSPACE_ID),
         "{message}"
     );
-    assert_eq!(message["board"]["title"], json!("Roadmap"), "{message}");
+    assert_eq!(message["container"]["title"], json!("Roadmap"), "{message}");
     let message = socket1
-        .expect("UPDATE_MEMBER", "/member/boardId", &board.id)
+        .expect("UPDATE_MEMBER", "/member/containerId", &board.id)
         .await;
     assert_eq!(message["member"]["userId"], json!(user1.id), "{message}");
     assert_eq!(message["member"]["schemeAdmin"], json!(true), "{message}");
@@ -144,23 +152,33 @@ async fn board_changes_are_broadcast_to_the_members() {
     patch_board(&th.client, &board.id, &title_patch("Roadmap 2"))
         .await
         .check_ok();
-    let message = socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;
-    assert_eq!(message["board"]["title"], json!("Roadmap 2"), "{message}");
+    let message = socket1
+        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .await;
+    assert_eq!(
+        message["container"]["title"],
+        json!("Roadmap 2"),
+        "{message}"
+    );
 
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_no_content();
-    let message = socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;
+    let message = socket1
+        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .await;
     assert!(
-        message["board"]["deleteAt"].as_i64() > Some(0),
+        message["container"]["deleteAt"].as_i64() > Some(0),
         "a deletion: {message}"
     );
 
     undelete_board(&th.client, &board.id).await.check_ok();
-    let message = socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;
+    let message = socket1
+        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .await;
     assert_eq!(
-        message["board"]["deleteAt"],
+        message["container"]["deleteAt"],
         json!(0),
         "restored: {message}"
     );
@@ -183,7 +201,7 @@ async fn member_changes_are_broadcast() {
     let user2 = th.client2.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Private, "title"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "title"),
         &user1.id,
     )
     .await;
@@ -205,13 +223,17 @@ async fn member_changes_are_broadcast() {
             json!(TEST_WORKSPACE_ID),
             "{message}"
         );
-        assert_eq!(message["member"]["boardId"], json!(board.id), "{message}");
+        assert_eq!(
+            message["member"]["containerId"],
+            json!(board.id),
+            "{message}"
+        );
         assert_eq!(message["member"]["schemeEditor"], json!(true), "{message}");
     }
 
     update_member(
         &th.client,
-        &BoardMember {
+        &ContainerMember {
             scheme_viewer: true,
             ..member(&board.id, &user2.id)
         },
@@ -231,7 +253,11 @@ async fn member_changes_are_broadcast() {
         let message = socket
             .expect("DELETE_MEMBER", "/member/userId", &user2.id)
             .await;
-        assert_eq!(message["member"]["boardId"], json!(board.id), "{message}");
+        assert_eq!(
+            message["member"]["containerId"],
+            json!(board.id),
+            "{message}"
+        );
     }
     th.teardown().await;
 }
@@ -242,15 +268,15 @@ async fn member_changes_are_broadcast() {
 /// private, the workspace's users who are not members of it are told that they lost or gained
 /// access (`server/app/boards.go:402-432`).
 #[tokio::test]
-async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
+async fn patch_container_type_of_a_template_is_broadcast_to_the_workspace_users() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
     let template = board_with_admin(
         &th,
-        Board {
+        Container {
             is_template: true,
-            ..new_board(TEST_WORKSPACE_ID, BoardType::Open, "a template")
+            ..new_board(TEST_WORKSPACE_ID, ContainerType::Open, "a template")
         },
         &user1.id,
     )
@@ -275,7 +301,7 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
             "{message}"
         );
         assert_eq!(
-            message["member"]["boardId"],
+            message["member"]["containerId"],
             json!(template.id),
             "{message}"
         );
@@ -297,7 +323,7 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
     assert_eq!(
         message["member"],
         json!({
-            "boardId": template.id,
+            "containerId": template.id,
             "userId": user2.id,
             "schemeAdmin": false,
             "schemeEditor": false,
@@ -317,7 +343,7 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
     // A board that is not a template: only the board change is broadcast.
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Open, "a board"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "a board"),
         &user1.id,
     )
     .await;
@@ -326,7 +352,9 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
     patch_board(&th.client, &board.id, &json!({"type": "P"}))
         .await
         .check_ok();
-    socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;
+    socket1
+        .expect("UPDATE_CONTAINER", "/container/id", &board.id)
+        .await;
     let rest = socket1.drain().await;
     assert_eq!(
         with_action(&rest, "DELETE_MEMBER"),
@@ -345,12 +373,12 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
 /// Duplicating a board tells its new owner about the copy, its blocks and the
 /// membership (`server/app/boards.go:209-224`).
 #[tokio::test]
-async fn duplicate_board_is_broadcast() {
+async fn duplicate_container_is_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Open, "Source"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Source"),
         &user1.id,
     )
     .await;
@@ -358,17 +386,19 @@ async fn duplicate_board_is_broadcast() {
     let mut socket =
         WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &user1.id).await;
 
-    let copy: BoardsAndBlocks = duplicate_board(&th.client, &board.id, "")
+    let copy: ContainersAndBlocks = duplicate_board(&th.client, &board.id, "")
         .await
         .created_json();
 
-    let copy_id = &copy.boards[0].id;
-    socket.expect("UPDATE_BOARD", "/board/id", copy_id).await;
+    let copy_id = &copy.containers[0].id;
+    socket
+        .expect("UPDATE_CONTAINER", "/container/id", copy_id)
+        .await;
     socket
         .expect("UPDATE_BLOCK", "/block/id", &copy.blocks[0].id)
         .await;
     let message = socket
-        .expect("UPDATE_MEMBER", "/member/boardId", copy_id)
+        .expect("UPDATE_MEMBER", "/member/containerId", copy_id)
         .await;
     assert_eq!(message["member"]["userId"], json!(user1.id), "{message}");
     th.teardown().await;

@@ -12,7 +12,7 @@
 )]
 
 use fvoci_model::{
-    BoardType, Body, CardOpen, CategoryType, Density, HourCycle, JsonMap, MinimumRole, Theme,
+    Body, CardOpen, CategoryType, ContainerType, Density, HourCycle, JsonMap, MinimumRole, Theme,
     WeekStart,
 };
 use utoipa::ToSchema;
@@ -69,7 +69,7 @@ pub(crate) struct NewBoard {
     id: Option<String>,
     /// Whether the board is open or private.
     #[schema(rename = "type")]
-    board_type: BoardType,
+    container_type: ContainerType,
     /// The role a user gets who joins the board. Left out, `editor`.
     minimum_role: Option<MinimumRole>,
     /// The board's title.
@@ -105,7 +105,7 @@ pub(crate) struct NewBlock {
     id: Option<String>,
     /// The board the block belongs to: the board of the path, or, where boards and
     /// blocks are made together, the `id` of one of the request's boards.
-    board_id: String,
+    container_id: String,
     /// The block this one is below: a block of the same board, or the name of another
     /// block of the request. Left out for a block directly on its board.
     parent_id: Option<String>,
@@ -133,10 +133,10 @@ pub(crate) struct NewBlock {
 /// Boards and their blocks, to make together.
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]
-pub(crate) struct NewBoardsAndBlocks {
+pub(crate) struct NewContainersAndBlocks {
     /// The boards, at least one. Each needs an `id`.
-    boards: Vec<NewBoard>,
-    /// The blocks, at least one. The `boardId` of each is the `id` of one of `boards`.
+    containers: Vec<NewBoard>,
+    /// The blocks, at least one. The `containerId` of each is the `id` of one of `containers`.
     blocks: Vec<NewBlock>,
 }
 

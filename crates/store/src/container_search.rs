@@ -1,15 +1,15 @@
 //! Boards found by a search term, among those a user can reach.
 
-use fvoci_model::{Board, BoardKinds, BoardSearchField};
+use fvoci_model::{Container, ContainerKinds, ContainerSearchField};
 
 use crate::Store;
-use crate::boards::{self, PublicBoards};
+use crate::containers::{self, PublicContainers};
 use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
 
 impl Store {
     /// Returns the boards of `kinds`, of any workspace, that match a search term and that
-    /// a user is a member of or, with [`PublicBoards::Include`], that are open, oldest
+    /// a user is a member of or, with [`PublicContainers::Include`], that are open, oldest
     /// first. Templates are left out.
     ///
     /// An empty `term` matches every board. Searching by title matches boards whose
@@ -19,16 +19,17 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn search_boards_for_user(
+    pub async fn search_containers_for_user(
         &self,
         term: &str,
-        search_field: BoardSearchField,
+        search_field: ContainerSearchField,
         user_id: &str,
-        public_boards: PublicBoards,
-        kinds: BoardKinds,
-    ) -> Result<Vec<Board>, StoreError> {
+        public_containers: PublicContainers,
+        kinds: ContainerKinds,
+    ) -> Result<Vec<Container>, StoreError> {
         self.with_conn(async |scope| {
-            search_boards_for_user(scope, term, search_field, user_id, public_boards, kinds).await
+            search_containers_for_user(scope, term, search_field, user_id, public_containers, kinds)
+                .await
         })
         .await
     }
@@ -49,28 +50,28 @@ fn title_has_words(title: &str, term: &str) -> bool {
 }
 
 /// Keeps the boards whose title has the words of `term`; an empty term keeps all.
-pub(crate) fn with_title_words(mut boards: Vec<Board>, term: &str) -> Vec<Board> {
+pub(crate) fn with_title_words(mut containers: Vec<Container>, term: &str) -> Vec<Container> {
     if !term.is_empty() {
-        boards.retain(|board| title_has_words(&board.title, term));
+        containers.retain(|container| title_has_words(&container.title, term));
     }
-    boards
+    containers
 }
 
-async fn search_boards_for_user(
+async fn search_containers_for_user(
     scope: &mut Scope<'_>,
     term: &str,
-    search_field: BoardSearchField,
+    search_field: ContainerSearchField,
     user_id: &str,
-    public_boards: PublicBoards,
-    kinds: BoardKinds,
-) -> Result<Vec<Board>, StoreError> {
+    public_containers: PublicContainers,
+    kinds: ContainerKinds,
+) -> Result<Vec<Container>, StoreError> {
     // No board's property has U+0000 in its name: it is refused when a board is stored,
     // and PostgreSQL refuses it as a parameter.
-    if search_field == BoardSearchField::PropertyName && term.contains('\0') {
+    if search_field == ContainerSearchField::PropertyName && term.contains('\0') {
         return Ok(Vec::new());
     }
-    let mut sql = boards::select_boards_of_user(scope, user_id, public_boards, kinds);
-    if !term.is_empty() && search_field == BoardSearchField::PropertyName {
+    let mut sql = containers::select_containers_of_user(scope, user_id, public_containers, kinds);
+    if !term.is_empty() && search_field == ContainerSearchField::PropertyName {
         // A board property of that name, whatever its value, `null` too; a name is no
         // path, so `a.b` is a name with a dot.
         match scope.dialect() {
@@ -87,10 +88,10 @@ async fn search_boards_for_user(
             }
         }
     }
-    sql.push(boards::OLDEST_BOARD_FIRST);
-    let boards = boards::fetch_boards(scope, sql).await?;
+    sql.push(containers::OLDEST_CONTAINER_FIRST);
+    let containers = containers::fetch_containers(scope, sql).await?;
     Ok(match search_field {
-        BoardSearchField::Title => with_title_words(boards, term),
-        BoardSearchField::PropertyName => boards,
+        ContainerSearchField::Title => with_title_words(containers, term),
+        ContainerSearchField::PropertyName => containers,
     })
 }

@@ -21,7 +21,7 @@
  * those are passed over here.
  */
 import { afterOwnSteps, releaseOverlayEntries } from '$lib/layout/back.svelte.ts';
-import { buildUrl, normalizeBasePath, type BoardPlace } from '$lib/logic/urls.ts';
+import { buildUrl, normalizeBasePath, type ContainerPlace } from '$lib/logic/urls.ts';
 
 export interface Route {
   /** The standalone password reset page; its token is in the URL fragment. */
@@ -169,7 +169,7 @@ function settled(route: Partial<Route>): Route {
 }
 
 /** The route of a board, or of a wiki where it is one (`kind`). */
-export function placeRoute(board: BoardPlace): Partial<Route> {
+export function placeRoute(board: ContainerPlace): Partial<Route> {
   return board.kind === 'wiki'
     ? { workspaceId: board.workspaceId, wikiId: board.id }
     : { workspaceId: board.workspaceId, boardId: board.id };
@@ -305,7 +305,7 @@ export class Router {
    * chosen by the page. A wiki (`kind`) is shown at a wiki's address, its
    * first page chosen by its page.
    */
-  openBoard(board: BoardPlace): void {
+  openBoard(board: ContainerPlace): void {
     this.#cardEntered = false;
     this.go(placeRoute(board));
   }

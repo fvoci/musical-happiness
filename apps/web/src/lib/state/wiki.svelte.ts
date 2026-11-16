@@ -5,7 +5,7 @@
  *
  * The wiki is read as a board of the kind `wiki`: at the address of a board it
  * is not there, and a board is not there at a wiki's. Changes are heard as
- * the board's are (`watchBoard`): the wiki renamed or deleted, its members,
+ * the board's are (`watchContainer`): the wiki renamed or deleted, its members,
  * its pages made, changed and deleted (`pages`, `blocksDeleted`), and the
  * comments on the page shown (`blocks`, handed to `PageStore.comments`). A page
  * deleted takes the pages below it along, and only it is told: the store
@@ -18,15 +18,15 @@
  *
  * An open wiki is read by whoever works in the workspace without joining it
  * (`joinable`): they join it to write. Its people and its openness are changed
- * through the dialogs a board's are (`boardId`, `board`, `members`).
+ * through the dialogs a board's are (`containerId`, `board`, `members`).
  */
 import type { PagePlace } from '../logic/page-moves.ts';
 import { pageTree } from '../logic/page-tree.ts';
-import type { Board, BoardMember, MemberRole } from '../logic/wire.ts';
+import type { Container, ContainerMember, MemberRole } from '../logic/wire.ts';
 
 import {
   isBackendError,
-  type BoardRole,
+  type ContainerRole,
   type Change,
   type DeletedItem,
   type PageDraft,
@@ -35,10 +35,10 @@ import {
   type WikiPageDetail,
   type Wikis,
 } from './backend.ts';
-import { boardOfWorkspace, roleOf } from './board-parts.ts';
+import { containerOfWorkspace, roleOf } from './board-parts.ts';
 import { isCommentBlock } from './changes.ts';
 import { MemberWrites } from './member-writes.ts';
-import { BoardPresence } from './board-presence.svelte.ts';
+import { ContainerPresence } from './board-presence.svelte.ts';
 import { orderMembers } from './order.ts';
 import { PageStore } from './page.svelte.ts';
 import { TreeWrites } from './tree-writes.ts';
@@ -59,9 +59,9 @@ export interface WikiLooks {
   description?: string;
   icon?: string;
   /** Open to the workspace (`O`) or for the invited only (`P`): its admins'. */
-  type?: Board['type'];
+  type?: Container['type'];
   /** The role of who joins it: its admins'. */
-  minimumRole?: Board['minimumRole'];
+  minimumRole?: Container['minimumRole'];
 }
 
 export class WikiStore {
@@ -73,10 +73,10 @@ export class WikiStore {
   missing = $state(false);
   /** The reader asked to join and the answer has not come. */
   joining = $state(false);
-  wiki = $state.raw<Board | undefined>(undefined);
+  wiki = $state.raw<Container | undefined>(undefined);
   /** Every page of the wiki, in no order. */
   pages = $state.raw<WikiPage[]>([]);
-  members = $state.raw<BoardMember[]>([]);
+  members = $state.raw<ContainerMember[]>([]);
   /** The page shown, if one is. */
   openPage = $state.raw<PageStore | undefined>(undefined);
 
@@ -115,7 +115,7 @@ export class WikiStore {
   #readings = 0;
 
   /** Who else is on the wiki, and on which page: started while it is shown (`start`). */
-  readonly presence: BoardPresence;
+  readonly presence: ContainerPresence;
   /** Making, moving and deleting pages (`tree-writes.ts`). */
   readonly #writes: TreeWrites;
   /** Adding, changing and taking off members (`member-writes.ts`). */
@@ -124,7 +124,7 @@ export class WikiStore {
   constructor(workspace: Workspace, wikiId: string) {
     this.workspace = workspace;
     this.wikiId = wikiId;
-    this.presence = new BoardPresence({ workspace, boardId: wikiId });
+    this.presence = new ContainerPresence({ workspace, containerId: wikiId });
     this.#writes = new TreeWrites({
       wikiId,
       workspace,
@@ -163,12 +163,12 @@ export class WikiStore {
     try {
       // Listen first: a change made while the lists are being read is not lost.
       this.#stopWatching?.();
-      this.#stopWatching = this.workspace.backend.watchBoard(this.wikiId, (change) => {
+      this.#stopWatching = this.workspace.backend.watchContainer(this.wikiId, (change) => {
         this.#apply(change);
       });
       const backend = this.workspace.backend;
       const [wiki, pages, members] = await Promise.all([
-        boardOfWorkspace(backend, this.wikiId, this.workspace.info?.id, 'wiki'),
+        containerOfWorkspace(backend, this.wikiId, this.workspace.info?.id, 'wiki'),
         this.#wikis.pages(this.wikiId),
         backend.members(this.wikiId),
       ]);
@@ -194,7 +194,7 @@ export class WikiStore {
     if (this.joining) return false;
     this.joining = true;
     try {
-      await this.workspace.backend.joinBoard(this.wikiId);
+      await this.workspace.backend.joinContainer(this.wikiId);
     } catch (error) {
       // Made private or deleted meanwhile: there is nothing to join.
       if (isBackendError(error) && error.status === 404) this.missing = true;
@@ -235,20 +235,20 @@ export class WikiStore {
   // ------------------------------------------------------------ changes
 
   /** Shows `wiki` unless a newer one is shown: a reading may land after a change told meanwhile. */
-  #takeWiki(wiki: Board): void {
+  #takeWiki(wiki: Container): void {
     if (!this.wiki || this.wiki.updateAt <= wiki.updateAt) this.wiki = wiki;
   }
 
   #apply(change: Change): void {
     switch (change.kind) {
-      case 'board':
-        if (change.board.id !== this.wikiId) break;
+      case 'container':
+        if (change.container.id !== this.wikiId) break;
         // Deleted and brought back, or joined: everything of it is read again.
         if (this.missing) void this.load();
-        else this.#takeWiki(change.board);
+        else this.#takeWiki(change.container);
         break;
-      case 'boardDeleted':
-        if (change.boardId !== this.wikiId) break;
+      case 'containerDeleted':
+        if (change.containerId !== this.wikiId) break;
         // An open wiki may only have been closed to the reader: read again, it may be one to join.
         if (this.wiki?.type === 'O' && !this.#closed) void this.load();
         else [this.missing, this.status] = [true, 'failed'];
@@ -265,7 +265,7 @@ export class WikiStore {
         this.openPage?.comments.forget(change.blockIds);
         break;
       case 'members':
-        if (change.boardId !== this.wikiId) break;
+        if (change.containerId !== this.wikiId) break;
         this.#people.told += 1;
         this.members = change.members;
         void this.workspace.learnUsers(change.members.map(memberId), { members: true });
@@ -307,7 +307,7 @@ export class WikiStore {
     const membersTold = this.#people.told;
     try {
       const [wiki, pages, members] = await Promise.all([
-        this.workspace.backend.board(this.wikiId),
+        this.workspace.backend.container(this.wikiId),
         this.#wikis.pages(this.wikiId),
         this.workspace.backend.members(this.wikiId),
       ]);
@@ -425,9 +425,9 @@ export class WikiStore {
     const write = async (to: WikiLooks, from: WikiLooks): Promise<void> => {
       if (this.wiki) this.wiki = { ...this.wiki, ...to };
       try {
-        const changed = await this.workspace.backend.patchBoard(this.wikiId, to);
+        const changed = await this.workspace.backend.patchContainer(this.wikiId, to);
         this.#takeWiki(changed);
-        this.workspace.receiveBoard(changed);
+        this.workspace.receiveContainer(changed);
       } catch (error) {
         if (this.wiki) this.wiki = { ...this.wiki, ...from };
         throw error;
@@ -447,17 +447,17 @@ export class WikiStore {
   // ------------------------------------------------------------ sharing
   // What the dialogs of a board's people read and change (`ShareDialog`).
 
-  get boardId(): string {
+  get containerId(): string {
     return this.wikiId;
   }
 
-  get board(): Board | undefined {
+  get container(): Container | undefined {
     return this.wiki;
   }
 
   /** The wiki as read for whoever manages it without reading it (`managed-board.ts`). */
-  set board(board: Board | undefined) {
-    this.wiki = board;
+  set container(wiki: Container | undefined) {
+    this.wiki = wiki;
   }
 
   /** Whether anybody of the workspace reads the wiki, and may join it to write. */
@@ -466,15 +466,15 @@ export class WikiStore {
   }
 
   /** The role somebody gets by joining the wiki. Members keep theirs. */
-  setMinimumRole(role: BoardRole): Promise<void> {
+  setMinimumRole(role: ContainerRole): Promise<void> {
     return this.changeWiki({ minimumRole: role }, 'changeMinimumRole');
   }
 
-  addMember(userId: string, role: BoardRole): Promise<void> {
+  addMember(userId: string, role: ContainerRole): Promise<void> {
     return this.#people.add(userId, role);
   }
 
-  setMemberRole(userId: string, role: BoardRole): Promise<void> {
+  setMemberRole(userId: string, role: ContainerRole): Promise<void> {
     return this.#people.setRole(userId, role);
   }
 

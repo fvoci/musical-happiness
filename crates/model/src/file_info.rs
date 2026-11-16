@@ -13,7 +13,7 @@ pub struct FileInfo {
     /// The board the file belongs to. Never sent to clients: they ask for a file
     /// through its board.
     #[serde(skip)]
-    pub board_id: String,
+    pub container_id: String,
     /// The name the file is stored and asked for under: random, with the extension.
     /// Never sent to clients in this record; they have it from the upload's answer.
     #[serde(skip)]
@@ -84,7 +84,7 @@ mod tests {
     fn json_form_has_no_place_in_the_storage() {
         let file_info = FileInfo {
             id: "abc".to_owned(),
-            board_id: "board".to_owned(),
+            container_id: "board".to_owned(),
             stored_name: "random.png".to_owned(),
             create_at: 1,
             path: "boards/20240101/board/random.png".to_owned(),

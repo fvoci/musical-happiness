@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardPatch, Category, Density, Session, SubscriberType,
-    Subscription, Theme, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
-    WorkspaceRole, new_id,
+    Block, BlockType, Category, Container, ContainerMember, ContainerPatch, Density, Session,
+    SubscriberType, Subscription, Theme, User, UserPreferencesPatch, UserSettings,
+    UserSettingsPatch, WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AdminChange, BlockFilter, DbType, Founding, InstanceRole, Looking, Preference, Reach, Sight,
@@ -968,7 +968,7 @@ async fn delete_user_row(test: &TestStore, user_id: &str) -> Result<u64, sqlx::E
 fn card_on(board_id: &str) -> Block {
     Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type: BlockType::Card,
         ..Block::default()
     }
@@ -977,7 +977,7 @@ fn card_on(board_id: &str) -> Block {
 /// The identifiers of the users who are members of the board.
 async fn member_ids(store: &Store, board_id: &str) -> Vec<String> {
     store
-        .get_members_for_board(board_id)
+        .get_members_for_container(board_id)
         .await
         .expect("the members of the board are listed")
         .into_iter()
@@ -1067,14 +1067,18 @@ async fn give_belongings(
         .await
         .expect("the category is created");
     store
-        .add_update_category_board(user_id, &category.id, std::slice::from_ref(&block.board_id))
+        .add_update_category_container(
+            user_id,
+            &category.id,
+            std::slice::from_ref(&block.container_id),
+        )
         .await
         .expect("the board is filed under the category");
-    let member = BoardMember {
-        board_id: block.board_id.clone(),
+    let member = ContainerMember {
+        container_id: block.container_id.clone(),
         user_id: user_id.to_owned(),
         scheme_editor: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     store
         .save_member(&member)
@@ -1117,22 +1121,24 @@ async fn belongings_left(
         left.push("preference");
     }
     let listed = store
-        .get_user_category_boards(user_id, workspace_id)
+        .get_user_category_containers(user_id, workspace_id)
         .await
         .expect("the categories are listed");
     let category = store.get_category(category_id).await;
     match (&category, listed.as_slice()) {
         (Ok(_), [only])
             if only.category.id == category_id
-                && only.board_metadata.len() == 1
-                && only.board_metadata[0].board_id == block.board_id =>
+                && only.container_metadata.len() == 1
+                && only.container_metadata[0].container_id == block.container_id =>
         {
             left.push("category");
         }
         (Err(error), []) if error.is_not_found() => {}
         _ => panic!("a category half there: found {category:?}, listed {listed:?}"),
     }
-    let membership = store.get_member_for_board(&block.board_id, user_id).await;
+    let membership = store
+        .get_member_for_container(&block.container_id, user_id)
+        .await;
     let memberships = store
         .get_members_for_user(user_id)
         .await
@@ -1215,12 +1221,12 @@ async fn deleting_a_user_row_takes_what_is_theirs_alone_with_it() {
         "everything of the user who stays is there"
     );
     assert_eq!(
-        member_ids(store, &block.board_id).await,
+        member_ids(store, &block.container_id).await,
         std::slice::from_ref(&owner),
         "the board's other member stays"
     );
     let on_the_board = store
-        .get_blocks(&BlockFilter::board(&block.board_id))
+        .get_blocks(&BlockFilter::container(&block.container_id))
         .await
         .expect("the blocks of the board are listed");
     assert_eq!(
@@ -1251,12 +1257,12 @@ async fn a_user_row_stays_while_a_board_or_a_block_names_the_user() {
         .await
         .pop()
         .expect("one board was created");
-    let retitled = BoardPatch {
+    let retitled = ContainerPatch {
         title: Some("retitled".to_owned()),
-        ..BoardPatch::default()
+        ..ContainerPatch::default()
     };
-    let board: Board = store
-        .patch_board(&board.id, &retitled, &board_modifier)
+    let board: Container = store
+        .patch_container(&board.id, &retitled, &board_modifier)
         .await
         .expect("the board is changed by another user");
     let mut block = card_on(&board.id);
@@ -1324,7 +1330,7 @@ async fn a_user_row_stays_while_a_board_or_a_block_names_the_user() {
 
     // The board and the block are as they were, with the names of their users.
     let stored_board = store
-        .get_board(&board.id)
+        .get_container(&board.id)
         .await
         .expect("the board is found");
     assert_eq!(stored_board, board, "the board is unchanged");
@@ -1362,11 +1368,11 @@ async fn what_comes_back_from_the_trash_forgets_a_creator_whose_row_is_gone() {
     common::insert_blocks(store, &mut blocks, &gone).await;
     let (with_its_board, on_its_own) = (&blocks[0], &blocks[1]);
     for user_id in [&gone, &stays] {
-        let member = BoardMember {
-            board_id: board_of_gone.id.clone(),
+        let member = ContainerMember {
+            container_id: board_of_gone.id.clone(),
             user_id: user_id.clone(),
             scheme_admin: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
         store
             .save_member(&member)
@@ -1383,7 +1389,7 @@ async fn what_comes_back_from_the_trash_forgets_a_creator_whose_row_is_gone() {
     );
 
     store
-        .delete_board(&board_of_gone.id, &stays)
+        .delete_container(&board_of_gone.id, &stays)
         .await
         .expect("the board goes to the trash with its block");
     common::delete_blocks(store, std::slice::from_ref(on_its_own), &stays).await;
@@ -1393,7 +1399,7 @@ async fn what_comes_back_from_the_trash_forgets_a_creator_whose_row_is_gone() {
     assert_eq!(deleted, 1, "the one row of the user");
 
     let board = store
-        .undelete_board(&board_of_gone.id, &stays)
+        .undelete_container(&board_of_gone.id, &stays)
         .await
         .expect("the board comes back although its creator is gone");
     assert_eq!(
@@ -1402,7 +1408,7 @@ async fn what_comes_back_from_the_trash_forgets_a_creator_whose_row_is_gone() {
         "the board is made by nobody and restored by the user who stays"
     );
     let stored = store
-        .get_board(&board.id)
+        .get_container(&board.id)
         .await
         .expect("the restored board is found");
     assert_eq!(stored, board, "stored as returned");

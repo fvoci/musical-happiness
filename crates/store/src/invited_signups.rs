@@ -90,7 +90,7 @@ impl Store {
             Ok(Acceptance::Accepted(Accepted {
                 user_id: signup.id,
                 workspace_id: link.workspace_id,
-                board_id: link.board_id,
+                container_id: link.container_id,
                 used: true,
             }))
         })
@@ -158,7 +158,7 @@ impl Store {
             }
             let mut user = signup.to_account();
             accounts::insert_account(scope, &mut user, InstanceRole::User).await?;
-            let_in(scope, &link, &user.id, inviter.of_board).await?;
+            let_in(scope, &link, &user.id, inviter.of_container).await?;
             let org_id = scope.org_id().ok_or(StoreError::NoOrganization)?;
             if matches!(proof, Proof::Operator(_)) && link.role == WorkspaceRole::Member {
                 let entry = AuditEntry::by(
@@ -174,7 +174,7 @@ impl Store {
                 user,
                 org_id,
                 workspace_id: link.workspace_id,
-                board_id: link.board_id,
+                container_id: link.container_id,
                 started_organization: false,
             })))
         })

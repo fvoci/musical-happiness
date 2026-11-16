@@ -59,7 +59,7 @@ mod tests {
             org_id: "o".to_owned(),
             workspace_id: "w".to_owned(),
             container_id: "b".to_owned(),
-            container_kind: fvoci_model::BoardKind::Board,
+            container_kind: fvoci_model::ContainerKind::Board,
             kind: SearchKind::Card,
             title: "제목".to_owned(),
             text: "본문".to_owned(),

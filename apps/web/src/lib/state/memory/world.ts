@@ -6,7 +6,7 @@
  * "somebody else" change a card while the reader has it open.
  */
 import type { DocNode } from '../../editor/schema.ts';
-import type { Block, Board, BoardMember, BoardView, Card } from '../../logic/wire.ts';
+import type { Block, Container, ContainerMember, BoardView, Card } from '../../logic/wire.ts';
 import type {
   AccountSettings,
   Category,
@@ -18,9 +18,9 @@ import type {
   User,
 } from '../backend.ts';
 
-import { reads } from './board-access.ts';
+import { reads } from './container-access.ts';
 import type { KeptOfCard } from './body-versions.ts';
-import type { BoardPlace } from './trash.ts';
+import type { ContainerPlace } from './trash.ts';
 
 /** A view, card, comment or attachment as the world stores it. */
 export interface StoredBlock extends Block {
@@ -37,7 +37,7 @@ export type StoredCard = StoredBlock & Card;
 
 export interface StoredFile {
   fileId: string;
-  boardId: string;
+  containerId: string;
   name: string;
   size: number;
   contentType: string;
@@ -47,26 +47,26 @@ export interface StoredFile {
 }
 
 interface DeletedBlocks {
-  boardId: string;
+  containerId: string;
   /** The block that was deleted and everything that went with it. */
   blocks: StoredBlock[];
   deletedAt: number;
   deletedBy: string;
 }
 
-interface DeletedBoard {
-  board: Board;
-  members: BoardMember[];
+interface DeletedContainer {
+  container: Container;
+  members: ContainerMember[];
   blocks: StoredBlock[];
   deletedAt: number;
   deletedBy: string;
   /** Where each person had filed it. */
-  places: BoardPlace[];
+  places: ContainerPlace[];
 }
 
 interface Watcher {
   /** Undefined: listens to the reader's own things. */
-  boardId: string | undefined;
+  containerId: string | undefined;
   userId: string;
   listener: ChangeListener;
   /** Of a wiki: whether the watcher reads it, as of the last change told. */
@@ -77,8 +77,8 @@ export class World {
   workspace: WorkspaceInfo = { id: '', title: '' };
   readonly workspaceMembers = new Set<string>();
   readonly users = new Map<string, User>();
-  readonly boards = new Map<string, Board>();
-  readonly members = new Map<string, BoardMember[]>();
+  readonly containers = new Map<string, Container>();
+  readonly members = new Map<string, ContainerMember[]>();
   /** Public links of boards, by board. */
   readonly sharing = new Map<string, Sharing>();
   readonly blocks = new Map<string, StoredBlock>();
@@ -88,7 +88,7 @@ export class World {
   readonly screenState = new Map<string, Record<string, string>>();
   /** Deleted blocks, by the identifier of the block the deletion was asked for. */
   readonly deletedBlocks = new Map<string, DeletedBlocks>();
-  readonly deletedBoards = new Map<string, DeletedBoard>();
+  readonly deletedContainers = new Map<string, DeletedContainer>();
   /** The texts written down of changed comments, by comment, the one it has now last. */
   readonly commentVersions = new Map<string, CommentVersion[]>();
   /** The versions kept of the bodies of cards, by card (`body-versions.ts`). */
@@ -143,8 +143,8 @@ export class World {
     return time;
   }
 
-  blocksOf(boardId: string): StoredBlock[] {
-    return [...this.blocks.values()].filter((block) => block.boardId === boardId);
+  blocksOf(containerId: string): StoredBlock[] {
+    return [...this.blocks.values()].filter((block) => block.containerId === containerId);
   }
 
   childrenOf(parentId: string): StoredBlock[] {
@@ -152,7 +152,8 @@ export class World {
   }
 
   watch(watcher: Watcher): () => void {
-    if (watcher.boardId !== undefined) watcher.reads = reads(this, watcher.userId, watcher.boardId);
+    if (watcher.containerId !== undefined)
+      watcher.reads = reads(this, watcher.userId, watcher.containerId);
     this.#watchers.add(watcher);
     return () => {
       this.#watchers.delete(watcher);
@@ -165,32 +166,33 @@ export class World {
    * (made private, or taken off it) is told that it is gone for them, once;
    * who does not read it is told nothing.
    */
-  tellBoard(boardId: string, change: Change): void {
-    if (this.boards.get(boardId)?.kind !== 'wiki') {
-      this.#tell((watcher) => watcher.boardId === boardId, change);
+  tellContainer(containerId: string, change: Change): void {
+    if (this.containers.get(containerId)?.kind !== 'wiki') {
+      this.#tell((watcher) => watcher.containerId === containerId, change);
       return;
     }
-    const watching = [...this.#watchers].filter((watcher) => watcher.boardId === boardId);
+    const watching = [...this.#watchers].filter((watcher) => watcher.containerId === containerId);
     const before = new Map(watching.map((watcher) => [watcher, watcher.reads === true]));
-    for (const watcher of watching) watcher.reads = reads(this, watcher.userId, boardId);
-    this.#tell((watcher) => watcher.boardId === boardId && watcher.reads === true, change);
+    for (const watcher of watching) watcher.reads = reads(this, watcher.userId, containerId);
+    this.#tell((watcher) => watcher.containerId === containerId && watcher.reads === true, change);
     this.#tell((watcher) => before.get(watcher) === true && watcher.reads !== true, {
-      kind: 'boardDeleted',
-      boardId,
+      kind: 'containerDeleted',
+      containerId,
     });
   }
 
   /** Tells the given users, wherever they are. */
   tellUsers(userIds: readonly string[], change: Change): void {
     this.#tell(
-      (watcher) => watcher.boardId === undefined && userIds.includes(watcher.userId),
+      (watcher) => watcher.containerId === undefined && userIds.includes(watcher.userId),
       change,
     );
   }
 
-  /** Tells the user, wherever they are, that a board is gone for them, unless they still read it (an open wiki). */
-  tellGone(userId: string, boardId: string): void {
-    if (!reads(this, userId, boardId)) this.tellUsers([userId], { kind: 'boardDeleted', boardId });
+  /** Tells the user, wherever they are, that a board or wiki is gone for them, unless they still read it (an open wiki). */
+  tellGone(userId: string, containerId: string): void {
+    if (!reads(this, userId, containerId))
+      this.tellUsers([userId], { kind: 'containerDeleted', containerId });
   }
 
   #tell(wanted: (watcher: Watcher) => boolean, change: Change): void {

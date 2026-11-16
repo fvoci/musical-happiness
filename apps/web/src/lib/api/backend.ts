@@ -4,7 +4,13 @@
  */
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { DocNode } from '../editor/schema.ts';
-import type { BlockPatch, Board, BoardMember, BoardPatch, BoardView } from '../logic/wire.ts';
+import type {
+  BlockPatch,
+  Container,
+  ContainerMember,
+  ContainerPatch,
+  BoardView,
+} from '../logic/wire.ts';
 import { openRoomLater } from '../state/doc-opener.ts';
 import { applyViewPatch } from '../state/patches.ts';
 import {
@@ -16,7 +22,7 @@ import {
   type Attachment,
   type Backend,
   type BoardDraft,
-  type BoardRole,
+  type ContainerRole,
   type BodyDoc,
   type BodyDocHears,
   type BodyWrite,
@@ -42,7 +48,7 @@ import {
 
 import {
   attachmentOf,
-  boardOf,
+  containerOf,
   cardDetailOf,
   cardOf,
   categoryOf,
@@ -51,7 +57,7 @@ import {
   memberOf,
   newBoardAndViewOf,
   newCardOf,
-  boardPatchOf,
+  containerPatchOf,
   previewsOf,
   settingsChangeOf,
   rolesOf,
@@ -94,7 +100,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     const socket = new URL(`${basePath}/ws`, location.href);
     socket.protocol = socket.protocol === 'https:' ? 'wss:' : 'ws:';
     this.#live = new LiveChanges(socket.href, {
-      members: (boardId) => this.members(boardId),
+      members: (containerId) => this.members(containerId),
     });
     this.presence = this.#live.presence;
   }
@@ -177,18 +183,18 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     workspaceId: string,
     draft: BoardDraft,
     firstView: ViewDraft,
-  ): Promise<{ board: Board; view: BoardView }> {
+  ): Promise<{ board: Container; view: BoardView }> {
     const request = newBoardAndViewOf(draft, firstView);
-    const made = await this.inWorkspace<Schemas['BoardsAndBlocks']>(
+    const made = await this.inWorkspace<Schemas['ContainersAndBlocks']>(
       '/boards-and-blocks',
       {},
       { method: 'POST', json: request },
       workspaceId,
     );
-    const [board] = made.boards;
+    const [board] = made.containers;
     const view = made.blocks.find((block) => block.type === 'view');
     if (!board || !view) throw new BackendError(500, { detail: 'the server made no board' });
-    return { board: boardOf(board), view: viewOf(view) };
+    return { board: containerOf(board), view: viewOf(view) };
   }
 
   /** Puts the card properties in an order (`reorderCardProperties`); the answer is the order. */
@@ -204,44 +210,44 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * Changes the board itself. A minimum role the contract does not have
    * (none, or admin) is refused here as the server would refuse it.
    */
-  async patchBoard(boardId: string, patch: BoardPatch): Promise<Board> {
-    const request = boardPatchOf(patch);
-    return boardOf(
-      await this.inWorkspace<Schemas['Board']>(
-        '/boards/{boardId}',
-        { boardId },
+  async patchContainer(id: string, patch: ContainerPatch): Promise<Container> {
+    const request = containerPatchOf(patch);
+    return containerOf(
+      await this.inWorkspace<Schemas['Container']>(
+        '/containers/{containerId}',
+        { containerId: id },
         { method: 'PATCH', json: request },
       ),
     );
   }
 
   /** `searchWorkspaceBoards` by title: the boards of the workspace. */
-  async searchBoards(workspaceId: string, query: string): Promise<Board[]> {
-    const boards = await this.#http.request<Schemas['Board'][]>(
+  async searchBoards(workspaceId: string, query: string): Promise<Container[]> {
+    const boards = await this.#http.request<Schemas['Container'][]>(
       underWorkspace('/boards/search'),
       { workspaceId },
       { query: { q: query } },
     );
-    return boards.map(boardOf);
+    return boards.map(containerOf);
   }
 
-  async templates(workspaceId: string): Promise<Board[]> {
-    const boards = await this.#http.request<Schemas['Board'][]>(underWorkspace('/templates'), {
+  async templates(workspaceId: string): Promise<Container[]> {
+    const boards = await this.#http.request<Schemas['Container'][]>(underWorkspace('/templates'), {
       workspaceId,
     });
-    return boards.map(boardOf);
+    return boards.map(containerOf);
   }
 
-  /** `duplicateBoard` into the workspace (`toWorkspace`). The copy is the first board of the answer. */
-  async duplicateBoard(boardId: string, asTemplate: boolean, workspaceId: string): Promise<Board> {
-    const made = await this.inWorkspace<Schemas['BoardsAndBlocks']>(
-      '/boards/{boardId}/duplicate',
-      { boardId },
-      { method: 'POST', query: { asTemplate: String(asTemplate), toWorkspace: workspaceId } },
+  /** `duplicateContainer` into the workspace `to` (`toWorkspace`). The copy is the first board of the answer. */
+  async duplicateContainer(id: string, asTemplate: boolean, to: string): Promise<Container> {
+    const made = await this.inWorkspace<Schemas['ContainersAndBlocks']>(
+      '/containers/{containerId}/duplicate',
+      { containerId: id },
+      { method: 'POST', query: { asTemplate: String(asTemplate), toWorkspace: to } },
     );
-    const [board] = made.boards;
+    const [board] = made.containers;
     if (!board) throw new BackendError(500, { detail: 'the server made no copy' });
-    return boardOf(board);
+    return containerOf(board);
   }
 
   async onboard(workspaceId: string): Promise<string> {
@@ -253,78 +259,72 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return started.boardId;
   }
 
-  /** To the server's trash, with its blocks and members (`deleteBoard`, board admins only). */
-  async deleteBoard(boardId: string): Promise<void> {
-    await this.inWorkspace('/boards/{boardId}', { boardId }, { method: 'DELETE' });
+  /** To the server's trash, with its blocks and members (`deleteContainer`, board admins only). */
+  async deleteContainer(id: string): Promise<void> {
+    await this.inWorkspace('/containers/{containerId}', { containerId: id }, { method: 'DELETE' });
   }
 
   /** Out of the server's trash, filed where each person had it (the category messages tell). */
-  async restoreBoard(boardId: string): Promise<Board> {
-    return boardOf(
-      await this.inWorkspace<Schemas['Board']>(
-        '/boards/{boardId}/undelete',
-        { boardId },
+  async restoreContainer(id: string): Promise<Container> {
+    return containerOf(
+      await this.inWorkspace<Schemas['Container']>(
+        '/containers/{containerId}/undelete',
+        { containerId: id },
         { method: 'POST' },
       ),
     );
   }
 
-  async members(boardId: string): Promise<BoardMember[]> {
-    const members = await this.inWorkspace<Schemas['BoardMember'][]>('/boards/{boardId}/members', {
-      boardId,
-    });
+  async members(id: string): Promise<ContainerMember[]> {
+    const path = '/containers/{containerId}/members';
+    const members = await this.inWorkspace<Schemas['ContainerMember'][]>(path, { containerId: id });
     return members.map(memberOf);
   }
 
   /** `addMember` with exactly the one role, as the server gives roles. */
-  async addMember(boardId: string, userId: string, role: BoardRole): Promise<BoardMember> {
+  async addMember(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
     const request: Schemas['NewMember'] = { userId, ...rolesOf(role) };
     return memberOf(
-      await this.inWorkspace<Schemas['BoardMember']>(
-        '/boards/{boardId}/members',
-        { boardId },
+      await this.inWorkspace<Schemas['ContainerMember']>(
+        '/containers/{containerId}/members',
+        { containerId: id },
         { method: 'POST', json: request },
       ),
     );
   }
 
-  async setMemberRole(boardId: string, userId: string, role: BoardRole): Promise<BoardMember> {
+  async setMemberRole(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
     return memberOf(
-      await this.inWorkspace<Schemas['BoardMember']>(
-        '/boards/{boardId}/members/{userId}',
-        { boardId, userId },
+      await this.inWorkspace<Schemas['ContainerMember']>(
+        '/containers/{containerId}/members/{userId}',
+        { containerId: id, userId },
         { method: 'PUT', json: rolesOf(role) },
       ),
     );
   }
 
-  async removeMember(boardId: string, userId: string): Promise<void> {
+  async removeMember(id: string, userId: string): Promise<void> {
     await this.inWorkspace(
-      '/boards/{boardId}/members/{userId}',
-      { boardId, userId },
+      '/containers/{containerId}/members/{userId}',
+      { containerId: id, userId },
       { method: 'DELETE' },
     );
   }
 
-  async sharing(boardId: string): Promise<Sharing> {
-    return sharingOf(
-      await this.inWorkspace<Schemas['Sharing']>('/boards/{boardId}/sharing', {
-        boardId,
-      }),
-    );
+  async sharing(id: string): Promise<Sharing> {
+    const path = '/containers/{containerId}/sharing';
+    return sharingOf(await this.inWorkspace<Schemas['Sharing']>(path, { containerId: id }));
   }
 
-  async setSharing(boardId: string, change: SharingChange): Promise<Sharing> {
-    const request: Schemas['SharingRequest'] = {
+  async setSharing(id: string, change: SharingChange): Promise<Sharing> {
+    const json: Schemas['SharingRequest'] = {
       enabled: change.enabled,
       ...(change.regenerate ? { regenerate: true } : {}),
     };
+    const path = '/containers/{containerId}/sharing';
+    const options = { method: 'POST', json } as const;
     return sharingOf(
-      await this.inWorkspace<Schemas['Sharing']>(
-        '/boards/{boardId}/sharing',
-        { boardId },
-        { method: 'POST', json: request },
-      ),
+      await this.inWorkspace<Schemas['Sharing']>(path, { containerId: id }, options),
     );
   }
 
@@ -338,12 +338,12 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return users.map(userOf);
   }
 
-  /** Joins an open board (`joinBoard`), with its minimum role. */
-  async joinBoard(boardId: string): Promise<BoardMember> {
+  /** Joins an open board (`joinContainer`), with its minimum role. */
+  async joinContainer(id: string): Promise<ContainerMember> {
     return memberOf(
-      await this.inWorkspace<Schemas['BoardMember']>(
-        '/boards/{boardId}/join',
-        { boardId },
+      await this.inWorkspace<Schemas['ContainerMember']>(
+        '/containers/{containerId}/join',
+        { containerId: id },
         { method: 'POST' },
       ),
     );
@@ -352,7 +352,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   // ------------------------------------------------------------ sidebar
 
   async categories(workspaceId: string): Promise<Category[]> {
-    const categories = await this.#http.request<Schemas['CategoryBoards'][]>(
+    const categories = await this.#http.request<Schemas['CategoryContainers'][]>(
       underWorkspace('/categories'),
       { workspaceId },
     );
@@ -382,7 +382,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       { workspaceId },
       { method: 'POST', json: request },
     );
-    return categoryOf({ ...made, boardMetadata: [] });
+    return categoryOf({ ...made, containerMetadata: [] });
   }
 
   /**
@@ -414,9 +414,9 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     );
     // The answer is the category alone; its boards are as they were read.
     return {
-      ...categoryOf({ ...updated, boardMetadata: [] }),
-      boardIds: before.boardIds,
-      hiddenBoardIds: before.hiddenBoardIds,
+      ...categoryOf({ ...updated, containerMetadata: [] }),
+      containerIds: before.containerIds,
+      hiddenContainerIds: before.hiddenContainerIds,
     };
   }
 
@@ -442,55 +442,54 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   /**
    * Files a board under a category and puts it at its place: two requests,
-   * since the server files a board (`setBoardCategory`) without a place and
-   * orders a category's boards (`reorderCategoryBoards`) apart. The order is
+   * since the server files a board (`setContainerCategory`) without a place and
+   * orders a category's boards (`reorderCategoryContainers`) apart. The order is
    * made from the category as it is after the filing, read again.
    */
-  moveBoardToCategory(
+  moveContainerToCategory(
     workspaceId: string,
-    boardId: string,
+    id: string,
     categoryId: string,
     index: number,
   ): Promise<void> {
     return this.#sidebarTurn(workspaceId, () =>
-      this.#moveBoardToCategory(workspaceId, boardId, categoryId, index),
+      this.#moveContainerToCategory(workspaceId, id, categoryId, index),
     );
   }
 
-  async #moveBoardToCategory(
+  async #moveContainerToCategory(
     workspaceId: string,
-    boardId: string,
+    containerId: string,
     categoryId: string,
     index: number,
   ): Promise<void> {
     await this.#http.request(
-      underWorkspace('/categories/{categoryId}/boards/{boardId}'),
-      { workspaceId, categoryId, boardId },
+      underWorkspace('/categories/{categoryId}/containers/{containerId}'),
+      { workspaceId, categoryId, containerId },
       { method: 'POST' },
     );
-    const filed = (await this.#category(workspaceId, categoryId)).boardIds.filter(
-      (id) => id !== boardId,
-    );
-    filed.splice(Math.max(0, Math.min(index, filed.length)), 0, boardId);
+    const { containerIds } = await this.#category(workspaceId, categoryId);
+    const filed = containerIds.filter((id) => id !== containerId);
+    filed.splice(Math.max(0, Math.min(index, filed.length)), 0, containerId);
     await this.#http.request(
-      underWorkspace('/categories/{categoryId}/board-order'),
+      underWorkspace('/categories/{categoryId}/container-order'),
       { workspaceId, categoryId },
       { method: 'PUT', json: filed },
     );
   }
 
-  setBoardHidden(
+  setContainerHidden(
     workspaceId: string,
     categoryId: string,
-    boardId: string,
+    id: string,
     hidden: boolean,
   ): Promise<void> {
     return this.#sidebarTurn(workspaceId, async () => {
       await this.#http.request(
         hidden
-          ? underWorkspace('/categories/{categoryId}/boards/{boardId}/hide')
-          : underWorkspace('/categories/{categoryId}/boards/{boardId}/unhide'),
-        { workspaceId, categoryId, boardId },
+          ? underWorkspace('/categories/{categoryId}/containers/{containerId}/hide')
+          : underWorkspace('/categories/{categoryId}/containers/{containerId}/unhide'),
+        { workspaceId, categoryId, containerId: id },
         { method: 'PUT' },
       );
     });
@@ -520,7 +519,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   async createView(boardId: string, draft: ViewDraft): Promise<BoardView> {
     // A block right on its board has no parent (the server's way).
     const block: Schemas['NewBlock'] = {
-      boardId,
+      containerId: boardId,
       type: 'view',
       title: draft.title,
       fields: draft.fields,
@@ -683,7 +682,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    */
   async createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment> {
     const block = {
-      boardId,
+      containerId: boardId,
       parentId: cardId,
       type: 'comment',
       title: '',
@@ -780,7 +779,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    */
   async createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment> {
     const block: Schemas['NewBlock'] = {
-      boardId,
+      containerId: boardId,
       parentId: cardId,
       type: 'attachment',
       title: file.name,
@@ -824,7 +823,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * (`getClientConfig`'s `maxFileSize`) is refused before anything is sent,
    * with the limit, as the server would refuse it (413).
    */
-  async upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {
+  async upload(containerId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {
     const limit = (await this.#config.read()).maxFileSize;
     if (file.size > limit) {
       throw new BackendError(413, { detail: 'the file is too large', limit });
@@ -832,7 +831,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     // A few at a time: the server keeps only so many open uploads of a reader (429).
     await this.#uploadTurn(options?.signal);
     try {
-      return await uploadInParts(this.#http, this.workspaceOf({ boardId }), file, options);
+      return await uploadInParts(this.#http, this.workspaceOf({ containerId }), file, options);
     } finally {
       this.#uploading -= 1;
       this.#uploadWaiting.shift()?.();
@@ -868,12 +867,12 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     this.#uploading += 1;
   }
 
-  /** `exportBoardArchive`, read with its progress. */
-  exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile> {
+  /** `exportContainerArchive`, read with its progress. */
+  exportContainer(id: string, options?: DownloadOptions): Promise<DownloadedFile> {
     return downloadWithProgress(
       this.#http,
-      underWorkspace('/boards/{boardId}/archive/export'),
-      this.workspaceOf({ boardId }),
+      underWorkspace('/containers/{containerId}/archive/export'),
+      this.workspaceOf({ containerId: id }),
       'archive.boardarchive',
       options,
     );
@@ -916,18 +915,19 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   /** The bytes of a file (`getFile`). */
-  fileBytes(boardId: string, fileId: string): Promise<Blob> {
-    return this.inWorkspaceBytes('/boards/{boardId}/files/{fileId}', { boardId, fileId });
+  fileBytes(containerId: string, fileId: string): Promise<Blob> {
+    const params = { containerId, fileId };
+    return this.inWorkspaceBytes('/containers/{containerId}/files/{fileId}', params);
   }
 
   /** The file's bytes, from the page's own origin: the session's cookie goes along. */
-  fileUrl(boardId: string, fileId: string): string | undefined {
-    return this.inWorkspaceUrl('/boards/{boardId}/files/{fileId}', { boardId, fileId });
+  fileUrl(containerId: string, fileId: string): string | undefined {
+    return this.inWorkspaceUrl('/containers/{containerId}/files/{fileId}', { containerId, fileId });
   }
 
-  /** The board's changes, from the one connection of the page (`live.ts`). */
-  watchBoard(boardId: string, listener: ChangeListener): () => void {
-    return this.#live.watch(boardId, listener);
+  /** The board's or the wiki's changes, from the one connection of the page (`live.ts`). */
+  watchContainer(containerId: string, listener: ChangeListener): () => void {
+    return this.#live.watch(containerId, listener);
   }
 
   /** The reader's own changes: boards and the sidebar. Settings have no message. */

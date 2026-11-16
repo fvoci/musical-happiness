@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use fvoci_model::{Board, BoardType, Invitation};
+use fvoci_model::{Container, ContainerType, Invitation};
 use fvoci_store::{Signup, SignupLookup};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -68,7 +68,7 @@ impl Places<'_> {
         vec![
             self.users(),
             format!("/w/{workspace}/members"),
-            format!("/w/{workspace}/boards/{board}/members"),
+            format!("/w/{workspace}/containers/{board}/members"),
             format!("/w/{workspace}/audit"),
             format!("/w/{workspace}/invitations"),
             format!("/org/{org}/members?perPage=200"),
@@ -84,7 +84,7 @@ impl Places<'_> {
             org,
             board,
         } = self;
-        let on_board = format!("/w/{workspace}/boards/{board}/members");
+        let on_board = format!("/w/{workspace}/containers/{board}/members");
         vec![
             (Method::GET, format!("{}/{id}", self.users()), Value::Null),
             (
@@ -226,7 +226,7 @@ struct Scene {
     smtp: FakeSmtp,
     ada: Client,
     workspace_id: String,
-    board: Board,
+    board: Container,
     for_members: Invitation,
     hidden: Vec<Signup>,
 }
@@ -256,11 +256,11 @@ impl Scene {
             .as_str()
             .expect("her workspace")
             .to_owned();
-        let board: Board = ada
-            .create_board(&Board {
+        let board: Container = ada
+            .create_board(&Container {
                 workspace_id: workspace_id.clone(),
-                board_type: BoardType::Open,
-                ..Board::default()
+                container_type: ContainerType::Open,
+                ..Container::default()
             })
             .await
             .created_json();
@@ -284,7 +284,7 @@ impl Scene {
         let for_a_guest: Invitation = ada
             .post(
                 &links,
-                &json!({"role": "guest", "boardId": board.id, "boardRole": "viewer"}),
+                &json!({"role": "guest", "containerId": board.id, "containerRole": "viewer"}),
             )
             .await
             .created_json();

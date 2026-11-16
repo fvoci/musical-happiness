@@ -15,11 +15,11 @@ use serde_json::Value;
 
 use crate::Store;
 use crate::block_derived::{self, Before};
-use crate::boards;
 use crate::body_versions::{self, BodyWrite};
 use crate::card_values::{self, NamedCards};
 use crate::comment_places;
 use crate::comment_versions::{self, EDITED_AT_COLUMN};
+use crate::containers;
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_refs::NewImages;
@@ -27,7 +27,7 @@ use crate::page_places;
 
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
-                             fields, create_at, update_at, board_id, body";
+                             fields, create_at, update_at, container_id, body";
 
 /// The columns a block is read with: [`BLOCK_COLUMNS`], and when its body was last
 /// changed if it is a comment with versions.
@@ -46,7 +46,7 @@ const BODY_SUMMARY_COLUMNS: &str = "body_version, body_text, body_tasks_total, b
 /// The columns of a listed block: [`BLOCK_COLUMNS`] with no body, and what a list says
 /// about the body in its place.
 const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
-                             fields, create_at, update_at, board_id, NULL, \
+                             fields, create_at, update_at, container_id, NULL, \
                              body IS NOT NULL, body_tasks_total, body_tasks_done";
 
 /// When the last comment on the block `blocks.id` was posted, zero for none: its
@@ -87,7 +87,7 @@ const UNKNOWN_TYPE: &str = "unknown";
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BlockFilter {
     /// Only blocks of this board.
-    pub board_id: Option<String>,
+    pub container_id: Option<String>,
     /// Only blocks with this parent.
     pub parent_id: Option<String>,
     /// Only blocks of this type. The empty type and the type `unknown` do not filter
@@ -99,9 +99,9 @@ pub struct BlockFilter {
 
 impl BlockFilter {
     /// All blocks of a board.
-    pub fn board(board_id: &str) -> Self {
+    pub fn container(container_id: &str) -> Self {
         Self {
-            board_id: Some(board_id.to_owned()),
+            container_id: Some(container_id.to_owned()),
             ..Self::default()
         }
     }
@@ -377,21 +377,23 @@ impl Store {
     /// there.
     pub async fn replace_bodies_as_written(
         &self,
-        board_id: &str,
+        container_id: &str,
         bodies: Vec<(String, Option<Body>)>,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
-            if !boards::lock_board(scope, board_id).await? {
-                return Err(StoreError::not_found(format_args!("board ID={board_id}")));
+            if !containers::lock_container(scope, container_id).await? {
+                return Err(StoreError::not_found(format_args!(
+                    "board ID={container_id}"
+                )));
             }
             for (block_id, body) in bodies {
                 let mut sql = scope.sql("UPDATE blocks SET update_at = update_at");
                 push_body(&mut sql, body.as_ref(), BodyColumns::Assign)?;
                 sql.push_bind(" WHERE id = ", Id(&block_id))
-                    .push_bind(" AND board_id = ", Id(board_id));
+                    .push_bind(" AND container_id = ", Id(container_id));
                 if scope.execute(sql).await? == 0 {
                     return Err(StoreError::not_found(format_args!(
-                        "block ID={block_id} on board {board_id}"
+                        "block ID={block_id} on board {container_id}"
                     )));
                 }
                 let block = get_block(scope, &block_id).await?;
@@ -406,7 +408,7 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::InvalidBoardsAndBlocks`] if the batch has more identifiers
+    /// Returns [`StoreError::InvalidContainersAndBlocks`] if the batch has more identifiers
     /// than patches, and otherwise the errors of [`Store::patch_block`].
     pub async fn patch_blocks(
         &self,
@@ -417,18 +419,18 @@ impl Store {
             // Which boards the blocks are on is read first, so that the boards are
             // locked in one order whatever the order of the blocks.
             // A block that does not exist is reported where it is patched, below.
-            let mut board_ids = Vec::with_capacity(batch.block_ids.len());
+            let mut container_ids = Vec::with_capacity(batch.block_ids.len());
             for block_id in &batch.block_ids {
                 if let Some(block) = find_block(scope, block_id).await? {
-                    board_ids.push(block.board_id);
+                    container_ids.push(block.container_id);
                 }
             }
-            boards::lock_boards(scope, board_ids.iter().map(String::as_str)).await?;
+            containers::lock_containers(scope, container_ids.iter().map(String::as_str)).await?;
             for (index, block_id) in batch.block_ids.iter().enumerate() {
                 let patch = batch
                     .block_patches
                     .get(index)
-                    .ok_or(fvoci_model::BoardsAndBlocksError::BlockIdsAndPatchesMismatch)?;
+                    .ok_or(fvoci_model::ContainersAndBlocksError::BlockIdsAndPatchesMismatch)?;
                 patch_block(scope, block_id, patch, user_id, BodyWrite::Whole).await?;
             }
             Ok(())
@@ -464,7 +466,7 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if the board has no such block.
     pub async fn duplicate_block(
         &self,
-        board_id: &str,
+        container_id: &str,
         block_id: &str,
         user_id: &str,
         duplicate_as: DuplicateAs,
@@ -473,12 +475,12 @@ impl Store {
             let mut sql = select_blocks(scope);
             sql.push_bind(" WHERE (id = ", Id(block_id))
                 .push_bind(" OR parent_id = ", Id(block_id))
-                .push_bind(") AND board_id = ", Id(board_id))
+                .push_bind(") AND container_id = ", Id(container_id))
                 .push(OLDEST_FIRST);
             let family = fetch_blocks(scope, sql).await?;
             let not_found = || {
                 StoreError::not_found(format_args!(
-                    "block subtree BoardID={board_id} BlockID={block_id}"
+                    "block subtree BoardID={container_id} BlockID={block_id}"
                 ))
             };
 
@@ -498,13 +500,14 @@ impl Store {
             // What the source holds is settled before the copies are named, so that a
             // value that named its own card names no card; a copy on the same board then
             // names the cards its source named.
-            let definitions = boards::find_board(scope, board_id)
+            let definitions = containers::find_container(scope, container_id)
                 .await?
-                .map(|board| board.card_properties)
+                .map(|container| container.card_properties)
                 .unwrap_or_default();
             card_values::clear_copied_values(&mut copies, &definitions);
             generate_block_ids(&mut copies);
-            card_values::keep_cards_of_board(scope, &mut copies, board_id, &definitions).await?;
+            card_values::keep_cards_of_board(scope, &mut copies, container_id, &definitions)
+                .await?;
             insert_blocks(scope, &mut copies, user_id, NewImages::Unchecked).await?;
             Ok(copies)
         })
@@ -549,7 +552,7 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
         update_at: row.int(9)?,
         // A block that exists is not deleted.
         delete_at: 0,
-        board_id: row.id(10)?,
+        container_id: row.id(10)?,
         body: match row.json(11, "body")? {
             Value::Null => None,
             document => Some(Body::from_stored(document)),
@@ -592,13 +595,13 @@ fn count_column(row: &Row, index: usize, column: &'static str) -> Result<u32, St
 fn filtered_blocks(scope: &Scope<'_>, filter: &BlockFilter, columns: &str) -> Sql {
     let mut sql = scope.sql(&format!("SELECT {columns} FROM blocks"));
     sql.push(" WHERE 1 = 1");
-    if let Some(board_id) = &filter.board_id {
-        sql.push_bind(" AND board_id = ", Id(board_id));
+    if let Some(container_id) = &filter.container_id {
+        sql.push_bind(" AND container_id = ", Id(container_id));
     }
     if let Some(parent_id) = &filter.parent_id {
         // A block directly on its board has no parent, and whoever writes one may name
         // the board there. Asking for the blocks "on the board" finds them the same way.
-        if filter.board_id.as_deref() == Some(parent_id.as_str()) {
+        if filter.container_id.as_deref() == Some(parent_id.as_str()) {
             sql.push(" AND parent_id IS NULL");
         } else {
             sql.push_bind(" AND parent_id = ", Id(parent_id));
@@ -667,6 +670,27 @@ pub(crate) async fn insert_block(
     card_values::check_named_cards(scope, &named).await
 }
 
+/// The type of the parent of `block`, `None` for a block directly on its container.
+/// Asked before the block is written, so that a parent that is none, or another
+/// board's, is the request's mistake and not a constraint the database reports.
+async fn type_of_parent(
+    scope: &mut Scope<'_>,
+    block: &Block,
+) -> Result<Option<BlockType>, StoreError> {
+    if block.parent_id.is_empty() {
+        return Ok(None);
+    }
+    let not_on_container = || StoreError::InvalidBlock {
+        id: block.id.clone(),
+        source: BlockError::ParentNotOnContainer,
+    };
+    if block.parent_id == block.id {
+        return Err(not_on_container());
+    }
+    let found = comment_places::type_on_container(scope, &block.parent_id, &block.container_id);
+    found.await?.ok_or_else(not_on_container).map(Some)
+}
+
 /// Stores a block as created or changed at `at`, or now, once its board is held, if
 /// that is `None`. The images it shows newly are asked as `new_images` says, and the
 /// versions of a card's body are kept as `body_write` says. Returns the cards its
@@ -687,27 +711,18 @@ async fn insert_block_at(
     block.validate().map_err(|source| invalid(block, source))?;
     // A block directly on its board has no parent. Clients of the original name the
     // board there.
-    if block.parent_id == block.board_id {
+    if block.parent_id == block.container_id {
         block.parent_id.clear();
     }
     // One writer per board at a time, from before anything is read: the parent that is
     // found below is still there when the block is stored.
-    let Some(kind) = boards::lock_board_of_kind(scope, &block.board_id).await? else {
+    let Some(kind) = containers::lock_container_of_kind(scope, &block.container_id).await? else {
         return Err(StoreError::not_found(format_args!(
             "board ID={} of block {}",
-            block.board_id, block.id
+            block.container_id, block.id
         )));
     };
-    // Asked here so that a parent that is none, or another board's, is the request's
-    // mistake and not a constraint the database reports.
-    let parent_type = if block.parent_id.is_empty() {
-        None
-    } else if block.parent_id == block.id {
-        return Err(invalid(block, BlockError::ParentNotOnBoard));
-    } else {
-        let found = comment_places::type_on_board(scope, &block.parent_id, &block.board_id).await?;
-        Some(found.ok_or_else(|| invalid(block, BlockError::ParentNotOnBoard))?)
-    };
+    let parent_type = type_of_parent(scope, block).await?;
     let now = at.unwrap_or_else(now_millis);
     block.update_at = now;
     block.delete_at = 0;
@@ -745,11 +760,11 @@ async fn insert_block_at(
             .push_bind(", update_at = ", block.update_at);
         push_body(&mut sql, block.body.as_ref(), BodyColumns::Assign)?;
         sql.push_bind(" WHERE id = ", Id(&block.id))
-            .push_bind(" AND board_id = ", Id(&block.board_id));
+            .push_bind(" AND container_id = ", Id(&block.container_id));
         if scope.execute(sql).await? == 0 {
             return Err(StoreError::not_found(format_args!(
                 "block ID={} on board {}",
-                block.id, block.board_id
+                block.id, block.container_id
             )));
         }
         block.edited_at =
@@ -793,7 +808,7 @@ pub(crate) async fn insert_block_row(
         .push_bind(", ", Param::json(&block.fields)?)
         .push_bind(", ", block.create_at)
         .push_bind(", ", block.update_at)
-        .push_bind(", ", Id(&block.board_id));
+        .push_bind(", ", Id(&block.container_id));
     push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
     sql.push(")");
     scope.execute(sql).await?;
@@ -843,7 +858,11 @@ pub(crate) async fn insert_blocks(
                 source,
             })?;
     }
-    boards::lock_boards(scope, blocks.iter().map(|block| block.board_id.as_str())).await?;
+    containers::lock_containers(
+        scope,
+        blocks.iter().map(|block| block.container_id.as_str()),
+    )
+    .await?;
     // One time for all of them. They are stored parents first, which is not the order
     // they were given in, and a list of blocks is by creation time and then by
     // identifier: with a time for each, where a millisecond happened to end would
@@ -916,8 +935,8 @@ pub(crate) async fn patch_block(
 ) -> Result<(), StoreError> {
     // The block says which board to hold; what is patched is read under the lock, so
     // that of two patches at once the second is applied to what the first left.
-    let board_id = get_block(scope, block_id).await?.board_id;
-    boards::lock_board(scope, &board_id).await?;
+    let container_id = get_block(scope, block_id).await?.container_id;
+    containers::lock_container(scope, &container_id).await?;
     let mut block = get_block(scope, block_id).await?;
     let stored_update_at = block.update_at;
     // What the block was stored with before it was refused is not the patch's fault.

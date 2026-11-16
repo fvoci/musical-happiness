@@ -299,11 +299,17 @@ impl Store {
                     .push_bind(", ", now)
                     .push_bind(", ", now);
                 if names_org {
-                    let board = OptId(board_of(path).unwrap_or_default());
-                    sql.push_bind(", COALESCE((SELECT org_id FROM boards WHERE id = ", board)
-                        .push_bind("), (SELECT org_id FROM deleted_boards WHERE id = ", board)
-                        .push_bind("), ", Id(SYSTEM_ORG_ID))
-                        .push(")");
+                    let container = OptId(container_of(path).unwrap_or_default());
+                    sql.push_bind(
+                        ", COALESCE((SELECT org_id FROM containers WHERE id = ",
+                        container,
+                    )
+                    .push_bind(
+                        "), (SELECT org_id FROM deleted_containers WHERE id = ",
+                        container,
+                    )
+                    .push_bind("), ", Id(SYSTEM_ORG_ID))
+                    .push(")");
                 }
                 // SQLite reads an upsert after a SELECT only behind a WHERE.
                 sql.push(&format!(" WHERE true ON CONFLICT ({key}) DO NOTHING"));
@@ -404,7 +410,7 @@ pub(crate) async fn doom(
 
 /// The board a place of the file storage names, if it is one the server made:
 /// `boards/<day>/<board>/<name>`.
-fn board_of(path: &str) -> Option<&str> {
+fn container_of(path: &str) -> Option<&str> {
     let mut parts = path.split('/');
     match (
         parts.next(),
@@ -413,8 +419,10 @@ fn board_of(path: &str) -> Option<&str> {
         parts.next(),
         parts.next(),
     ) {
-        (Some("boards"), Some(_), Some(board), Some(_), None) if fvoci_model::is_id(board) => {
-            Some(board)
+        (Some("boards"), Some(_), Some(container), Some(_), None)
+            if fvoci_model::is_id(container) =>
+        {
+            Some(container)
         }
         _ => None,
     }
@@ -444,18 +452,18 @@ mod tests {
 
     #[test]
     fn a_place_the_server_made_names_its_board() {
-        let board = "01890000-0000-7000-8000-000000000001";
+        let container = "01890000-0000-7000-8000-000000000001";
         assert_eq!(
-            board_of(&format!("boards/20261112/{board}/x.png")),
-            Some(board)
+            container_of(&format!("boards/20261112/{container}/x.png")),
+            Some(container)
         );
         for other in [
             "boards/20261112/x.png",
             "boards/20261112/not-an-id/x.png",
-            &format!("other/20261112/{board}/x.png"),
-            &format!("boards/20261112/{board}/deeper/x.png"),
+            &format!("other/20261112/{container}/x.png"),
+            &format!("boards/20261112/{container}/deeper/x.png"),
         ] {
-            assert_eq!(board_of(other), None, "{other}");
+            assert_eq!(container_of(other), None, "{other}");
         }
     }
 }

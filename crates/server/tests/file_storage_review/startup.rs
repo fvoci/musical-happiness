@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use fvoci_model::BoardType;
+use fvoci_model::ContainerType;
 use fvoci_server::Server;
 use fvoci_server::storage::WRITING_DIR;
 use tokio::io::AsyncWriteExt as _;
@@ -13,7 +13,9 @@ use crate::common::{Setup, TEST_WORKSPACE_ID};
 #[tokio::test]
 async fn starting_a_second_server_preserves_the_first_servers_active_local_write() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let app = ts.app.clone();
     let (mut writer, mut reader) = tokio::io::duplex(64);
     let saving =

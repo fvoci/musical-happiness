@@ -6,7 +6,7 @@
 
 use std::io::{Cursor, Write as _};
 
-use fvoci_model::{BlockError, BoardKind, BoardMember, PageNode};
+use fvoci_model::{BlockError, ContainerKind, ContainerMember, PageNode};
 use serde_json::{Value, json};
 
 use crate::boards::another_workspace;
@@ -52,7 +52,7 @@ async fn handbook(client: &Client, outside: &str) -> Handbook {
 }
 
 /// The wikis of the workspace at `at`.
-async fn wikis_at(client: &Client, at: &str) -> Vec<fvoci_model::Board> {
+async fn wikis_at(client: &Client, at: &str) -> Vec<fvoci_model::Container> {
     client.get(&format!("{at}/wikis")).await.ok_json()
 }
 
@@ -87,7 +87,7 @@ async fn check_handbook(ts: &TestServer, at: &str, copy: &str, source: &Handbook
         .to_owned();
     assert_ne!(file, source.file, "a file of the copy's own");
     let read = client
-        .get(&format!("{at}/boards/{copy}/files/{file}"))
+        .get(&format!("{at}/containers/{copy}/files/{file}"))
         .await;
     read.check_ok();
     assert_eq!(read.body, b"a picture\n", "the same bytes");
@@ -100,8 +100,8 @@ async fn check_handbook(ts: &TestServer, at: &str, copy: &str, source: &Handbook
         let kept = ts.app.store().body_versions(&page.id).await;
         assert!(kept.expect("the versions").is_empty(), "no versions come");
     }
-    let members: Vec<BoardMember> = client
-        .get(&format!("{at}/boards/{copy}/members"))
+    let members: Vec<ContainerMember> = client
+        .get(&format!("{at}/containers/{copy}/members"))
         .await
         .ok_json();
     let me = client.me().await.id;
@@ -120,7 +120,10 @@ async fn a_wiki_exported_by_its_route_is_imported_into_another_workspace_as_it_w
     let elsewhere = made(client, TEST_WS, "O", "elsewhere").await;
     let source = handbook(client, &elsewhere.card).await;
     let exported = client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", source.wiki))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/archive/export",
+            source.wiki
+        ))
         .await;
     exported.check_ok();
 
@@ -133,7 +136,7 @@ async fn a_wiki_exported_by_its_route_is_imported_into_another_workspace_as_it_w
     let copy = &wikis[0];
     assert_eq!(
         (copy.kind, copy.title.as_str()),
-        (BoardKind::Wiki, "Handbook")
+        (ContainerKind::Wiki, "Handbook")
     );
     assert_eq!(copy.workspace_id, other);
     check_handbook(&ts, &at, &copy.id, &source, &elsewhere.card).await;
@@ -163,7 +166,7 @@ async fn the_workspace_archive_has_its_wikis_and_a_card_names_the_imported_page(
         .expect("the handbook is imported");
     let copy_tree = tree_of(client, &at, &copy.id).await;
     let copy_welcome = titled_id(&copy_tree, "Welcome");
-    let boards: Vec<fvoci_model::Board> = client.get(&format!("{at}/boards")).await.ok_json();
+    let boards: Vec<fvoci_model::Container> = client.get(&format!("{at}/boards")).await.ok_json();
     let copied_board = boards
         .iter()
         .find(|board| board.title == "elsewhere (its container)")
@@ -260,7 +263,12 @@ async fn what_the_rules_of_a_wiki_refuse_stores_nothing_of_the_archive() {
         None,
     )
     .await;
-    refused(vec![page("a", "gone")], BlockError::ParentNotOnBoard, None).await;
+    refused(
+        vec![page("a", "gone")],
+        BlockError::ParentNotOnContainer,
+        None,
+    )
+    .await;
     refused(
         vec![page("a", "b"), page("b", "a")],
         BlockError::ParentBelowBlock,
@@ -297,7 +305,8 @@ async fn what_the_rules_of_a_wiki_refuse_stores_nothing_of_the_archive() {
 
 /// Checks that nothing of the refused archives is stored.
 async fn check_nothing_stored(client: &Client) {
-    let boards: Vec<fvoci_model::Board> = client.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let boards: Vec<fvoci_model::Container> =
+        client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     assert!(
         !boards
             .iter()

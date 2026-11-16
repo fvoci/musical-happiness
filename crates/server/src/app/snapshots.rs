@@ -10,13 +10,13 @@ impl App {
     /// Writes the pending body of every block of the board whose body has a room
     /// ([`BlockType::WITH_ROOM`]) before the board's stored blocks are copied. Listing
     /// without bodies avoids reading them once here and again for the copy.
-    pub(super) async fn write_board_bodies(&self, board_id: &str) -> Result<(), AppError> {
+    pub(super) async fn write_container_bodies(&self, container_id: &str) -> Result<(), AppError> {
         let mut with_rooms = Vec::new();
         for with_room in BlockType::WITH_ROOM {
             let listed = self
                 .store()
                 .get_listed_blocks(
-                    &BlockFilter::board(board_id).with_type(with_room),
+                    &BlockFilter::container(container_id).with_type(with_room),
                     Previews::Without,
                 )
                 .await?;

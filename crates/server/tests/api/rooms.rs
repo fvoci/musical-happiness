@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_collab::testing::Editor;
-use fvoci_model::{BoardMember, BoardType, Card};
+use fvoci_model::{Card, ContainerMember, ContainerType};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -527,7 +527,9 @@ pub(crate) struct Table {
 }
 
 pub(crate) async fn table(th: &TestServer, body: &Value) -> Table {
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let card: Card = th
         .client
         .post(
@@ -569,24 +571,24 @@ pub(crate) async fn give_in(
     user_id: &str,
     role: &str,
 ) {
-    let member = BoardMember {
-        board_id: board_id.to_owned(),
+    let member = ContainerMember {
+        container_id: board_id.to_owned(),
         user_id: user_id.to_owned(),
         scheme_viewer: role == "viewer",
         scheme_commenter: role == "commenter",
         scheme_editor: role == "editor",
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     let is_member = th
         .app
         .store()
-        .get_member_for_board(board_id, user_id)
+        .get_member_for_container(board_id, user_id)
         .await
         .is_ok();
     if is_member {
         th.client
             .put(
-                &format!("/w/{workspace_id}/boards/{board_id}/members/{user_id}"),
+                &format!("/w/{workspace_id}/containers/{board_id}/members/{user_id}"),
                 &member,
             )
             .await
@@ -894,7 +896,7 @@ async fn who_may_not_read_is_refused_as_for_no_card() {
     let no_card = fvoci_model::new_id();
     let comment = fvoci_model::Block {
         id: fvoci_model::new_id(),
-        board_id: t.board_id.clone(),
+        container_id: t.board_id.clone(),
         parent_id: t.card_id.clone(),
         block_type: fvoci_model::BlockType::Comment,
         title: "no card".to_owned(),
@@ -1015,11 +1017,11 @@ async fn a_card_of_another_organization_is_reached_through_its_workspace_only() 
     }
     let th = Setup::native().start().await.init_basic().await;
     let (theirs, workspace_id, board_id) = crate::workspaces::another_organization(&th).await;
-    let members = theirs.get_members_for_board(&board_id).await;
+    let members = theirs.get_members_for_container(&board_id).await;
     let owner = members.expect("their members")[0].user_id.clone();
     let mut theirs_card = Block {
         id: fvoci_model::new_id(),
-        board_id: board_id.clone(),
+        container_id: board_id.clone(),
         block_type: BlockType::Card,
         title: "theirs".to_owned(),
         ..Block::default()
@@ -1043,11 +1045,11 @@ async fn a_card_of_another_organization_is_reached_through_its_workspace_only() 
         .add_workspace_member(&workspace_id, &user1, WorkspaceRole::Guest)
         .await
         .expect("let into their workspace");
-    let member = BoardMember {
-        board_id,
+    let member = ContainerMember {
+        container_id: board_id,
         user_id: user1,
         scheme_editor: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     theirs.save_member(&member).await.expect("invited");
     let joined = peer.joined(&workspace_id, &theirs_card.id).await;

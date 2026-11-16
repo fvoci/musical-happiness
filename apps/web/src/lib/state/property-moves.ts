@@ -9,14 +9,14 @@
  * that is refused reads the board again rather than guess what it was.
  */
 import { movedProperty, sameOrder, withPropertyOrder } from '../logic/property-order.ts';
-import type { Board } from '../logic/wire.ts';
+import type { Container } from '../logic/wire.ts';
 
 import type { BoardStore } from './board.svelte.ts';
 
 export interface PropertyMovesHost {
-  board(): Board | undefined;
+  board(): Container | undefined;
   /** Shows the board with the new order at once. */
-  show(board: Board): void;
+  show(board: Container): void;
   send(order: string[]): Promise<unknown>;
   /** Reads the board again and shows it, after a refusal. */
   reread(): Promise<void>;
@@ -65,7 +65,7 @@ export function propertyMovesOf(board: BoardStore): PropertyMoves {
     },
     send: (order) => backend().reorderCardProperties(board.boardId, order),
     reread: async () => {
-      board.board = await backend().board(board.boardId);
+      board.board = await backend().container(board.boardId);
     },
   });
 }

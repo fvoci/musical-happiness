@@ -11,7 +11,7 @@
  * comments and versions of its body as a card has, by the card's rules.
  */
 import type { DocNode } from '../editor/schema.ts';
-import type { Board, BoardType, MemberRole } from '../logic/wire.ts';
+import type { Container, ContainerType, MemberRole } from '../logic/wire.ts';
 
 import type { BodyWrite, Comment, CommentVersion } from './backend.ts';
 import type { BodyVersions } from './body-versions.ts';
@@ -49,7 +49,7 @@ export interface WikiDraft {
   description?: string;
   icon?: string;
   /** `O`: for whoever works in the workspace to find and join; `P`: for whom it is shared with. */
-  type: BoardType;
+  type: ContainerType;
   minimumRole?: Exclude<MemberRole, '' | 'admin'>;
 }
 
@@ -88,9 +88,9 @@ export interface PagePatch {
 
 export interface Wikis {
   /** The wikis of the workspace the reader can see: as the boards of `Backend.boards`, no templates. */
-  wikis(workspaceId: string): Promise<Board[]>;
+  wikis(workspaceId: string): Promise<Container[]>;
   /** Makes a wiki, filed under the reader's default category; its members are told. */
-  createWiki(workspaceId: string, draft: WikiDraft): Promise<Board>;
+  createWiki(workspaceId: string, draft: WikiDraft): Promise<Container>;
   /** Every page of the wiki, in no promised order. For who reads it (an open one: who works there). */
   pages(wikiId: string): Promise<WikiPage[]>;
   page(wikiId: string, pageId: string): Promise<WikiPageDetail>;

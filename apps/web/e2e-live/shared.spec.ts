@@ -57,7 +57,7 @@ function strayRequestsOf(page: Page, boardId: string): string[] {
       if (
         command.action !== 'SET_PRESENCE' ||
         !command.readToken ||
-        (command.boardId !== '' && command.boardId !== boardId) ||
+        (command.containerId !== '' && command.containerId !== boardId) ||
         command.workspaceId !== ''
       ) {
         stray.push(`unexpected socket command ${String(command.action)}`);
@@ -84,7 +84,7 @@ test('a board is read by its public link without signing in, and not when the li
       { title: 'Order compost', status: 'Done' },
     ],
   });
-  const at = `/api/v1/w/${board.workspaceId}/boards/${board.boardId}`;
+  const at = `/api/v1/w/${board.workspaceId}/containers/${board.boardId}`;
   const cardId = board.cards['Sow the beans'] ?? '';
   const card = (await (
     await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
@@ -98,26 +98,29 @@ test('a board is read by its public link without signing in, and not when the li
       })
     ).ok(),
   ).toBe(true);
-  const commented = await api.post(`${at}/blocks`, {
-    data: [
-      {
-        type: 'comment',
-        parentId: cardId,
-        boardId: board.boardId,
-        title: '',
-        body: { type: 'doc', content: [paragraph('The broad beans did well last year.')] },
-        createAt: Date.now(),
-        updateAt: Date.now(),
-      },
-    ],
-  });
+  const commented = await api.post(
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`,
+    {
+      data: [
+        {
+          type: 'comment',
+          parentId: cardId,
+          containerId: board.boardId,
+          title: '',
+          body: { type: 'doc', content: [paragraph('The broad beans did well last year.')] },
+          createAt: Date.now(),
+          updateAt: Date.now(),
+        },
+      ],
+    },
+  );
   expect(commented.ok()).toBe(true);
-  const table = await api.post(`${at}/blocks`, {
+  const table = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
         type: 'view',
         parentId: board.boardId,
-        boardId: board.boardId,
+        containerId: board.boardId,
         title: 'Table of it all',
         fields: { viewType: 'table', visiblePropertyIds: ['status', 'note'] },
         createAt: Date.now(),
@@ -253,7 +256,7 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
   const at = `/api/v1/w/${workspaceId}`;
   const wiki = (await (
     await api.post(`${at}/wikis`, { data: { title: 'Field notes', type: 'P' } })
-  ).json()) as Schemas['Board'];
+  ).json()) as Schemas['Container'];
   const pages = `${at}/wikis/${wiki.id}/pages`;
   const made = async (title: string, parentId?: string) =>
     (await (
@@ -285,7 +288,7 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
     ).ok(),
   ).toBe(true);
   const shared = (await (
-    await api.post(`${at}/boards/${wiki.id}/sharing`, { data: { enabled: true } })
+    await api.post(`${at}/containers/${wiki.id}/sharing`, { data: { enabled: true } })
   ).json()) as Schemas['Sharing'];
   const token = shared.token ?? '';
 
@@ -368,7 +371,7 @@ test('a wiki is read by its public link without signing in: its tree and pages, 
 
   // The link turned off: the same "not found" as any other.
   expect(
-    (await api.post(`${at}/boards/${wiki.id}/sharing`, { data: { enabled: false } })).ok(),
+    (await api.post(`${at}/containers/${wiki.id}/sharing`, { data: { enabled: false } })).ok(),
   ).toBe(true);
   await page.reload();
   await expect(page.getByTestId('not-found')).toBeVisible();

@@ -10,14 +10,18 @@ import {
   filterSidebar,
   moveToEnd,
 } from '$lib/features/shell/sidebar-logic.ts';
-import { createBoard, type Board } from '$lib/logic/wire.ts';
+import { createBoard, type Container } from '$lib/logic/wire.ts';
 import type { Category, SidebarCategory } from '$lib/state/index.ts';
 
-function board(id: string, title: string): Board {
+function board(id: string, title: string): Container {
   return { ...createBoard(), id, title };
 }
 
-function entry(id: string, boards: Board[], overrides: Partial<Category> = {}): SidebarCategory {
+function entry(
+  id: string,
+  boards: Container[],
+  overrides: Partial<Category> = {},
+): SidebarCategory {
   return {
     category: {
       id,
@@ -27,13 +31,13 @@ function entry(id: string, boards: Board[], overrides: Partial<Category> = {}): 
       type: 'custom',
       collapsed: false,
       sortOrder: 0,
-      boardIds: boards.map((one) => one.id),
-      hiddenBoardIds: [],
+      containerIds: boards.map((one) => one.id),
+      hiddenContainerIds: [],
       createAt: 0,
       updateAt: 0,
       ...overrides,
     },
-    boards,
+    containers: boards,
   };
 }
 
@@ -57,7 +61,7 @@ describe('the search of the sidebar', () => {
   it('keeps the boards whose title has the text, whatever the case', () => {
     const found = filterSidebar(SIDEBAR, 'PLAN');
     expect(found.map((one) => one.category.id)).toEqual(['workspace']);
-    expect(found[0]?.boards).toEqual([plan]);
+    expect(found[0]?.containers).toEqual([plan]);
   });
 
   it('leaves out a category without a match, and finds a board of a folded one', () => {
@@ -66,7 +70,7 @@ describe('the search of the sidebar', () => {
   });
 
   it('matches full-width letters and ignores the spaces around the query', () => {
-    expect(filterSidebar(SIDEBAR, '  ｍｅｅｔｉｎｇ ')[0]?.boards).toEqual([notes]);
+    expect(filterSidebar(SIDEBAR, '  ｍｅｅｔｉｎｇ ')[0]?.containers).toEqual([notes]);
   });
 
   it('a board without a title is found by nothing', () => {
@@ -75,7 +79,7 @@ describe('the search of the sidebar', () => {
 
   it('does not change the sidebar it was given', () => {
     filterSidebar(SIDEBAR, 'plan');
-    expect(SIDEBAR[0]?.boards).toEqual([plan, notes]);
+    expect(SIDEBAR[0]?.containers).toEqual([plan, notes]);
   });
 });
 
@@ -115,14 +119,14 @@ describe('what a board can be dragged over', () => {
 
 describe('where a dropped board is filed', () => {
   it('in a category that shows all it names, the place on screen is the place in its list', () => {
-    const category = { boardIds: ['a', 'b', 'c'] };
+    const category = { containerIds: ['a', 'b', 'c'] };
     expect(filedIndex(category, ['a', 'b', 'c'], 'x', 0)).toBe(0);
     expect(filedIndex(category, ['a', 'b', 'c'], 'x', 2)).toBe(2);
     expect(filedIndex(category, ['a', 'b', 'c'], 'x', 3)).toBe(3);
   });
 
   it('both places are counted without the board itself', () => {
-    const category = { boardIds: ['a', 'b', 'c'] };
+    const category = { containerIds: ['a', 'b', 'c'] };
     // "a" dropped after "b": among the others it is second, and so it is filed.
     expect(filedIndex(category, ['a', 'b', 'c'], 'a', 1)).toBe(1);
     expect(filedIndex(category, ['a', 'b', 'c'], 'a', 2)).toBe(2);
@@ -131,7 +135,7 @@ describe('where a dropped board is filed', () => {
 
   it('a board the category names but does not show keeps its place before what follows it', () => {
     // "gone" was deleted: it is in the list and not on screen.
-    const category = { boardIds: ['a', 'gone', 'b'] };
+    const category = { containerIds: ['a', 'gone', 'b'] };
     // Dropped before "b" on screen: filed right before "b", after the one that is not shown.
     expect(filedIndex(category, ['a', 'b'], 'x', 1)).toBe(2);
     expect(filedIndex(category, ['a', 'b'], 'x', 0)).toBe(0);
@@ -140,7 +144,7 @@ describe('where a dropped board is filed', () => {
 
   it('before a board the category shows without naming it, the board goes to the end of the list', () => {
     // The default category also shows boards nobody filed ("loose").
-    const category = { boardIds: ['a'] };
+    const category = { containerIds: ['a'] };
     expect(filedIndex(category, ['a', 'loose'], 'x', 1)).toBe(1);
   });
 

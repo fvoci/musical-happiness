@@ -100,7 +100,7 @@ export async function openFirstBoard(
   made: Setup = setup(),
 ): Promise<Setup & { board: BoardStore }> {
   await made.workspace.load();
-  const first = made.workspace.sidebar.flatMap((entry) => entry.boards)[0];
+  const first = made.workspace.sidebar.flatMap((entry) => entry.containers)[0];
   if (!first) throw new Error('the seed has no board');
   const board = await made.workspace.openBoard(first.id);
   return { ...made, board };

@@ -238,8 +238,8 @@ export interface Backend {
   latency: number;
   workspaces(): Promise<{ id: string }[]>;
   boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
-  board(boardId: string): Promise<{ cardProperties: { id: string; name: string }[] }>;
-  patchBoard(boardId: string, patch: Record<string, unknown>): Promise<unknown>;
+  container(containerId: string): Promise<{ cardProperties: { id: string; name: string }[] }>;
+  patchContainer(containerId: string, patch: Record<string, unknown>): Promise<unknown>;
   createCard(boardId: string, draft: Record<string, unknown>): Promise<{ id: string }>;
   createView(boardId: string, draft: Record<string, unknown>): Promise<{ id: string }>;
 }

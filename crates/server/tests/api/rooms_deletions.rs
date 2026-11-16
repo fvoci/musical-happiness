@@ -20,7 +20,7 @@ async fn deleting_cards_boards_and_batches_keeps_the_last_room_body_for_restore(
         assert_ne!(body_of(&card(&th.client, &table.card_id).await), wanted);
         let base = format!("/w/{TEST_WORKSPACE_ID}");
         let block = format!("{base}/boards/{}/blocks/{}", table.board_id, table.card_id);
-        let board = format!("{base}/boards/{}", table.board_id);
+        let board = format!("{base}/containers/{}", table.board_id);
         match target {
             "card" => th.client.delete(&block).await.check_no_content(),
             "board" => th.client.delete(&board).await.check_no_content(),
@@ -28,7 +28,7 @@ async fn deleting_cards_boards_and_batches_keeps_the_last_room_body_for_restore(
                 .client
                 .delete_json(
                     &format!("{base}/boards-and-blocks"),
-                    &json!({"boards": [table.board_id], "blocks": [table.card_id]}),
+                    &json!({"containers": [table.board_id], "blocks": [table.card_id]}),
                 )
                 .await
                 .check_no_content(),
@@ -244,7 +244,7 @@ async fn a_card_below_the_deleted_block_keeps_its_rooms_last_body() {
     let table = crate::rooms::table(&th, &paragraphs(&["parent"])).await;
     let child = Block {
         id: fvoci_model::new_id(),
-        board_id: table.board_id.clone(),
+        container_id: table.board_id.clone(),
         parent_id: table.card_id.clone(),
         block_type: BlockType::Card,
         title: "below".to_owned(),

@@ -184,7 +184,7 @@ async fn an_open_wiki_not_joined_has_its_comments_read_as_a_viewer_does() {
         "what who did not join the open wiki reads"
     );
 
-    let membership = format!("{TEST_WS}/boards/{open}");
+    let membership = format!("{TEST_WS}/containers/{open}");
     th.client2
         .post(&format!("{membership}/join"), &json!({}))
         .await
@@ -257,7 +257,7 @@ async fn a_comment_is_reached_through_its_own_page_only() {
     let on_card = client
         .post(
             &format!("{TEST_WS}/boards/{board}/blocks"),
-            &json!([{"boardId": board, "parentId": card, "type": "comment",
+            &json!([{"containerId": board, "parentId": card, "type": "comment",
                      "body": text("on a card"), "createAt": 1, "updateAt": 1}]),
         )
         .await;
@@ -403,7 +403,7 @@ async fn the_members_of_the_wiki_are_told_of_a_comment() {
         (
             &told["block"]["type"],
             &told["block"]["parentId"],
-            &told["block"]["boardId"]
+            &told["block"]["containerId"]
         ),
         (&json!("comment"), &json!(page), &json!(wiki))
     );

@@ -9,7 +9,7 @@ import type { DocNode } from '../../editor/schema.ts';
 import { REFERENCES_AT_ONCE, type LinkedBlock, type References } from '../references.ts';
 import type { Paging } from '../trash-reads.ts';
 
-import { reads } from './board-access.ts';
+import { reads } from './container-access.ts';
 import { fail } from './refuse.ts';
 import type { StoredBlock, World } from './world.ts';
 
@@ -55,12 +55,12 @@ export class MemoryReferences implements References {
   #shown(block: StoredBlock | undefined): LinkedBlock | undefined {
     const { world, userId } = this.#asker;
     if (block?.type !== 'card' && block?.type !== 'page') return undefined;
-    if (!reads(world, userId, block.boardId)) return undefined;
+    if (!reads(world, userId, block.containerId)) return undefined;
     const icon = typeof block.fields.icon === 'string' ? block.fields.icon : '';
-    const { id, title, boardId } = block;
+    const { id, title, containerId } = block;
     return block.type === 'page'
-      ? { id, kind: 'page', title, icon, boardId, boardKind: 'wiki' }
-      : { id, kind: 'card', title, icon, boardId, boardKind: 'board' };
+      ? { id, kind: 'page', title, icon, containerId, containerKind: 'wiki' }
+      : { id, kind: 'card', title, icon, containerId, containerKind: 'board' };
   }
 
   #check(workspaceId: string): void {
@@ -106,7 +106,7 @@ export class MemoryReferences implements References {
     const { world } = this.#asker;
     return [...world.blocks.values()]
       .filter((block) => block.fields.isTemplate !== true)
-      .filter((block) => world.boards.get(block.boardId)?.isTemplate !== true)
+      .filter((block) => world.containers.get(block.containerId)?.isTemplate !== true)
       .filter((block) => words.every((word) => block.title.toLowerCase().includes(word)))
       .sort((a, b) => b.updateAt - a.updateAt || a.id.localeCompare(b.id))
       .flatMap((block) => this.#shown(block) ?? [])

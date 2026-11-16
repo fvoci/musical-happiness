@@ -12,14 +12,14 @@ use super::contract::bodies::NewSubscription;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BlockId, SubscriberId};
 use super::contract::tag;
-use super::workspace::Ws;
+use super::workspace::InWorkspace;
 
 use super::decode_object_members;
 use super::require_permission_through;
 use super::{ApiResult, created, json_response, no_content};
 use crate::app::App;
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 /// The refusal of this area, whatever is refused.
 const ACCESS_DENIED: &str = "access denied";
@@ -119,7 +119,7 @@ impl SubscriptionRequest {
     request_body = NewSubscription,
     responses((status = 201, description = "The subscription.", body = Subscription)),
 )]
-async fn handle_create_subscription(ws: Ws, body: Bytes) -> ApiResult {
+async fn handle_create_subscription(ws: InWorkspace, body: Bytes) -> ApiResult {
     let subscription = SubscriptionRequest::decode(&body)?.into_subscription()?;
     if ws.session.user_id != subscription.subscriber_id {
         return Err(
@@ -132,8 +132,8 @@ async fn handle_create_subscription(ws: Ws, body: Bytes) -> ApiResult {
     require_permission_through(
         &ws.app,
         &ws.session.user_id,
-        &block.board_id,
-        BoardPermission::ViewBoard,
+        &block.container_id,
+        ContainerPermission::View,
         ACCESS_DENIED,
         "block",
     )
@@ -162,7 +162,7 @@ async fn handle_create_subscription(ws: Ws, body: Bytes) -> ApiResult {
     responses((status = 204, description = "The subscription is ended.")),
 )]
 async fn handle_delete_subscription(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, block_id, subscriber_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     // The subscriptions of another user are nobody's business: not even that there is
@@ -198,7 +198,7 @@ async fn handle_delete_subscription(
     responses((status = 200, description = "The subscriptions.", body = Vec<Subscription>)),
 )]
 async fn handle_get_subscriptions(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, subscriber_id)): Path<(String, String)>,
 ) -> ApiResult {
     if ws.session.user_id != subscriber_id {

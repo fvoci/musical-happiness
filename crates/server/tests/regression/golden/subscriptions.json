@@ -33,8 +33,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,

@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use fvoci_model::{
-    BoardMember, BoardType, LinkedIdentity, OidcProvider, OidcStart, OrgRole, WorkspaceRole,
+    ContainerMember, ContainerType, LinkedIdentity, OidcProvider, OidcStart, OrgRole, WorkspaceRole,
 };
 use fvoci_store::Identity;
 use reqwest::StatusCode;
@@ -473,9 +473,9 @@ async fn a_guest_carries_their_account_over_and_keeps_their_boards() {
     let Moved { ts, org_id, .. } = moved(&old, &new).await;
     let guest = guest_known_to_the_old(&ts, &old).await;
     let board = async |title: &str| {
-        let board: fvoci_model::Board = ts
+        let board: fvoci_model::Container = ts
             .client
-            .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, title))
+            .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Private, title))
             .await
             .created_json();
         board.id
@@ -483,7 +483,7 @@ async fn a_guest_carries_their_account_over_and_keeps_their_boards() {
     let invited = board("Invited").await;
     let other = board("Not invited").await;
     ts.client
-        .add_member(&BoardMember {
+        .add_member(&ContainerMember {
             scheme_viewer: true,
             ..member(&invited, &guest)
         })
@@ -513,14 +513,14 @@ async fn a_guest_carries_their_account_over_and_keeps_their_boards() {
     assert_eq!(session.me().await.id, guest, "the guest's own account");
     assert_eq!(count(&ts, "users").await, users, "no account made");
     session
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards/{invited}"))
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/containers/{invited}"))
         .await
         .check_ok();
     session
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards/{other}"))
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/containers/{other}"))
         .await
         .check_not_found();
-    let listed: Vec<fvoci_model::Board> = session
+    let listed: Vec<fvoci_model::Container> = session
         .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
         .await
         .ok_json();

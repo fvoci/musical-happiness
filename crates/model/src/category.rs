@@ -8,7 +8,7 @@ use crate::refusal::{RefusalReason, Refusals};
 use crate::serde_util::null_as_default;
 
 /// The spacing between the sort orders of consecutive boards in a category.
-pub const CATEGORY_BOARDS_SORT_ORDER_GAP: i64 = 10;
+pub const CATEGORY_CONTAINERS_SORT_ORDER_GAP: i64 = 10;
 
 /// The name of the category every user has, which collects the boards filed nowhere
 /// else; it is found by this name.
@@ -139,10 +139,10 @@ impl Category {
 /// A board's place in a category.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
-pub struct CategoryBoardMetadata {
+pub struct CategoryContainerMetadata {
     /// The identifier of the board.
     #[serde(deserialize_with = "null_as_default")]
-    pub board_id: String,
+    pub container_id: String,
     /// Whether the user has hidden the board from the sidebar.
     #[serde(deserialize_with = "null_as_default")]
     pub hidden: bool,
@@ -151,24 +151,24 @@ pub struct CategoryBoardMetadata {
 /// A category together with the boards in it, in display order.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
-pub struct CategoryBoards {
+pub struct CategoryContainers {
     /// The category. Its members appear inline in the JSON form.
     #[serde(flatten)]
     pub category: Category,
     /// The boards in the category.
     #[serde(deserialize_with = "null_as_default")]
-    pub board_metadata: Vec<CategoryBoardMetadata>,
+    pub container_metadata: Vec<CategoryContainerMetadata>,
 }
 
-/// The payload of the websocket message sent when a board moves between categories or is
-/// hidden.
+/// The payload of the websocket message sent when a board or a wiki moves between categories
+/// or is hidden.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-pub struct BoardCategoryWebsocketData {
-    /// The identifier of the board.
-    pub board_id: String,
-    /// The identifier of the category the board is now in.
+pub struct ContainerCategoryWebsocketData {
+    /// The identifier of the board or wiki.
+    pub container_id: String,
+    /// The identifier of the category it is now in.
     pub category_id: String,
-    /// Whether the board is hidden from the sidebar.
+    /// Whether it is hidden from the sidebar.
     pub hidden: bool,
 }

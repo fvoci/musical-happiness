@@ -17,8 +17,8 @@ pub(crate) async fn trash(s: &mut Session) {
     add_member(s, &alice, &board, &bob, "editor").await;
     add_member(s, &alice, &board, &carol, "viewer").await;
     let alice_id = s.user_id(&alice).await;
-    let board_path = format!("{ROOT_API}/boards/{board}");
-    let blocks = format!("{board_path}/blocks");
+    let board_path = format!("{ROOT_API}/containers/{board}");
+    let blocks = format!("{ROOT_API}/boards/{board}/blocks");
 
     // A card with a comment and a text on it, a view next to it. Blocks below the card
     // name it as their parent, so the card is created first.
@@ -208,7 +208,7 @@ pub(crate) async fn trash(s: &mut Session) {
     .await;
     s.post(
         "undelete: unknown board",
-        &format!("{ROOT_API}/boards/{UNKNOWN_ID}/undelete"),
+        &format!("{ROOT_API}/containers/{UNKNOWN_ID}/undelete"),
     )
     .user(&alice)
     .await;

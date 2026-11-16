@@ -1,17 +1,17 @@
 /**
- * What a copy of a board or a wiki takes (`duplicateBoard`), as the server
+ * What a copy of a board or a wiki takes (`duplicateContainer`), as the server
  * copies: its blocks but the comments, with what is typed in them now, and
  * the files they show given copies of their own on the copy.
  */
 import type { DocNode } from '../../editor/schema.ts';
 
-import { flushBoards } from './bodies.ts';
+import { flushContainers } from './bodies.ts';
 import type { StoredBlock, World } from './world.ts';
 
 /** The blocks a copy of the board or wiki takes: all but its comments. */
-export function copiedBlocks(world: World, board: { id: string }): StoredBlock[] {
-  flushBoards(world, [board]);
-  return world.blocksOf(board.id).filter((block) => block.type !== 'comment');
+export function copiedBlocks(world: World, container: { id: string }): StoredBlock[] {
+  flushContainers(world, [container]);
+  return world.blocksOf(container.id).filter((block) => block.type !== 'comment');
 }
 
 /** The body with the files its images show renamed, where `rename` has another name. */
@@ -35,12 +35,12 @@ export function giveCopiesFiles(world: World, sourceId: string, copyId: string):
   const copies = new Map<string, string>();
   const renamed = (fileId: string): string => {
     const file = world.files.get(fileId);
-    if (file?.boardId !== sourceId) return fileId;
+    if (file?.containerId !== sourceId) return fileId;
     let made = copies.get(fileId);
     if (made === undefined) {
       made = world.newId();
       copies.set(fileId, made);
-      world.files.set(made, { ...file, fileId: made, boardId: copyId });
+      world.files.set(made, { ...file, fileId: made, containerId: copyId });
     }
     return made;
   };

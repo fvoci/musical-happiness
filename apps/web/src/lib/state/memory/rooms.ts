@@ -56,7 +56,7 @@ import type {
 import { ROOM_LIMITS } from '../../logic/doc-room.ts';
 
 import { leftByWriters, roomWrote, typedBy, writersLeft } from './body-versions.ts';
-import { reads } from './board-access.ts';
+import { reads } from './container-access.ts';
 import { roleOn } from './comments.ts';
 import { changeOf, imageFileIds, LIMITS } from './shapes.ts';
 import { MemoryCarets } from './room-carets.ts';
@@ -98,7 +98,7 @@ export class MemoryRooms {
     world.bodyUnwritten = (cardId) => {
       const room = this.#rooms.get(cardId);
       const body = room && bodyOf(room.doc);
-      const card = room && this.#card(room.boardId, cardId);
+      const card = room && this.#card(room.containerId, cardId);
       return !!card && body !== undefined && !sameBody(body, card.body ?? null);
     };
     world.bodyWritten = (cardId) => {
@@ -113,7 +113,7 @@ export class MemoryRooms {
   }
 
   /** A way into a card's room for a user. */
-  line(user: RoomUser, boardId: string, cardId: string): RoomLine {
+  line(user: RoomUser, containerId: string, cardId: string): RoomLine {
     return (hears) => {
       const seat: Seat = {
         user,
@@ -132,7 +132,7 @@ export class MemoryRooms {
         // What a seat says reaches the room after the user's latency, as over a network.
         join: (held) => {
           this.#hear(seat, () => {
-            this.#join(seat, boardId, cardId, held);
+            this.#join(seat, containerId, cardId, held);
           });
         },
         send: (bytes) => {
@@ -195,28 +195,29 @@ export class MemoryRooms {
     }, seat.outAt - Date.now());
   }
 
-  #card(boardId: string, cardId: string): StoredCard | undefined {
+  #card(containerId: string, cardId: string): StoredCard | undefined {
     const block = this.#world.blocks.get(cardId);
-    if ((block?.type !== 'card' && block?.type !== 'page') || block.boardId !== boardId) return;
+    if ((block?.type !== 'card' && block?.type !== 'page') || block.containerId !== containerId)
+      return;
     return block as StoredCard;
   }
 
   /** The way the user may be in the room now; undefined when not at all. */
-  #modeOf(user: RoomUser, boardId: string, cardId: string): DocMode | undefined {
-    if (!this.#card(boardId, cardId)) return undefined;
-    const role = roleOn(this.#world.members.get(boardId) ?? [], user.userId);
+  #modeOf(user: RoomUser, containerId: string, cardId: string): DocMode | undefined {
+    if (!this.#card(containerId, cardId)) return undefined;
+    const role = roleOn(this.#world.members.get(containerId) ?? [], user.userId);
     // An open wiki's page is read by whoever works there: written only by its editors.
-    if (role === '') return reads(this.#world, user.userId, boardId) ? 'read' : undefined;
+    if (role === '') return reads(this.#world, user.userId, containerId) ? 'read' : undefined;
     return role === 'admin' || role === 'editor' ? 'write' : 'read';
   }
 
-  #room(boardId: string, cardId: string): Room {
+  #room(containerId: string, cardId: string): Room {
     const known = this.#rooms.get(cardId);
     if (known) return known;
-    const card = this.#card(boardId, cardId);
+    const card = this.#card(containerId, cardId);
     const doc = documentOf(card?.body ?? null);
     const room: Room = {
-      boardId,
+      containerId,
       cardId,
       doc,
       epoch: 1,
@@ -227,7 +228,7 @@ export class MemoryRooms {
       tab: tabKey(card, cardId, 1),
     };
     this.#world.watch({
-      boardId,
+      containerId,
       userId: '',
       listener: (change) => {
         if (change.kind === 'members') this.#recheck(room);
@@ -243,14 +244,14 @@ export class MemoryRooms {
     this.#channel?.postMessage(message);
   }
 
-  #join(seat: Seat, boardId: string, cardId: string, held?: RoomHeld): void {
-    const mode = this.#modeOf(seat.user, boardId, cardId);
+  #join(seat: Seat, containerId: string, cardId: string, held?: RoomHeld): void {
+    const mode = this.#modeOf(seat.user, containerId, cardId);
     // Refused, the room before (if any) stays the seat's.
     if (mode === undefined) {
       this.#say(seat, { message: { action: 'DOC_REFUSED', reason: 'not_found' } });
       return;
     }
-    const room = this.#room(boardId, cardId);
+    const room = this.#room(containerId, cardId);
     // In the room anew, the seat has no caret until it says so again, under another number.
     this.#carets.left(room, seat);
     this.#numbers += 1;
@@ -294,7 +295,7 @@ export class MemoryRooms {
     const users = staying.map((seat) => seat.user.userId);
     if (staying.length > 0 && !leftByWriters(this.#world, room.cardId, users)) return;
     this.#write(room);
-    const card = this.#card(room.boardId, room.cardId);
+    const card = this.#card(room.containerId, room.cardId);
     if (card) writersLeft(this.#world, card);
   }
 
@@ -325,7 +326,7 @@ export class MemoryRooms {
       });
       return;
     }
-    const card = this.#card(room.boardId, room.cardId);
+    const card = this.#card(room.containerId, room.cardId);
     if (card) typedBy(this.#world, card, seat.user.userId);
     Y.applyUpdate(room.doc, frame.payload, seat);
     room.lastWriter = seat.user.userId;
@@ -341,7 +342,7 @@ export class MemoryRooms {
     if (epoch !== room.epoch) return 'update_out_of_step';
     if (update.length > ROOM_LIMITS.updateBytes) return 'update_too_large';
     // A card deleted meanwhile: the room stays until the roles are asked again.
-    if (!this.#card(room.boardId, room.cardId)) return 'not_found';
+    if (!this.#card(room.containerId, room.cardId)) return 'not_found';
     return this.#check(room, update);
   }
 
@@ -363,7 +364,7 @@ export class MemoryRooms {
     if (storedSize(body) > LIMITS.bodyBytes) return 'document_too_large';
     // An image shows a file of this board, or none.
     const files = this.#world.files;
-    if (imageFileIds(body).some((fileId) => files.get(fileId)?.boardId !== room.boardId)) {
+    if (imageFileIds(body).some((fileId) => files.get(fileId)?.containerId !== room.containerId)) {
       return 'update_refused';
     }
     return undefined;
@@ -400,21 +401,21 @@ export class MemoryRooms {
     clearTimeout(room.longest);
     room.quiet = undefined;
     room.longest = undefined;
-    const card = this.#card(room.boardId, room.cardId);
+    const card = this.#card(room.containerId, room.cardId);
     const body = bodyOf(room.doc);
     if (!card || body === undefined) return;
     if (sameBody(body, card.body ?? null)) return;
     card.body = body;
     card.updateAt = this.#world.now();
     card.modifiedBy = room.lastWriter ?? card.modifiedBy;
-    this.#world.tellBoard(room.boardId, changeOf(room.boardId, card));
+    this.#world.tellContainer(room.containerId, changeOf(room.containerId, card));
     roomWrote(this.#world, card);
   }
 
   /** The card's body was written whole: the room's document is made anew from it, of the next epoch. */
   #remake(cardId: string): void {
     const room = this.#rooms.get(cardId);
-    const card = this.#card(room?.boardId ?? '', cardId);
+    const card = this.#card(room?.containerId ?? '', cardId);
     // As the server: a body written whole that is what the document holds changes nothing.
     if (!room || sameBody(bodyOf(room.doc) ?? null, card?.body ?? null)) return;
     clearTimeout(room.quiet);
@@ -440,7 +441,7 @@ export class MemoryRooms {
     for (const seat of [...room.seats]) {
       const doc = seat.doc;
       if (doc === undefined) continue;
-      const mode = this.#modeOf(seat.user, room.boardId, room.cardId);
+      const mode = this.#modeOf(seat.user, room.containerId, room.cardId);
       if (mode === undefined) {
         room.seats.delete(seat);
         seat.doc = undefined;

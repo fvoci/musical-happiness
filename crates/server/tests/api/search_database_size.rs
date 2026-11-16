@@ -11,7 +11,7 @@
 
 use std::time::{Duration, Instant};
 
-use fvoci_model::{Block, BlockType, BoardType, Body, SearchHit, new_id};
+use fvoci_model::{Block, BlockType, Body, ContainerType, SearchHit, new_id};
 use fvoci_server::config::search::SearchSettings;
 use serde_json::json;
 
@@ -90,7 +90,9 @@ async fn a_search_of_ten_thousand_cards_in_the_database() {
         .init_basic()
         .await;
     let user = th.client.me().await.id;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let mut numbers = Numbers(7);
     let vocabulary: Vec<String> = (0..5000).map(|_| word(&mut numbers)).collect();
     let stored = Instant::now();
@@ -106,7 +108,7 @@ async fn a_search_of_ten_thousand_cards_in_the_database() {
                     .collect();
                 Block {
                     id: new_id(),
-                    board_id: board.id.clone(),
+                    container_id: board.id.clone(),
                     block_type: BlockType::Card,
                     title: format!("카드 {index}"),
                     body: Body::parse(json!({"type": "doc", "content": paragraphs}))

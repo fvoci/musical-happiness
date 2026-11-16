@@ -5,7 +5,7 @@
 //! (a member of a board they could not read, an admin of one they read, a member of an
 //! open board, the maker of a new one) goes with the joining.
 
-use fvoci_model::BoardMember;
+use fvoci_model::ContainerMember;
 use serde::{Deserialize, Serialize};
 
 use crate::db::{Id, Param, Scope};
@@ -18,20 +18,20 @@ use crate::trash;
 struct HeldRole(String, [bool; 4]);
 
 /// The user's memberships of the boards of the workspace, those in the trash among them,
-/// as the text the joining keeps (`workspace_members.prior_board_roles`), by board.
+/// as the text the joining keeps (`workspace_members.prior_container_roles`), by board.
 pub(crate) async fn held_roles(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     user_id: &str,
 ) -> Result<String, StoreError> {
     let mut sql = scope.sql(
-        "SELECT bm.board_id, bm.scheme_admin, bm.scheme_editor, bm.scheme_commenter, \
-         bm.scheme_viewer FROM board_members AS bm JOIN boards AS b ON b.id = bm.board_id \
+        "SELECT bm.container_id, bm.scheme_admin, bm.scheme_editor, bm.scheme_commenter, \
+         bm.scheme_viewer FROM container_members AS bm JOIN containers AS b ON b.id = bm.container_id \
          WHERE b.workspace_id = ",
     );
     sql.bind(Id(workspace_id))
         .push_bind(" AND bm.user_id = ", Id(user_id))
-        .push(" ORDER BY bm.board_id");
+        .push(" ORDER BY bm.container_id");
     let mut held: Vec<HeldRole> = scope
         .fetch_all(sql)
         .await?
@@ -43,13 +43,13 @@ pub(crate) async fn held_roles(
             ))
         })
         .collect::<Result<_, StoreError>>()?;
-    for (board_id, members) in trashed_members(scope, workspace_id).await? {
+    for (container_id, members) in trashed_members(scope, workspace_id).await? {
         if let Some(member) = members.iter().find(|member| member.user_id == user_id) {
-            held.push(HeldRole(board_id, flags_of(member)));
+            held.push(HeldRole(container_id, flags_of(member)));
         }
     }
     serde_json::to_string(&held).map_err(|error| StoreError::Corrupt {
-        column: "prior_board_roles",
+        column: "prior_container_roles",
         reason: error.to_string(),
     })
 }
@@ -67,20 +67,20 @@ pub(crate) async fn give_back_roles(
         Vec::new()
     } else {
         serde_json::from_str(held).map_err(|error| StoreError::Corrupt {
-            column: "prior_board_roles",
+            column: "prior_container_roles",
             reason: error.to_string(),
         })?
     };
-    let mut sql = scope.sql("DELETE FROM board_members WHERE user_id = ");
+    let mut sql = scope.sql("DELETE FROM container_members WHERE user_id = ");
     sql.bind(Id(user_id))
-        .push(" AND board_id IN (SELECT id FROM boards WHERE workspace_id = ")
+        .push(" AND container_id IN (SELECT id FROM containers WHERE workspace_id = ")
         .bind(Id(workspace_id))
         .push(")");
     scope.execute(sql).await?;
     give_back_roles_in_the_trash(scope, workspace_id, user_id, &held).await?;
-    for HeldRole(board_id, [admin, editor, commenter, viewer]) in held {
+    for HeldRole(container_id, [admin, editor, commenter, viewer]) in held {
         let mut sql = scope.sql(
-            "INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, \
+            "INSERT INTO container_members (container_id, user_id, scheme_admin, scheme_editor, \
              scheme_commenter, scheme_viewer) SELECT id, ",
         );
         sql.bind(Id(user_id))
@@ -88,7 +88,7 @@ pub(crate) async fn give_back_roles(
             .push_bind(", ", editor)
             .push_bind(", ", commenter)
             .push_bind(", ", viewer)
-            .push_bind(" FROM boards WHERE id = ", Id(&board_id))
+            .push_bind(" FROM containers WHERE id = ", Id(&container_id))
             .push_bind(" AND workspace_id = ", Id(workspace_id));
         scope.execute(sql).await?;
     }
@@ -104,27 +104,27 @@ async fn give_back_roles_in_the_trash(
     user_id: &str,
     held: &[HeldRole],
 ) -> Result<(), StoreError> {
-    for (board_id, mut members) in trashed_members(scope, workspace_id).await? {
+    for (container_id, mut members) in trashed_members(scope, workspace_id).await? {
         let theirs = members.iter().find(|member| member.user_id == user_id);
-        let given_back = held.iter().find(|role| role.0 == board_id);
+        let given_back = held.iter().find(|role| role.0 == container_id);
         if theirs.map(flags_of) == given_back.map(|role| role.1) {
             continue;
         }
         members.retain(|member| member.user_id != user_id);
         if let Some(HeldRole(_, [admin, editor, commenter, viewer])) = given_back {
-            members.push(BoardMember {
-                board_id: board_id.clone(),
+            members.push(ContainerMember {
+                container_id: container_id.clone(),
                 user_id: user_id.to_owned(),
                 scheme_admin: *admin,
                 scheme_editor: *editor,
                 scheme_commenter: *commenter,
                 scheme_viewer: *viewer,
-                ..BoardMember::default()
+                ..ContainerMember::default()
             });
         }
-        let mut sql = scope.sql("UPDATE deleted_boards SET members = ");
+        let mut sql = scope.sql("UPDATE deleted_containers SET members = ");
         sql.bind(Param::json(&members)?)
-            .push_bind(" WHERE id = ", Id(&board_id));
+            .push_bind(" WHERE id = ", Id(&container_id));
         scope.execute(sql).await?;
     }
     Ok(())
@@ -134,8 +134,8 @@ async fn give_back_roles_in_the_trash(
 async fn trashed_members(
     scope: &mut Scope<'_>,
     workspace_id: &str,
-) -> Result<Vec<(String, Vec<BoardMember>)>, StoreError> {
-    let mut sql = scope.sql("SELECT id, members FROM deleted_boards WHERE workspace_id = ");
+) -> Result<Vec<(String, Vec<ContainerMember>)>, StoreError> {
+    let mut sql = scope.sql("SELECT id, members FROM deleted_containers WHERE workspace_id = ");
     sql.bind(Id(workspace_id)).push(" ORDER BY id");
     scope
         .fetch_all(sql)
@@ -146,7 +146,7 @@ async fn trashed_members(
 }
 
 /// The flags of a membership as a held role keeps them.
-const fn flags_of(member: &BoardMember) -> [bool; 4] {
+const fn flags_of(member: &ContainerMember) -> [bool; 4] {
     [
         member.scheme_admin,
         member.scheme_editor,

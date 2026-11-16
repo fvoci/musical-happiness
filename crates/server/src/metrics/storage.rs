@@ -38,16 +38,16 @@ impl ArchiveWork {
 
 /// The work that copies a board or a wiki whole.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BoardWork {
+pub(crate) enum ContainerWork {
     /// Written into an archive that was written whole.
     Export,
     /// Made from an archive.
     Import,
-    /// Copied where it is (`duplicateBoard`).
+    /// Copied where it is (`duplicateContainer`).
     Duplicate,
 }
 
-impl BoardWork {
+impl ContainerWork {
     const ALL: [Self; 3] = [Self::Export, Self::Import, Self::Duplicate];
 
     /// The value of the `work` label.
@@ -170,17 +170,17 @@ impl StorageMetrics {
         }
         let copied = IntCounterVec::new(
             Opts::new(
-                "boards_copied_total",
+                "containers_copied_total",
                 "How many boards and wikis were copied whole, by work: export (written \
                  into an archive, once the archive is ready to be sent), import (made from \
-                 an archive with its members), duplicate (copied by duplicateBoard, the \
+                 an archive with its members), duplicate (copied by duplicateContainer, the \
                  welcome board of a new account among them); and by kind: board, wiki.",
             )
             .namespace(PREFIX),
             &["work", "kind"],
         )?;
         registry.register(Box::new(copied.clone()))?;
-        for work in BoardWork::ALL {
+        for work in ContainerWork::ALL {
             for kind in Module::ALL {
                 copied
                     .with_label_values(&[work.as_str(), kind.as_str()])
@@ -218,7 +218,7 @@ impl Metrics {
     }
 
     /// Counts a board or a wiki copied whole by `work`.
-    pub(crate) fn board_copied(&self, work: BoardWork, kind: Module) {
+    pub(crate) fn container_copied(&self, work: ContainerWork, kind: Module) {
         if let Some(kept) = &self.kept {
             kept.storage
                 .copied

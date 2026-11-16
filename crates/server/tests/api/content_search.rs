@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use fvoci_model::{Block, BlockType, Board, BoardType, Card, SearchHit, new_id};
+use fvoci_model::{Block, BlockType, Card, Container, ContainerType, SearchHit, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -51,7 +51,7 @@ pub(crate) async fn new_card(client: &Client, board_id: &str, title: &str, text:
 pub(crate) async fn stored_card(store: &fvoci_store::Store, board_id: &str, title: &str) -> String {
     let mut block = Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type: BlockType::Card,
         title: title.to_owned(),
         ..Block::default()
@@ -161,9 +161,13 @@ async fn without_a_search_server_the_database_is_searched() {
     let th = Setup::native().start().await.init_basic().await;
     // There is no upkeep to do.
     fvoci_server::search::tend(&th.app).await;
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Support"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Open,
+            "Support",
+        ))
         .await
         .created_json();
     let card = new_card(&th.client, &board.id, "고객 응대", "환불규정을 따른다").await;
@@ -196,9 +200,13 @@ async fn a_search_answers_a_card_as_the_database_has_it() {
         .init_basic()
         .await;
     fvoci_server::search::tend(&th.app).await;
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Support"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Open,
+            "Support",
+        ))
         .await
         .created_json();
     let card = new_card(&th.client, &board.id, "고객 응대", "환불규정을 따른다").await;
@@ -278,9 +286,9 @@ fn stale_org(filter: &Value) -> String {
 }
 
 /// A private board of the test workspace with the user of `client` as its admin.
-pub(crate) async fn private_board(client: &Client, title: &str) -> Board {
+pub(crate) async fn private_board(client: &Client, title: &str) -> Container {
     client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, title))
+        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Private, title))
         .await
         .created_json()
 }
@@ -304,9 +312,9 @@ const SLOW: Duration = Duration::from_secs(20);
 async fn a_search_server_that_is_down_or_slow_is_a_503_and_holds_nothing_else() {
     let fake = FakeSearch::start().await;
     let th = started(&fake).await;
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Open"))
+        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Open"))
         .await
         .created_json();
 
@@ -432,7 +440,8 @@ async fn a_search_server_that_comes_up_later_gets_its_index_then() {
     let fake = FakeSearch::start().await;
     fake.go_down();
     let th = started(&fake).await;
-    th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    th.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
     let before = search(&th.client, TEST_WS, "환불").await;
     let config = th.anonymous().get("/client-config").await.value();
@@ -554,11 +563,15 @@ async fn a_user_of_more_boards_than_a_request_lists_is_searched_for_in_the_works
     let user1 = th.client.me().await.id;
     let mut last = String::new();
     for number in 0..1001 {
-        let mut board = new_board(TEST_WORKSPACE_ID, BoardType::Private, &format!("b{number}"));
+        let mut board = new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Private,
+            &format!("b{number}"),
+        );
         board.id = new_id();
         th.app
             .store()
-            .insert_board_with_admin(&mut board, &user1)
+            .insert_container_with_admin(&mut board, &user1)
             .await
             .expect("a board is stored");
         last = board.id;
@@ -569,7 +582,7 @@ async fn a_user_of_more_boards_than_a_request_lists_is_searched_for_in_the_works
     let stranger = th.stranger_in(TEST_WORKSPACE_ID).await;
     let theirs = crate::boards::board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Private, "Theirs"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Theirs"),
         &stranger,
     )
     .await;
@@ -600,7 +613,8 @@ async fn a_user_of_more_boards_than_a_request_lists_is_searched_for_in_the_works
 async fn an_index_that_went_is_made_again_and_a_partial_answer_is_none() {
     let fake = FakeSearch::start().await;
     let th = started(&fake).await;
-    th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    th.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
     fake.remove_index(INDEX);
     let gone = search(&th.client, TEST_WS, "환불").await;

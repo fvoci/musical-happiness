@@ -7,7 +7,7 @@ import { openFirstBoard, setup, text } from './support.ts';
 it('names a departed comment author on opening, refreshing and receiving comments', async () => {
   const made = setup();
   const { world, other, workspace, backend } = made;
-  const stored = [...world.boards.values()][0];
+  const stored = [...world.containers.values()][0];
   assert(stored);
   const firstCard = world.blocksOf(stored.id).find((block) => block.type === 'card');
   assert(firstCard);
@@ -134,7 +134,7 @@ it('does not bring a departed author response into a later workspace visit', asy
 it('asks again for a name left out earlier in the visit once its person is made a member', async () => {
   const { workspace, backend, world, other, board } = await openFirstBoard();
   // They wrote nothing the reader reads: the server has no reason to name them.
-  for (const stored of world.boards.values()) {
+  for (const stored of world.containers.values()) {
     if (stored.createdBy === other.userId) stored.createdBy = backend.userId;
     for (const block of world.blocksOf(stored.id)) {
       if (block.createdBy === other.userId) block.createdBy = backend.userId;

@@ -61,7 +61,7 @@ async function define(
   board: { workspaceId: string; boardId: string },
   property: { id: string; name: string; type: string },
 ): Promise<void> {
-  const answer = await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
+  const answer = await api.patch(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}`, {
     data: { updatedCardProperties: [{ ...property, options: [] }] },
   });
   expect(answer.ok(), await answer.text()).toBe(true);
@@ -279,7 +279,7 @@ test('"display by" chosen for a view that named no date can be taken back on the
   const made = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
-        boardId: board.boardId,
+        containerId: board.boardId,
         type: 'view',
         title: 'Bare Gantt',
         createAt: 1,

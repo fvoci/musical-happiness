@@ -12,10 +12,10 @@
 //! the identifiers and from the order of the names.
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardKinds, BoardMember, BoardSearchField, BoardType, Category,
-    SubscriberType, Subscription, User, WorkspaceRole, new_id,
+    Block, BlockType, Category, Container, ContainerKinds, ContainerMember, ContainerSearchField,
+    ContainerType, SubscriberType, Subscription, User, WorkspaceRole, new_id,
 };
-use fvoci_store::{Looking, Paging, PublicBoards, Reach, Sight, Store};
+use fvoci_store::{Looking, Paging, PublicContainers, Reach, Sight, Store};
 
 use crate::common::{self, TestStore};
 
@@ -30,7 +30,7 @@ async fn set_create_at(test: &TestStore, table: &str, times: &[(&str, i64)]) {
     }
 }
 
-fn board_ids(boards: &[Board]) -> Vec<&str> {
+fn board_ids(boards: &[Container]) -> Vec<&str> {
     boards.iter().map(|board| board.id.as_str()).collect()
 }
 
@@ -39,14 +39,19 @@ fn user_ids(users: &[User]) -> Vec<&str> {
 }
 
 /// Stores a board of the workspace and returns its identifier.
-async fn stored_board(store: &Store, workspace_id: &str, user_id: &str, board: Board) -> String {
-    let mut board = Board {
+async fn stored_board(
+    store: &Store,
+    workspace_id: &str,
+    user_id: &str,
+    board: Container,
+) -> String {
+    let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
         ..board
     };
     store
-        .insert_board(&mut board, user_id)
+        .insert_container(&mut board, user_id)
         .await
         .expect("the board is inserted");
     board.id
@@ -59,10 +64,10 @@ async fn boards_come_oldest_first() {
     let store = &test.store;
     let user_id = common::user(store, "user").await;
     let workspace_id = common::workspace_of(store, &[&user_id]).await;
-    let open = |title: &str| Board {
-        board_type: BoardType::Open,
+    let open = |title: &str| Container {
+        container_type: ContainerType::Open,
         title: title.to_owned(),
-        ..Board::default()
+        ..Container::default()
     };
     let first = stored_board(store, &workspace_id, &user_id, open("board d")).await;
     let second = stored_board(store, &workspace_id, &user_id, open("board a")).await;
@@ -70,7 +75,7 @@ async fn boards_come_oldest_first() {
     let fourth = stored_board(store, &workspace_id, &user_id, open("board b")).await;
     set_create_at(
         &test,
-        "boards",
+        "containers",
         &[(&fourth, 100), (&first, 200), (&second, 200), (&third, 300)],
     )
     .await;
@@ -82,11 +87,11 @@ async fn boards_come_oldest_first() {
     ];
 
     let of_workspace = store
-        .get_boards_for_user_and_workspace(
+        .get_containers_for_user_and_workspace(
             &user_id,
             &workspace_id,
-            PublicBoards::Include,
-            BoardKinds::Boards,
+            PublicContainers::Include,
+            ContainerKinds::Boards,
         )
         .await
         .expect("the boards are read");
@@ -97,19 +102,24 @@ async fn boards_come_oldest_first() {
     );
 
     let found = store
-        .search_boards_for_user(
+        .search_containers_for_user(
             "board",
-            BoardSearchField::Title,
+            ContainerSearchField::Title,
             &user_id,
-            PublicBoards::Include,
-            BoardKinds::Boards,
+            PublicContainers::Include,
+            ContainerKinds::Boards,
         )
         .await
         .expect("the boards are searched");
     assert_eq!(board_ids(&found), expected, "a search of every workspace");
 
     let found_in_workspace = store
-        .search_boards_for_user_in_workspace(&workspace_id, "board", &user_id, BoardKinds::Boards)
+        .search_containers_for_user_in_workspace(
+            &workspace_id,
+            "board",
+            &user_id,
+            ContainerKinds::Boards,
+        )
         .await
         .expect("the boards are searched");
     assert_eq!(
@@ -120,7 +130,7 @@ async fn boards_come_oldest_first() {
 
     let asked = [third.clone(), first.clone(), fourth.clone(), second.clone()];
     let by_id = store
-        .get_boards_in_workspace_by_ids(&asked, &workspace_id)
+        .get_containers_in_workspace_by_ids(&asked, &workspace_id)
         .await
         .expect("the boards are read");
     assert_eq!(
@@ -139,10 +149,10 @@ async fn templates_come_oldest_first() {
     let store = &test.store;
     let user_id = common::user(store, "user").await;
     let workspace_id = common::workspace(store).await;
-    let template = || Board {
-        board_type: BoardType::Open,
+    let template = || Container {
+        container_type: ContainerType::Open,
         is_template: true,
-        ..Board::default()
+        ..Container::default()
     };
     let mut own = Vec::new();
     let mut builtin = Vec::new();
@@ -154,7 +164,7 @@ async fn templates_come_oldest_first() {
     for ids in [&own, &builtin] {
         set_create_at(
             &test,
-            "boards",
+            "containers",
             &[(&ids[2], 100), (&ids[0], 200), (&ids[1], 200)],
         )
         .await;
@@ -198,9 +208,9 @@ async fn memberships_come_by_identifier() {
         common::user(store, "user b").await,
     ];
     let workspace_id = common::workspace_of(store, &[&users[0]]).await;
-    let open = || Board {
-        board_type: BoardType::Open,
-        ..Board::default()
+    let open = || Container {
+        container_type: ContainerType::Open,
+        ..Container::default()
     };
     let boards = [
         stored_board(store, &workspace_id, &users[0], open()).await,
@@ -208,11 +218,11 @@ async fn memberships_come_by_identifier() {
         stored_board(store, &workspace_id, &users[0], open()).await,
     ];
     let join = async |board_id: &str, user_id: &str| {
-        let member = BoardMember {
-            board_id: board_id.to_owned(),
+        let member = ContainerMember {
+            container_id: board_id.to_owned(),
             user_id: user_id.to_owned(),
             scheme_editor: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         };
         store
             .save_member(&member)
@@ -227,7 +237,7 @@ async fn memberships_come_by_identifier() {
     }
 
     let members = store
-        .get_members_for_board(&boards[0])
+        .get_members_for_container(&boards[0])
         .await
         .expect("the members are read");
     let member_ids: Vec<&str> = members
@@ -242,7 +252,7 @@ async fn memberships_come_by_identifier() {
         .expect("the memberships are read");
     let membership_boards: Vec<&str> = memberships
         .iter()
-        .map(|member| member.board_id.as_str())
+        .map(|member| member.container_id.as_str())
         .collect();
     assert_eq!(membership_boards, boards.each_ref().map(String::as_str));
 
@@ -382,20 +392,20 @@ async fn sidebar_ties_fall_back_to_age() {
         boards[1].id.clone(),
     ];
     store
-        .add_update_category_board(&user_id, &categories[0], &filed)
+        .add_update_category_container(&user_id, &categories[0], &filed)
         .await
         .expect("the boards are filed");
     let boards_of = async |category_id: &str| -> Vec<String> {
         store
-            .get_user_category_boards(&user_id, &workspace_id)
+            .get_user_category_containers(&user_id, &workspace_id)
             .await
             .expect("the categories are read")
             .into_iter()
             .find(|listed| listed.category.id == category_id)
             .expect("the category is listed")
-            .board_metadata
+            .container_metadata
             .into_iter()
-            .map(|metadata| metadata.board_id)
+            .map(|metadata| metadata.container_id)
             .collect()
     };
     assert_eq!(
@@ -411,7 +421,7 @@ async fn sidebar_ties_fall_back_to_age() {
     common::execute_raw(
         &test.dbconfig(),
         &format!(
-            "UPDATE category_boards SET sort_order = -10 WHERE board_id = '{}'",
+            "UPDATE category_containers SET sort_order = -10 WHERE container_id = '{}'",
             boards[2].id
         ),
     )
@@ -445,16 +455,16 @@ async fn subscription_ties_fall_back_to_identifiers() {
         store,
         &workspace_id,
         &users[0],
-        Board {
-            board_type: BoardType::Open,
-            ..Board::default()
+        Container {
+            container_type: ContainerType::Open,
+            ..Container::default()
         },
     )
     .await;
     let mut cards: Vec<Block> = (0..2)
         .map(|_| Block {
             id: new_id(),
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             block_type: BlockType::Card,
             create_at: 1,
             update_at: 1,
@@ -530,15 +540,15 @@ async fn board_administered_by(
     admin_id: &str,
     editor_id: &str,
 ) -> String {
-    let board_id = stored_board(store, workspace_id, admin_id, Board::default()).await;
+    let board_id = stored_board(store, workspace_id, admin_id, Container::default()).await;
     for (member, admin) in [(admin_id, true), (editor_id, false)] {
         store
-            .save_member(&BoardMember {
-                board_id: board_id.clone(),
+            .save_member(&ContainerMember {
+                container_id: board_id.clone(),
                 user_id: member.to_owned(),
                 scheme_admin: admin,
                 scheme_editor: !admin,
-                ..BoardMember::default()
+                ..ContainerMember::default()
             })
             .await
             .expect("the membership is saved");
@@ -554,11 +564,11 @@ async fn the_trash_comes_the_last_deleted_first() {
     let store = &test.store;
     let user_id = common::user(store, "user").await;
     let workspace_id = common::workspace(store).await;
-    let board_id = stored_board(store, &workspace_id, &user_id, Board::default()).await;
+    let board_id = stored_board(store, &workspace_id, &user_id, Container::default()).await;
     let mut cards: Vec<Block> = (0..3)
         .map(|_| Block {
             id: new_id(),
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             block_type: BlockType::Card,
             ..Block::default()
         })
@@ -575,7 +585,7 @@ async fn the_trash_comes_the_last_deleted_first() {
             .await
             .expect("the card is deleted");
         store
-            .delete_board(board, &user_id)
+            .delete_container(board, &user_id)
             .await
             .expect("the board is deleted");
     }
@@ -585,7 +595,7 @@ async fn the_trash_comes_the_last_deleted_first() {
             "deleted_blocks",
             cards.iter().map(|card| card.id.clone()).collect::<Vec<_>>(),
         ),
-        ("deleted_boards", boards.clone()),
+        ("deleted_containers", boards.clone()),
     ] {
         for (id, deleted_at) in ids.iter().zip([200, 200, 100]) {
             common::execute_raw(
@@ -614,31 +624,31 @@ async fn the_trash_comes_the_last_deleted_first() {
         by_id(cards.iter().map(|card| card.id.clone()).collect())
     );
     let listed: Vec<String> = store
-        .get_deleted_boards(&workspace_id, Some(&user_id), None, BoardKinds::Boards)
+        .get_deleted_containers(&workspace_id, Some(&user_id), None, ContainerKinds::Boards)
         .await
         .expect("the deleted boards")
         .into_iter()
-        .map(|deleted| deleted.board.id)
+        .map(|deleted| deleted.container.id)
         .collect();
     assert_eq!(listed, by_id(boards.clone()));
     let page: Vec<String> = store
-        .get_deleted_boards(
+        .get_deleted_containers(
             &workspace_id,
             Some(&user_id),
             Some(Paging {
                 page: 1,
                 per_page: 2,
             }),
-            BoardKinds::Boards,
+            ContainerKinds::Boards,
         )
         .await
         .expect("a page of the deleted boards")
         .into_iter()
-        .map(|deleted| deleted.board.id)
+        .map(|deleted| deleted.container.id)
         .collect();
     assert_eq!(page, by_id(boards.clone())[2..], "the pages cut that order");
     let not_admin = store
-        .get_deleted_boards(&workspace_id, Some(&other_id), None, BoardKinds::Boards)
+        .get_deleted_containers(&workspace_id, Some(&other_id), None, ContainerKinds::Boards)
         .await
         .expect("the deleted boards of an editor");
     assert!(not_admin.is_empty(), "only those the user was an admin of");

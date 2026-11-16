@@ -13,14 +13,14 @@
  * write is then taken for stored, and its undo writes back a value the
  * reader did make.
  */
-import type { BlockPatch, Board, BoardPatch, BoardView } from '../logic/wire.ts';
+import type { BlockPatch, Container, ContainerPatch, BoardView } from '../logic/wire.ts';
 
 import { isBackendError, type CardPatch, type CardSummary } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
 import { InverseValues, sameValue } from './inverse-values.ts';
 import { Inverses } from './inverses.ts';
-import { applyBoardPatch } from './patches.ts';
-import { PendingWrites } from './write.ts';
+import { applyContainerPatch, applyCardPatch, applyViewPatch } from './patches.ts';
+import { PendingWrites, put, take } from './write.ts';
 
 /** The values of a board's or a card's patch: properties by key, definitions by identifier. */
 const propertyValues = new InverseValues('updatedProperties', 'deletedProperties');
@@ -28,32 +28,32 @@ const viewValues = new InverseValues('updatedFields', 'deletedFields');
 
 export class BoardWrites {
   readonly #host: BoardStore;
-  readonly #pending = new PendingWrites<Board>();
-  readonly #inverses = new Inverses<BoardPatch>('updatedProperties', 'deletedProperties');
+  readonly #pending = new PendingWrites<Container>();
+  readonly #inverses = new Inverses<ContainerPatch>('updatedProperties', 'deletedProperties');
 
   constructor(host: BoardStore) {
     this.#host = host;
   }
 
-  receive(board: Board): boolean {
+  receive(board: Container): boolean {
     return this.#pending.receive(board);
   }
 
   /** Keeps the inverse of a change; returns what its undo is to wait for (`Inverses.ready`). */
-  keep(reverse: BoardPatch): () => Promise<void> | undefined {
+  keep(reverse: ContainerPatch): () => Promise<void> | undefined {
     this.#inverses.keep(this.#host.boardId, reverse);
     return () => this.#inverses.ready(reverse);
   }
 
-  async write(patch: BoardPatch, reverse: BoardPatch): Promise<void> {
+  async write(patch: ContainerPatch, reverse: ContainerPatch): Promise<void> {
     const host = this.#host;
     if (!host.board) return;
     // Inverses can be corrected while requests wait. A request already sent has fixed values.
     const written = structuredClone(patch);
-    host.board = applyBoardPatch(host.board, written);
+    host.board = applyContainerPatch(host.board, written);
     this.#pending.begin(host.boardId);
-    let answer: Board | undefined;
-    let restore: BoardPatch = {};
+    let answer: Container | undefined;
+    let restore: ContainerPatch = {};
     try {
       answer = await this.#inverses.write(
         host.boardId,
@@ -72,7 +72,7 @@ export class BoardWrites {
     }
   }
 
-  #restore(shown: Board, written: BoardPatch, restore: BoardPatch): Board {
+  #restore(shown: Container, written: ContainerPatch, restore: ContainerPatch): Container {
     // Changes outside this writer may have replaced a field too: keep those values.
     const current = propertyValues.read({
       ...shown,
@@ -84,7 +84,7 @@ export class BoardWrites {
     for (const [key, value] of propertyValues.read(restore as Record<string, unknown>)) {
       if (sameValue(current.get(key), failed.get(key))) propertyValues.put(own, key, value);
     }
-    return applyBoardPatch(shown, own);
+    return applyContainerPatch(shown, own);
   }
 }
 
@@ -191,21 +191,21 @@ async function answeredOrStored<T>(
 
 export function patchBoardOrStored(
   store: BoardStore,
-  patch: BoardPatch,
+  patch: ContainerPatch,
   own: (key: string) => boolean,
-): Promise<Board> {
+): Promise<Container> {
   const { backend } = store.workspace;
   return answeredOrStored(
     patch,
     propertyValues,
-    (board: Board) => ({
+    (board: Container) => ({
       ...board,
       updatedProperties: board.properties,
       updatedCardProperties: board.cardProperties,
     }),
     {
-      send: () => backend.patchBoard(store.boardId, patch),
-      read: () => backend.board(store.boardId),
+      send: () => backend.patchContainer(store.boardId, patch),
+      read: () => backend.container(store.boardId),
       own,
     },
   );
@@ -254,4 +254,30 @@ export function patchViewOrStored(
       own,
     },
   );
+}
+
+/** The writes of the cards of `store`: shown at once, answered into its list and its open card. */
+export function cardWritesOf(store: BoardStore): BlockWrites<CardSummary, CardPatch> {
+  return new BlockWrites('updatedProperties', 'deletedProperties', {
+    shown: (cardId: string) => store.card(cardId),
+    apply: applyCardPatch<CardSummary>,
+    show: (card: CardSummary) => (store.cards = put(store.cards, card)),
+    answered: (card: CardSummary) => {
+      store.cards = take(store.cards, card);
+      store.openCard?.cardChanged(card);
+    },
+    send: (cardId: string, patch: CardPatch, own: (key: string) => boolean) =>
+      patchCardOrStored(store, cardId, patch, own),
+  });
+}
+
+/** The writes of the views of `store`: shown at once, answered into its list. */
+export function viewWritesOf(store: BoardStore): BlockWrites<BoardView, BlockPatch> {
+  return new BlockWrites<BoardView, BlockPatch>('updatedFields', 'deletedFields', {
+    shown: (viewId) => store.view(viewId),
+    apply: applyViewPatch,
+    show: (view) => (store.views = put(store.views, view)),
+    answered: (view) => (store.views = take(store.views, view)),
+    send: (viewId, patch, own) => patchViewOrStored(store, viewId, patch, own),
+  });
 }

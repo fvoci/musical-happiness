@@ -11,7 +11,7 @@
 //! as a number and nothing else of HTTP.
 
 use fvoci_model::{
-    AuthParamError, BlockError, BoardError, CategoryError, InvalidInput, Problem, Refusal,
+    AuthParamError, BlockError, CategoryError, ContainerError, InvalidInput, Problem, Refusal,
     Refusals, SubscriptionError, json_pointer,
 };
 use fvoci_store::StoreError;
@@ -867,30 +867,30 @@ impl From<StoreError> for AppError {
                     | BlockError::InvalidCardProperties(_),
                 ..
             }
-            | StoreError::InvalidBoard(
-                BoardError::InvalidCardProperty(_)
-                | BoardError::PropertyNamedTwice { .. }
-                | BoardError::PropertyUnknown { .. }
-                | BoardError::PropertiesLeftOut { .. },
+            | StoreError::InvalidContainer(
+                ContainerError::InvalidCardProperty(_)
+                | ContainerError::PropertyNamedTwice { .. }
+                | ContainerError::PropertyUnknown { .. }
+                | ContainerError::PropertiesLeftOut { .. },
             )
-            | StoreError::InvalidBoardsAndBlocks(_)
-            | StoreError::BlockNotInDeletedBoards { .. } => Self::bad_request(error),
+            | StoreError::InvalidContainersAndBlocks(_)
+            | StoreError::BlockNotInDeletedContainers { .. } => Self::bad_request(error),
             StoreError::InvalidCategory(refused) => Self::from(refused),
             StoreError::InvalidSubscription(refused) => Self::from(refused),
-            StoreError::InvalidBoard(BoardError::NulCharacter { member }) => {
+            StoreError::InvalidContainer(ContainerError::NulCharacter { member }) => {
                 let mut error = Self::bad_request(error).with_field(member);
                 error.subject = Some(Subject::Board);
                 error
             }
             // What a board of its kind is not: the member that says otherwise.
-            StoreError::InvalidBoard(
-                refused @ (BoardError::KindChanges { .. }
-                | BoardError::WikiIsTemplate
-                | BoardError::WikiHasCardProperties),
+            StoreError::InvalidContainer(
+                refused @ (ContainerError::KindChanges { .. }
+                | ContainerError::WikiIsTemplate
+                | ContainerError::WikiHasCardProperties),
             ) => {
                 let member = match refused {
-                    BoardError::WikiIsTemplate => "isTemplate",
-                    BoardError::WikiHasCardProperties => "cardProperties",
+                    ContainerError::WikiIsTemplate => "isTemplate",
+                    ContainerError::WikiHasCardProperties => "cardProperties",
                     _ => "kind",
                 };
                 let mut error = Self::bad_request(refused).with_field(member);
@@ -902,7 +902,7 @@ impl From<StoreError> for AppError {
             // or another board's: the answer does not tell the two apart. A block without a
             // board is no request's mistake.
             StoreError::InvalidBlock { id, source }
-                if !matches!(source, BlockError::EmptyBoardId) =>
+                if !matches!(source, BlockError::EmptyContainerId) =>
             {
                 let mut error = Self::from(source);
                 error.subject = Some(Subject::Block(id));

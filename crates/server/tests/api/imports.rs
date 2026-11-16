@@ -5,7 +5,7 @@
 use std::io::{Cursor, Write as _};
 use std::path::PathBuf;
 
-use fvoci_model::{Block, BlockType, BoardType, new_id};
+use fvoci_model::{Block, BlockType, ContainerType, new_id};
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -116,7 +116,9 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
         .await
         .init_basic()
         .await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     // A file is at most a part when sent whole: two of them make an archive of two.
     let data = incompressible(PART);
     let mut attachments = Vec::new();
@@ -127,7 +129,7 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
         attachments.push(Block {
             id: new_id(),
             parent_id: board.id.clone(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             block_type: BlockType::Attachment,
             fields: json!({"fileId": file_id})
                 .as_object()
@@ -144,7 +146,7 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
         .check_created();
     let archive = ts
         .client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))
         .await
         .body;
     assert!(archive.len() > PART, "the archive comes in two parts");
@@ -291,7 +293,7 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
     let state = ts.client.get(&format!("{TEST_WS}/uploads/{id}")).await;
     assert_eq!(state.value()["purpose"], json!("import"));
     assert_eq!(state.value()["workspaceId"], json!(TEST_WORKSPACE_ID));
-    assert_eq!(state.value()["boardId"], json!(""));
+    assert_eq!(state.value()["containerId"], json!(""));
 
     // A part missing: refused, and the upload stays open for it.
     let response = import_upload(&ts.client, TEST_WORKSPACE_ID, &id).await;
@@ -321,11 +323,13 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
         .check_status(StatusCode::NOT_FOUND);
 
     // An upload of a file is not imported.
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = ts
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/uploads", board.id),
+            &format!("{TEST_WS}/containers/{}/uploads", board.id),
             &json!({"name": "a.bin", "size": 3}),
         )
         .await;
@@ -415,9 +419,11 @@ async fn the_share_of_a_user_is_twice_the_larger_limit() {
         .await
         .init_basic()
         .await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let open_file = |size: usize| {
-        let path = format!("{TEST_WS}/boards/{}/uploads", board.id);
+        let path = format!("{TEST_WS}/containers/{}/uploads", board.id);
         let client = &ts.client;
         async move {
             client
@@ -445,14 +451,16 @@ async fn the_share_of_a_user_is_twice_the_larger_limit() {
 #[ignore = "needs an S3-compatible server: set FVOCI_S3_TEST_ENDPOINT and FVOCI_S3_TEST_BUCKET"]
 async fn with_s3_an_archive_is_received_on_the_disk() {
     let ts = crate::uploads::s3_server().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = crate::files::upload(&ts.client, &board.id, "a.bin", b"in the bucket").await;
     response.check_created();
     let file_id = crate::files::uploaded_id(&response);
     let attachment = Block {
         id: new_id(),
         parent_id: board.id.clone(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         fields: json!({"fileId": file_id})
             .as_object()
@@ -468,7 +476,7 @@ async fn with_s3_an_archive_is_received_on_the_disk() {
         .check_created();
     let archive = ts
         .client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))
         .await
         .body;
 
@@ -538,10 +546,12 @@ async fn a_large_version_json_is_no_archive() {
 #[tokio::test]
 async fn imports_run_one_per_user_and_two_on_the_server() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let archive = ts
         .client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))
         .await;
     archive.check_ok();
     let me = ts.client.me().await;

@@ -36,6 +36,7 @@ parameter!(WorkspaceId: Path "workspaceId", String, True, "The identifier of the
 parameter!(WorkerWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.");
 parameter!(MemberWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.");
 parameter!(BoardId: Path "boardId", String, True, "The identifier of the board.");
+parameter!(ContainerId: Path "containerId", String, True, "The identifier of the board or the wiki.");
 parameter!(BlockId: Path "blockId", String, True, "The identifier of the block.");
 parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");
 parameter!(WikiId: Path "wikiId", String, True, "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.");

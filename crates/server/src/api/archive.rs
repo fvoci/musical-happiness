@@ -7,7 +7,7 @@ use axum::Extension;
 use axum::body::{Body, Bytes};
 use axum::extract::{ConnectInfo, Path, State};
 use axum::response::{IntoResponse, Response};
-use fvoci_model::{BoardKinds, Session, UploadPurpose};
+use fvoci_model::{ContainerKinds, Session, UploadPurpose};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
@@ -15,15 +15,15 @@ use utoipa_axum::routes;
 
 use super::body::decode_object;
 use super::contract::bodies::Binary;
-use super::contract::params::{BoardId, MemberWorkspaceId, WorkspaceId};
+use super::contract::params::{ContainerId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
-use super::require_board_permission;
-use super::workspace::{Ws, WsModule};
+use super::require_container_permission;
+use super::workspace::{InContainer, InWorkspace};
 use super::{ApiResult, RequiredSession, json_response};
 use crate::app::{App, ExportedArchive, Slot, download};
 use crate::connection::{Breaker, Connection};
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 /// An archive to import: one sent in parts with `createImportUpload`.
 #[derive(Debug, Deserialize, ToSchema)]
@@ -46,7 +46,7 @@ struct ImportResult {
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
-        .routes(routes!(handle_export_board))
+        .routes(routes!(handle_export_container))
         .routes(routes!(handle_export_workspace))
         .routes(routes!(handle_import))
 }
@@ -60,8 +60,8 @@ pub(super) async fn require_import_access(
     app: &App,
     session: Session,
     workspace_id: String,
-) -> Result<Ws, AppError> {
-    Ws::enter(app, session, workspace_id)
+) -> Result<InWorkspace, AppError> {
+    InWorkspace::enter(app, session, workspace_id)
         .await?
         .require_no_guest()
 }
@@ -71,7 +71,8 @@ pub(super) async fn require_import_access(
 /// An archive of the board with its blocks, its files and its members, offered as a
 /// download with its length. For the board's members. The archive is a ZIP of version
 /// 3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
-/// `block` or `boardMember` per line, in the shapes of this contract, bodies included)
+/// `block` or `boardMember` per line, in the shapes of this contract, bodies included,
+/// but that a block and a member name their board or wiki `boardId`, not `containerId`)
 /// and the files the blocks show, the images of bodies among them. A wiki is written
 /// as a board is, its `kind` `wiki`: its pages as they stand and the comments on them
 /// are its blocks (not the pages in its trash, nor the versions of bodies).
@@ -84,10 +85,10 @@ pub(super) async fn require_import_access(
 /// broken before the archive's end.
 #[utoipa::path(
     get,
-    path = "/w/{workspaceId}/boards/{boardId}/archive/export",
-    operation_id = "exportBoardArchive",
+    path = "/w/{workspaceId}/containers/{containerId}/archive/export",
+    operation_id = "exportContainerArchive",
     tag = tag::ARCHIVES,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     responses((
         status = 200,
         description = "The archive.",
@@ -99,27 +100,27 @@ pub(super) async fn require_import_access(
         ),
     )),
 )]
-async fn handle_export_board(
-    WsModule(ws): WsModule,
+async fn handle_export_container(
+    InContainer(ws): InContainer,
     connection: Option<Extension<ConnectInfo<Connection>>>,
-    Path((_, board_id)): Path<(String, String)>,
+    Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
     // The original also lets a system admin with a compliance license through; a
     // standalone server has neither, so a non-member is refused.
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
-        &board_id,
-        BoardPermission::ViewBoard,
+        &container_id,
+        ContainerPermission::View,
         "access denied to board",
     )
     .await?;
-    let board = ws.app.board(&board_id).await?;
+    let container = ws.app.container(&container_id).await?;
     let slot = ws.app.start_export(user_id)?;
     let archive = ws
         .app
-        .export_archive(&board.workspace_id, std::slice::from_ref(&board.id))
+        .export_archive(&container.workspace_id, std::slice::from_ref(&container.id))
         .await?;
     Ok(archive_response(
         &ws.app,
@@ -134,7 +135,7 @@ async fn handle_export_board(
 /// An archive of the boards and wikis of the workspace that the user is a member of
 /// with a role, and of its open ones for who works in the workspace (also those they
 /// have not joined), offered as a download with its length, in the format of
-/// `exportBoardArchive`, and under its limits. 404 unless the user is a member of the
+/// `exportContainerArchive`, and under its limits. 404 unless the user is a member of the
 /// workspace; a guest's archive has the boards and wikis they were invited to.
 #[utoipa::path(
     get,
@@ -159,13 +160,16 @@ async fn handle_export_workspace(
     connection: Option<Extension<ConnectInfo<Connection>>>,
     Path(workspace_id): Path<String>,
 ) -> ApiResult {
-    let ws = Ws::enter(&app, session, workspace_id).await?;
-    let app = &ws.app.clone().reaching(BoardKinds::Every);
+    let ws = InWorkspace::enter(&app, session, workspace_id).await?;
+    let app = &ws.app.clone().reaching(ContainerKinds::Every);
     let user_id = &ws.session.user_id;
-    let boards = app
-        .readable_workspace_boards(user_id, &ws.workspace_id, ws.role)
+    let containers = app
+        .readable_workspace_containers(user_id, &ws.workspace_id, ws.role)
         .await?;
-    let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
+    let ids: Vec<String> = containers
+        .into_iter()
+        .map(|container| container.id)
+        .collect();
     let slot = app.start_export(user_id)?;
     let archive = app.export_archive(&ws.workspace_id, &ids).await?;
     Ok(archive_response(app, archive, slot, breaker_of(connection)))
@@ -223,7 +227,7 @@ async fn handle_export_workspace(
         body = ImportResult,
     )),
 )]
-async fn handle_import(WsModule(ws): WsModule, body: Bytes) -> ApiResult {
+async fn handle_import(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let user_id = ws.session.user_id.clone();
     // Membership is checked before reading the body; the upload belongs to this workspace.

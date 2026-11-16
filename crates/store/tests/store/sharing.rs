@@ -27,7 +27,7 @@ async fn set_sharing_and_get_sharing() {
     assert_eq!(
         first,
         Sharing {
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             enabled: true,
             token: "token".to_owned(),
             modified_by: user_id.clone(),

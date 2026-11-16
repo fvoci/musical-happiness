@@ -31,7 +31,7 @@ async fn the_comparison_reports_and_dooms_only_when_asked(ts: &TestServer) {
     let (board_id, recorded) = uploaded(ts, b"recorded").await;
     let (trashed_board, trashed) = uploaded(ts, b"in the trash").await;
     ts.client
-        .delete(&format!("{TEST_WS}/boards/{trashed_board}"))
+        .delete(&format!("{TEST_WS}/containers/{trashed_board}"))
         .await
         .check_no_content();
     let (_, missing) = uploaded(ts, b"its object goes").await;
@@ -50,7 +50,7 @@ async fn the_comparison_reports_and_dooms_only_when_asked(ts: &TestServer) {
             id: new_secret(),
             user_id: ts.client.me().await.id,
             purpose: UploadPurpose::File,
-            board_id: board_id.clone(),
+            container_id: board_id.clone(),
             name: "uploading.txt".to_owned(),
             size: 5,
             part_size: 5,

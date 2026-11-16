@@ -98,7 +98,7 @@ impl App {
             .body_version(&card.id, version)
             .await?
             .ok_or_else(|| AppError::not_found("version"))?;
-        let board = self.store().get_board(&card.board_id).await?;
+        let container = self.store().get_container(&card.container_id).await?;
         let (id, by) = (card.id.clone(), user_id.to_owned());
         let changed = self
             .collab()
@@ -108,7 +108,7 @@ impl App {
             .await?;
         let block = self.store().get_block(&card.id).await?;
         if changed {
-            self.tell_of_update(&board.workspace_id, &block, ChangeNotification::Send);
+            self.tell_of_update(&container.workspace_id, &block, ChangeNotification::Send);
         }
         Ok(block)
     }
@@ -135,7 +135,7 @@ impl App {
             })?,
         };
         if !self
-            .has_body_files(&held.board_id, change.new_body())
+            .has_body_files(&held.container_id, change.new_body())
             .await?
         {
             return Err(AppError::conflict(

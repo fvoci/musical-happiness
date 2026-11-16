@@ -11,7 +11,7 @@
  */
 import type { OptionCallbacks } from '$lib/components/properties/index.ts';
 import type {
-  Board,
+  Container,
   BoardView,
   PropertyOption,
   PropertyTemplate,
@@ -33,7 +33,7 @@ const templateOf = (board: BoardStore, propertyId: string): PropertyTemplate | u
 /** The board with one of its property definitions replaced. */
 const withTemplate =
   (propertyId: string, change: (template: PropertyTemplate) => PropertyTemplate) =>
-  (board: Board): Board => ({
+  (board: Container): Container => ({
     ...board,
     cardProperties: board.cardProperties.map((template) =>
       template.id === propertyId ? change(template) : template,

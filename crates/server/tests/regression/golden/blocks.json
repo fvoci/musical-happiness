@@ -28,11 +28,11 @@
   },
   {
     "name": "add commenter",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/members as blocks-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/members as blocks-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "boardId": "<id:3>",
+      "containerId": "<id:3>",
       "schemeAdmin": false,
       "schemeCommenter": true,
       "schemeEditor": false,
@@ -54,8 +54,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -74,8 +74,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -89,8 +89,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -114,8 +114,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -134,8 +134,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -149,8 +149,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -174,8 +174,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -202,8 +202,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -225,8 +225,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -248,8 +248,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -278,8 +278,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -298,8 +298,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -313,8 +313,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -338,8 +338,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -380,8 +380,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -400,8 +400,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -415,8 +415,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -565,11 +565,11 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid boardId for block id x1",
+      "detail": "invalid containerId for block id x1",
       "errors": [
         {
-          "detail": "invalid boardId for block id x1",
-          "pointer": "/0/boardId",
+          "detail": "invalid containerId for block id x1",
+          "pointer": "/0/containerId",
           "reason": "invalid"
         }
       ],
@@ -629,8 +629,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:4>",
         "deleteAt": 0,
@@ -652,8 +652,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -785,8 +785,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -806,8 +806,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -821,8 +821,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -838,8 +838,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:4>",
         "deleteAt": 0,
@@ -853,8 +853,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -876,8 +876,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -898,8 +898,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -921,8 +921,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -943,8 +943,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1076,8 +1076,8 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "boardId": "<id:3>",
       "body": null,
+      "containerId": "<id:3>",
       "createAt": "<ts>",
       "createdBy": "<id:2>",
       "deleteAt": 0,
@@ -1128,8 +1128,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1193,8 +1193,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:15>",
         "body": null,
+        "containerId": "<id:15>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1208,8 +1208,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:15>",
         "body": null,
+        "containerId": "<id:15>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1231,8 +1231,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:15>",
         "body": null,
+        "containerId": "<id:15>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1246,8 +1246,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:15>",
         "body": null,
+        "containerId": "<id:15>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1265,8 +1265,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:15>",
         "body": null,
+        "containerId": "<id:15>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1280,8 +1280,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:15>",
         "body": null,
+        "containerId": "<id:15>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1307,8 +1307,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:15>",
         "body": null,
+        "containerId": "<id:15>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1322,8 +1322,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:15>",
         "body": null,
+        "containerId": "<id:15>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1337,8 +1337,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:15>",
         "body": null,
+        "containerId": "<id:15>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1352,8 +1352,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:15>",
         "body": null,
+        "containerId": "<id:15>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1371,8 +1371,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:15>",
         "body": null,
+        "containerId": "<id:15>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -1386,8 +1386,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:15>",
         "body": null,
+        "containerId": "<id:15>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,

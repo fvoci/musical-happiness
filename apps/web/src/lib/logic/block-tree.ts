@@ -48,11 +48,11 @@ export function duplicateBlockTree(
   if (!source || !sourceCopy) throw new Error(`block ${sourceBlockId} is not in the tree`);
 
   // A root that is its own board: the copies belong to the copy of the root.
-  const newBoardId = source.boardId === source.id ? sourceCopy.id : undefined;
+  const newBoardId = source.containerId === source.id ? sourceCopy.id : undefined;
 
   for (const copy of copies) {
     if (copy !== sourceCopy && copy.parentId) copy.parentId = idMap[copy.parentId] ?? copy.parentId;
-    if (newBoardId) copy.boardId = newBoardId;
+    if (newBoardId) copy.containerId = newBoardId;
     remapBlockReferences(copy, idMap);
   }
   return [copies, sourceCopy, idMap];

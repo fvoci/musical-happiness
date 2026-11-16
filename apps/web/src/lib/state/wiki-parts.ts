@@ -2,7 +2,7 @@
  * What the store of an open wiki (`wiki.svelte.ts`) leans on: making a wiki,
  * and a step of undo on a page that is gone since.
  */
-import type { Board } from '../logic/wire.ts';
+import type { Container } from '../logic/wire.ts';
 
 import { isBackendError } from './backend.ts';
 import type { WikiDraft } from './wiki-types.ts';
@@ -24,13 +24,13 @@ export async function unlessGone(step: () => Promise<void>): Promise<void> {
 export async function createWiki(
   workspace: Workspace,
   draft: WikiDraft,
-): Promise<Board | undefined> {
+): Promise<Container | undefined> {
   const wikis = workspace.backend.wiki;
   const shown = workspace.info;
   if (!wikis || !shown) return undefined;
   try {
     const made = await wikis.createWiki(shown.id, draft);
-    workspace.receiveBoard(made);
+    workspace.receiveContainer(made);
     return made;
   } catch (error) {
     workspace.report('save', error);

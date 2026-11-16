@@ -6,7 +6,7 @@ import { openFirstBoard, setup } from './support.ts';
 it('learns the departed board creator by identifier without offering them among people', async () => {
   const made = setup();
   const { world, backend, other, workspace } = made;
-  const stored = [...world.boards.values()][0];
+  const stored = [...world.containers.values()][0];
   if (!stored) throw new Error('no board');
   stored.createdBy = other.userId;
   world.members.set(
@@ -32,7 +32,7 @@ it('learns the departed board creator by identifier without offering them among 
 
 it('does not ask for an empty creator identifier on an imported board', async () => {
   const made = setup();
-  for (const board of made.world.boards.values()) board.createdBy = '';
+  for (const board of made.world.containers.values()) board.createdBy = '';
   const byId = vi.spyOn(made.backend, 'usersById');
   await openFirstBoard(made);
   expect(byId).not.toHaveBeenCalled();

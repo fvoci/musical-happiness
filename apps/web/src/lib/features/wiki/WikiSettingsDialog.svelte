@@ -12,7 +12,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { randomEmoji } from '$lib/logic/random-emoji.ts';
-  import type { Board } from '$lib/logic/wire.ts';
+  import type { Container } from '$lib/logic/wire.ts';
   import type { WikiLooks } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
@@ -21,7 +21,7 @@
 
   interface Props {
     open: boolean;
-    wiki: Pick<Board, 'title' | 'description' | 'icon'>;
+    wiki: Pick<Container, 'title' | 'description' | 'icon'>;
     onSave: (looks: WikiLooks) => void;
   }
 

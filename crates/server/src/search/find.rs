@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use fvoci_model::{SearchHit, SearchKind, SnippetPart};
-use fvoci_store::{PublicBoards, SearchDocument};
+use fvoci_store::{PublicContainers, SearchDocument};
 
 use super::client::ClientError;
 use super::database::MAX_BOUND_CONTAINERS;
@@ -132,10 +132,10 @@ impl App {
             return Ok(Vec::new());
         }
         let theirs: HashSet<String> = self
-            .boards_for_user_and_workspace(user_id, workspace_id, PublicBoards::OpenWikis)
+            .containers_for_user_and_workspace(user_id, workspace_id, PublicContainers::OpenWikis)
             .await?
             .into_iter()
-            .map(|board| board.id)
+            .map(|container| container.id)
             .collect();
         if theirs.is_empty() {
             return Ok(Vec::new());
@@ -232,7 +232,7 @@ impl App {
     /// document of that identifier now ([`SearchDocument`]: a card that is no template
     /// of its board, or a page, that is no block of the trash, in a container that is
     /// no template), in this workspace, of the kind asked for, in a container the user
-    /// has a role on or that is an open wiki, and reads ([`App::board_access`], asked
+    /// has a role on or that is an open wiki, and reads ([`App::container_access`], asked
     /// once a container). What is answered of it is what the database says: the
     /// container and its kind, the kind and the title.
     pub(super) async fn check_hits<T>(
@@ -269,12 +269,12 @@ impl App {
                 *reads
             } else {
                 let reads = self
-                    .board_access(check.user_id, &document.container_id)
+                    .container_access(check.user_id, &document.container_id)
                     .await?
                     .is_some_and(|access| {
                         access.grant.reads()
-                            && !access.board.is_template
-                            && access.board.workspace_id == check.workspace_id
+                            && !access.container.is_template
+                            && access.container.workspace_id == check.workspace_id
                     });
                 check.reads.insert(document.container_id.clone(), reads);
                 reads

@@ -40,7 +40,7 @@ pub(crate) use objects::REMOVAL_ERRORS;
 pub(crate) use ready::ReadyCheck;
 pub(crate) use requests::{ABANDONED, OTHER_METHOD, OTHER_PROBLEM, RequestMetrics, UNMATCHED};
 pub(crate) use search::{SearchAsked, SearchSent};
-pub(crate) use storage::{BoardWork, Module, OpenUploads, Pool};
+pub(crate) use storage::{ContainerWork, Module, OpenUploads, Pool};
 pub(crate) use websocket::Disconnect;
 
 /// The prefix of the name of every metric of this server's own.

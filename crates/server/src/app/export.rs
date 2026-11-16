@@ -12,18 +12,19 @@ use std::io::{BufWriter, Write as _};
 use std::path::Path;
 
 use futures_util::StreamExt as _;
-use fvoci_model::{ArchiveHeader, ArchiveLine, Board};
+use fvoci_model::{ArchiveHeader, ArchiveLine, Container};
 use serde::Serialize;
+use serde_json::Value;
 use tokio::fs;
 use zip::write::{SimpleFileOptions, ZipWriter};
 
 use super::App;
-use super::board_copies::counted_as;
+use super::container_copies::counted_as;
 use super::doomed::Doomed;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
 use crate::error::AppError;
-use crate::metrics::BoardWork;
+use crate::metrics::ContainerWork;
 
 /// The archive format version this server writes.
 pub(super) const ARCHIVE_VERSION: i64 = 3;
@@ -84,12 +85,12 @@ impl App {
     pub async fn export_archive(
         &self,
         workspace_id: &str,
-        board_ids: &[String],
+        container_ids: &[String],
     ) -> Result<ExportedArchive, AppError> {
-        let mut boards = Vec::with_capacity(board_ids.len());
-        for id in board_ids {
-            self.write_board_bodies(id).await?;
-            boards.push(self.store().get_board(id).await.map_err(|error| {
+        let mut containers = Vec::with_capacity(container_ids.len());
+        for id in container_ids {
+            self.write_container_bodies(id).await?;
+            containers.push(self.store().get_container(id).await.map_err(|error| {
                 AppError::from(error).context(format_args!("could not fetch board {id}"))
             })?);
         }
@@ -101,7 +102,7 @@ impl App {
         // Removed however the export ends, also when its request is dropped meanwhile: the
         // file stays while it is sent, and goes with the archive.
         let path = Doomed::file(directory.join(format!("{}.boardarchive", new_secret())));
-        self.write_archive(path.path(), workspace_id, &boards)
+        self.write_archive(path.path(), workspace_id, &containers)
             .await?;
         let file = fs::File::open(path.path())
             .await
@@ -112,19 +113,19 @@ impl App {
             .map_err(|error| io_error(&error))?
             .len();
         // Counted once the archive is there to be sent, whatever becomes of its download.
-        for board in &boards {
+        for container in &containers {
             self.metrics()
-                .board_copied(BoardWork::Export, counted_as(board.kind));
+                .container_copied(ContainerWork::Export, counted_as(container.kind));
         }
         Ok(ExportedArchive::new(file, size, path))
     }
 
-    /// Writes the archive of `boards` to a new file at `path`.
+    /// Writes the archive of `containers` to a new file at `path`.
     async fn write_archive(
         &self,
         path: &Path,
         workspace_id: &str,
-        boards: &[Board],
+        containers: &[Container],
     ) -> Result<(), AppError> {
         let file = fs::File::create(path)
             .await
@@ -141,25 +142,26 @@ impl App {
             AppError::internal(format_args!("cannot write archive header: {error}"))
         })?;
         writer.write(&bytes).await?;
-        for board in boards {
-            self.write_board(&mut writer, board, workspace_id).await?;
+        for container in containers {
+            self.write_container(&mut writer, container, workspace_id)
+                .await?;
         }
         writer.finish().await
     }
 
     /// Writes one board's directory: its `board.jsonl` and its files.
-    async fn write_board(
+    async fn write_container(
         &self,
         writer: &mut ArchiveWriter,
-        board: &Board,
+        container: &Container,
         workspace_id: &str,
     ) -> Result<(), AppError> {
         writer
-            .start_entry(&format!("{}/board.jsonl", board.id))
+            .start_entry(&format!("{}/board.jsonl", container.id))
             .await?;
-        writer.write_line("board", board).await?;
+        writer.write_line("board", container).await?;
 
-        let blocks = self.blocks_for_board(&board.id).await?;
+        let blocks = self.blocks_for_container(&container.id).await?;
         // Two blocks may name the same file. The original then writes two entries of the
         // same name; this archive writer refuses a second entry of a name, and an
         // importer keeps one file per name anyway, so each file is written once.
@@ -177,12 +179,12 @@ impl App {
             }
         }
 
-        for member in self.present_members_for_board(&board.id).await? {
+        for member in self.present_members_for_container(&container.id).await? {
             writer.write_line("boardMember", &member).await?;
         }
 
         for filename in &files {
-            self.write_file(writer, &board.id, workspace_id, filename)
+            self.write_file(writer, &container.id, workspace_id, filename)
                 .await?;
         }
         Ok(())
@@ -193,18 +195,18 @@ impl App {
     async fn write_file(
         &self,
         writer: &mut ArchiveWriter,
-        board_id: &str,
+        container_id: &str,
         workspace_id: &str,
         filename: &str,
     ) -> Result<(), AppError> {
         writer
-            .start_entry(&format!("{board_id}/{filename}"))
+            .start_entry(&format!("{container_id}/{filename}"))
             .await?;
-        let Some(mut stream) = self.open_stored_file(board_id, filename).await? else {
+        let Some(mut stream) = self.open_stored_file(container_id, filename).await? else {
             tracing::error!(
                 filename,
                 workspace_id,
-                board_id,
+                container_id,
                 "image file missing for export"
             );
             return Ok(());
@@ -274,7 +276,7 @@ impl ArchiveWriter {
         })?;
         let line = ArchiveLine {
             line_type: line_type.to_owned(),
-            data,
+            data: with_board_named(data),
         };
         let mut bytes = serde_json::to_vec(&line).map_err(|error| {
             AppError::internal(format_args!("cannot encode archive line: {error}"))
@@ -355,4 +357,15 @@ fn is_stored_name(name: &str) -> bool {
     !name.is_empty()
         && !name.contains(['/', '\\'])
         && !matches!(name, "." | ".." | "board.jsonl" | "version.json")
+}
+
+/// A line's data under the names of the archive's format: a block and a member name their
+/// board or wiki `boardId` there, as every archive has, whatever the model calls it.
+fn with_board_named(mut data: Value) -> Value {
+    if let Value::Object(line) = &mut data
+        && let Some(container) = line.remove("containerId")
+    {
+        line.insert("boardId".to_owned(), container);
+    }
+    data
 }

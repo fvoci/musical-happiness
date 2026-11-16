@@ -27,8 +27,8 @@ async function aPage(role: Exclude<MemberRole, '' | 'admin'> = 'commenter') {
   const made = setup();
   const workspaceId = made.world.workspace.id;
   const wiki = await made.backend.wiki.createWiki(workspaceId, { title: 'Handbook', type: 'O' });
-  await made.backend.patchBoard(wiki.id, { minimumRole: role });
-  await made.other.joinBoard(wiki.id);
+  await made.backend.patchContainer(wiki.id, { minimumRole: role });
+  await made.other.joinContainer(wiki.id);
   const page = await made.backend.wiki.createPage(wiki.id, { title: 'Page' });
   return { ...made, workspaceId, wikiId: wiki.id, pageId: page.id };
 }
@@ -40,7 +40,7 @@ describe('the comments on a page, in memory', () => {
     const at = [made.wikiId, made.pageId] as const;
     const admins = await mine.createComment(...at, text('the admin’s'));
     const own = await theirs.createComment(...at, text('mine'));
-    expect([own.parentId, own.boardId, own.createdBy]).toEqual([
+    expect([own.parentId, own.containerId, own.createdBy]).toEqual([
       made.pageId,
       made.wikiId,
       made.other.userId,
@@ -100,7 +100,7 @@ describe('the comments on a page, in memory', () => {
   it('are told to whoever listens to the wiki', async () => {
     const made = await aPage();
     const told: Change[] = [];
-    made.backend.watchBoard(made.wikiId, (change) => told.push(change));
+    made.backend.watchContainer(made.wikiId, (change) => told.push(change));
     const comment = await made.other.wiki.createComment(made.wikiId, made.pageId, text('hi'));
     await made.other.wiki.deleteComment(made.wikiId, made.pageId, comment.id);
     await settle();
@@ -249,7 +249,7 @@ describe('the versions of a page’s body, in memory', () => {
       ),
     ).toBe(403);
     const told: Change[] = [];
-    made.backend.watchBoard(made.wikiId, (change) => told.push(change));
+    made.backend.watchContainer(made.wikiId, (change) => told.push(change));
     await wiki.bodyVersions.restore(made.wikiId, made.pageId, older.version);
     await settle();
     expect((await wiki.page(made.wikiId, made.pageId)).body).toEqual(text('first'));

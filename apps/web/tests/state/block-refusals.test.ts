@@ -10,7 +10,7 @@ import { BackendError } from '$lib/state/index.ts';
 
 import { openFirstBoard, settle } from './support.ts';
 
-type Method = 'patchBoard' | 'patchCard' | 'patchView';
+type Method = 'patchContainer' | 'patchCard' | 'patchView';
 
 async function opened() {
   const made = await openFirstBoard();
@@ -19,10 +19,10 @@ async function opened() {
   const view = board.views[0];
   if (!card || !view) throw new Error('the seed board has no card or view');
   const kinds = {
-    patchBoard: {
+    patchContainer: {
       title: (title: string) => board.changeBoard((current) => ({ ...current, title })),
       shown: () => board.board?.title,
-      stored: async () => (await backend.board(board.boardId)).title,
+      stored: async () => (await backend.container(board.boardId)).title,
     },
     patchCard: {
       title: (title: string) => board.setCardTitle(card.id, title),
@@ -94,7 +94,7 @@ describe.each(['patchCard', 'patchView'] as const)('%s refused', (method) => {
   });
 });
 
-describe.each(['patchBoard', 'patchCard', 'patchView'] as const)('%s', (method) => {
+describe.each(['patchContainer', 'patchCard', 'patchView'] as const)('%s', (method) => {
   it('undoes a change made over a write refused later to the value stored, never sending the refused one', async () => {
     const { backend, workspace, kinds } = await opened();
     const kind = kinds[method];
@@ -123,8 +123,8 @@ describe.each(['patchBoard', 'patchCard', 'patchView'] as const)('%s', (method) 
 describe('an undo waiting for the write its value came from (found by a review of 0a15e86a)', () => {
   it('is dropped by a change made meanwhile, which stays', async () => {
     const { backend, workspace, kinds } = await opened();
-    const kind = kinds.patchBoard;
-    const refuse = refuseLater(backend, 'patchBoard');
+    const kind = kinds.patchContainer;
+    const refuse = refuseLater(backend, 'patchContainer');
     try {
       const refused = kind.title('refused');
       await kind.title('later');
@@ -142,8 +142,8 @@ describe('an undo waiting for the write its value came from (found by a review o
 
   it('does not keep undo busy for good when that write never answers', async () => {
     const { board, backend, workspace, kinds } = await opened();
-    const kind = kinds.patchBoard;
-    const never = refuseLater(backend, 'patchBoard');
+    const kind = kinds.patchContainer;
+    const never = refuseLater(backend, 'patchContainer');
     const card = board.realCards[0];
     if (!card) throw new Error('no card');
     try {

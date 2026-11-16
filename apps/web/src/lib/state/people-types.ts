@@ -10,7 +10,7 @@ import type { Teams } from './team-types.ts';
 export type WorkspaceRole = 'admin' | 'member' | 'guest';
 
 /** The role a guest is invited to a board in. */
-export type GuestBoardRole = 'viewer' | 'commenter' | 'editor';
+export type GuestContainerRole = 'viewer' | 'commenter' | 'editor';
 
 /** Somebody who is in a workspace. */
 export interface WorkspaceMember {
@@ -30,7 +30,7 @@ export interface Invitation {
   /** Whom it makes of who accepts it: a member, or a guest of one board. */
   role: 'member' | 'guest';
   /** For a guest: the board. */
-  boardId?: string;
+  containerId?: string;
   createdBy: string;
   /** When it was made and when it ends, in milliseconds since the epoch. */
   createAt: number;
@@ -72,7 +72,11 @@ export interface People {
   /** A link for members, used as often as it is for seven days. It comes with its token. */
   inviteMembers(workspaceId: string): Promise<Invitation>;
   /** A link for one guest of a board, for seven days. It comes with its token. */
-  inviteGuest(workspaceId: string, boardId: string, role: GuestBoardRole): Promise<Invitation>;
+  inviteGuest(
+    workspaceId: string,
+    containerId: string,
+    role: GuestContainerRole,
+  ): Promise<Invitation>;
   revokeInvitation(workspaceId: string, invitationId: string): Promise<void>;
   /** Whether the admins of the workspace's boards may invite guests to them. */
   guestInvitations(workspaceId: string): Promise<boolean>;

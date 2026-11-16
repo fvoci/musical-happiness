@@ -1,7 +1,8 @@
-//! Copies of boards and templates (`duplicateBoard`).
+//! Copies of boards and templates (`duplicateContainer`).
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardType, BoardsAndBlocks, Category, new_id,
+    Block, BlockType, Category, Container, ContainerMember, ContainerType, ContainersAndBlocks,
+    new_id,
 };
 use fvoci_store::{BlockFilter, DuplicateAs};
 use reqwest::StatusCode;
@@ -19,15 +20,15 @@ use crate::boards::{
 
 /// `TestDuplicateBoard/"create and duplicate public board"`
 #[tokio::test]
-async fn duplicate_board_create_and_duplicate_public_board() {
+async fn duplicate_container_create_and_duplicate_public_board() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await;
     let user2 = th.client2.me().await;
-    let board: Board = th
+    let board: Container = th
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            BoardType::Open,
+            ContainerType::Open,
             "Public board",
         ))
         .await
@@ -41,7 +42,7 @@ async fn duplicate_board_create_and_duplicate_public_board() {
     assert_eq!(members_of(&th, &board.id).await.len(), 2, "two members");
 
     // Duplicate the board
-    let copy: BoardsAndBlocks = duplicate_board(
+    let copy: ContainersAndBlocks = duplicate_board(
         &th.client,
         &board.id,
         &format!("?asTemplate=false&toWorkspace={TEST_WORKSPACE_ID}"),
@@ -49,16 +50,16 @@ async fn duplicate_board_create_and_duplicate_public_board() {
     .await
     .created_json();
 
-    assert_eq!(copy.boards.len(), 1, "one board");
+    assert_eq!(copy.containers.len(), 1, "one board");
     assert_eq!(copy.blocks.len(), 1, "one block");
-    let duplicate = &copy.boards[0];
+    let duplicate = &copy.containers[0];
     assert_eq!(
-        duplicate.board_type,
-        BoardType::Private,
+        duplicate.container_type,
+        ContainerType::Private,
         "Duplicated board should be private"
     );
     assert_ne!(duplicate.id, board.id, "under a new identifier");
-    assert_eq!(copy.blocks[0].board_id, duplicate.id, "with its block");
+    assert_eq!(copy.blocks[0].container_id, duplicate.id, "with its block");
     assert_eq!(copy.blocks[0].title, "View 1", "a copy of the view");
 
     let members = members_of(&th, &duplicate.id).await;
@@ -68,7 +69,7 @@ async fn duplicate_board_create_and_duplicate_public_board() {
         "Duplicated board should only have one member"
     );
     assert_eq!(members[0].user_id, me.id, "the user who duplicated");
-    assert_eq!(members[0].board_id, duplicate.id, "of the copy");
+    assert_eq!(members[0].container_id, duplicate.id, "of the copy");
     assert!(members[0].scheme_admin, "as an admin");
 
     assert_eq!(
@@ -81,7 +82,7 @@ async fn duplicate_board_create_and_duplicate_public_board() {
 
 /// `TestDuplicateBoard/"create and duplicate public board from a custom category"`
 #[tokio::test]
-async fn duplicate_board_create_and_duplicate_public_board_from_a_custom_category() {
+async fn duplicate_container_create_and_duplicate_public_board_from_a_custom_category() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -95,11 +96,11 @@ async fn duplicate_board_create_and_duplicate_public_board_from_a_custom_categor
         })
         .await
         .expect("the category is created");
-    let board: Board = th
+    let board: Container = th
         .client
         .create_board(&new_board(
             TEST_WORKSPACE_ID,
-            BoardType::Open,
+            ContainerType::Open,
             "Public board",
         ))
         .await
@@ -107,7 +108,7 @@ async fn duplicate_board_create_and_duplicate_public_board_from_a_custom_categor
 
     // move board to custom category
     th.app
-        .add_update_user_category_board(
+        .add_update_user_category_container(
             TEST_WORKSPACE_ID,
             &me.id,
             &category.id,
@@ -123,7 +124,7 @@ async fn duplicate_board_create_and_duplicate_public_board_from_a_custom_categor
     assert_eq!(members_of(&th, &board.id).await.len(), 2, "two members");
 
     // Duplicate the board
-    let copy: BoardsAndBlocks = duplicate_board(
+    let copy: ContainersAndBlocks = duplicate_board(
         &th.client,
         &board.id,
         &format!("?asTemplate=false&toWorkspace={TEST_WORKSPACE_ID}"),
@@ -131,12 +132,12 @@ async fn duplicate_board_create_and_duplicate_public_board_from_a_custom_categor
     .await
     .created_json();
 
-    assert_eq!(copy.boards.len(), 1, "one board");
+    assert_eq!(copy.containers.len(), 1, "one board");
     assert_eq!(copy.blocks.len(), 1, "one block");
-    let duplicate = &copy.boards[0];
+    let duplicate = &copy.containers[0];
     assert_eq!(
-        duplicate.board_type,
-        BoardType::Private,
+        duplicate.container_type,
+        ContainerType::Private,
         "Duplicated board should be private"
     );
     assert_eq!(duplicate.title, "Public board copy", "the title says so");
@@ -162,12 +163,12 @@ async fn duplicate_board_create_and_duplicate_public_board_from_a_custom_categor
 /// `TestDuplicateBoard/"base case"` and `"duplicating board as template should not set
 /// it's category"` in `server/app/boards_test.go`, through the real store.
 #[tokio::test]
-async fn duplicate_board_base_case_and_as_template() {
+async fn duplicate_container_base_case_and_as_template() {
     let th = Setup::native().start().await;
     let user = th.stranger_in(TEST_WORKSPACE_ID).await;
     let board = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Open, "Source"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Source"),
         &user,
     )
     .await;
@@ -175,27 +176,27 @@ async fn duplicate_board_base_case_and_as_template() {
 
     let (copy, members) = th
         .app
-        .duplicate_board(&board.id, &user, TEST_WORKSPACE_ID, DuplicateAs::Copy)
+        .duplicate_container(&board.id, &user, TEST_WORKSPACE_ID, DuplicateAs::Copy)
         .await
         .expect("the board is duplicated");
-    assert_eq!(copy.boards.len(), 1, "one board");
+    assert_eq!(copy.containers.len(), 1, "one board");
     assert_eq!(copy.blocks.len(), 1, "one block");
     assert_eq!(members.len(), 1, "one membership");
     assert_eq!(
-        category_name_of(&th, &user, TEST_WORKSPACE_ID, &copy.boards[0].id).await,
+        category_name_of(&th, &user, TEST_WORKSPACE_ID, &copy.containers[0].id).await,
         Some("Boards".to_owned()),
         "a copy is filed under a category"
     );
 
     let (template, members) = th
         .app
-        .duplicate_board(&board.id, &user, TEST_WORKSPACE_ID, DuplicateAs::Template)
+        .duplicate_container(&board.id, &user, TEST_WORKSPACE_ID, DuplicateAs::Template)
         .await
         .expect("the board is duplicated as a template");
-    assert!(template.boards[0].is_template, "a template");
+    assert!(template.containers[0].is_template, "a template");
     assert_eq!(members.len(), 1, "one membership");
     assert_eq!(
-        category_name_of(&th, &user, TEST_WORKSPACE_ID, &template.boards[0].id).await,
+        category_name_of(&th, &user, TEST_WORKSPACE_ID, &template.containers[0].id).await,
         None,
         "a template is filed nowhere"
     );
@@ -204,10 +205,10 @@ async fn duplicate_board_base_case_and_as_template() {
 
 /// An open board of the test workspace that the user administers, with a card titled
 /// "Card 1" and a comment on that card.
-async fn board_with_a_commented_card(th: &TestServer, user_id: &str) -> Board {
+async fn board_with_a_commented_card(th: &TestServer, user_id: &str) -> Container {
     let board = board_with_admin(
         th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Open, "Public board"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Public board"),
         user_id,
     )
     .await;
@@ -215,7 +216,7 @@ async fn board_with_a_commented_card(th: &TestServer, user_id: &str) -> Board {
         th,
         Block {
             id: new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             block_type: BlockType::Card,
             title: "Card 1".to_owned(),
             ..Block::default()
@@ -227,7 +228,7 @@ async fn board_with_a_commented_card(th: &TestServer, user_id: &str) -> Board {
         th,
         Block {
             id: new_id(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             parent_id: card.id,
             block_type: BlockType::Comment,
             title: "a comment".to_owned(),
@@ -241,7 +242,11 @@ async fn board_with_a_commented_card(th: &TestServer, user_id: &str) -> Board {
 
 /// Verified on the original: who may duplicate what, and what the query parameters do.
 #[tokio::test]
-async fn duplicate_board_permissions_and_parameters() {
+#[expect(
+    clippy::too_many_lines,
+    reason = "every role against every parameter of the copy, on one board"
+)]
+async fn duplicate_container_permissions_and_parameters() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -263,41 +268,50 @@ async fn duplicate_board_permissions_and_parameters() {
 
     // Without `toWorkspace` the copy stays in the workspace of the source; comments are not
     // copied.
-    let copy: BoardsAndBlocks = duplicate_board(&th.client, &board.id, "")
+    let copy: ContainersAndBlocks = duplicate_board(&th.client, &board.id, "")
         .await
         .created_json();
     assert_eq!(
-        copy.boards[0].workspace_id, TEST_WORKSPACE_ID,
+        copy.containers[0].workspace_id, TEST_WORKSPACE_ID,
         "the source's workspace"
     );
-    assert_eq!(copy.boards[0].title, "Public board copy", "a copy");
+    assert_eq!(copy.containers[0].title, "Public board copy", "a copy");
     assert_eq!(copy.blocks.len(), 1, "the card without its comment");
     assert_eq!(copy.blocks[0].title, "Card 1", "the card");
 
     // `asTemplate=true` makes a template, which is filed under no category. Only the
     // exact value counts.
-    let template: BoardsAndBlocks = duplicate_board(&th.client, &board.id, "?asTemplate=true")
+    let template: ContainersAndBlocks = duplicate_board(&th.client, &board.id, "?asTemplate=true")
         .await
         .created_json();
-    assert!(template.boards[0].is_template, "a template");
-    assert_eq!(template.boards[0].title, "New board template", "its title");
+    assert!(template.containers[0].is_template, "a template");
     assert_eq!(
-        category_name_of(&th, &user1.id, TEST_WORKSPACE_ID, &template.boards[0].id).await,
+        template.containers[0].title, "New board template",
+        "its title"
+    );
+    assert_eq!(
+        category_name_of(
+            &th,
+            &user1.id,
+            TEST_WORKSPACE_ID,
+            &template.containers[0].id
+        )
+        .await,
         None,
         "not in a category"
     );
-    let not_a_template: BoardsAndBlocks =
+    let not_a_template: ContainersAndBlocks =
         duplicate_board(&th.client, &board.id, "?asTemplate=True")
             .await
             .created_json();
     assert!(
-        !not_a_template.boards[0].is_template,
+        !not_a_template.containers[0].is_template,
         "`True` is not `true`"
     );
 
     // `toWorkspace` puts the copy, and its category, into another workspace.
     let other_workspace = another_workspace(&th, &user1.id).await;
-    let moved: BoardsAndBlocks = duplicate_board(
+    let moved: ContainersAndBlocks = duplicate_board(
         &th.client,
         &board.id,
         &format!("?toWorkspace={other_workspace}"),
@@ -305,11 +319,11 @@ async fn duplicate_board_permissions_and_parameters() {
     .await
     .created_json();
     assert_eq!(
-        moved.boards[0].workspace_id, other_workspace,
+        moved.containers[0].workspace_id, other_workspace,
         "the other workspace"
     );
     assert_eq!(
-        category_name_of(&th, &user1.id, &other_workspace, &moved.boards[0].id).await,
+        category_name_of(&th, &user1.id, &other_workspace, &moved.containers[0].id).await,
         Some("Boards".to_owned()),
         "in the default category of that workspace"
     );
@@ -328,24 +342,27 @@ async fn duplicate_board_permissions_and_parameters() {
     // A viewer of a private board may duplicate it, and administers the copy.
     let private = board_with_admin(
         &th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Private, "Private one"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Private one"),
         &user1.id,
     )
     .await;
     insert_block(&th, view_block(&private.id), &user1.id).await;
     add_member(
         &th,
-        &BoardMember {
+        &ContainerMember {
             scheme_viewer: true,
             ..member(&private.id, &user2.id)
         },
     )
     .await;
-    let copy: BoardsAndBlocks = duplicate_board(&th.client2, &private.id, "")
+    let copy: ContainersAndBlocks = duplicate_board(&th.client2, &private.id, "")
         .await
         .created_json();
-    assert_eq!(copy.boards[0].created_by, user2.id, "created by the viewer");
-    let members = members_of(&th, &copy.boards[0].id).await;
+    assert_eq!(
+        copy.containers[0].created_by, user2.id,
+        "created by the viewer"
+    );
+    let members = members_of(&th, &copy.containers[0].id).await;
     assert_eq!(members.len(), 1, "one member: {members:?}");
     assert_eq!(members[0].user_id, user2.id, "the viewer");
     assert!(members[0].scheme_admin, "administers the copy");
@@ -357,19 +374,23 @@ async fn duplicate_board_permissions_and_parameters() {
 /// duplicates an open template into a board of their own. Verified on the original, also
 /// for a template of the global workspace and for a private template.
 #[tokio::test]
-async fn duplicate_board_from_a_template() {
+async fn duplicate_container_from_a_template() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
     let mut templates = Vec::new();
     for (workspace_id, board_type, title) in [
-        (TEST_WORKSPACE_ID, BoardType::Open, "Open template"),
-        (ROOT_WORKSPACE_ID, BoardType::Open, "Global template"),
-        (ROOT_WORKSPACE_ID, BoardType::Private, "Private template"),
+        (TEST_WORKSPACE_ID, ContainerType::Open, "Open template"),
+        (ROOT_WORKSPACE_ID, ContainerType::Open, "Global template"),
+        (
+            ROOT_WORKSPACE_ID,
+            ContainerType::Private,
+            "Private template",
+        ),
     ] {
         let template = board_with_admin(
             &th,
-            Board {
+            Container {
                 is_template: true,
                 ..new_board(workspace_id, board_type, title)
             },
@@ -381,25 +402,29 @@ async fn duplicate_board_from_a_template() {
     }
 
     // user2 is not a member of any of them.
-    let copy: BoardsAndBlocks = duplicate_board(
+    let copy: ContainersAndBlocks = duplicate_board(
         &th.client2,
         &templates[0].id,
         &format!("?asTemplate=false&toWorkspace={TEST_WORKSPACE_ID}"),
     )
     .await
     .created_json();
-    let board = &copy.boards[0];
+    let board = &copy.containers[0];
     assert_eq!(board.title, "Open template", "the template's title");
     assert!(!board.is_template, "a board, not a template");
-    assert_eq!(board.board_type, BoardType::Private, "private to its user");
+    assert_eq!(
+        board.container_type,
+        ContainerType::Private,
+        "private to its user"
+    );
     assert_eq!(board.created_by, user2.id, "created by the user");
     assert_eq!(copy.blocks.len(), 1, "with the template's blocks");
-    let read: Board = get_board(&th.client2, &board.id).await.ok_json();
+    let read: Container = get_board(&th.client2, &board.id).await.ok_json();
     assert_eq!(&read, board, "the user reads their new board");
     let stored_blocks = th
         .app
         .store()
-        .get_blocks(&BlockFilter::board(&board.id))
+        .get_blocks(&BlockFilter::container(&board.id))
         .await
         .expect("the blocks are read");
     assert_eq!(
@@ -414,14 +439,15 @@ async fn duplicate_board_from_a_template() {
     );
 
     // A template of a template keeps being one, and says "copy".
-    let copy: BoardsAndBlocks = duplicate_board(&th.client2, &templates[0].id, "?asTemplate=true")
-        .await
-        .created_json();
-    assert!(copy.boards[0].is_template, "a template");
-    assert_eq!(copy.boards[0].title, "Open template copy", "a copy");
+    let copy: ContainersAndBlocks =
+        duplicate_board(&th.client2, &templates[0].id, "?asTemplate=true")
+            .await
+            .created_json();
+    assert!(copy.containers[0].is_template, "a template");
+    assert_eq!(copy.containers[0].title, "Open template copy", "a copy");
 
     // A template of the root workspace (the original's global workspace), into the user's workspace.
-    let copy: BoardsAndBlocks = duplicate_board_in(
+    let copy: ContainersAndBlocks = duplicate_board_in(
         &th.client2,
         ROOT_WORKSPACE_ID,
         &templates[1].id,
@@ -430,7 +456,7 @@ async fn duplicate_board_from_a_template() {
     .await
     .created_json();
     assert_eq!(
-        copy.boards[0].workspace_id, TEST_WORKSPACE_ID,
+        copy.containers[0].workspace_id, TEST_WORKSPACE_ID,
         "in the user's workspace"
     );
 
@@ -449,18 +475,20 @@ async fn duplicate_board_from_a_template() {
 /// A board without blocks is duplicated as a board without blocks. (The original
 /// cannot duplicate it and answers 500.)
 #[tokio::test]
-async fn duplicate_board_without_blocks() {
+async fn duplicate_container_without_blocks() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
-    let copy: BoardsAndBlocks = duplicate_board(&th.client, &board.id, "")
+    let copy: ContainersAndBlocks = duplicate_board(&th.client, &board.id, "")
         .await
         .created_json();
 
-    assert_eq!(copy.boards.len(), 1, "one board");
+    assert_eq!(copy.containers.len(), 1, "one board");
     assert!(copy.blocks.is_empty(), "no blocks");
-    let boards: Vec<Board> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
-    let mut expected = vec![board.id.clone(), copy.boards[0].id.clone()];
+    let boards: Vec<Container> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let mut expected = vec![board.id.clone(), copy.containers[0].id.clone()];
     expected.sort_unstable();
     assert_eq!(sorted_ids(&boards), expected, "the board and its copy");
     th.teardown().await;

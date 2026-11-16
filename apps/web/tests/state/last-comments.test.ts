@@ -36,7 +36,7 @@ describe('the memory backend', () => {
     expect((await backend.card(board.boardId, betaId)).lastCommentAt).toBe(first.createAt);
 
     const heard: unknown[] = [];
-    const stop = backend.watchBoard(board.boardId, (change) => {
+    const stop = backend.watchContainer(board.boardId, (change) => {
       if (change.kind === 'blocks') heard.push(...change.blocks);
     });
     await backend.patchCard(board.boardId, betaId, { title: 'Beta again' });
@@ -90,7 +90,7 @@ describe('an open board', () => {
       const at = world.now();
       world.blocks.set(id, {
         id,
-        boardId: board.boardId,
+        containerId: board.boardId,
         parentId: betaId,
         createdBy: backend.userId,
         modifiedBy: backend.userId,
@@ -192,7 +192,7 @@ describe('an open board', () => {
     expect(board.card(betaId)?.lastCommentAt).toBe(posted.createAt);
     // Deleted while the connection was down: nothing is heard of it, then the board is read again.
     world.blocks.delete(posted.id);
-    world.tellBoard(board.boardId, { kind: 'resync' });
+    world.tellContainer(board.boardId, { kind: 'resync' });
     await settle();
     await vi.waitFor(() => {
       expect(board.card(betaId)?.lastCommentAt).toBe(before);

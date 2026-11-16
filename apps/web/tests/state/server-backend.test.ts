@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 const BLOCK = {
-  boardId: 'b',
+  containerId: 'b',
   body: null,
   parentId: 'c',
   createAt: 1,
@@ -73,12 +73,12 @@ describe('the server backend', () => {
   it('asks for a board read before under its own workspace, also after entering another', async () => {
     const sent = serve({ ...BLOCK, id: 'b9', workspaceId: 'w2', title: 'Elsewhere', type: 'O' });
     const backend = serverBackend('');
-    await backend.board('b9');
+    await backend.container('b9');
     backend.enter('w3');
     await backend.views('b9').catch(() => undefined);
     await backend.patchCard('b9', 'c9', { title: 'x' }).catch(() => undefined);
     expect(sent.map((one) => one.url)).toEqual([
-      '/api/v1/w/w1/boards/b9',
+      '/api/v1/w/w1/containers/b9',
       '/api/v1/w/w2/boards/b9/blocks?type=view',
       '/api/v1/w/w2/cards/c9',
     ]);
@@ -148,7 +148,7 @@ describe('the server backend', () => {
     expect(sent[0]).toMatchObject({
       url: '/api/v1/w/w1/boards/b/blocks',
       method: 'POST',
-      body: [{ boardId: 'b', parentId: 'c', type: 'comment', body }],
+      body: [{ containerId: 'b', parentId: 'c', type: 'comment', body }],
     });
     expect(comment).toMatchObject({ id: 'm', type: 'comment', body });
   });
@@ -402,7 +402,7 @@ describe('changing a card on the server', () => {
 describe('joining an open board on the server', () => {
   it('asks to join by the board and gives the membership', async () => {
     const sent = serve({
-      boardId: 'b',
+      containerId: 'b',
       userId: 'u',
       roles: '',
       schemeAdmin: false,
@@ -410,11 +410,11 @@ describe('joining an open board on the server', () => {
       schemeCommenter: true,
       schemeViewer: true,
     });
-    const member = await serverBackend('').joinBoard('b');
+    const member = await serverBackend('').joinContainer('b');
     expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
-      'POST /api/v1/w/w1/boards/b/join',
+      'POST /api/v1/w/w1/containers/b/join',
     ]);
-    expect(member).toMatchObject({ boardId: 'b', userId: 'u', schemeEditor: true });
+    expect(member).toMatchObject({ containerId: 'b', userId: 'u', schemeEditor: true });
   });
 });
 
@@ -548,7 +548,7 @@ describe('changing a view on the server', () => {
     ]);
     expect(sent[0]?.body).toEqual([
       {
-        boardId: 'b',
+        containerId: 'b',
         type: 'view',
         title: 'Calendar view',
         fields: { viewType: 'calendar', dateDisplayPropertyId: 'due' },
@@ -670,11 +670,11 @@ describe('the sidebar on the server', () => {
     deleteAt: 0,
   };
   const FILED = [
-    { boardId: 'b1', hidden: false },
-    { boardId: 'b2', hidden: true },
-    { boardId: 'b3', hidden: false },
+    { containerId: 'b1', hidden: false },
+    { containerId: 'b2', hidden: true },
+    { containerId: 'b3', hidden: false },
   ];
-  const CATEGORIES = [{ ...CATEGORY, boardMetadata: FILED }];
+  const CATEGORIES = [{ ...CATEGORY, containerMetadata: FILED }];
 
   it('makes a category of the reader, under their identifier', async () => {
     const sent = serveRoutes([
@@ -684,7 +684,7 @@ describe('the sidebar on the server', () => {
     const made = await serverBackend('').createCategory('t', { name: 'Work' });
     expect(sentLines(sent)).toEqual(['GET /api/v1/users/me', 'POST /api/v1/w/t/categories']);
     expect(sent[1]?.body).toEqual({ name: 'Work', userId: 'me', workspaceId: 't' });
-    expect(made).toMatchObject({ id: 'k1', boardIds: [], hiddenBoardIds: [] });
+    expect(made).toMatchObject({ id: 'k1', containerIds: [], hiddenContainerIds: [] });
   });
 
   it('renames a category with its folding as it is, and keeps its boards', async () => {
@@ -704,8 +704,8 @@ describe('the sidebar on the server', () => {
       name: 'Home',
       collapsed: true,
     });
-    expect(renamed).toMatchObject({ name: 'Home', boardIds: ['b1', 'b2', 'b3'] });
-    expect(renamed.hiddenBoardIds).toEqual(['b2']);
+    expect(renamed).toMatchObject({ name: 'Home', containerIds: ['b1', 'b2', 'b3'] });
+    expect(renamed.hiddenContainerIds).toEqual(['b2']);
   });
 
   it('folds a category with its name as it is', async () => {
@@ -743,54 +743,54 @@ describe('the sidebar on the server', () => {
 
   it('files a board under a category, then puts it at its place among the category’s boards', async () => {
     const sent = serveRoutes([
-      ['POST /api/v1/w/t/categories/k1/boards/b9', undefined, 204],
+      ['POST /api/v1/w/t/categories/k1/containers/b9', undefined, 204],
       [
         'GET /api/v1/w/t/categories',
-        [{ ...CATEGORY, boardMetadata: [...FILED, { boardId: 'b9', hidden: false }] }],
+        [{ ...CATEGORY, containerMetadata: [...FILED, { containerId: 'b9', hidden: false }] }],
       ],
-      ['PUT /api/v1/w/t/categories/k1/board-order', ['b1', 'b9', 'b2', 'b3']],
+      ['PUT /api/v1/w/t/categories/k1/container-order', ['b1', 'b9', 'b2', 'b3']],
     ]);
-    await serverBackend('').moveBoardToCategory('t', 'b9', 'k1', 1);
+    await serverBackend('').moveContainerToCategory('t', 'b9', 'k1', 1);
     expect(sentLines(sent)).toEqual([
-      'POST /api/v1/w/t/categories/k1/boards/b9',
+      'POST /api/v1/w/t/categories/k1/containers/b9',
       'GET /api/v1/w/t/categories',
-      'PUT /api/v1/w/t/categories/k1/board-order',
+      'PUT /api/v1/w/t/categories/k1/container-order',
     ]);
     expect(sent[2]?.body).toEqual(['b1', 'b9', 'b2', 'b3']);
   });
 
   it('sends the sidebar’s writes of a workspace one after another, each reading after the last', async () => {
     const sent = serveRoutes([
-      ['POST /api/v1/w/t/categories/k1/boards/', undefined, 204],
+      ['POST /api/v1/w/t/categories/k1/containers/', undefined, 204],
       ['GET /api/v1/w/t/categories', CATEGORIES],
       ['PUT /api/v1/w/t/categories/k1', CATEGORY],
     ]);
     const backend = serverBackend('');
     await Promise.all([
-      backend.moveBoardToCategory('t', 'b3', 'k1', 0),
+      backend.moveContainerToCategory('t', 'b3', 'k1', 0),
       backend.patchCategory('t', 'k1', { collapsed: false }),
-      backend.moveBoardToCategory('t', 'b2', 'k1', 0),
+      backend.moveContainerToCategory('t', 'b2', 'k1', 0),
     ]);
     expect(sentLines(sent)).toEqual([
-      'POST /api/v1/w/t/categories/k1/boards/b3',
+      'POST /api/v1/w/t/categories/k1/containers/b3',
       'GET /api/v1/w/t/categories',
-      'PUT /api/v1/w/t/categories/k1/board-order',
+      'PUT /api/v1/w/t/categories/k1/container-order',
       'GET /api/v1/w/t/categories',
       'PUT /api/v1/w/t/categories/k1',
-      'POST /api/v1/w/t/categories/k1/boards/b2',
+      'POST /api/v1/w/t/categories/k1/containers/b2',
       'GET /api/v1/w/t/categories',
-      'PUT /api/v1/w/t/categories/k1/board-order',
+      'PUT /api/v1/w/t/categories/k1/container-order',
     ]);
   });
 
   it('hides a board and shows it again by its routes', async () => {
-    const sent = serveRoutes([['PUT /api/v1/w/t/categories/k1/boards/b1/', undefined, 204]]);
+    const sent = serveRoutes([['PUT /api/v1/w/t/categories/k1/containers/b1/', undefined, 204]]);
     const backend = serverBackend('');
-    await backend.setBoardHidden('t', 'k1', 'b1', true);
-    await backend.setBoardHidden('t', 'k1', 'b1', false);
+    await backend.setContainerHidden('t', 'k1', 'b1', true);
+    await backend.setContainerHidden('t', 'k1', 'b1', false);
     expect(sentLines(sent)).toEqual([
-      'PUT /api/v1/w/t/categories/k1/boards/b1/hide',
-      'PUT /api/v1/w/t/categories/k1/boards/b1/unhide',
+      'PUT /api/v1/w/t/categories/k1/containers/b1/hide',
+      'PUT /api/v1/w/t/categories/k1/containers/b1/unhide',
     ]);
   });
 });
@@ -818,7 +818,7 @@ describe('boards on the server', () => {
   const VIEW = {
     ...BLOCK,
     id: 'v1',
-    boardId: 'b1',
+    containerId: 'b1',
     parentId: '',
     type: 'view',
     title: 'Board view',
@@ -826,7 +826,7 @@ describe('boards on the server', () => {
 
   it('makes a board and its first view in one request, the view tied to the board', async () => {
     const sent = serveRoutes([
-      ['POST /api/v1/w/t/boards-and-blocks', { boards: [BOARD], blocks: [VIEW] }, 201],
+      ['POST /api/v1/w/t/boards-and-blocks', { containers: [BOARD], blocks: [VIEW] }, 201],
     ]);
     const made = await serverBackend('').createBoard(
       't',
@@ -834,10 +834,13 @@ describe('boards on the server', () => {
       { title: 'Board view', fields: { viewType: 'board' } as never },
     );
     expect(sentLines(sent)).toEqual(['POST /api/v1/w/t/boards-and-blocks']);
-    const body = sent[0]?.body as { boards: { id: string }[]; blocks: { boardId: string }[] };
-    expect(body.boards).toEqual([
+    const body = sent[0]?.body as {
+      containers: { id: string }[];
+      blocks: { containerId: string }[];
+    };
+    expect(body.containers).toEqual([
       {
-        id: body.blocks[0]?.boardId,
+        id: body.blocks[0]?.containerId,
         type: 'P',
         title: 'Plan',
         description: '',
@@ -853,20 +856,20 @@ describe('boards on the server', () => {
 
   it('changes, deletes and brings back a board by its routes', async () => {
     const sent = serveRoutes([
-      ['PATCH /api/v1/w/w1/boards/b1', { ...BOARD, title: 'New' }],
-      ['DELETE /api/v1/w/w1/boards/b1', undefined, 204],
-      ['POST /api/v1/w/w1/boards/b1/undelete', BOARD],
+      ['PATCH /api/v1/w/w1/containers/b1', { ...BOARD, title: 'New' }],
+      ['DELETE /api/v1/w/w1/containers/b1', undefined, 204],
+      ['POST /api/v1/w/w1/containers/b1/undelete', BOARD],
     ]);
     const backend = serverBackend('');
-    expect((await backend.patchBoard('b1', { title: 'New', minimumRole: 'viewer' })).title).toBe(
-      'New',
-    );
-    await backend.deleteBoard('b1');
-    expect((await backend.restoreBoard('b1')).id).toBe('b1');
+    expect(
+      (await backend.patchContainer('b1', { title: 'New', minimumRole: 'viewer' })).title,
+    ).toBe('New');
+    await backend.deleteContainer('b1');
+    expect((await backend.restoreContainer('b1')).id).toBe('b1');
     expect(sentLines(sent)).toEqual([
-      'PATCH /api/v1/w/w1/boards/b1',
-      'DELETE /api/v1/w/w1/boards/b1',
-      'POST /api/v1/w/w1/boards/b1/undelete',
+      'PATCH /api/v1/w/w1/containers/b1',
+      'DELETE /api/v1/w/w1/containers/b1',
+      'POST /api/v1/w/w1/containers/b1/undelete',
     ]);
     expect(sent[0]?.body).toEqual({ title: 'New', minimumRole: 'viewer' });
   });
@@ -874,7 +877,7 @@ describe('boards on the server', () => {
   it('refuses a minimum role the contract does not have, sending nothing', async () => {
     const sent = serveRoutes([]);
     const refused = await serverBackend('')
-      .patchBoard('b1', { minimumRole: 'admin' })
+      .patchContainer('b1', { minimumRole: 'admin' })
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.status).toBe(400);
     expect(sent).toEqual([]);
@@ -888,7 +891,7 @@ describe('boards on the server', () => {
     });
     expect(sent[0]?.body).toEqual([
       {
-        boardId: 'b1',
+        containerId: 'b1',
         type: 'view',
         title: 'Table view',
         fields: { viewType: 'table' },
@@ -933,7 +936,7 @@ describe('the password on the server', () => {
 
 describe('sharing a board on the server', () => {
   const MEMBER = {
-    boardId: 'b1',
+    containerId: 'b1',
     userId: 'u2',
     schemeAdmin: false,
     schemeEditor: false,
@@ -943,21 +946,21 @@ describe('sharing a board on the server', () => {
 
   it('adds, changes and removes a member with exactly the one role', async () => {
     const sent = serveRoutes([
-      ['POST /api/v1/w/w1/boards/b1/members', MEMBER],
+      ['POST /api/v1/w/w1/containers/b1/members', MEMBER],
       [
-        'PUT /api/v1/w/w1/boards/b1/members/u2',
+        'PUT /api/v1/w/w1/containers/b1/members/u2',
         { ...MEMBER, schemeCommenter: false, schemeViewer: true },
       ],
-      ['DELETE /api/v1/w/w1/boards/b1/members/u2', undefined, 204],
+      ['DELETE /api/v1/w/w1/containers/b1/members/u2', undefined, 204],
     ]);
     const backend = serverBackend('');
     expect((await backend.addMember('b1', 'u2', 'commenter')).schemeCommenter).toBe(true);
     expect((await backend.setMemberRole('b1', 'u2', 'viewer')).schemeViewer).toBe(true);
     await backend.removeMember('b1', 'u2');
     expect(sentLines(sent)).toEqual([
-      'POST /api/v1/w/w1/boards/b1/members',
-      'PUT /api/v1/w/w1/boards/b1/members/u2',
-      'DELETE /api/v1/w/w1/boards/b1/members/u2',
+      'POST /api/v1/w/w1/containers/b1/members',
+      'PUT /api/v1/w/w1/containers/b1/members/u2',
+      'DELETE /api/v1/w/w1/containers/b1/members/u2',
     ]);
     expect(sent[0]?.body).toEqual({
       userId: 'u2',
@@ -976,8 +979,8 @@ describe('sharing a board on the server', () => {
 
   it('reads and sets the public link, asking for a new token only when told', async () => {
     const sent = serveRoutes([
-      ['GET /api/v1/w/w1/boards/b1/sharing', { enabled: false }],
-      ['POST /api/v1/w/w1/boards/b1/sharing', { enabled: true, token: 'tok', updateAt: 3 }],
+      ['GET /api/v1/w/w1/containers/b1/sharing', { enabled: false }],
+      ['POST /api/v1/w/w1/containers/b1/sharing', { enabled: true, token: 'tok', updateAt: 3 }],
     ]);
     const backend = serverBackend('');
     expect(await backend.sharing('b1')).toEqual({ enabled: false, token: '' });
@@ -1046,19 +1049,19 @@ describe('templates on the server', () => {
   it('reads the templates, copies a board either way, and starts the welcome board', async () => {
     const sent = serveRoutes([
       ['GET /api/v1/w/t/templates', [{ ...BOARD, id: 'tp', isTemplate: true, isBuiltin: true }]],
-      ['POST /api/v1/w/w1/boards/', { boards: [BOARD], blocks: [] }, 201],
+      ['POST /api/v1/w/w1/containers/', { containers: [BOARD], blocks: [] }, 201],
       ['POST /api/v1/w/t/onboard', { workspaceId: 't', boardId: 'w1' }],
     ]);
     const backend = serverBackend('');
     const [template] = await backend.templates('t');
     expect(template).toMatchObject({ id: 'tp', isTemplate: true, isBuiltin: true });
-    expect((await backend.duplicateBoard('tp', false, 't')).id).toBe('b2');
-    await backend.duplicateBoard('b2', true, 't');
+    expect((await backend.duplicateContainer('tp', false, 't')).id).toBe('b2');
+    await backend.duplicateContainer('b2', true, 't');
     expect(await backend.onboard('t')).toBe('w1');
     expect(sentLines(sent)).toEqual([
       'GET /api/v1/w/t/templates',
-      'POST /api/v1/w/w1/boards/tp/duplicate?asTemplate=false&toWorkspace=t',
-      'POST /api/v1/w/w1/boards/b2/duplicate?asTemplate=true&toWorkspace=t',
+      'POST /api/v1/w/w1/containers/tp/duplicate?asTemplate=false&toWorkspace=t',
+      'POST /api/v1/w/w1/containers/b2/duplicate?asTemplate=true&toWorkspace=t',
       'POST /api/v1/w/t/onboard',
     ]);
   });

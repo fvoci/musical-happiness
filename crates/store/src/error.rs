@@ -1,6 +1,8 @@
 //! The error type of the store.
 
-use fvoci_model::{BlockError, BoardError, BoardsAndBlocksError, CategoryError, SubscriptionError};
+use fvoci_model::{
+    BlockError, CategoryError, ContainerError, ContainersAndBlocksError, SubscriptionError,
+};
 use thiserror::Error;
 
 /// An error from a [`Store`](crate::Store) operation.
@@ -63,15 +65,15 @@ pub enum StoreError {
 
     /// A board failed validation before it was written.
     #[error(transparent)]
-    InvalidBoard(#[from] BoardError),
+    InvalidContainer(#[from] ContainerError),
 
     /// A boards-and-blocks request failed validation.
     #[error(transparent)]
-    InvalidBoardsAndBlocks(#[from] BoardsAndBlocksError),
+    InvalidContainersAndBlocks(#[from] ContainersAndBlocksError),
 
     /// A block listed for deletion belongs to none of the boards listed with it.
     #[error("block {block_id} doesn't belong to any of the boards in the delete request")]
-    BlockNotInDeletedBoards {
+    BlockNotInDeletedContainers {
         /// The identifier of the block.
         block_id: String,
     },

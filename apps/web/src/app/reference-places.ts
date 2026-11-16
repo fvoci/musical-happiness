@@ -12,13 +12,13 @@ import { ANY_VIEW, type Route, type Router } from './router.svelte.ts';
 /** The route that shows what is named; none for what has no screen. */
 function routeOf(router: Router, linked: LinkedBlock): Partial<Route> | undefined {
   const { route } = router;
-  if (linked.kind === 'card' && linked.boardId === route.boardId) {
+  if (linked.kind === 'card' && linked.containerId === route.boardId) {
     return { ...route, cardId: linked.id };
   }
   if (route.shared) return undefined;
   const { workspaceId } = route;
-  if (linked.kind === 'page') return { workspaceId, wikiId: linked.boardId, pageId: linked.id };
-  return { workspaceId, boardId: linked.boardId, viewId: ANY_VIEW, cardId: linked.id };
+  if (linked.kind === 'page') return { workspaceId, wikiId: linked.containerId, pageId: linked.id };
+  return { workspaceId, boardId: linked.containerId, viewId: ANY_VIEW, cardId: linked.id };
 }
 
 export function referencePlaces(router: Router): ReferencePlaces {
@@ -30,9 +30,9 @@ export function referencePlaces(router: Router): ReferencePlaces {
     open: (linked) => {
       const route = routeOf(router, linked);
       if (!route) return;
-      if (linked.kind === 'card' && linked.boardId === router.route.boardId) {
+      if (linked.kind === 'card' && linked.containerId === router.route.boardId) {
         router.openCard(linked.id);
-      } else if (linked.kind === 'page' && linked.boardId === router.route.wikiId) {
+      } else if (linked.kind === 'page' && linked.containerId === router.route.wikiId) {
         router.openPage(linked.id);
       } else router.go(route);
     },

@@ -4,6 +4,7 @@
 //! authentication and local permissions) and of the `server/app` tests
 //! that need a store. One module per original test file.
 
+mod block_types;
 mod common;
 
 mod admin;
@@ -31,6 +32,7 @@ mod compression;
 mod content_blocks;
 mod content_search;
 mod cookies;
+mod deleted_boards_listed;
 mod deleted_cards;
 mod document_visibility;
 mod email_verification;
@@ -47,6 +49,7 @@ mod fake_search;
 mod fake_smtp;
 mod files;
 mod guests;
+mod hostile_category_ids;
 mod import_authors;
 mod imports;
 mod invitation_mail;

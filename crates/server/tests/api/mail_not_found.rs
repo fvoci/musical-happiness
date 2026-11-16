@@ -23,13 +23,13 @@ async fn a_not_found_closes_the_way(provider: Provider) {
         .init_basic()
         .await;
     let board = th
-        .create_board(ROOT_WORKSPACE_ID, fvoci_model::BoardType::Open)
+        .create_board(ROOT_WORKSPACE_ID, fvoci_model::ContainerType::Open)
         .await;
     let parent: Invitation = th
         .client
         .post(
             &links_path(),
-            &json!({"role":"guest","boardId":board.id,"boardRole":"viewer"}),
+            &json!({"role":"guest","containerId":board.id,"containerRole":"viewer"}),
         )
         .await
         .created_json();

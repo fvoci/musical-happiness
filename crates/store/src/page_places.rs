@@ -2,7 +2,7 @@
 //! block but its pages and the comments on them. Every block that is written is checked
 //! here by [`check`].
 
-use fvoci_model::{Block, BlockError, BlockType, BoardKind};
+use fvoci_model::{Block, BlockError, BlockType, ContainerKind};
 
 use crate::error::StoreError;
 
@@ -14,18 +14,18 @@ use crate::error::StoreError;
 /// `None` if it has none.
 pub(crate) fn check(
     block: &Block,
-    kind: BoardKind,
+    kind: ContainerKind,
     parent_type: Option<&BlockType>,
 ) -> Result<(), StoreError> {
     let below_page = parent_type.is_none_or(|parent| *parent == BlockType::Page);
     let refused = match (kind, &block.block_type) {
-        (BoardKind::Board, BlockType::Page) => BlockError::PageOffWiki,
+        (ContainerKind::Board, BlockType::Page) => BlockError::PageOffWiki,
         // Where a comment goes, on a page of the wiki, is `comment_places`' to say, as for
         // a comment of a board: its parent is what a request gets wrong.
-        (BoardKind::Board, _) | (BoardKind::Wiki, BlockType::Comment) => return Ok(()),
-        (BoardKind::Wiki, BlockType::Page) if below_page => return Ok(()),
-        (BoardKind::Wiki, BlockType::Page) => BlockError::PageNotBelowPage,
-        (BoardKind::Wiki, _) => BlockError::NotPageOnWiki,
+        (ContainerKind::Board, _) | (ContainerKind::Wiki, BlockType::Comment) => return Ok(()),
+        (ContainerKind::Wiki, BlockType::Page) if below_page => return Ok(()),
+        (ContainerKind::Wiki, BlockType::Page) => BlockError::PageNotBelowPage,
+        (ContainerKind::Wiki, _) => BlockError::NotPageOnWiki,
     };
     Err(StoreError::InvalidBlock {
         id: block.id.clone(),

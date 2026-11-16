@@ -31,7 +31,7 @@ it('a shared visit sends only its board and token, renews after reconnect, and s
   const hear = vi.fn();
   const stop = live.watchPresence('shared-board', hear);
   expect(Socket.made).toHaveLength(0);
-  live.setPresence({ workspaceId: 'shared', boardId: 'shared-board', cardId: 'card' });
+  live.setPresence({ workspaceId: 'shared', containerId: 'shared-board', cardId: 'card' });
   const first = Socket.made[0];
   if (!first) throw new Error('a visit opens a socket');
   first.dispatchEvent(new Event('open'));
@@ -39,7 +39,7 @@ it('a shared visit sends only its board and token, renews after reconnect, and s
     {
       action: 'SET_PRESENCE',
       workspaceId: '',
-      boardId: 'shared-board',
+      containerId: 'shared-board',
       cardId: 'card',
       readToken: 'read-token',
     },
@@ -63,7 +63,7 @@ it('a shared visit sends only its board and token, renews after reconnect, and s
   stop();
   expect(second.sent.at(-1)).toEqual({
     action: 'SET_PRESENCE',
-    boardId: '',
+    containerId: '',
     workspaceId: '',
     readToken: 'read-token',
   });

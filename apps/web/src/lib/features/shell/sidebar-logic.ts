@@ -26,9 +26,9 @@ export function filterSidebar(
   return sidebar
     .map((entry) => ({
       category: entry.category,
-      boards: entry.boards.filter((board) => titleHas(board.title, query)),
+      containers: entry.containers.filter((board) => titleHas(board.title, query)),
     }))
-    .filter((entry) => entry.boards.length > 0);
+    .filter((entry) => entry.containers.length > 0);
 }
 
 /**
@@ -54,7 +54,7 @@ export function categoryOrderAfterStep(
 export function dragOrder(sidebar: readonly SidebarCategory[]): ListOrder[] {
   return sidebar
     .filter((entry) => !entry.category.collapsed)
-    .map((entry) => ({ id: entry.category.id, items: entry.boards.map((board) => board.id) }));
+    .map((entry) => ({ id: entry.category.id, items: entry.containers.map((board) => board.id) }));
 }
 
 /** The categories a board can only be dropped onto, not placed in: the folded ones. */
@@ -63,7 +63,7 @@ export function dragZones(sidebar: readonly SidebarCategory[]): string[] {
 }
 
 /**
- * Where a board goes in the list a category keeps (`boardIds`) when it is
+ * Where a board goes in the list a category keeps (`containerIds`) when it is
  * put at `index` among the boards the category shows, both counted without
  * the board itself.
  *
@@ -74,12 +74,12 @@ export function dragZones(sidebar: readonly SidebarCategory[]): string[] {
  * board the category does not name, or after the last one, it goes to the end.
  */
 export function filedIndex(
-  category: Pick<Category, 'boardIds'>,
+  category: Pick<Category, 'containerIds'>,
   shown: readonly string[],
   boardId: string,
   index: number,
 ): number {
-  const filed = category.boardIds.filter((id) => id !== boardId);
+  const filed = category.containerIds.filter((id) => id !== boardId);
   const following = shown.filter((id) => id !== boardId)[index];
   const at = following === undefined ? -1 : filed.indexOf(following);
   return at === -1 ? filed.length : at;
@@ -88,7 +88,7 @@ export function filedIndex(
 export interface BoardMove {
   boardId: string;
   categoryId: string;
-  /** The place in the category's own list, as `Workspace.moveBoard` takes it. */
+  /** The place in the category's own list, as `Workspace.moveContainer` takes it. */
   index: number;
 }
 
@@ -105,7 +105,7 @@ export function boardMoveOf(
   if (to.kind === 'list') return moveToEnd(to.listId, boardId, sidebar);
   const entry = sidebar.find((candidate) => candidate.category.id === to.listId);
   if (!entry) return undefined;
-  const shown = entry.boards.map((board) => board.id);
+  const shown = entry.containers.map((board) => board.id);
   return {
     boardId,
     categoryId: to.listId,
@@ -124,6 +124,6 @@ export function moveToEnd(
   return {
     boardId,
     categoryId,
-    index: entry.category.boardIds.filter((id) => id !== boardId).length,
+    index: entry.category.containerIds.filter((id) => id !== boardId).length,
   };
 }

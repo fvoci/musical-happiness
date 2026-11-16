@@ -3,7 +3,7 @@
 //! A page's body is kept as a card's is (`crates/server/src/collab`), and what is given
 //! and done is the card's (`App::body_versions`, `App::body_version`,
 //! `App::restore_body_version`); only the routes are a wiki's, under the handle that
-//! reaches wikis (`WsWiki`), so that no operation of a card's versions reaches a page.
+//! reaches wikis (`InWiki`), so that no operation of a card's versions reaches a page.
 
 use axum::extract::Path;
 use fvoci_model::{BodyVersion, BodyVersionContent, Page};
@@ -14,10 +14,10 @@ use super::cards::version_number;
 use super::contract::params::{MemberWorkspaceId, PageId, PageVersionNumber, WikiId};
 use super::contract::tag;
 use super::wikis::{READ_DENIED, page_with_permission};
-use super::workspace::WsWiki;
+use super::workspace::InWiki;
 use super::{ApiResult, json_response};
 use crate::app::App;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -41,14 +41,14 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     responses((status = 200, description = "The versions, the newest first.", body = Vec<BodyVersion>)),
 )]
 async fn handle_get_page_body_versions(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let page = page_with_permission(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         READ_DENIED,
     )
     .await?;
@@ -70,14 +70,14 @@ async fn handle_get_page_body_versions(
     responses((status = 200, description = "The version.", body = BodyVersionContent)),
 )]
 async fn handle_get_page_body_version(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id, version)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let page = page_with_permission(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         READ_DENIED,
     )
     .await?;
@@ -106,7 +106,7 @@ async fn handle_get_page_body_version(
     responses((status = 200, description = "The page as it is now.", body = Page)),
 )]
 async fn handle_restore_page_body_version(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id, version)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -114,7 +114,7 @@ async fn handle_restore_page_body_version(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to restore a version of the page's body",
     )
     .await?;

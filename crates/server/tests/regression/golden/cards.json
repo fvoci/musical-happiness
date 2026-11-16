@@ -28,11 +28,11 @@
   },
   {
     "name": "add viewer",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/members as cards-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:3>/members as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "boardId": "<id:3>",
+      "containerId": "<id:3>",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": false,
@@ -431,8 +431,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -446,8 +446,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -461,8 +461,8 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:3>",
         "body": null,
+        "containerId": "<id:3>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,

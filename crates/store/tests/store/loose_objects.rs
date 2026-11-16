@@ -10,7 +10,7 @@ use crate::common;
 fn file_at(board_id: &str, path: &str) -> FileInfo {
     FileInfo {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         stored_name: path.rsplit('/').next().unwrap_or(path).to_owned(),
         path: path.to_owned(),
         size: 3,
@@ -47,7 +47,7 @@ async fn the_records_that_go_doom_their_objects_in_the_same_transaction() {
     test.save_file_info(&file_at(&board_id, &purged_path))
         .await
         .expect("a file of the board");
-    test.delete_board(&board_id, &user_id)
+    test.delete_container(&board_id, &user_id)
         .await
         .expect("the board goes to the trash");
     let (kept_board, _) = board(&test).await;
@@ -297,7 +297,7 @@ async fn the_system_dooms_each_object_as_its_organizations() {
             .await
             .expect("a file of the board");
         store
-            .delete_board(&board_id, &user_id)
+            .delete_container(&board_id, &user_id)
             .await
             .expect("the board goes to the trash");
     }
@@ -363,7 +363,7 @@ async fn what_holds_an_object() {
     test.save_file_info(&file_at(&board_id, &trashed))
         .await
         .expect("a file of the board");
-    test.delete_board(&board_id, &user_id)
+    test.delete_container(&board_id, &user_id)
         .await
         .expect("the board goes to the trash");
     let (live_board, user_id) = board(&test).await;
@@ -379,7 +379,7 @@ async fn what_holds_an_object() {
     let upload = Upload {
         id: new_id(),
         user_id,
-        board_id: live_board.clone(),
+        container_id: live_board.clone(),
         name: "a.bin".to_owned(),
         size: 1,
         part_size: 1,
@@ -451,7 +451,7 @@ async fn an_unrecorded_object_is_doomed_as_its_boards_organizations() {
     let test = common::setup().await;
     let (board_id, user_id) = board(&test).await;
     let (trashed_board, _) = board(&test).await;
-    test.delete_board(&trashed_board, &user_id)
+    test.delete_container(&trashed_board, &user_id)
         .await
         .expect("the board goes to the trash");
     let ours = format!("boards/20261112/{board_id}/stray.png");
@@ -503,7 +503,7 @@ async fn the_recorded_places_are_read_a_page_at_a_time() {
             expected.push(path);
         }
     }
-    test.delete_board(&trashed_board, &user_id)
+    test.delete_container(&trashed_board, &user_id)
         .await
         .expect("the board goes to the trash");
     expected.sort_unstable();
@@ -546,7 +546,7 @@ async fn a_place_is_taken_and_compared_in_one_spelling() {
     let upload = Upload {
         id: new_id(),
         user_id,
-        board_id: board_id.clone(),
+        container_id: board_id.clone(),
         name: "x.png".to_owned(),
         size: 3,
         part_size: 3,
@@ -596,10 +596,10 @@ async fn a_row_of_another_spelling_holds_every_place() {
     let held = test.held_objects(&[elsewhere], None).await.expect("read");
     assert!(held.contains(elsewhere), "{held:?}");
 
-    test.delete_board(&board_id, &user_id)
+    test.delete_container(&board_id, &user_id)
         .await
         .expect("the board goes to the trash");
-    test.undelete_board(&board_id, &user_id)
+    test.undelete_container(&board_id, &user_id)
         .await
         .expect("it comes back with its record as it was");
     test.teardown().await;

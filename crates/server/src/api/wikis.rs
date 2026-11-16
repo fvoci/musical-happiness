@@ -1,14 +1,14 @@
 //! Wikis: listing and making them, and their pages.
 //!
 //! A wiki is a board of the kind `wiki`. What is the same for a board and a wiki is
-//! asked under `/boards/{boardId}` (`WsModule`); here is what only a wiki has, and the
-//! handle these routes work with reaches wikis and no board (`WsWiki`).
+//! asked under `/containers/{containerId}` (`InContainer`); here is what only a wiki has, and the
+//! handle these routes work with reaches wikis and no board (`InWiki`).
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Block, Board, BoardKind, BoardType, DeletedPage, MinimumRole, NewPage, Page, PageDuplicate,
-    PageMove, PageNode, PagePatch,
+    Block, Container, ContainerKind, ContainerType, DeletedPage, MinimumRole, NewPage, Page,
+    PageDuplicate, PageMove, PageNode, PagePatch,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -19,14 +19,14 @@ use super::cards::page_params;
 use super::contract::params::Page as PageNumber;
 use super::contract::params::{MemberWorkspaceId, PageId, PerPage, WikiId};
 use super::contract::tag;
-use super::workspace::{Ws, WsWiki};
+use super::workspace::{InWiki, InWorkspace};
 use super::{
     ApiResult, created, decode_object, decode_with_document, json_response, no_content,
-    require_board_permission,
+    require_container_permission,
 };
 use crate::app::{App, ChangeNotification};
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -50,7 +50,7 @@ pub(crate) struct NewWiki {
     /// Whether the wiki is open (`O`), for whoever works in the workspace to read, and to
     /// join to write in it, or private (`P`), for whom it is shared with.
     #[serde(rename = "type")]
-    board_type: BoardType,
+    container_type: ContainerType,
     /// The role a user gets who joins the wiki. Left out, `editor`.
     #[serde(default)]
     minimum_role: MinimumRole,
@@ -78,12 +78,12 @@ pub(crate) struct NewWiki {
     operation_id = "getWikis",
     tag = tag::WIKIS,
     params(MemberWorkspaceId),
-    responses((status = 200, description = "The wikis.", body = Vec<Board>)),
+    responses((status = 200, description = "The wikis.", body = Vec<Container>)),
 )]
-async fn handle_get_wikis(WsWiki(ws): WsWiki) -> ApiResult {
+async fn handle_get_wikis(InWiki(ws): InWiki) -> ApiResult {
     let wikis = ws
         .app
-        .workspace_boards(&ws.session.user_id, &ws.workspace_id, ws.role)
+        .workspace_containers(&ws.session.user_id, &ws.workspace_id, ws.role)
         .await?;
     Ok(json_response(&wikis))
 }
@@ -100,30 +100,30 @@ async fn handle_get_wikis(WsWiki(ws): WsWiki) -> ApiResult {
     tag = tag::WIKIS,
     params(MemberWorkspaceId),
     request_body = NewWiki,
-    responses((status = 201, description = "The wiki that was made.", body = Board)),
+    responses((status = 201, description = "The wiki that was made.", body = Container)),
 )]
-async fn handle_create_wiki(WsWiki(ws): WsWiki, body: Bytes) -> ApiResult {
-    ws.require_board_maker("access denied to create wiki")?;
+async fn handle_create_wiki(InWiki(ws): InWiki, body: Bytes) -> ApiResult {
+    ws.require_container_maker("access denied to create wiki")?;
     let NewWiki {
-        board_type,
+        container_type,
         minimum_role,
         title,
         description,
         icon,
     } = decode_object(&body)?;
-    let wiki = Board {
+    let wiki = Container {
         workspace_id: ws.workspace_id.clone(),
-        board_type,
-        kind: BoardKind::Wiki,
+        container_type,
+        kind: ContainerKind::Wiki,
         minimum_role,
         title,
         description,
         icon,
-        ..Board::default()
+        ..Container::default()
     };
     let wiki = ws
         .app
-        .create_board_with_admin(wiki, &ws.session.user_id)
+        .create_container_with_admin(wiki, &ws.session.user_id)
         .await?;
     Ok(created(&wiki))
 }
@@ -134,16 +134,16 @@ pub(super) const READ_DENIED: &str = "access denied to fetch page";
 /// Returns the page of the wiki for a handler of `/wikis/{wikiId}/pages/{pageId}`, if
 /// the user has the permission on the wiki: its block, read once.
 ///
-/// Who may not read the wiki is told what `require_board_permission` tells; a block
+/// Who may not read the wiki is told what `require_container_permission` tells; a block
 /// that is no page of this wiki is no page, whatever else it is.
 pub(super) async fn page_with_permission(
-    ws: &Ws,
+    ws: &InWorkspace,
     wiki_id: &str,
     page_id: &str,
-    permission: BoardPermission,
+    permission: ContainerPermission,
     denial: &str,
 ) -> Result<Block, AppError> {
-    require_board_permission(&ws.app, &ws.session.user_id, wiki_id, permission, denial).await?;
+    require_container_permission(&ws.app, &ws.session.user_id, wiki_id, permission, denial).await?;
     ws.app.page_of(wiki_id, page_id).await
 }
 
@@ -162,14 +162,14 @@ pub(super) async fn page_with_permission(
     responses((status = 200, description = "The pages.", body = Vec<PageNode>)),
 )]
 async fn handle_get_page_tree(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id)): Path<(String, String)>,
 ) -> ApiResult {
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         &ws.session.user_id,
         &wiki_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         "access denied to fetch pages",
     )
     .await?;
@@ -204,16 +204,16 @@ async fn handle_get_page_tree(
     responses((status = 201, description = "The page that was made.", body = Page)),
 )]
 async fn handle_create_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
         &wiki_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to create page",
     )
     .await?;
@@ -236,14 +236,14 @@ async fn handle_create_page(
     responses((status = 200, description = "The page.", body = Page)),
 )]
 async fn handle_get_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let block = page_with_permission(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         READ_DENIED,
     )
     .await?;
@@ -267,7 +267,7 @@ async fn handle_get_page(
     responses((status = 200, description = "The page as it is now.", body = Page)),
 )]
 async fn handle_patch_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -276,7 +276,7 @@ async fn handle_patch_page(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to patch page",
     )
     .await?;
@@ -323,7 +323,7 @@ async fn handle_patch_page(
     responses((status = 200, description = "The page where it is now.", body = Page)),
 )]
 async fn handle_move_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -332,7 +332,7 @@ async fn handle_move_page(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to move page",
     )
     .await?;
@@ -367,7 +367,7 @@ async fn handle_move_page(
     responses((status = 201, description = "The copy of the page.", body = Page)),
 )]
 async fn handle_duplicate_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -376,7 +376,7 @@ async fn handle_duplicate_page(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to duplicate page",
     )
     .await?;
@@ -405,7 +405,7 @@ async fn handle_duplicate_page(
     responses((status = 204, description = "The page is deleted.")),
 )]
 async fn handle_delete_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -413,7 +413,7 @@ async fn handle_delete_page(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to delete page",
     )
     .await?;
@@ -442,15 +442,15 @@ async fn handle_delete_page(
     responses((status = 200, description = "The deleted pages of the wiki.", body = Vec<DeletedPage>)),
 )]
 async fn handle_get_deleted_pages(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         &ws.session.user_id,
         &wiki_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to the trash of the wiki",
     )
     .await?;
@@ -482,15 +482,15 @@ async fn handle_get_deleted_pages(
     responses((status = 200, description = "The page as it is again.", body = Page)),
 )]
 async fn handle_undelete_page(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
         &wiki_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to undelete page",
     )
     .await?;

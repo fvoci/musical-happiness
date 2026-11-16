@@ -11,7 +11,7 @@ pub(crate) async fn visit(socket: &mut Socket, board: &str, card: &str) {
     socket
         .send(
             json!({"action":"SET_PRESENCE", "workspaceId":TEST_WORKSPACE_ID,
-        "boardId":board, "cardId":card}),
+        "containerId":board, "cardId":card}),
         )
         .await;
 }
@@ -96,7 +96,7 @@ async fn token_visits_count_anonymously_and_receive_nothing() {
     let sharing: Sharing = th
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", t.board_id),
+            &format!("{TEST_WS}/containers/{}/sharing", t.board_id),
             &json!({"enabled":true}),
         )
         .await
@@ -107,7 +107,7 @@ async fn token_visits_count_anonymously_and_receive_nothing() {
     // Even the owner's signed-in socket is anonymous when it explicitly uses a link.
     let mut reader = Socket::connect_as(&th.client).await;
     reader
-        .send(json!({"action":"SET_PRESENCE", "boardId":t.board_id,
+        .send(json!({"action":"SET_PRESENCE", "containerId":t.board_id,
         "readToken":sharing.token}))
         .await;
     let roster = people(&mut member, 1).await;
@@ -153,7 +153,10 @@ async fn no_membership_no_presence_and_revoked_membership_expires() {
     let _ = people(&mut one, 2).await;
     let _ = people(&mut two, 2).await;
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}/members/{other}", t.board_id))
+        .delete(&format!(
+            "{TEST_WS}/containers/{}/members/{other}",
+            t.board_id
+        ))
         .await
         .check_no_content();
     let _ = people(&mut one, 1).await;
@@ -185,7 +188,7 @@ async fn leaving_and_reentering_within_one_batch_gets_a_new_roster() {
 async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
     use crate::common::{PASSWORD, ROOT_WORKSPACE_ID, ROOT_WS};
     use crate::rooms::give_in;
-    use fvoci_model::{Board, BoardType};
+    use fvoci_model::{Container, ContainerType};
 
     let th = Setup::native().start().await.init_basic().await;
     let third = th
@@ -193,9 +196,9 @@ async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
         .await;
     let third_id = third.me().await.id;
     let guest_id = th.client2.me().await.id;
-    let mut template = crate::boards::new_board(ROOT_WORKSPACE_ID, BoardType::Open, "Template");
+    let mut template = crate::boards::new_board(ROOT_WORKSPACE_ID, ContainerType::Open, "Template");
     template.is_template = true;
-    let template: Board = th.client.create_board(&template).await.created_json();
+    let template: Container = th.client.create_board(&template).await.created_json();
     give_in(&th, ROOT_WORKSPACE_ID, &template.id, &guest_id, "viewer").await;
     th.client
         .put(
@@ -207,12 +210,12 @@ async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
     let mut owner = Socket::connect_as(&th.client).await;
     let mut guest = Socket::connect_as(&th.client2).await;
     for socket in [&mut owner, &mut guest] {
-        socket.send(json!({"action":"SET_PRESENCE", "workspaceId":ROOT_WORKSPACE_ID, "boardId":template.id})).await;
+        socket.send(json!({"action":"SET_PRESENCE", "workspaceId":ROOT_WORKSPACE_ID, "containerId":template.id})).await;
     }
     let _ = people(&mut guest, 2).await;
     let _ = people(&mut owner, 2).await;
     let mut reader = Socket::connect_as(&third).await;
-    reader.send(json!({"action":"SET_PRESENCE", "workspaceId":ROOT_WORKSPACE_ID, "boardId":template.id})).await;
+    reader.send(json!({"action":"SET_PRESENCE", "workspaceId":ROOT_WORKSPACE_ID, "containerId":template.id})).await;
     let roster = people(&mut guest, 2).await;
     assert_eq!(
         roster["hiddenCount"], 1,
@@ -227,11 +230,13 @@ async fn a_guest_sees_an_unshared_template_reader_only_as_a_count() {
         0,
         "a workspace member sees the reader"
     );
-    let private = th.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+    let private = th
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let mut uninvited = Socket::connect_as(&th.client2).await;
     uninvited
         .send(
-            json!({"action":"SET_PRESENCE", "workspaceId":ROOT_WORKSPACE_ID, "boardId":private.id}),
+            json!({"action":"SET_PRESENCE", "workspaceId":ROOT_WORKSPACE_ID, "containerId":private.id}),
         )
         .await;
     assert!(
@@ -270,7 +275,7 @@ async fn visits_never_cross_a_workspace_or_organization_wall() {
         (TEST_WORKSPACE_ID, foreign.as_str()),
     ] {
         socket
-            .send(json!({"action":"SET_PRESENCE", "workspaceId":workspace, "boardId":board}))
+            .send(json!({"action":"SET_PRESENCE", "workspaceId":workspace, "containerId":board}))
             .await;
         assert!(
             socket.next_json(QUIET).await.is_none(),
@@ -300,7 +305,10 @@ async fn a_member_put_out_of_the_board_leaves_the_roster_before_the_periodic_che
     let _ = people(&mut two, 2).await;
     let removed_at = tokio::time::Instant::now();
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}/members/{other}", t.board_id))
+        .delete(&format!(
+            "{TEST_WS}/containers/{}/members/{other}",
+            t.board_id
+        ))
         .await
         .check_no_content();
     let roster = people(&mut one, 1).await;
@@ -369,7 +377,7 @@ async fn a_refused_visit_ends_the_one_before_and_a_deleted_card_leaves_the_board
     );
     // A board the reader may not read: the visit asked before ends as well.
     let private = th
-        .create_board(TEST_WORKSPACE_ID, fvoci_model::BoardType::Private)
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerType::Private)
         .await;
     visit(&mut two, &private.id, "").await;
     let alone = people(&mut one, 1).await;

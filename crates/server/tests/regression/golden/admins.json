@@ -219,7 +219,7 @@
       "errors": [
         {
           "detail": "an invitation for members names no board",
-          "pointer": "/boardId",
+          "pointer": "/containerId",
           "reason": "invalid"
         }
       ],

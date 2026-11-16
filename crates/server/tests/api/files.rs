@@ -5,7 +5,7 @@
 //! `server/app/files_test.go`. The headers and range handling are checked against the
 //! oracle.
 
-use fvoci_model::{Block, BlockType, Board, BoardType, JsonMap, new_id};
+use fvoci_model::{Block, BlockType, Container, ContainerType, JsonMap, new_id};
 use reqwest::Method;
 use reqwest::StatusCode;
 use reqwest::multipart::{Form, Part};
@@ -40,7 +40,7 @@ pub(crate) async fn upload_in(
     let request = client
         .request(
             Method::POST,
-            &format!("/w/{workspace_id}/boards/{board_id}/files"),
+            &format!("/w/{workspace_id}/containers/{board_id}/files"),
         )
         .multipart(form);
     Client::send(request).await
@@ -56,8 +56,10 @@ pub(crate) fn uploaded_id(response: &crate::common::ApiResponse) -> String {
 
 /// Makes an open board owned by the first client with one attachment block that refers
 /// to an uploaded file, and returns the board and the file identifier.
-async fn board_with_attachment(ts: &TestServer) -> (Board, String) {
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+async fn board_with_attachment(ts: &TestServer) -> (Container, String) {
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let file_id =
         uploaded_id(&upload(&ts.client, &board.id, "pic.png", b"hello world, a file\n").await);
     let card_id = new_id();
@@ -66,7 +68,7 @@ async fn board_with_attachment(ts: &TestServer) -> (Board, String) {
     let blocks = vec![Block {
         id: card_id.clone(),
         parent_id: board.id.clone(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Card,
         create_at: 1,
         update_at: 1,
@@ -82,7 +84,7 @@ async fn board_with_attachment(ts: &TestServer) -> (Board, String) {
     let file_block = [Block {
         id: new_id(),
         parent_id: card_id,
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         fields: image_fields,
         create_at: 1,
         update_at: 1,
@@ -121,7 +123,9 @@ async fn upload_file_to_a_board_that_does_not_exist_is_not_found() {
 #[tokio::test]
 async fn upload_file_with_permissions() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = upload(&ts.client, &board.id, "test.txt", b"test").await;
     response.check_created();
     assert!(!uploaded_id(&response).is_empty(), "the file has an id");
@@ -137,7 +141,9 @@ async fn upload_file_reaching_the_max_file_size() {
         .await
         .init_basic()
         .await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = upload(&ts.client, &board.id, "test.txt", b"test").await;
     response.check_request_entity_too_large();
     // Sending it in parts would not help: the file is over the limit of any upload.
@@ -154,11 +160,15 @@ async fn workspace_upload_file_no_permission() {
     let response = upload(&ts.client, &board_id, "x.bin", &[0_u8; 64]).await;
     response.check_error(StatusCode::NOT_FOUND, "board not found");
 
-    let private = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let private = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let response = upload(&ts.client2, &private.id, "x.bin", &[0_u8; 64]).await;
     response.check_error(StatusCode::NOT_FOUND, "board not found");
 
-    let open = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let open = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = upload(&ts.client2, &open.id, "x.bin", &[0_u8; 64]).await;
     response.check_forbidden();
     ts.teardown().await;
@@ -168,7 +178,9 @@ async fn workspace_upload_file_no_permission() {
 #[tokio::test]
 async fn workspace_upload_file_a_board_admin_can_upload() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = upload(&ts.client, &board.id, "x.bin", &[1_u8; 64]).await;
     response.check_created();
     assert!(!uploaded_id(&response).is_empty(), "the file has an id");
@@ -179,7 +191,9 @@ async fn workspace_upload_file_a_board_admin_can_upload() {
 #[tokio::test]
 async fn workspace_upload_file_a_non_member_is_forbidden() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = upload(&ts.client2, &board.id, "x.bin", &[1_u8; 64]).await;
     response.check_forbidden();
     ts.teardown().await;
@@ -190,7 +204,9 @@ async fn workspace_upload_file_a_non_member_is_forbidden() {
 #[tokio::test]
 async fn upload_maps_jpeg_to_jpg() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "photo.JPEG", b"x").await);
     assert_eq!(
         file_id.rsplit_once('.').map(|(_, extension)| extension),
@@ -205,7 +221,9 @@ async fn upload_maps_jpeg_to_jpg() {
 #[tokio::test]
 async fn upload_answers_a_generated_name() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "picture.png", b"x").await);
     let (stem, extension) = file_id.split_once('.').expect("name has an extension");
     assert_eq!(
@@ -223,7 +241,9 @@ async fn upload_answers_a_generated_name() {
 #[tokio::test]
 async fn upload_name_with_path_separators_is_reduced_to_its_base() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = upload(&ts.client, &board.id, "../../evil.sh", b"x").await;
     response.check_created();
     let file_id = uploaded_id(&response);
@@ -243,11 +263,13 @@ async fn upload_name_with_path_separators_is_reduced_to_its_base() {
 #[tokio::test]
 async fn file_info_of_an_unknown_file_is_not_found() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = ts
         .client
         .get(&format!(
-            "{TEST_WS}/boards/{}/files/{}/info",
+            "{TEST_WS}/containers/{}/files/{}/info",
             board.id, "7unknownunknownunknownunk12.png"
         ))
         .await;
@@ -264,7 +286,7 @@ async fn file_info_has_the_members_of_the_record() {
     let response = ts
         .client
         .get(&format!(
-            "{TEST_WS}/boards/{}/files/{file_id}/info",
+            "{TEST_WS}/containers/{}/files/{file_id}/info",
             board.id
         ))
         .await;
@@ -303,7 +325,10 @@ async fn download_has_the_originals_headers() {
     let (board, file_id) = board_with_attachment(&ts).await;
     let response = ts
         .client
-        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{file_id}",
+            board.id
+        ))
         .await;
     response.check_ok();
     assert_eq!(response.body, b"hello world, a file\n", "the content");
@@ -353,7 +378,7 @@ async fn download_with_a_range_is_partial_content() {
         .client
         .request(
             Method::GET,
-            &format!("{TEST_WS}/boards/{}/files/{file_id}", board.id),
+            &format!("{TEST_WS}/containers/{}/files/{file_id}", board.id),
         )
         .header("Range", "bytes=0-7");
     let response = Client::send(request).await;
@@ -378,7 +403,7 @@ async fn download_with_a_range_past_the_end_is_416() {
         .client
         .request(
             Method::GET,
-            &format!("{TEST_WS}/boards/{}/files/{file_id}", board.id),
+            &format!("{TEST_WS}/containers/{}/files/{file_id}", board.id),
         )
         .header("Range", "bytes=1000-2000");
     let response = Client::send(request).await;
@@ -401,7 +426,7 @@ async fn download_with_a_range_past_the_end_is_416() {
         .client
         .request(
             Method::GET,
-            &format!("{TEST_WS}/boards/{}/files/{file_id}", board.id),
+            &format!("{TEST_WS}/containers/{}/files/{file_id}", board.id),
         )
         .header("Range", "lines=1-2");
     let response = Client::send(request).await;
@@ -413,7 +438,7 @@ async fn download_with_a_range_past_the_end_is_416() {
         .client
         .request(
             Method::GET,
-            &format!("{TEST_WS}/boards/{}/files/{file_id}", board.id),
+            &format!("{TEST_WS}/containers/{}/files/{file_id}", board.id),
         )
         .header("If-Unmodified-Since", "Sat, 01 Jan 2000 00:00:00 GMT");
     let response = Client::send(request).await;
@@ -432,7 +457,7 @@ async fn download_if_modified_since_in_the_future_is_304() {
         .client
         .request(
             Method::GET,
-            &format!("{TEST_WS}/boards/{}/files/{file_id}", board.id),
+            &format!("{TEST_WS}/containers/{}/files/{file_id}", board.id),
         )
         .header("If-Modified-Since", "Wed, 10 Nov 2060 05:00:00 GMT");
     let response = Client::send(request).await;
@@ -444,11 +469,13 @@ async fn download_if_modified_since_in_the_future_is_304() {
 #[tokio::test]
 async fn download_of_an_unknown_file_is_not_found() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let response = ts
         .client
         .get(&format!(
-            "{TEST_WS}/boards/{}/files/{}",
+            "{TEST_WS}/containers/{}/files/{}",
             board.id, "7unknownunknownunknownunk12.png"
         ))
         .await;
@@ -465,7 +492,10 @@ async fn download_without_a_session_is_refused() {
     let (board, file_id) = board_with_attachment(&ts).await;
     let response = ts
         .anonymous()
-        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{file_id}",
+            board.id
+        ))
         .await;
     response.check_unauthorized();
     ts.teardown().await;
@@ -478,7 +508,10 @@ async fn download_by_a_non_member_is_forbidden() {
     let (board, file_id) = board_with_attachment(&ts).await;
     let response = ts
         .client2
-        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{file_id}",
+            board.id
+        ))
         .await;
     response.check_forbidden();
     ts.teardown().await;
@@ -492,7 +525,7 @@ async fn download_with_a_valid_read_token() {
     let shared = ts
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", board.id),
             &json!({"enabled": true}),
         )
         .await;
@@ -539,16 +572,16 @@ async fn duplicating_a_board_copies_its_files() {
         let duplicate = ts
             .client
             .post(
-                &format!("{TEST_WS}/boards/{}/duplicate{query}", board.id),
+                &format!("{TEST_WS}/containers/{}/duplicate{query}", board.id),
                 &json!({}),
             )
             .await;
         let value = duplicate.created_json::<Value>();
-        let new_board_id = value["boards"][0]["id"].as_str().expect("a new board");
-        let at = format!("/w/{workspace}/boards/{new_board_id}");
+        let new_board_id = value["containers"][0]["id"].as_str().expect("a new board");
+        let at = format!("/w/{workspace}/containers/{new_board_id}");
         let blocks = ts
             .client
-            .get(&format!("{at}/blocks"))
+            .get(&format!("/w/{workspace}/boards/{new_board_id}/blocks"))
             .await
             .ok_json::<Vec<Block>>();
         let image = blocks
@@ -631,7 +664,7 @@ async fn duplicate_a_card_whose_attachment_names_its_file_as(ts: &TestServer, ke
     let download = ts
         .client
         .get(&format!(
-            "{TEST_WS}/boards/{}/files/{new_file_id}",
+            "{TEST_WS}/containers/{}/files/{new_file_id}",
             board.id
         ))
         .await;
@@ -646,23 +679,25 @@ async fn duplicate_a_card_whose_attachment_names_its_file_as(ts: &TestServer, ke
 /// the second user who knows that file's name and has put it into an attachment block of
 /// their own board.
 struct ForeignFile {
-    owner_board: Board,
+    owner_board: Container,
     file_id: String,
-    intruder_board: Board,
+    intruder_board: Container,
 }
 
 const SECRET: &[u8] = b"the first user's file\n";
 
 async fn foreign_file(ts: &TestServer) -> ForeignFile {
-    let owner_board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let owner_board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let file_id = uploaded_id(&upload(&ts.client, &owner_board.id, "secret.png", SECRET).await);
 
-    let board = Board {
+    let board = Container {
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
-        board_type: BoardType::Private,
-        ..Board::default()
+        container_type: ContainerType::Private,
+        ..Container::default()
     };
-    let intruder_board: Board = ts.client2.create_board(&board).await.created_json();
+    let intruder_board: Container = ts.client2.create_board(&board).await.created_json();
     let card_id = new_id();
     let named = |key: &str| {
         let mut fields = JsonMap::new();
@@ -672,7 +707,7 @@ async fn foreign_file(ts: &TestServer) -> ForeignFile {
     let block = |id: String, parent: &str, block_type: BlockType, fields: JsonMap| Block {
         id,
         parent_id: parent.to_owned(),
-        board_id: intruder_board.id.clone(),
+        container_id: intruder_board.id.clone(),
         block_type,
         fields,
         create_at: 1,
@@ -714,14 +749,14 @@ async fn a_file_is_not_given_out_through_another_board() {
     let ts = Setup::native().start().await.init_basic().await;
     let fixture = foreign_file(&ts).await;
     let through_own_board = format!(
-        "{TEST_WS}/boards/{}/files/{}",
+        "{TEST_WS}/containers/{}/files/{}",
         fixture.intruder_board.id, fixture.file_id
     );
 
     // Through another board the file is as missing as one that does not exist: the two
     // answers are the same, so nothing is learned about the files of other boards.
     let missing = format!(
-        "{TEST_WS}/boards/{}/files/7unknownunknownunknownunk12.png",
+        "{TEST_WS}/containers/{}/files/7unknownunknownunknownunk12.png",
         fixture.intruder_board.id
     );
     for route in [&through_own_board, &missing] {
@@ -746,7 +781,7 @@ async fn a_file_is_given_out_through_its_own_board() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let fixture = foreign_file(&ts).await;
     let path = format!(
-        "{TEST_WS}/boards/{}/files/{}",
+        "{TEST_WS}/containers/{}/files/{}",
         fixture.owner_board.id, fixture.file_id
     );
 
@@ -790,12 +825,12 @@ async fn a_file_of_another_board_is_neither_copied_nor_exported() {
     let duplicate = ts
         .client2
         .post(
-            &format!("{TEST_WS}/boards/{board_id}/duplicate"),
+            &format!("{TEST_WS}/containers/{board_id}/duplicate"),
             &json!({}),
         )
         .await
         .created_json::<Value>();
-    let copy_id = duplicate["boards"][0]["id"]
+    let copy_id = duplicate["containers"][0]["id"]
         .as_str()
         .expect("a copy")
         .to_owned();
@@ -817,7 +852,7 @@ async fn a_file_of_another_board_is_neither_copied_nor_exported() {
             }
             let response = ts
                 .client2
-                .get(&format!("{TEST_WS}/boards/{copy_id}/files/{name}"))
+                .get(&format!("{TEST_WS}/containers/{copy_id}/files/{name}"))
                 .await;
             assert_ne!(
                 response.body, SECRET,
@@ -828,7 +863,7 @@ async fn a_file_of_another_board_is_neither_copied_nor_exported() {
 
     let export = ts
         .client2
-        .get(&format!("{TEST_WS}/boards/{board_id}/archive/export"))
+        .get(&format!("{TEST_WS}/containers/{board_id}/archive/export"))
         .await;
     export.check_ok();
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(export.body.clone()))
@@ -850,9 +885,9 @@ async fn a_file_of_another_board_is_neither_copied_nor_exported() {
 /// user. The copy is stored in the template layout, `<workspace>/<board>/<name>`, with a
 /// record of its own.
 struct TemplateFile {
-    template: Board,
+    template: Container,
     file_id: String,
-    other_board: Board,
+    other_board: Container,
 }
 
 async fn template_file(ts: &TestServer) -> TemplateFile {
@@ -860,13 +895,13 @@ async fn template_file(ts: &TestServer) -> TemplateFile {
     let duplicated: Value = ts
         .client
         .post_empty(&format!(
-            "{TEST_WS}/boards/{}/duplicate?asTemplate=true",
+            "{TEST_WS}/containers/{}/duplicate?asTemplate=true",
             board.id
         ))
         .await
         .created_json();
-    let template: Board =
-        serde_json::from_value(duplicated["boards"][0].clone()).expect("the template board");
+    let template: Container =
+        serde_json::from_value(duplicated["containers"][0].clone()).expect("the template board");
     let blocks: Vec<Block> = ts
         .client
         .get(&format!(
@@ -880,12 +915,12 @@ async fn template_file(ts: &TestServer) -> TemplateFile {
         .expect("the attachment block of the template names its file")
         .to_owned();
     assert_ne!(file_id, "", "the file was copied for the template");
-    let other_board: Board = ts
+    let other_board: Container = ts
         .client2
-        .create_board(&Board {
+        .create_board(&Container {
             workspace_id: TEST_WORKSPACE_ID.to_owned(),
-            board_type: BoardType::Private,
-            ..Board::default()
+            container_type: ContainerType::Private,
+            ..Container::default()
         })
         .await
         .created_json();
@@ -904,7 +939,7 @@ async fn a_template_file_is_not_given_out_through_another_board() {
     let ts = Setup::native().start().await.init_basic().await;
     let fixture = template_file(&ts).await;
     let through_other = format!(
-        "{TEST_WS}/boards/{}/files/{}",
+        "{TEST_WS}/containers/{}/files/{}",
         fixture.other_board.id, fixture.file_id
     );
 
@@ -921,7 +956,7 @@ async fn a_template_file_is_given_out_through_its_template() {
     let ts = Setup::native().start().await.init_basic().await;
     let fixture = template_file(&ts).await;
     let through_template = format!(
-        "{TEST_WS}/boards/{}/files/{}",
+        "{TEST_WS}/containers/{}/files/{}",
         fixture.template.id, fixture.file_id
     );
 
@@ -946,8 +981,12 @@ async fn a_template_file_is_given_out_through_its_template() {
 #[tokio::test]
 async fn a_file_without_a_record_is_given_out_through_no_board() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
-    let other = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
+    let other = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
 
     let name = format!("{}.txt", fvoci_server::auth::secret::new_secret());
     let path = format!("boards/20230101/{}/{name}", board.id);
@@ -958,7 +997,7 @@ async fn a_file_without_a_record_is_given_out_through_no_board() {
         .expect("the file is stored");
 
     for board_id in [&board.id, &other.id] {
-        let route = format!("{TEST_WS}/boards/{board_id}/files/{name}");
+        let route = format!("{TEST_WS}/containers/{board_id}/files/{name}");
         let download = ts.client.get(&route).await;
         download.check_error(StatusCode::NOT_FOUND, "file not found");
         let info = ts.client.get(&format!("{route}/info")).await;
@@ -973,14 +1012,16 @@ async fn a_file_without_a_record_is_given_out_through_no_board() {
 #[tokio::test]
 async fn duplicating_a_board_with_an_empty_file_reference_works() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let card_id = new_id();
     let mut empty = JsonMap::new();
     empty.insert("fileId".to_owned(), Value::String(String::new()));
     let block = |id: String, parent: &str, block_type: BlockType, fields: JsonMap| Block {
         id,
         parent_id: parent.to_owned(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type,
         fields,
         create_at: 1,
@@ -1000,7 +1041,7 @@ async fn duplicating_a_board_with_an_empty_file_reference_works() {
     let duplicate = ts
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/duplicate", board.id),
+            &format!("{TEST_WS}/containers/{}/duplicate", board.id),
             &json!({}),
         )
         .await
@@ -1026,13 +1067,13 @@ async fn duplicating_a_board_with_an_empty_file_reference_works() {
 #[tokio::test]
 async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = Board {
+    let board = Container {
         workspace_id: TEST_WORKSPACE_ID.to_owned(),
-        board_type: BoardType::Private,
+        container_type: ContainerType::Private,
         is_template: true,
-        ..Board::default()
+        ..Container::default()
     };
-    let board: Board = ts.client.create_board(&board).await.created_json();
+    let board: Container = ts.client.create_board(&board).await.created_json();
     let name = "사진.png";
     let file_id = uploaded_id(&upload(&ts.client, &board.id, name, b"wide").await);
     assert_ne!(
@@ -1047,7 +1088,7 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
     );
     let name = file_id.as_str();
 
-    let path = format!("{TEST_WS}/boards/{}/files/{file_id}", board.id);
+    let path = format!("{TEST_WS}/containers/{}/files/{file_id}", board.id);
     let download = ts.client.get(&path).await;
     download.check_ok();
     assert_eq!(download.body, b"wide", "the file is served");
@@ -1065,7 +1106,7 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
     let block = |id: String, parent: &str, block_type: BlockType, fields: JsonMap| Block {
         id,
         parent_id: parent.to_owned(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type,
         fields,
         create_at: 1,
@@ -1081,18 +1122,18 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
         .await
         .check_created();
     ts.client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))
         .await
         .check_ok();
     let duplicate = ts
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/duplicate", board.id),
+            &format!("{TEST_WS}/containers/{}/duplicate", board.id),
             &json!({}),
         )
         .await
         .created_json::<Value>();
-    let copy_id = duplicate["boards"][0]["id"]
+    let copy_id = duplicate["containers"][0]["id"]
         .as_str()
         .expect("a copy")
         .to_owned();
@@ -1109,7 +1150,7 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
     assert!(!copy_name.is_empty(), "the copy names a file of its own");
     let copy = ts
         .client
-        .get(&format!("{TEST_WS}/boards/{copy_id}/files/{copy_name}"))
+        .get(&format!("{TEST_WS}/containers/{copy_id}/files/{copy_name}"))
         .await;
     copy.check_ok();
     assert_eq!(copy.body, b"wide", "with the same content");
@@ -1120,9 +1161,11 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
 #[tokio::test]
 async fn a_range_on_an_empty_file_is_ignored() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let file_id = uploaded_id(&upload(&ts.client, &board.id, "empty.txt", b"").await);
-    let path = format!("{TEST_WS}/boards/{}/files/{file_id}", board.id);
+    let path = format!("{TEST_WS}/containers/{}/files/{file_id}", board.id);
 
     for range in ["bytes=-5", "bytes=0-", "bytes=0-10", "bytes=3-"] {
         let request = ts.client.request(Method::GET, &path).header("Range", range);
@@ -1142,14 +1185,16 @@ async fn a_range_on_an_empty_file_is_ignored() {
 async fn blocks_posted_from_a_source_board_get_copies_of_their_files() {
     let ts = Setup::native().start().await.init_basic().await;
     let (source, file_id) = board_with_attachment(&ts).await;
-    let target = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let target = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
     let mut image_fields = JsonMap::new();
     image_fields.insert("fileId".to_owned(), Value::String(file_id.clone()));
     let card_id = new_id();
     let blocks = vec![
         Block {
             id: card_id.clone(),
-            board_id: target.id.clone(),
+            container_id: target.id.clone(),
             block_type: BlockType::Card,
             create_at: 1,
             update_at: 1,
@@ -1157,7 +1202,7 @@ async fn blocks_posted_from_a_source_board_get_copies_of_their_files() {
         },
         Block {
             id: new_id(),
-            board_id: target.id.clone(),
+            container_id: target.id.clone(),
             parent_id: card_id,
             block_type: BlockType::Attachment,
             fields: image_fields,
@@ -1201,7 +1246,7 @@ async fn blocks_posted_from_a_source_board_get_copies_of_their_files() {
     );
 
     let file_path =
-        |board: &Board, name: &str| format!("{TEST_WS}/boards/{}/files/{name}", board.id);
+        |board: &Container, name: &str| format!("{TEST_WS}/containers/{}/files/{name}", board.id);
     let copy = ts.client.get(&file_path(&target, &copy_id)).await;
     copy.check_ok();
     assert_eq!(

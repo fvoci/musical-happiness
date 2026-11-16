@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{BlockType, BoardKind};
+use crate::{BlockType, ContainerKind};
 
 /// The kind of thing a search finds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
@@ -95,7 +95,7 @@ pub struct SearchHit {
     /// The identifier of the board the card is on, or of the wiki the page is in.
     pub container_id: String,
     /// What its container is: a board, or a wiki.
-    pub container_kind: BoardKind,
+    pub container_kind: ContainerKind,
     /// Its title as it is now.
     pub title: String,
     /// A piece of its body around what matched, in stretches that follow one

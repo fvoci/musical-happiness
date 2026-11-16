@@ -3,7 +3,7 @@
 //! Ports `TestPrepareOnboardingTour` and `TestCreateWelcomeBoard`
 //! (`server/app/onboarding_test.go`).
 
-use fvoci_model::{Block, BlockType, Board, BoardType, new_id};
+use fvoci_model::{Block, BlockType, Container, ContainerType, new_id};
 use serde_json::{Value, json};
 
 use crate::common::ROOT_WS;
@@ -16,8 +16,8 @@ const WELCOME_TITLE: &str = "Welcome to fvoci!";
 /// Makes an open template in the global workspace, as any signed-in user can, that looks as
 /// much like the built-in welcome board as a client can make it: the same title and the
 /// marker property. It holds one card, titled `hijacked`. Returns the template.
-async fn impostor_template(client: &Client) -> Board {
-    let board: Board = client
+async fn impostor_template(client: &Client) -> Container {
+    let board: Container = client
         .post(
             &format!("{ROOT_WS}/boards"),
             &json!({
@@ -29,7 +29,7 @@ async fn impostor_template(client: &Client) -> Board {
         .created_json();
     let card = Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         parent_id: board.id.clone(),
         block_type: BlockType::Card,
         title: "hijacked".to_owned(),
@@ -55,9 +55,9 @@ async fn card_titles(ts: &TestServer, client: &Client, board_id: &str) -> Vec<St
 }
 
 /// The built-in template that carries the onboarding mark.
-async fn marked_template(client: &Client) -> Board {
-    let templates: Vec<Board> = client.get(&format!("{ROOT_WS}/templates")).await.ok_json();
-    let marked: Vec<Board> = templates
+async fn marked_template(client: &Client) -> Container {
+    let templates: Vec<Container> = client.get(&format!("{ROOT_WS}/templates")).await.ok_json();
+    let marked: Vec<Container> = templates
         .into_iter()
         .filter(|board| {
             board.is_builtin && board.properties.get("onboarding") == Some(&json!(true))
@@ -132,9 +132,9 @@ async fn onboarding_copies_the_built_in_board_whatever_users_made() {
     let mut copied = card_titles(&ts, &ts.client2, &board_id).await;
     copied.sort();
     assert_eq!(copied, expected, "the cards of the built-in board");
-    let copy: Board = ts
+    let copy: Container = ts
         .client2
-        .get(&format!("{ROOT_WS}/boards/{board_id}"))
+        .get(&format!("{ROOT_WS}/containers/{board_id}"))
         .await
         .ok_json();
     assert_eq!(
@@ -142,7 +142,11 @@ async fn onboarding_copies_the_built_in_board_whatever_users_made() {
         None,
         "the copy is a user's board and does not carry the mark"
     );
-    assert_eq!(copy.board_type, BoardType::Private, "and it is private");
+    assert_eq!(
+        copy.container_type,
+        ContainerType::Private,
+        "and it is private"
+    );
     ts.teardown().await;
 }
 
@@ -158,12 +162,12 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
         .await;
     let built_in = marked_template(&ts.client).await;
     assert_eq!(built_in.title, WELCOME_TITLE, "as the converter wrote it");
-    let rename = fvoci_model::BoardPatch {
+    let rename = fvoci_model::ContainerPatch {
         title: Some("Bienvenue".to_owned()),
-        ..fvoci_model::BoardPatch::default()
+        ..fvoci_model::ContainerPatch::default()
     };
     ts.system_store()
-        .patch_board(&built_in.id, &rename, "")
+        .patch_container(&built_in.id, &rename, "")
         .await
         .expect("the built-in board is renamed");
 
@@ -174,9 +178,9 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id").to_owned();
 
-    let copy: Board = ts
+    let copy: Container = ts
         .client
-        .get(&format!("{ROOT_WS}/boards/{board_id}"))
+        .get(&format!("{ROOT_WS}/containers/{board_id}"))
         .await
         .ok_json();
     assert_eq!(
@@ -209,12 +213,12 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
 
     let board = ts
         .client
-        .get(&format!("{ROOT_WS}/boards/{board_id}"))
+        .get(&format!("{ROOT_WS}/containers/{board_id}"))
         .await
-        .ok_json::<Board>();
+        .ok_json::<Container>();
     assert_eq!(
-        board.board_type,
-        BoardType::Private,
+        board.container_type,
+        ContainerType::Private,
         "the new board is private"
     );
     assert!(
@@ -318,9 +322,9 @@ async fn onboard_stores_the_templates_again_when_the_welcome_board_is_gone() {
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id");
-    let board: Board = ts
+    let board: Container = ts
         .client
-        .get(&format!("{ROOT_WS}/boards/{board_id}"))
+        .get(&format!("{ROOT_WS}/containers/{board_id}"))
         .await
         .ok_json();
     assert_eq!(board.title, WELCOME_TITLE, "the welcome board is copied");

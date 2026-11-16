@@ -2,7 +2,7 @@
 
 use std::io::{Cursor, Read as _};
 
-use fvoci_model::{Block, BlockType, BoardsAndBlocks};
+use fvoci_model::{Block, BlockType, ContainersAndBlocks};
 use serde_json::Value;
 
 use crate::collab::{body_of, card};
@@ -44,7 +44,7 @@ async fn copies_templates_and_archives_include_the_last_acknowledged_update() {
 }
 
 async fn snapshot(th: &TestServer, table: &Table, operation: &str) -> Option<Value> {
-    let base = format!("/w/{TEST_WORKSPACE_ID}/boards/{}", table.board_id);
+    let base = format!("/w/{TEST_WORKSPACE_ID}/containers/{}", table.board_id);
     let template = if operation.ends_with("template") {
         "?asTemplate=true"
     } else {
@@ -53,13 +53,13 @@ async fn snapshot(th: &TestServer, table: &Table, operation: &str) -> Option<Val
     let blocks: Vec<Block> = if operation.starts_with("card") {
         th.client
             .post_empty(&format!(
-                "{base}/blocks/{}/duplicate{template}",
-                table.card_id
+                "/w/{TEST_WORKSPACE_ID}/boards/{}/blocks/{}/duplicate{template}",
+                table.board_id, table.card_id
             ))
             .await
             .created_json()
     } else if operation.starts_with("board") {
-        let copy: BoardsAndBlocks = th
+        let copy: ContainersAndBlocks = th
             .client
             .post_empty(&format!("{base}/duplicate{template}"))
             .await
@@ -99,7 +99,7 @@ async fn a_copy_recovers_updates_whose_document_is_no_longer_open() {
         .get_block(&e.card_id)
         .await
         .expect("the card")
-        .board_id;
+        .container_id;
     let (editor, epoch) = crate::collab::joined(e.app.collab(), &e.app, &e.card_id, 102).await;
     e.app
         .collab()
@@ -141,7 +141,7 @@ async fn copying_a_card_or_template_includes_pending_bodies_of_child_cards() {
     let table = table(&th, &paragraphs(&["parent"])).await;
     let child = Block {
         id: fvoci_model::new_id(),
-        board_id: table.board_id.clone(),
+        container_id: table.board_id.clone(),
         parent_id: table.card_id.clone(),
         block_type: BlockType::Card,
         title: "Child".to_owned(),
@@ -208,7 +208,7 @@ async fn a_full_server_still_writes_a_closed_documents_log_before_a_copy_or_an_e
         .get_block(&e.card_id)
         .await
         .expect("the card")
-        .board_id;
+        .container_id;
     let card_in_board = |title: &str, body: Option<Value>| {
         let path = format!("/w/{TEST_WORKSPACE_ID}/boards/{board_id}/cards");
         let body = serde_json::json!({ "title": title, "body": body });

@@ -5,7 +5,7 @@ import { setup, text } from './support.ts';
 
 it('names a departed card author but not an unrelated departed person or a foreign board author', async () => {
   const { backend, world, other } = setup();
-  const board = [...world.boards.values()][0];
+  const board = [...world.containers.values()][0];
   assert(board);
   const card = world.blocksOf(board.id).find((block) => block.type === 'card');
   assert(card);
@@ -21,7 +21,7 @@ it('names a departed card author but not an unrelated departed person or a forei
   card.createdBy = other.userId;
   world.workspaceMembers.delete(other.userId);
   world.workspaceMembers.delete(unrelated.id);
-  world.boards.set('foreign', {
+  world.containers.set('foreign', {
     ...board,
     id: 'foreign',
     workspaceId: 'elsewhere',
@@ -48,7 +48,7 @@ it('names a departed card author but not an unrelated departed person or a forei
 
 it('names the writer of a kept comment revision, including its readable trash history', async () => {
   const { backend, world, other } = setup();
-  const board = [...world.boards.values()][0];
+  const board = [...world.containers.values()][0];
   assert(board);
   const card = world.blocksOf(board.id).find((block) => block.type === 'card');
   assert(card);
@@ -79,7 +79,7 @@ it('names the writer of a kept comment revision, including its readable trash hi
 
 it('names and lists nobody whose account was closed, though their card stays', async () => {
   const { backend, world, other } = setup();
-  const board = [...world.boards.values()][0];
+  const board = [...world.containers.values()][0];
   assert(board);
   const card = world.blocksOf(board.id).find((block) => block.type === 'card');
   assert(card);

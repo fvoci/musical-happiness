@@ -1,11 +1,12 @@
 //! Making a user a member of a board, and recording it where that is to be accounted for.
 
-use fvoci_model::{BoardMember, BoardRole, WorkspaceRole};
+use fvoci_model::{ContainerMember, ContainerRole, WorkspaceRole};
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
-use crate::boards::{
-    MemberChange, fetch_members, find_member, hold_board, lock_board, save_member, select_members,
+use crate::containers::{
+    MemberChange, fetch_members, find_member, hold_container, lock_container, save_member,
+    select_members,
 };
 use crate::db::{Id, Scope};
 use crate::error::StoreError;
@@ -21,9 +22,9 @@ pub struct Standing<'a> {
     /// Their role in the board's workspace; `None` if they were no member of it.
     pub workspace_role: Option<WorkspaceRole>,
     /// Their membership of the board; `None` if they were no member of it.
-    pub member: Option<&'a BoardMember>,
+    pub member: Option<&'a ContainerMember>,
     /// Their highest inherited board role when authorization was checked.
-    pub team_role: Option<BoardRole>,
+    pub team_role: Option<ContainerRole>,
 }
 
 impl Store {
@@ -38,11 +39,11 @@ impl Store {
     /// is not what they were.
     pub async fn add_member_asked(
         &self,
-        member: &BoardMember,
+        member: &ContainerMember,
         asked: Standing<'_>,
-    ) -> Result<Option<BoardMember>, StoreError> {
+    ) -> Result<Option<ContainerMember>, StoreError> {
         self.transaction(async |scope| {
-            standing_holds(scope, &member.board_id, asked).await?;
+            standing_holds(scope, &member.container_id, asked).await?;
             add_member(scope, member).await
         })
         .await
@@ -57,11 +58,11 @@ impl Store {
     /// asked is not what they were.
     pub async fn change_member_asked(
         &self,
-        member: &BoardMember,
+        member: &ContainerMember,
         asked: Standing<'_>,
     ) -> Result<MemberChange, StoreError> {
         self.transaction(async |scope| {
-            standing_holds(scope, &member.board_id, asked).await?;
+            standing_holds(scope, &member.container_id, asked).await?;
             change_member(scope, member).await
         })
         .await
@@ -74,19 +75,19 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_present_members_for_board(
+    pub async fn get_present_members_for_container(
         &self,
-        board_id: &str,
-    ) -> Result<Vec<BoardMember>, StoreError> {
+        container_id: &str,
+    ) -> Result<Vec<ContainerMember>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_members(scope);
             sql.push(
-                " JOIN boards AS b ON b.id = bm.board_id JOIN workspace_members AS wm \
+                " JOIN containers AS b ON b.id = bm.container_id JOIN workspace_members AS wm \
                  ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id \
                  JOIN workspaces AS w ON w.id = b.workspace_id \
                  JOIN organizations AS o ON o.id = w.org_id",
             )
-            .push_bind(" WHERE bm.board_id = ", Id(board_id))
+            .push_bind(" WHERE bm.container_id = ", Id(container_id))
             .push(" AND w.delete_at = 0 AND o.delete_at = 0")
             .push(&scope.same_organization(&[("bm", "b"), ("wm", "b"), ("w", "b")]))
             .push(" ORDER BY bm.user_id");
@@ -104,7 +105,10 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn change_member(&self, member: &BoardMember) -> Result<MemberChange, StoreError> {
+    pub async fn change_member(
+        &self,
+        member: &ContainerMember,
+    ) -> Result<MemberChange, StoreError> {
         self.transaction(async |scope| change_member(scope, member).await)
             .await
     }
@@ -118,7 +122,7 @@ impl Store {
     /// written; the membership is not changed then.
     pub async fn change_member_recorded(
         &self,
-        member: &BoardMember,
+        member: &ContainerMember,
         entry: &AuditEntry,
     ) -> Result<MemberChange, StoreError> {
         self.transaction(async |scope| {
@@ -144,8 +148,8 @@ impl Store {
     /// identifier names no board, as an identifier does that nothing has.
     pub async fn add_member(
         &self,
-        member: &BoardMember,
-    ) -> Result<Option<BoardMember>, StoreError> {
+        member: &ContainerMember,
+    ) -> Result<Option<ContainerMember>, StoreError> {
         self.transaction(async |scope| add_member(scope, member).await)
             .await
     }
@@ -160,9 +164,9 @@ impl Store {
     /// written; the membership is not made then.
     pub async fn add_member_recorded(
         &self,
-        member: &BoardMember,
+        member: &ContainerMember,
         entry: &AuditEntry,
-    ) -> Result<Option<BoardMember>, StoreError> {
+    ) -> Result<Option<ContainerMember>, StoreError> {
         self.transaction(async |scope| {
             manager_still(scope, entry).await?;
             let existing = add_member(scope, member).await?;
@@ -177,23 +181,23 @@ impl Store {
 
 async fn add_member(
     scope: &mut Scope<'_>,
-    member: &BoardMember,
-) -> Result<Option<BoardMember>, StoreError> {
+    member: &ContainerMember,
+) -> Result<Option<ContainerMember>, StoreError> {
     // Held so that "there was one already" is still true when it is answered:
     // without the lock a removal in between would make this say "new" of a
     // membership that does not exist.
-    hold_board(scope, &member.board_id).await?;
+    hold_container(scope, &member.container_id).await?;
     let mut sql = scope.sql(
-        "INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, \
+        "INSERT INTO container_members (container_id, user_id, scheme_admin, scheme_editor, \
          scheme_commenter, scheme_viewer) VALUES (",
     );
-    sql.bind(Id(&member.board_id))
+    sql.bind(Id(&member.container_id))
         .push_bind(", ", Id(&member.user_id))
         .push_bind(", ", member.scheme_admin)
         .push_bind(", ", member.scheme_editor)
         .push_bind(", ", member.scheme_commenter)
         .push_bind(", ", member.scheme_viewer)
-        .push(") ON CONFLICT (board_id, user_id) DO NOTHING");
+        .push(") ON CONFLICT (container_id, user_id) DO NOTHING");
     let added = scope
         .execute(sql)
         .await
@@ -201,22 +205,22 @@ async fn add_member(
     if added > 0 {
         return Ok(None);
     }
-    find_member(scope, &member.board_id, &member.user_id).await
+    find_member(scope, &member.container_id, &member.user_id).await
 }
 
 async fn change_member(
     scope: &mut Scope<'_>,
-    member: &BoardMember,
+    member: &ContainerMember,
 ) -> Result<MemberChange, StoreError> {
-    if !lock_board(scope, &member.board_id).await? {
+    if !lock_container(scope, &member.container_id).await? {
         return Ok(MemberChange::NotAMember);
     }
-    let Some(current) = find_member(scope, &member.board_id, &member.user_id).await? else {
+    let Some(current) = find_member(scope, &member.container_id, &member.user_id).await? else {
         return Ok(MemberChange::NotAMember);
     };
     if current.scheme_admin
         && !member.scheme_admin
-        && members::is_only_admin(scope, &member.board_id, &member.user_id).await?
+        && members::is_only_admin(scope, &member.container_id, &member.user_id).await?
     {
         return Ok(MemberChange::LastAdmin);
     }
@@ -248,18 +252,18 @@ async fn manager_still(scope: &mut Scope<'_>, entry: &AuditEntry) -> Result<(), 
 /// under way is waited for and seen.
 async fn standing_holds(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
     asked: Standing<'_>,
 ) -> Result<(), StoreError> {
     org_admin::hold_organization_row(scope).await?;
-    if !lock_board(scope, board_id).await? {
+    if !lock_container(scope, container_id).await? {
         return Err(StoreError::not_found("board"));
     }
     let mut sql = scope.sql(
-        "SELECT b.workspace_id FROM boards AS b JOIN workspaces AS w ON w.id = b.workspace_id \
+        "SELECT b.workspace_id FROM containers AS b JOIN workspaces AS w ON w.id = b.workspace_id \
          WHERE w.delete_at = 0 AND b.id = ",
     );
-    sql.bind(Id(board_id));
+    sql.bind(Id(container_id));
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Err(StoreError::not_found("board"));
     };
@@ -267,8 +271,8 @@ async fn standing_holds(
     let now_role = org_admin::membership(scope, &workspace_id, asked.user_id)
         .await?
         .map(|(role, _)| role);
-    let now_member = find_member(scope, board_id, asked.user_id).await?;
-    let flags = |member: &BoardMember| {
+    let now_member = find_member(scope, container_id, asked.user_id).await?;
+    let flags = |member: &ContainerMember| {
         [
             member.scheme_admin,
             member.scheme_editor,
@@ -276,7 +280,8 @@ async fn standing_holds(
             member.scheme_viewer,
         ]
     };
-    let team_role = crate::board_team_access::role_for(scope, board_id, asked.user_id).await?;
+    let team_role =
+        crate::container_team_access::role_for(scope, container_id, asked.user_id).await?;
     if now_role == asked.workspace_role
         && now_member.as_ref().map(flags) == asked.member.map(flags)
         && team_role == asked.team_role

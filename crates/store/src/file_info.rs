@@ -11,7 +11,7 @@ use crate::db::{Dialect, Id, Row, Scope};
 use crate::error::StoreError;
 
 pub(crate) const FILE_INFO_COLUMNS: &str =
-    "id, board_id, name, original_name, extension, size, path, create_at";
+    "id, container_id, name, original_name, extension, size, path, create_at";
 
 /// How many columns [`FILE_INFO_COLUMNS`] names: the index of a column read after them.
 pub(crate) const FILE_INFO_COLUMN_COUNT: usize = 8;
@@ -25,14 +25,14 @@ impl Store {
     /// another board is not found.
     pub async fn get_file_info(
         &self,
-        board_id: &str,
+        container_id: &str,
         stored_name: &str,
     ) -> Result<FileInfo, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(&format!(
-                "SELECT {FILE_INFO_COLUMNS} FROM file_info WHERE board_id = "
+                "SELECT {FILE_INFO_COLUMNS} FROM file_info WHERE container_id = "
             ));
-            sql.bind(Id(board_id))
+            sql.bind(Id(container_id))
                 .push_bind(" AND name = ", stored_name);
             let row = scope
                 .fetch_optional(sql)
@@ -87,7 +87,7 @@ impl Store {
                 .push_bind(" ORDER BY path LIMIT ", limit)
                 .push(&format!(
                     ") AS live UNION SELECT * FROM (SELECT {trashed_path} AS path FROM \
-                     deleted_boards AS d, {trashed_files} WHERE {trashed_path} > "
+                     deleted_containers AS d, {trashed_files} WHERE {trashed_path} > "
                 ))
                 .bind(after)
                 .push_bind(" ORDER BY 1 LIMIT ", limit)
@@ -141,7 +141,7 @@ pub(crate) async fn other_spellings(scope: &mut Scope<'_>) -> Result<Vec<String>
         "SELECT path FROM file_info WHERE {} \
          UNION SELECT path FROM uploads WHERE {} \
          UNION SELECT path FROM loose_objects WHERE {} \
-         UNION SELECT {trashed_path} FROM deleted_boards AS d, {trashed_files} WHERE {}",
+         UNION SELECT {trashed_path} FROM deleted_containers AS d, {trashed_files} WHERE {}",
         rough("path"),
         rough("path"),
         rough("path"),
@@ -167,7 +167,7 @@ pub(crate) async fn save_file_info(
         "INSERT INTO file_info ({FILE_INFO_COLUMNS}, unreferenced_at) VALUES ("
     ));
     sql.bind(Id(&file_info.id))
-        .push_bind(", ", Id(&file_info.board_id))
+        .push_bind(", ", Id(&file_info.container_id))
         .push_bind(", ", &file_info.stored_name)
         .push_bind(", ", &file_info.name)
         .push_bind(", ", &file_info.extension)
@@ -187,14 +187,14 @@ pub(crate) async fn save_file_info(
 /// transaction ends: the board's deletion takes them to the trash, and a collection of
 /// the files no block shows skips them meanwhile (PostgreSQL); or it took one before,
 /// and that one is not taken to the trash.
-pub(crate) async fn file_infos_of_board(
+pub(crate) async fn file_infos_of_container(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
 ) -> Result<Vec<FileInfo>, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT {FILE_INFO_COLUMNS} FROM file_info WHERE board_id = "
+        "SELECT {FILE_INFO_COLUMNS} FROM file_info WHERE container_id = "
     ));
-    sql.bind(Id(board_id)).push(" ORDER BY create_at, id");
+    sql.bind(Id(container_id)).push(" ORDER BY create_at, id");
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR UPDATE");
     }
@@ -209,7 +209,7 @@ pub(crate) async fn file_infos_of_board(
 pub(crate) fn file_info_from_row(row: &Row) -> Result<FileInfo, StoreError> {
     Ok(FileInfo {
         id: row.id(0)?,
-        board_id: row.id(1)?,
+        container_id: row.id(1)?,
         stored_name: row.text(2)?,
         name: row.text(3)?,
         extension: row.text(4)?,

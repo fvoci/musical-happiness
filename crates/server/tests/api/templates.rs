@@ -6,7 +6,7 @@
 
 use std::time::Instant;
 
-use fvoci_model::{Block, Board, BoardType};
+use fvoci_model::{Block, Container, ContainerType};
 use serde_json::{Value, json};
 
 use crate::common::ROOT_WS;
@@ -26,7 +26,7 @@ async fn get_templates_returns_the_built_in_templates() {
         .client
         .get(&format!("{ROOT_WS}/templates"))
         .await
-        .ok_json::<Vec<Board>>();
+        .ok_json::<Vec<Container>>();
 
     assert!(
         boards.len() >= 6,
@@ -40,7 +40,7 @@ async fn get_templates_returns_the_built_in_templates() {
     assert!(
         boards
             .iter()
-            .all(|board| board.board_type == BoardType::Open),
+            .all(|board| board.container_type == ContainerType::Open),
         "all are open"
     );
     assert!(
@@ -66,14 +66,14 @@ async fn get_templates_returns_the_built_in_templates() {
         .client
         .post(
             &format!(
-                "{ROOT_WS}/boards/{}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}",
+                "{ROOT_WS}/containers/{}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}",
                 first.id
             ),
             &json!({}),
         )
         .await
         .created_json::<Value>();
-    let copy = &duplicate["boards"][0];
+    let copy = &duplicate["containers"][0];
     assert_eq!(
         copy["isTemplate"],
         json!(false),
@@ -102,7 +102,7 @@ async fn get_templates_has_the_work_template_tracking_ids() {
         .client
         .get(&format!("{ROOT_WS}/templates"))
         .await
-        .ok_json::<Vec<Board>>();
+        .ok_json::<Vec<Container>>();
 
     let tracking_ids: Vec<String> = boards
         .iter()
@@ -202,14 +202,14 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
         .await
         .init_basic()
         .await;
-    let marked = |boards: &[Board]| {
+    let marked = |boards: &[Container]| {
         boards
             .iter()
             .filter(|board| board.properties.get("onboarding") == Some(&serde_json::json!(true)))
             .map(|board| board.id.clone())
             .collect::<Vec<_>>()
     };
-    let before: Vec<Board> = ts
+    let before: Vec<Container> = ts
         .client
         .get(&format!("{ROOT_WS}/templates"))
         .await
@@ -226,12 +226,12 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     );
 
     // As a database looked before the mark existed.
-    let unmark = fvoci_model::BoardPatch {
+    let unmark = fvoci_model::ContainerPatch {
         deleted_properties: vec!["onboarding".to_owned()],
-        ..fvoci_model::BoardPatch::default()
+        ..fvoci_model::ContainerPatch::default()
     };
     ts.system_store()
-        .patch_board(&marked_before[0], &unmark, "")
+        .patch_container(&marked_before[0], &unmark, "")
         .await
         .expect("the mark is removed");
 
@@ -239,7 +239,7 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
         ts.app.init_templates().await.expect("the import runs"),
         "templates without a marked one are imported again"
     );
-    let after: Vec<Board> = ts
+    let after: Vec<Container> = ts
         .client
         .get(&format!("{ROOT_WS}/templates"))
         .await
@@ -271,7 +271,7 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
         .client
         .get(&format!("{ROOT_WS}/templates"))
         .await
-        .ok_json::<Vec<Board>>();
+        .ok_json::<Vec<Container>>();
     let welcome = templates
         .iter()
         .find(|board| board.title.starts_with("Welcome"))
@@ -279,7 +279,7 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
 
     let response = ts
         .client
-        .post_empty(&format!("{ROOT_WS}/boards/{}/join", welcome.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/join", welcome.id))
         .await;
     response.check_error(
         reqwest::StatusCode::FORBIDDEN,
@@ -289,13 +289,13 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
     // Without a membership there is no way to write to it.
     ts.client
         .patch(
-            &format!("{ROOT_WS}/boards/{}", welcome.id),
+            &format!("{ROOT_WS}/containers/{}", welcome.id),
             &serde_json::json!({"title": "taken over"}),
         )
         .await
         .check_forbidden();
     ts.client
-        .delete(&format!("{ROOT_WS}/boards/{}", welcome.id))
+        .delete(&format!("{ROOT_WS}/containers/{}", welcome.id))
         .await
         .check_forbidden();
     let blocks = ts
@@ -315,13 +315,13 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
         .await
         .check_forbidden();
     ts.client
-        .post_empty(&format!("{ROOT_WS}/boards/{}/members", welcome.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/members", welcome.id))
         .await
         .check_forbidden();
 
     // Reading and copying it is what it is for.
     ts.client
-        .post_empty(&format!("{ROOT_WS}/boards/{}/duplicate", welcome.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/duplicate", welcome.id))
         .await
         .check_created();
     ts.teardown().await;
@@ -387,7 +387,7 @@ async fn the_built_in_templates_are_the_template_files() {
         .client
         .get(&format!("{ROOT_WS}/templates"))
         .await
-        .ok_json::<Vec<Board>>();
+        .ok_json::<Vec<Container>>();
     let files = template_files();
     let mut keys: Vec<&str> = boards
         .iter()
@@ -490,7 +490,7 @@ async fn templates_stored_again_remove_the_old_files() {
         .expect("the marked one");
     let file = fvoci_model::FileInfo {
         id: fvoci_model::new_id(),
-        board_id: old.id.clone(),
+        container_id: old.id.clone(),
         stored_name: "picture.png".to_owned(),
         name: "picture.png".to_owned(),
         size: 3,
@@ -508,12 +508,12 @@ async fn templates_stored_again_remove_the_old_files() {
         .await
         .expect("the file is recorded");
     // As a database looks whose templates are of an older version.
-    let unmark = fvoci_model::BoardPatch {
+    let unmark = fvoci_model::ContainerPatch {
         deleted_properties: vec!["onboarding".to_owned()],
-        ..fvoci_model::BoardPatch::default()
+        ..fvoci_model::ContainerPatch::default()
     };
     ts.system_store()
-        .patch_board(&old.id, &unmark, "")
+        .patch_container(&old.id, &unmark, "")
         .await
         .expect("the mark is removed");
 
@@ -565,7 +565,7 @@ async fn a_guest_uses_templates_in_the_workspace_where_they_are_a_member() {
         .await
         .check_not_found();
     let elsewhere = format!("/w/{TEST_WORKSPACE_ID}");
-    let templates: Vec<Board> = ts
+    let templates: Vec<Container> = ts
         .client2
         .get(&format!("{elsewhere}/templates"))
         .await
@@ -584,7 +584,10 @@ async fn a_guest_uses_templates_in_the_workspace_where_they_are_a_member() {
         .await
         .check_ok();
     ts.client2
-        .post(&format!("{elsewhere}/boards/{board}/duplicate"), &json!({}))
+        .post(
+            &format!("{elsewhere}/containers/{board}/duplicate"),
+            &json!({}),
+        )
         .await
         .check_created();
     ts.teardown().await;

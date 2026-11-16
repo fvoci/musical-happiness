@@ -3,7 +3,7 @@
 //! Every statement here names the organization itself: the handle's
 //! ([`Tenant::Org`](crate::Tenant::Org)).
 
-use fvoci_model::{BoardKind, BoardType, OrgRole, WorkspaceRole};
+use fvoci_model::{ContainerKind, ContainerType, OrgRole, WorkspaceRole};
 
 use crate::audit::AuditActor;
 use crate::db::{Dialect, Id, Scope, Sql, now_millis};
@@ -23,12 +23,12 @@ const IN_USE_MEMBERSHIPS: &str = " AND b.workspace_id IN (SELECT wm.workspace_id
 /// caller appends the other way to the board and closes the parenthesis. An open
 /// board is no secret to who works in its workspace, and to nobody else. With `kind`,
 /// only the open boards of that kind are.
-pub(crate) fn push_open_boards_at_work<'sql>(
+pub(crate) fn push_open_containers_at_work<'sql>(
     sql: &'sql mut Sql,
     user_id: &str,
-    kind: Option<BoardKind>,
+    kind: Option<ContainerKind>,
 ) -> &'sql mut Sql {
-    sql.push_bind(" AND ((b.type = ", BoardType::Open.as_str());
+    sql.push_bind(" AND ((b.type = ", ContainerType::Open.as_str());
     if let Some(kind) = kind {
         sql.push_bind(" AND b.kind = ", kind.as_str());
     }
@@ -186,18 +186,18 @@ pub(crate) async fn follow_instance_role(
 /// Whether no other member of the board than the user is an administrator.
 pub(crate) async fn is_only_admin(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
     user_id: &str,
 ) -> Result<bool, StoreError> {
-    Ok(!has_acting_admin(scope, board_id, Some(user_id)).await?)
+    Ok(!has_acting_admin(scope, container_id, Some(user_id)).await?)
 }
 
 /// Whether the board has no administrator who can act as one.
 pub(crate) async fn has_no_admin(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
 ) -> Result<bool, StoreError> {
-    Ok(!has_acting_admin(scope, board_id, None).await?)
+    Ok(!has_acting_admin(scope, container_id, None).await?)
 }
 
 /// Whether the user works in the workspace: a member of it who is no guest.
@@ -245,17 +245,17 @@ pub(crate) async fn hold_creator(
 /// it who can act as one.
 async fn has_acting_admin(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
     except: Option<&str>,
 ) -> Result<bool, StoreError> {
     // An admin counts who can act as one: a member of the board's workspace who is no
     // guest. A guest is no more than an editor, and who has left opens nothing.
     let mut sql = scope.sql(
-        "SELECT 1 FROM board_members AS bm JOIN boards AS b ON b.id = bm.board_id \
+        "SELECT 1 FROM container_members AS bm JOIN containers AS b ON b.id = bm.container_id \
          JOIN workspace_members AS wm \
-         ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id WHERE bm.board_id = ",
+         ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id WHERE bm.container_id = ",
     );
-    sql.bind(Id(board_id))
+    sql.bind(Id(container_id))
         .push_bind(" AND bm.scheme_admin = ", true)
         .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str());
     if let Some(user_id) = except {

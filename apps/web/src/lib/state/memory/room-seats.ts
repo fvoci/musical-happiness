@@ -33,7 +33,7 @@ export interface Seat {
 }
 
 export interface Room {
-  boardId: string;
+  containerId: string;
   cardId: string;
   doc: Y.Doc;
   epoch: number;

@@ -25,14 +25,14 @@ import type { UserNames } from '../logic/users.ts';
 import type {
   Block,
   BlockPatch,
-  Board,
-  BoardMember,
-  BoardPatch,
+  Container,
+  ContainerMember,
+  ContainerPatch,
   BoardView,
   Card,
 } from '../logic/wire.ts';
 
-import type { PresenceOfBoards } from './presence.ts';
+import type { PresenceOfContainers } from './presence.ts';
 import type { DocRooms } from './body-doc.ts';
 import type { WorkspaceRole } from './people-types.ts';
 import type { OfBodies } from './references.ts';
@@ -121,15 +121,15 @@ export interface Category {
   /** The reader's order of the categories; ties are the client's to break. */
   sortOrder: number;
   /** The boards in the reader's order. */
-  boardIds: string[];
+  containerIds: string[];
   /** Boards of this category the reader hid from the sidebar. */
-  hiddenBoardIds: string[];
+  hiddenContainerIds: string[];
   createAt: number;
   updateAt: number;
 }
 
 /** A role on a board: one of them, the highest a member has. */
-export type BoardRole = 'admin' | 'editor' | 'commenter' | 'viewer';
+export type ContainerRole = 'admin' | 'editor' | 'commenter' | 'viewer';
 
 /**
  * A board's public link: whether it is on, and the token a reader without
@@ -225,8 +225,8 @@ export interface BoardDraft {
   title: string;
   description?: string;
   icon?: string;
-  type?: Board['type'];
-  cardProperties?: Board['cardProperties'];
+  type?: Container['type'];
+  cardProperties?: Container['cardProperties'];
 }
 
 /** A write of a body: the document and the version it was based on. */
@@ -269,7 +269,13 @@ export interface UploadedFile {
 // ---------------------------------------------------------------- backend
 
 export interface Backend
-  extends DocRooms, TrashReads, PresenceOfBoards, OfBodies, WikisOfBackend, ContentSearchOfBackend {
+  extends
+    DocRooms,
+    TrashReads,
+    PresenceOfContainers,
+    OfBodies,
+    WikisOfBackend,
+    ContentSearchOfBackend {
   // The reader and the people around them.
   me(): Promise<User>;
   /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */
@@ -292,8 +298,8 @@ export interface Backend
   patchScreenState(updated: Record<string, string>, deleted?: string[]): Promise<void>;
 
   // Boards.
-  boards(workspaceId: string): Promise<Board[]>;
-  board(boardId: string): Promise<Board>;
+  boards(workspaceId: string): Promise<Container[]>;
+  container(containerId: string): Promise<Container>;
   /**
    * Makes a board and its first view together, all or none: a board without
    * a view has nothing to show. The reader becomes its admin, and a board
@@ -303,8 +309,8 @@ export interface Backend
     workspaceId: string,
     draft: BoardDraft,
     firstView: ViewDraft,
-  ): Promise<{ board: Board; view: BoardView }>;
-  patchBoard(boardId: string, patch: BoardPatch): Promise<Board>;
+  ): Promise<{ board: Container; view: BoardView }>;
+  patchContainer(containerId: string, patch: ContainerPatch): Promise<Container>;
   /**
    * Puts the board's card properties in an order: every property once, or
    * 400 and nothing changes. Who may change the properties may (editors).
@@ -315,39 +321,43 @@ export interface Backend
    * The templates the reader may make a board from: the workspace's they may
    * see, then the built-in ones every workspace is offered.
    */
-  templates(workspaceId: string): Promise<Board[]>;
+  templates(workspaceId: string): Promise<Container[]>;
   /**
    * Copies a board with its views and cards (not its comments) into the
    * workspace: a board from a template, or a template from a board. The reader is
    * the copy's admin, and it is private. The workspace is said because a built-in
    * template belongs to none of the reader's.
    */
-  duplicateBoard(boardId: string, asTemplate: boolean, workspaceId: string): Promise<Board>;
+  duplicateContainer(
+    containerId: string,
+    asTemplate: boolean,
+    workspaceId: string,
+  ): Promise<Container>;
   /** Copies the welcome board for the reader; answers its identifier. Each call makes another copy. */
   onboard(workspaceId: string): Promise<string>;
   /**
    * The boards the reader may find whose title has every word of `query` in
    * it, whatever the case: those of `boards`, hidden ones too. No templates.
    */
-  searchBoards(workspaceId: string, query: string): Promise<Board[]>;
+  searchBoards(workspaceId: string, query: string): Promise<Container[]>;
   /** Moves the board to the trash. */
-  deleteBoard(boardId: string): Promise<void>;
+  deleteContainer(containerId: string): Promise<void>;
   /** Takes the board back out of the trash, filed where each person had it (`TrashReads`). */
-  restoreBoard(boardId: string): Promise<Board>;
-  members(boardId: string): Promise<BoardMember[]>;
+  restoreContainer(containerId: string): Promise<Container>;
+  members(containerId: string): Promise<ContainerMember[]>;
   /**
    * Makes a person of the workspace a member of the board, with the role. For the
    * board's admins. Someone who is a member already keeps their role.
    */
-  addMember(boardId: string, userId: string, role: BoardRole): Promise<BoardMember>;
+  addMember(containerId: string, userId: string, role: ContainerRole): Promise<ContainerMember>;
   /** Gives a member another role. The board's last admin stays one (409, `last_admin`). */
-  setMemberRole(boardId: string, userId: string, role: BoardRole): Promise<BoardMember>;
+  setMemberRole(containerId: string, userId: string, role: ContainerRole): Promise<ContainerMember>;
   /** Takes a member off the board. Not its last admin (409, `last_admin`). */
-  removeMember(boardId: string, userId: string): Promise<void>;
+  removeMember(containerId: string, userId: string): Promise<void>;
   /** The board's public link. For the board's admins. */
-  sharing(boardId: string): Promise<Sharing>;
+  sharing(containerId: string): Promise<Sharing>;
   /** Turns the public link on or off, or makes it anew. */
-  setSharing(boardId: string, change: SharingChange): Promise<Sharing>;
+  setSharing(containerId: string, change: SharingChange): Promise<Sharing>;
   /** People of the workspace whose name has `query` in it, whatever the case; ten at most. */
   searchUsers(workspaceId: string, query: string): Promise<User[]>;
   /**
@@ -355,7 +365,7 @@ export interface Backend
    * board's minimum role. Until then such a board is readable but its views,
    * cards and members are refused (403).
    */
-  joinBoard(boardId: string): Promise<BoardMember>;
+  joinContainer(containerId: string): Promise<ContainerMember>;
 
   // The reader's sidebar.
   categories(workspaceId: string): Promise<Category[]>;
@@ -369,19 +379,19 @@ export interface Backend
   reorderCategories(workspaceId: string, categoryIds: string[]): Promise<void>;
   /**
    * Files a board under a category, at `index` in the category's own list
-   * (`Category.boardIds`, without the board).
+   * (`Category.containerIds`, without the board).
    */
-  moveBoardToCategory(
+  moveContainerToCategory(
     workspaceId: string,
-    boardId: string,
+    containerId: string,
     categoryId: string,
     index: number,
   ): Promise<void>;
   /** Hides a board of a category from the reader's sidebar, or shows it again. */
-  setBoardHidden(
+  setContainerHidden(
     workspaceId: string,
     categoryId: string,
-    boardId: string,
+    containerId: string,
     hidden: boolean,
   ): Promise<void>;
 
@@ -430,15 +440,15 @@ export interface Backend
    * session); the parts and the retrying of one are the implementation's
    * business.
    */
-  upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile>;
+  upload(containerId: string, file: File, options?: UploadOptions): Promise<UploadedFile>;
   /** The bytes of a file. */
-  fileBytes(boardId: string, fileId: string): Promise<Blob>;
+  fileBytes(containerId: string, fileId: string): Promise<Blob>;
   /** Where the bytes of a file can be fetched by an `<img>` or a link. */
-  fileUrl(boardId: string, fileId: string): string | undefined;
+  fileUrl(containerId: string, fileId: string): string | undefined;
 
   // Archives of boards.
   /** An archive of the board with its blocks, files and members. For its members. */
-  exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile>;
+  exportContainer(containerId: string, options?: DownloadOptions): Promise<DownloadedFile>;
   /** An archive of every board of the workspace the reader may see. */
   exportWorkspace(workspaceId: string, options?: DownloadOptions): Promise<DownloadedFile>;
   /**
@@ -451,8 +461,8 @@ export interface Backend
   importArchive(workspaceId: string, file: File, options?: UploadOptions): Promise<Imported>;
 
   // Changes as they happen.
-  /** Listens to the changes of one board. Returns the function that stops listening. */
-  watchBoard(boardId: string, listener: ChangeListener): () => void;
+  /** Listens to the changes of one board or wiki. Returns the function that stops listening. */
+  watchContainer(containerId: string, listener: ChangeListener): () => void;
   /**
    * Listens to the changes of the reader's own things: the boards they can
    * see and the sidebar of the workspace entered (`enter`), and their settings.

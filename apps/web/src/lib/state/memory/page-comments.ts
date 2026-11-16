@@ -14,7 +14,7 @@ import type { DocNode } from '../../editor/schema.ts';
 import type { BodyWrite, Comment, CommentVersion } from '../backend.ts';
 import type { Wikis } from '../wiki-types.ts';
 
-import { memberRole } from './board-access.ts';
+import { memberRole } from './container-access.ts';
 import { checkedBody } from './bodies.ts';
 import {
   earlierVersions,
@@ -55,7 +55,7 @@ const CHANGES_DENIED = 'access denied to change the comments of the page';
 /** The page, a page of the wiki and not in the trash: 404 otherwise. */
 function pageOn(on: OnPage): StoredBlock {
   const page = on.world.blocks.get(on.pageId);
-  if (page?.type !== 'page' || page.boardId !== on.wikiId) fail(404, 'no such page');
+  if (page?.type !== 'page' || page.containerId !== on.wikiId) fail(404, 'no such page');
   return page;
 }
 
@@ -69,9 +69,9 @@ function commentOn(on: OnPage, commentId: string): StoredBlock {
 }
 
 function tell(on: OnPage, comment: StoredBlock): void {
-  on.world.tellBoard(on.wikiId, {
+  on.world.tellContainer(on.wikiId, {
     kind: 'blocks',
-    boardId: on.wikiId,
+    containerId: on.wikiId,
     blocks: [commentOf(comment)],
   });
 }
@@ -92,7 +92,7 @@ export function createComment(on: OnPage, body: DocNode): Comment {
   const now = on.world.now();
   const comment: StoredBlock = {
     id: on.world.newId(),
-    boardId: on.wikiId,
+    containerId: on.wikiId,
     parentId: on.pageId,
     createdBy: on.userId,
     modifiedBy: on.userId,
@@ -138,13 +138,13 @@ export function deleteComment(on: OnPage, commentId: string): void {
   }
   on.world.blocks.delete(commentId);
   on.world.deletedBlocks.set(commentId, {
-    boardId: on.wikiId,
+    containerId: on.wikiId,
     blocks: [comment],
     ...deletion(on),
   });
-  on.world.tellBoard(on.wikiId, {
+  on.world.tellContainer(on.wikiId, {
     kind: 'blocksDeleted',
-    boardId: on.wikiId,
+    containerId: on.wikiId,
     blockIds: [commentId],
   });
 }
@@ -155,7 +155,8 @@ export function restoreComment(on: OnPage, commentId: string): Comment {
   pageOn(on);
   const deleted = on.world.deletedBlocks.get(commentId);
   const [comment] = deleted?.blocks ?? [];
-  if (deleted?.boardId !== on.wikiId || comment?.type !== 'comment') fail(404, 'no such comment');
+  if (deleted?.containerId !== on.wikiId || comment?.type !== 'comment')
+    fail(404, 'no such comment');
   if (comment.id !== commentId || comment.parentId !== on.pageId) fail(404, 'no such comment');
   if (!mayRemoveComments(role, on.userId, deleted)) {
     // In the server's words: its author is told who brings back what somebody else deleted.

@@ -98,10 +98,10 @@ pub struct WorkspaceName {
 pub enum AuditAction {
     /// An administrator of a workspace made themselves a member of a board whose
     /// content they could not read before. The target is the board.
-    SelfAddedToBoard,
+    SelfAddedToContainer,
     /// An administrator of a workspace who could not read a board made somebody else
     /// (the subject) a member of it. The target is the board.
-    AddedToBoard,
+    AddedToContainer,
     /// An administrator of the organization joined the workspace as its administrator.
     /// The target is the workspace.
     OrgAdminJoined,
@@ -179,8 +179,8 @@ pub enum AuditAction {
 impl AuditAction {
     /// Every action, in the order of the declaration.
     pub const ALL: [Self; 28] = [
-        Self::SelfAddedToBoard,
-        Self::AddedToBoard,
+        Self::SelfAddedToContainer,
+        Self::AddedToContainer,
         Self::OrgAdminJoined,
         Self::OrgAdminLeft,
         Self::OrgAdminRevoked,
@@ -213,8 +213,8 @@ impl AuditAction {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::SelfAddedToBoard => "self_added_to_board",
-            Self::AddedToBoard => "added_to_board",
+            Self::SelfAddedToContainer => "self_added_to_container",
+            Self::AddedToContainer => "added_to_container",
             Self::OrgAdminJoined => "org_admin_joined",
             Self::OrgAdminLeft => "org_admin_left",
             Self::OrgAdminRevoked => "org_admin_revoked",

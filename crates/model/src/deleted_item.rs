@@ -2,10 +2,10 @@
 
 use serde::Serialize;
 
-use crate::BoardKind;
+use crate::ContainerKind;
 
 /// A card or a board in the trash, with as much as it takes to decide whether to bring
-/// it back (`undeleteBlock`, `undeleteBoard`).
+/// it back (`undeleteBlock`, `undeleteContainer`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DeletedItem {
@@ -20,5 +20,5 @@ pub struct DeletedItem {
     /// For a board, its kind: the trash of boards lists boards and wikis together. Left
     /// out for a card.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<BoardKind>,
+    pub kind: Option<ContainerKind>,
 }

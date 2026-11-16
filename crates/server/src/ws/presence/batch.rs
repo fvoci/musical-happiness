@@ -247,7 +247,7 @@ impl Hub {
                 ..Reader::default()
             };
         }
-        let changed = listeners.visits.changed(&visit.board());
+        let changed = listeners.visits.changed(&visit.container());
         let due = state.recheck
             || reader.sight.is_none()
             || reader.next_check.is_none_or(|at| Instant::now() >= at);
@@ -326,7 +326,7 @@ async fn read_anew(app: &App, batch: &Batch, reader: &mut Reader) -> Result<Look
         .presence_access(
             asker,
             &visit.workspace_id,
-            &visit.board_id,
+            &visit.container_id,
             &visit.card_id,
             &visit.read_token,
         )

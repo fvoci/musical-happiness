@@ -24,7 +24,7 @@ impl App {
     pub async fn page_of(&self, wiki_id: &str, page_id: &str) -> Result<Block, AppError> {
         const WHAT: &str = "page";
         match self.block(page_id).await {
-            Ok(block) if block.board_id == wiki_id && block.block_type == BlockType::Page => {
+            Ok(block) if block.container_id == wiki_id && block.block_type == BlockType::Page => {
                 Ok(block)
             }
             Ok(_) => Err(AppError::not_found(WHAT)),
@@ -58,7 +58,7 @@ impl App {
         new: &NewPage,
         user_id: &str,
     ) -> Result<Page, AppError> {
-        let wiki = self.store().get_board(wiki_id).await?;
+        let wiki = self.store().get_container(wiki_id).await?;
         let limits = self.limits().pages;
         let written = {
             let _structure = self.collab().changing_structure(self).await;
@@ -90,7 +90,7 @@ impl App {
         to: &PageMove,
         user_id: &str,
     ) -> Result<Page, AppError> {
-        let wiki = self.store().get_board(wiki_id).await?;
+        let wiki = self.store().get_container(wiki_id).await?;
         let limits = self.limits().pages;
         let written = {
             let _structure = self.collab().changing_structure(self).await;
@@ -119,7 +119,7 @@ impl App {
         title: Option<&str>,
         user_id: &str,
     ) -> Result<Page, AppError> {
-        let wiki = self.store().get_board(wiki_id).await?;
+        let wiki = self.store().get_container(wiki_id).await?;
         let limits = self.limits().pages;
         let family: Vec<String> = self
             .store()
@@ -238,7 +238,7 @@ impl App {
         page_id: &str,
         user_id: &str,
     ) -> Result<Page, AppError> {
-        let wiki = self.store().get_board(wiki_id).await?;
+        let wiki = self.store().get_container(wiki_id).await?;
         let limits = self.limits().pages;
         let restored = {
             let _structure = self.collab().changing_structure(self).await;

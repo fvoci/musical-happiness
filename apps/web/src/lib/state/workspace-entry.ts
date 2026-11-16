@@ -2,7 +2,7 @@
  * Entering a workspace (`Workspace.enter`): which one to start in, and what
  * is read of it.
  */
-import { createBoardView, type Board } from '../logic/wire.ts';
+import { createBoardView, type Container } from '../logic/wire.ts';
 
 import {
   isBackendError,
@@ -49,7 +49,7 @@ export function firstChoiceOf(
  * The boards and the wikis of a workspace the reader can see, the two lists
  * of the sidebar together (a wiki is a board of the kind `wiki`).
  */
-export async function modulesOf(backend: Backend, workspaceId: string): Promise<Board[]> {
+export async function modulesOf(backend: Backend, workspaceId: string): Promise<Container[]> {
   const [boards, wikis] = await Promise.all([
     backend.boards(workspaceId),
     backend.wiki?.wikis(workspaceId) ?? [],
@@ -62,7 +62,7 @@ export async function templatesOf(workspace: {
   readonly backend: Backend;
   readonly info: WorkspaceInfo | undefined;
   report(action: 'load', error: unknown): void;
-}): Promise<Board[]> {
+}): Promise<Container[]> {
   if (!workspace.info) return [];
   try {
     return await workspace.backend.templates(workspace.info.id);
@@ -80,14 +80,14 @@ export async function templatesOf(workspace: {
 export async function readWorkspace(
   backend: Backend,
   workspaceId: string,
-): Promise<{ users: User[]; boards: Board[]; categories: Category[] } | undefined> {
+): Promise<{ users: User[]; containers: Container[]; categories: Category[] } | undefined> {
   try {
-    const [users, boards, categories] = await Promise.all([
+    const [users, containers, categories] = await Promise.all([
       backend.users(workspaceId),
       modulesOf(backend, workspaceId),
       backend.categories(workspaceId),
     ]);
-    return { users, boards, categories };
+    return { users, containers, categories };
   } catch (error) {
     if (isBackendError(error) && (error.status === 403 || error.status === 404)) return undefined;
     throw error;
@@ -104,7 +104,7 @@ export type Entered =
       info: WorkspaceInfo;
       closed: undefined;
       users: User[];
-      boards: Board[];
+      containers: Container[];
       categories: Category[];
     }
   | { status: 'missing'; info: undefined; closed: undefined }
@@ -164,7 +164,7 @@ export function closedBySso(
  * select property among `cardProperties`, showing all its options.
  */
 export function firstKanban(
-  cardProperties: Board['cardProperties'],
+  cardProperties: Container['cardProperties'],
   title: string,
 ): { title: string; fields: ReturnType<typeof createBoardView>['fields'] } {
   const groupBy = cardProperties.find((template) => template.type === 'select');

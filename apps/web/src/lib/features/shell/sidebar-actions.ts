@@ -17,7 +17,7 @@ import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
 import type { MenuAction } from '$lib/components/menu/actions.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
-import type { Board } from '$lib/logic/wire.ts';
+import type { Container } from '$lib/logic/wire.ts';
 import type { Category, Workspace } from '$lib/state/index.ts';
 
 import { exportAction } from './board-export.ts';
@@ -44,7 +44,7 @@ export interface SidebarMenus {
   onNewCategory: () => void;
   onRenameCategory: (category: Category) => void;
   onDeleteCategory: (category: Category) => void;
-  onDeleteBoard: (board: Board) => void;
+  onDeleteBoard: (board: Container) => void;
   onTemplateFromBoard: (boardId: string) => void;
   onDuplicateBoard: (boardId: string) => void;
 }
@@ -118,7 +118,7 @@ export function categoryActions(menus: SidebarMenus, category: Category): MenuAc
   return actions;
 }
 
-export function boardActions(menus: SidebarMenus, board: Board, home: Category): MenuAction[] {
+export function boardActions(menus: SidebarMenus, board: Container, home: Category): MenuAction[] {
   const { workspace } = menus;
   const wiki = board.kind === 'wiki';
   const moves = workspace.sidebar
@@ -129,7 +129,7 @@ export function boardActions(menus: SidebarMenus, board: Board, home: Category):
       icon: FolderInputIcon,
       run: () => {
         const move = moveToEnd(entry.category.id, board.id, workspace.sidebar);
-        if (move) void workspace.moveBoard(move.boardId, move.categoryId, move.index);
+        if (move) void workspace.moveContainer(move.boardId, move.categoryId, move.index);
       },
     }));
   const saving = [exportAction(workspace, board, moves.length > 0)];
@@ -161,7 +161,7 @@ export function boardActions(menus: SidebarMenus, board: Board, home: Category):
       id: 'hide',
       label: wiki ? m.shell_hide_wiki() : m['HideBoard.MenuOption'](),
       icon: EyeOffIcon,
-      run: () => void workspace.hideBoard(board.id),
+      run: () => void workspace.hideContainer(board.id),
     },
     {
       id: 'delete',

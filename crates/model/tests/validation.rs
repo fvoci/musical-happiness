@@ -3,24 +3,27 @@
 //! and `server/services/auth/email.go`.
 
 use fvoci_model::{
-    BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType, Board,
-    BoardError, BoardSearchField, CARD_FIELDS_MAX_CHARS, ChangePasswordRequest, RegisterRequest,
-    is_email_valid,
+    BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType,
+    CARD_FIELDS_MAX_CHARS, ChangePasswordRequest, Container, ContainerError, ContainerSearchField,
+    RegisterRequest, is_email_valid,
 };
 use serde_json::json;
 
 fn block() -> Block {
     Block {
-        board_id: "board-id".to_owned(),
+        container_id: "board-id".to_owned(),
         ..Block::default()
     }
 }
 
 #[test]
 fn block_validate_requires_a_board() {
-    assert_eq!(Block::default().validate(), Err(BlockError::EmptyBoardId));
+    assert_eq!(
+        Block::default().validate(),
+        Err(BlockError::EmptyContainerId)
+    );
     assert_eq!(block().validate(), Ok(()));
-    assert_eq!(BlockError::EmptyBoardId.to_string(), "boardID is empty");
+    assert_eq!(BlockError::EmptyContainerId.to_string(), "boardID is empty");
 }
 
 #[test]
@@ -134,28 +137,31 @@ fn a_patch_does_not_give_a_block_a_type_that_is_not_current() {
 }
 
 #[test]
-fn board_validate_requires_a_workspace() {
+fn container_validate_requires_a_workspace() {
     assert_eq!(
-        Board::default().validate(),
-        Err(BoardError::EmptyWorkspaceId)
+        Container::default().validate(),
+        Err(ContainerError::EmptyWorkspaceId)
     );
     assert_eq!(
-        BoardError::EmptyWorkspaceId.to_string(),
+        ContainerError::EmptyWorkspaceId.to_string(),
         "empty-workspace-id"
     );
-    let board = Board {
+    let board = Container {
         workspace_id: "0".to_owned(),
-        ..Board::default()
+        ..Container::default()
     };
     assert_eq!(board.validate(), Ok(()));
 }
 
 #[test]
-fn board_search_field_parses_the_two_wire_names() {
-    assert_eq!("title".parse(), Ok(BoardSearchField::Title));
-    assert_eq!("property_name".parse(), Ok(BoardSearchField::PropertyName));
+fn container_search_field_parses_the_two_wire_names() {
+    assert_eq!("title".parse(), Ok(ContainerSearchField::Title));
+    assert_eq!(
+        "property_name".parse(),
+        Ok(ContainerSearchField::PropertyName)
+    );
     for other in ["", "Title", "name"] {
-        let error = other.parse::<BoardSearchField>().expect_err(other);
+        let error = other.parse::<ContainerSearchField>().expect_err(other);
         assert_eq!(error.to_string(), "invalid board search field");
     }
 }
@@ -370,7 +376,7 @@ fn card_properties_are_reordered_only_by_a_whole_order() {
             .expect("an object")
             .clone()
     };
-    let ids = |board: &Board| -> Vec<String> {
+    let ids = |board: &Container| -> Vec<String> {
         board
             .card_properties
             .iter()
@@ -378,9 +384,9 @@ fn card_properties_are_reordered_only_by_a_whole_order() {
             .collect()
     };
     let order = |ids: &[&str]| -> Vec<String> { ids.iter().map(|&id| id.to_owned()).collect() };
-    let mut board = Board {
+    let mut board = Container {
         card_properties: vec![property("a"), property("b"), property("c")],
-        ..Board::default()
+        ..Container::default()
     };
 
     board
@@ -389,19 +395,19 @@ fn card_properties_are_reordered_only_by_a_whole_order() {
     assert_eq!(ids(&board), ["c", "a", "b"]);
     assert_eq!(
         board.reorder_card_properties(&order(&["a", "b"])),
-        Err(BoardError::PropertiesLeftOut { named: 2, total: 3 })
+        Err(ContainerError::PropertiesLeftOut { named: 2, total: 3 })
     );
     assert_eq!(
         board.reorder_card_properties(&order(&["a", "a", "b", "c"])),
-        Err(BoardError::PropertyNamedTwice { id: "a".to_owned() })
+        Err(ContainerError::PropertyNamedTwice { id: "a".to_owned() })
     );
     assert_eq!(
         board.reorder_card_properties(&order(&["a", "b", "c", "d"])),
-        Err(BoardError::PropertyUnknown { id: "d".to_owned() })
+        Err(ContainerError::PropertyUnknown { id: "d".to_owned() })
     );
     assert_eq!(ids(&board), ["c", "a", "b"], "nothing refused changed it");
 
-    let mut empty = Board::default();
+    let mut empty = Container::default();
     empty
         .reorder_card_properties(&[])
         .expect("no properties, no order");

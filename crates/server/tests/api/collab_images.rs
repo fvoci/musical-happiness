@@ -13,7 +13,7 @@ async fn old_file(e: &Editing, th: &TestServer) -> FileInfo {
     let board_id = card(&th.client, &e.card_id).await.board_id;
     let file = FileInfo {
         id: new_id(),
-        board_id: board_id.clone(),
+        container_id: board_id.clone(),
         stored_name: format!("7{}.png", new_id()),
         create_at: 1,
         path: format!("boards/{board_id}/image.png"),

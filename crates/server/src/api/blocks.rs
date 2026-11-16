@@ -3,7 +3,7 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, CommentVersion,
+    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, CommentVersion, Container,
     RelationProperties, UnmatchedRelation, renew_block_ids, stamp_modification_metadata,
 };
 
@@ -18,14 +18,14 @@ use super::contract::params::{
     SourceBoardId,
 };
 use super::contract::tag;
-use super::workspace::Ws;
+use super::workspace::InWorkspace;
 
 use super::{ApiResult, created, decode_json, json_response, no_content, query_param};
 use super::{
     BlockAction, require_block_patch_permission, require_block_permission,
     require_delete_permission, require_deletion_permission,
 };
-use super::{change_notification, duplicate_as, require_board_permission};
+use super::{change_notification, duplicate_as, require_container_permission};
 use super::{
     decode_object_with, element_pointer, objects_mut, put_patch_bodies, take_block_bodies,
     take_patch_bodies,
@@ -33,7 +33,7 @@ use super::{
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -66,9 +66,13 @@ const PATCHES: &str = "/blockPatches";
 
 /// Returns the block if it belongs to the board. A block of another board is as missing
 /// as one that does not exist: the path names the board the request is about.
-async fn block_on_board(app: &App, block_id: &str, board_id: &str) -> Result<Block, AppError> {
+async fn block_on_container(
+    app: &App,
+    block_id: &str,
+    container_id: &str,
+) -> Result<Block, AppError> {
     let block = app.block(block_id).await?;
-    if block.board_id == board_id {
+    if block.container_id == container_id {
         Ok(block)
     } else {
         Err(AppError::not_found("block"))
@@ -77,21 +81,21 @@ async fn block_on_board(app: &App, block_id: &str, board_id: &str) -> Result<Blo
 
 /// Checks that a signed-in user may read the blocks of a board: the members of the
 /// board, and for an open template everyone who works in its workspace besides.
-async fn require_read_access(ws: &Ws, board: &Board) -> Result<(), AppError> {
+async fn require_read_access(ws: &InWorkspace, container: &Container) -> Result<(), AppError> {
     let (app, user_id) = (&ws.app, ws.session.user_id.as_str());
-    require_board_permission(
+    require_container_permission(
         app,
         user_id,
-        &board.id,
-        BoardPermission::ViewBoard,
+        &container.id,
+        ContainerPermission::View,
         "access denied to board",
     )
     .await?;
     // A guest of the path's workspace reads a template only as a member of it: not an
     // open template of the workspace, nor one the server ships with.
-    if board.is_template
+    if container.is_template
         && ws.role == fvoci_model::WorkspaceRole::Guest
-        && !app.invited_to_board(user_id, &board.id).await?
+        && !app.invited_to_container(user_id, &container.id).await?
     {
         return Err(AppError::forbidden(
             "guest are not allowed to get board templates",
@@ -105,7 +109,10 @@ async fn require_read_access(ws: &Ws, board: &Board) -> Result<(), AppError> {
 /// Security fix: the original copies the files without looking at the source board
 /// (`server/api/blocks.go:297-303`), so a user could make the server copy files out of a
 /// board they cannot see. Whoever may read the board's blocks may copy from it.
-async fn require_source_board_access(ws: &Ws, source_board_id: &str) -> Result<(), AppError> {
+async fn require_source_board_access(
+    ws: &InWorkspace,
+    source_board_id: &str,
+) -> Result<(), AppError> {
     // The same answer for a board that is not there and one the user may not read. A
     // store that failed is neither: it is answered as what it is.
     let refused = |error: AppError| {
@@ -115,7 +122,7 @@ async fn require_source_board_access(ws: &Ws, source_board_id: &str) -> Result<(
             error
         }
     };
-    let board = ws.app.board(source_board_id).await.map_err(refused)?;
+    let board = ws.app.container(source_board_id).await.map_err(refused)?;
     require_read_access(ws, &board).await.map_err(refused)
 }
 
@@ -139,11 +146,11 @@ async fn require_source_board_access(ws: &Ws, source_board_id: &str) -> Result<(
     responses((status = 200, description = "The blocks.", body = Vec<Block>)),
 )]
 async fn handle_get_blocks(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
-    let board = ws.app.board(&board_id).await?;
+    let board = ws.app.container(&board_id).await?;
     require_read_access(&ws, &board).await?;
     let blocks = asked_blocks(&ws.app, &board_id, query.as_deref()).await?;
     tracing::debug!(board_id, block_count = blocks.len(), "GetBlocks");
@@ -154,19 +161,21 @@ async fn handle_get_blocks(
 /// them; for whoever may read the board.
 pub(super) async fn asked_blocks(
     app: &App,
-    board_id: &str,
+    container_id: &str,
     query: Option<&str>,
 ) -> Result<Vec<Block>, AppError> {
     if !query_param(query, "all").is_empty() {
-        app.blocks_for_board(board_id).await
+        app.blocks_for_container(container_id).await
     } else if let Some(block_id) = optional_query_param(query, "blockId") {
-        Ok(vec![block_on_board(app, &block_id, board_id).await?])
+        Ok(vec![
+            block_on_container(app, &block_id, container_id).await?,
+        ])
     } else {
         let parent_id = optional_query_param(query, "parentId");
         // The type is matched as it is written: one that no block has finds nothing. The
         // word `unknown` is the exception, and narrows nothing.
         let block_type = optional_query_param(query, "type").map(BlockType::from);
-        app.blocks(board_id, parent_id.as_deref(), block_type.as_ref())
+        app.blocks(container_id, parent_id.as_deref(), block_type.as_ref())
             .await
     }
 }
@@ -174,7 +183,7 @@ pub(super) async fn asked_blocks(
 /// Checks that the images of the blocks' bodies show files of the board, or of the board
 /// named by `sourceBoardId`, and copies the files the blocks show from that board.
 async fn check_and_copy_body_files(
-    ws: &Ws,
+    ws: &InWorkspace,
     board_id: &str,
     query: Option<&str>,
     blocks: &mut [Block],
@@ -192,11 +201,11 @@ async fn check_and_copy_body_files(
             .all(|block| block.block_type == BlockType::Comment)
         && blocks.iter().any(|block| !block.shown_files().is_empty())
     {
-        require_board_permission(
+        require_container_permission(
             app,
             user_id,
             board_id,
-            BoardPermission::ManageBoardCards,
+            ContainerPermission::ManageCards,
             CHANGES_DENIED,
         )
         .await?;
@@ -244,7 +253,7 @@ async fn check_and_copy_body_files(
     )),
 )]
 async fn handle_post_blocks(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
@@ -254,11 +263,11 @@ async fn handle_post_blocks(
     let notification = change_notification(query);
     // Which permission is needed depends on the blocks, so the body is read first; but
     // whoever may not even see the board learns nothing from what the body is like.
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
         &board_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         CHANGES_DENIED,
     )
     .await?;
@@ -314,30 +323,30 @@ async fn handle_post_blocks(
                     .under(&place),
             );
         }
-        if block.board_id != board_id {
-            return Err(
-                AppError::bad_request(format_args!("invalid boardId for block id {id}"))
-                    .with_field("boardId")
-                    .under(&place),
-            );
+        if block.container_id != board_id {
+            return Err(AppError::bad_request(format_args!(
+                "invalid containerId for block id {id}"
+            ))
+            .with_field("containerId")
+            .under(&place));
         }
     }
     if has_contents {
-        require_board_permission(
+        require_container_permission(
             &ws.app,
             user_id,
             &board_id,
-            BoardPermission::ManageBoardCards,
+            ContainerPermission::ManageCards,
             CHANGES_DENIED,
         )
         .await?;
     }
     if has_comments {
-        require_board_permission(
+        require_container_permission(
             &ws.app,
             user_id,
             &board_id,
-            BoardPermission::CommentBoardCards,
+            ContainerPermission::CommentCards,
             "access denied to post card comments",
         )
         .await?;
@@ -363,14 +372,17 @@ async fn handle_post_blocks(
 /// what else it names, for the store to check.
 async fn renew_request_ids(
     app: &App,
-    board_id: &str,
+    container_id: &str,
     blocks: &mut [Block],
 ) -> Result<(), AppError> {
     let relations = if blocks
         .iter()
         .any(|block| block.block_type == BlockType::Card)
     {
-        RelationProperties::of_board(board_id, &app.board(board_id).await?.card_properties)
+        RelationProperties::of_board(
+            container_id,
+            &app.container(container_id).await?.card_properties,
+        )
     } else {
         RelationProperties::new()
     };
@@ -394,22 +406,22 @@ async fn renew_request_ids(
     responses((status = 204, description = "The block is deleted.")),
 )]
 async fn handle_delete_block(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
     let notification = change_notification(query.as_deref());
     // Nobody below the commenter's role deletes anything, whatever the block is.
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
         &board_id,
-        BoardPermission::CommentBoardCards,
+        ContainerPermission::CommentCards,
         CHANGES_DENIED,
     )
     .await?;
-    let block = block_on_board(&ws.app, &block_id, &board_id).await?;
+    let block = block_on_container(&ws.app, &block_id, &board_id).await?;
     require_delete_permission(&ws.app, user_id, &block, CHANGES_DENIED).await?;
     ws.app
         .delete_block(&block_id, user_id, notification)
@@ -441,27 +453,27 @@ async fn handle_delete_block(
     responses((status = 200, description = "The block as it is again.", body = Block)),
 )]
 async fn handle_undelete_block(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
     // Nobody below the commenter's role brings anything back, whatever the block is.
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
         &board_id,
-        BoardPermission::CommentBoardCards,
+        ContainerPermission::CommentCards,
         CHANGES_DENIED,
     )
     .await?;
-    let board = ws.app.board(&board_id).await?;
+    let board = ws.app.container(&board_id).await?;
     // What is restored is what the trash has of this board: the whole deletion the
     // block went with, all of one board. A block that exists, one that never did and
     // one of another board are all not there to restore.
     let deletion = ws.app.deletion(&block_id).await?;
     let Some((top, below)) = deletion
         .split_first()
-        .filter(|(top, _)| top.board_id == board.id)
+        .filter(|(top, _)| top.container_id == board.id)
     else {
         return Err(AppError::not_found("block"));
     };
@@ -505,26 +517,26 @@ async fn handle_undelete_block(
     responses((status = 200, description = "The earlier versions, the first one first.", body = Vec<CommentVersion>)),
 )]
 async fn handle_get_comment_versions(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
         &board_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         "access denied to board",
     )
     .await?;
-    let comment = match block_on_board(&ws.app, &block_id, &board_id).await {
+    let comment = match block_on_container(&ws.app, &block_id, &board_id).await {
         Ok(block) => block,
         Err(error) if error.is_not_found() => ws
             .app
             .deleted_block(&block_id)
             .await?
             .map(|deleted| deleted.block)
-            .filter(|block| block.board_id == board_id)
+            .filter(|block| block.container_id == board_id)
             .ok_or_else(|| AppError::not_found("comment"))?,
         Err(error) => return Err(error),
     };
@@ -555,7 +567,7 @@ async fn handle_get_comment_versions(
     responses((status = 204, description = "The block is changed.")),
 )]
 async fn handle_patch_block(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
@@ -563,15 +575,15 @@ async fn handle_patch_block(
     let user_id = ws.session.user_id.as_str();
     let notification = change_notification(query.as_deref());
     // Who cannot even comment changes nothing, whatever the block.
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
         &board_id,
-        BoardPermission::CommentBoardCards,
+        ContainerPermission::CommentCards,
         CHANGES_DENIED,
     )
     .await?;
-    let block = block_on_board(&ws.app, &block_id, &board_id).await?;
+    let block = block_on_container(&ws.app, &block_id, &board_id).await?;
     require_block_permission(
         &ws.app,
         user_id,
@@ -614,7 +626,7 @@ async fn handle_patch_block(
     responses((status = 204, description = "The blocks are changed.")),
 )]
 async fn handle_patch_blocks(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
@@ -622,15 +634,15 @@ async fn handle_patch_blocks(
     let user_id = ws.session.user_id.as_str();
     let notification = change_notification(query.as_deref());
     // Who cannot even comment changes nothing, whatever the blocks.
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
         &board_id,
-        BoardPermission::CommentBoardCards,
+        ContainerPermission::CommentCards,
         CHANGES_DENIED,
     )
     .await?;
-    let board = ws.app.board(&board_id).await?;
+    let board = ws.app.container(&board_id).await?;
     let (mut batch, changes): (BlockPatchBatch, _) = decode_object_with(&body, |batch| {
         take_patch_bodies(objects_mut(batch, "blockPatches"), Some(PATCHES))
     })?;
@@ -651,7 +663,7 @@ async fn handle_patch_blocks(
         }
     }
     for (block_id, patch) in batch.block_ids.iter().zip(&batch.block_patches) {
-        let block = block_on_board(&ws.app, block_id, &board_id).await?;
+        let block = block_on_container(&ws.app, block_id, &board_id).await?;
         require_block_permission(
             &ws.app,
             user_id,
@@ -698,29 +710,29 @@ async fn handle_patch_blocks(
     )),
 )]
 async fn handle_duplicate_block(
-    ws: Ws,
+    ws: InWorkspace,
     Path((_, board_id, block_id)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
     let duplicate_as = duplicate_as(query.as_deref());
 
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
         &board_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         "access denied to modify board cards",
     )
     .await?;
-    let board = ws.app.board(&board_id).await?;
-    let block = block_on_board(&ws.app, &block_id, &board.id).await?;
+    let board = ws.app.container(&board_id).await?;
+    let block = block_on_container(&ws.app, &block_id, &board.id).await?;
     if block.block_type == BlockType::Comment {
-        require_board_permission(
+        require_container_permission(
             &ws.app,
             user_id,
             &board_id,
-            BoardPermission::CommentBoardCards,
+            ContainerPermission::CommentCards,
             "access denied to comment on board cards",
         )
         .await?;
@@ -728,11 +740,11 @@ async fn handle_duplicate_block(
         // The original crashes here and answers 500.
         return Err(AppError::bad_request("a comment cannot be duplicated"));
     }
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
         &board_id,
-        BoardPermission::ManageBoardCards,
+        ContainerPermission::ManageCards,
         "access denied to modify board cards",
     )
     .await?;

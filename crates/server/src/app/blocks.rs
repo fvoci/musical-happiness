@@ -53,14 +53,14 @@ impl App {
     /// Returns the store's error if the query fails.
     pub async fn blocks(
         &self,
-        board_id: &str,
+        container_id: &str,
         parent_id: Option<&str>,
         block_type: Option<&BlockType>,
     ) -> Result<Vec<Block>, AppError> {
-        if board_id.is_empty() {
+        if container_id.is_empty() {
             return Ok(Vec::new());
         }
-        let mut filter = BlockFilter::board(board_id);
+        let mut filter = BlockFilter::container(container_id);
         if let Some(parent_id) = parent_id {
             filter = filter.with_parent(parent_id);
         }
@@ -75,10 +75,10 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if the query fails.
-    pub async fn blocks_for_board(&self, board_id: &str) -> Result<Vec<Block>, AppError> {
+    pub async fn blocks_for_container(&self, container_id: &str) -> Result<Vec<Block>, AppError> {
         Ok(self
             .store()
-            .get_blocks(&BlockFilter::board(board_id))
+            .get_blocks(&BlockFilter::container(container_id))
             .await?)
     }
 
@@ -117,7 +117,7 @@ impl App {
         modified_by: &str,
         notification: ChangeNotification,
     ) -> Result<(), AppError> {
-        let board = self.store().get_board(&block.board_id).await?;
+        let container = self.store().get_container(&block.container_id).await?;
         if block.block_type.has_room() {
             // A card stored again writes its body whole, around its document.
             let (mut stored, modified_by) = (block.clone(), modified_by.to_owned());
@@ -139,7 +139,7 @@ impl App {
         let block = block.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_block_change(&board.workspace_id, &block)
+                .broadcast_block_change(&container.workspace_id, &block)
                 .await;
             app.webhook().notify_update(&block).await;
         });
@@ -167,13 +167,16 @@ impl App {
         let Some(first) = blocks.first() else {
             return Ok(());
         };
-        let board_id = first.board_id.clone();
-        if blocks.iter().any(|block| block.board_id != board_id) {
+        let container_id = first.container_id.clone();
+        if blocks
+            .iter()
+            .any(|block| block.container_id != container_id)
+        {
             return Err(AppError::bad_request(
                 "the blocks belong to more than one board",
             ));
         }
-        let board = self.store().get_board(&board_id).await?;
+        let container = self.store().get_container(&container_id).await?;
 
         // All or none: the original stores the blocks one by one, and answers with an
         // error for the third while the first two stay.
@@ -199,7 +202,7 @@ impl App {
         }
         for block in blocks.iter() {
             self.ws()
-                .broadcast_block_change(&board.workspace_id, block)
+                .broadcast_block_change(&container.workspace_id, block)
                 .await;
         }
         for block in blocks.iter() {
@@ -224,7 +227,7 @@ impl App {
         notification: ChangeNotification,
     ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
-        let board = self.store().get_board(&old_block.board_id).await?;
+        let container = self.store().get_container(&old_block.container_id).await?;
         if patch.body.is_keep() || !old_block.block_type.has_room() {
             let _structure = self.collab().changing_structure(self).await;
             self.store()
@@ -245,7 +248,7 @@ impl App {
                 .await?;
         }
         let block = self.store().get_block(block_id).await?;
-        self.tell_of_update(&board.workspace_id, &block, notification);
+        self.tell_of_update(&container.workspace_id, &block, notification);
         Ok(block)
     }
 
@@ -340,7 +343,7 @@ impl App {
         notification: ChangeNotification,
     ) -> Result<(), AppError> {
         let block = self.store().get_block(block_id).await?;
-        let board = self.store().get_board(&block.board_id).await?;
+        let container = self.store().get_container(&block.container_id).await?;
         let (removed, by) = (block_id.to_owned(), modified_by.to_owned());
         self.collab()
             .remove(self, Deletion::Block(removed.clone()), async move |app| {
@@ -352,7 +355,7 @@ impl App {
         let app = self.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_block_delete(&board.workspace_id, &block.id, &block.board_id)
+                .broadcast_block_delete(&container.workspace_id, &block.id, &block.container_id)
                 .await;
         });
         Ok(())
@@ -441,7 +444,7 @@ impl App {
             Err(error) if error.is_not_found() => return Err(AppError::not_found("block")),
             Err(error) => return Err(error.into()),
         };
-        let board = self.store().get_board(&block.board_id).await?;
+        let container = self.store().get_container(&block.container_id).await?;
         // An undeletion is always reported; there is no flag for it.
         log_notification(ChangeNotification::Send, ChangeAction::Add, block_id);
 
@@ -449,7 +452,7 @@ impl App {
         let restored = block.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_block_change(&board.workspace_id, &restored)
+                .broadcast_block_change(&container.workspace_id, &restored)
                 .await;
             app.webhook().notify_update(&restored).await;
         });
@@ -467,16 +470,16 @@ impl App {
     /// or if the block is a comment, which is never copied.
     pub async fn duplicate_block(
         &self,
-        board_id: &str,
+        container_id: &str,
         block_id: &str,
         user_id: &str,
         duplicate_as: DuplicateAs,
     ) -> Result<Vec<Block>, AppError> {
-        let board = self.store().get_board(board_id).await?;
+        let container = self.store().get_container(container_id).await?;
         // The card and the cards below it, which are copied with it.
         let mut sources = vec![block_id.to_owned()];
         sources.extend(
-            self.blocks(board_id, Some(block_id), Some(&BlockType::Card))
+            self.blocks(container_id, Some(block_id), Some(&BlockType::Card))
                 .await?
                 .into_iter()
                 .map(|child| child.id),
@@ -484,10 +487,10 @@ impl App {
         self.collab().write_bodies(self, &sources).await?;
         let mut blocks = self
             .store()
-            .duplicate_block(board_id, block_id, user_id, duplicate_as)
+            .duplicate_block(container_id, block_id, user_id, duplicate_as)
             .await?;
         let files = self
-            .copy_and_update_card_files(board_id, user_id, &mut blocks)
+            .copy_and_update_card_files(container_id, user_id, &mut blocks)
             .await;
         if files.is_ok() {
             self.keep_bodies_as_copied(&blocks).await;
@@ -500,7 +503,7 @@ impl App {
         self.spawn_background(async move {
             for block in &copies {
                 app.ws()
-                    .broadcast_block_change(&board.workspace_id, block)
+                    .broadcast_block_change(&container.workspace_id, block)
                     .await;
             }
         });

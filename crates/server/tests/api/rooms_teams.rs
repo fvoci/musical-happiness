@@ -51,7 +51,7 @@ async fn retitle(th: &TestServer, table: &Table, title: &str) {
 
 fn assignment(table: &Table, team_id: &str) -> String {
     format!(
-        "/w/{TEST_WORKSPACE_ID}/boards/{}/teams/{team_id}",
+        "/w/{TEST_WORKSPACE_ID}/containers/{}/teams/{team_id}",
         table.board_id
     )
 }
@@ -229,7 +229,7 @@ async fn a_board_is_told_to_whoever_reads_it_through_a_team_until_they_leave_it(
         .await
         .check_no_content();
     socket
-        .expect("DELETE_MEMBER", "/member/boardId", &table.board_id)
+        .expect("DELETE_MEMBER", "/member/containerId", &table.board_id)
         .await;
     retitle(&th, &table, "Not told").await;
     let heard = socket.drain().await;

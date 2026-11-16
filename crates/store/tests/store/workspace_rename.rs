@@ -17,7 +17,7 @@ const MIGRATIONS: &str = "_sqlx_migrations";
 
 /// Every table of a database: its columns in their order, and its rows as text (`NULL`
 /// as `None`), sorted.
-type Dump = BTreeMap<String, (Vec<String>, Vec<Vec<Option<String>>>)>;
+pub(crate) type Dump = BTreeMap<String, (Vec<String>, Vec<Vec<Option<String>>>)>;
 
 /// The name a table or a column had before the migration has after it.
 fn renamed(name: &str) -> String {
@@ -29,7 +29,7 @@ fn renamed(name: &str) -> String {
 }
 
 /// Reads every table of the database past the store, the migrator's own left out.
-async fn dump(database: &fvoci_store::testing::TestDatabase) -> Dump {
+pub(crate) async fn dump(database: &fvoci_store::testing::TestDatabase) -> Dump {
     let dbconfig = common::raw_dbconfig(database);
     let mut dump = Dump::new();
     match db_type() {
@@ -349,7 +349,7 @@ async fn the_keys_and_the_check_of_an_upload_find_the_workspaces(
                 .await
                 .expect("an import into a workspace of the organization");
             let board: String =
-                sqlx::query_scalar("SELECT id::text FROM boards WHERE NOT is_template")
+                sqlx::query_scalar("SELECT id::text FROM containers WHERE NOT is_template")
                     .fetch_one(&mut common::connect_past_the_store(database.dbconfig()).await)
                     .await
                     .expect("a board");

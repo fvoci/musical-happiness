@@ -33,7 +33,7 @@ async fn board_revocation_between_document_check_and_registration_discloses_no_b
         .expect("grant checked");
     ts.client
         .delete(&format!(
-            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user}",
+            "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user}",
             room.board_id
         ))
         .await
@@ -67,7 +67,7 @@ async fn a_removed_board_member_cannot_write_or_receive_a_document_update() {
     let late = two.editor().append_paragraph("not authorized");
     ts.client
         .delete(&format!(
-            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user}",
+            "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user}",
             room.board_id
         ))
         .await
@@ -201,7 +201,7 @@ async fn missing_state_and_replaced_bodies_do_not_reach_a_removed_member() {
         let user = ts.client2.me().await.id;
         ts.client
             .delete(&format!(
-                "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user}",
+                "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user}",
                 room.board_id
             ))
             .await

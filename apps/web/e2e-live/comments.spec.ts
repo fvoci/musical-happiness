@@ -210,7 +210,7 @@ test('a commenter changes their own comment, an admin anybody’s, an editor nob
 
   // A reader by the public link gets the comment, but not what it said before.
   const shared = (await (
-    await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/sharing`, {
+    await api.post(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}/sharing`, {
       data: { enabled: true },
     })
   ).json()) as Schemas['Sharing'];
@@ -313,7 +313,7 @@ test('a commenter deletes their own comment and brings it back with undo; somebo
   await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
-        boardId: board.boardId,
+        containerId: board.boardId,
         parentId: cardId,
         type: 'comment',
         title: '',

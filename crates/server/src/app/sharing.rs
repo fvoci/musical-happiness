@@ -14,11 +14,11 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if the state cannot be read.
-    pub async fn sharing(&self, board_id: &str) -> Result<Sharing, AppError> {
-        match self.store().get_sharing(board_id).await {
+    pub async fn sharing(&self, container_id: &str) -> Result<Sharing, AppError> {
+        match self.store().get_sharing(container_id).await {
             Ok(sharing) => Ok(sharing),
             Err(StoreError::NoRows) => Ok(Sharing {
-                board_id: board_id.to_owned(),
+                container_id: container_id.to_owned(),
                 ..Sharing::default()
             }),
             Err(error) => Err(error.into()),
@@ -36,7 +36,7 @@ impl App {
     /// `public_links_off` for sharing it while the organization's public links are off.
     pub async fn set_sharing(
         &self,
-        board_id: &str,
+        container_id: &str,
         change: SharingChange,
         user_id: &str,
     ) -> Result<Sharing, AppError> {
@@ -48,14 +48,14 @@ impl App {
         }
         match self
             .store()
-            .set_sharing(board_id, change, &new_secret(), user_id)
+            .set_sharing(container_id, change, &new_secret(), user_id)
             .await
         {
             Ok(sharing) => {
                 // A token that no longer opens the board no longer feeds a connection:
                 // whoever followed the board's blocks with the old link is cut off.
                 if change != SharingChange::On {
-                    self.ws().end_readers_of_board(board_id);
+                    self.ws().end_readers_of_container(container_id);
                 }
                 Ok(sharing)
             }

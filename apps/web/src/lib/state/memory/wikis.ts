@@ -17,7 +17,7 @@
  */
 import type { DocNode } from '../../editor/schema.ts';
 import { PAGE_TITLE_MAX } from '../../logic/page-tree.ts';
-import { createBoard, type Board, type BoardKind } from '../../logic/wire.ts';
+import { createBoard, type Container, type ContainerKind } from '../../logic/wire.ts';
 import { BackendError, type DeletedItem, type Paging } from '../backend.ts';
 import type {
   PageDraft,
@@ -29,7 +29,7 @@ import type {
   Wikis,
 } from '../wiki-types.ts';
 
-import { memberRole } from './board-access.ts';
+import { memberRole } from './container-access.ts';
 import { checkedWhole } from './bodies.ts';
 import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { MemoryPageComments, type OnPage } from './page-comments.ts';
@@ -47,7 +47,7 @@ export interface WikiHost {
   readonly latency: number;
 }
 
-const isWiki = (board: Board | undefined): board is Board => board?.kind === 'wiki';
+const isWiki = (board: Container | undefined): board is Container => board?.kind === 'wiki';
 
 function detailOf(block: StoredBlock): WikiPageDetail {
   return {
@@ -128,7 +128,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     }
   }
 
-  #role(wikiId: string, kind: BoardKind = 'wiki'): string {
+  #role(wikiId: string, kind: ContainerKind = 'wiki'): string {
     return memberRole(this.#world, this.#host.userId, wikiId, kind);
   }
 
@@ -140,7 +140,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
 
   #page(wikiId: string, pageId: string): StoredBlock {
     const block = this.#world.blocks.get(pageId);
-    if (block?.type !== 'page' || block.boardId !== wikiId) fail(404, 'no such page');
+    if (block?.type !== 'page' || block.containerId !== wikiId) fail(404, 'no such page');
     return block;
   }
 
@@ -149,15 +149,19 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
   }
 
   #tellPages(wikiId: string, blocks: readonly StoredBlock[]): void {
-    this.#world.tellBoard(wikiId, { kind: 'pages', boardId: wikiId, pages: blocks.map(pageOf) });
+    this.#world.tellContainer(wikiId, {
+      kind: 'pages',
+      containerId: wikiId,
+      pages: blocks.map(pageOf),
+    });
   }
 
   /** As the server: the reader's wikis and the workspace's open ones, in no order to count on. */
-  async wikis(workspaceId: string): Promise<Board[]> {
+  async wikis(workspaceId: string): Promise<Container[]> {
     await this.#enter('wikis');
     if (workspaceId !== this.#world.workspace.id) fail(404, 'no such workspace');
     const userId = this.#host.userId;
-    const theirs = [...this.#world.boards.values()].filter(
+    const theirs = [...this.#world.containers.values()].filter(
       (board) =>
         isWiki(board) &&
         board.workspaceId === workspaceId &&
@@ -167,13 +171,13 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     return scramble(theirs).map(copy);
   }
 
-  async createWiki(workspaceId: string, draft: WikiDraft): Promise<Board> {
+  async createWiki(workspaceId: string, draft: WikiDraft): Promise<Container> {
     await this.#enter('createWiki');
     if (workspaceId !== this.#world.workspace.id) fail(404, 'no such workspace');
     const world = this.#world;
     const userId = this.#host.userId;
     const now = world.now();
-    const wiki: Board = {
+    const wiki: Container = {
       ...createBoard(),
       id: world.newId(),
       workspaceId,
@@ -189,13 +193,13 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
       createAt: now,
       updateAt: now,
     };
-    world.boards.set(wiki.id, wiki);
+    world.containers.set(wiki.id, wiki);
     world.members.set(wiki.id, [memberOf(wiki.id, userId, 'admin')]);
     // Filed under the maker's default category, as a board is.
     const fallback = world.categories.get(userId)?.find((category) => category.type === 'system');
-    fallback?.boardIds.push(wiki.id);
-    world.tellBoard(wiki.id, { kind: 'board', board: copy(wiki) });
-    world.tellUsers([userId], { kind: 'board', board: copy(wiki) });
+    fallback?.containerIds.push(wiki.id);
+    world.tellContainer(wiki.id, { kind: 'container', container: copy(wiki) });
+    world.tellUsers([userId], { kind: 'container', container: copy(wiki) });
     if (fallback)
       world.tellUsers([userId], {
         kind: 'categories',
@@ -251,7 +255,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     const parentId = draft.parentId === wikiId ? '' : (draft.parentId ?? '');
     if (parentId !== '') {
       const parent = this.#world.blocks.get(parentId);
-      if (parent?.type !== 'page' || parent.boardId !== wikiId) {
+      if (parent?.type !== 'page' || parent.containerId !== wikiId) {
         fail(400, 'the parent is no page of the wiki', { field: 'parentId' });
       }
     }
@@ -262,7 +266,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     const userId = this.#host.userId;
     const page: StoredBlock = {
       id: this.#world.newId(),
-      boardId: wikiId,
+      containerId: wikiId,
       parentId,
       createdBy: userId,
       modifiedBy: userId,
@@ -378,12 +382,16 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     // Each page found brings the pages and the comments below it: the list grows as it is walked.
     for (const above of gone) gone.push(...this.#world.childrenOf(above.id));
     this.#world.deletedBlocks.set(pageId, {
-      boardId: wikiId,
+      containerId: wikiId,
       blocks: gone,
       ...deletion({ world: this.#world, userId: this.#host.userId }),
     });
     for (const block of gone) this.#world.blocks.delete(block.id);
-    this.#world.tellBoard(wikiId, { kind: 'blocksDeleted', boardId: wikiId, blockIds: [pageId] });
+    this.#world.tellContainer(wikiId, {
+      kind: 'blocksDeleted',
+      containerId: wikiId,
+      blockIds: [pageId],
+    });
   }
 
   async deletedPages(wikiId: string, paging?: Paging): Promise<DeletedItem[]> {
@@ -404,7 +412,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     const world = this.#world;
     const deleted = world.deletedBlocks.get(pageId);
     const [top] = deleted?.blocks ?? [];
-    if (deleted?.boardId !== wikiId || top?.id !== pageId || top.type !== 'page') {
+    if (deleted?.containerId !== wikiId || top?.id !== pageId || top.type !== 'page') {
       fail(404, 'no such page in the trash');
     }
     const { blocks } = deleted;
@@ -439,7 +447,11 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     // And the comments that came back with them, as the server tells them.
     const comments = blocks.filter((block) => block.type === 'comment');
     if (comments.length > 0) {
-      world.tellBoard(wikiId, { kind: 'blocks', boardId: wikiId, blocks: comments.map(commentOf) });
+      world.tellContainer(wikiId, {
+        kind: 'blocks',
+        containerId: wikiId,
+        blocks: comments.map(commentOf),
+      });
     }
     return detailOf(top);
   }

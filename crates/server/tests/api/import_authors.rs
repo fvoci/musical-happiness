@@ -4,7 +4,7 @@
 
 use std::io::{Cursor, Write as _};
 
-use fvoci_model::{Block, BlockType, Board, User, new_id};
+use fvoci_model::{Block, BlockType, Container, User, new_id};
 use serde_json::{Value, json};
 
 use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer};
@@ -113,7 +113,7 @@ async fn everything_imported_is_the_importers_whoever_the_archive_names() {
         .await
         .check_ok();
 
-    let boards: Vec<Board> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let boards: Vec<Container> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let board = boards
         .into_iter()
         .find(|board| board.title == "Authored")

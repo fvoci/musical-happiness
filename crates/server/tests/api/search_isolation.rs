@@ -4,7 +4,7 @@
 //! answers every search with all of them), and in the database of a server without
 //! one: both answer each user with the same, what they read now and nothing else.
 
-use fvoci_model::{Block, BlockType, Board, BoardMember, BoardType, SearchHit, new_id};
+use fvoci_model::{Block, BlockType, Container, ContainerMember, ContainerType, SearchHit, new_id};
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
 use serde_json::json;
@@ -42,7 +42,7 @@ async fn card_read_through_a_team(th: &TestServer, user_id: &str) -> (String, St
         .check_no_content();
     th.client
         .put(
-            &format!("{TEST_WS}/boards/{}/teams/{}", board.id, team.id),
+            &format!("{TEST_WS}/containers/{}/teams/{}", board.id, team.id),
             &json!({"role": "viewer"}),
         )
         .await
@@ -56,7 +56,7 @@ async fn card_of_a_board_in_the_trash(th: &TestServer) -> (String, String) {
     let board = private_board(&th.client, "Gone").await;
     let card = new_card(&th.client, &board.id, "지운 보드의 카드", WORD).await;
     th.client
-        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/containers/{}", board.id))
         .await
         .check_no_content();
     (board.id, card.id)
@@ -90,7 +90,7 @@ async fn cards_that_went(th: &TestServer, board_id: &str) -> (String, String) {
 /// `open`, and a comment on `card_id` of it.
 async fn blocks_without_a_document(
     th: &TestServer,
-    open: &Board,
+    open: &Container,
     card_id: &str,
     author: &str,
 ) -> Vec<String> {
@@ -98,16 +98,16 @@ async fn blocks_without_a_document(
     let hidden_owner = th.stranger_in(HIDDEN_WORKSPACE_ID).await;
     let hidden = crate::boards::board_with_admin(
         th,
-        new_board(HIDDEN_WORKSPACE_ID, BoardType::Open, "Hidden"),
+        new_board(HIDDEN_WORKSPACE_ID, ContainerType::Open, "Hidden"),
         &hidden_owner,
     )
     .await;
     let hidden_card = stored_card(store, &hidden.id, "다른 워크스페이스의 환불").await;
-    let template: Board = th
+    let template: Container = th
         .client
-        .create_board(&Board {
+        .create_board(&Container {
             is_template: true,
-            ..new_board(TEST_WORKSPACE_ID, BoardType::Open, "Template")
+            ..new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Template")
         })
         .await
         .created_json();
@@ -122,7 +122,7 @@ async fn blocks_without_a_document(
         .created_json();
     let mut comment = Block {
         id: new_id(),
-        board_id: open.id.clone(),
+        container_id: open.id.clone(),
         parent_id: card_id.to_owned(),
         block_type: BlockType::Comment,
         title: "환불 댓글".to_owned(),
@@ -147,7 +147,7 @@ async fn pages_that_went(th: &TestServer) -> Vec<(String, String)> {
     let gone = new_wiki(&th.client).await;
     let of_gone = new_page(&th.client, &gone, "", "지운 위키의 쪽", WORD).await;
     th.client
-        .delete(&format!("{TEST_WS}/boards/{gone}"))
+        .delete(&format!("{TEST_WS}/containers/{gone}"))
         .await
         .check_no_content();
     vec![(trashed.id, kept), (of_gone.id, gone)]
@@ -200,23 +200,28 @@ async fn world(th: &TestServer) -> World {
     // and read those they have a role on.
     set_role(th, &user1, "admin").await;
     // An empty board of the first user in the root workspace: a search there asks.
-    th.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+    th.create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .await;
 
     // An open board, and a card of it that every member who joined reads.
-    let open: Board = th
+    let open: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Open"))
+        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Open"))
         .await
         .created_json();
     let open_card = new_card(&th.client, &open.id, "열린 카드", "환불규정을 따른다").await;
     th.client2
-        .post_empty(&format!("{TEST_WS}/boards/{}/join", open.id))
+        .post_empty(&format!("{TEST_WS}/containers/{}/join", open.id))
         .await
         .check_ok();
     // An open board the second user has not joined: theirs to join, and not to read.
-    let unjoined: Board = th
+    let unjoined: Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Unjoined"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Open,
+            "Unjoined",
+        ))
         .await
         .created_json();
     let unjoined_card = new_card(&th.client, &unjoined.id, "남의 열린 카드", WORD).await;
@@ -226,7 +231,7 @@ async fn world(th: &TestServer) -> World {
     // A private board the first user, an administrator of the workspace, is not on.
     let managed = crate::boards::board_with_admin(
         th,
-        new_board(TEST_WORKSPACE_ID, BoardType::Private, "Managed"),
+        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Managed"),
         &stranger,
     )
     .await;
@@ -234,7 +239,7 @@ async fn world(th: &TestServer) -> World {
     // A private board the guest was invited to.
     let invited = private_board(&th.client, "Invited").await;
     th.client
-        .add_member(&BoardMember {
+        .add_member(&ContainerMember {
             scheme_viewer: true,
             ..member(&invited.id, &guest_id)
         })

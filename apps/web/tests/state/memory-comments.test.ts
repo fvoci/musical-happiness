@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { BackendError, type BoardRole } from '$lib/state/index.ts';
+import { BackendError, type ContainerRole } from '$lib/state/index.ts';
 import { COMMENT_VERSIONS_KEPT } from '$lib/state/memory/comments.ts';
 import type { MemoryBackend } from '$lib/state/memory/backend.ts';
 import type { World } from '$lib/state/memory/world.ts';
@@ -22,7 +22,7 @@ async function onAlpha() {
 }
 
 /** Gives `who` exactly this role on the board. */
-function setRole(world: World, boardId: string, who: MemoryBackend, role: BoardRole): void {
+function setRole(world: World, boardId: string, who: MemoryBackend, role: ContainerRole): void {
   const members = world.members.get(boardId) ?? [];
   world.members.set(
     boardId,
@@ -215,8 +215,8 @@ describe('a changed comment', () => {
     );
     // Not there for who is no member; refused on a board open to the workspace.
     expect(await statusOf(other.commentVersions(boardId, posted.id))).toBe(404);
-    const board = world.boards.get(boardId);
-    if (board) world.boards.set(boardId, { ...board, type: 'O' });
+    const board = world.containers.get(boardId);
+    if (board) world.containers.set(boardId, { ...board, type: 'O' });
     expect(await statusOf(other.commentVersions(boardId, posted.id))).toBe(403);
 
     await backend.deleteBlock(boardId, posted.id);

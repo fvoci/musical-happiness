@@ -5,7 +5,7 @@
 //! a card is below the card. Who may do what to one is what the card's comments let
 //! (`api/access.rs`), and what is stored and told is what the card's are (`App`'s
 //! blocks); only the routes are a wiki's, under the handle that reaches wikis
-//! (`WsWiki`), so that no operation of a board's blocks reaches a page's comment.
+//! (`InWiki`), so that no operation of a board's blocks reaches a page's comment.
 
 use axum::body::Bytes;
 use axum::extract::Path;
@@ -19,14 +19,14 @@ use utoipa_axum::routes;
 use super::contract::params::{CommentId, MemberWorkspaceId, PageId, WikiId};
 use super::contract::tag;
 use super::wikis::{READ_DENIED, page_with_permission};
-use super::workspace::{Ws, WsWiki};
+use super::workspace::{InWiki, InWorkspace};
 use super::{
     ApiResult, BlockAction, created, decode_with_document, json_response, no_content,
     require_block_permission, require_delete_permission, require_deletion_permission,
 };
 use crate::app::{App, ChangeNotification};
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -105,9 +105,9 @@ fn text_of(change: BodyChange) -> Result<Body, AppError> {
 /// `denial`; a block that is no comment on this page is no comment, whatever else it
 /// is. `None` is no comment there now.
 async fn comment_with_permission(
-    ws: &Ws,
+    ws: &InWorkspace,
     named: CommentPath<'_>,
-    permission: BoardPermission,
+    permission: ContainerPermission,
     denial: &str,
 ) -> Result<(Block, Option<Block>), AppError> {
     let page = page_with_permission(ws, named.wiki, named.page, permission, denial).await?;
@@ -121,9 +121,9 @@ async fn comment_with_permission(
 
 /// The comment of [`comment_with_permission`], which is to be there: 404 for none.
 async fn existing_comment(
-    ws: &Ws,
+    ws: &InWorkspace,
     named: CommentPath<'_>,
-    permission: BoardPermission,
+    permission: ContainerPermission,
 ) -> Result<Block, AppError> {
     let (_, comment) = comment_with_permission(ws, named, permission, CHANGES_DENIED).await?;
     comment.ok_or_else(|| AppError::not_found("comment"))
@@ -132,7 +132,7 @@ async fn existing_comment(
 /// Whether the block is a comment on the page.
 fn is_comment_on(block: &Block, page: &Block) -> bool {
     block.block_type == BlockType::Comment
-        && block.board_id == page.board_id
+        && block.container_id == page.container_id
         && block.parent_id == page.id
 }
 
@@ -152,14 +152,14 @@ fn is_comment_on(block: &Block, page: &Block) -> bool {
     responses((status = 200, description = "The comments, oldest first.", body = Vec<Block>)),
 )]
 async fn handle_get_page_comments(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     let page = page_with_permission(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::ViewBoard,
+        ContainerPermission::View,
         READ_DENIED,
     )
     .await?;
@@ -187,7 +187,7 @@ async fn handle_get_page_comments(
     responses((status = 201, description = "The comment as it was stored.", body = Block)),
 )]
 async fn handle_create_page_comment(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -196,7 +196,7 @@ async fn handle_create_page_comment(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::CommentBoardCards,
+        ContainerPermission::CommentCards,
         "access denied to comment on the page",
     )
     .await?;
@@ -206,7 +206,7 @@ async fn handle_create_page_comment(
     ws.app.check_body_files(&wiki_id, Some(&text)).await?;
     let mut comment = Block {
         id: new_id(),
-        board_id: wiki_id.clone(),
+        container_id: wiki_id.clone(),
         parent_id: page.id,
         block_type: BlockType::Comment,
         body: Some(text),
@@ -244,7 +244,7 @@ async fn handle_create_page_comment(
     responses((status = 200, description = "The comment as it is now.", body = Block)),
 )]
 async fn handle_patch_page_comment(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -255,7 +255,7 @@ async fn handle_patch_page_comment(
         comment: &comment_id,
     };
     // Who cannot even comment changes nothing, whatever the comment.
-    let comment = existing_comment(&ws, named, BoardPermission::CommentBoardCards).await?;
+    let comment = existing_comment(&ws, named, ContainerPermission::CommentCards).await?;
     require_block_permission(
         &ws.app,
         user_id,
@@ -301,7 +301,7 @@ async fn handle_patch_page_comment(
     responses((status = 204, description = "The comment is deleted.")),
 )]
 async fn handle_delete_page_comment(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -310,7 +310,7 @@ async fn handle_delete_page_comment(
         page: &page_id,
         comment: &comment_id,
     };
-    let comment = existing_comment(&ws, named, BoardPermission::CommentBoardCards).await?;
+    let comment = existing_comment(&ws, named, ContainerPermission::CommentCards).await?;
     require_delete_permission(&ws.app, user_id, &comment, CHANGES_DENIED).await?;
     ws.app
         .delete_block(&comment.id, user_id, ChangeNotification::Send)
@@ -339,7 +339,7 @@ async fn handle_delete_page_comment(
     responses((status = 200, description = "The comment as it is again.", body = Block)),
 )]
 async fn handle_undelete_page_comment(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -348,7 +348,7 @@ async fn handle_undelete_page_comment(
         &ws,
         &wiki_id,
         &page_id,
-        BoardPermission::CommentBoardCards,
+        ContainerPermission::CommentCards,
         CHANGES_DENIED,
     )
     .await?;
@@ -394,7 +394,7 @@ async fn handle_undelete_page_comment(
     responses((status = 200, description = "The earlier versions, the first one first.", body = Vec<CommentVersion>)),
 )]
 async fn handle_get_page_comment_versions(
-    WsWiki(ws): WsWiki,
+    InWiki(ws): InWiki,
     Path((_, wiki_id, page_id, comment_id)): Path<(String, String, String, String)>,
 ) -> ApiResult {
     let named = CommentPath {
@@ -403,7 +403,7 @@ async fn handle_get_page_comment_versions(
         comment: &comment_id,
     };
     let (page, live) =
-        comment_with_permission(&ws, named, BoardPermission::ViewBoard, READ_DENIED).await?;
+        comment_with_permission(&ws, named, ContainerPermission::View, READ_DENIED).await?;
     let comment = match live {
         Some(comment) => comment.id,
         // A comment that was deleted on its own is in the trash below a page that is not.

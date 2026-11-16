@@ -1,6 +1,6 @@
 /** A small, public world using the same memory backend as the application's tests. */
 import { DEFAULT_ACCOUNT_SETTINGS } from '$lib/logic/account-settings.ts';
-import { createBoardView, type Board, type BoardView } from '$lib/logic/wire.ts';
+import { createBoardView, type Container, type BoardView } from '$lib/logic/wire.ts';
 import { getLocale } from '$lib/i18n/paraglide/runtime.js';
 import { Workspace } from '$lib/state/index.ts';
 import { MemoryBackend, memberOf } from '$lib/state/memory/backend.ts';
@@ -48,7 +48,7 @@ export function exampleWorkspace({
     weekStart: 'monday',
     hourCycle: 'h23',
   });
-  const board: Board = {
+  const board: Container = {
     id: 'example-board',
     workspaceId: world.workspace.id,
     createdBy: 'example-reader',
@@ -78,7 +78,7 @@ export function exampleWorkspace({
     updateAt: STORY_NOW,
     deleteAt: 0,
   };
-  world.boards.set(board.id, board);
+  world.containers.set(board.id, board);
   world.members.set(board.id, [
     ...(managed ? [] : [memberOf(board.id, 'example-reader', readOnly ? 'viewer' : 'admin')]),
     memberOf(board.id, 'example-member', 'admin'),

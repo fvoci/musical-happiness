@@ -2,8 +2,8 @@
 //! again, they outlive the trash, and they go with what is gone for good.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Board, BoardKind, BoardType, Body, BodyChange, NewPage,
-    PageLimits, new_id,
+    Block, BlockPatch, BlockType, Body, BodyChange, Container, ContainerKind, ContainerType,
+    NewPage, PageLimits, new_id,
 };
 use fvoci_store::Store;
 use serde_json::json;
@@ -28,13 +28,18 @@ pub(crate) fn body_naming(text: &str, targets: &[&str]) -> Option<Body> {
 }
 
 /// A board of `kind` of the workspace, with `user_id` as its administrator.
-async fn container(store: &Store, workspace_id: &str, user_id: &str, kind: BoardKind) -> Board {
-    let mut board = Board {
+async fn container(
+    store: &Store,
+    workspace_id: &str,
+    user_id: &str,
+    kind: ContainerKind,
+) -> Container {
+    let mut board = Container {
         kind,
-        ..new_board(&new_id(), workspace_id, BoardType::Private)
+        ..new_board(&new_id(), workspace_id, ContainerType::Private)
     };
     store
-        .insert_board_with_admin(&mut board, user_id)
+        .insert_container_with_admin(&mut board, user_id)
         .await
         .expect("the board is stored");
     board
@@ -43,14 +48,14 @@ async fn container(store: &Store, workspace_id: &str, user_id: &str, kind: Board
 /// A block of the board below `parent_id`, with the body, made by the user.
 async fn block_with(
     store: &Store,
-    board: &Board,
+    board: &Container,
     parent_id: &str,
     block_type: BlockType,
     body: Option<Body>,
 ) -> String {
     let mut block = Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         parent_id: parent_id.to_owned(),
         block_type,
         body,
@@ -61,7 +66,7 @@ async fn block_with(
 }
 
 /// A card of the board with the body.
-async fn card_with(store: &Store, board: &Board, body: Option<Body>) -> String {
+async fn card_with(store: &Store, board: &Container, body: Option<Body>) -> String {
     block_with(store, board, "", BlockType::Card, body).await
 }
 
@@ -82,7 +87,7 @@ async fn rows(store: &Store, column: &str, block_id: &str) -> Vec<String> {
     let mut rows = store
         .texts_unchecked(&format!(
             "SELECT CAST(source_id AS TEXT) || '>' || CAST(target_id AS TEXT) || '@' || \
-             CAST(board_id AS TEXT) FROM body_links WHERE CAST({column} AS TEXT) = '{block_id}'"
+             CAST(container_id AS TEXT) FROM body_links WHERE CAST({column} AS TEXT) = '{block_id}'"
         ))
         .await
         .expect("the rows are read");
@@ -91,7 +96,7 @@ async fn rows(store: &Store, column: &str, block_id: &str) -> Vec<String> {
 }
 
 /// What the rows of a source that names the targets from the board are.
-fn naming(source: &str, targets: &[&str], board: &Board) -> Vec<String> {
+fn naming(source: &str, targets: &[&str], board: &Container) -> Vec<String> {
     let mut rows: Vec<String> = targets
         .iter()
         .map(|target| format!("{source}>{target}@{}", board.id))
@@ -109,7 +114,7 @@ async fn a_body_written_whole_puts_down_what_it_names() {
     let store = &test.store;
     let user = common::user(store, "pam.beesly").await;
     let workspace_id = common::workspace_of(store, &[&user]).await;
-    let board = container(store, &workspace_id, &user, BoardKind::Board).await;
+    let board = container(store, &workspace_id, &user, ContainerKind::Board).await;
     let first = card_with(store, &board, None).await;
     let second = card_with(store, &board, None).await;
     let nowhere = new_id();
@@ -168,7 +173,7 @@ async fn a_typed_body_and_a_body_written_after_its_block_put_down_what_they_name
     let store = &test.store;
     let user = common::user(store, "jim.halpert").await;
     let workspace_id = common::workspace_of(store, &[&user]).await;
-    let board = container(store, &workspace_id, &user, BoardKind::Board).await;
+    let board = container(store, &workspace_id, &user, ContainerKind::Board).await;
     let target = card_with(store, &board, None).await;
     let other = card_with(store, &board, None).await;
 
@@ -221,8 +226,8 @@ async fn cards_pages_and_comments_name_each_other_across_a_board_and_a_wiki() {
     let store = &test.store;
     let user = common::user(store, "oscar.martinez").await;
     let workspace_id = common::workspace_of(store, &[&user]).await;
-    let board = container(store, &workspace_id, &user, BoardKind::Board).await;
-    let wiki = container(store, &workspace_id, &user, BoardKind::Wiki).await;
+    let board = container(store, &workspace_id, &user, ContainerKind::Board).await;
+    let wiki = container(store, &workspace_id, &user, ContainerKind::Wiki).await;
     let card = card_with(store, &board, None).await;
     let page = store
         .create_page(&wiki.id, &NewPage::default(), PageLimits::default(), &user)
@@ -282,7 +287,7 @@ async fn the_rows_outlive_the_trash_and_go_with_what_is_gone_for_good() {
     let store = &test.store;
     let user = common::user(store, "angela.martin").await;
     let workspace_id = common::workspace_of(store, &[&user]).await;
-    let board = container(store, &workspace_id, &user, BoardKind::Board).await;
+    let board = container(store, &workspace_id, &user, ContainerKind::Board).await;
     let target = card_with(store, &board, None).await;
     let kept_target = card_with(store, &board, None).await;
     let source = card_with(
@@ -332,7 +337,7 @@ async fn the_rows_outlive_the_trash_and_go_with_what_is_gone_for_good() {
     );
 
     // A board gone for good takes the rows of its blocks, whichever side they are on.
-    let other = container(store, &workspace_id, &user, BoardKind::Board).await;
+    let other = container(store, &workspace_id, &user, ContainerKind::Board).await;
     let from_other = card_with(store, &other, body_naming("names", &[&kept_target])).await;
     write_body(
         store,
@@ -341,7 +346,10 @@ async fn the_rows_outlive_the_trash_and_go_with_what_is_gone_for_good() {
         &user,
     )
     .await;
-    store.delete_board(&other.id, &user).await.expect("deleted");
+    store
+        .delete_container(&other.id, &user)
+        .await
+        .expect("deleted");
     assert_eq!(
         rows(store, "source_id", &from_other).await,
         naming(&from_other, &[&kept_target], &other),
@@ -393,11 +401,11 @@ async fn a_title_is_found_past_the_blocks_read_at_once() {
     let store = &test.store;
     let user = common::user(store, "kevin.malone").await;
     let workspace_id = common::workspace_of(store, &[&user]).await;
-    let board = container(store, &workspace_id, &user, BoardKind::Board).await;
-    let other = container(store, &workspace_id, &user, BoardKind::Board).await;
-    let titled = |board: &Board, title: String| Block {
+    let board = container(store, &workspace_id, &user, ContainerKind::Board).await;
+    let other = container(store, &workspace_id, &user, ContainerKind::Board).await;
+    let titled = |board: &Container, title: String| Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Card,
         title,
         ..Block::default()
@@ -420,7 +428,7 @@ async fn a_title_is_found_past_the_blocks_read_at_once() {
         found.iter().map(|block| &block.id).collect::<Vec<_>>(),
         [&needle.id]
     );
-    assert!(found[0].body.is_none() && found[0].board_id == board.id);
+    assert!(found[0].body.is_none() && found[0].container_id == board.id);
     let both = store
         .titled_blocks(&[&board.id, &other.id], "NEEDLE", 20)
         .await
@@ -464,11 +472,11 @@ async fn the_cards_of_a_board_are_told_among_many_identifiers() {
     let store = &test.store;
     let user = common::user(store, "oscar.martinez").await;
     let workspace_id = common::workspace_of(store, &[&user]).await;
-    let board = container(store, &workspace_id, &user, BoardKind::Board).await;
-    let other = container(store, &workspace_id, &user, BoardKind::Board).await;
-    let block = |board: &Board, block_type: BlockType| Block {
+    let board = container(store, &workspace_id, &user, ContainerKind::Board).await;
+    let other = container(store, &workspace_id, &user, ContainerKind::Board).await;
+    let block = |board: &Container, block_type: BlockType| Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type,
         ..Block::default()
     };
@@ -494,13 +502,13 @@ async fn the_cards_of_a_board_are_told_among_many_identifiers() {
     asked.push(&unknown);
     asked.extend(cards.iter().map(|card| card.id.as_str()));
     let told = store
-        .blocks_on_board_among(&board.id, BlockType::Card, &asked)
+        .blocks_on_container_among(&board.id, BlockType::Card, &asked)
         .await
         .expect("asked");
     assert_eq!(told.len(), 600);
     assert!(cards.iter().all(|card| told.contains(&card.id)));
     let none = store
-        .blocks_on_board_among(&board.id, BlockType::Card, &[])
+        .blocks_on_container_among(&board.id, BlockType::Card, &[])
         .await
         .expect("asked");
     assert_eq!(none.len(), 0);
@@ -515,12 +523,12 @@ async fn the_pages_of_a_wiki_are_told_among_identifiers() {
     let store = &test.store;
     let user = common::user(store, "kelly.kapoor").await;
     let workspace_id = common::workspace_of(store, &[&user]).await;
-    let wiki = container(store, &workspace_id, &user, BoardKind::Wiki).await;
-    let other = container(store, &workspace_id, &user, BoardKind::Wiki).await;
-    let board = container(store, &workspace_id, &user, BoardKind::Board).await;
-    let block = |board: &Board, block_type: BlockType| Block {
+    let wiki = container(store, &workspace_id, &user, ContainerKind::Wiki).await;
+    let other = container(store, &workspace_id, &user, ContainerKind::Wiki).await;
+    let board = container(store, &workspace_id, &user, ContainerKind::Board).await;
+    let block = |board: &Container, block_type: BlockType| Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type,
         ..Block::default()
     };
@@ -537,7 +545,7 @@ async fn the_pages_of_a_wiki_are_told_among_identifiers() {
         .expect("the page goes to the trash");
     let asked: Vec<&str> = blocks.iter().map(|block| block.id.as_str()).collect();
     let told = store
-        .blocks_on_board_among(&wiki.id, BlockType::Page, &asked)
+        .blocks_on_container_among(&wiki.id, BlockType::Page, &asked)
         .await
         .expect("asked");
     assert_eq!(

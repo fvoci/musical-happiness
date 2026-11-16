@@ -210,7 +210,7 @@ describe('a connection that may have died', () => {
 describe('the visit of a shared board', () => {
   it('lets go of a connection nothing answers, and opens another', async () => {
     const presence = new SharedPresence('', 'shared-board', 'read-token');
-    presence.setPresence({ workspaceId: 'shared', boardId: 'shared-board', cardId: '' });
+    presence.setPresence({ workspaceId: 'shared', containerId: 'shared-board', cardId: '' });
     const first = FakeSocket.made[0];
     if (!first) throw new Error('a visit opens a socket');
     first.open();

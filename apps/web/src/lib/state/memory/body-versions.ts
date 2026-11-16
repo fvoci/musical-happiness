@@ -22,7 +22,7 @@ import type { BodyVersion, BodyVersionContent, BodyVersions } from '../body-vers
 
 import { BackendError } from '../problems.ts';
 
-import { memberRole } from './board-access.ts';
+import { memberRole } from './container-access.ts';
 import { checkedBody } from './bodies.ts';
 import { fail } from './refuse.ts';
 import { copy, pageOf, wireOf } from './shapes.ts';
@@ -137,9 +137,9 @@ export function writtenWhole(
  * body a client sends is held to, and refused as a conflict (409) when it
  * may not be stored any more or shows an image whose file is gone.
  */
-function storable(world: World, boardId: string, body: DocNode | null): DocNode | null {
+function storable(world: World, containerId: string, body: DocNode | null): DocNode | null {
   try {
-    return checkedBody(world, boardId, body);
+    return checkedBody(world, containerId, body);
   } catch (error) {
     if (!(error instanceof BackendError)) throw error;
     fail(409, `the version cannot be restored: ${error.message}`);
@@ -174,21 +174,23 @@ export class MemoryBodyVersions implements BodyVersions {
     return this.#of === 'page' ? 'wiki' : 'board';
   }
 
-  async list(boardId: string, cardId: string): Promise<BodyVersion[]> {
+  async list(containerId: string, cardId: string): Promise<BodyVersion[]> {
     await this.#enter();
-    return this.#described(this.#card(boardId, cardId)).map(({ body: _, ...version }) => version);
+    return this.#described(this.#card(containerId, cardId)).map(
+      ({ body: _, ...version }) => version,
+    );
   }
 
-  async read(boardId: string, cardId: string, version: number): Promise<BodyVersionContent> {
+  async read(containerId: string, cardId: string, version: number): Promise<BodyVersionContent> {
     await this.#enter();
-    const kept = this.#described(this.#card(boardId, cardId));
+    const kept = this.#described(this.#card(containerId, cardId));
     return kept.find((one) => one.version === version) ?? fail(404, 'no such version');
   }
 
-  async restore(boardId: string, cardId: string, version: number): Promise<void> {
+  async restore(containerId: string, cardId: string, version: number): Promise<void> {
     await this.#enter();
     const world = this.#world;
-    const role = memberRole(world, this.#userId, boardId, this.#kind);
+    const role = memberRole(world, this.#userId, containerId, this.#kind);
     const refuse = (): void => {
       if (role !== 'admin' && role !== 'editor') {
         fail(403, `access denied to restore a version of the ${this.#of}'s body`);
@@ -196,14 +198,14 @@ export class MemoryBodyVersions implements BodyVersions {
     };
     // As the server: a card is looked for first, a page's wiki asked first.
     if (this.#of === 'page') refuse();
-    const card = this.#card(boardId, cardId);
+    const card = this.#card(containerId, cardId);
     refuse();
     const kept = keptOf(world, cardId).versions.find((one) => one.version === version);
     if (!kept) fail(404, 'no such version');
     // What the room's editors typed is in the card first, and is kept with the body before.
     world.bodyFlushed?.(cardId);
     if (same(card.body ?? null, kept.body)) return;
-    const body = storable(world, boardId, kept.body);
+    const body = storable(world, containerId, kept.body);
     writtenWhole(world, card, body, this.#userId, () => {
       card.body = body;
       card.updateAt = world.now();
@@ -211,15 +213,21 @@ export class MemoryBodyVersions implements BodyVersions {
     });
     world.bodyWritten?.(cardId);
     if (this.#of === 'page') {
-      world.tellBoard(boardId, { kind: 'pages', boardId, pages: [pageOf(card)] });
-    } else world.tellBoard(boardId, { kind: 'blocks', boardId, blocks: [wireOf(card)] });
+      world.tellContainer(containerId, { kind: 'pages', containerId, pages: [pageOf(card)] });
+    } else
+      world.tellContainer(containerId, {
+        kind: 'blocks',
+        containerId,
+        blocks: [wireOf(card)],
+      });
   }
 
   /** A card of the board (a page of the wiki), for a member of it: the versions are theirs to read. */
-  #card(boardId: string, cardId: string): StoredCard {
-    memberRole(this.#world, this.#userId, boardId, this.#kind);
+  #card(containerId: string, cardId: string): StoredCard {
+    memberRole(this.#world, this.#userId, containerId, this.#kind);
     const block = this.#world.blocks.get(cardId);
-    if (block?.type !== this.#of || block.boardId !== boardId) fail(404, `no such ${this.#of}`);
+    if (block?.type !== this.#of || block.containerId !== containerId)
+      fail(404, `no such ${this.#of}`);
     return block as StoredCard;
   }
 

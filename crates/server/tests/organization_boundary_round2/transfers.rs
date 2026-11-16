@@ -1,7 +1,7 @@
 //! Subscriptions, templates, and an explicitly authorized archive transfer.
 
 use base64::Engine as _;
-use fvoci_model::{Board, BoardMember, SubscriberType, Subscription, User, new_id};
+use fvoci_model::{Container, ContainerMember, SubscriberType, Subscription, User, new_id};
 use fvoci_store::{BlockFilter, DbType, DuplicateAs};
 use reqwest::Method;
 use serde_json::json;
@@ -123,11 +123,11 @@ async fn export_with_b_only_member(scene: &Scene) -> (Vec<u8>, User) {
     scene
         .b_app
         .store()
-        .save_member(&BoardMember {
-            board_id: scene.b.id.clone(),
+        .save_member(&ContainerMember {
+            container_id: scene.b.id.clone(),
             user_id: outsider.id.clone(),
             scheme_viewer: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         })
         .await
         .expect("B's invited member");
@@ -164,7 +164,7 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
     let (_, name_b) = scene.receive_files().await;
     let (bytes, outsider) = export_with_b_only_member(&scene).await;
     import_bytes(&scene.ts.client, ROOT_WORKSPACE_ID, bytes).await;
-    let boards: Vec<Board> = scene
+    let boards: Vec<Container> = scene
         .ts
         .client
         .get(&format!("{ROOT_WS}/boards"))
@@ -182,10 +182,10 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
         imported.workspace_id, ROOT_WORKSPACE_ID,
         "the target workspace wins over archive metadata"
     );
-    let members: Vec<BoardMember> = scene
+    let members: Vec<ContainerMember> = scene
         .ts
         .client
-        .get(&format!("{ROOT_WS}/boards/{}/members", imported.id))
+        .get(&format!("{ROOT_WS}/containers/{}/members", imported.id))
         .await
         .ok_json();
     assert!(
@@ -196,7 +196,7 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
         .ts
         .app
         .store()
-        .get_blocks(&BlockFilter::board(&imported.id))
+        .get_blocks(&BlockFilter::container(&imported.id))
         .await
         .expect("the imported blocks");
     let imported_name = blocks
@@ -208,7 +208,7 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
         .ts
         .client
         .get(&format!(
-            "{ROOT_WS}/boards/{}/files/{imported_name}",
+            "{ROOT_WS}/containers/{}/files/{imported_name}",
             imported.id
         ))
         .await;
@@ -273,7 +273,7 @@ async fn system_templates_are_shared_read_only_and_their_copies_belong_to_the_de
         .b_app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE boards SET title = 'Changed by B' WHERE id = '{}'",
+            "UPDATE containers SET title = 'Changed by B' WHERE id = '{}'",
             builtin.id
         ))
         .await
@@ -281,7 +281,7 @@ async fn system_templates_are_shared_read_only_and_their_copies_belong_to_the_de
     assert_eq!(changed, 0, "B has no write policy on the system's template");
     let (copied, _) = scene
         .b_app
-        .duplicate_board(
+        .duplicate_container(
             &builtin.id,
             &scene.user,
             &scene.b.workspace_id,
@@ -289,13 +289,13 @@ async fn system_templates_are_shared_read_only_and_their_copies_belong_to_the_de
         )
         .await
         .expect("an authorized template copy into B");
-    let board = &copied.boards[0];
+    let board = &copied.containers[0];
     assert!(
         !board.is_builtin && board.workspace_id == scene.b.workspace_id,
         "the copy is B's regular board"
     );
     assert!(
-        scene.ts.app.store().get_board(&board.id).await.is_err(),
+        scene.ts.app.store().get_container(&board.id).await.is_err(),
         "A cannot read the new B row"
     );
     scene.ts.teardown().await;
@@ -324,18 +324,18 @@ async fn one_user_can_file_a_shared_builtin_template_independently_in_two_orgs()
     let a_categories = scene
         .ts
         .app
-        .user_category_boards(&scene.user, ROOT_WORKSPACE_ID)
+        .user_category_containers(&scene.user, ROOT_WORKSPACE_ID)
         .await
         .expect("A's categories");
     let b_categories = scene
         .b_app
-        .user_category_boards(&scene.user, &scene.b.workspace_id)
+        .user_category_containers(&scene.user, &scene.b.workspace_id)
         .await
         .expect("B's categories");
     scene
         .ts
         .app
-        .add_update_user_category_board(
+        .add_update_user_category_container(
             ROOT_WORKSPACE_ID,
             &scene.user,
             &a_categories[0].category.id,
@@ -345,7 +345,7 @@ async fn one_user_can_file_a_shared_builtin_template_independently_in_two_orgs()
         .expect("the template is filed in A");
     let b_filed = scene
         .b_app
-        .add_update_user_category_board(
+        .add_update_user_category_container(
             &scene.b.workspace_id,
             &scene.user,
             &b_categories[0].category.id,

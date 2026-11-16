@@ -1,7 +1,9 @@
 //! Files, read tokens, partial uploads and housekeeping across organizations.
 
 use bytes::Bytes;
-use fvoci_model::{Block, BlockType, Board, BoardType, Upload, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{
+    Block, BlockType, Container, ContainerType, Upload, Workspace, WorkspaceRole, new_id,
+};
 use fvoci_server::app::{App, FileToUpload};
 use fvoci_server::config::{AmazonS3Config, Configuration};
 use fvoci_store::{DbType, SharingChange, Tenant};
@@ -42,7 +44,7 @@ async fn upload(app: &App, user: &str, board: &str, bytes: &[u8]) -> Upload {
 async fn attachment(app: &App, user: &str, board: &str, name: &str) {
     let mut block = Block {
         id: new_id(),
-        board_id: board.to_owned(),
+        container_id: board.to_owned(),
         block_type: BlockType::Attachment,
         fields: json!({"fileId": name}).as_object().expect("fields").clone(),
         ..Block::default()
@@ -57,9 +59,9 @@ pub(super) struct Scene {
     pub(super) ts: super::common::TestServer,
     pub(super) b_app: App,
     pub(super) user: String,
-    pub(super) a: Board,
-    pub(super) b: Board,
-    other: Board,
+    pub(super) a: Container,
+    pub(super) b: Container,
+    other: Container,
     pub(super) card_a: Block,
     pub(super) card_b: Block,
     card_other: Block,
@@ -73,7 +75,9 @@ impl Scene {
         });
         let ts = setup.start().await.init_basic().await;
         let user = ts.client.me().await.id;
-        let a = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+        let a = ts
+            .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+            .await;
         let workspace = Workspace {
             id: new_id(),
             ..Workspace::default()
@@ -92,27 +96,27 @@ impl Scene {
             .add_workspace_member(&workspace.id, &user, WorkspaceRole::Member)
             .await
             .expect("the same user is admitted to the other workspace");
-        let mut b = Board {
+        let mut b = Container {
             id: new_id(),
             workspace_id: workspace.id.clone(),
-            board_type: BoardType::Private,
+            container_type: ContainerType::Private,
             title: "B only".to_owned(),
-            ..Board::default()
+            ..Container::default()
         };
         b_app
             .store()
-            .insert_board_with_admin(&mut b, &user)
+            .insert_container_with_admin(&mut b, &user)
             .await
             .expect("the second organization's board");
-        let mut other = Board {
+        let mut other = Container {
             id: new_id(),
             workspace_id: workspace.id,
-            board_type: BoardType::Private,
-            ..Board::default()
+            container_type: ContainerType::Private,
+            ..Container::default()
         };
         b_app
             .store()
-            .insert_board_with_admin(&mut other, &user)
+            .insert_container_with_admin(&mut other, &user)
             .await
             .expect("a different board of the second organization");
 
@@ -369,7 +373,7 @@ impl Scene {
 async fn card(app: &App, user: &str, board: &str) -> Block {
     let mut card = Block {
         id: new_id(),
-        board_id: board.to_owned(),
+        container_id: board.to_owned(),
         block_type: BlockType::Card,
         title: "Card of its own organization".to_owned(),
         ..Block::default()
@@ -450,7 +454,7 @@ async fn cancelling_a_misbound_upload_does_not_delete_another_orgs_recorded_file
         .await
         .expect("well-shaped upload metadata");
     forged.id = fvoci_server::auth::secret::new_secret();
-    forged.board_id = scene.a.id.clone();
+    forged.container_id = scene.a.id.clone();
     forged.user_id = scene.ts.client2.me().await.id;
     forged.path = victim.path.clone();
     forged.multipart_id = "left-over-multipart".to_owned();
@@ -506,7 +510,7 @@ async fn purging_a_trash_row_does_not_delete_another_orgs_file() {
         .app
         .store()
         .execute_unchecked(&format!(
-            "INSERT INTO deleted_boards (id, workspace_id, deleted_at, deletion_id, board, members, \
+            "INSERT INTO deleted_containers (id, workspace_id, deleted_at, deletion_id, container, members, \
              files) VALUES ('{}', '{ROOT_WORKSPACE_ID}', 0, '{}', '{{}}', '[]', '{files}')",
             new_id(),
             new_id()

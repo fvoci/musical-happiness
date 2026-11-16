@@ -8,7 +8,7 @@ export interface WaitingAccount {
 export interface Confirmed {
   workspaceId: string;
   /** For a guest's link: the board it was let onto. */
-  boardId?: string;
+  containerId?: string;
   /** Whether it started its organization (its tour starts), or joined one by a link. */
   organizationStarted: boolean;
 }

@@ -268,7 +268,7 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
     let board = ts
         .create_board(
             crate::common::TEST_WORKSPACE_ID,
-            fvoci_model::BoardType::Private,
+            fvoci_model::ContainerType::Private,
         )
         .await;
     let card = client
@@ -282,15 +282,15 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
 
     // No block of a board is made a page, or becomes one.
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
-    let as_page = json!({"boardId": board.id, "type": "page", "createAt": 1, "updateAt": 1});
+    let as_page = json!({"containerId": board.id, "type": "page", "createAt": 1, "updateAt": 1});
     check_refused_at(&client.post(&blocks, &json!([as_page])).await, "/0/type");
     let becoming = client
         .patch(&format!("{blocks}/{card}"), &json!({"type": "page"}))
         .await;
     check_refused_at(&becoming, "/type");
     let with_board = json!({
-        "boards": [{"id": "b", "type": "P"}],
-        "blocks": [{"id": "p", "boardId": "b", "type": "page", "createAt": 1, "updateAt": 1}],
+        "containers": [{"id": "b", "type": "P"}],
+        "blocks": [{"id": "p", "containerId": "b", "type": "page", "createAt": 1, "updateAt": 1}],
     });
     let with_board = client
         .post(&format!("{TEST_WS}/boards-and-blocks"), &with_board)
@@ -299,7 +299,7 @@ async fn the_operations_of_blocks_and_cards_neither_make_nor_reach_a_page() {
 
     // The page is no block and no card to the operations of boards, by its wiki or alone.
     let of_wiki = format!("{TEST_WS}/boards/{wiki_id}/blocks");
-    let a_card = json!([{"boardId": wiki_id, "type": "card", "createAt": 1, "updateAt": 1}]);
+    let a_card = json!([{"containerId": wiki_id, "type": "card", "createAt": 1, "updateAt": 1}]);
     for refused in [
         client.get(&of_wiki).await,
         client.post(&of_wiki, &a_card).await,
@@ -363,7 +363,7 @@ async fn a_page_is_no_block_to_subscribe_to_or_to_bring_back() {
     let board = ts
         .create_board(
             crate::common::TEST_WORKSPACE_ID,
-            fvoci_model::BoardType::Private,
+            fvoci_model::ContainerType::Private,
         )
         .await;
     let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);

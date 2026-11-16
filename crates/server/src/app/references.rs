@@ -4,14 +4,14 @@
 //! was asked nothing about it. So everything is decided here, for the one who reads and
 //! as things are now: what a reference names is told to whoever reads the board or the
 //! wiki it is on ([`Grant::reads`](crate::permissions::Grant::reads), asked of
-//! [`App::board_access`] as every route to a board asks), in the workspace of the
+//! [`App::container_access`] as every route to a board asks), in the workspace of the
 //! request. To anybody else it is what an identifier of nothing is: left out, with the
 //! same reads made on the way.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use fvoci_model::{Block, BlockType, Board, Body, LinkedBlock, is_id};
-use fvoci_store::PublicBoards;
+use fvoci_model::{Block, BlockType, Body, Container, LinkedBlock, is_id};
+use fvoci_store::PublicContainers;
 
 use super::App;
 use super::org_admin::PageAsked;
@@ -38,7 +38,7 @@ impl App {
     /// user does not read, or a block that is neither a card nor a page. Access is
     /// asked once for every identifier, whatever it names: of the board its block is
     /// on, or, where it names no block, of the identifier itself, which is no board. A
-    /// board that is not there takes the reads of one that is ([`App::board_access`]),
+    /// board that is not there takes the reads of one that is ([`App::container_access`]),
     /// so the work done is that of as many identifiers as were asked and says nothing
     /// of what they name, nor of which of them are on one board.
     ///
@@ -77,10 +77,10 @@ impl App {
         let mut told = Vec::new();
         for id in asked {
             let block = named.get(id);
-            let board_id = block.map_or(id, |block| block.board_id.as_str());
-            let board = self.board_read(user_id, board_id).await?;
-            if let (Some(block), Some(board)) = (block, board)
-                && let Some(linked) = LinkedBlock::of(block, &board)
+            let container_id = block.map_or(id, |block| block.container_id.as_str());
+            let container = self.container_read(user_id, container_id).await?;
+            if let (Some(block), Some(container)) = (block, container)
+                && let Some(linked) = LinkedBlock::of(block, &container)
             {
                 told.push(linked);
             }
@@ -115,19 +115,19 @@ impl App {
         let Some(paging) = asked.paging() else {
             return Ok(Some(Vec::new()));
         };
-        let mut boards = self.boards_held(user_id, workspace_id).await?;
+        let mut containers = self.containers_held(user_id, workspace_id).await?;
         // A template of the workspace is read by who works there, and what is on it
         // names as anything does.
-        boards.extend(
+        containers.extend(
             self.store()
                 .get_template_boards(workspace_id, user_id)
                 .await?,
         );
-        let read = self.boards_read(user_id, boards).await?;
-        let board_ids: Vec<&str> = read.keys().map(String::as_str).collect();
+        let read = self.containers_read(user_id, containers).await?;
+        let container_ids: Vec<&str> = read.keys().map(String::as_str).collect();
         let found = self
             .store()
-            .blocks_naming(block_id, &board_ids, paging)
+            .blocks_naming(block_id, &container_ids, paging)
             .await?;
         Ok(Some(linked(&found, &read)))
     }
@@ -153,12 +153,12 @@ impl App {
                 "a search for what a reference may name is at most {MAX_TITLE_TERM_CHARS} characters"
             )));
         }
-        let boards = self.boards_held(user_id, workspace_id).await?;
-        let read = self.boards_read(user_id, boards).await?;
-        let board_ids: Vec<&str> = read.keys().map(String::as_str).collect();
+        let containers = self.containers_held(user_id, workspace_id).await?;
+        let read = self.containers_read(user_id, containers).await?;
+        let container_ids: Vec<&str> = read.keys().map(String::as_str).collect();
         let found = self
             .store()
-            .titled_blocks(&board_ids, term, FOUND_AT_MOST)
+            .titled_blocks(&container_ids, term, FOUND_AT_MOST)
             .await?;
         Ok(linked(&found, &read))
     }
@@ -175,10 +175,10 @@ impl App {
     /// Returns the store's error if the cards cannot be read; nothing is sent then.
     pub async fn cards_named_on(
         &self,
-        board_id: &str,
+        container_id: &str,
         bodies: impl IntoIterator<Item = &Body>,
     ) -> Result<HashSet<String>, AppError> {
-        self.named_on(board_id, BlockType::Card, bodies).await
+        self.named_on(container_id, BlockType::Card, bodies).await
     }
 
     /// The pages of the wiki among what the bodies name: all that whoever reads the
@@ -201,7 +201,7 @@ impl App {
     /// The blocks of the type on the board among what the bodies name.
     async fn named_on(
         &self,
-        board_id: &str,
+        container_id: &str,
         block_type: BlockType,
         bodies: impl IntoIterator<Item = &Body>,
     ) -> Result<HashSet<String>, AppError> {
@@ -210,62 +210,70 @@ impl App {
         named.dedup();
         Ok(self
             .store()
-            .blocks_on_board_among(board_id, block_type, &named)
+            .blocks_on_container_among(container_id, block_type, &named)
             .await?)
     }
 
     /// The boards and wikis of the workspace the user holds a role on, and its open
     /// wikis, which whoever works there reads without joining; templates left out:
     /// where to look for what the user reads. Whether the user does read one is not
-    /// said here ([`App::boards_read`] asks).
-    async fn boards_held(&self, user_id: &str, workspace_id: &str) -> Result<Vec<Board>, AppError> {
-        self.boards_for_user_and_workspace(user_id, workspace_id, PublicBoards::OpenWikis)
+    /// said here ([`App::containers_read`] asks).
+    async fn containers_held(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> Result<Vec<Container>, AppError> {
+        self.containers_for_user_and_workspace(user_id, workspace_id, PublicContainers::OpenWikis)
             .await
     }
 
-    /// Those of `boards` the user reads ([`App::board_read`]), by their identifiers.
+    /// Those of `containers` the user reads ([`App::container_read`]), by their identifiers.
     ///
-    /// `boards` is where the store says the user holds a role, or what it lists as a
+    /// `containers` is where the store says the user holds a role, or what it lists as a
     /// template, which is no answer of its own: every one is asked of
-    /// [`App::board_access`] before the store is asked what is on any. So the store
+    /// [`App::container_access`] before the store is asked what is on any. So the store
     /// looks only where the user reads, what is found there is the answer as it is, a
     /// page is cut from that alone, and the reads a question takes are those of the
     /// boards the user holds a role on and of the open wikis, whatever is on them. They
     /// are asked one after another: a request holds no more of the store's connections
     /// than any other does.
-    async fn boards_read(
+    async fn containers_read(
         &self,
         user_id: &str,
-        boards: Vec<Board>,
-    ) -> Result<BTreeMap<String, Board>, AppError> {
+        containers: Vec<Container>,
+    ) -> Result<BTreeMap<String, Container>, AppError> {
         let mut read = BTreeMap::new();
-        for board in boards {
-            if let Some(board) = self.board_read(user_id, &board.id).await? {
-                read.insert(board.id.clone(), board);
+        for container in containers {
+            if let Some(container) = self.container_read(user_id, &container.id).await? {
+                read.insert(container.id.clone(), container);
             }
         }
         Ok(read)
     }
 
     /// The board or wiki, if it is of this handle's workspace and the user reads it:
-    /// what [`App::board_access`] grants, as every route to a board asks.
+    /// what [`App::container_access`] grants, as every route to a board asks.
     ///
     /// A template the server ships with is every workspace's to read and of none: what
     /// is on it is not of this workspace, and no reference of this workspace shows it.
-    async fn board_read(&self, user_id: &str, board_id: &str) -> Result<Option<Board>, AppError> {
-        let access = self.board_access(user_id, board_id).await?;
+    async fn container_read(
+        &self,
+        user_id: &str,
+        container_id: &str,
+    ) -> Result<Option<Container>, AppError> {
+        let access = self.container_access(user_id, container_id).await?;
         Ok(access
             .filter(|access| {
-                access.grant.reads() && self.reaches_workspace(&access.board.workspace_id)
+                access.grant.reads() && self.reaches_workspace(&access.container.workspace_id)
             })
-            .map(|access| access.board))
+            .map(|access| access.container))
     }
 }
 
 /// The blocks as a reference shows them, each with the board it is on.
-fn linked(blocks: &[Block], boards: &BTreeMap<String, Board>) -> Vec<LinkedBlock> {
+fn linked(blocks: &[Block], containers: &BTreeMap<String, Container>) -> Vec<LinkedBlock> {
     blocks
         .iter()
-        .filter_map(|block| LinkedBlock::of(block, boards.get(&block.board_id)?))
+        .filter_map(|block| LinkedBlock::of(block, containers.get(&block.container_id)?))
         .collect()
 }

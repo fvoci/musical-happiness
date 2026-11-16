@@ -25,7 +25,7 @@ async function open() {
   const made = await openFirstBoard();
   const { board, backend } = made;
   const stored = async (): Promise<PropertyTemplate[]> =>
-    (await backend.board(board.boardId)).cardProperties;
+    (await backend.container(board.boardId)).cardProperties;
   const definition = (id: string): PropertyTemplate | undefined =>
     board.board?.cardProperties.find((template) => template.id === id);
   const view = board.orderedViews[0];
@@ -90,7 +90,7 @@ describe('adding a property', () => {
 
   it('answers with nothing when the board refuses it', async () => {
     const { board, backend, workspace, view } = await open();
-    backend.failNext('patchBoard', new BackendError(403));
+    backend.failNext('patchContainer', new BackendError(403));
     expect(await addProperty(board, view, 'text', 'Text')).toBeUndefined();
     expect(board.board?.cardProperties).toHaveLength(2);
     expect(workspace.problems.at(-1)?.action).toBe('save');
@@ -193,10 +193,10 @@ describe('changing the kind of a property', () => {
     const before = await stored();
     expect(before).toBeDefined();
 
-    backend.failNext('patchBoard', new BackendError(403));
+    backend.failNext('patchContainer', new BackendError(403));
     await changePropertyType(board, planTypeChange(template, 'text', board.cards));
     expect(
-      (await backend.board(board.boardId)).cardProperties.find((p) => p.id === STATUS)?.type,
+      (await backend.container(board.boardId)).cardProperties.find((p) => p.id === STATUS)?.type,
     ).toBe('relation');
     expect(await stored()).toEqual(before);
 
@@ -248,13 +248,13 @@ describe('changing the kind of a property', () => {
     const { board, backend, view, definition, cardNamed } = await open();
     const template = definition(STATUS);
     if (!template) throw new Error('no status');
-    backend.failNext('patchBoard', new BackendError(403));
+    backend.failNext('patchContainer', new BackendError(403));
     await changePropertyType(board, planTypeChange(template, 'text', board.cards));
     expect(definition(STATUS)?.type).toBe('select');
     expect(board.view(view.id)?.fields.groupById).toBe(STATUS);
     expect(cardNamed('Alpha').fields.properties[STATUS]).toBe('todo');
 
-    backend.failNext('patchBoard', new BackendError(403));
+    backend.failNext('patchContainer', new BackendError(403));
     await changePropertyType(board, planTypeChange(template, 'relation', board.cards));
     expect(definition(STATUS)?.type).toBe('select');
     const alpha = await backend.card(board.boardId, cardNamed('Alpha').id);
@@ -299,7 +299,7 @@ describe('deleting a property', () => {
 
   it('keeps the views when the board refuses', async () => {
     const { board, backend, view, definition } = await open();
-    backend.failNext('patchBoard', new BackendError(403));
+    backend.failNext('patchContainer', new BackendError(403));
     await deleteProperty(board, STATUS);
     expect(definition(STATUS)).toBeDefined();
     expect(board.view(view.id)?.fields.groupById).toBe(STATUS);
@@ -353,7 +353,7 @@ describe('the options of a select, as its editor reports them', () => {
 
   it('refuses to hand back an option the board did not take', async () => {
     const { board, backend } = await open();
-    backend.failNext('patchBoard', new BackendError(403));
+    backend.failNext('patchContainer', new BackendError(403));
     await expect(optionCallbacks(board, STATUS).onCreateOption('Blocked')).rejects.toThrow();
   });
 

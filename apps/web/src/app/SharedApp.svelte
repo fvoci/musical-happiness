@@ -14,7 +14,7 @@
   import { setFileUrlResolver } from '$lib/editor/files.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardKind } from '$lib/logic/wire.ts';
+  import type { ContainerKind } from '$lib/logic/wire.ts';
   import { isBackendError, Workspace, type Backend } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
@@ -35,7 +35,7 @@
    * nothing (a wrong token, a link turned off), `failed` for a reading that did
    * not come, to try again.
    */
-  let kind = $state<BoardKind | 'missing' | 'failed' | undefined>(undefined);
+  let kind = $state<ContainerKind | 'missing' | 'failed' | undefined>(undefined);
   /** Reads what the link opens (again, after a reading that failed). */
   let readKind: (() => Promise<void>) | undefined;
   /** The title at the head of the page: the board's, as its screen reads it, or the wiki's. */
@@ -69,7 +69,7 @@
         readKind = async () => {
           kind = undefined;
           try {
-            const opened = await read.board(boardId);
+            const opened = await read.container(boardId);
             if (isLeft()) return;
             kind = opened.kind ?? 'board';
             if (opened.kind === 'wiki') wiki = { title: opened.title, icon: opened.icon ?? '' };

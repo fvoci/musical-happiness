@@ -306,10 +306,10 @@ test('a reader who may not change the view zooms for the visit, and the view sta
     };
     const author = dev.someoneElse?.() ?? dev.backend;
     // Two dated cards, the second after the first and starting before it ends.
-    const board = await author.board(boardId);
+    const board = await author.container(boardId);
     const due = board.cardProperties.find((property) => property.name === 'Due Date');
     if (!due) throw new Error('the board has no Due Date');
-    await author.patchBoard(boardId, {
+    await author.patchContainer(boardId, {
       updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
     });
     const one = await author.createCard(boardId, {

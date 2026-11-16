@@ -16,19 +16,20 @@ use utoipa_axum::routes;
 
 use super::archive::require_import_access;
 use super::contract::bodies::Binary;
-use super::contract::params::MemberWorkspaceId;
-use super::contract::params::{BoardId, ContentDigest, PartNumber, UploadId, WorkspaceId};
+use super::contract::params::{
+    ContainerId, ContentDigest, MemberWorkspaceId, PartNumber, UploadId, WorkspaceId,
+};
 use super::contract::tag;
 use super::files::UploadedFile;
 use super::limits::discard;
-use super::workspace::WsModule;
+use super::workspace::InContainer;
 use super::{
     ApiResult, RequiredSession, body::decode_object, created, json_response, no_content,
-    require_board_permission,
+    require_container_permission,
 };
 use crate::app::{App, FileToUpload, PartDigest};
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::permissions::ContainerPermission;
 
 /// What is refused to a user who may not upload files to the board.
 const DENIAL: &str = "access denied to make board changes";
@@ -79,7 +80,7 @@ struct UploadState {
     #[schema(inline)]
     purpose: Purpose,
     /// The board the file is for; empty for an archive.
-    board_id: String,
+    container_id: String,
     /// The workspace the archive is for; empty for a file.
     workspace_id: String,
     /// The name of the file.
@@ -134,7 +135,7 @@ impl UploadState {
                 UploadPurpose::File => Purpose::File,
                 UploadPurpose::Import => Purpose::Import,
             },
-            board_id: upload.board_id,
+            container_id: upload.container_id,
             workspace_id: upload.workspace_id,
             name: upload.name,
             size: upload.size,
@@ -180,24 +181,24 @@ pub(super) fn part_routes() -> OpenApiRouter<App> {
 /// `uploadFile`.
 #[utoipa::path(
     post,
-    path = "/w/{workspaceId}/boards/{boardId}/uploads",
+    path = "/w/{workspaceId}/containers/{containerId}/uploads",
     operation_id = "createUpload",
     tag = tag::FILES,
-    params(MemberWorkspaceId, BoardId),
+    params(MemberWorkspaceId, ContainerId),
     request_body = NewUpload,
     responses((status = 201, description = "The upload is open.", body = UploadOpened)),
 )]
 async fn handle_create_upload(
-    WsModule(ws): WsModule,
-    Path((_, board_id)): Path<(String, String)>,
+    InContainer(ws): InContainer,
+    Path((_, container_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
-    require_board_permission(
+    require_container_permission(
         &ws.app,
         user_id,
-        &board_id,
-        BoardPermission::ManageBoardCards,
+        &container_id,
+        ContainerPermission::ManageCards,
         DENIAL,
     )
     .await?;
@@ -210,7 +211,7 @@ async fn handle_create_upload(
         .app
         .create_upload(
             user_id,
-            &board_id,
+            &container_id,
             FileToUpload {
                 name,
                 size,
@@ -278,7 +279,7 @@ async fn handle_create_import_upload(
     responses((status = 200, description = "The upload.", body = UploadState)),
 )]
 async fn handle_get_upload(
-    WsModule(ws): WsModule,
+    InContainer(ws): InContainer,
     Path((_, upload_id)): Path<(String, String)>,
 ) -> ApiResult {
     let (upload, parts) = ws
@@ -309,7 +310,7 @@ async fn handle_get_upload(
     responses((status = 204, description = "The part is received.")),
 )]
 async fn handle_put_upload_part(
-    WsModule(ws): WsModule,
+    InContainer(ws): InContainer,
     Path((_, upload_id, number)): Path<(String, String, String)>,
     headers: HeaderMap,
     body: Body,
@@ -357,7 +358,7 @@ async fn handle_put_upload_part(
     responses((status = 201, description = "The file is stored.", body = UploadedFile)),
 )]
 async fn handle_complete_upload(
-    WsModule(ws): WsModule,
+    InContainer(ws): InContainer,
     Path((_, upload_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = ws.session.user_id.as_str();
@@ -368,11 +369,11 @@ async fn handle_complete_upload(
         )
         .with_parameter("uploadId"));
     }
-    if let Err(refusal) = require_board_permission(
+    if let Err(refusal) = require_container_permission(
         &ws.app,
         user_id,
-        &upload.board_id,
-        BoardPermission::ManageBoardCards,
+        &upload.container_id,
+        ContainerPermission::ManageCards,
         DENIAL,
     )
     .await
@@ -403,7 +404,7 @@ async fn handle_complete_upload(
     responses((status = 204, description = "The upload is gone.")),
 )]
 async fn handle_delete_upload(
-    WsModule(ws): WsModule,
+    InContainer(ws): InContainer,
     Path((_, upload_id)): Path<(String, String)>,
 ) -> ApiResult {
     let (upload, _) = ws

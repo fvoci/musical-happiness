@@ -1,13 +1,15 @@
 //! Signing up with the name of an organization, and the links that let others into it.
 
-use fvoci_model::{Board, BoardType, INVITATION_LIFETIME_MILLIS, Invitation, UserWorkspace};
+use fvoci_model::{
+    Container, ContainerType, INVITATION_LIFETIME_MILLIS, Invitation, UserWorkspace,
+};
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::common::{
-    ApiResponse, Client, ORG_NAME, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer,
+    ApiResponse, Client, ORG_NAME, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, container_path,
 };
 
 fn open(config: &mut fvoci_server::config::Configuration) {
@@ -178,15 +180,15 @@ async fn two_organizations() -> TwoOrganizations {
 }
 
 /// Makes a board of the workspace that is open to its members.
-async fn open_board(client: &Client, workspace_id: &str) -> Board {
-    let board: Board = client
+async fn open_board(client: &Client, workspace_id: &str) -> Container {
+    let board: Container = client
         .post(
             &format!("/w/{workspace_id}/boards"),
             &json!({"workspaceId": workspace_id, "type": "O", "title": "Open"}),
         )
         .await
         .created_json();
-    assert_eq!(board.board_type, BoardType::Open, "{board:?}");
+    assert_eq!(board.container_type, ContainerType::Open, "{board:?}");
     board
 }
 
@@ -214,11 +216,11 @@ async fn where_everybody_starts_an_organization_each_has_one_of_their_own() {
         format!("/w/{}", alpha.id),
         format!("/w/{}/boards", alpha.id),
         format!("/w/{}/users", alpha.id),
-        format!("/w/{}/boards/{}", board.workspace_id, board.id),
+        container_path(&board),
     ] {
         bob.get(&path).await.check_status(StatusCode::NOT_FOUND);
     }
-    let boards: Vec<Board> = bob.get(&format!("/w/{}/boards", beta.id)).await.ok_json();
+    let boards: Vec<Container> = bob.get(&format!("/w/{}/boards", beta.id)).await.ok_json();
     assert_eq!(boards, Vec::new(), "nothing of Alpha in Beta");
 
     // Behind the wall, each organization has its own rows and none of the other's.
@@ -229,7 +231,7 @@ async fn where_everybody_starts_an_organization_each_has_one_of_their_own() {
             ("workspaces", 1),
             ("organization_members", 1),
             ("workspace_members", 1),
-            ("boards", boards),
+            ("containers", boards),
         ] {
             assert_eq!(
                 store.count_rows(table).await.expect("the rows are counted"),
@@ -282,7 +284,7 @@ async fn who_accepts_a_link_of_another_organization_is_a_member_of_both() {
         beta,
     } = two_organizations().await;
     let board = open_board(&alice, &alpha.id).await;
-    bob.get(&format!("/w/{}/boards/{}", board.workspace_id, board.id))
+    bob.get(&container_path(&board))
         .await
         .check_status(StatusCode::NOT_FOUND);
 
@@ -327,9 +329,7 @@ async fn who_accepts_a_link_of_another_organization_is_a_member_of_both() {
             ),
         ]
     );
-    bob.get(&format!("/w/{}/boards/{}", board.workspace_id, board.id))
-        .await
-        .check_ok();
+    bob.get(&container_path(&board)).await.check_ok();
     let alphas = th
         .app
         .store()
@@ -372,10 +372,13 @@ async fn a_workspace_administrator_invites_members_by_a_link() {
     let before = links(&th).await;
     for (body, place) in [
         (json!({"role": "admin"}), "/role"),
-        (json!({"role": "member", "boardId": admin.id}), "/boardId"),
         (
-            json!({"role": "member", "boardRole": "editor"}),
-            "/boardRole",
+            json!({"role": "member", "containerId": admin.id}),
+            "/containerId",
+        ),
+        (
+            json!({"role": "member", "containerRole": "editor"}),
+            "/containerRole",
         ),
     ] {
         let refused = th.client.post(&invitations, &body).await;
@@ -401,7 +404,7 @@ async fn a_workspace_administrator_invites_members_by_a_link() {
         (None, 0),
         "as often as it is used"
     );
-    assert_eq!((&link.board_id, link.board_role), (&None, None));
+    assert_eq!((&link.container_id, link.container_role), (&None, None));
 
     // The store has the digest of the token, and the token nowhere.
     let stored = of_the_link(&th, &link.id, "token_hash").await;
@@ -600,7 +603,7 @@ async fn a_link_that_lets_nobody_in_answers_as_no_link_at_all() {
 
 /// Makes a board for the invited only in the root workspace, as `client`, who is its
 /// admin.
-async fn private_board(client: &Client, title: &str) -> Board {
+async fn private_board(client: &Client, title: &str) -> Container {
     client
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
@@ -612,9 +615,9 @@ async fn private_board(client: &Client, title: &str) -> Board {
 
 /// Asks for a link that invites a guest to the board, in `role` if one is named.
 async fn ask_for_a_guest_link(client: &Client, board_id: &str, role: Option<&str>) -> ApiResponse {
-    let mut body = json!({"role": "guest", "boardId": board_id});
+    let mut body = json!({"role": "guest", "containerId": board_id});
     if let Some(role) = role {
-        body["boardRole"] = json!(role);
+        body["containerRole"] = json!(role);
     }
     client
         .post(&format!("/w/{ROOT_WORKSPACE_ID}/invitations"), &body)
@@ -662,7 +665,7 @@ async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
     let third = th.add_user("third").await;
     let board = private_board(&th.client2, "Plans").await;
     let hidden = private_board(&th.client, "Not theirs").await;
-    let elsewhere: Board = th
+    let elsewhere: Container = th
         .client2
         .post(
             &format!("/w/{}/boards", crate::common::TEST_WORKSPACE_ID),
@@ -670,7 +673,7 @@ async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
         )
         .await
         .created_json();
-    let template: Board = th
+    let template: Container = th
         .client2
         .post(
             &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
@@ -689,13 +692,13 @@ async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
         )
         .await;
     no_board.check_bad_request();
-    assert_eq!(no_board.refused_at(), "/boardId");
+    assert_eq!(no_board.refused_at(), "/containerId");
     let too_much = ask_for_a_guest_link(&th.client2, &board.id, Some("admin")).await;
     too_much.check_bad_request();
-    assert_eq!(too_much.refused_at(), "/boardRole");
+    assert_eq!(too_much.refused_at(), "/containerRole");
     let to_a_template = ask_for_a_guest_link(&th.client2, &template.id, None).await;
     to_a_template.check_bad_request();
-    assert_eq!(to_a_template.refused_at(), "/boardId");
+    assert_eq!(to_a_template.refused_at(), "/containerId");
 
     // A board the user does not see, and one of another workspace, is not there.
     let absent = said(&ask_for_a_guest_link(&th.client2, crate::common::UNKNOWN_ID, None).await);
@@ -712,11 +715,11 @@ async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
     th.client2
         .add_member_in(
             &board.workspace_id,
-            &fvoci_model::BoardMember {
-                board_id: board.id.clone(),
+            &fvoci_model::ContainerMember {
+                container_id: board.id.clone(),
                 user_id: third.me().await.id,
                 scheme_editor: true,
-                ..fvoci_model::BoardMember::default()
+                ..fvoci_model::ContainerMember::default()
             },
         )
         .await
@@ -733,10 +736,10 @@ async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
     // administrator of the workspace, who is not on the board.
     let link = guest_link(&th.client2, &board.id).await;
     assert_eq!(link.role, fvoci_model::WorkspaceRole::Guest);
-    assert_eq!(link.board_id.as_deref(), Some(board.id.as_str()));
+    assert_eq!(link.container_id.as_deref(), Some(board.id.as_str()));
     assert_eq!(
-        link.board_role,
-        Some(fvoci_model::BoardRole::Editor),
+        link.container_role,
+        Some(fvoci_model::ContainerRole::Editor),
         "unless said"
     );
     assert_eq!((link.max_uses, link.uses), (Some(1), 0), "for one person");
@@ -747,8 +750,8 @@ async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
             .await
             .created_json();
     assert_eq!(
-        by_the_administrator.board_role,
-        Some(fvoci_model::BoardRole::Viewer)
+        by_the_administrator.container_role,
+        Some(fvoci_model::ContainerRole::Viewer)
     );
 
     th.teardown().await;
@@ -773,7 +776,7 @@ async fn a_guest_comes_in_by_a_link_onto_one_board() {
     preview.check_ok();
     assert_eq!(
         preview.value(),
-        json!({"workspaceName": ORG_NAME, "inviterName": inviter.username, "boardTitle": "Plans", "boardKind": "board"})
+        json!({"workspaceName": ORG_NAME, "inviterName": inviter.username, "containerTitle": "Plans", "containerKind": "board"})
     );
     let members_of_the_organization = async || {
         th.app
@@ -795,7 +798,7 @@ async fn a_guest_comes_in_by_a_link_onto_one_board() {
     accepted.check_ok();
     assert_eq!(
         accepted.value(),
-        json!({"workspaceId": ROOT_WORKSPACE_ID, "boardId": board.id, "boardKind": "board"})
+        json!({"workspaceId": ROOT_WORKSPACE_ID, "containerId": board.id, "containerKind": "board"})
     );
     let visitor = th.login("visitor", PASSWORD).await;
     assert_eq!(
@@ -807,26 +810,23 @@ async fn a_guest_comes_in_by_a_link_onto_one_board() {
         before,
         "a guest is no member of the organization"
     );
-    visitor
-        .get(&format!("/w/{}/boards/{}", board.workspace_id, board.id))
-        .await
-        .check_ok();
-    let member: fvoci_model::BoardMember = visitor
+    visitor.get(&container_path(&board)).await.check_ok();
+    let member: fvoci_model::ContainerMember = visitor
         .get(&format!(
-            "/w/{}/boards/{}/members",
+            "/w/{}/containers/{}/members",
             board.workspace_id, board.id
         ))
         .await
-        .ok_json::<Vec<fvoci_model::BoardMember>>()
+        .ok_json::<Vec<fvoci_model::ContainerMember>>()
         .into_iter()
         .find(|member| member.user_id != inviter.id)
         .expect("the guest is a member of the board");
     assert!(member.scheme_editor && !member.scheme_admin, "{member:?}");
     visitor
-        .get(&format!("/w/{}/boards/{}", other.workspace_id, other.id))
+        .get(&container_path(&other))
         .await
         .check_status(StatusCode::NOT_FOUND);
-    let boards: Vec<Board> = visitor
+    let boards: Vec<Container> = visitor
         .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
         .await
         .ok_json();
@@ -984,12 +984,12 @@ async fn a_link_for_a_guest_lets_in_while_its_maker_may_still_invite() {
     let users = th.app.registered_user_count().await.expect("the users");
 
     // The maker hands the board to somebody else and stays as an editor.
-    let as_member = |user_id: &str, admin: bool| fvoci_model::BoardMember {
-        board_id: board.id.clone(),
+    let as_member = |user_id: &str, admin: bool| fvoci_model::ContainerMember {
+        container_id: board.id.clone(),
         user_id: user_id.to_owned(),
         scheme_admin: admin,
         scheme_editor: !admin,
-        ..fvoci_model::BoardMember::default()
+        ..fvoci_model::ContainerMember::default()
     };
     let third_id = third.me().await.id;
     let maker_id = th.client2.me().await.id;
@@ -998,7 +998,7 @@ async fn a_link_for_a_guest_lets_in_while_its_maker_may_still_invite() {
         .await
         .check_ok();
     let role_of_the_maker = format!(
-        "/w/{}/boards/{}/members/{maker_id}",
+        "/w/{}/containers/{}/members/{maker_id}",
         board.workspace_id, board.id
     );
     third
@@ -1020,7 +1020,7 @@ async fn a_link_for_a_guest_lets_in_while_its_maker_may_still_invite() {
 
     // The board goes to the trash, and its links with it, for good.
     th.client2
-        .delete(&format!("/w/{}/boards/{}", board.workspace_id, board.id))
+        .delete(&container_path(&board))
         .await
         .check_no_content();
     assert!(lets_nobody_in(&th, &token).await, "no board");
@@ -1093,10 +1093,7 @@ async fn a_workspace_stops_inviting_guests_and_its_links_for_them_go() {
     );
     assert!(!lets_nobody_in(&th, for_members.token.as_deref().expect("a token")).await);
     // Who is a guest already stays one, on their board.
-    visitor
-        .get(&format!("/w/{}/boards/{}", board.workspace_id, board.id))
-        .await
-        .check_ok();
+    visitor.get(&container_path(&board)).await.check_ok();
 
     let on = th.client.put(&switch, &json!({"enabled": true})).await;
     on.check_ok();
@@ -1116,15 +1113,15 @@ async fn a_workspace_stops_inviting_guests_and_its_links_for_them_go() {
 async fn a_link_never_lowers_what_somebody_is_in_the_workspace() {
     let th = Setup::native().start().await.init_basic().await;
     let board = private_board(&th.client, "Plans").await;
-    let role_on_the_board = async |client: &Client| -> Option<fvoci_model::BoardRole> {
+    let role_on_the_board = async |client: &Client| -> Option<fvoci_model::ContainerRole> {
         let user_id = client.me().await.id;
         th.client
             .get(&format!(
-                "/w/{}/boards/{}/members",
+                "/w/{}/containers/{}/members",
                 board.workspace_id, board.id
             ))
             .await
-            .ok_json::<Vec<fvoci_model::BoardMember>>()
+            .ok_json::<Vec<fvoci_model::ContainerMember>>()
             .into_iter()
             .find(|member| member.user_id == user_id)
             .and_then(|member| member.role())
@@ -1143,7 +1140,7 @@ async fn a_link_never_lowers_what_somebody_is_in_the_workspace() {
     accept(&th.client, &as_viewer).await.check_ok();
     assert_eq!(
         role_on_the_board(&th.client).await,
-        Some(fvoci_model::BoardRole::Admin)
+        Some(fvoci_model::ContainerRole::Admin)
     );
     assert_eq!(
         role_in_the_root_workspace(&th.client).await,
@@ -1157,7 +1154,7 @@ async fn a_link_never_lowers_what_somebody_is_in_the_workspace() {
     accepted.check_ok();
     assert_eq!(
         accepted.value(),
-        json!({"workspaceId": ROOT_WORKSPACE_ID, "boardId": board.id, "boardKind": "board"})
+        json!({"workspaceId": ROOT_WORKSPACE_ID, "containerId": board.id, "containerKind": "board"})
     );
     assert_eq!(
         role_in_the_root_workspace(&th.client2).await,
@@ -1165,7 +1162,7 @@ async fn a_link_never_lowers_what_somebody_is_in_the_workspace() {
     );
     assert_eq!(
         role_on_the_board(&th.client2).await,
-        Some(fvoci_model::BoardRole::Viewer)
+        Some(fvoci_model::ContainerRole::Viewer)
     );
 
     // A guest of the board accepts a link for members: a member, with the board.
@@ -1190,7 +1187,7 @@ async fn a_link_never_lowers_what_somebody_is_in_the_workspace() {
     );
     assert_eq!(
         role_on_the_board(&visitor).await,
-        Some(fvoci_model::BoardRole::Editor)
+        Some(fvoci_model::ContainerRole::Editor)
     );
     assert_eq!(of_the_link(&th, &for_members.id, "uses").await, ["1"]);
     // And a guest's link after that does not make them a guest again.
@@ -1269,7 +1266,7 @@ async fn a_guest_let_in_by_a_manager_who_does_not_read_the_board_is_on_the_recor
         records().await,
         [(
             manager_id.clone(),
-            fvoci_model::AuditAction::AddedToBoard,
+            fvoci_model::AuditAction::AddedToContainer,
             board.id.clone(),
             guest_id.clone(),
         )]
@@ -1278,7 +1275,7 @@ async fn a_guest_let_in_by_a_manager_who_does_not_read_the_board_is_on_the_recor
     let members = th
         .app
         .store()
-        .get_members_for_board(&board.id)
+        .get_members_for_container(&board.id)
         .await
         .expect("the members of the board");
     assert!(
@@ -1349,7 +1346,7 @@ async fn a_guest_comes_in_by_a_link_onto_one_wiki() {
         .to_owned();
     let refused = ask_for_a_guest_link(&th.client2, &wiki, Some("admin")).await;
     refused.check_bad_request();
-    assert_eq!(refused.refused_at(), "/boardRole");
+    assert_eq!(refused.refused_at(), "/containerRole");
     let of_elsewhere = ask_for_a_guest_link(&th.client2, &elsewhere, None).await;
     let of_nothing = ask_for_a_guest_link(&th.client2, crate::common::UNKNOWN_ID, None).await;
     of_elsewhere.check_not_found();
@@ -1357,10 +1354,10 @@ async fn a_guest_comes_in_by_a_link_onto_one_wiki() {
     // Who reads the wiki and does not add its members makes no link to it.
     let reader = th.add_user("wiki.reader").await;
     let reader_id = reader.me().await.id;
-    let member = json!({"boardId": wiki, "userId": reader_id, "schemeViewer": true});
+    let member = json!({"containerId": wiki, "userId": reader_id, "schemeViewer": true});
     th.client2
         .post(
-            &format!("/w/{ROOT_WORKSPACE_ID}/boards/{wiki}/members"),
+            &format!("/w/{ROOT_WORKSPACE_ID}/containers/{wiki}/members"),
             &member,
         )
         .await
@@ -1378,8 +1375,8 @@ async fn a_guest_comes_in_by_a_link_onto_one_wiki() {
         .post("/invitations/preview", &json!({"token": token}))
         .await
         .ok_json();
-    assert_eq!(preview["boardTitle"], json!("Handbook"));
-    assert_eq!(preview["boardKind"], json!("wiki"));
+    assert_eq!(preview["containerTitle"], json!("Handbook"));
+    assert_eq!(preview["containerKind"], json!("wiki"));
     let accepted = th
         .anonymous()
         .post(
@@ -1390,14 +1387,14 @@ async fn a_guest_comes_in_by_a_link_onto_one_wiki() {
     accepted.check_ok();
     assert_eq!(
         accepted.value(),
-        json!({"workspaceId": ROOT_WORKSPACE_ID, "boardId": wiki, "boardKind": "wiki"})
+        json!({"workspaceId": ROOT_WORKSPACE_ID, "containerId": wiki, "containerKind": "wiki"})
     );
     let guest = th.login("wiki.guest", PASSWORD).await;
     assert_eq!(
         role_in_the_root_workspace(&guest).await,
         Some(fvoci_model::WorkspaceRole::Guest)
     );
-    let wikis: Vec<Board> = guest
+    let wikis: Vec<Container> = guest
         .get(&format!("/w/{ROOT_WORKSPACE_ID}/wikis"))
         .await
         .ok_json();
@@ -1414,7 +1411,7 @@ async fn a_guest_comes_in_by_a_link_onto_one_wiki() {
             .await
             .check_not_found();
     }
-    let boards: Vec<Board> = guest
+    let boards: Vec<Container> = guest
         .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
         .await
         .ok_json();

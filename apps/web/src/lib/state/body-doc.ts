@@ -89,5 +89,5 @@ export interface DocRooms {
    * of a reader by a public link) has none of this: the body is read as it
    * was stored.
    */
-  openDoc?(workspaceId: string, boardId: string, cardId: string, hears: BodyDocHears): BodyDoc;
+  openDoc?(workspaceId: string, containerId: string, cardId: string, hears: BodyDocHears): BodyDoc;
 }

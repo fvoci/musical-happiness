@@ -147,7 +147,7 @@
   },
   {
     "name": "get",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -183,7 +183,7 @@
   },
   {
     "name": "get: non-member, private",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as boards-bob",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:4> as boards-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -197,7 +197,7 @@
   },
   {
     "name": "get: non-member, open",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:5> as boards-bob",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:5> as boards-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -224,7 +224,7 @@
   },
   {
     "name": "get: anonymous",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as anonymous",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:4> as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -238,7 +238,7 @@
   },
   {
     "name": "get: unknown board",
-    "request": "GET /api/v1/w/<id:1>/boards/unknown-board as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/unknown-board as boards-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -361,7 +361,7 @@
   },
   {
     "name": "metadata",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:4>/metadata as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:4>/metadata as boards-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -375,7 +375,7 @@
   },
   {
     "name": "patch",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -418,7 +418,7 @@
   },
   {
     "name": "patch: delete properties",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -454,7 +454,7 @@
   },
   {
     "name": "patch: non-member",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-bob",
+    "request": "PATCH /api/v1/w/<id:1>/containers/<id:4> as boards-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -468,7 +468,7 @@
   },
   {
     "name": "patch: bad type",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -482,7 +482,7 @@
   },
   {
     "name": "patch: to open",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -518,7 +518,7 @@
   },
   {
     "name": "patch: back to private",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -554,7 +554,7 @@
   },
   {
     "name": "patch: minimum role",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:5> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers/<id:5> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -581,7 +581,7 @@
   },
   {
     "name": "patch: unknown board",
-    "request": "PATCH /api/v1/w/<id:1>/boards/unknown-board as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers/unknown-board as boards-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -595,7 +595,7 @@
   },
   {
     "name": "patch: malformed body",
-    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -609,7 +609,7 @@
   },
   {
     "name": "get after patches",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -650,8 +650,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:4>",
         "body": null,
+        "containerId": "<id:4>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -670,14 +670,14 @@
   },
   {
     "name": "duplicate",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/duplicate as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:4>/duplicate as boards-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
       "blocks": [
         {
-          "boardId": "<id:7>",
           "body": null,
+          "containerId": "<id:7>",
           "createAt": "<ts>",
           "createdBy": "<id:2>",
           "deleteAt": 0,
@@ -693,7 +693,7 @@
           "updateAt": "<ts>"
         }
       ],
-      "boards": [
+      "containers": [
         {
           "cardProperties": [
             {
@@ -729,14 +729,14 @@
   },
   {
     "name": "duplicate as template",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/duplicate?asTemplate=true as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:4>/duplicate?asTemplate=true as boards-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
       "blocks": [
         {
-          "boardId": "<id:9>",
           "body": null,
+          "containerId": "<id:9>",
           "createAt": "<ts>",
           "createdBy": "<id:2>",
           "deleteAt": 0,
@@ -752,7 +752,7 @@
           "updateAt": "<ts>"
         }
       ],
-      "boards": [
+      "containers": [
         {
           "cardProperties": [
             {
@@ -788,7 +788,7 @@
   },
   {
     "name": "duplicate: non-member",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/duplicate as boards-bob",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:4>/duplicate as boards-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -802,7 +802,7 @@
   },
   {
     "name": "duplicate: unknown board",
-    "request": "POST /api/v1/w/<id:1>/boards/unknown-board/duplicate as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/unknown-board/duplicate as boards-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -821,8 +821,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:7>",
         "body": null,
+        "containerId": "<id:7>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
@@ -841,7 +841,7 @@
   },
   {
     "name": "delete: non-member",
-    "request": "DELETE /api/v1/w/<id:1>/boards/<id:4> as boards-bob",
+    "request": "DELETE /api/v1/w/<id:1>/containers/<id:4> as boards-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -855,13 +855,13 @@
   },
   {
     "name": "delete",
-    "request": "DELETE /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
+    "request": "DELETE /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "get deleted",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -875,7 +875,7 @@
   },
   {
     "name": "delete again",
-    "request": "DELETE /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
+    "request": "DELETE /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -889,7 +889,7 @@
   },
   {
     "name": "undelete: other user",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/undelete as boards-bob",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:4>/undelete as boards-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -903,7 +903,7 @@
   },
   {
     "name": "undelete",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/undelete as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:4>/undelete as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -939,7 +939,7 @@
   },
   {
     "name": "get undeleted",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -980,8 +980,8 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:4>",
         "body": null,
+        "containerId": "<id:4>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,

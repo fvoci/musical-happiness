@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use futures_util::SinkExt as _;
-use fvoci_model::{Block, BlockType, BoardType, OrgRole, WorkspaceRole, new_id};
+use fvoci_model::{Block, BlockType, ContainerType, OrgRole, WorkspaceRole, new_id};
 use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, SharingChange};
 use serde_json::{Value, json};
@@ -45,11 +45,13 @@ async fn checked_again_after(
 /// The first organization's board is shared, its link turned off, a workspace of it
 /// trashed and its administrator logged out.
 async fn first_organization_takes_back(ts: &TestServer) {
-    let shared = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let shared = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     ts.share(&shared.id).await;
     ts.client
         .post(
-            &format!("/w/{TEST_WORKSPACE_ID}/boards/{}/sharing", shared.id),
+            &format!("/w/{TEST_WORKSPACE_ID}/containers/{}/sharing", shared.id),
             &json!({"enabled": false}),
         )
         .await
@@ -108,13 +110,13 @@ async fn one_organizations_links_do_not_check_anothers_reader_again() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let (theirs, their_workspace, their_board) = crate::workspaces::another_organization(&ts).await;
     let owner = theirs
-        .get_board(&their_board)
+        .get_container(&their_board)
         .await
         .expect("their board")
         .created_by;
     let mut card = Block {
         id: new_id(),
-        board_id: their_board.clone(),
+        container_id: their_board.clone(),
         block_type: BlockType::Card,
         ..Block::default()
     };

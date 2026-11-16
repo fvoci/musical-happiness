@@ -67,7 +67,7 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 29] = [
     // The card is no comment, and has no versions of one.
     "getCommentVersions",
     // The board is not in the trash, nor the card, nor the wiki's page, nor its comment.
-    "undeleteBoard",
+    "undeleteContainer",
     "undeleteBlock",
     "undeletePage",
     "undeletePageComment",
@@ -99,8 +99,8 @@ fn operations() -> Vec<(String, String, String)> {
     let rank = |id: &str| match id {
         "logout" => 3,
         "changePassword" => 2,
-        "leaveBoard"
-        | "deleteBoard"
+        "leaveContainer"
+        | "deleteContainer"
         | "deleteBlock"
         | "deletePage"
         | "deleteBoardsAndBlocks"
@@ -117,8 +117,8 @@ fn operations() -> Vec<(String, String, String)> {
 impl Named {
     fn path(&self, template: &str) -> String {
         // The pages of a link are read by the wiki's link, its other routes by the board's.
-        let template = if template.starts_with("/api/v1/shared/{boardId}/pages") {
-            template.replacen("{boardId}", &self.wiki, 1)
+        let template = if template.starts_with("/api/v1/shared/{containerId}/pages") {
+            template.replacen("{containerId}", &self.wiki, 1)
         } else {
             template.to_owned()
         };
@@ -126,6 +126,7 @@ impl Named {
             .trim_start_matches("/api/v1")
             .replace("{workspaceId}", &self.workspace)
             .replace("{orgId}", &self.org)
+            .replace("{containerId}", &self.board)
             .replace("{boardId}", &self.board)
             .replace("{cardId}", &self.card)
             .replace("{blockId}", &self.card)
@@ -167,7 +168,7 @@ impl Named {
                 !path.contains('{'),
                 "unfilled parameter of {operation}: {path}"
             );
-            let path = if template.starts_with("/api/v1/shared/{boardId}/pages") {
+            let path = if template.starts_with("/api/v1/shared/{containerId}/pages") {
                 format!("{path}?readToken={}", self.wiki_token)
             } else if template.starts_with("/api/v1/shared/") {
                 format!("{path}?readToken={}", self.read_token)
@@ -223,7 +224,7 @@ async fn organization(server: &TestServer, name: &str) -> Named {
     write_a_body(&founder, &at, &card).await;
     let file = Client::send(
         founder
-            .request(Method::POST, &format!("{at}/boards/{board}/files"))
+            .request(Method::POST, &format!("{at}/containers/{board}/files"))
             .multipart(Form::new().part("file", Part::bytes(b"of it".to_vec()).file_name("a.txt"))),
     )
     .await
@@ -234,14 +235,14 @@ async fn organization(server: &TestServer, name: &str) -> Named {
     let categories = member.get(&format!("{at}/categories")).await.value();
     let sharing = founder
         .post(
-            &format!("{at}/boards/{board}/sharing"),
+            &format!("{at}/containers/{board}/sharing"),
             &json!({"enabled": true}),
         )
         .await
         .value();
     let wiki_sharing = founder
         .post(
-            &format!("{at}/boards/{wiki}/sharing"),
+            &format!("{at}/containers/{wiki}/sharing"),
             &json!({"enabled": true}),
         )
         .await
@@ -249,7 +250,7 @@ async fn organization(server: &TestServer, name: &str) -> Named {
     // On the board and the wiki, the member asks what their members are asked.
     for joined in [&board, &wiki] {
         member
-            .post(&format!("{at}/boards/{joined}/join"), &json!({}))
+            .post(&format!("{at}/containers/{joined}/join"), &json!({}))
             .await
             .check_ok();
     }
@@ -264,7 +265,7 @@ async fn organization(server: &TestServer, name: &str) -> Named {
         .check_created();
     let upload = member
         .post(
-            &format!("{at}/boards/{board}/uploads"),
+            &format!("{at}/containers/{board}/uploads"),
             &json!({"name": "later.bin", "size": 1}),
         )
         .await
@@ -395,7 +396,7 @@ async fn team_on_board(founder: &Client, at: &str, board: &str, member_id: &str)
         .check_no_content();
     founder
         .put(
-            &format!("{at}/boards/{board}/teams/{team}"),
+            &format!("{at}/containers/{board}/teams/{team}"),
             &json!({"role": "viewer"}),
         )
         .await
@@ -463,7 +464,7 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getCategories",
         "getWorkspaceBoards",
         "searchWorkspaceBoards",
-        "getBoard",
+        "getContainer",
         "getBlocks",
         "getCards",
         "getCard",
@@ -477,7 +478,7 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getCardBodyVersions",
         "getCardBodyVersion",
         "getUpload",
-        "getSharedBoard",
+        "getSharedContainer",
         "getSharedCards",
         "getSharedPageTree",
         "getSharedPage",

@@ -100,8 +100,8 @@ async fn the_trash_of_a_wiki_is_its_editors_and_held_to_the_limits() {
     let other = ts.client2.me().await.id;
     client
         .post(
-            &format!("{TEST_WS}/boards/{wiki_id}/members"),
-            &json!({"boardId": wiki_id, "userId": other, "schemeViewer": true}),
+            &format!("{TEST_WS}/containers/{wiki_id}/members"),
+            &json!({"containerId": wiki_id, "userId": other, "schemeViewer": true}),
         )
         .await
         .check_ok();

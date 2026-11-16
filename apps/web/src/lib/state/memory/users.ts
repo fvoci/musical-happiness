@@ -1,7 +1,7 @@
 /** The memory directory distinguishes current members from the authors of readable work. */
 import type { User } from '../backend.ts';
 
-import { isOpenWiki } from './board-access.ts';
+import { isOpenWiki } from './container-access.ts';
 import { roleOn } from './comments.ts';
 import { fail } from './refuse.ts';
 import { copy, scramble } from './shapes.ts';
@@ -28,7 +28,7 @@ export function usersAmong(world: World): User[] {
 export function usersNamed(world: World, readerId: string, userIds: readonly string[]): User[] {
   if (!world.workspaceMembers.has(readerId)) fail(404, 'no such workspace');
   const visible = new Set(world.workspaceMembers);
-  for (const board of world.boards.values()) {
+  for (const board of world.containers.values()) {
     if (board.workspaceId !== world.workspace.id) continue;
     const role = roleOn(world.members.get(board.id) ?? [], readerId);
     if (!role && !(board.isTemplate && board.type === 'O') && !isOpenWiki(board)) continue;
@@ -42,7 +42,7 @@ export function usersNamed(world: World, readerId: string, userIds: readonly str
       }
     }
     for (const deleted of world.deletedBlocks.values()) {
-      if (deleted.boardId !== board.id) continue;
+      if (deleted.containerId !== board.id) continue;
       for (const block of deleted.blocks) {
         if (block.type !== 'comment') continue;
         for (const version of world.commentVersions.get(block.id) ?? [])

@@ -52,7 +52,7 @@ test('cards picked into a relation are stored as a list of identifiers and stay 
       { title: 'Build the walls', status: 'To do' },
     ],
   });
-  const defined = await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
+  const defined = await api.patch(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}`, {
     data: {
       updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
     },
@@ -116,8 +116,8 @@ test('a relation made on the page from a card, and the cards picked into it, sta
   const fill = board.cards['Fill the trench'] ?? '';
   /** The definition of "After" as the server keeps it, once the page has made it. */
   const defined = async (): Promise<{ id: string; type: string } | undefined> => {
-    const answer = await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`);
-    const properties = ((await answer.json()) as Schemas['Board']).cardProperties as {
+    const answer = await api.get(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}`);
+    const properties = ((await answer.json()) as Schemas['Container']).cardProperties as {
       id: string;
       name: string;
       type: string;
@@ -186,7 +186,7 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
     title: 'Copied relations',
     cards: [{ title: 'Lay the floor' }, { title: 'Paint the walls' }],
   });
-  const defined = await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
+  const defined = await api.patch(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}`, {
     data: {
       updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
     },
@@ -201,7 +201,7 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
   const gantt = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
-        boardId: board.boardId,
+        containerId: board.boardId,
         type: 'view',
         title: 'Plan',
         createAt: 1,
@@ -212,10 +212,12 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
   });
   expect(gantt.ok(), await gantt.text()).toBe(true);
 
-  const copied = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/duplicate`);
+  const copied = await api.post(
+    `/api/v1/w/${board.workspaceId}/containers/${board.boardId}/duplicate`,
+  );
   expect(copied.ok(), await copied.text()).toBe(true);
-  const copy = (await copied.json()) as Schemas['BoardsAndBlocks'];
-  const copyId = copy.boards[0]?.id ?? '';
+  const copy = (await copied.json()) as Schemas['ContainersAndBlocks'];
+  const copyId = copy.containers[0]?.id ?? '';
   const blocks = (await (
     await api.get(`/api/v1/w/${board.workspaceId}/boards/${copyId}/blocks`)
   ).json()) as Schemas['Block'][];

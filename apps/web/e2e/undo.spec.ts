@@ -19,9 +19,9 @@ interface Dev {
   fvociDev: {
     backend: {
       latency: number;
-      patchBoard: (...args: unknown[]) => Promise<unknown>;
+      patchContainer: (...args: unknown[]) => Promise<unknown>;
       failNext: (method: string, error: Error) => void;
-      world: { boards: Map<string, { title: string }> };
+      world: { containers: Map<string, { title: string }> };
     };
     workspace: { board: { boardId: string } };
   };
@@ -37,7 +37,7 @@ interface Pressed {
 function stored(page: Page): Promise<string> {
   return page.evaluate(() => {
     const { fvociDev } = window as unknown as Dev;
-    return fvociDev.backend.world.boards.get(fvociDev.workspace.board.boardId)?.title ?? '';
+    return fvociDev.backend.world.containers.get(fvociDev.workspace.board.boardId)?.title ?? '';
   });
 }
 
@@ -55,7 +55,7 @@ async function recordPresses(page: Page): Promise<() => Promise<Pressed[]>> {
     (window as unknown as { presses: Pressed[] }).presses = presses;
     window.addEventListener('keydown', (event) => {
       if (event.key.toLowerCase() !== 'z' || !(event.ctrlKey || event.metaKey)) return;
-      const board = fvociDev.backend.world.boards.get(fvociDev.workspace.board.boardId);
+      const board = fvociDev.backend.world.containers.get(fvociDev.workspace.board.boardId);
       const press = { stored: board?.title ?? '', busy: false };
       presses.push(press);
       queueMicrotask(() => {
@@ -83,12 +83,12 @@ async function openSlow(page: Page): Promise<void> {
 async function holdNextWrite(page: Page): Promise<{ release: () => Promise<void> }> {
   await page.evaluate(() => {
     const { backend } = (window as unknown as Dev).fvociDev;
-    const write = backend.patchBoard.bind(backend);
+    const write = backend.patchContainer.bind(backend);
     const held = new Promise<void>((resolve) => {
       (window as unknown as { releaseWrite: () => void }).releaseWrite = resolve;
     });
-    backend.patchBoard = async (...args: unknown[]) => {
-      backend.patchBoard = write;
+    backend.patchContainer = async (...args: unknown[]) => {
+      backend.patchContainer = write;
       await held;
       return write(...args);
     };
@@ -104,7 +104,7 @@ async function holdNextWrite(page: Page): Promise<{ release: () => Promise<void>
 function refuseNextWrite(page: Page): Promise<void> {
   return page.evaluate(() => {
     (window as unknown as Dev).fvociDev.backend.failNext(
-      'patchBoard',
+      'patchContainer',
       new Error('refused by the test'),
     );
   });

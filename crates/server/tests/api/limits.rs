@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::BoardType;
+use fvoci_model::ContainerType;
 use reqwest::multipart::{Form, Part};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -72,7 +72,9 @@ async fn board_count(th: &TestServer) -> usize {
 #[tokio::test]
 async fn a_json_body_over_the_default_limit_is_refused_with_413() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
     let at_the_limit = json_of_length(DEFAULT_JSON_LIMIT);
     let response = th
@@ -85,7 +87,7 @@ async fn a_json_body_over_the_default_limit_is_refused_with_413() {
     let over = json_of_length(DEFAULT_JSON_LIMIT + 1);
     let routes = [
         (Method::POST, format!("{TEST_WS}/boards")),
-        (Method::PATCH, format!("{TEST_WS}/boards/{}", board.id)),
+        (Method::PATCH, format!("{TEST_WS}/containers/{}", board.id)),
         (
             Method::POST,
             format!("{TEST_WS}/boards/{}/blocks", board.id),
@@ -99,7 +101,7 @@ async fn a_json_body_over_the_default_limit_is_refused_with_413() {
         (Method::POST, format!("{TEST_WS}/subscriptions")),
         (Method::POST, format!("{TEST_WS}/users")),
         // A board nobody has: the body is refused before the board is looked for.
-        (Method::PATCH, format!("{TEST_WS}/boards/no-such-board")),
+        (Method::PATCH, format!("{TEST_WS}/containers/no-such-board")),
     ];
     for (method, path) in routes {
         let response = th.client.send_raw_body(method.clone(), &path, &over).await;
@@ -146,7 +148,8 @@ async fn the_json_limit_is_the_configured_one() {
     check_read_and_refused(&response);
 
     // A request that fits goes through as ever.
-    th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    th.create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     assert_eq!(board_count(&th).await, 1, "the board was created");
     th.teardown().await;
 }
@@ -184,7 +187,10 @@ async fn a_request_without_a_session_token_gets_the_small_limit_on_every_route()
     for (method, path) in [
         (Method::POST, &format!("{TEST_WS}/boards")),
         (Method::POST, &format!("{TEST_WS}/boards-and-blocks")),
-        (Method::PATCH, &format!("{TEST_WS}/boards/no-such-board")),
+        (
+            Method::PATCH,
+            &format!("{TEST_WS}/containers/no-such-board"),
+        ),
     ] {
         let response = anonymous
             .send_raw_body(
@@ -315,7 +321,9 @@ async fn uploads_are_not_behind_the_json_limit() {
         .await
         .init_basic()
         .await;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
     let part = Part::bytes(vec![b'x'; 8000])
         .file_name("larger.bin")
@@ -325,7 +333,7 @@ async fn uploads_are_not_behind_the_json_limit() {
         .client
         .request(
             Method::POST,
-            &format!("{TEST_WS}/boards/{}/files", board.id),
+            &format!("{TEST_WS}/containers/{}/files", board.id),
         )
         .multipart(Form::new().part("file", part));
     Client::send(request).await.check_created();

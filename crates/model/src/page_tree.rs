@@ -174,7 +174,7 @@ impl PageTree {
     ///
     /// # Errors
     ///
-    /// Returns [`BlockError::ParentNotOnBoard`] for a parent that is no page of the
+    /// Returns [`BlockError::ParentNotOnContainer`] for a parent that is no page of the
     /// tree, [`BlockError::PageTooDeep`] if the lowest of the pages would be deeper than
     /// the limit, and [`BlockError::TooManyPages`] if the tree would have more pages
     /// than it may.
@@ -186,7 +186,7 @@ impl PageTree {
         limits: PageLimits,
     ) -> Result<(), BlockError> {
         if !parent_id.is_empty() && !self.contains(parent_id) {
-            return Err(BlockError::ParentNotOnBoard);
+            return Err(BlockError::ParentNotOnContainer);
         }
         if self.depth(parent_id) + height > depth_limit(limits) {
             return Err(BlockError::PageTooDeep {
@@ -235,7 +235,7 @@ impl PageTree {
             return Err(BlockError::ParentBelowBlock);
         }
         if !parent_id.is_empty() && !self.contains(parent_id) {
-            return Err(BlockError::ParentNotOnBoard);
+            return Err(BlockError::ParentNotOnContainer);
         }
         let height = self.height(page_id);
         // Pages deeper than a limit lowered since may still move, as long as no deeper:
@@ -484,7 +484,7 @@ mod tests {
         assert_eq!(tree.check_move("b", "", roomy), Ok(()));
         assert_eq!(
             tree.check_move("b", "none", roomy),
-            Err(BlockError::ParentNotOnBoard)
+            Err(BlockError::ParentNotOnContainer)
         );
         // b and c below d are at depths 2 and 3; below c's place, deeper.
         assert_eq!(tree.check_move("b", "d", limits(3, 100)), Ok(()));
@@ -538,7 +538,7 @@ mod tests {
         assert_eq!(tree.check_move("c", "b", limits(1, 100)), Ok(()));
         assert_eq!(
             tree.check_move("c", "nowhere", limits(1, 100)),
-            Err(BlockError::ParentNotOnBoard)
+            Err(BlockError::ParentNotOnContainer)
         );
         // A page the tree does not have goes nowhere deeper than nothing.
         assert_eq!(tree.check_move("unknown", "", limits(1, 100)), Ok(()));

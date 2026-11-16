@@ -5,7 +5,7 @@
 //! invited only, an administrator who only manages it, or without a session.
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardKind, BoardMember, BoardType, NewPage, PageLimits,
+    Block, BlockType, Container, ContainerKind, ContainerMember, ContainerType, NewPage, PageLimits,
 };
 use reqwest::StatusCode;
 use serde_json::{Value, json};
@@ -112,14 +112,14 @@ pub(crate) async fn check_as_nothing(
 
 /// Puts `user_id` on the board or wiki as its viewer, as `admin`, who administers it.
 pub(crate) async fn let_read(admin: &Client, board_id: &str, user_id: &str) {
-    let member = BoardMember {
-        board_id: board_id.to_owned(),
+    let member = ContainerMember {
+        container_id: board_id.to_owned(),
         user_id: user_id.to_owned(),
         scheme_viewer: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     admin
-        .post(&format!("{TEST_WS}/boards/{board_id}/members"), &member)
+        .post(&format!("{TEST_WS}/containers/{board_id}/members"), &member)
         .await
         .check_ok();
 }
@@ -145,16 +145,16 @@ async fn a_reference_names_a_card_or_a_page_to_who_reads_it() {
         answer.value(),
         json!([
             {"id": mine.page, "kind": "page", "title": "The plan", "icon": "",
-                "boardId": mine.wiki, "boardKind": "wiki"},
+                "containerId": mine.wiki, "containerKind": "wiki"},
             {"id": mine.card, "kind": "card", "title": "The plan", "icon": "📌",
-                "boardId": mine.board, "boardKind": "board"},
+                "containerId": mine.board, "containerKind": "board"},
         ]),
     );
     assert_eq!(resolved(&th.client, TEST_WS, &[]).await.text(), "[]");
 
     // A comment, a view and the board itself are no card and no page.
     let others = [BlockType::Comment, BlockType::View].map(|block_type| Block {
-        board_id: mine.board.clone(),
+        container_id: mine.board.clone(),
         parent_id: mine.card.clone(),
         block_type,
         title: "neither".to_owned(),
@@ -238,7 +238,7 @@ async fn what_is_in_the_trash_is_resolved_as_nothing() {
     let other = made(&th.client, TEST_WS, "P", HIDDEN).await;
     for container in [&other.board, &other.wiki] {
         th.client
-            .delete(&format!("{TEST_WS}/boards/{container}"))
+            .delete(&format!("{TEST_WS}/containers/{container}"))
             .await
             .check_no_content();
     }
@@ -251,7 +251,7 @@ async fn what_is_in_the_trash_is_resolved_as_nothing() {
     )
     .await;
     th.client
-        .post_empty(&format!("{TEST_WS}/boards/{}/undelete", other.wiki))
+        .post_empty(&format!("{TEST_WS}/containers/{}/undelete", other.wiki))
         .await
         .check_ok();
     assert_eq!(
@@ -283,7 +283,10 @@ async fn what_a_member_is_not_on_is_resolved_as_nothing() {
 
     // Joined, and invited: each is told from then on, and the other stays nothing.
     member
-        .post(&format!("{TEST_WS}/boards/{}/join", open.board), &json!({}))
+        .post(
+            &format!("{TEST_WS}/containers/{}/join", open.board),
+            &json!({}),
+        )
         .await
         .check_ok();
     let_read(&th.client, &private.wiki, &member_id).await;
@@ -307,7 +310,7 @@ async fn what_a_member_is_not_on_is_resolved_as_nothing() {
     // Taken off again, it is nothing again.
     th.client
         .delete(&format!(
-            "{TEST_WS}/boards/{}/members/{member_id}",
+            "{TEST_WS}/containers/{}/members/{member_id}",
             private.wiki
         ))
         .await
@@ -333,11 +336,11 @@ async fn a_guest_is_told_what_it_was_invited_to_and_nothing_else() {
     );
     // A template for everybody who works in the workspace is read by its members, and
     // is not for a guest.
-    let template: Board = th
+    let template: Container = th
         .client
-        .create_board(&Board {
+        .create_board(&Container {
             is_template: true,
-            ..crate::boards::new_board(TEST_WORKSPACE_ID, BoardType::Open, HIDDEN)
+            ..crate::boards::new_board(TEST_WORKSPACE_ID, ContainerType::Open, HIDDEN)
         })
         .await
         .created_json();
@@ -370,7 +373,7 @@ async fn who_only_manages_is_told_nothing_of_what_is_on_it() {
     let admin = crate::workspace_admin::workspace_admin(&th).await;
     let own = made(&th.client2, TEST_WS, "P", "own").await;
     let private = made(&th.client, TEST_WS, "P", HIDDEN).await;
-    let managed: Vec<Board> = th.client2.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let managed: Vec<Container> = th.client2.get(&format!("{TEST_WS}/boards")).await.ok_json();
     assert!(
         managed.iter().any(|board| board.id == private.board),
         "the administrator sees the board"
@@ -421,11 +424,11 @@ async fn what_is_of_another_organization_is_resolved_as_nothing() {
     let th = Setup::native().start().await.init_basic().await;
     let here = made(&th.client, TEST_WS, "O", "here").await;
     let (theirs, their_workspace, their_board) = crate::workspaces::another_organization(&th).await;
-    let members = theirs.get_members_for_board(&their_board).await;
+    let members = theirs.get_members_for_container(&their_board).await;
     let owner = members.expect("their members")[0].user_id.clone();
     let mut card = Block {
         id: fvoci_model::new_id(),
-        board_id: their_board.clone(),
+        container_id: their_board.clone(),
         block_type: BlockType::Card,
         title: HIDDEN.to_owned(),
         ..Block::default()
@@ -434,15 +437,15 @@ async fn what_is_of_another_organization_is_resolved_as_nothing() {
         .insert_block(&mut card, &owner)
         .await
         .expect("their card is stored");
-    let mut wiki = Board {
+    let mut wiki = Container {
         id: fvoci_model::new_id(),
         workspace_id: their_workspace.clone(),
-        board_type: BoardType::Open,
-        kind: BoardKind::Wiki,
-        ..Board::default()
+        container_type: ContainerType::Open,
+        kind: ContainerKind::Wiki,
+        ..Container::default()
     };
     theirs
-        .insert_board_with_admin(&mut wiki, &owner)
+        .insert_container_with_admin(&mut wiki, &owner)
         .await
         .expect("their wiki is stored");
     let new_page = NewPage {
@@ -474,7 +477,7 @@ async fn what_is_on_a_built_in_template_is_resolved_as_nothing() {
         .init_basic()
         .await;
     let here = made(&th.client, TEST_WS, "O", "here").await;
-    let templates: Vec<Board> = th
+    let templates: Vec<Container> = th
         .client
         .get(&format!("{TEST_WS}/templates"))
         .await

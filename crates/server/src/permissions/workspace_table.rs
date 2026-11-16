@@ -2,15 +2,17 @@
 //! members and its guests, who manages who is in it, and what a change of role makes of
 //! a member. Beside `table.rs`, which is the boards', and reads its actors.
 
-use fvoci_model::{BoardRole, WorkspaceRole};
+use fvoci_model::{ContainerRole, WorkspaceRole};
 
-use super::BoardScope::{BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate, OpenWiki};
+use super::ContainerScope::{
+    BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate, OpenWiki,
+};
 use super::WorkspacePermission::{self, InviteMembers, ManageMembers, SwitchGuestInvitations};
 use super::table::{
     GUEST, MEMBER, ORG_ADMIN_IN_WORKSPACE, ORG_ADMIN_ONLY, OUTSIDE_GUEST, REMOVED, STRANGER,
     WORKSPACE_ADMIN,
 };
-use super::{Actor, BoardFacts, allows_in_workspace, grant, invites_guests, may_become};
+use super::{Actor, ContainerFacts, allows_in_workspace, grant, invites_guests, may_become};
 
 /// What a member of a workspace does in it beside its boards: its administrators invite
 /// its members, say whether guests are invited and manage who is in it, and nobody
@@ -77,13 +79,13 @@ fn who_invites_guests_to_a_board() {
         (
             "an admin of the board",
             MEMBER,
-            Some(BoardRole::Admin),
+            Some(ContainerRole::Admin),
             true,
         ),
         (
             "an editor of the board",
             MEMBER,
-            Some(BoardRole::Editor),
+            Some(ContainerRole::Editor),
             false,
         ),
         (
@@ -101,25 +103,25 @@ fn who_invites_guests_to_a_board() {
         (
             "a workspace admin who views it",
             WORKSPACE_ADMIN,
-            Some(BoardRole::Viewer),
+            Some(ContainerRole::Viewer),
             true,
         ),
         (
             "a guest who edits it",
             GUEST,
-            Some(BoardRole::Editor),
+            Some(ContainerRole::Editor),
             false,
         ),
         (
             "a guest with a role above a guest's left on it",
             GUEST,
-            Some(BoardRole::Admin),
+            Some(ContainerRole::Admin),
             false,
         ),
         (
             "who was removed, its admin once",
             REMOVED,
-            Some(BoardRole::Admin),
+            Some(ContainerRole::Admin),
             false,
         ),
         ("a stranger", STRANGER, None, false),
@@ -128,7 +130,7 @@ fn who_invites_guests_to_a_board() {
         for scope in [InvitedOnly, Open, OpenWiki] {
             let granted = grant(
                 actor,
-                BoardFacts {
+                ContainerFacts {
                     team_role: None,
                     scope,
                     role,
@@ -148,7 +150,7 @@ fn who_invites_guests_to_a_board() {
         for scope in [InvitedOnlyTemplate, OpenTemplate, BuiltIn] {
             let granted = grant(
                 actor,
-                BoardFacts {
+                ContainerFacts {
                     team_role: None,
                     scope,
                     role,

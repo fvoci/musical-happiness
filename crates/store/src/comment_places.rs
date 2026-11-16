@@ -8,14 +8,14 @@ use crate::db::{Id, Scope};
 use crate::error::StoreError;
 
 /// The type of the board's block with the identifier, if the board has one.
-pub(crate) async fn type_on_board(
+pub(crate) async fn type_on_container(
     scope: &mut Scope<'_>,
     block_id: &str,
-    board_id: &str,
+    container_id: &str,
 ) -> Result<Option<BlockType>, StoreError> {
     let mut sql = scope.sql("SELECT type FROM blocks WHERE id = ");
     sql.bind(Id(block_id))
-        .push_bind(" AND board_id = ", Id(board_id));
+        .push_bind(" AND container_id = ", Id(container_id));
     match scope.fetch_optional(sql).await? {
         Some(row) => Ok(Some(BlockType::from(row.text(0)?))),
         None => Ok(None),

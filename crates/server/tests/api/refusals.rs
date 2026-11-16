@@ -1,7 +1,7 @@
 //! A check of a request's own shape tells of everything it refuses at once: every
 //! entry of `errors` with where it is, what is wrong and why.
 
-use fvoci_model::BoardType;
+use fvoci_model::ContainerType;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -241,7 +241,9 @@ async fn the_requests_of_a_user_list_everything_they_refuse() {
 #[tokio::test]
 async fn the_requests_of_cards_list_everything_they_refuse() {
     let th = Setup::local_mode().start().await.init_basic().await;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let cards = format!("{TEST_WS}/boards/{}/cards", board.id);
 
     let response = th.client.get(&format!("{cards}?page=x&perPage=1.5")).await;
@@ -364,12 +366,14 @@ async fn check_more(client: &crate::common::Client, card: &str) {
 #[tokio::test]
 async fn an_upload_and_the_sharing_list_everything_they_refuse() {
     let th = Setup::local_mode().start().await.init_basic().await;
-    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
 
     let response = th
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/uploads", board.id),
+            &format!("{TEST_WS}/containers/{}/uploads", board.id),
             &json!({"name": "", "size": -1, "contentType": "a".repeat(256)}),
         )
         .await;
@@ -386,7 +390,7 @@ async fn an_upload_and_the_sharing_list_everything_they_refuse() {
     let response = th
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", board.id),
             &json!({"token": "mine", "regenerate": "yes"}),
         )
         .await;

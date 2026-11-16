@@ -4,7 +4,7 @@
 //! stopping being an administrator takes it back, a workspace in the trash is not there
 //! for anybody, and the public links of the organization close and open again.
 
-use fvoci_model::{Board, BoardType, UserWorkspace, WorkspaceRole};
+use fvoci_model::{Container, ContainerType, UserWorkspace, WorkspaceRole};
 use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, SharingChange};
 use reqwest::StatusCode;
@@ -463,14 +463,14 @@ async fn the_last_administrator_of_the_organization_stays_one() {
 }
 
 /// A board of a new workspace with a file, made by the first user, who joined it.
-async fn board_with_a_file(ts: &TestServer, workspace_id: &str) -> (Board, String) {
-    let board: Board = ts
+async fn board_with_a_file(ts: &TestServer, workspace_id: &str) -> (Container, String) {
+    let board: Container = ts
         .client
-        .create_board(&Board {
+        .create_board(&Container {
             workspace_id: workspace_id.to_owned(),
-            board_type: BoardType::Open,
+            container_type: ContainerType::Open,
             title: "Plans".to_owned(),
-            ..Board::default()
+            ..Container::default()
         })
         .await
         .created_json();
@@ -504,7 +504,7 @@ async fn a_workspace_in_the_trash_is_not_there_and_comes_back_as_it_was() {
     let (board, file_id) = board_with_a_file(&ts, &workspace).await;
     let token = ts.share(&board.id).await;
     let shared = format!("/shared/{}?readToken={token}", board.id);
-    let at = format!("/w/{workspace}/boards/{}", board.id);
+    let at = format!("/w/{workspace}/containers/{}", board.id);
     let file = format!("{at}/files/{file_id}");
     ts.anonymous().get(&shared).await.check_ok();
 
@@ -642,9 +642,15 @@ async fn the_housekeeping_removes_a_workspace_in_the_trash_for_good_with_its_fil
 async fn the_public_links_of_the_organization_close_and_open_again() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let org_id = org_of(&ts).await;
-    let shared_board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
-    let other_board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
-    let stopped_board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let shared_board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
+    let other_board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
+    let stopped_board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let token = ts.share(&shared_board.id).await;
     ts.share(&stopped_board.id).await;
     let link = format!("/shared/{}?readToken={token}", shared_board.id);
@@ -663,7 +669,7 @@ async fn the_public_links_of_the_organization_close_and_open_again() {
     let share = ts
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", other_board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", other_board.id),
             &json!({ "enabled": true }),
         )
         .await;
@@ -674,7 +680,7 @@ async fn the_public_links_of_the_organization_close_and_open_again() {
     let stop = ts
         .client
         .post(
-            &format!("{TEST_WS}/boards/{}/sharing", stopped_board.id),
+            &format!("{TEST_WS}/containers/{}/sharing", stopped_board.id),
             &json!({ "enabled": false }),
         )
         .await;

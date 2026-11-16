@@ -39,7 +39,7 @@ impl Hub {
             "UNSUBSCRIBE_BLOCKS" => {
                 // Following less grants nothing: a token that cannot be checked
                 // still stops what the page asked to stop.
-                match self.board_of_read_token(&command).await {
+                match self.container_of_read_token(&command).await {
                     Ok(Some(_)) => {
                         unsubscribe_from_blocks(&mut self.listeners(), id, &command.block_ids);
                     }
@@ -91,15 +91,15 @@ impl Hub {
         let mut validated: Option<String> = None;
         for _ in 0..CHECKED_AT_MOST {
             let since = self.listeners().revoked.now();
-            let board_id = match self.board_of_read_token(command).await {
-                Ok(Some(board_id)) => board_id,
+            let container_id = match self.container_of_read_token(command).await {
+                Ok(Some(container_id)) => container_id,
                 Ok(None) => {
                     // The page believes it follows the blocks: it is told they ended,
                     // with what it followed of the board before.
-                    if let Some(board_id) = &validated {
-                        self.end_board_with(
+                    if let Some(container_id) = &validated {
+                        self.end_container_with(
                             id,
-                            board_id,
+                            container_id,
                             &command.workspace_id,
                             &command.block_ids,
                         );
@@ -113,7 +113,7 @@ impl Hub {
                     return;
                 }
             };
-            validated = Some(board_id.clone());
+            validated = Some(container_id.clone());
             #[cfg(feature = "test-util")]
             self.pause_subscription().await;
             let mut listeners = self.listeners();
@@ -125,11 +125,11 @@ impl Hub {
             // again.
             if listeners
                 .revoked
-                .of_board_since(&listener.user_id, &board_id, since)
+                .of_container_since(&listener.user_id, &container_id, since)
             {
                 continue;
             }
-            if !listeners.admits_reader(id, &board_id, limits) {
+            if !listeners.admits_reader(id, &container_id, limits) {
                 let told = listeners.refuse_blocks(id, &command.workspace_id, &command.block_ids);
                 drop(listeners);
                 self.count_told("UNSUBSCRIBED_BLOCKS", usize::from(told));
@@ -137,7 +137,7 @@ impl Hub {
             }
             subscribe_to_blocks(&mut listeners, id, &command.block_ids);
             if let Some(listener) = listeners.by_id.get_mut(&id) {
-                permit_blocks(&mut listener.shared_boards, board_id, command);
+                permit_blocks(&mut listener.shared_containers, container_id, command);
             }
             return;
         }
@@ -244,11 +244,11 @@ impl Hub {
     ///
     /// Returns the store's error if the blocks or the token cannot be checked: that is
     /// no "refused".
-    async fn board_of_read_token(&self, command: &Command) -> Result<Option<String>, AppError> {
+    async fn container_of_read_token(&self, command: &Command) -> Result<Option<String>, AppError> {
         if command.workspace_id.is_empty() {
             return Ok(None);
         }
-        let mut board_id = String::new();
+        let mut container_id = String::new();
         for block_id in &command.block_ids {
             let Some(of_block) = self
                 .audience
@@ -257,30 +257,33 @@ impl Hub {
             else {
                 return Ok(None);
             };
-            if board_id.is_empty() {
-                board_id = of_block;
-            } else if board_id != of_block {
+            if container_id.is_empty() {
+                container_id = of_block;
+            } else if container_id != of_block {
                 return Ok(None);
             }
         }
         let valid = self
             .inner
             .auth
-            .is_valid_read_token(&board_id, &command.read_token)
+            .is_valid_read_token(&container_id, &command.read_token)
             .await?;
-        Ok(valid.then_some(board_id))
+        Ok(valid.then_some(container_id))
     }
 }
 
 /// Counts the blocks among those followed of the board by its read token: with the
 /// board's permit if the connection follows it already, in a new one if not. The
 /// permit keeps the token it was first given.
-fn permit_blocks(permits: &mut Vec<ReadPermit>, board_id: String, command: &Command) {
-    let permit = if let Some(at) = permits.iter().position(|permit| permit.board == board_id) {
+fn permit_blocks(permits: &mut Vec<ReadPermit>, container_id: String, command: &Command) {
+    let permit = if let Some(at) = permits
+        .iter()
+        .position(|permit| permit.container == container_id)
+    {
         &mut permits[at]
     } else {
         permits.push(ReadPermit {
-            board: board_id,
+            container: container_id,
             token: command.read_token.clone(),
             workspace: command.workspace_id.clone(),
             blocks: Vec::new(),

@@ -154,6 +154,11 @@ impl Case {
         };
         for (key, value) in parameters {
             path = path.replace(&format!("{{{key}}}"), value);
+            // A board is a container: its identifier fills the paths of the operations
+            // on a board or a wiki as well as those on a board alone.
+            if *key == "boardId" {
+                path = path.replace("{containerId}", value);
+            }
         }
         path = path
             .replace("{orgId}", &self.org)

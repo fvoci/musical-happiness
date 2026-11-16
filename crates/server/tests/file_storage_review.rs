@@ -15,7 +15,7 @@ mod s3;
 #[path = "file_storage_review/startup.rs"]
 mod startup;
 
-use fvoci_model::{BoardType, Body, Card, FileInfo, Upload, UploadPurpose};
+use fvoci_model::{Body, Card, ContainerType, FileInfo, Upload, UploadPurpose};
 use fvoci_server::app::ChangeNotification;
 use fvoci_server::auth::now_millis;
 use fvoci_server::auth::secret::new_secret;
@@ -25,7 +25,9 @@ use fvoci_store::StoreError;
 use common::{Setup, TEST_WORKSPACE_ID, TestServer};
 
 async fn recorded(ts: &TestServer) -> FileInfo {
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let name = ts
         .app
         .save_file(&mut &b"keep these bytes"[..], &board.id, "kept.txt")
@@ -49,7 +51,7 @@ async fn abandoning_an_upload_with_a_path_alias_preserves_the_recorded_object() 
         id: new_secret(),
         user_id: ts.client.me().await.id,
         purpose: UploadPurpose::File,
-        board_id: file.board_id.clone(),
+        container_id: file.container_id.clone(),
         name: "misbound.txt".to_owned(),
         size: 16,
         part_size: 16,
@@ -96,7 +98,7 @@ async fn abandoning_an_upload_with_a_path_alias_preserves_the_recorded_object() 
     let still_recorded = ts
         .app
         .store()
-        .get_file_info(&file.board_id, &file.stored_name)
+        .get_file_info(&file.container_id, &file.stored_name)
         .await
         .is_ok();
     let still_present = ts.app.files().exists(&file.path).await.expect("read");
@@ -131,7 +133,7 @@ async fn a_body_checked_before_collection_cannot_commit_a_missing_image() {
     }))
     .expect("a valid image body");
     ts.app
-        .check_body_files(&file.board_id, Some(&body))
+        .check_body_files(&file.container_id, Some(&body))
         .await
         .expect("the request's image is valid before collection");
     // The normal housekeeping deadline, for a file already eligible when checked.
@@ -156,7 +158,7 @@ async fn a_body_checked_before_collection_cannot_commit_a_missing_image() {
                 body: Some(body.clone()),
                 ..Card::default()
             },
-            &file.board_id,
+            &file.container_id,
             &user_id,
             ChangeNotification::default(),
         )
@@ -165,7 +167,7 @@ async fn a_body_checked_before_collection_cannot_commit_a_missing_image() {
     // The refusal is the one the handlers' check gives once the file is gone.
     let checked_now = ts
         .app
-        .check_body_files(&file.board_id, Some(&body))
+        .check_body_files(&file.container_id, Some(&body))
         .await
         .expect_err("the image's file is gone");
     ts.teardown().await;
@@ -196,7 +198,7 @@ async fn a_purge_mark_cannot_doom_the_bytes_of_a_newly_shown_image() {
                 body: Some(body),
                 ..Card::default()
             },
-            &file.board_id,
+            &file.container_id,
             &ts.client.me().await.id,
             ChangeNotification::default(),
         )
@@ -230,7 +232,7 @@ async fn a_purge_mark_cannot_doom_the_bytes_of_a_newly_shown_image() {
     let recorded = ts
         .app
         .store()
-        .get_file_info(&file.board_id, &file.stored_name)
+        .get_file_info(&file.container_id, &file.stored_name)
         .await;
     let present = ts.app.files().exists(&file.path).await.expect("read");
     ts.teardown().await;

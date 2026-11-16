@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardType, OrgRole, User, UserWorkspace, Workspace,
-    WorkspaceRole, new_id,
+    Block, BlockType, Container, ContainerMember, ContainerType, OrgRole, User, UserWorkspace,
+    Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, SharingChange, Store, Tenant};
@@ -24,7 +24,7 @@ fn open(config: &mut fvoci_server::config::Configuration) {
 }
 
 /// A second organization, with its own member, workspace and private board.
-async fn other_organization(ts: &TestServer) -> (Store, Workspace, User, Board) {
+async fn other_organization(ts: &TestServer) -> (Store, Workspace, User, Container) {
     let workspace = Workspace {
         id: new_id(),
         title: "Other organization's workspace".to_owned(),
@@ -48,15 +48,15 @@ async fn other_organization(ts: &TestServer) -> (Store, Workspace, User, Board) 
         .create_user(&mut owner)
         .await
         .expect("their owner exists");
-    let mut board = Board {
+    let mut board = Container {
         id: new_id(),
         workspace_id: workspace.id.clone(),
-        board_type: BoardType::Private,
+        container_type: ContainerType::Private,
         title: "Other organization's confidential board".to_owned(),
-        ..Board::default()
+        ..Container::default()
     };
     store
-        .insert_board_with_admin(&mut board, &owner.id)
+        .insert_container_with_admin(&mut board, &owner.id)
         .await
         .expect("their board exists");
     (store, workspace, owner, board)
@@ -138,25 +138,30 @@ async fn another_organizations_user_cannot_join_and_edit_an_open_board() {
         .await
         .init_basic()
         .await;
-    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let (store, workspace, _, _) = other_organization(&ts).await;
     move_second_user(&ts, &store, &workspace).await;
 
     let joined = ts
         .client2
-        .post(&format!("{ROOT_WS}/boards/{}/join", board.id), &json!({}))
+        .post(
+            &format!("{ROOT_WS}/containers/{}/join", board.id),
+            &json!({}),
+        )
         .await;
     let changed = ts
         .client2
         .patch(
-            &format!("{ROOT_WS}/boards/{}", board.id),
+            &format!("{ROOT_WS}/containers/{}", board.id),
             &json!({"title": "Changed by another organization"}),
         )
         .await;
     let stored = ts
         .app
         .store()
-        .get_board(&board.id)
+        .get_container(&board.id)
         .await
         .expect("the original board exists");
     ts.teardown().await;
@@ -171,7 +176,9 @@ async fn another_organizations_user_cannot_join_and_edit_an_open_board() {
 #[tokio::test]
 async fn a_workspace_guest_cannot_gain_editor_access_through_the_legacy_join_route() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let user_id = ts.client2.me().await.id;
     ts.app
         .store()
@@ -180,24 +187,27 @@ async fn a_workspace_guest_cannot_gain_editor_access_through_the_legacy_join_rou
         ))
         .await
         .expect("the workspace role becomes guest");
-    let visible: Vec<Board> = ts.client2.get(&format!("{ROOT_WS}/boards")).await.ok_json();
+    let visible: Vec<Container> = ts.client2.get(&format!("{ROOT_WS}/boards")).await.ok_json();
     assert!(visible.is_empty(), "the guest is not on this open board");
 
     let joined = ts
         .client2
-        .post(&format!("{ROOT_WS}/boards/{}/join", board.id), &json!({}))
+        .post(
+            &format!("{ROOT_WS}/containers/{}/join", board.id),
+            &json!({}),
+        )
         .await;
     let changed = ts
         .client2
         .patch(
-            &format!("{ROOT_WS}/boards/{}", board.id),
+            &format!("{ROOT_WS}/containers/{}", board.id),
             &json!({"title": "Changed by a guest"}),
         )
         .await;
     let stored = ts
         .app
         .store()
-        .get_board(&board.id)
+        .get_container(&board.id)
         .await
         .expect("the original board exists");
     ts.teardown().await;
@@ -300,7 +310,7 @@ async fn a_valid_shared_link_reads_the_board_in_its_own_organization() {
     );
 }
 
-async fn websocket_organization(ts: &TestServer) -> (Store, Workspace, User, Board) {
+async fn websocket_organization(ts: &TestServer) -> (Store, Workspace, User, Container) {
     if db_type_of_the_tests() == DbType::Postgres {
         other_organization(ts).await
     } else {
@@ -311,7 +321,8 @@ async fn websocket_organization(ts: &TestServer) -> (Store, Workspace, User, Boa
                 ..Workspace::default()
             },
             ts.client.me().await,
-            ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await,
+            ts.create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+                .await,
         )
     }
 }
@@ -343,11 +354,11 @@ async fn removing_workspace_membership_stops_websocket_content_from_that_organiz
     let user_id = ts.client2.me().await.id;
     admit_workspace_member(&store, &workspace.id, &user_id).await;
     store
-        .save_member(&BoardMember {
+        .save_member(&ContainerMember {
             user_id: user_id.clone(),
-            board_id: board.id.clone(),
+            container_id: board.id.clone(),
             scheme_viewer: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         })
         .await
         .expect("initial board membership");
@@ -388,7 +399,7 @@ async fn removing_workspace_membership_stops_websocket_content_from_that_organiz
         .check_not_found();
     let mut block = Block {
         id: new_id(),
-        board_id: board.id.clone(),
+        container_id: board.id.clone(),
         block_type: BlockType::Card,
         title: "Confidential change after workspace removal".to_owned(),
         ..Block::default()
@@ -452,7 +463,7 @@ async fn a_hidden_workspace_in_the_same_organization_also_rejects_legacy_board_c
         .app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE boards SET title = title WHERE workspace_id = '{HIDDEN_WORKSPACE_ID}'"
+            "UPDATE containers SET title = title WHERE workspace_id = '{HIDDEN_WORKSPACE_ID}'"
         ))
         .await
         .expect("the boards of the hidden workspace are counted");

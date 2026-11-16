@@ -16,9 +16,9 @@ import {
   createCard,
   type Block,
   type BlockType,
-  type Board,
-  type BoardMember,
-  type BoardPatch,
+  type Container,
+  type ContainerMember,
+  type ContainerPatch,
   type BoardView,
   type PropertyTemplate,
 } from '../logic/wire.ts';
@@ -29,7 +29,7 @@ import {
   type BoardDraft,
   type AccountSettingsPatch,
   type Attachment,
-  type BoardRole,
+  type ContainerRole,
   type CardDetail,
   type CardDraft,
   type Comment,
@@ -74,7 +74,7 @@ export function workspacesOf(workspaces: Schemas['UserWorkspace'][]): WorkspaceI
   }));
 }
 
-export function boardOf(board: Schemas['Board']): Board {
+export function containerOf(board: Schemas['Container']): Container {
   return {
     id: board.id,
     workspaceId: board.workspaceId,
@@ -90,7 +90,7 @@ export function boardOf(board: Schemas['Board']): Board {
     isTemplate: board.isTemplate,
     isBuiltin: board.isBuiltin,
     templateVersion: board.templateVersion,
-    properties: board.properties as Board['properties'],
+    properties: board.properties as Container['properties'],
     cardProperties: board.cardProperties as unknown as PropertyTemplate[],
     createAt: board.createAt,
     updateAt: board.updateAt,
@@ -102,7 +102,7 @@ export function boardOf(board: Schemas['Board']): Board {
  * A membership. An inherited role stays separate from the direct scheme flags.
  * The local minimum role is empty; the server already resolves inherited access.
  */
-export function memberOf(member: Schemas['BoardMember']): BoardMember {
+export function memberOf(member: Schemas['ContainerMember']): ContainerMember {
   return {
     ...member,
     minimumRole: '',
@@ -149,7 +149,7 @@ export function cardOf(card: Schemas['Card']): CardSummary {
   return {
     ...createCard({
       id: card.id,
-      boardId: card.boardId,
+      containerId: card.boardId,
       parentId: '',
       createdBy: card.createdBy,
       modifiedBy: card.modifiedBy,
@@ -255,8 +255,8 @@ export function attachmentOf(block: Schemas['Block']): Attachment {
  * A category. The contract lists the boards of a category with a `hidden`
  * flag each; the screens keep the shown and the hidden apart.
  */
-export function categoryOf(category: Schemas['CategoryBoards']): Category {
-  const metadata = category.boardMetadata;
+export function categoryOf(category: Schemas['CategoryContainers']): Category {
+  const metadata = category.containerMetadata;
   return {
     id: category.id,
     name: category.name,
@@ -265,8 +265,8 @@ export function categoryOf(category: Schemas['CategoryBoards']): Category {
     type: category.type,
     collapsed: category.collapsed,
     sortOrder: category.sortOrder,
-    boardIds: metadata.map((entry) => entry.boardId),
-    hiddenBoardIds: metadata.filter((entry) => entry.hidden).map((entry) => entry.boardId),
+    containerIds: metadata.map((entry) => entry.containerId),
+    hiddenContainerIds: metadata.filter((entry) => entry.hidden).map((entry) => entry.containerId),
     createAt: category.createAt,
     updateAt: category.updateAt,
   };
@@ -286,7 +286,7 @@ export function settingsChangeOf(patch: AccountSettingsPatch): Schemas['Settings
 }
 
 /** A role as the server keeps it: exactly one of the four flags. */
-export function rolesOf(role: BoardRole): Schemas['MemberRoles'] {
+export function rolesOf(role: ContainerRole): Schemas['MemberRoles'] {
   return {
     schemeAdmin: role === 'admin',
     schemeEditor: role === 'editor',
@@ -307,10 +307,10 @@ export function sharingOf(sharing: Schemas['Sharing']): Sharing {
 export function newBoardAndViewOf(
   draft: BoardDraft,
   firstView: ViewDraft,
-): Schemas['NewBoardsAndBlocks'] {
+): Schemas['NewContainersAndBlocks'] {
   const boardRef = 'new-board';
   return {
-    boards: [
+    containers: [
       {
         id: boardRef,
         type: draft.type ?? 'P',
@@ -323,7 +323,7 @@ export function newBoardAndViewOf(
     blocks: [
       {
         id: 'new-view',
-        boardId: boardRef,
+        containerId: boardRef,
         type: 'view',
         title: firstView.title,
         fields: firstView.fields,
@@ -335,11 +335,11 @@ export function newBoardAndViewOf(
 }
 
 /**
- * A change of a board, as `patchBoard` takes it. A minimum role the
+ * A change of a board, as `patchContainer` takes it. A minimum role the
  * contract does not have (none, or admin) is refused here as the server
  * would refuse it.
  */
-export function boardPatchOf(patch: BoardPatch): Schemas['BoardPatch'] {
+export function containerPatchOf(patch: ContainerPatch): Schemas['ContainerPatch'] {
   const { minimumRole, updatedCardProperties, ...rest } = patch;
   if (minimumRole === '' || minimumRole === 'admin') {
     throw new BackendError(400, {

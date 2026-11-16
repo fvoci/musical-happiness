@@ -115,7 +115,7 @@
 
   // The visit: counted on the wiki and its page, anonymously.
   $effect(() => {
-    backend.presence.setPresence({ workspaceId: '', boardId: wikiId, cardId: pageId ?? '' });
+    backend.presence.setPresence({ workspaceId: '', containerId: wikiId, cardId: pageId ?? '' });
   });
   $effect(() => () => {
     backend.presence.setPresence(null);

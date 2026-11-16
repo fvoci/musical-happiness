@@ -14,7 +14,7 @@ pub(super) struct Admitted {
     /// connection named.
     pub(super) app: App,
     /// The board the card is on, of that workspace.
-    pub(super) board_id: String,
+    pub(super) container_id: String,
     /// How the user is in the room.
     pub(super) mode: DocMode,
 }
@@ -32,7 +32,7 @@ pub(super) struct Admitted {
 /// none.
 ///
 /// Whoever is in the workspace is asked the same of the store whether the card is
-/// there or not ([`App::board_access`]), and of the card only which board it is on
+/// there or not ([`App::container_access`]), and of the card only which board it is on
 /// (`Store::board_of_card`), never its body: a card that is not there for the user
 /// takes as long to refuse as one that does not exist, however large its body is.
 ///
@@ -54,13 +54,13 @@ pub(super) async fn admit(
     };
     // The card's board and nothing else of the card: its body is read once the user
     // is let in, so that a refusal costs the same whatever the body is.
-    let board_id = app.store().board_of_card(card_id).await.map_err(|error| {
+    let container_id = app.store().board_of_card(card_id).await.map_err(|error| {
         AppError::from(error).context("reading a card's board to enter its room")
     })?;
-    let mode = mode_on(&app, user_id, board_id.as_deref().unwrap_or_default()).await?;
-    Ok(board_id.zip(mode).map(|(board_id, mode)| Admitted {
+    let mode = mode_on(&app, user_id, container_id.as_deref().unwrap_or_default()).await?;
+    Ok(container_id.zip(mode).map(|(container_id, mode)| Admitted {
         app,
-        board_id,
+        container_id,
         mode,
     }))
 }
@@ -82,21 +82,21 @@ pub(super) async fn let_in(
         .ok_or_else(|| AppError::not_found("card"))
 }
 
-/// How `asker` is let into the rooms of the cards of the board `board_id` of the
+/// How `asker` is let into the rooms of the cards of the board `container_id` of the
 /// workspace `workspace_id`, as [`admit`] lets them in, without reading which board a
 /// card is on: who asks again of a room knows its board.
 ///
 /// # Errors
 ///
 /// As [`admit`].
-pub(super) async fn board_mode(
+pub(super) async fn container_mode(
     home: &App,
     asker: Asker<'_>,
     workspace_id: &str,
-    board_id: &str,
+    container_id: &str,
 ) -> Result<Option<DocMode>, AppError> {
     match entered(home, asker, workspace_id).await? {
-        Some(app) => mode_on(&app, asker.user_id, board_id).await,
+        Some(app) => mode_on(&app, asker.user_id, container_id).await,
         None => Ok(None),
     }
 }
@@ -110,7 +110,7 @@ async fn entered(
 ) -> Result<Option<App>, AppError> {
     match home.enter_workspace_as(asker, workspace_id).await {
         // For the workspace the connection named: a board of another is not there for
-        // it (`App::reaches_board`), as for a request that names the workspace in its
+        // it (`App::reaches_container`), as for a request that names the workspace in its
         // path.
         Ok(Some(entered)) => Ok(Some(entered.app.in_workspace(workspace_id))),
         Ok(None) => Ok(None),
@@ -121,13 +121,17 @@ async fn entered(
     }
 }
 
-/// How `user_id` is in the rooms of the board `board_id` as `app` reaches it: as what
+/// How `user_id` is in the rooms of the board `container_id` as `app` reaches it: as what
 /// they may do on it says; `None` for who may not read it. A template the server ships
 /// with is every workspace's to read and nobody's to edit: it has no room.
-async fn mode_on(app: &App, user_id: &str, board_id: &str) -> Result<Option<DocMode>, AppError> {
+async fn mode_on(
+    app: &App,
+    user_id: &str,
+    container_id: &str,
+) -> Result<Option<DocMode>, AppError> {
     Ok(app
-        .board_access(user_id, board_id)
+        .container_access(user_id, container_id)
         .await?
-        .filter(|access| !access.board.is_builtin)
+        .filter(|access| !access.container.is_builtin)
         .and_then(|access| doc_mode(access.grant)))
 }

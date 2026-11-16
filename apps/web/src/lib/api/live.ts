@@ -31,7 +31,14 @@
  */
 import { isBackendError, type Change, type ChangeListener } from '../state/backend.ts';
 
-import { attachmentOf, boardOf, cardOfBlock, commentOf, viewOf, type Schemas } from './convert.ts';
+import {
+  attachmentOf,
+  containerOf,
+  cardOfBlock,
+  commentOf,
+  viewOf,
+  type Schemas,
+} from './convert.ts';
 import { Heartbeat, Patience, PING, PONG } from './live-heartbeat.ts';
 import { LivePresence } from './live-presence.ts';
 import { LiveRooms } from './live-rooms.ts';
@@ -42,13 +49,13 @@ type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
 
 /** What the messages do not carry, read over HTTP instead. */
 export interface LiveReads {
-  /** A board's members: a message carries one member, the screens want them all. */
-  members(boardId: string): Promise<Members>;
+  /** A board's or a wiki's members: a message carries one member, the screens want them all. */
+  members(containerId: string): Promise<Members>;
 }
 
 interface Listening {
   /** `undefined` for the reader's own things. */
-  boardId: string | undefined;
+  containerId: string | undefined;
   listener: ChangeListener;
 }
 
@@ -66,9 +73,9 @@ const STEADY = 10_000;
 const GATHER = 200;
 
 type Message = { workspaceId?: string } & (
-  | { action: 'UPDATE_BOARD'; board: Schemas['Board'] }
+  | { action: 'UPDATE_CONTAINER'; container: Schemas['Container'] }
   | { action: 'UPDATE_BLOCK'; block: Schemas['Block'] }
-  | { action: 'UPDATE_MEMBER' | 'DELETE_MEMBER'; member: Schemas['BoardMember'] }
+  | { action: 'UPDATE_MEMBER' | 'DELETE_MEMBER'; member: Schemas['ContainerMember'] }
   | { action: string }
 );
 
@@ -178,8 +185,8 @@ export class LiveChanges {
     }
   }
 
-  watch(boardId: string | undefined, listener: ChangeListener): () => void {
-    const entry: Listening = { boardId, listener };
+  watch(containerId: string | undefined, listener: ChangeListener): () => void {
+    const entry: Listening = { containerId, listener };
     this.#listening.add(entry);
     if (!this.#socket && this.#timer === undefined) this.#open();
     return () => {
@@ -310,16 +317,16 @@ export class LiveChanges {
     for (const { listener } of [...this.#listening]) listener(change);
   }
 
-  /** To the listeners of `boardId`, and to those of the reader's own things when `self`. */
-  #tellBoard(boardId: string, change: Change, self: boolean): void {
-    for (const { boardId: watched, listener } of [...this.#listening]) {
-      if (watched === boardId || (self && watched === undefined)) listener(change);
+  /** To the listeners of `containerId`, and to those of the reader's own things when `self`. */
+  #tellContainer(containerId: string, change: Change, self: boolean): void {
+    for (const { containerId: watched, listener } of [...this.#listening]) {
+      if (watched === containerId || (self && watched === undefined)) listener(change);
     }
   }
 
   #tellSelf(change: Change): void {
-    for (const { boardId, listener } of [...this.#listening]) {
-      if (boardId === undefined) listener(change);
+    for (const { containerId, listener } of [...this.#listening]) {
+      if (containerId === undefined) listener(change);
     }
   }
 
@@ -341,41 +348,45 @@ export class LiveChanges {
       this.#tellAll({ kind: 'resync' });
       return;
     }
-    if ('board' in message) {
-      const { board } = message;
-      // A deleted board carries only its identifier and times.
+    if ('container' in message) {
+      const { container } = message;
+      // A deleted board or wiki carries only its identifier and times.
       const change: Change =
-        board.deleteAt === 0
-          ? { kind: 'board', board: boardOf(board) }
-          : { kind: 'boardDeleted', boardId: board.id };
-      this.#tellBoard(board.id, change, true);
+        container.deleteAt === 0
+          ? { kind: 'container', container: containerOf(container) }
+          : { kind: 'containerDeleted', containerId: container.id };
+      this.#tellContainer(container.id, change, true);
     } else if ('block' in message) {
       const { block } = message;
       if (block.deleteAt !== 0) {
         // Only the block deleted is told, not what went with it.
-        this.#tellBoard(
-          block.boardId,
-          { kind: 'blocksDeleted', boardId: block.boardId, blockIds: [block.id] },
+        this.#tellContainer(
+          block.containerId,
+          { kind: 'blocksDeleted', containerId: block.containerId, blockIds: [block.id] },
           false,
         );
         return;
       }
       if (block.type === 'page') {
         const pages = [pageOfBlock(block)];
-        this.#tellBoard(block.boardId, { kind: 'pages', boardId: block.boardId, pages }, false);
+        this.#tellContainer(
+          block.containerId,
+          { kind: 'pages', containerId: block.containerId, pages },
+          false,
+        );
         return;
       }
       const changed = changedBlock(block);
       if (changed) {
-        this.#tellBoard(
-          block.boardId,
-          { kind: 'blocks', boardId: block.boardId, blocks: [changed] },
+        this.#tellContainer(
+          block.containerId,
+          { kind: 'blocks', containerId: block.containerId, blocks: [changed] },
           false,
         );
       }
     } else if ('member' in message) {
       this.#sidebarSoon();
-      await this.#readMembers(message.member.boardId);
+      await this.#readMembers(message.member.containerId);
     } else if (message.action.includes('CATEGOR')) {
       this.#sidebarSoon();
     }
@@ -386,19 +397,19 @@ export class LiveChanges {
    * readings, only the later one is told. A board the reader may no longer
    * read (taken off it) is gone for them.
    */
-  async #readMembers(boardId: string): Promise<void> {
-    if (![...this.#listening].some((entry) => entry.boardId === boardId)) return;
+  async #readMembers(containerId: string): Promise<void> {
+    if (![...this.#listening].some((entry) => entry.containerId === containerId)) return;
     this.#readCount += 1;
     const reading = this.#readCount;
-    this.#readings.set(boardId, reading);
+    this.#readings.set(containerId, reading);
     try {
-      const members = await this.#reads.members(boardId);
-      if (this.#readings.get(boardId) !== reading) return;
-      this.#tellBoard(boardId, { kind: 'members', boardId, members }, false);
+      const members = await this.#reads.members(containerId);
+      if (this.#readings.get(containerId) !== reading) return;
+      this.#tellContainer(containerId, { kind: 'members', containerId, members }, false);
     } catch (error) {
-      if (this.#readings.get(boardId) !== reading) return;
+      if (this.#readings.get(containerId) !== reading) return;
       if (isBackendError(error) && (error.status === 403 || error.status === 404)) {
-        this.#tellBoard(boardId, { kind: 'boardDeleted', boardId }, false);
+        this.#tellContainer(containerId, { kind: 'containerDeleted', containerId }, false);
       }
       // Anything else: the next message, or the next reading, brings them.
     }

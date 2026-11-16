@@ -4,7 +4,7 @@
  * and the texts kept of one that was changed (`getCommentVersions`).
  */
 import type { DocNode } from '../../editor/schema.ts';
-import type { BoardMember } from '../../logic/wire.ts';
+import type { ContainerMember } from '../../logic/wire.ts';
 import type { CommentVersion } from '../backend.ts';
 
 import { fail } from './refuse.ts';
@@ -13,7 +13,7 @@ import type { StoredBlock, World } from './world.ts';
 export type Role = 'admin' | 'editor' | 'commenter' | 'viewer' | '';
 
 /** The highest role of a user on a board; none for who is no member. */
-export function roleOn(members: readonly BoardMember[], userId: string): Role {
+export function roleOn(members: readonly ContainerMember[], userId: string): Role {
   const member = members.find((each) => each.userId === userId);
   if (!member) return '';
   if (member.schemeAdmin) return 'admin';
@@ -120,10 +120,10 @@ export function noteChange(
 /** The earlier texts of a comment of the board, also of one in the trash (as on the server); 404 for none. */
 export function versionsOf(world: World, boardId: string, commentId: string): CommentVersion[] {
   const trashed = [...world.deletedBlocks.values()]
-    .filter((deleted) => deleted.boardId === boardId)
+    .filter((deleted) => deleted.containerId === boardId)
     .flatMap((deleted) => deleted.blocks);
   const comment = world.blocks.get(commentId) ?? trashed.find((one) => one.id === commentId);
-  if (comment?.boardId !== boardId || comment.type !== 'comment') fail(404, 'no such comment');
+  if (comment?.containerId !== boardId || comment.type !== 'comment') fail(404, 'no such comment');
   return earlierVersions(world.commentVersions.get(commentId) ?? []);
 }
 

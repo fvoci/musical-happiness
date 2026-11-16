@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use fvoci_model::{BoardType, Card, FileInfo, new_id};
+use fvoci_model::{Card, ContainerType, FileInfo, new_id};
 use fvoci_server::Server;
 use fvoci_server::app::{App, ChangeNotification};
 use fvoci_server::auth::now_millis;
@@ -48,7 +48,9 @@ async fn a_sqlite_database_symlink_cannot_bypass_the_server_lock() {
         return;
     }
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let config = ts.app.config();
     let database = config.db_config.split('?').next().expect("a filename");
     let alias = PathBuf::from(database).with_extension("alias.db");
@@ -213,7 +215,7 @@ async fn a_worker_that_observed_lock_loss_cannot_delete_the_new_holders_file() {
     let removed = removing.await.expect("the old worker returns");
     let still_recorded = next_app
         .store()
-        .get_file_info(&replacement.board_id, &replacement.stored_name)
+        .get_file_info(&replacement.container_id, &replacement.stored_name)
         .await
         .is_ok();
     let still_present = next
@@ -248,7 +250,9 @@ async fn shutdown_cannot_release_the_server_lock_before_an_old_write_commits() {
         return;
     }
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let user = ts.client.me().await.id;
     let mut config = ts.app.config().clone();
     let tenant = ts.app.store().tenant();

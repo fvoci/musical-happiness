@@ -2,8 +2,8 @@
 //! its search in one workspace, and what its suite does not cover of the latter. They
 //! were in `boards.rs` and keep their names.
 
-use fvoci_model::{Board, BoardKinds, BoardSearchField, BoardType, new_id};
-use fvoci_store::PublicBoards;
+use fvoci_model::{Container, ContainerKinds, ContainerSearchField, ContainerType, new_id};
+use fvoci_store::PublicContainers;
 use serde_json::json;
 
 use crate::boards::{NOT_AN_ID, new_board, object, sorted_board_ids};
@@ -14,9 +14,9 @@ use crate::common;
 struct SearchCase<'a> {
     name: &'static str,
     term: &'static str,
-    search_field: BoardSearchField,
-    public_boards: PublicBoards,
-    expected_boards: Vec<&'a Board>,
+    search_field: ContainerSearchField,
+    public_boards: PublicContainers,
+    expected_boards: Vec<&'a Container>,
 }
 
 #[tokio::test]
@@ -24,7 +24,7 @@ struct SearchCase<'a> {
     clippy::too_many_lines,
     reason = "one test per test function of the original, whose subtests share a store"
 )]
-async fn search_boards_for_user() {
+async fn search_containers_for_user() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id_1 = common::workspace_of(&test, &[&user_id]).await;
@@ -34,57 +34,57 @@ async fn search_boards_for_user() {
     // boards on the workspace"
     {
         let boards = test
-            .search_boards_for_user(
+            .search_containers_for_user(
                 "",
-                BoardSearchField::Title,
+                ContainerSearchField::Title,
                 &user_id,
-                PublicBoards::Include,
-                BoardKinds::Boards,
+                PublicContainers::Include,
+                ContainerKinds::Boards,
             )
             .await
             .expect("the search succeeds");
         assert!(boards.is_empty(), "got {boards:?}");
     }
 
-    let mut board1 = Board {
+    let mut board1 = Container {
         title: "Public Board with admin".to_owned(),
         properties: object(json!({ "foo": "bar1" })),
-        ..new_board(&new_id(), &workspace_id_1, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id_1, ContainerType::Open)
     };
-    test.insert_board_with_admin(&mut board1, &user_id)
+    test.insert_container_with_admin(&mut board1, &user_id)
         .await
         .expect("board 1 is inserted");
 
-    let mut board2 = Board {
+    let mut board2 = Container {
         title: "Public Board".to_owned(),
         properties: object(json!({ "foo": "bar2" })),
-        ..new_board(&new_id(), &workspace_id_1, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id_1, ContainerType::Open)
     };
-    test.insert_board(&mut board2, &user_id)
+    test.insert_container(&mut board2, &user_id)
         .await
         .expect("board 2 is inserted");
 
-    let mut board3 = Board {
+    let mut board3 = Container {
         title: "Private Board with admin".to_owned(),
-        ..new_board(&new_id(), &workspace_id_1, BoardType::Private)
+        ..new_board(&new_id(), &workspace_id_1, ContainerType::Private)
     };
-    test.insert_board_with_admin(&mut board3, &user_id)
+    test.insert_container_with_admin(&mut board3, &user_id)
         .await
         .expect("board 3 is inserted");
 
-    let mut board4 = Board {
+    let mut board4 = Container {
         title: "Private Board".to_owned(),
-        ..new_board(&new_id(), &workspace_id_1, BoardType::Private)
+        ..new_board(&new_id(), &workspace_id_1, ContainerType::Private)
     };
-    test.insert_board(&mut board4, &user_id)
+    test.insert_container(&mut board4, &user_id)
         .await
         .expect("board 4 is inserted");
 
-    let mut board5 = Board {
+    let mut board5 = Container {
         title: "Public Board with admin in workspace 2".to_owned(),
-        ..new_board(&new_id(), &workspace_id_2, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id_2, ContainerType::Open)
     };
-    test.insert_board_with_admin(&mut board5, &user_id)
+    test.insert_container_with_admin(&mut board5, &user_id)
         .await
         .expect("board 5 is inserted");
 
@@ -93,69 +93,69 @@ async fn search_boards_for_user() {
             name: "should find all private boards that the user is a member of and public \
                    boards with an empty term",
             term: "",
-            search_field: BoardSearchField::Title,
-            public_boards: PublicBoards::Include,
+            search_field: ContainerSearchField::Title,
+            public_boards: PublicContainers::Include,
             expected_boards: vec![&board1, &board2, &board3, &board5],
         },
         SearchCase {
             name: "should find all with term board",
             term: "board",
-            search_field: BoardSearchField::Title,
-            public_boards: PublicBoards::Include,
+            search_field: ContainerSearchField::Title,
+            public_boards: PublicContainers::Include,
             expected_boards: vec![&board1, &board2, &board3, &board5],
         },
         SearchCase {
             name: "should find all with term board where the user is member of",
             term: "board",
-            search_field: BoardSearchField::Title,
-            public_boards: PublicBoards::Exclude,
+            search_field: ContainerSearchField::Title,
+            public_boards: PublicContainers::Exclude,
             expected_boards: vec![&board1, &board3, &board5],
         },
         SearchCase {
             name: "should find only public as per the term, wether user is a member or not",
             term: "public",
-            search_field: BoardSearchField::Title,
-            public_boards: PublicBoards::Include,
+            search_field: ContainerSearchField::Title,
+            public_boards: PublicContainers::Include,
             expected_boards: vec![&board1, &board2, &board5],
         },
         SearchCase {
             name: "should find only private as per the term, wether user is a member or not",
             term: "priv",
-            search_field: BoardSearchField::Title,
-            public_boards: PublicBoards::Include,
+            search_field: ContainerSearchField::Title,
+            public_boards: PublicContainers::Include,
             expected_boards: vec![&board3],
         },
         SearchCase {
             name: "should find no board in workspace 2 with a non matching term",
             term: "non-matching-term",
-            search_field: BoardSearchField::Title,
-            public_boards: PublicBoards::Include,
+            search_field: ContainerSearchField::Title,
+            public_boards: PublicContainers::Include,
             expected_boards: vec![],
         },
         SearchCase {
             name: "should find all boards with a named property",
             term: "foo",
-            search_field: BoardSearchField::PropertyName,
-            public_boards: PublicBoards::Include,
+            search_field: ContainerSearchField::PropertyName,
+            public_boards: PublicContainers::Include,
             expected_boards: vec![&board1, &board2],
         },
         SearchCase {
             name: "should find no boards with a non-existing named property",
             term: "bogus",
-            search_field: BoardSearchField::PropertyName,
-            public_boards: PublicBoards::Include,
+            search_field: ContainerSearchField::PropertyName,
+            public_boards: PublicContainers::Include,
             expected_boards: vec![],
         },
     ];
 
     for case in cases {
         let found = test
-            .search_boards_for_user(
+            .search_containers_for_user(
                 case.term,
                 case.search_field,
                 &user_id,
                 case.public_boards,
-                BoardKinds::Boards,
+                ContainerKinds::Boards,
             )
             .await
             .expect(case.name);
@@ -171,7 +171,7 @@ async fn search_boards_for_user() {
 }
 
 #[tokio::test]
-async fn search_boards_for_user_in_workspace() {
+async fn search_containers_for_user_in_workspace() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
 
@@ -179,7 +179,12 @@ async fn search_boards_for_user_in_workspace() {
     // exist, and for text that is no identifier.
     for workspace_id in [new_id(), NOT_AN_ID.to_owned()] {
         let boards = test
-            .search_boards_for_user_in_workspace(&workspace_id, "", &user_id, BoardKinds::Boards)
+            .search_containers_for_user_in_workspace(
+                &workspace_id,
+                "",
+                &user_id,
+                ContainerKinds::Boards,
+            )
             .await
             .expect("the search succeeds");
         assert!(
@@ -193,57 +198,57 @@ async fn search_boards_for_user_in_workspace() {
 
 /// `server/services/store/sqlstore/board.go:713-753`.
 #[tokio::test]
-async fn search_boards_for_user_in_workspace_finds_open_boards_and_own_private_boards() {
+async fn search_containers_for_user_in_workspace_finds_open_boards_and_own_private_boards() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let other_user_id = common::user(&test, "other-user").await;
     let workspace_id_1 = common::workspace_of(&test, &[&user_id, &other_user_id]).await;
     let workspace_id_2 = common::workspace(&test).await;
 
-    let mut open = Board {
+    let mut open = Container {
         title: "Open Roadmap".to_owned(),
-        ..new_board(&new_id(), &workspace_id_1, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id_1, ContainerType::Open)
     };
-    test.insert_board(&mut open, &other_user_id)
+    test.insert_container(&mut open, &other_user_id)
         .await
         .expect("the board is inserted");
-    let mut own_private = Board {
+    let mut own_private = Container {
         title: "Private Roadmap".to_owned(),
-        ..new_board(&new_id(), &workspace_id_1, BoardType::Private)
+        ..new_board(&new_id(), &workspace_id_1, ContainerType::Private)
     };
-    test.insert_board_with_admin(&mut own_private, &user_id)
+    test.insert_container_with_admin(&mut own_private, &user_id)
         .await
         .expect("the board is inserted");
-    let mut foreign_private = Board {
+    let mut foreign_private = Container {
         title: "Secret Roadmap".to_owned(),
-        ..new_board(&new_id(), &workspace_id_1, BoardType::Private)
+        ..new_board(&new_id(), &workspace_id_1, ContainerType::Private)
     };
-    test.insert_board_with_admin(&mut foreign_private, &other_user_id)
+    test.insert_container_with_admin(&mut foreign_private, &other_user_id)
         .await
         .expect("the board is inserted");
-    let mut other_workspace = Board {
+    let mut other_workspace = Container {
         title: "Open Roadmap elsewhere".to_owned(),
-        ..new_board(&new_id(), &workspace_id_2, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id_2, ContainerType::Open)
     };
-    test.insert_board(&mut other_workspace, &user_id)
+    test.insert_container(&mut other_workspace, &user_id)
         .await
         .expect("the board is inserted");
-    let mut template = Board {
+    let mut template = Container {
         title: "Roadmap template".to_owned(),
         is_template: true,
-        ..new_board(&new_id(), &workspace_id_1, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id_1, ContainerType::Open)
     };
-    test.insert_board(&mut template, &user_id)
+    test.insert_container(&mut template, &user_id)
         .await
         .expect("the board is inserted");
 
     let search = async |term: &str| {
         let boards = test
-            .search_boards_for_user_in_workspace(
+            .search_containers_for_user_in_workspace(
                 &workspace_id_1,
                 term,
                 &user_id,
-                BoardKinds::Boards,
+                ContainerKinds::Boards,
             )
             .await
             .expect("the search succeeds");

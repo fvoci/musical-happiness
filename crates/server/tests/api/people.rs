@@ -2,7 +2,7 @@
 //! board with them in a workspace they are in, and themselves. A guest sees who is on
 //! its boards. Anybody else is as one who does not exist.
 
-use fvoci_model::{BoardMember, BoardType, User, WorkspaceRole};
+use fvoci_model::{ContainerMember, ContainerType, User, WorkspaceRole};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -122,13 +122,17 @@ async fn a_guest_sees_who_is_on_its_boards() {
         .expect("the second user becomes a guest of the test workspace");
     // A third user works in the test workspace and shares no board with the guest.
     let third = th.add_user("third").await.me().await.id;
-    let board: fvoci_model::Board = th
+    let board: fvoci_model::Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Shared"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Private,
+            "Shared",
+        ))
         .await
         .created_json();
     th.client
-        .add_member(&BoardMember {
+        .add_member(&ContainerMember {
             scheme_viewer: true,
             ..member(&board.id, &guest)
         })
@@ -161,13 +165,17 @@ async fn a_guest_sees_who_is_on_its_boards() {
 async fn who_left_a_workspace_is_named_where_they_wrote_and_found_nowhere() {
     let th = Setup::native().start().await.init_basic().await;
     let leaver = th.client2.me().await.id;
-    let board: fvoci_model::Board = th
+    let board: fvoci_model::Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Ours"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Private,
+            "Ours",
+        ))
         .await
         .created_json();
     th.client
-        .add_member(&BoardMember {
+        .add_member(&ContainerMember {
             scheme_editor: true,
             ..member(&board.id, &leaver)
         })
@@ -203,14 +211,14 @@ async fn who_left_a_workspace_is_named_where_they_wrote_and_found_nowhere() {
         .get(&format!("{TEST_WS}/users?search=user2"))
         .await
         .ok_json();
-    let members: Vec<BoardMember> = th
+    let members: Vec<ContainerMember> = th
         .client
-        .get(&format!("{TEST_WS}/boards/{}/members", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/members", board.id))
         .await
         .ok_json();
     let archive = th
         .client
-        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/containers/{}/archive/export", board.id))
         .await;
     archive.check_ok();
     let archive = archive_text(&archive.body);
@@ -249,27 +257,35 @@ async fn a_guest_sees_by_identifier_who_is_on_a_board_with_a_role_and_nobody_els
         .expect("the second user becomes a guest of every workspace");
     let user1 = th.client.me().await.id;
     let third = th.add_user("third").await.me().await.id;
-    let shared: fvoci_model::Board = th
+    let shared: fvoci_model::Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Shared"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Private,
+            "Shared",
+        ))
         .await
         .created_json();
     th.client
-        .add_member(&BoardMember {
+        .add_member(&ContainerMember {
             scheme_viewer: true,
             ..member(&shared.id, &guest)
         })
         .await
         .check_ok();
     // On this board the guest has a membership without a role, which shares nothing.
-    let roleless: fvoci_model::Board = th
+    let roleless: fvoci_model::Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "No role"))
+        .create_board(&new_board(
+            TEST_WORKSPACE_ID,
+            ContainerType::Private,
+            "No role",
+        ))
         .await
         .created_json();
     for user in [&guest, &third] {
         let membership = if *user == third {
-            BoardMember {
+            ContainerMember {
                 scheme_viewer: true,
                 ..member(&roleless.id, user)
             }
@@ -317,13 +333,13 @@ async fn a_guest_editing_an_open_board_adds_nobody() {
         .await
         .expect("the second user becomes a guest of the test workspace");
     let third = th.add_user("third").await.me().await.id;
-    let board: fvoci_model::Board = th
+    let board: fvoci_model::Container = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Open"))
+        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, "Open"))
         .await
         .created_json();
     th.client
-        .add_member(&BoardMember {
+        .add_member(&ContainerMember {
             scheme_editor: true,
             ..member(&board.id, &guest)
         })
@@ -379,13 +395,13 @@ async fn who_left_is_named_on_an_open_board_to_its_members_only() {
     let th = Setup::native().start().await.init_basic().await;
     let leaver = th.client2.me().await.id;
     let third = th.add_user("third").await;
-    let open: fvoci_model::Board = th
+    let open: fvoci_model::Container = th
         .client
-        .create_board(&new_board(ROOT_WORKSPACE_ID, BoardType::Open, "Open"))
+        .create_board(&new_board(ROOT_WORKSPACE_ID, ContainerType::Open, "Open"))
         .await
         .created_json();
     th.client2
-        .post_empty(&format!("{ROOT_WS}/boards/{}/join", open.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/join", open.id))
         .await
         .check_ok();
     th.client2
@@ -409,7 +425,7 @@ async fn who_left_is_named_on_an_open_board_to_its_members_only() {
         third.get(&format!("{ROOT_WS}/users/{leaver}")).await.status,
     );
     third
-        .post_empty(&format!("{ROOT_WS}/boards/{}/join", open.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/join", open.id))
         .await
         .check_ok();
     let after = (
@@ -438,7 +454,7 @@ async fn who_left_is_named_on_an_open_wiki_to_whoever_works_there() {
         .expect("an id")
         .to_owned();
     th.client2
-        .post_empty(&format!("{ROOT_WS}/boards/{wiki}/join"))
+        .post_empty(&format!("{ROOT_WS}/containers/{wiki}/join"))
         .await
         .check_ok();
     th.client2
@@ -493,16 +509,20 @@ async fn a_guest_names_who_wrote_on_its_board_and_finds_them_nowhere() {
         .expect("the second user becomes a guest of every workspace");
     let writer = th.add_user("writer").await;
     let writer_id = writer.me().await.id;
-    let board: fvoci_model::Board = th
+    let board: fvoci_model::Container = th
         .client
-        .create_board(&new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Ours"))
+        .create_board(&new_board(
+            ROOT_WORKSPACE_ID,
+            ContainerType::Private,
+            "Ours",
+        ))
         .await
         .created_json();
     for (user_id, editor) in [(&guest, false), (&writer_id, true)] {
         th.client
             .add_member_in(
                 ROOT_WORKSPACE_ID,
-                &BoardMember {
+                &ContainerMember {
                     scheme_viewer: !editor,
                     scheme_editor: editor,
                     ..member(&board.id, user_id)
@@ -520,7 +540,7 @@ async fn a_guest_names_who_wrote_on_its_board_and_finds_them_nowhere() {
         .check_created();
     th.client
         .delete(&format!(
-            "{ROOT_WS}/boards/{}/members/{writer_id}",
+            "{ROOT_WS}/containers/{}/members/{writer_id}",
             board.id
         ))
         .await

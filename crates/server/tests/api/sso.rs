@@ -2,7 +2,7 @@
 //! which sessions open what is the organization's, what keeps the organization from
 //! locking itself out, and that nothing of it is reached around the wall.
 
-use fvoci_model::{Block, Board, BoardType, OidcProvider, UserWorkspace, new_id};
+use fvoci_model::{Block, Container, ContainerType, OidcProvider, UserWorkspace, new_id};
 use fvoci_server::auth::secret::token_digest;
 use fvoci_store::Identity;
 use reqwest::{Method, StatusCode};
@@ -128,11 +128,13 @@ async fn an_organization_that_takes_no_password_opens_for_its_providers_sessions
     let ts = server_for(&fake).await;
     let org_id = org_of(&ts).await;
     set_provider(&ts, &org_id, &fake).await;
-    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let admin = admin_through_provider(&ts, &fake, &org_id).await;
     let boards = format!("/w/{ROOT_WORKSPACE_ID}/boards");
     let provider = format!("/org/{org_id}/oidc");
-    let by_id = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let by_id = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
     ts.client.get(&boards).await.check_ok();
     let listed: Vec<UserWorkspace> = ts.client.get("/users/me/workspaces").await.ok_json();
     assert!(closed(&listed).iter().all(|closed| !closed), "{listed:?}");
@@ -170,7 +172,7 @@ async fn an_organization_that_takes_no_password_opens_for_its_providers_sessions
     }
     let listed: Vec<UserWorkspace> = admin.get("/users/me/workspaces").await.ok_json();
     assert!(closed(&listed).iter().all(|closed| !closed), "{listed:?}");
-    let unchanged: Board = admin.get(&by_id).await.ok_json();
+    let unchanged: Container = admin.get(&by_id).await.ok_json();
     assert_eq!(unchanged.title, board.title);
 
     let released: OidcProvider = require_sso(&admin, &org_id, &fake, Passwords::Taken)
@@ -464,7 +466,7 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "getMyMemberships",
     "getMyWorkspaces",
     "getSharedBlocks",
-    "getSharedBoard",
+    "getSharedContainer",
     "getSharedCards",
     "getSharedFile",
     "getSharedFileInfo",
@@ -492,7 +494,7 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
 /// What the sweep names in the paths, and a file of the board.
 struct Named {
     org_id: String,
-    board: Board,
+    board: Container,
     card_id: String,
     file_id: String,
     upload_id: String,
@@ -508,6 +510,7 @@ impl Named {
             .trim_start_matches("/api/v1")
             .replace("{workspaceId}", ROOT_WORKSPACE_ID)
             .replace("{orgId}", &self.org_id)
+            .replace("{containerId}", &self.board.id)
             .replace("{boardId}", &self.board.id)
             .replace("{cardId}", &self.card_id)
             .replace("{blockId}", &self.card_id)
@@ -533,7 +536,9 @@ impl Named {
 
 /// Makes what the sweep names, as `user1` before the organization takes no password.
 async fn named(ts: &TestServer, org_id: &str) -> Named {
-    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let card: Value = ts
         .client
         .post(
@@ -548,7 +553,7 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
         ts.client
             .request(
                 Method::POST,
-                &format!("/w/{ROOT_WORKSPACE_ID}/boards/{}/files", board.id),
+                &format!("/w/{ROOT_WORKSPACE_ID}/containers/{}/files", board.id),
             )
             .multipart(reqwest::multipart::Form::new().part("file", file)),
     )
@@ -558,7 +563,7 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
     let upload = ts
         .client
         .post(
-            &format!("/w/{ROOT_WORKSPACE_ID}/boards/{}/uploads", board.id),
+            &format!("/w/{ROOT_WORKSPACE_ID}/containers/{}/uploads", board.id),
             &json!({ "name": "later.bin", "size": 1 }),
         )
         .await
@@ -690,8 +695,11 @@ async fn nothing_of_the_organization_is_reached_around_the_wall() {
         violations.join("\n")
     );
     // Nothing was changed on the way.
-    let board: Board = admin
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", named.board.id))
+    let board: Container = admin
+        .get(&format!(
+            "/w/{ROOT_WORKSPACE_ID}/containers/{}",
+            named.board.id
+        ))
         .await
         .ok_json();
     assert_eq!(board.title, named.board.title);
@@ -709,7 +717,12 @@ async fn nothing_of_the_organization_is_reached_around_the_wall() {
         let memberships: Vec<Value> = client.get("/users/me/memberships").await.ok_json();
         memberships
             .iter()
-            .map(|member| member["boardId"].as_str().unwrap_or_default().to_owned())
+            .map(|member| {
+                member["containerId"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned()
+            })
             .collect()
     };
     assert!(
@@ -796,13 +809,14 @@ async fn a_public_link_stays_open_and_reads_the_same_for_a_session_that_opens_no
     let read_token = ts.share(&named.board.id).await;
     let anonymous = ts.anonymous();
     let board = &named.board.id;
-    for path in [
-        format!("/boards/{board}"),
-        format!("/boards/{board}/blocks"),
-        format!("/boards/{board}/cards"),
-        format!("/boards/{board}/files/{}/info", named.file_id),
+    for (under, rest) in [
+        ("containers", String::new()),
+        ("boards", "/blocks".to_owned()),
+        ("boards", "/cards".to_owned()),
+        ("containers", format!("/files/{}/info", named.file_id)),
     ] {
-        let shared = format!("/shared{}?readToken={read_token}", &path["/boards".len()..]);
+        let path = format!("/{under}/{board}{rest}");
+        let shared = format!("/shared/{board}{rest}?readToken={read_token}");
         let as_anybody = anonymous.get(&shared).await;
         as_anybody.check_ok();
         for signed_in in [&ts.client, &admin] {
@@ -810,10 +824,7 @@ async fn a_public_link_stays_open_and_reads_the_same_for_a_session_that_opens_no
             response.check_ok();
             assert_eq!(response.value(), as_anybody.value(), "{path}");
         }
-        let wrong = format!(
-            "/shared{}?readToken=not-the-token",
-            &path["/boards".len()..]
-        );
+        let wrong = format!("/shared/{board}{rest}?readToken=not-the-token");
         assert_eq!(
             ts.client.get(&wrong).await.status,
             anonymous.get(&wrong).await.status,
@@ -914,10 +925,12 @@ async fn one_organizations_wall_is_not_anothers() {
         theirs,
         their_workspace,
     } = two_organizations(&fake).await;
-    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .await;
     let our_boards = format!("/w/{ROOT_WORKSPACE_ID}/boards");
     let their_boards = format!("/w/{their_workspace}/boards");
-    let by_id = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let by_id = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
     tie(&ts, &ts.client, &fake, ADMIN_SUBJECT).await;
     let through_ours = through_provider(&ts, &fake, &ours, ADMIN_SUBJECT).await;
     let through_theirs = through_provider(&ts, &fake, &theirs, ADMIN_SUBJECT).await;
@@ -989,7 +1002,9 @@ async fn who_has_no_place_in_the_organization_learns_nothing_of_its_wall() {
         theirs,
         their_workspace,
     } = two_organizations(&fake).await;
-    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    let board = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Open)
+        .await;
     // Somebody of theirs alone: their provider let them in, and into nothing of ours.
     let outsider = through_provider(&ts, &fake, &theirs, "subject-of-an-outsider").await;
     let admin = admin_through_provider(&ts, &fake, &ours).await;
@@ -999,7 +1014,7 @@ async fn who_has_no_place_in_the_organization_learns_nothing_of_its_wall() {
             .await,
         outsider.get(&format!("/org/{ours}/oidc")).await,
         outsider
-            .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id))
+            .get(&format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id))
             .await,
     ]
     .map(|response| (response.status, response.error_message()));
@@ -1014,7 +1029,7 @@ async fn who_has_no_place_in_the_organization_learns_nothing_of_its_wall() {
             .await,
         outsider.get(&format!("/org/{ours}/oidc")).await,
         outsider
-            .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id))
+            .get(&format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id))
             .await,
     ]
     .map(|response| (response.status, response.error_message()));
@@ -1118,7 +1133,7 @@ async fn a_guest_signs_in_through_the_provider_as_a_guest() {
         let ts = server_for(&fake).await;
         let org_id = org_of(&ts).await;
         set_provider(&ts, &org_id, &fake).await;
-        let board: Board = ts
+        let board: Container = ts
             .client
             .post(
                 &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
@@ -1137,7 +1152,7 @@ async fn a_guest_signs_in_through_the_provider_as_a_guest() {
             .client
             .post(
                 &format!("/w/{ROOT_WORKSPACE_ID}/invitations"),
-                &json!({"role": "guest", "boardId": board.id}),
+                &json!({"role": "guest", "containerId": board.id}),
             )
             .await
             .value();
@@ -1169,7 +1184,7 @@ async fn a_guest_signs_in_through_the_provider_as_a_guest() {
             )
             .await
             .check_ok();
-        let on_the_board = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+        let on_the_board = format!("/w/{ROOT_WORKSPACE_ID}/containers/{}", board.id);
         check_sso_required(&guest.get(&on_the_board).await, &org_id);
 
         let through = through_provider(&ts, &fake, &org_id, "guest").await;

@@ -10,14 +10,16 @@
 
 use std::collections::HashMap;
 
-use fvoci_model::{Block, BoardKind, BoardMember, BoardsAndBlocks, PageLimits, generate_block_ids};
+use fvoci_model::{
+    Block, ContainerKind, ContainerMember, ContainersAndBlocks, PageLimits, generate_block_ids,
+};
 
 use crate::blocks::{DuplicateAs, fetch_blocks, insert_blocks, select_blocks};
-use crate::boards_and_blocks::duplicate_board;
+use crate::containers_and_blocks::duplicate_container;
 use crate::db::{Id, Scope};
 use crate::file_refs::NewImages;
 use crate::pages::{page_tree, write_place};
-use crate::{Store, StoreError, boards};
+use crate::{Store, StoreError, containers};
 
 /// What duplicating a page made: the copies, the copy of the page asked for first and
 /// a parent before what is below it; and the pages numbered anew to leave it room.
@@ -53,7 +55,7 @@ impl Store {
             source,
         };
         self.transaction(async |scope| {
-            boards::lock_board_of_kind(scope, wiki_id)
+            containers::lock_container_of_kind(scope, wiki_id)
                 .await?
                 .ok_or_else(not_found)?;
             let tree = page_tree(scope, wiki_id).await?;
@@ -82,7 +84,7 @@ impl Store {
 
 impl Store {
     /// Copies a wiki with its pages as they stand, as a board is copied
-    /// ([`Store::duplicate_board`]): new identifiers, the references of their bodies to
+    /// ([`Store::duplicate_container`]): new identifiers, the references of their bodies to
     /// each other pointed at the copies, a private wiki of `user_id`, who administers
     /// it, in `to_workspace` or else in the workspace of the original. The comments on
     /// the pages and the versions of their bodies are not copied, nor the pages in the
@@ -101,9 +103,11 @@ impl Store {
         user_id: &str,
         to_workspace: Option<&str>,
         limits: PageLimits,
-    ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), StoreError> {
+    ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), StoreError> {
         self.transaction(async |scope| {
-            if boards::lock_board_of_kind(scope, wiki_id).await? != Some(BoardKind::Wiki) {
+            if containers::lock_container_of_kind(scope, wiki_id).await?
+                != Some(ContainerKind::Wiki)
+            {
                 return Err(StoreError::not_found(format_args!("wiki ID={wiki_id}")));
             }
             page_tree(scope, wiki_id)
@@ -113,7 +117,7 @@ impl Store {
                     id: wiki_id.to_owned(),
                     source,
                 })?;
-            duplicate_board(scope, wiki_id, user_id, to_workspace, DuplicateAs::Copy).await
+            duplicate_container(scope, wiki_id, user_id, to_workspace, DuplicateAs::Copy).await
         })
         .await
     }
@@ -134,7 +138,7 @@ async fn family_of(
     let mut found = Vec::with_capacity(family.len());
     for ids in family.chunks(PAGES_AT_ONCE) {
         let mut sql = select_blocks(scope);
-        sql.push_bind(" WHERE board_id = ", Id(wiki_id))
+        sql.push_bind(" WHERE container_id = ", Id(wiki_id))
             .push(" AND type = 'page' AND id IN (")
             .bind_list(ids.iter().map(|id| Id(id)))
             .push(")");

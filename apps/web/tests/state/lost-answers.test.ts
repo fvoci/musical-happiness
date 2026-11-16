@@ -9,7 +9,7 @@ import { BackendError, type Backend } from '$lib/state/index.ts';
 
 import { openFirstBoard } from './support.ts';
 
-type Lost = 'patchBoard' | 'patchCard' | 'patchView';
+type Lost = 'patchContainer' | 'patchCard' | 'patchView';
 
 /** The next call of `method` reaches the backend (when `stored`), and its answer is lost. */
 function loseAnswer(backend: Backend, method: Lost, stored: boolean): void {
@@ -27,10 +27,10 @@ async function cases() {
   const view = board.views[0];
   if (!card || !view) throw new Error('the seed board has no card or view');
   const kinds = {
-    patchBoard: {
+    patchContainer: {
       change: () => board.changeBoard((current) => ({ ...current, title: 'Changed' })),
       shown: () => board.board?.title,
-      stored: async () => (await backend.board(board.boardId)).title,
+      stored: async () => (await backend.container(board.boardId)).title,
       before: board.board?.title,
     },
     patchCard: {
@@ -50,7 +50,7 @@ async function cases() {
   return { ...opened, kinds };
 }
 
-describe.each(['patchBoard', 'patchCard', 'patchView'] as const)('%s', (method) => {
+describe.each(['patchContainer', 'patchCard', 'patchView'] as const)('%s', (method) => {
   it('stored, though its answer was lost, stays and is undone', async () => {
     const { backend, workspace, kinds } = await cases();
     const kind = kinds[method];
@@ -94,13 +94,13 @@ function sortedKeys<T>(value: T): T {
 describe('a lost answer on the real server (found by a review of b0dec09e)', () => {
   it('finds a definition stored though the server orders its keys', async () => {
     const { board, backend, workspace } = await cases();
-    const read = backend.board.bind(backend);
-    vi.spyOn(backend, 'board').mockImplementation(async (boardId) =>
+    const read = backend.container.bind(backend);
+    vi.spyOn(backend, 'container').mockImplementation(async (boardId) =>
       sortedKeys(await read(boardId)),
     );
     const report = vi.spyOn(workspace, 'report');
     try {
-      loseAnswer(backend, 'patchBoard', true);
+      loseAnswer(backend, 'patchContainer', true);
       const added = { id: 'added', name: 'Added', type: 'select' as const, options: [] };
       await board.changeBoard((current) => ({
         ...current,

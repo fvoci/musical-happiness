@@ -18,17 +18,21 @@ import type { World } from './world.ts';
  */
 export function checkedWhole(
   world: World,
-  boardId: string,
+  containerId: string,
   cardId: string,
   body: DocNode | null,
 ): DocNode | null {
-  const checked = checkedBody(world, boardId, body);
+  const checked = checkedBody(world, containerId, body);
   world.bodyFlushed?.(cardId);
   return checked;
 }
 
 /** A body as it is stored, or the server's refusal of it (400). An empty paragraph alone is none. */
-export function checkedBody(world: World, boardId: string, body: DocNode | null): DocNode | null {
+export function checkedBody(
+  world: World,
+  containerId: string,
+  body: DocNode | null,
+): DocNode | null {
   if (body === null) return null;
   const problems = validateDoc(body);
   if (problems.length > 0) fail(400, problems[0] ?? 'invalid body', { field: 'body' });
@@ -36,7 +40,7 @@ export function checkedBody(world: World, boardId: string, body: DocNode | null)
     fail(400, 'the body is too large', { field: 'body', limit: LIMITS.bodyBytes });
   }
   for (const fileId of imageFileIds(body)) {
-    if (world.files.get(fileId)?.boardId !== boardId) {
+    if (world.files.get(fileId)?.containerId !== containerId) {
       fail(400, 'an image names a file that is not of this board', { field: 'body' });
     }
   }
@@ -49,7 +53,7 @@ export function checkedBody(world: World, boardId: string, body: DocNode | null)
 export function openMemoryRoom(
   world: World,
   user: RoomUser,
-  boardId: string,
+  containerId: string,
   cardId: string,
   hears: BodyDocHears,
 ): BodyDoc {
@@ -58,7 +62,7 @@ export function openMemoryRoom(
       import('./rooms.ts'),
       import('../doc-client.ts'),
     ]);
-    const line = roomsOf(world).line(user, boardId, cardId);
+    const line = roomsOf(world).line(user, containerId, cardId);
     return (told) => openRoom(line, told);
   }, hears);
 }
@@ -75,8 +79,8 @@ export function flushCard<Card extends { id: string }>(world: World, card: Card)
 }
 
 /** The same for every card and page of boards and wikis: before a copy of them, or an archive. */
-export function flushBoards(world: World, boards: readonly { id: string }[]): void {
-  for (const board of boards) {
+export function flushContainers(world: World, containers: readonly { id: string }[]): void {
+  for (const board of containers) {
     for (const block of world.blocksOf(board.id)) {
       if (block.type === 'card' || block.type === 'page') flushCard(world, block);
     }

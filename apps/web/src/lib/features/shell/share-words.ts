@@ -1,8 +1,8 @@
 /** The words of the dialogs of a board's or a wiki's people that name which of the two it is. */
 import { m } from '$lib/i18n/paraglide/messages.js';
-import type { BoardKind } from '$lib/logic/wire.ts';
+import type { ContainerKind } from '$lib/logic/wire.ts';
 
-export function shareWords(kind: BoardKind | undefined) {
+export function shareWords(kind: ContainerKind | undefined) {
   const wiki = kind === 'wiki';
   return {
     title: wiki ? m.share_wiki_title : m['ShareBoard.Title'],

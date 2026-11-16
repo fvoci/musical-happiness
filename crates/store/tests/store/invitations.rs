@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
-use fvoci_model::{BoardMember, BoardRole, Invitation, User, WorkspaceRole, new_id};
+use fvoci_model::{ContainerMember, ContainerRole, Invitation, User, WorkspaceRole, new_id};
 use fvoci_store::{
-    Accepted, Acceptor, Inviter, InviterOfBoard, MailedTo, NewLink, Standing, Store, StoreError,
+    Accepted, Acceptor, Inviter, InviterOfContainer, MailedTo, NewLink, Standing, Store, StoreError,
 };
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
@@ -30,7 +30,7 @@ pub(crate) async fn link(
     test: &TestStore,
     maker: &str,
     token_hash: &str,
-    guest_of: Option<(&str, BoardRole)>,
+    guest_of: Option<(&str, ContainerRole)>,
     max_uses: Option<i64>,
 ) -> Invitation {
     test.create_invitation(&NewLink {
@@ -52,8 +52,8 @@ pub(crate) async fn link(
 pub(crate) struct MakerFound {
     maker: String,
     workspace_role: Option<WorkspaceRole>,
-    member: Option<BoardMember>,
-    team_role: Option<BoardRole>,
+    member: Option<ContainerMember>,
+    team_role: Option<ContainerRole>,
 }
 
 impl MakerFound {
@@ -65,7 +65,7 @@ impl MakerFound {
             Some(link) => (
                 link.created_by.as_str(),
                 link.workspace_id.as_str(),
-                link.board_id.as_deref(),
+                link.container_id.as_deref(),
             ),
             None => ("", "", None),
         };
@@ -74,7 +74,7 @@ impl MakerFound {
             .await?
             .map(|access| access.workspace_role);
         let member = match board_id {
-            Some(board_id) => match store.get_member_for_board(board_id, maker).await {
+            Some(board_id) => match store.get_member_for_container(board_id, maker).await {
                 Ok(member) => Some(member),
                 Err(error) if error.is_not_found() => None,
                 Err(error) => return Err(error),
@@ -82,7 +82,7 @@ impl MakerFound {
             None => None,
         };
         let team_role = match board_id {
-            Some(id) => store.board_team_role(id, maker).await?,
+            Some(id) => store.container_team_role(id, maker).await?,
             None => None,
         };
         Ok(Self {
@@ -102,7 +102,7 @@ impl MakerFound {
                 member: self.member.as_ref(),
                 team_role: self.team_role,
             },
-            of_board: InviterOfBoard::Member,
+            of_container: InviterOfContainer::Member,
         }
     }
 }
@@ -149,7 +149,7 @@ async fn a_link_is_live_until_it_ends_is_used_up_or_is_revoked() {
         &test,
         &admin,
         "guest",
-        Some((&boards[0].id, BoardRole::Viewer)),
+        Some((&boards[0].id, ContainerRole::Viewer)),
         Some(1),
     )
     .await;
@@ -157,7 +157,7 @@ async fn a_link_is_live_until_it_ends_is_used_up_or_is_revoked() {
         (
             for_members.role,
             for_members.max_uses,
-            &for_members.board_id
+            &for_members.container_id
         ),
         (WorkspaceRole::Member, None, &None)
     );
@@ -165,9 +165,9 @@ async fn a_link_is_live_until_it_ends_is_used_up_or_is_revoked() {
         (
             for_a_guest.role,
             for_a_guest.max_uses,
-            for_a_guest.board_role
+            for_a_guest.container_role
         ),
-        (WorkspaceRole::Guest, Some(1), Some(BoardRole::Viewer))
+        (WorkspaceRole::Guest, Some(1), Some(ContainerRole::Viewer))
     );
     assert_eq!(for_members.token, None, "the store never has a token");
 
@@ -189,7 +189,7 @@ async fn a_link_is_live_until_it_ends_is_used_up_or_is_revoked() {
         let refused = test
             .create_invitation(&NewLink {
                 workspace_id: &test.workspace_id,
-                guest_of: Some((&board_id, BoardRole::Editor)),
+                guest_of: Some((&board_id, ContainerRole::Editor)),
                 token_hash: "elsewhere",
                 created_by: &admin,
                 now: NOW,
@@ -256,7 +256,7 @@ async fn of_many_who_accept_a_link_for_one_at_once_one_gets_in() {
             &test,
             &admin,
             "one",
-            Some((&board_id, BoardRole::Editor)),
+            Some((&board_id, ContainerRole::Editor)),
             Some(1),
         )
         .await;
@@ -292,7 +292,7 @@ async fn of_many_who_accept_a_link_for_one_at_once_one_gets_in() {
             match outcome {
                 Ok(Some(accepted)) => {
                     assert!(accepted.used, "round {round}: {accepted:?}");
-                    assert_eq!(accepted.board_id.as_deref(), Some(board_id.as_str()));
+                    assert_eq!(accepted.container_id.as_deref(), Some(board_id.as_str()));
                     let_in.push(user_id.clone());
                 }
                 Ok(None) => {
@@ -320,7 +320,7 @@ async fn of_many_who_accept_a_link_for_one_at_once_one_gets_in() {
         );
         assert_eq!(uses_of(&test, "one").await, None, "round {round}: used up");
         let members = test
-            .get_members_for_board(&board_id)
+            .get_members_for_container(&board_id)
             .await
             .expect("the members of the board");
         assert_eq!(members.len(), 1, "round {round}: {members:?}");
@@ -402,7 +402,7 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
         &test,
         &admin,
         "guest",
-        Some((&boards[0].id, BoardRole::Viewer)),
+        Some((&boards[0].id, ContainerRole::Viewer)),
         Some(1),
     )
     .await;
@@ -410,12 +410,12 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
 
     // The administrator of the board accepts the link to it: nothing changes, and the
     // link is not used.
-    let as_admin = BoardMember {
-        board_id: boards[0].id.clone(),
+    let as_admin = ContainerMember {
+        container_id: boards[0].id.clone(),
         user_id: admin.clone(),
-        ..BoardMember::default()
+        ..ContainerMember::default()
     }
-    .with_role(Some(BoardRole::Admin));
+    .with_role(Some(ContainerRole::Admin));
     test.add_member(&as_admin)
         .await
         .expect("the administrator of the board");
@@ -425,12 +425,12 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
         .expect("the link is live");
     assert!(!unchanged.used, "{unchanged:?}");
     let role = async |board: usize, user_id: &str| {
-        test.get_member_for_board(&boards[board].id, user_id)
+        test.get_member_for_container(&boards[board].id, user_id)
             .await
             .ok()
             .and_then(|member| member.role())
     };
-    assert_eq!(role(0, &admin).await, Some(BoardRole::Admin));
+    assert_eq!(role(0, &admin).await, Some(ContainerRole::Admin));
     assert_eq!(uses_of(&test, "guest").await, Some(0));
 
     // A member of the workspace accepts it: on the board, and still a member.
@@ -439,7 +439,7 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
         .expect("the acceptance is stored")
         .expect("the link is live");
     assert!(joined.used, "{joined:?}");
-    assert_eq!(role(0, &member).await, Some(BoardRole::Viewer));
+    assert_eq!(role(0, &member).await, Some(ContainerRole::Viewer));
     assert_eq!(
         role_in_the_workspace(&test, &member).await,
         Some(WorkspaceRole::Member)
@@ -451,7 +451,7 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
         &test,
         &admin,
         "second",
-        Some((&boards[1].id, BoardRole::Editor)),
+        Some((&boards[1].id, ContainerRole::Editor)),
         Some(1),
     )
     .await;
@@ -464,7 +464,7 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
         role_in_the_workspace(&test, &outsider.id).await,
         Some(WorkspaceRole::Guest)
     );
-    assert_eq!(role(1, &outsider.id).await, Some(BoardRole::Editor));
+    assert_eq!(role(1, &outsider.id).await, Some(ContainerRole::Editor));
     assert_eq!(
         role(0, &outsider.id).await,
         None,
@@ -479,7 +479,7 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
         role_in_the_workspace(&test, &outsider.id).await,
         Some(WorkspaceRole::Member)
     );
-    assert_eq!(role(1, &outsider.id).await, Some(BoardRole::Editor));
+    assert_eq!(role(1, &outsider.id).await, Some(ContainerRole::Editor));
 
     test.teardown().await;
 }
@@ -495,12 +495,12 @@ async fn a_guest_who_comes_back_holds_no_role_from_before() {
     let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 3).await;
     let (stays, goes, invited_to) = (&boards[0].id, &boards[1].id, &boards[2].id);
     for (board_id, user_id) in [(stays, &returning), (goes, &returning), (goes, &admin)] {
-        let member = BoardMember {
-            board_id: board_id.clone(),
+        let member = ContainerMember {
+            container_id: board_id.clone(),
             user_id: user_id.clone(),
-            ..BoardMember::default()
+            ..ContainerMember::default()
         }
-        .with_role(Some(BoardRole::Admin));
+        .with_role(Some(ContainerRole::Admin));
         test.add_member(&member)
             .await
             .expect("a member of the board");
@@ -512,7 +512,7 @@ async fn a_guest_who_comes_back_holds_no_role_from_before() {
     ))
     .await
     .expect("the member leaves");
-    test.delete_board(goes, &admin)
+    test.delete_container(goes, &admin)
         .await
         .expect("the board goes to the trash");
 
@@ -520,7 +520,7 @@ async fn a_guest_who_comes_back_holds_no_role_from_before() {
         &test,
         &admin,
         "back",
-        Some((invited_to, BoardRole::Viewer)),
+        Some((invited_to, ContainerRole::Viewer)),
         Some(1),
     )
     .await;
@@ -532,17 +532,20 @@ async fn a_guest_who_comes_back_holds_no_role_from_before() {
         role_in_the_workspace(&test, &returning).await,
         Some(WorkspaceRole::Guest)
     );
-    test.undelete_board(goes, &admin)
+    test.undelete_container(goes, &admin)
         .await
         .expect("the board comes back");
 
     let role = async |board_id: &str, user_id: &str| {
-        test.get_member_for_board(board_id, user_id)
+        test.get_member_for_container(board_id, user_id)
             .await
             .ok()
             .and_then(|member| member.role())
     };
-    assert_eq!(role(invited_to, &returning).await, Some(BoardRole::Viewer));
+    assert_eq!(
+        role(invited_to, &returning).await,
+        Some(ContainerRole::Viewer)
+    );
     assert_eq!(
         role(stays, &returning).await,
         None,
@@ -551,7 +554,7 @@ async fn a_guest_who_comes_back_holds_no_role_from_before() {
     assert_eq!(role(goes, &returning).await, None, "a board that came back");
     assert_eq!(
         role(goes, &admin).await,
-        Some(BoardRole::Admin),
+        Some(ContainerRole::Admin),
         "who stayed comes back with the board"
     );
 
@@ -566,7 +569,7 @@ async fn no_link_for_a_guest_is_made_while_guests_are_not_invited() {
     let test = common::setup().await;
     let admin = common::user(&test, "admin").await;
     let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
-    let guest_of = Some((boards[0].id.as_str(), BoardRole::Editor));
+    let guest_of = Some((boards[0].id.as_str(), ContainerRole::Editor));
     link(&test, &admin, "before", guest_of, Some(1)).await;
     let switch = async |enabled: bool| {
         test.set_guest_invitations(
@@ -615,7 +618,7 @@ async fn a_mailed_links_children_name_it_and_go_with_it_while_unused() {
     let admin = common::user(&test, "admin").await;
     let sender = common::user(&test, "sender").await;
     let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
-    let guest_of = Some((boards[0].id.as_str(), BoardRole::Viewer));
+    let guest_of = Some((boards[0].id.as_str(), ContainerRole::Viewer));
     let parent = link(&test, &admin, "parent", guest_of, Some(1)).await;
     let child = async |token_hash: &str, recipient: &str| {
         test.create_invitation(&NewLink {
@@ -708,7 +711,7 @@ async fn a_used_link_is_unended_until_it_ends() {
     let test = common::setup().await;
     let admin = common::user(&test, "admin").await;
     let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
-    let guest_of = Some((boards[0].id.as_str(), BoardRole::Viewer));
+    let guest_of = Some((boards[0].id.as_str(), ContainerRole::Viewer));
     let used_up = link(&test, &admin, "used-up", guest_of, Some(1)).await;
     assert!(
         accept(

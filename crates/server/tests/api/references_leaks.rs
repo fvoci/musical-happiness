@@ -65,7 +65,7 @@ async fn given(reader: &Client, board: &str, source: &str) -> Vec<Given> {
         all.push(got(reader, path).await);
     }
     let archive = reader
-        .get(&format!("{TEST_WS}/boards/{board}/archive/export"))
+        .get(&format!("{TEST_WS}/containers/{board}/archive/export"))
         .await;
     let mut entries = Vec::new();
     if let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(archive.body.clone())) {
@@ -268,11 +268,11 @@ async fn nothing_tells_the_title_of_what_is_of_another_workspace_or_organization
     // SQLite holds one organization.
     if fvoci_store::testing::db_type_of_the_tests() == fvoci_store::DbType::Postgres {
         let (theirs, _, their_board) = crate::workspaces::another_organization(&th).await;
-        let members = theirs.get_members_for_board(&their_board).await;
+        let members = theirs.get_members_for_container(&their_board).await;
         let owner = members.expect("their members")[0].user_id.clone();
         let mut card = Block {
             id: fvoci_model::new_id(),
-            board_id: their_board,
+            container_id: their_board,
             block_type: BlockType::Card,
             title: HIDDEN.to_owned(),
             ..Block::default()

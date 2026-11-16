@@ -57,7 +57,7 @@ fn sample_block() -> Block {
         create_at: NOW,
         update_at: NOW,
         delete_at: 0,
-        board_id,
+        container_id: board_id,
         edited_at: 0,
     }
 }
@@ -92,7 +92,7 @@ fn card_from_block_not_a_card() {
 fn card_from_block_fills_missing_fields_and_times() {
     let block = Block {
         id: "card-id".to_owned(),
-        board_id: "board-id".to_owned(),
+        container_id: "board-id".to_owned(),
         block_type: BlockType::Card,
         ..Block::default()
     };

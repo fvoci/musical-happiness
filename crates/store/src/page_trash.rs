@@ -14,7 +14,7 @@ use crate::blocks::Paging;
 use crate::db::{Dialect, Id, Scope, now_millis};
 use crate::pages::{page_tree, write_place};
 use crate::trash::{block_from_json, block_not_in_trash, push_paging, take_blocks_out_of_trash};
-use crate::{Store, StoreError, boards};
+use crate::{Store, StoreError, containers};
 
 /// What bringing a page back changed: the pages that came back, a parent before what is
 /// below it, the page asked for first; and the pages numbered anew to leave it room.
@@ -53,7 +53,7 @@ impl Store {
                 "SELECT top.block, top.deleted_by, top.deleted_at, \
                  (SELECT COUNT(*) FROM deleted_blocks went \
                  WHERE went.deletion_id = top.deletion_id AND {went_page}) \
-                 FROM deleted_blocks top WHERE top.board_id = "
+                 FROM deleted_blocks top WHERE top.container_id = "
             ));
             sql.bind(Id(wiki_id)).push(&format!(
                 " AND {is_page} AND NOT EXISTS (SELECT 1 FROM deleted_blocks above \
@@ -101,7 +101,7 @@ impl Store {
         self.transaction(async |scope| {
             // The wiki first, then the trash read under its lock: a page restored
             // meanwhile is not in it any more.
-            boards::lock_board_of_kind(scope, wiki_id)
+            containers::lock_container_of_kind(scope, wiki_id)
                 .await?
                 .ok_or_else(block_not_in_trash)?;
             let deletion = deletion_of(scope, wiki_id, page_id).await?;
@@ -120,7 +120,7 @@ async fn deletion_of(
 ) -> Result<Deletion, StoreError> {
     let mut sql = scope.sql("SELECT deletion_id, block FROM deleted_blocks WHERE id = ");
     sql.bind(Id(page_id))
-        .push_bind(" AND board_id = ", Id(wiki_id));
+        .push_bind(" AND container_id = ", Id(wiki_id));
     let row = scope
         .fetch_optional(sql)
         .await?

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
 use fvoci_model::{
-    BoardMember, LinkedIdentity, Problem, RefusalReason, Refusals, UnlinkRequest, User,
+    ContainerMember, LinkedIdentity, Problem, RefusalReason, Refusals, UnlinkRequest, User,
     UserPreferencesPatch, UserSettings, UserSettingsPatch, display_name, shown_name,
 };
 use fvoci_store::{InstanceRole, Preference};
@@ -130,20 +130,20 @@ async fn handle_patch_me(
 /// sessions made through its provider leaves its boards out of another session's list.
 /// A board the user has a role on only through a team of its workspace is listed too
 /// (`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. A
-/// wiki the user is on is listed as a board is, under its identifier as `boardId`. By
+/// wiki the user is on is listed as a board is, under its identifier as `containerId`. By
 /// the identifier of the board.
 #[utoipa::path(
     get,
     path = "/users/me/memberships",
     operation_id = "getMyMemberships",
     tag = tag::USERS,
-    responses((status = 200, description = "The memberships.", body = Vec<BoardMember>)),
+    responses((status = 200, description = "The memberships.", body = Vec<ContainerMember>)),
 )]
 async fn handle_get_my_memberships(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    let members = app.board_memberships(&session).await?;
+    let members = app.container_memberships(&session).await?;
     Ok(json_response(&members))
 }
 

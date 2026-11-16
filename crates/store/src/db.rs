@@ -756,7 +756,7 @@ mod tests {
     #[test]
     fn only_a_statement_that_begins_with_select_is_taken_for_a_read() {
         assert!(
-            is_plain_select("SELECT id FROM boards WHERE id = $1"),
+            is_plain_select("SELECT id FROM containers WHERE id = $1"),
             "a read"
         );
         assert!(is_plain_select("  SELECT 1"), "leading white space");
@@ -764,7 +764,7 @@ mod tests {
             "WITH gone AS (DELETE FROM blocks RETURNING id) SELECT id FROM gone",
             "DELETE FROM data_steps WHERE name = $1 RETURNING name",
             "UPDATE users SET update_at = $1 RETURNING id",
-            "INSERT INTO boards (id) VALUES ($1) RETURNING id",
+            "INSERT INTO containers (id) VALUES ($1) RETURNING id",
             "select 1",
             "SELECTED",
         ] {

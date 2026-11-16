@@ -75,7 +75,7 @@ async fn a_member_taken_off_the_board_is_sent_nothing_written_after() {
     let remove = async {
         th.client
             .delete(&format!(
-                "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user}",
+                "/w/{TEST_WORKSPACE_ID}/containers/{}/members/{user}",
                 table.board_id
             ))
             .await

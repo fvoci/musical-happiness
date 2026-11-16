@@ -64,10 +64,10 @@ fn block(id: &str, parent_id: &str) -> Block {
 }
 
 fn ids_after_dropping(blocks: Vec<Block>) -> (Vec<String>, usize) {
-    let mut archive = BoardsAndBlocks {
-        boards: vec![Board {
+    let mut archive = ContainersAndBlocks {
+        containers: vec![Container {
             id: "board".to_owned(),
-            ..Board::default()
+            ..Container::default()
         }],
         blocks,
     };

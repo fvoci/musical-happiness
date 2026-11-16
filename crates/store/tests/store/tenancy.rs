@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use fvoci_model::{
-    AuditAction, BlockType, Board, BoardKind, BoardMember, BoardType, Category, OrgRole,
-    SubscriberType, Subscription, Upload, UploadPart, User, Workspace, WorkspaceRole, is_id,
-    new_id,
+    AuditAction, BlockType, Category, Container, ContainerKind, ContainerMember, ContainerType,
+    OrgRole, SubscriberType, Subscription, Upload, UploadPart, User, Workspace, WorkspaceRole,
+    is_id, new_id,
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
 use fvoci_store::{
@@ -66,15 +66,15 @@ async fn the_policies_hold_the_role_the_tests_connect_as() {
 /// Stores an open board of the workspace by the user through `store` and returns its
 /// identifier.
 async fn board(store: &Store, workspace_id: &str, user_id: &str, title: &str) -> String {
-    let mut board = Board {
+    let mut board = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
-        board_type: BoardType::Open,
+        container_type: ContainerType::Open,
         title: title.to_owned(),
-        ..Board::default()
+        ..Container::default()
     };
     store
-        .insert_board(&mut board, user_id)
+        .insert_container(&mut board, user_id)
         .await
         .expect("the board is stored");
     board.id
@@ -102,7 +102,7 @@ async fn the_boards_of_two_organizations_are_out_of_each_others_reach() {
 
     let count = async |store: &Store| {
         store
-            .count_rows("boards")
+            .count_rows("containers")
             .await
             .expect("the boards are counted")
     };
@@ -113,24 +113,24 @@ async fn the_boards_of_two_organizations_are_out_of_each_others_reach() {
 
     // By its identifier too: what is another's is not there.
     assert_eq!(
-        ours.get_board(&our_board).await.expect("ours").title,
+        ours.get_container(&our_board).await.expect("ours").title,
         "ours"
     );
     let missing = ours
-        .get_board(&their_board)
+        .get_container(&their_board)
         .await
         .expect_err("their board is out of reach");
     assert!(missing.is_not_found(), "got {missing:?}");
     // Nor is it changed or deleted: the statement finds no row.
     let changed = ours
         .execute_unchecked(&format!(
-            "UPDATE boards SET title = 'taken' WHERE id = '{their_board}'"
+            "UPDATE containers SET title = 'taken' WHERE id = '{their_board}'"
         ))
         .await
         .expect("the statement runs");
     assert_eq!(changed, 0, "an update of their board");
     let deleted = ours
-        .execute_unchecked("DELETE FROM boards")
+        .execute_unchecked("DELETE FROM containers")
         .await
         .expect("the statement runs");
     assert_eq!(deleted, 1, "a delete of everything deletes ours");
@@ -141,7 +141,7 @@ async fn the_boards_of_two_organizations_are_out_of_each_others_reach() {
     // to apart from the wall.
     let insert = |org: &str| {
         format!(
-            "INSERT INTO boards (id, org_id, workspace_id, type, title, description, icon, \
+            "INSERT INTO containers (id, org_id, workspace_id, type, title, description, icon, \
              show_description, is_template, properties, card_properties, create_at, update_at) \
              VALUES ('{}', {org}, '{their_workspace}', 'O', '', '', '', false, false, '{{}}', '[]', 0, 0)",
             new_id()
@@ -209,7 +209,7 @@ async fn nothing_of_an_organization_stays_on_a_pooled_connection() {
             (test.system(), 3),
         ] {
             reads.spawn(async move {
-                let counted = store.count_rows("boards").await.expect("counted");
+                let counted = store.count_rows("containers").await.expect("counted");
                 (round, store.tenant(), counted, expected)
             });
         }
@@ -361,7 +361,7 @@ async fn every_table_is_no_organizations_or_behind_the_wall() {
     let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
     let policies = policies(&mut conn).await;
     let wall = policies
-        .get(&("boards".to_owned(), "org_wall".to_owned()))
+        .get(&("containers".to_owned(), "org_wall".to_owned()))
         .expect("boards has the policy")
         .clone();
     let (command, permissive, using, check) = &wall;
@@ -384,7 +384,7 @@ async fn every_table_is_no_organizations_or_behind_the_wall() {
         }
         assert_eq!(policy, "org_templates", "{table} has the policy {policy}");
         assert!(
-            ["boards", "blocks"].contains(&table.as_str()),
+            ["containers", "blocks"].contains(&table.as_str()),
             "{table} lets the templates be read"
         );
         assert_eq!(
@@ -414,7 +414,7 @@ async fn in_the_files(store: &Store, user_id: &str, board_id: &str, username: &s
     let upload = Upload {
         id: new_id(),
         user_id: user_id.to_owned(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         name: "upload.bin".to_owned(),
         size: 1,
         part_size: 1,
@@ -472,8 +472,8 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
     store.keep_search_outbox();
     let user_id = common::user(store, username).await;
     let comment = crate::file_info::posted_comment(store, &user_id).await;
-    let board_id = comment.board_id.clone();
-    let board = store.get_board(&board_id).await.expect("the board");
+    let board_id = comment.container_id.clone();
+    let board = store.get_container(&board_id).await.expect("the board");
     store
         .patch_block(
             &comment.id,
@@ -483,24 +483,24 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .await
         .expect("the comment is changed");
     store
-        .save_member(&BoardMember {
-            board_id: board_id.clone(),
+        .save_member(&ContainerMember {
+            container_id: board_id.clone(),
             user_id: user_id.clone(),
             scheme_editor: true,
-            ..BoardMember::default()
+            ..ContainerMember::default()
         })
         .await
         .expect("a member is stored");
-    let as_viewer = BoardMember {
-        board_id: board_id.clone(),
+    let as_viewer = ContainerMember {
+        container_id: board_id.clone(),
         user_id: user_id.clone(),
         scheme_viewer: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     let entry = AuditEntry::new(
         &board.workspace_id,
         &user_id,
-        AuditAction::SelfAddedToBoard,
+        AuditAction::SelfAddedToContainer,
         &board_id,
     );
     administer(store, &board.workspace_id, &user_id).await;
@@ -536,7 +536,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .await
         .expect("a category is stored");
     store
-        .add_update_category_board(&user_id, &category.id, std::slice::from_ref(&board_id))
+        .add_update_category_container(&user_id, &category.id, std::slice::from_ref(&board_id))
         .await
         .expect("the board is filed");
     in_the_files(store, &user_id, &board_id, username).await;
@@ -545,7 +545,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
     // The trash: a card of the live board, and a whole board.
     let mut card = fvoci_model::Block {
         id: new_id(),
-        board_id: board_id.clone(),
+        container_id: board_id.clone(),
         block_type: BlockType::Card,
         ..fvoci_model::Block::default()
     };
@@ -556,7 +556,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .expect("a card goes to the trash");
     let gone = common::create_test_boards(store, &board.workspace_id, &user_id, 1).await;
     store
-        .delete_board(&gone[0].id, &user_id)
+        .delete_container(&gone[0].id, &user_id)
         .await
         .expect("a board goes to the trash");
     common::sign_in_under_way(store, username).await;
@@ -565,11 +565,11 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
 }
 
 /// A link that invites a guest to the board, made by the user.
-async fn a_link_for_a_guest(store: &Store, board: &Board, user_id: &str) {
+async fn a_link_for_a_guest(store: &Store, board: &Container, user_id: &str) {
     store
         .create_invitation(&fvoci_store::NewLink {
             workspace_id: &board.workspace_id,
-            guest_of: Some((&board.id, fvoci_model::BoardRole::Viewer)),
+            guest_of: Some((&board.id, fvoci_model::ContainerRole::Viewer)),
             token_hash: &format!("link of {user_id}"),
             created_by: user_id,
             now: 0,
@@ -586,7 +586,7 @@ async fn a_link_for_a_guest(store: &Store, board: &Board, user_id: &str) {
 async fn a_body_edited_together(store: &Store, board_id: &str, user_id: &str) {
     let mut edited = fvoci_model::Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type: BlockType::Card,
         body: crate::body_links::body_naming("kept", &[&new_id()]),
         ..fvoci_model::Block::default()
@@ -1221,7 +1221,7 @@ async fn assert_the_template_is_the_systems(
         "in the system's workspace"
     );
     let read = ours
-        .get_board(before.id("template"))
+        .get_container(before.id("template"))
         .await
         .expect("ours reads the template");
     assert!(read.is_builtin, "{read:?}");
@@ -1232,7 +1232,7 @@ async fn assert_the_template_is_the_systems(
     // behind PostgreSQL's wall it is out of the user's reach, and the template is
     // nobody's to change. SQLite has no wall, and leaves it where it was.
     let membership = ours
-        .get_member_for_board(before.id("template"), before.id("member"))
+        .get_member_for_container(before.id("template"), before.id("member"))
         .await;
     match unset.db_type() {
         DbType::Postgres => assert!(
@@ -1253,7 +1253,7 @@ async fn assert_the_template_is_the_systems(
         "the template is shared with nobody"
     );
     assert_eq!(
-        ours.get_board(before.id("board"))
+        ours.get_container(before.id("board"))
             .await
             .expect("a board")
             .workspace_id,
@@ -1281,13 +1281,13 @@ async fn assert_every_row_is_behind_the_wall(unset: &Store, ours: &Store) {
         ("workspaces", 2, 1),
         ("organization_members", 4, 0),
         ("workspace_members", 7, 0),
-        ("boards", 2, 1),
-        ("board_members", 2, 1),
+        ("containers", 2, 1),
+        ("container_members", 2, 1),
         ("blocks", 2, 1),
-        ("deleted_boards", 1, 0),
+        ("deleted_containers", 1, 0),
         ("deleted_blocks", 2, 0),
         ("categories", 2, 0),
-        ("category_boards", 2, 0),
+        ("category_containers", 2, 0),
         ("file_info", 1, 1),
         ("file_refs", 2, 0),
         ("sharing", 1, 1),
@@ -1298,7 +1298,7 @@ async fn assert_every_row_is_behind_the_wall(unset: &Store, ours: &Store) {
     ];
     for (table, of_ours, of_the_system) in expected {
         let count = async |store: &Store| store.count_rows(table).await.expect("counted");
-        let read_besides = if ["boards", "blocks"].contains(&table) {
+        let read_besides = if ["containers", "blocks"].contains(&table) {
             of_the_system
         } else {
             0
@@ -1467,14 +1467,14 @@ async fn the_organization_of_a_shared_board_is_for_the_holder_of_its_token() {
         Some(test.org_id.clone())
     );
     // A wiki is shared as a board is, and said to be one: its token reads its pages.
-    let mut wiki = Board {
+    let mut wiki = Container {
         id: new_id(),
         workspace_id: workspace_id.clone(),
-        kind: BoardKind::Wiki,
+        kind: ContainerKind::Wiki,
         title: "a wiki".to_owned(),
-        ..Board::default()
+        ..Container::default()
     };
-    test.insert_board(&mut wiki, &user_id)
+    test.insert_container(&mut wiki, &user_id)
         .await
         .expect("the wiki is stored");
     test.set_sharing(&wiki.id, SharingChange::On, "the-wiki-token", &user_id)
@@ -1487,7 +1487,7 @@ async fn the_organization_of_a_shared_board_is_for_the_holder_of_its_token() {
             .expect("the shared wiki is looked up"),
         Some(SharedContainer {
             org_id: test.org_id.clone(),
-            kind: BoardKind::Wiki,
+            kind: ContainerKind::Wiki,
         })
     );
     assert_eq!(
@@ -1742,7 +1742,7 @@ async fn foreign_keys(conn: &mut sqlx::PgConnection) -> Vec<(String, String, Vec
 async fn a_row_is_held_to_the_organization_of_what_it_hangs_on() {
     // A category takes a built-in template, which is the system organization's: a
     // trigger checks the board when the row is stored (organization_boundary_round2.rs).
-    const NOT_HELD: [(&str, &str); 1] = [("category_boards", "board_id")];
+    const NOT_HELD: [(&str, &str); 1] = [("category_containers", "container_id")];
     if common::db_type() != DbType::Postgres {
         return;
     }
@@ -1781,14 +1781,14 @@ async fn a_row_is_held_to_the_organization_of_what_it_hangs_on() {
     assert_eq!(
         held,
         [
-            "blocks.board_id",
-            "board_members.board_id",
-            "boards.workspace_id",
+            "blocks.container_id",
             "categories.workspace_id",
-            "category_boards.category_id",
-            "file_info.board_id",
+            "category_containers.category_id",
+            "container_members.container_id",
+            "containers.workspace_id",
+            "file_info.container_id",
             "organizations.default_workspace_id",
-            "sharing.board_id",
+            "sharing.container_id",
             "subscriptions.block_id",
             "upload_parts.upload_id",
             "workspace_members.workspace_id",
@@ -1819,7 +1819,7 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
              VALUES ('{their_workspace}', '{user_id}', 'admin', 0)"
         ),
         format!(
-            "INSERT INTO sharing (board_id, enabled, token, update_at) \
+            "INSERT INTO sharing (container_id, enabled, token, update_at) \
              VALUES ('{their_board}', true, 'a-forged-token', 0)"
         ),
     ];
@@ -1834,7 +1834,7 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
     let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
     sqlx::raw_sql(
         "ALTER TABLE workspace_members DROP CONSTRAINT workspace_members_workspace_org_fkey; \
-         ALTER TABLE sharing DROP CONSTRAINT sharing_board_org_fkey",
+         ALTER TABLE sharing DROP CONSTRAINT sharing_container_org_fkey",
     )
     .execute(&mut conn)
     .await
@@ -1881,8 +1881,8 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
 /// found neither among the boards of its workspace nor by a search, until they are on it.
 #[tokio::test]
 async fn an_open_board_is_found_by_who_works_in_its_workspace() {
-    use fvoci_model::BoardSearchField::Title;
-    use fvoci_store::PublicBoards;
+    use fvoci_model::ContainerSearchField::Title;
+    use fvoci_store::PublicContainers;
 
     let test = common::setup().await;
     let (member, guest, outsider) = (
@@ -1897,13 +1897,16 @@ async fn an_open_board_is_found_by_who_works_in_its_workspace() {
     let board_id = board(&test, &workspace_id, &member, "open to the workspace").await;
 
     let found_by = async |user_id: &str| {
-        let (open, boards) = (PublicBoards::Include, fvoci_model::BoardKinds::Boards);
+        let (open, boards) = (
+            PublicContainers::Include,
+            fvoci_model::ContainerKinds::Boards,
+        );
         let of_the_workspace = test
-            .get_boards_for_user_and_workspace(user_id, &workspace_id, open, boards)
+            .get_containers_for_user_and_workspace(user_id, &workspace_id, open, boards)
             .await
             .expect("the boards of the workspace are read");
         let searched = test
-            .search_boards_for_user("open", Title, user_id, open, boards)
+            .search_containers_for_user("open", Title, user_id, open, boards)
             .await
             .expect("the boards are searched");
         (of_the_workspace.len(), searched.len())
@@ -1917,11 +1920,11 @@ async fn an_open_board_is_found_by_who_works_in_its_workspace() {
     assert_eq!(found_by(&outsider).await, (0, 0), "somebody not in it");
 
     // On the board, a guest finds it as any member of a board does.
-    test.save_member(&BoardMember {
-        board_id,
+    test.save_member(&ContainerMember {
+        container_id: board_id,
         user_id: guest.clone(),
         scheme_viewer: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     })
     .await
     .expect("the guest is put on the board");
@@ -1934,7 +1937,7 @@ async fn an_open_board_is_found_by_who_works_in_its_workspace() {
 }
 
 /// Real rows in all three group tables, so every organization wall is exercised.
-async fn a_team_on_board(store: &Store, board: &Board, user_id: &str) {
+async fn a_team_on_board(store: &Store, board: &Container, user_id: &str) {
     let group = store
         .create_team(&board.workspace_id, user_id, user_id)
         .await
@@ -1944,7 +1947,7 @@ async fn a_team_on_board(store: &Store, board: &Board, user_id: &str) {
         .await
         .expect("a team member is stored");
     store.execute_unchecked(&format!(
-        "INSERT INTO board_teams (board_id, team_id, workspace_id, role) VALUES ('{}', '{group}', '{}', 'editor')",
+        "INSERT INTO container_teams (container_id, team_id, workspace_id, role) VALUES ('{}', '{group}', '{}', 'editor')",
         board.id, board.workspace_id
     )).await.expect("the team has a board role");
 }

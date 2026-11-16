@@ -36,7 +36,7 @@ use fvoci_model::Invitation;
 use crate::NewLink;
 use crate::db::{Dialect, Id, Scope};
 use crate::error::StoreError;
-use crate::{boards, org_admin};
+use crate::{containers, org_admin};
 
 /// The key of the advisory lock of the turn of several links: `fvoclnks`.
 const SEVERAL_LINKS_LOCK: i64 = 0x6676_6f63_6c6e_6b73;
@@ -118,9 +118,9 @@ pub(crate) async fn hold_for_new_link(
     if scope.fetch_optional(sql).await?.is_none() {
         return Err(StoreError::not_found("workspace"));
     }
-    if let Some((board_id, _)) = link.guest_of {
-        let mut sql = scope.sql("SELECT id FROM boards WHERE id = ");
-        sql.bind(Id(board_id))
+    if let Some((container_id, _)) = link.guest_of {
+        let mut sql = scope.sql("SELECT id FROM containers WHERE id = ");
+        sql.bind(Id(container_id))
             .push_bind(" AND workspace_id = ", Id(link.workspace_id))
             .push_bind(" AND is_template = ", false);
         // What the new link's reference takes anyway: only a deletion waits for it.
@@ -138,8 +138,8 @@ pub(crate) async fn hold_for_new_link(
             .push_bind(" AND workspace_id = ", Id(link.workspace_id));
         // Of the board held above: a link of another board is not held after its own.
         match link.guest_of {
-            Some((board_id, _)) => sql.push_bind(" AND board_id = ", Id(board_id)),
-            None => sql.push(" AND board_id IS NULL"),
+            Some((container_id, _)) => sql.push_bind(" AND container_id = ", Id(container_id)),
+            None => sql.push(" AND container_id IS NULL"),
         };
         sql.push_bind(" AND revoked_at = ", 0_i64)
             .push_bind(" AND expires_at > ", link.now);
@@ -168,11 +168,11 @@ pub(crate) async fn hold_for_letting_in(
     link: &Invitation,
     turn: Option<Turn>,
 ) -> Result<bool, StoreError> {
-    if link.board_id.is_some() || turn.is_some() {
+    if link.container_id.is_some() || turn.is_some() {
         org_admin::hold_organization_row(scope).await?;
     }
-    if let Some(board_id) = &link.board_id {
-        return boards::lock_board(scope, board_id).await;
+    if let Some(container_id) = &link.container_id {
+        return containers::lock_container(scope, container_id).await;
     }
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
     sql.bind(Id(&link.workspace_id))

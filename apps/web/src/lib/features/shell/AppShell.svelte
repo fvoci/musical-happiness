@@ -30,8 +30,8 @@
   import { tick, type Snippet } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardPlace } from '$lib/logic/urls.ts';
-  import type { Board } from '$lib/logic/wire.ts';
+  import type { ContainerPlace } from '$lib/logic/urls.ts';
+  import type { Container } from '$lib/logic/wire.ts';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { sidebarShape } from '$lib/layout/presentation.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
@@ -57,10 +57,10 @@
     /** The board that is shown, to mark it in the sidebar. */
     boardId: string | undefined;
     /** The address of a board, for a link to it. */
-    boardHref: (board: BoardPlace) => string;
+    boardHref: (board: ContainerPlace) => string;
     /** The address of a board's public link with its read token. */
     sharedHref: (boardId: string, readToken: string) => string;
-    onOpenBoard: (board: BoardPlace) => void;
+    onOpenBoard: (board: ContainerPlace) => void;
     /** The languages the app has, as tags, for the settings. */
     locales?: readonly string[];
     /** The reader's language setting: `auto`, or the one of `locales` it is shown in. */
@@ -188,7 +188,7 @@
   }
 
   /** A board was chosen. From the drawer, the router puts the new address in place of the drawer's entry. */
-  function openBoard(board: BoardPlace): void {
+  function openBoard(board: ContainerPlace): void {
     onOpenBoard(board);
     sidebar.drawerOpen = false;
   }
@@ -246,8 +246,8 @@
     if (made) openBoard(made);
   }
 
-  async function addBoardFromTemplate(template: Board): Promise<void> {
-    const made = await whileHere(workspace, () => workspace.duplicateBoard(template.id));
+  async function addBoardFromTemplate(template: Container): Promise<void> {
+    const made = await whileHere(workspace, () => workspace.duplicateContainer(template.id));
     if (made) openBoard(made);
   }
 
@@ -375,8 +375,8 @@
       }
     : undefined}
   onEmptyBoard={() => void addEmptyBoard()}
-  onFromTemplate={(template: Board) => void addBoardFromTemplate(template)}
-  onEditTemplate={(template: Board) => {
+  onFromTemplate={(template: Container) => void addBoardFromTemplate(template)}
+  onEditTemplate={(template: Container) => {
     openBoard(template);
   }}
 />

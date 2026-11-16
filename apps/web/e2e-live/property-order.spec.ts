@@ -45,8 +45,8 @@ test('a property moved on a card is the board’s order, seen by another member,
   const stored = async () =>
     (
       (await (
-        await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`)
-      ).json()) as Schemas['Board']
+        await api.get(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}`)
+      ).json()) as Schemas['Container']
     ).cardProperties.map((template) => template.name);
 
   const pages: Page[] = [];
@@ -110,8 +110,8 @@ test('a property moved in the view’s properties panel is the board’s order, 
   const stored = async () =>
     (
       (await (
-        await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`)
-      ).json()) as Schemas['Board']
+        await api.get(`/api/v1/w/${board.workspaceId}/containers/${board.boardId}`)
+      ).json()) as Schemas['Container']
     ).cardProperties.map((template) => template.name);
   const face = page.locator(`[data-card="${board.cards.One ?? ''}"] [data-property]`);
   const faceOrder = () =>

@@ -3,7 +3,7 @@
 //! workspace they joined, empty the rooms of its cards of the people they concern, at
 //! once the workspace operation completes.
 
-use fvoci_model::{BoardMember, BoardType, Card, WorkspaceRole};
+use fvoci_model::{Card, ContainerMember, ContainerType, WorkspaceRole};
 use serde_json::json;
 
 use crate::boards::new_board;
@@ -18,7 +18,7 @@ fn asking_often() -> Setup {
 
 /// A card with a body on a private board of the workspace, made by the first user.
 async fn card_in(th: &TestServer, workspace_id: &str) -> (String, String) {
-    let board = th.create_board(workspace_id, BoardType::Private).await;
+    let board = th.create_board(workspace_id, ContainerType::Private).await;
     let card: Card = th
         .client
         .post(
@@ -127,9 +127,9 @@ async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms
     let workspace = make_workspace(&th, &org_id, "Research").await;
     let place = format!("/org/{org_id}/workspaces/{workspace}");
     let_in(&th, &workspace, &member, WorkspaceRole::Member).await;
-    let board: fvoci_model::Board = th
+    let board: fvoci_model::Container = th
         .client2
-        .create_board(&new_board(&workspace, BoardType::Private, "Theirs"))
+        .create_board(&new_board(&workspace, ContainerType::Private, "Theirs"))
         .await
         .created_json();
     let card: Card = th
@@ -154,11 +154,11 @@ async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms
     // Its administrator now, who reads no board for the invited only without a role.
     let refused = joined.join(&workspace, &card.id).await;
     assert_eq!(refused["reason"], json!("not_found"), "{refused}");
-    let as_editor = BoardMember {
-        board_id: board.id.clone(),
+    let as_editor = ContainerMember {
+        container_id: board.id.clone(),
         user_id: admin,
         scheme_editor: true,
-        ..BoardMember::default()
+        ..ContainerMember::default()
     };
     th.client
         .add_member_in(&workspace, &as_editor)

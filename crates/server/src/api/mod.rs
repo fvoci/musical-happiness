@@ -8,13 +8,13 @@ mod admin;
 mod archive;
 mod auth;
 mod blocks;
-mod board_teams;
-mod boards;
 mod boards_and_blocks;
 mod body;
 mod cards;
 mod categories;
 mod config;
+mod container_teams;
+mod containers;
 mod content_search;
 pub mod contract;
 mod email_verification;
@@ -61,7 +61,7 @@ use utoipa_axum::router::OpenApiRouter;
 
 pub(crate) use access::{
     BlockAction, refusal, require_admin, require_block_patch_permission, require_block_permission,
-    require_board_permission, require_board_visible, require_delete_permission,
+    require_container_permission, require_container_visible, require_delete_permission,
     require_deletion_permission, require_granted, require_permission_through,
     require_workspace_access,
 };
@@ -118,7 +118,7 @@ fn routes() -> Routes {
         .merge(archive::routes())
         .merge(auth::routes())
         .merge(blocks::routes())
-        .merge(boards::routes())
+        .merge(containers::routes())
         .merge(wikis::routes())
         .merge(page_comments::routes())
         .merge(page_versions::routes())
@@ -133,7 +133,7 @@ fn routes() -> Routes {
         .merge(members::routes())
         .merge(workspace_members::routes())
         .merge(teams::routes())
-        .merge(board_teams::routes())
+        .merge(container_teams::routes())
         .merge(onboarding::routes())
         .merge(org::routes())
         .merge(org_admin::routes())

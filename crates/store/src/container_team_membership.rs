@@ -2,8 +2,8 @@
 //! board audit and revocation together with the reusable team membership changes.
 
 use crate::db::{Id, Scope};
-use crate::{Store, StoreError, board_teams, teams};
-use fvoci_model::BoardMember;
+use crate::{Store, StoreError, container_teams, teams};
+use fvoci_model::ContainerMember;
 
 impl Store {
     /// Deletes a team, its members, and every role it was given on a board.
@@ -15,15 +15,15 @@ impl Store {
         workspace_id: &str,
         team_id: &str,
         by: &str,
-    ) -> Result<Vec<BoardMember>, StoreError> {
+    ) -> Result<Vec<ContainerMember>, StoreError> {
         self.transaction(async |scope| {
             teams::managing(scope, workspace_id, by).await?;
-            let changes = board_teams::affected(scope, team_id, None).await?;
+            let changes = container_teams::affected(scope, team_id, None).await?;
             teams::delete(scope, workspace_id, team_id).await?;
-            board_teams::end_lost_subscriptions(
+            container_teams::end_lost_subscriptions(
                 scope,
                 &changes,
-                board_teams::TemplateAccess::CurrentMembership,
+                container_teams::TemplateAccess::CurrentMembership,
             )
             .await?;
             Ok(changes)
@@ -42,7 +42,7 @@ impl Store {
         team_id: &str,
         user_id: &str,
         by: &str,
-    ) -> Result<Vec<BoardMember>, StoreError> {
+    ) -> Result<Vec<ContainerMember>, StoreError> {
         self.transaction(async |scope| {
             teams::managing(scope, workspace_id, by).await?;
             teams::require_team(scope, workspace_id, team_id).await?;
@@ -51,7 +51,7 @@ impl Store {
             if teams::has_member(scope, team_id, user_id).await? {
                 return Ok(Vec::new());
             }
-            let changes = board_teams::joining(scope, team_id, user_id, by).await?;
+            let changes = container_teams::joining(scope, team_id, user_id, by).await?;
             teams::add_member(scope, workspace_id, team_id, user_id).await?;
             Ok(changes)
         })
@@ -68,16 +68,16 @@ impl Store {
         team_id: &str,
         user_id: &str,
         by: &str,
-    ) -> Result<Vec<BoardMember>, StoreError> {
+    ) -> Result<Vec<ContainerMember>, StoreError> {
         self.transaction(async |scope| {
             teams::managing(scope, workspace_id, by).await?;
             teams::require_team(scope, workspace_id, team_id).await?;
-            let changes = board_teams::affected(scope, team_id, Some(user_id)).await?;
+            let changes = container_teams::affected(scope, team_id, Some(user_id)).await?;
             teams::remove_member(scope, workspace_id, team_id, user_id).await?;
-            board_teams::end_lost_subscriptions(
+            container_teams::end_lost_subscriptions(
                 scope,
                 &changes,
-                board_teams::TemplateAccess::CurrentMembership,
+                container_teams::TemplateAccess::CurrentMembership,
             )
             .await?;
             Ok(changes)
@@ -93,12 +93,12 @@ pub(crate) async fn remove_workspace_teams(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql("SELECT DISTINCT bt.board_id FROM board_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id WHERE tm.workspace_id = ");
+    let mut sql = scope.sql("SELECT DISTINCT bt.container_id FROM container_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id WHERE tm.workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND tm.user_id = ", Id(user_id))
         .push_bind(" AND tm.org_id = ", scope.org()?)
         .push_bind(
-            " UNION SELECT id FROM boards WHERE workspace_id = ",
+            " UNION SELECT id FROM containers WHERE workspace_id = ",
             Id(workspace_id),
         )
         .push_bind(" AND type = ", "O")
@@ -108,13 +108,18 @@ pub(crate) async fn remove_workspace_teams(
         .await?
         .iter()
         .map(|row| {
-            Ok(BoardMember {
-                board_id: row.id(0)?,
+            Ok(ContainerMember {
+                container_id: row.id(0)?,
                 user_id: user_id.to_owned(),
-                ..BoardMember::default()
+                ..ContainerMember::default()
             })
         })
         .collect::<Result<Vec<_>, StoreError>>()?;
     teams::remove_workspace_memberships(scope, workspace_id, user_id).await?;
-    board_teams::end_lost_subscriptions(scope, &changes, board_teams::TemplateAccess::Ending).await
+    container_teams::end_lost_subscriptions(
+        scope,
+        &changes,
+        container_teams::TemplateAccess::Ending,
+    )
+    .await
 }

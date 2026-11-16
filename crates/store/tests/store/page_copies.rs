@@ -2,7 +2,7 @@
 //! page, under new identifiers, with their titles, icons, places and bodies, held to the
 //! wiki's limits.
 
-use fvoci_model::{BlockError, BlockPatch, BoardKind, Body, BodyChange, PageLimits, new_id};
+use fvoci_model::{BlockError, BlockPatch, Body, BodyChange, ContainerKind, PageLimits, new_id};
 use serde_json::json;
 
 use crate::common;
@@ -27,7 +27,7 @@ async fn a_page_is_copied_with_the_pages_below_it_right_after_it() {
     let user_id = common::user(&test, "user").await;
     let other_id = common::user(&test, "other").await;
     let workspace_id = common::workspace_of(&test, &[&user_id, &other_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let a = page(&test, &wiki, "", None).await;
     let b = page(&test, &wiki, &a, None).await;
     let c = page(&test, &wiki, &b, None).await;
@@ -98,8 +98,8 @@ async fn a_copy_is_held_to_the_limits_and_made_of_a_page_of_the_wiki_only() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace_of(&test, &[&user_id]).await;
-    let wiki = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
-    let other = stored(&test, &workspace_id, &user_id, BoardKind::Wiki).await;
+    let wiki = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
+    let other = stored(&test, &workspace_id, &user_id, ContainerKind::Wiki).await;
     let a = page(&test, &wiki, "", None).await;
     let b = page(&test, &wiki, &a, None).await;
     page(&test, &wiki, &b, None).await;

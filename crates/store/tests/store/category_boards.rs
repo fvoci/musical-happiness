@@ -1,7 +1,7 @@
 //! Port of `server/services/store/storetests/categoryBoards.go`.
 //!
 //! One test per test function of the original; its subtests are the commented sections.
-//! The tests after [`set_board_visibility`] are not in the original: they pin behavior
+//! The tests after [`set_container_visibility`] are not in the original: they pin behavior
 //! the original's tests leave open.
 //!
 //! The original names its categories, users, workspaces and boards with fixed strings, and
@@ -9,8 +9,8 @@
 //! generated, and what a row refers to is stored first: the user and the workspace of a
 //! category, and the category, the user and the board of a board's place in one.
 
-use fvoci_model::{Category, CategoryBoardMetadata, CategoryBoards, new_id};
-use fvoci_store::{BoardVisibility, Store, StoreError};
+use fvoci_model::{Category, CategoryContainerMetadata, CategoryContainers, new_id};
+use fvoci_store::{ContainerVisibility, Store, StoreError};
 
 use crate::categories::{create_boards, ids, now_millis, visible};
 use crate::common;
@@ -36,21 +36,21 @@ impl Sidebar {
     }
 
     /// The categories of the user in the workspace, each with its boards.
-    async fn category_boards(&self, store: &Store) -> Vec<CategoryBoards> {
+    async fn category_boards(&self, store: &Store) -> Vec<CategoryContainers> {
         store
-            .get_user_category_boards(&self.user_id, &self.workspace_id)
+            .get_user_category_containers(&self.user_id, &self.workspace_id)
             .await
             .expect("the categories are listed")
     }
 
     /// The boards of the category with the given identifier, in display order.
-    async fn boards_of(&self, store: &Store, category_id: &str) -> Vec<CategoryBoardMetadata> {
+    async fn boards_of(&self, store: &Store, category_id: &str) -> Vec<CategoryContainerMetadata> {
         self.category_boards(store)
             .await
             .into_iter()
             .find(|category_boards| category_boards.category.id == category_id)
             .expect("the category is listed")
-            .board_metadata
+            .container_metadata
     }
 }
 
@@ -71,16 +71,16 @@ async fn create_category(store: &Store, user_id: &str, workspace_id: &str, name:
 }
 
 /// The identifiers of the boards, in the given order.
-fn board_ids(metadata: &[CategoryBoardMetadata]) -> Vec<&str> {
+fn board_ids(metadata: &[CategoryContainerMetadata]) -> Vec<&str> {
     metadata
         .iter()
-        .map(|board| board.board_id.as_str())
+        .map(|board| board.container_id.as_str())
         .collect()
 }
 
 /// `testGetUserCategoryBoards`.
 #[tokio::test]
-async fn get_user_category_boards() {
+async fn get_user_category_containers() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
@@ -140,25 +140,25 @@ async fn get_user_category_boards() {
     // category exists here.
     let [board1, board2, board3] = create_boards(store, &workspace_id, &user_id).await;
     store
-        .add_update_category_board(&user_id, &category1.id, std::slice::from_ref(&board1))
+        .add_update_category_container(&user_id, &category1.id, std::slice::from_ref(&board1))
         .await
         .expect("board 1 is added");
 
     store
-        .add_update_category_board(&user_id, &category1.id, std::slice::from_ref(&board2))
+        .add_update_category_container(&user_id, &category1.id, std::slice::from_ref(&board2))
         .await
         .expect("board 2 is added");
 
     // Adding Board 3 to Category 2
     store
-        .add_update_category_board(&user_id, &category2.id, std::slice::from_ref(&board3))
+        .add_update_category_container(&user_id, &category2.id, std::slice::from_ref(&board3))
         .await
         .expect("board 3 is added");
 
     // we'll leave category 3 empty
 
     let user_category_boards = store
-        .get_user_category_boards(&user_id, &workspace_id)
+        .get_user_category_containers(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
 
@@ -175,7 +175,7 @@ async fn get_user_category_boards() {
         user_category_boards
             .iter()
             .find(|category_boards| category_boards.category.id == category.id)
-            .map(|category_boards| category_boards.board_metadata.len())
+            .map(|category_boards| category_boards.container_metadata.len())
     };
     assert_eq!(board_count(&category1), Some(2), "boards 1 and 2");
     assert_eq!(board_count(&category2), Some(1), "board 3");
@@ -184,7 +184,7 @@ async fn get_user_category_boards() {
     // "get empty category boards"
     {
         let user_category_boards = store
-            .get_user_category_boards(&new_id(), &new_id())
+            .get_user_category_containers(&new_id(), &new_id())
             .await
             .expect("an unknown user has no categories");
         assert!(
@@ -198,7 +198,7 @@ async fn get_user_category_boards() {
 
 /// `testAddUpdateCategoryBoard`.
 #[tokio::test]
-async fn add_update_category_board() {
+async fn add_update_category_container() {
     let test = common::setup().await;
     let store = &test.store;
     let sidebar = Sidebar::create(store).await;
@@ -215,7 +215,7 @@ async fn add_update_category_board() {
 
     // adding a few boards to the category
     store
-        .add_update_category_board(user_id, &category_id, &ids(&[&board1, &board2]))
+        .add_update_category_container(user_id, &category_id, &ids(&[&board1, &board2]))
         .await
         .expect("the boards are added");
 
@@ -223,14 +223,14 @@ async fn add_update_category_board() {
     let category_boards = sidebar.category_boards(store).await;
     assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
     assert_eq!(category_boards[0].category.id, category_id, "the category");
-    let metadata = &category_boards[0].board_metadata;
+    let metadata = &category_boards[0].container_metadata;
     assert_eq!(metadata.len(), 2, "got {metadata:?}");
     assert!(metadata.contains(&visible(&board1)), "{metadata:?}");
     assert!(metadata.contains(&visible(&board2)), "{metadata:?}");
 
     // adding new boards to the same category
     store
-        .add_update_category_board(user_id, &category_id, std::slice::from_ref(&board3))
+        .add_update_category_container(user_id, &category_id, std::slice::from_ref(&board3))
         .await
         .expect("a third board is added");
 
@@ -238,13 +238,13 @@ async fn add_update_category_board() {
     let category_boards = sidebar.category_boards(store).await;
     assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
     assert_eq!(category_boards[0].category.id, category_id, "the category");
-    let metadata = &category_boards[0].board_metadata;
+    let metadata = &category_boards[0].container_metadata;
     assert_eq!(metadata.len(), 3, "got {metadata:?}");
     assert!(metadata.contains(&visible(&board3)), "{metadata:?}");
 
     // passing empty array
     store
-        .add_update_category_board(user_id, &category_id, &[])
+        .add_update_category_container(user_id, &category_id, &[])
         .await
         .expect("no boards are added");
 
@@ -252,12 +252,12 @@ async fn add_update_category_board() {
     let category_boards = sidebar.category_boards(store).await;
     assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
     assert_eq!(category_boards[0].category.id, category_id, "the category");
-    let metadata = &category_boards[0].board_metadata;
+    let metadata = &category_boards[0].container_metadata;
     assert_eq!(metadata.len(), 3, "got {metadata:?}");
 
     // passing duplicate data in input
     store
-        .add_update_category_board(user_id, &category_id, &ids(&[&board4, &board4]))
+        .add_update_category_container(user_id, &category_id, &ids(&[&board4, &board4]))
         .await
         .expect("a board named twice is added once");
 
@@ -265,13 +265,13 @@ async fn add_update_category_board() {
     let category_boards = sidebar.category_boards(store).await;
     assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
     assert_eq!(category_boards[0].category.id, category_id, "the category");
-    let metadata = &category_boards[0].board_metadata;
+    let metadata = &category_boards[0].container_metadata;
     assert_eq!(metadata.len(), 4, "got {metadata:?}");
     assert!(metadata.contains(&visible(&board4)), "{metadata:?}");
 
     // adding already added board
     store
-        .add_update_category_board(user_id, &category_id, &ids(&[&board1, &board2]))
+        .add_update_category_container(user_id, &category_id, &ids(&[&board1, &board2]))
         .await
         .expect("boards that are in the category already are accepted");
 
@@ -279,12 +279,12 @@ async fn add_update_category_board() {
     let category_boards = sidebar.category_boards(store).await;
     assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
     assert_eq!(category_boards[0].category.id, category_id, "the category");
-    let metadata = &category_boards[0].board_metadata;
+    let metadata = &category_boards[0].container_metadata;
     assert_eq!(metadata.len(), 4, "got {metadata:?}");
 
     // passing already added board along with a new board
     store
-        .add_update_category_board(user_id, &category_id, &ids(&[&board1, &board5]))
+        .add_update_category_container(user_id, &category_id, &ids(&[&board1, &board5]))
         .await
         .expect("a known and a new board are accepted together");
 
@@ -292,7 +292,7 @@ async fn add_update_category_board() {
     let category_boards = sidebar.category_boards(store).await;
     assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
     assert_eq!(category_boards[0].category.id, category_id, "the category");
-    let metadata = &category_boards[0].board_metadata;
+    let metadata = &category_boards[0].container_metadata;
     assert_eq!(metadata.len(), 5, "got {metadata:?}");
     assert!(metadata.contains(&visible(&board5)), "{metadata:?}");
 
@@ -301,7 +301,7 @@ async fn add_update_category_board() {
 
 /// `testSetBoardVisibility`.
 #[tokio::test]
-async fn set_board_visibility() {
+async fn set_container_visibility() {
     let test = common::setup().await;
     let store = &test.store;
     let sidebar = Sidebar::create(store).await;
@@ -314,12 +314,12 @@ async fn set_board_visibility() {
 
     // adding a few boards to the category
     store
-        .add_update_category_board(user_id, &category_id, std::slice::from_ref(&board1))
+        .add_update_category_container(user_id, &category_id, std::slice::from_ref(&board1))
         .await
         .expect("the board is added");
 
     store
-        .set_board_visibility(user_id, &category_id, &board1, BoardVisibility::Visible)
+        .set_container_visibility(user_id, &category_id, &board1, ContainerVisibility::Visible)
         .await
         .expect("the board is made visible");
 
@@ -327,18 +327,18 @@ async fn set_board_visibility() {
     let category_boards = sidebar.category_boards(store).await;
     assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
     assert_eq!(category_boards[0].category.id, category_id, "the category");
-    let metadata = &category_boards[0].board_metadata;
+    let metadata = &category_boards[0].container_metadata;
     assert_eq!(metadata.len(), 1, "got {metadata:?}");
     assert!(!metadata[0].hidden, "got {metadata:?}");
 
     store
-        .set_board_visibility(user_id, &category_id, &board1, BoardVisibility::Hidden)
+        .set_container_visibility(user_id, &category_id, &board1, ContainerVisibility::Hidden)
         .await
         .expect("the board is hidden");
 
     // verify set visibility
     let category_boards = sidebar.category_boards(store).await;
-    let metadata = &category_boards[0].board_metadata;
+    let metadata = &category_boards[0].container_metadata;
     assert!(metadata[0].hidden, "got {metadata:?}");
 
     test.teardown().await;
@@ -366,12 +366,12 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
     // An identifier that names no board of the category is ignored and comes back with
     // the rest; the place it would have taken stays empty.
     store
-        .add_update_category_board(user_id, &a, &ids(&[&one, &two, &three]))
+        .add_update_category_container(user_id, &a, &ids(&[&one, &two, &three]))
         .await
         .expect("the boards are added");
     let order = ids(&[&three, &new_id(), &one, &two]);
     let echoed = store
-        .reorder_category_boards(&a, order.clone())
+        .reorder_category_containers(&a, order.clone())
         .await
         .expect("an identifier that names no board of the category is accepted");
     assert_eq!(echoed, order, "the order comes back as it was given");
@@ -386,7 +386,7 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
     // (`server/services/store/sqlstore/category_boards.go:144`).
     let spliced = "x' THEN 5 ELSE 5 END --";
     let error = store
-        .reorder_category_boards(&a, ids(&[&two, spliced, &one, &three]))
+        .reorder_category_containers(&a, ids(&[&two, spliced, &one, &three]))
         .await
         .expect_err("text that is not an identifier is refused");
     assert!(
@@ -401,7 +401,7 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
 
     // A board added later sorts before the reordered ones.
     store
-        .add_update_category_board(user_id, &a, std::slice::from_ref(&four))
+        .add_update_category_container(user_id, &a, std::slice::from_ref(&four))
         .await
         .expect("a fourth board is added");
     assert_eq!(
@@ -412,11 +412,11 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
 
     // A board moved to another category keeps its hidden flag and its sort order.
     store
-        .set_board_visibility(user_id, &a, &two, BoardVisibility::Hidden)
+        .set_container_visibility(user_id, &a, &two, ContainerVisibility::Hidden)
         .await
         .expect("the board is hidden");
     store
-        .add_update_category_board(user_id, &b, &ids(&[&two, &one, &two]))
+        .add_update_category_container(user_id, &b, &ids(&[&two, &one, &two]))
         .await
         .expect("the boards are moved");
     assert_eq!(
@@ -428,8 +428,8 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
         sidebar.boards_of(store, &b).await,
         [
             visible(&one),
-            CategoryBoardMetadata {
-                board_id: two.clone(),
+            CategoryContainerMetadata {
+                container_id: two.clone(),
                 hidden: true,
             },
         ],
@@ -438,11 +438,11 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
 
     // Visibility is keyed by user, category and board; a mismatch changes nothing.
     store
-        .set_board_visibility(user_id, &a, &two, BoardVisibility::Visible)
+        .set_container_visibility(user_id, &a, &two, ContainerVisibility::Visible)
         .await
         .expect("a board of another category is not found, which is not an error");
     store
-        .set_board_visibility(&someone_else, &b, &two, BoardVisibility::Visible)
+        .set_container_visibility(&someone_else, &b, &two, ContainerVisibility::Visible)
         .await
         .expect("a board of another user is not found, which is not an error");
     assert!(
@@ -453,7 +453,7 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
     // Rows are unique per user and board, so another user may hold the same board in a
     // category of their own.
     store
-        .add_update_category_board(&someone_else, &elsewhere, std::slice::from_ref(&one))
+        .add_update_category_container(&someone_else, &elsewhere, std::slice::from_ref(&one))
         .await
         .expect("the board is added for another user");
     assert_eq!(
@@ -465,7 +465,7 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
     // A category lists the rows of every user: a board that another user puts into this
     // category shows up in it.
     store
-        .add_update_category_board(&someone_else, &b, std::slice::from_ref(&theirs))
+        .add_update_category_container(&someone_else, &b, std::slice::from_ref(&theirs))
         .await
         .expect("another user's board is added to the category");
     assert_eq!(
@@ -476,7 +476,7 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
 
     // An empty order changes nothing.
     let echoed = store
-        .reorder_category_boards(&b, Vec::new())
+        .reorder_category_containers(&b, Vec::new())
         .await
         .expect("an empty order is accepted");
     assert!(echoed.is_empty(), "got {echoed:?}");
@@ -494,7 +494,7 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
 /// (`server/services/store/sqlstore/category_boards.go:146`), and is then listed first
 /// on SQLite and last on PostgreSQL.
 #[tokio::test]
-async fn reorder_category_boards_keeps_the_sort_order_of_unlisted_boards() {
+async fn reorder_category_containers_keeps_the_sort_order_of_unlisted_boards() {
     let test = common::setup().await;
     let store = &test.store;
     let sidebar = Sidebar::create(store).await;
@@ -502,11 +502,11 @@ async fn reorder_category_boards_keeps_the_sort_order_of_unlisted_boards() {
     let [x, y, z] = create_boards(store, &sidebar.workspace_id, &sidebar.user_id).await;
 
     store
-        .add_update_category_board(&sidebar.user_id, &category_id, &ids(&[&x, &y, &z]))
+        .add_update_category_container(&sidebar.user_id, &category_id, &ids(&[&x, &y, &z]))
         .await
         .expect("the boards are added");
     store
-        .reorder_category_boards(&category_id, ids(&[&x, &y, &z]))
+        .reorder_category_containers(&category_id, ids(&[&x, &y, &z]))
         .await
         .expect("the boards are ordered");
     assert_eq!(
@@ -518,7 +518,7 @@ async fn reorder_category_boards_keeps_the_sort_order_of_unlisted_boards() {
     // The boards have the sort orders 10, 11 and 12. An order that names the first two
     // gives them 10 and 11 again, and the third stays behind them on both databases.
     store
-        .reorder_category_boards(&category_id, ids(&[&y, &x]))
+        .reorder_category_containers(&category_id, ids(&[&y, &x]))
         .await
         .expect("an order that leaves out a board is accepted");
     assert_eq!(
@@ -531,7 +531,7 @@ async fn reorder_category_boards_keeps_the_sort_order_of_unlisted_boards() {
     // come to share its sort order with one that is named: here `y`, which keeps 10,
     // with `z`. The two come before `x`, in no particular order.
     store
-        .reorder_category_boards(&category_id, ids(&[&z, &x]))
+        .reorder_category_containers(&category_id, ids(&[&z, &x]))
         .await
         .expect("an order that leaves out a board is accepted");
     let boards = sidebar.boards_of(store, &category_id).await;
@@ -540,7 +540,7 @@ async fn reorder_category_boards_keeps_the_sort_order_of_unlisted_boards() {
     let mut expected = [y.as_str(), z.as_str()];
     expected.sort_unstable();
     assert_eq!(first_two, expected, "the boards with sort order 10");
-    assert_eq!(boards[2].board_id, x, "the board with sort order 11");
+    assert_eq!(boards[2].container_id, x, "the board with sort order 11");
 
     test.teardown().await;
 }
@@ -559,15 +559,15 @@ async fn deleting_a_category_files_its_boards_under_nothing() {
     let [one, two, three] = create_boards(store, &sidebar.workspace_id, user_id).await;
 
     store
-        .add_update_category_board(user_id, &doomed, &ids(&[&one, &two]))
+        .add_update_category_container(user_id, &doomed, &ids(&[&one, &two]))
         .await
         .expect("two boards are filed under the category to delete");
     store
-        .add_update_category_board(user_id, &kept, std::slice::from_ref(&three))
+        .add_update_category_container(user_id, &kept, std::slice::from_ref(&three))
         .await
         .expect("a board is filed under the category that stays");
     store
-        .set_board_visibility(user_id, &doomed, &one, BoardVisibility::Hidden)
+        .set_container_visibility(user_id, &doomed, &one, ContainerVisibility::Hidden)
         .await
         .expect("the board is hidden");
 
@@ -589,13 +589,13 @@ async fn deleting_a_category_files_its_boards_under_nothing() {
     );
     assert_eq!(listed[0].category.id, kept, "the category that stays");
     assert_eq!(
-        listed[0].board_metadata,
+        listed[0].container_metadata,
         [visible(&three)],
         "its board, and none of the deleted category's"
     );
     for board_id in [&one, &two] {
         store
-            .get_board(board_id)
+            .get_container(board_id)
             .await
             .expect("a board outlives the category it was filed under");
     }
@@ -603,13 +603,13 @@ async fn deleting_a_category_files_its_boards_under_nothing() {
     // A board that moves between categories keeps its hidden flag. This one comes back
     // visible: it was filed under nothing, and is filed as new.
     store
-        .add_update_category_board(user_id, &kept, std::slice::from_ref(&one))
+        .add_update_category_container(user_id, &kept, std::slice::from_ref(&one))
         .await
         .expect("a board of the deleted category is filed again");
     let mut boards = sidebar.boards_of(store, &kept).await;
-    boards.sort_by(|left, right| left.board_id.cmp(&right.board_id));
+    boards.sort_by(|left, right| left.container_id.cmp(&right.container_id));
     let mut expected = [visible(&one), visible(&three)];
-    expected.sort_by(|left, right| left.board_id.cmp(&right.board_id));
+    expected.sort_by(|left, right| left.container_id.cmp(&right.container_id));
     assert_eq!(boards, expected, "the board is filed as new, visible");
 
     test.teardown().await;
@@ -630,24 +630,24 @@ async fn deleting_a_category_of_another_user_or_workspace_changes_nothing() {
     let [one, two] = create_boards(store, &sidebar.workspace_id, user_id).await;
 
     store
-        .add_update_category_board(user_id, &category_id, &ids(&[&one, &two]))
+        .add_update_category_container(user_id, &category_id, &ids(&[&one, &two]))
         .await
         .expect("the boards are filed");
     // Sort orders of their own, so that the listing has one order.
     store
-        .reorder_category_boards(&category_id, ids(&[&two, &one]))
+        .reorder_category_containers(&category_id, ids(&[&two, &one]))
         .await
         .expect("the boards are ordered");
     store
-        .set_board_visibility(user_id, &category_id, &two, BoardVisibility::Hidden)
+        .set_container_visibility(user_id, &category_id, &two, ContainerVisibility::Hidden)
         .await
         .expect("a board is hidden");
     let before = sidebar.category_boards(store).await;
     assert_eq!(
-        before[0].board_metadata,
+        before[0].container_metadata,
         [
-            CategoryBoardMetadata {
-                board_id: two.clone(),
+            CategoryContainerMetadata {
+                container_id: two.clone(),
                 hidden: true,
             },
             visible(&one),
@@ -701,7 +701,7 @@ async fn a_filing_needs_its_user_its_category_and_its_board() {
     let category_id = sidebar.create_category(store, "Category").await;
     let [filed, board] = create_boards(store, &sidebar.workspace_id, user_id).await;
     store
-        .add_update_category_board(user_id, &category_id, std::slice::from_ref(&filed))
+        .add_update_category_container(user_id, &category_id, std::slice::from_ref(&filed))
         .await
         .expect("a board of the user is filed under the category");
 
@@ -717,7 +717,7 @@ async fn a_filing_needs_its_user_its_category_and_its_board() {
         ),
     ] {
         let error = store
-            .add_update_category_board(user, category, &boards)
+            .add_update_category_container(user, category, &boards)
             .await
             .expect_err("a filing that refers to nothing is refused");
         assert!(

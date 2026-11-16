@@ -21,7 +21,7 @@ function block(id: string, boardId: string, title: string, updateAt = NOW): Bloc
   return {
     id,
     type: 'card',
-    boardId,
+    containerId: boardId,
     parentId: boardId,
     createdBy: 'reader',
     modifiedBy: 'reader',
@@ -39,7 +39,13 @@ function world(): World {
   const made = new World(() => NOW);
   made.workspace = { id: 'w', title: 'Example', role: 'admin' };
   const board = (id: string, extra: object = {}): void => {
-    made.boards.set(id, { ...createBoard(), id, workspaceId: 'w', title: `Board ${id}`, ...extra });
+    made.containers.set(id, {
+      ...createBoard(),
+      id,
+      workspaceId: 'w',
+      title: `Board ${id}`,
+      ...extra,
+    });
   };
   board('mine');
   board('theirs');
@@ -88,7 +94,7 @@ describe('the search in memory', () => {
 
   it('finds the pages of an open wiki the reader works beside, not joined, as the server does', async () => {
     const made = world();
-    made.boards.set('notes', {
+    made.containers.set('notes', {
       ...createBoard(),
       id: 'notes',
       workspaceId: 'w',

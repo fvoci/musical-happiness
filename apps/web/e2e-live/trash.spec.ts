@@ -70,31 +70,34 @@ test('a deleted board is listed for who was its admin, and comes back to its pla
   );
   for (const boardId of ids) {
     const filed = await api.post(
-      `/api/v1/w/${workspaceId}/categories/${projects.id}/boards/${boardId}`,
+      `/api/v1/w/${workspaceId}/categories/${projects.id}/containers/${boardId}`,
     );
     expect(filed.ok(), await filed.text()).toBe(true);
   }
-  const ordered = await api.put(`/api/v1/w/${workspaceId}/categories/${projects.id}/board-order`, {
-    data: ids,
-  });
+  const ordered = await api.put(
+    `/api/v1/w/${workspaceId}/categories/${projects.id}/container-order`,
+    {
+      data: ids,
+    },
+  );
   expect(ordered.ok(), await ordered.text()).toBe(true);
   const order = async (): Promise<string[]> =>
     (
       (
-        await json<Schemas['CategoryBoards'][]>(
+        await json<Schemas['CategoryContainers'][]>(
           await api.get(`/api/v1/w/${workspaceId}/categories`),
         )
-      ).find((one) => one.id === projects.id)?.boardMetadata ?? []
-    ).map((entry) => entry.boardId);
+      ).find((one) => one.id === projects.id)?.containerMetadata ?? []
+    ).map((entry) => entry.containerId);
   expect(await order()).toEqual(ids);
 
-  const deleted = await api.delete(`/api/v1/w/${beta.workspaceId}/boards/${beta.boardId}`);
+  const deleted = await api.delete(`/api/v1/w/${beta.workspaceId}/containers/${beta.boardId}`);
   expect(deleted.ok()).toBe(true);
   expect(await order()).toEqual([alpha.boardId, gamma.boardId]);
 
   // The helper was an editor of Beta: their trash does not have it, on the server or the page.
   const theirs = await json<Schemas['DeletedItem'][]>(
-    await helperApi.get(`/api/v1/w/${workspaceId}/trash/boards`),
+    await helperApi.get(`/api/v1/w/${workspaceId}/trash/containers`),
   );
   expect(theirs.map((item) => item.id)).not.toContain(beta.boardId);
   const helperPage = await (await browser.newContext({ locale: 'en-US', baseURL: base })).newPage();

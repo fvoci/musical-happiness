@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Board, BoardType, Category, CategoryBoardMetadata};
+use fvoci_model::{Category, CategoryContainerMetadata, Container, ContainerType};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -132,10 +132,10 @@ async fn category_changes_are_sent_to_the_users_connection() {
         .await
         .expect("the category is stored");
     th.client.delete(&path).await.check_no_content();
-    let moved = json!({"boardId": board_id, "categoryId": default_id, "hidden": false});
+    let moved = json!({"containerId": board_id, "categoryId": default_id, "hidden": false});
     assert_eq!(
         expect_message(&mut socket, "deleting a category").await,
-        json!({"action": "UPDATE_BOARD_CATEGORY", "workspaceId": ROOT_WORKSPACE_ID, "boardCategories": [moved]}),
+        json!({"action": "UPDATE_CONTAINER_CATEGORY", "workspaceId": ROOT_WORKSPACE_ID, "containerCategories": [moved]}),
         "after deleting a category: its board is in the default category"
     );
     // The answer has no body: the message is where the deleted category is told.
@@ -158,7 +158,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
 /// Filing, hiding, showing and reordering the boards of a category is sent to the user's
 /// connection.
 #[tokio::test]
-async fn category_board_changes_are_sent_to_the_users_connection() {
+async fn category_container_changes_are_sent_to_the_users_connection() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     category_boards(&th.client, ROOT_WORKSPACE_ID).await;
@@ -166,11 +166,11 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
         create_category(&th.client, &category(ROOT_WORKSPACE_ID, &user.id, "Cat A")).await;
     let path = format!("{ROOT_WS}/categories/{}", created.id);
     let mut socket = subscribed_socket(&th, ROOT_WORKSPACE_ID, &user.id).await;
-    let board_change = |boards: Value| json!({"action": "UPDATE_BOARD_CATEGORY", "workspaceId": ROOT_WORKSPACE_ID, "boardCategories": boards});
+    let board_change = |boards: Value| json!({"action": "UPDATE_CONTAINER_CATEGORY", "workspaceId": ROOT_WORKSPACE_ID, "containerCategories": boards});
     let first = open_board(&th, ROOT_WORKSPACE_ID).await;
     let second = open_board(&th, ROOT_WORKSPACE_ID).await;
-    let shown = json!({"boardId": first, "categoryId": created.id, "hidden": false});
-    let hidden = json!({"boardId": first, "categoryId": created.id, "hidden": true});
+    let shown = json!({"containerId": first, "categoryId": created.id, "hidden": false});
+    let hidden = json!({"containerId": first, "categoryId": created.id, "hidden": true});
 
     // Filing a board sends all the boards of the category.
     file_board(&th.client, ROOT_WORKSPACE_ID, &created.id, &first).await;
@@ -182,13 +182,13 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
     file_board(&th.client, ROOT_WORKSPACE_ID, &created.id, &second).await;
     let message = expect_message(&mut socket, "filing a second board").await;
     assert_eq!(
-        message["boardCategories"].as_array().map(Vec::len),
+        message["containerCategories"].as_array().map(Vec::len),
         Some(2),
         "after filing a second board: {message}"
     );
 
     // Hiding and showing send the one board.
-    put_empty(&th.client, &format!("{path}/boards/{first}/hide"))
+    put_empty(&th.client, &format!("{path}/containers/{first}/hide"))
         .await
         .check_no_content();
     assert_eq!(
@@ -196,7 +196,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
         board_change(json!([hidden])),
         "after hiding a board"
     );
-    put_empty(&th.client, &format!("{path}/boards/{first}/unhide"))
+    put_empty(&th.client, &format!("{path}/containers/{first}/unhide"))
         .await
         .check_no_content();
     assert_eq!(
@@ -207,15 +207,15 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
 
     let board_order = [second.as_str(), first.as_str()];
     th.client
-        .put(&format!("{path}/board-order"), &board_order)
+        .put(&format!("{path}/container-order"), &board_order)
         .await
         .check_ok();
     assert_eq!(
         expect_message(&mut socket, "reordering the boards").await,
         json!({
-            "action": "REORDER_CATEGORY_BOARDS",
+            "action": "REORDER_CATEGORY_CONTAINERS",
             "categoryId": created.id,
-            "boardOrder": board_order,
+            "containerOrder": board_order,
             "workspaceId": ROOT_WORKSPACE_ID,
         }),
         "after reordering the boards"
@@ -258,7 +258,7 @@ async fn the_default_category_is_created_once_by_concurrent_requests() {
         "named as the original names it"
     );
     assert_eq!(
-        categories[0]["boardMetadata"].as_array().map(Vec::len),
+        categories[0]["containerMetadata"].as_array().map(Vec::len),
         Some(12),
         "with all twelve boards filed"
     );
@@ -297,12 +297,12 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         &category(ROOT_WORKSPACE_ID, &other.id, "Cat B"),
     )
     .await;
-    let board: Board = th
+    let board: Container = th
         .client
-        .create_board(&Board {
+        .create_board(&Container {
             workspace_id: ROOT_WORKSPACE_ID.to_owned(),
-            board_type: BoardType::Open,
-            ..Board::default()
+            container_type: ContainerType::Open,
+            ..Container::default()
         })
         .await
         .created_json();
@@ -311,7 +311,7 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
     let category_path = format!("{ROOT_WS}/categories/{}", created.id);
     put_empty(
         &th.client,
-        &format!("{category_path}/boards/{}/hide", board.id),
+        &format!("{category_path}/containers/{}/hide", board.id),
     )
     .await
     .check_no_content();
@@ -322,7 +322,7 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         subscribed_socket_of(&th, &third, ROOT_WORKSPACE_ID, &third_user.id).await;
 
     th.client
-        .delete(&format!("{ROOT_WS}/boards/{}", board.id))
+        .delete(&format!("{ROOT_WS}/containers/{}", board.id))
         .await
         .check_no_content();
     th.client2
@@ -330,33 +330,33 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         .await
         .check_no_content();
     th.client
-        .post_empty(&format!("{ROOT_WS}/boards/{}/undelete", board.id))
+        .post_empty(&format!("{ROOT_WS}/containers/{}/undelete", board.id))
         .await
         .check_ok();
 
     let entry = |category_id: &str, hidden: bool| {
         json!({
-            "action": "UPDATE_BOARD_CATEGORY",
+            "action": "UPDATE_CONTAINER_CATEGORY",
             "workspaceId": ROOT_WORKSPACE_ID,
-            "boardCategories": [{"boardId": board.id, "categoryId": category_id, "hidden": hidden}],
+            "containerCategories": [{"containerId": board.id, "categoryId": category_id, "hidden": hidden}],
         })
     };
     assert_eq!(
-        message_of(&mut socket, "UPDATE_BOARD_CATEGORY").await,
+        message_of(&mut socket, "UPDATE_CONTAINER_CATEGORY").await,
         entry(&created.id, true)
     );
-    let order = message_of(&mut socket, "REORDER_CATEGORY_BOARDS").await;
+    let order = message_of(&mut socket, "REORDER_CATEGORY_CONTAINERS").await;
     assert_eq!(order["categoryId"], json!(created.id), "{order}");
-    assert_eq!(order["boardOrder"], json!([board.id]), "{order}");
+    assert_eq!(order["containerOrder"], json!([board.id]), "{order}");
     assert_eq!(
-        message_of(&mut other_socket, "UPDATE_BOARD_CATEGORY").await,
+        message_of(&mut other_socket, "UPDATE_CONTAINER_CATEGORY").await,
         entry(&other_default, false),
         "the other user's category went: the default one"
     );
     while let Some(message) = next_message(&mut third_socket, Duration::from_millis(500)).await {
         assert_ne!(
             message["action"],
-            json!("UPDATE_BOARD_CATEGORY"),
+            json!("UPDATE_CONTAINER_CATEGORY"),
             "{message}"
         );
     }
@@ -366,9 +366,9 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         .find(|entry| entry.category.id == created.id)
         .expect("the category");
     assert_eq!(
-        filed.board_metadata,
-        [CategoryBoardMetadata {
-            board_id: board.id.clone(),
+        filed.container_metadata,
+        [CategoryContainerMetadata {
+            container_id: board.id.clone(),
             hidden: true,
         }],
         "the sidebar has it where it was"

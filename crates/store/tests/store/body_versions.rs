@@ -2,8 +2,8 @@
 //! stay, what they hold of the files, and when they go.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Board, BoardKind, BoardType, Body, BodyChange, FileInfo, NewPage,
-    new_id,
+    Block, BlockPatch, BlockType, Body, BodyChange, Container, ContainerKind, ContainerType,
+    FileInfo, NewPage, new_id,
 };
 use fvoci_store::{BodyBefore, DEFAULT_BODY_VERSIONS_KEPT, Store};
 use serde_json::json;
@@ -32,7 +32,7 @@ async fn board_with_files(store: &Store, user_id: &str, names: &[&str]) -> Strin
         store
             .save_file_info(&FileInfo {
                 id: new_id(),
-                board_id: board_id.clone(),
+                container_id: board_id.clone(),
                 stored_name: (*name).to_owned(),
                 create_at: 1,
                 path: format!("boards/{board_id}/{name}"),
@@ -50,7 +50,7 @@ async fn board_with_files(store: &Store, user_id: &str, names: &[&str]) -> Strin
 async fn card_with(store: &Store, board_id: &str, body: Option<Body>, user_id: &str) -> String {
     let mut card = Block {
         id: new_id(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         block_type: BlockType::Card,
         body,
         ..Block::default()
@@ -478,12 +478,12 @@ async fn the_body_of_a_page_is_kept_as_that_of_a_card() {
     let author = common::user(store, "pam.beesly").await;
     let editor = common::user(store, "jim.halpert").await;
     let workspace_id = common::workspace_of(store, &[&author, &editor]).await;
-    let mut wiki = Board {
-        kind: BoardKind::Wiki,
-        ..new_board(&new_id(), &workspace_id, BoardType::Private)
+    let mut wiki = Container {
+        kind: ContainerKind::Wiki,
+        ..new_board(&new_id(), &workspace_id, ContainerType::Private)
     };
     store
-        .insert_board_with_admin(&mut wiki, &author)
+        .insert_container_with_admin(&mut wiki, &author)
         .await
         .expect("the wiki is stored");
     let page_id = store

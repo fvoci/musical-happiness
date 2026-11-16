@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 fn block(id: &str, board_id: &str, parent_id: &str) -> Block {
     Block {
         id: id.to_owned(),
-        board_id: board_id.to_owned(),
+        container_id: board_id.to_owned(),
         parent_id: parent_id.to_owned(),
         ..Block::default()
     }
@@ -33,7 +33,7 @@ fn generate_block_ids_single_block_with_no_references() {
     generate_block_ids(&mut blocks);
 
     assert_ne!(blocks[0].id, block_id);
-    assert_eq!(blocks[0].board_id, "");
+    assert_eq!(blocks[0].container_id, "");
     assert_eq!(blocks[0].parent_id, "");
 }
 
@@ -46,7 +46,7 @@ fn generate_block_ids_single_block_with_references() {
     generate_block_ids(&mut blocks);
 
     assert_ne!(blocks[0].id, block_id);
-    assert_eq!(blocks[0].board_id, board_id);
+    assert_eq!(blocks[0].container_id, board_id);
     assert_eq!(blocks[0].parent_id, parent_id);
 }
 
@@ -64,15 +64,15 @@ fn generate_block_ids_links_multiple_blocks_with_existing_references() {
     generate_block_ids(&mut blocks);
 
     assert_ne!(blocks[0].id, block_id1);
-    assert_eq!(blocks[0].board_id, board_id1);
+    assert_eq!(blocks[0].container_id, board_id1);
     assert_eq!(blocks[0].parent_id, parent_id1);
 
     assert_ne!(blocks[1].id, block_id2);
-    assert_ne!(blocks[1].board_id, board_id2);
+    assert_ne!(blocks[1].container_id, board_id2);
     assert_eq!(blocks[1].parent_id, parent_id2);
 
     // The first block was referenced, so the reference follows its new identifier.
-    assert_eq!(blocks[1].board_id, blocks[0].id);
+    assert_eq!(blocks[1].container_id, blocks[0].id);
 }
 
 /// "Should generate new IDs but not modify nonexisting references"
@@ -89,11 +89,11 @@ fn generate_block_ids_does_not_modify_nonexisting_references() {
 
     // Only the identifiers changed.
     assert_ne!(blocks[0].id, block_id1);
-    assert_eq!(blocks[0].board_id, "");
+    assert_eq!(blocks[0].container_id, "");
     assert_eq!(blocks[0].parent_id, parent_id1);
 
     assert_ne!(blocks[1].id, block_id2);
-    assert_eq!(blocks[1].board_id, board_id2);
+    assert_eq!(blocks[1].container_id, board_id2);
     assert_eq!(blocks[1].parent_id, "");
 }
 
@@ -125,25 +125,34 @@ fn generate_block_ids_multiple_blocks_with_existing_and_nonexisting_references()
 
     // Block 1.
     assert_ne!(blocks[2].id, block_id1);
-    assert_eq!(blocks[2].board_id, board_id1);
+    assert_eq!(blocks[2].container_id, board_id1);
     assert_eq!(blocks[2].parent_id, parent_id1);
 
     // Block 2.
     assert_ne!(blocks[1].id, block_id2);
-    assert_ne!(blocks[1].board_id, board_id2);
-    assert_eq!(blocks[1].board_id, blocks[2].id, "block 2 links to block 1");
+    assert_ne!(blocks[1].container_id, board_id2);
+    assert_eq!(
+        blocks[1].container_id, blocks[2].id,
+        "block 2 links to block 1"
+    );
     assert_eq!(blocks[1].parent_id, parent_id2);
 
     // Block 3.
     assert_ne!(blocks[3].id, block_id3);
-    assert_ne!(blocks[3].board_id, board_id3);
-    assert_eq!(blocks[3].board_id, blocks[1].id, "block 3 links to block 2");
+    assert_ne!(blocks[3].container_id, board_id3);
+    assert_eq!(
+        blocks[3].container_id, blocks[1].id,
+        "block 3 links to block 2"
+    );
     assert_eq!(blocks[3].parent_id, parent_id3);
 
     // Block 4.
     assert_ne!(blocks[0].id, block_id4);
-    assert_ne!(blocks[0].board_id, board_id4);
-    assert_eq!(blocks[0].board_id, blocks[2].id, "block 4 links to block 1");
+    assert_ne!(blocks[0].container_id, board_id4);
+    assert_eq!(
+        blocks[0].container_id, blocks[2].id,
+        "block 4 links to block 1"
+    );
     assert_eq!(blocks[0].parent_id, parent_id4);
 }
 
@@ -163,11 +172,11 @@ fn generate_block_ids_updates_content_order() {
     generate_block_ids(&mut blocks);
 
     assert_ne!(blocks[0].id, block_id1);
-    assert_eq!(blocks[0].board_id, board_id1);
+    assert_eq!(blocks[0].container_id, board_id1);
     assert_eq!(blocks[0].parent_id, parent_id1);
 
     assert_ne!(blocks[1].id, block_id2);
-    assert_eq!(blocks[1].board_id, board_id2);
+    assert_eq!(blocks[1].container_id, board_id2);
     assert_eq!(blocks[1].parent_id, parent_id2);
 
     // Block 1 was referenced in block 2's content order, which follows the new identifier.
@@ -193,11 +202,11 @@ fn generate_block_ids_updates_content_order_containing_lists() {
     generate_block_ids(&mut blocks);
 
     assert_ne!(blocks[0].id, block_id1);
-    assert_eq!(blocks[0].board_id, board_id1);
+    assert_eq!(blocks[0].container_id, board_id1);
     assert_eq!(blocks[0].parent_id, parent_id1);
 
     assert_ne!(blocks[3].id, block_id4);
-    assert_eq!(blocks[3].board_id, board_id2);
+    assert_eq!(blocks[3].container_id, board_id2);
     assert_eq!(blocks[3].parent_id, parent_id2);
 
     assert_ne!(blocks[1].id, block_id2);
@@ -224,11 +233,11 @@ fn generate_block_ids_updates_default_template_id() {
     generate_block_ids(&mut blocks);
 
     assert_ne!(blocks[0].id, block_id1);
-    assert_eq!(blocks[0].board_id, board_id1);
+    assert_eq!(blocks[0].container_id, board_id1);
     assert_eq!(blocks[0].parent_id, parent_id1);
 
     assert_ne!(blocks[1].id, block_id2);
-    assert_eq!(blocks[1].board_id, board_id2);
+    assert_eq!(blocks[1].container_id, board_id2);
     assert_eq!(blocks[1].parent_id, parent_id2);
 
     assert_eq!(blocks[1].fields["defaultTemplateId"], json!(blocks[0].id));
@@ -345,7 +354,7 @@ fn generate_block_ids_takes_no_identifier_as_no_reference() {
     ];
     generate_block_ids(&mut blocks);
     assert!(blocks.iter().all(|block| block.parent_id.is_empty()));
-    assert!(blocks.iter().all(|block| block.board_id == "board"));
+    assert!(blocks.iter().all(|block| block.container_id == "board"));
     assert_ne!(blocks[0].id, blocks[1].id);
     assert!(
         blocks

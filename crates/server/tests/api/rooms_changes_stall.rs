@@ -58,7 +58,7 @@ async fn a_slow_permission_read_does_not_hold_other_changes_of_the_organization(
     let th = slow_store_deadline().start().await.init_basic().await;
     let (table, _owner, _member) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let elsewhere = th
-        .create_board(TEST_WORKSPACE_ID, fvoci_model::BoardType::Private)
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::ContainerType::Private)
         .await;
     let user = th.client2.me().await.id;
     let waiting = th.app.collab().stall_next_access_check();
@@ -100,7 +100,7 @@ async fn a_slow_permission_read_puts_out_nobody_whose_read_was_not_slow() {
     let _stalled = th.app.collab().stall_next_access_check();
     th.client
         .patch(
-            &format!("/w/{TEST_WORKSPACE_ID}/boards/{}", table.board_id),
+            &format!("/w/{TEST_WORKSPACE_ID}/containers/{}", table.board_id),
             &json!({"minimumRole": "viewer"}),
         )
         .await

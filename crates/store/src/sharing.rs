@@ -7,7 +7,7 @@
 use fvoci_model::Sharing;
 
 use crate::Store;
-use crate::boards;
+use crate::containers;
 use crate::db::{Id, OptId, Scope, now_millis};
 use crate::error::StoreError;
 
@@ -37,17 +37,19 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if there is no such board.
     pub async fn set_sharing(
         &self,
-        board_id: &str,
+        container_id: &str,
         change: SharingChange,
         fresh_token: &str,
         user_id: &str,
     ) -> Result<Sharing, StoreError> {
         self.transaction(async |scope| {
-            if !boards::lock_board(scope, board_id).await? {
-                return Err(StoreError::not_found(format_args!("board ID={board_id}")));
+            if !containers::lock_container(scope, container_id).await? {
+                return Err(StoreError::not_found(format_args!(
+                    "board ID={container_id}"
+                )));
             }
             // The token a shared board has, which it keeps unless a new one is asked for.
-            let kept = find_sharing(scope, board_id)
+            let kept = find_sharing(scope, container_id)
                 .await?
                 .filter(|current| current.enabled && !current.token.is_empty())
                 .map(|current| current.token);
@@ -57,7 +59,7 @@ impl Store {
                 (SharingChange::On | SharingChange::OnWithNewToken, _) => fresh_token.to_owned(),
             };
             let sharing = Sharing {
-                board_id: board_id.to_owned(),
+                container_id: container_id.to_owned(),
                 enabled: change != SharingChange::Off,
                 token,
                 modified_by: user_id.to_owned(),
@@ -74,9 +76,9 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NoRows`] if the board was never shared.
-    pub async fn get_sharing(&self, board_id: &str) -> Result<Sharing, StoreError> {
+    pub async fn get_sharing(&self, container_id: &str) -> Result<Sharing, StoreError> {
         self.with_conn(async |scope| {
-            find_sharing(scope, board_id)
+            find_sharing(scope, container_id)
                 .await?
                 .ok_or(StoreError::NoRows)
         })
@@ -89,20 +91,20 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn shared_board_ids(
+    pub async fn shared_container_ids(
         &self,
         workspace_id: Option<&str>,
     ) -> Result<Vec<String>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT s.board_id FROM sharing AS s JOIN boards AS b ON b.id = s.board_id \
+                "SELECT s.container_id FROM sharing AS s JOIN containers AS b ON b.id = s.container_id \
                  JOIN workspaces AS w ON w.id = b.workspace_id WHERE s.enabled = ",
             );
             sql.bind(true).push_bind(" AND w.org_id = ", scope.org()?);
             if let Some(workspace_id) = workspace_id {
                 sql.push_bind(" AND w.id = ", Id(workspace_id));
             }
-            sql.push(" ORDER BY s.board_id");
+            sql.push(" ORDER BY s.container_id");
             scope
                 .fetch_all(sql)
                 .await?
@@ -116,8 +118,8 @@ impl Store {
 
 async fn upsert_sharing(scope: &mut Scope<'_>, sharing: &Sharing) -> Result<(), StoreError> {
     let mut sql = scope
-        .sql("INSERT INTO sharing (board_id, enabled, token, modified_by, update_at) VALUES (");
-    sql.bind(Id(&sharing.board_id))
+        .sql("INSERT INTO sharing (container_id, enabled, token, modified_by, update_at) VALUES (");
+    sql.bind(Id(&sharing.container_id))
         .push_bind(", ", sharing.enabled);
     // No token is no value: the column is unique among the tokens there are.
     if sharing.token.is_empty() {
@@ -128,7 +130,7 @@ async fn upsert_sharing(scope: &mut Scope<'_>, sharing: &Sharing) -> Result<(), 
     sql.push_bind(", ", OptId(&sharing.modified_by))
         .push_bind(", ", sharing.update_at)
         .push(
-            ") ON CONFLICT (board_id) DO UPDATE SET enabled = EXCLUDED.enabled, \
+            ") ON CONFLICT (container_id) DO UPDATE SET enabled = EXCLUDED.enabled, \
              token = EXCLUDED.token, modified_by = EXCLUDED.modified_by, \
              update_at = EXCLUDED.update_at",
         );
@@ -138,18 +140,18 @@ async fn upsert_sharing(scope: &mut Scope<'_>, sharing: &Sharing) -> Result<(), 
 
 async fn find_sharing(
     scope: &mut Scope<'_>,
-    board_id: &str,
+    container_id: &str,
 ) -> Result<Option<Sharing>, StoreError> {
     let mut sql = scope.sql(
-        "SELECT board_id, enabled, token, modified_by, update_at FROM sharing \
-         WHERE board_id = ",
+        "SELECT container_id, enabled, token, modified_by, update_at FROM sharing \
+         WHERE container_id = ",
     );
-    sql.bind(Id(board_id));
+    sql.bind(Id(container_id));
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Ok(None);
     };
     Ok(Some(Sharing {
-        board_id: row.id(0)?,
+        container_id: row.id(0)?,
         enabled: row.bool(1)?,
         token: row.text(2)?,
         modified_by: row.id(3)?,
