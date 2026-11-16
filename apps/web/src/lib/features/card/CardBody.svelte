@@ -47,7 +47,7 @@
 
   interface Props {
     /** The board, or the wiki: who may write, and who can be mentioned. */
-    board: Pick<BoardStore, 'workspace' | 'canEdit' | 'orderedMembers'>;
+    container: Pick<BoardStore, 'workspace' | 'canEdit' | 'orderedMembers'>;
     /** The card, or the wiki's page: the body and its room. */
     card: Pick<
       CardStore,
@@ -68,11 +68,11 @@
     testId?: string;
   }
 
-  let { board, card, of = 'card', testId = 'card-body', references }: Props = $props();
+  let { container, card, of = 'card', testId = 'card-body', references }: Props = $props();
 
   const words = $derived(of === 'page' ? PAGE_WORDS : CARD_WORDS);
 
-  const workspace = $derived(board.workspace);
+  const workspace = $derived(container.workspace);
   const room = $derived(card.room);
   const doc = $derived(room?.doc);
   /** The carets of the room's document, each in the colour its person's picture has. */
@@ -84,8 +84,8 @@
   );
   const Editor = $derived(room ? editorChunk.component : undefined);
   /** The reader may write: the board lets them, and the room does now. */
-  const writable = $derived(board.canEdit && (room?.writable ?? false));
-  const note = $derived(room ? roomNote(room, board.canEdit, words) : undefined);
+  const writable = $derived(container.canEdit && (room?.writable ?? false));
+  const note = $derived(room ? roomNote(room, container.canEdit, words) : undefined);
   /** The room is being joined, or its document sent again: what is shown is about to change. */
   const settling = $derived(room?.status === 'joining' || room?.status === 'receiving');
 
@@ -94,7 +94,7 @@
     workspace.userName(userId) ?? m['centerPanel.unknown-user']();
   /** Who can be mentioned: the members of the board. */
   const people = $derived(
-    board.orderedMembers.map((member) => ({
+    container.orderedMembers.map((member) => ({
       id: member.userId,
       name: workspace.userName(member.userId) ?? m['centerPanel.unknown-user'](),
     })),
@@ -187,7 +187,7 @@
           onComposing={room?.composing}
           readsFirst={room?.readsFirst}
           editable={writable}
-          canWrite={board.canEdit && room?.mode === 'write'}
+          canWrite={container.canEdit && room?.mode === 'write'}
           onFitsAgain={() => {
             made += 1;
           }}
@@ -216,7 +216,7 @@
       <BodyView doc={card.body} {resolveUser} {references} class="text-base">
         {#snippet empty()}
           <p class="text-base text-muted-foreground">
-            {board.canEdit ? words.placeholder() : words.empty()}
+            {container.canEdit ? words.placeholder() : words.empty()}
           </p>
         {/snippet}
         {#snippet invalid()}

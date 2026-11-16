@@ -40,7 +40,7 @@
 
   import { Button } from '$lib/ui/button/index.js';
 
-  import BoardIcon from './BoardIcon.svelte';
+  import ContainerIcon from './ContainerIcon.svelte';
   import BoardTitle from './BoardTitle.svelte';
   import ShareDialog from './ShareDialog.svelte';
   import { shownTitle } from './shown-title.ts';
@@ -48,10 +48,10 @@
 
   interface Props {
     workspace: Workspace;
-    /** The board on the page. */
-    boardId: string | undefined;
-    /** The address of a board's public link with its read token. */
-    sharedHref: (boardId: string, readToken: string) => string;
+    /** The board or wiki on the page. */
+    containerId: string | undefined;
+    /** The address of a board's or a wiki's public link with its read token. */
+    sharedHref: (containerId: string, readToken: string) => string;
     /** Show the button that opens the drawer. */
     menuButton: boolean;
     onOpenSidebar: (event: MouseEvent) => void;
@@ -59,7 +59,7 @@
     search?: Snippet<[Workspace]>;
   }
 
-  let { workspace, boardId, sharedHref, menuButton, onOpenSidebar, search }: Props = $props();
+  let { workspace, containerId, sharedHref, menuButton, onOpenSidebar, search }: Props = $props();
 
   let sharing = $state(false);
   /** The sharing dialog was opened from the number of members: it begins at them. */
@@ -69,14 +69,14 @@
   let trash = $state.raw<Trash | undefined>(undefined);
 
   /** The board as the list of boards has it: known before the board itself is read. */
-  const listed = $derived(workspace.containers.find((candidate) => candidate.id === boardId));
+  const listed = $derived(workspace.containers.find((candidate) => candidate.id === containerId));
   /** The open board, once it is read: who is on it and what the reader may do. */
   const store = $derived(
-    workspace.board?.boardId === boardId && workspace.board?.status === 'ready'
+    workspace.board?.boardId === containerId && workspace.board?.status === 'ready'
       ? workspace.board
       : undefined,
   );
-  const board = $derived(store?.board ?? listed);
+  const container = $derived(store?.board ?? listed);
   /** Sharing is for the board's admins; a template is shared as it is made, never joined. */
   const canShare = $derived(store?.canShare === true && store.board?.isTemplate !== true);
   /** The trash of cards is for the board's editors, as the server has it. */
@@ -130,24 +130,24 @@
     </IconButton>
   {/if}
 
-  {#if board}
+  {#if container}
     <div class="flex min-w-0 shrink items-center gap-1.5 pl-1">
-      <BoardIcon
-        icon={board.icon}
-        kind={board.kind}
-        title={board.title}
+      <ContainerIcon
+        icon={container.icon}
+        kind={container.kind}
+        title={container.title}
         locale={workspace.locale}
       />
       <h1
         class="flex min-w-0 shrink text-base font-semibold @columns/pane:text-lg"
-        aria-label={board.kind === 'wiki'
-          ? m.shell_wiki_named({ title: shownTitle(board) })
+        aria-label={container.kind === 'wiki'
+          ? m.shell_wiki_named({ title: shownTitle(container) })
           : undefined}
       >
         {#if store?.canEdit}
-          {#key board.id}
+          {#key container.id}
             <BoardTitle
-              title={board.title}
+              title={container.title}
               onChange={(title: string) =>
                 void store.changeBoard((current) => ({ ...current, title }), 'changeBoardTitle')}
             />
@@ -155,12 +155,12 @@
         {:else}
           <span data-testid="board-title-text" class="min-w-0 truncate px-1.5">
             <!-- The name of a board without one is the same wherever a name is shown; the field's placeholder is the other message. -->
-            {shownTitle(board)}
+            {shownTitle(container)}
           </span>
         {/if}
       </h1>
     </div>
-    {#if board.isTemplate}
+    {#if container.isTemplate}
       <span
         data-testid="template-note"
         title={m['Workspace.editing-board-template']()}
@@ -178,9 +178,9 @@
         {m.shared_read_only()}
       </span>
     {/if}
-    {#if board.description}
+    {#if container.description}
       <p class="hidden min-w-0 shrink-[2] truncate text-muted-foreground @header/pane:block">
-        {board.description}
+        {container.description}
       </p>
     {/if}
   {/if}

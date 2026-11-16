@@ -52,12 +52,12 @@
 
   interface Props {
     workspace: Workspace;
-    /** The board on the page. */
-    boardId: string | undefined;
-    boardHref: (board: ContainerPlace) => string;
+    /** The board or wiki on the page. */
+    containerId: string | undefined;
+    containerHref: (container: ContainerPlace) => string;
     /** The sidebar is a column beside the board: its button folds it. Otherwise it closes the drawer. */
     beside: boolean;
-    onOpenBoard: (board: ContainerPlace) => void;
+    onOpenContainer: (container: ContainerPlace) => void;
     onClose: () => void;
     onAddBoard: () => void;
     onOpenSettings: () => void;
@@ -69,10 +69,10 @@
 
   let {
     workspace,
-    boardId,
-    boardHref,
+    containerId,
+    containerHref,
     beside,
-    onOpenBoard,
+    onOpenContainer,
     onClose,
     onAddBoard,
     onOpenSettings,
@@ -112,9 +112,9 @@
    * board the reader can only read. What the reader is on the other boards
    * the sidebar does not know; there the server has the say.
    */
-  const canDeleteOpenBoard = $derived(
-    (workspace.board?.boardId === boardId && workspace.board?.canEdit === true) ||
-      (shownWiki(workspace).current?.wikiId === boardId &&
+  const canDeleteOpenContainer = $derived(
+    (workspace.board?.boardId === containerId && workspace.board?.canEdit === true) ||
+      (shownWiki(workspace).current?.wikiId === containerId &&
         shownWiki(workspace).current?.canManage === true),
   );
 
@@ -147,44 +147,45 @@
 
   // ------------------------------------------------------------ deleting
 
-  type Asked = { kind: 'board'; board: Container } | { kind: 'category'; category: Category };
+  type Asked =
+    { kind: 'container'; container: Container } | { kind: 'category'; category: Category };
   let asked = $state.raw<Asked | undefined>(undefined);
   let askOpen = $state(false);
-  const askedWiki = $derived(asked?.kind === 'board' && asked.board.kind === 'wiki');
+  const askedWiki = $derived(asked?.kind === 'container' && asked.container.kind === 'wiki');
 
   const titleOf = shownTitle;
 
-  async function deleteBoard(board: Container): Promise<void> {
+  async function deleteContainer(container: Container): Promise<void> {
     const here = await whileHere(workspace, async () => {
-      await workspace.deleteContainer(board.id);
+      await workspace.deleteContainer(container.id);
       return true;
     });
-    // The page showed the board that is gone: show the first one that is left.
+    // The page showed the container that is gone: show the first one that is left.
     if (
       !here ||
-      board.id !== boardId ||
-      workspace.containers.some((left) => left.id === board.id)
+      container.id !== containerId ||
+      workspace.containers.some((left) => left.id === container.id)
     ) {
       return;
     }
     const next = workspace.sidebar.flatMap((entry) => entry.containers)[0];
-    if (next) onOpenBoard(next);
+    if (next) onOpenContainer(next);
   }
 
   /** Makes a template of the board and opens it, to be changed there. */
   async function templateFromBoard(boardId: string): Promise<void> {
     const made = await whileHere(workspace, () => workspace.createTemplateFromBoard(boardId));
-    if (made) onOpenBoard(made);
+    if (made) onOpenContainer(made);
   }
 
   /** Copies the board or wiki whole and opens the copy. */
-  async function duplicateBoard(boardId: string): Promise<void> {
-    const made = await whileHere(workspace, () => workspace.duplicateContainer(boardId));
-    if (made) onOpenBoard(made);
+  async function duplicateContainer(containerId: string): Promise<void> {
+    const made = await whileHere(workspace, () => workspace.duplicateContainer(containerId));
+    if (made) onOpenContainer(made);
   }
 
   function confirmed(): void {
-    if (asked?.kind === 'board') void deleteBoard(asked.board);
+    if (asked?.kind === 'container') void deleteContainer(asked.container);
     else if (asked?.kind === 'category') void workspace.deleteCategory(asked.category.id);
   }
 </script>
@@ -253,13 +254,13 @@
 <nav class="flex min-h-0 flex-1 flex-col" aria-label={m.shell_boards()}>
   <SidebarList
     {workspace}
-    {boardId}
-    {boardHref}
+    {containerId}
+    {containerHref}
     {query}
     found={boardSearch.found}
     searching={boardSearch.pending}
-    {canDeleteOpenBoard}
-    {onOpenBoard}
+    {canDeleteOpenContainer}
+    {onOpenContainer}
     onNewCategory={() => {
       naming = { mode: 'create' };
       namingOpen = true;
@@ -273,9 +274,9 @@
       askOpen = true;
     }}
     onTemplateFromBoard={(id: string) => void templateFromBoard(id)}
-    onDuplicateBoard={(id: string) => void duplicateBoard(id)}
-    onDeleteBoard={(board: Container) => {
-      asked = { kind: 'board', board };
+    onDuplicateContainer={(id: string) => void duplicateContainer(id)}
+    onDeleteContainer={(container: Container) => {
+      asked = { kind: 'container', container };
       askOpen = true;
     }}
   />
@@ -382,10 +383,10 @@
       : m['DeleteBoardDialog.confirm-tite']()}
   description={asked?.kind === 'category'
     ? m['SidebarCategories.CategoryMenu.DeleteModal.Body']({ categoryName: asked.category.name })
-    : asked?.kind === 'board'
+    : asked?.kind === 'container'
       ? askedWiki
-        ? m.shell_delete_wiki_info({ title: titleOf(asked.board) })
-        : m['DeleteBoardDialog.confirm-info']({ boardTitle: titleOf(asked.board) })
+        ? m.shell_delete_wiki_info({ title: titleOf(asked.container) })
+        : m['DeleteBoardDialog.confirm-info']({ boardTitle: titleOf(asked.container) })
       : undefined}
   confirmLabel={asked?.kind === 'category'
     ? m.shared_delete()

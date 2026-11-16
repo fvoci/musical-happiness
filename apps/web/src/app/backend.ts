@@ -98,19 +98,24 @@ async function startServer(): Promise<StartedBackend> {
 }
 
 /**
- * The backend of a reader by a board's public link (`/shared/…`): the
- * server's, which reads the board by the link's read token alone, and the
- * place it shows the board in.
+ * The backend of a reader by a board's or a wiki's public link (`/shared/…`):
+ * the server's, which reads it by the link's read token alone, and the place
+ * it shows it in.
  */
 export async function startShared(
-  boardId: string,
+  containerId: string,
   readToken: string,
 ): Promise<{ backend: Backend; place: string }> {
   const { SharedBackend, SHARED_PLACE } = await import('$lib/api/shared-backend.ts');
   const base = readBasePath(document);
   // The device's theme and density stay as they are: the reader has no account's.
   const settings = { ...DEFAULT_ACCOUNT_SETTINGS, ...display.settings };
-  const backend = new SharedBackend(base === '' ? '' : `/${base}`, boardId, readToken, settings);
+  const backend = new SharedBackend(
+    base === '' ? '' : `/${base}`,
+    containerId,
+    readToken,
+    settings,
+  );
   return { backend, place: SHARED_PLACE };
 }
 

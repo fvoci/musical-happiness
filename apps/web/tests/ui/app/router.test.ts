@@ -195,14 +195,14 @@ describe('moving about', () => {
   it('drops the view and the card when another board is opened', () => {
     const router = new Router('');
     router.openCard('c');
-    router.openBoard({ id: 'other', workspaceId: 't' });
+    router.openContainer({ id: 'other', workspaceId: 't' });
     expect(location.pathname).toBe('/w/t/boards/other');
     expect(router.route).toMatchObject({ boardId: 'other', viewId: undefined, cardId: undefined });
   });
 
   it('opens a board at the address of its own workspace', () => {
     const router = new Router('');
-    router.openBoard({ id: 'theirs', workspaceId: 't2' });
+    router.openContainer({ id: 'theirs', workspaceId: 't2' });
     expect(location.pathname).toBe('/w/t2/boards/theirs');
     expect(router.route).toMatchObject({ workspaceId: 't2', boardId: 'theirs' });
   });

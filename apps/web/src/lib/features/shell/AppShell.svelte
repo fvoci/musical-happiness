@@ -54,13 +54,13 @@
 
   interface Props {
     workspace: Workspace;
-    /** The board that is shown, to mark it in the sidebar. */
-    boardId: string | undefined;
-    /** The address of a board, for a link to it. */
-    boardHref: (board: ContainerPlace) => string;
-    /** The address of a board's public link with its read token. */
-    sharedHref: (boardId: string, readToken: string) => string;
-    onOpenBoard: (board: ContainerPlace) => void;
+    /** The board or wiki that is shown, to mark it in the sidebar. */
+    containerId: string | undefined;
+    /** The address of a board or a wiki, for a link to it. */
+    containerHref: (container: ContainerPlace) => string;
+    /** The address of a board's or a wiki's public link with its read token. */
+    sharedHref: (containerId: string, readToken: string) => string;
+    onOpenContainer: (container: ContainerPlace) => void;
     /** The languages the app has, as tags, for the settings. */
     locales?: readonly string[];
     /** The reader's language setting: `auto`, or the one of `locales` it is shown in. */
@@ -91,10 +91,10 @@
 
   let {
     workspace,
-    boardId,
-    boardHref,
+    containerId,
+    containerHref,
     sharedHref,
-    onOpenBoard,
+    onOpenContainer,
     locales,
     language,
     autoLocale,
@@ -187,9 +187,9 @@
     }
   }
 
-  /** A board was chosen. From the drawer, the router puts the new address in place of the drawer's entry. */
-  function openBoard(board: ContainerPlace): void {
-    onOpenBoard(board);
+  /** A board or wiki was chosen. From the drawer, the router puts the new address in place of the drawer's entry. */
+  function openContainer(container: ContainerPlace): void {
+    onOpenContainer(container);
     sidebar.drawerOpen = false;
   }
 
@@ -235,7 +235,7 @@
     const made = await whileHere(workspace, () =>
       workspace.createBoard({ title: '' }, m['View.NewBoardTitle'](), m.shell_new_board_status()),
     );
-    if (made) openBoard(made);
+    if (made) openContainer(made);
   }
 
   /** "New wiki" asks for its name and who finds it. */
@@ -243,12 +243,12 @@
 
   async function addWiki(draft: WikiDraft): Promise<void> {
     const made = await whileHere(workspace, () => createWiki(workspace, draft));
-    if (made) openBoard(made);
+    if (made) openContainer(made);
   }
 
   async function addBoardFromTemplate(template: Container): Promise<void> {
     const made = await whileHere(workspace, () => workspace.duplicateContainer(template.id));
-    if (made) openBoard(made);
+    if (made) openContainer(made);
   }
 
   function onkeydown(event: KeyboardEvent): void {
@@ -279,11 +279,11 @@
 >
   <SidebarStrip
     {workspace}
-    {boardId}
-    {boardHref}
+    {containerId}
+    {containerHref}
     hidden={!layout.strip}
     inert={drawerOut}
-    onOpenBoard={openBoard}
+    onOpenContainer={openContainer}
     onExpand={expand}
     onAddBoard={addBoard}
     onOpenSettings={openSettings}
@@ -331,10 +331,10 @@
   >
     <Sidebar
       {workspace}
-      {boardId}
-      {boardHref}
+      {containerId}
+      {containerHref}
       beside={layout.list === 'beside'}
-      onOpenBoard={openBoard}
+      onOpenContainer={openContainer}
       onClose={closeList}
       onAddBoard={addBoard}
       onOpenSettings={openSettings}
@@ -352,7 +352,7 @@
   >
     <TopBar
       {workspace}
-      {boardId}
+      {containerId}
       {sharedHref}
       menuButton={layout.menuButton}
       onOpenSidebar={openDrawer}
@@ -377,7 +377,7 @@
   onEmptyBoard={() => void addEmptyBoard()}
   onFromTemplate={(template: Container) => void addBoardFromTemplate(template)}
   onEditTemplate={(template: Container) => {
-    openBoard(template);
+    openContainer(template);
   }}
 />
 

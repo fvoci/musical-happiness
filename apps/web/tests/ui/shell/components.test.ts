@@ -9,7 +9,7 @@ import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { routePath } from '../../../src/app/router.svelte.ts';
-import BoardIcon from '$lib/features/shell/BoardIcon.svelte';
+import ContainerIcon from '$lib/features/shell/ContainerIcon.svelte';
 import BoardTitle from '$lib/features/shell/BoardTitle.svelte';
 import SettingChoice from '$lib/features/shell/SettingChoice.svelte';
 import SettingsDialog from '$lib/features/shell/SettingsDialog.svelte';
@@ -174,7 +174,7 @@ describe('the title of a board as a field', () => {
 
 describe('what stands for a board', () => {
   it('its icon, when it has one', () => {
-    const { container } = render(BoardIcon, {
+    const { container } = render(ContainerIcon, {
       props: { icon: '🎯', title: 'Roadmap', locale: 'en' },
     });
     expect(container).toHaveTextContent('🎯');
@@ -182,10 +182,12 @@ describe('what stands for a board', () => {
   });
 
   it('else the first character of its title: a letter in capitals, a whole syllable of Hangul', () => {
-    const first = render(BoardIcon, { props: { icon: '', title: 'roadmap', locale: 'en' } });
+    const first = render(ContainerIcon, { props: { icon: '', title: 'roadmap', locale: 'en' } });
     expect(first.container).toHaveTextContent('R');
     cleanup();
-    const second = render(BoardIcon, { props: { icon: undefined, title: '회의록', locale: 'ko' } });
+    const second = render(ContainerIcon, {
+      props: { icon: undefined, title: '회의록', locale: 'ko' },
+    });
     expect(second.container).toHaveTextContent('회');
     expect(second.container.querySelector('[data-board-icon="initial"]')).not.toBeNull();
   });
@@ -194,7 +196,7 @@ describe('what stands for a board', () => {
 describe('the sidebar over a workspace', () => {
   async function mount(): Promise<{
     workspace: ReturnType<typeof setup>['workspace'];
-    onOpenBoard: ReturnType<typeof vi.fn>;
+    onOpenContainer: ReturnType<typeof vi.fn>;
     onOpenSettings: ReturnType<typeof vi.fn>;
     onAddBoard: ReturnType<typeof vi.fn>;
     onClose: ReturnType<typeof vi.fn>;
@@ -203,7 +205,7 @@ describe('the sidebar over a workspace', () => {
     await workspace.load();
     const first = workspace.sidebar.flatMap((entry) => entry.containers)[0];
     const handlers = {
-      onOpenBoard: vi.fn(),
+      onOpenContainer: vi.fn(),
       onOpenSettings: vi.fn(),
       onAddBoard: vi.fn(),
       onClose: vi.fn(),
@@ -211,9 +213,9 @@ describe('the sidebar over a workspace', () => {
     render(Sidebar, {
       props: {
         workspace,
-        boardId: first?.id,
-        boardHref: (board: ContainerPlace) =>
-          routePath({ workspaceId: board.workspaceId, boardId: board.id }, ''),
+        containerId: first?.id,
+        containerHref: (container: ContainerPlace) =>
+          routePath({ workspaceId: container.workspaceId, boardId: container.id }, ''),
         beside: true,
         ...handlers,
       },
@@ -253,14 +255,14 @@ describe('the sidebar over a workspace', () => {
   });
 
   it('a plain click opens the board in place; a click with a modifier is left to the browser', async () => {
-    const { workspace, onOpenBoard } = await mount();
+    const { workspace, onOpenContainer } = await mount();
     const board = workspace.sidebar[0]?.containers[2];
     const link = screen.getByRole('link', { name: board?.title });
 
     const plain = new MouseEvent('click', { bubbles: true, cancelable: true });
     link.dispatchEvent(plain);
     expect(plain.defaultPrevented).toBe(true);
-    expect(onOpenBoard).toHaveBeenCalledExactlyOnceWith(board);
+    expect(onOpenContainer).toHaveBeenCalledExactlyOnceWith(board);
 
     const modified = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true });
     // Keep the simulated page from trying to follow the link.
@@ -272,7 +274,7 @@ describe('the sidebar over a workspace', () => {
       { once: true },
     );
     link.dispatchEvent(modified);
-    expect(onOpenBoard).toHaveBeenCalledTimes(1);
+    expect(onOpenContainer).toHaveBeenCalledTimes(1);
   });
 
   it('the search narrows the boards and leaves out the categories without a match', async () => {

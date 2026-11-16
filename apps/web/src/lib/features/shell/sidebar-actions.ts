@@ -20,7 +20,7 @@ import { m } from '$lib/i18n/paraglide/messages.js';
 import type { Container } from '$lib/logic/wire.ts';
 import type { Category, Workspace } from '$lib/state/index.ts';
 
-import { exportAction } from './board-export.ts';
+import { exportAction } from './container-export.ts';
 import { categoryOrderAfterStep, moveToEnd } from './sidebar-logic.ts';
 
 /**
@@ -38,15 +38,15 @@ export interface SidebarMenus {
   /** A guest has the boards they were invited to as they are filed: theirs to save, not to arrange. */
   guest: boolean;
   /** The board or wiki on the page. */
-  boardId: string | undefined;
-  /** Whether the reader may delete the board on the page. Of the others the sidebar does not know. */
-  canDeleteOpenBoard: boolean;
+  containerId: string | undefined;
+  /** Whether the reader may delete the board or wiki on the page. Of the others the sidebar does not know. */
+  canDeleteOpenContainer: boolean;
   onNewCategory: () => void;
   onRenameCategory: (category: Category) => void;
   onDeleteCategory: (category: Category) => void;
-  onDeleteBoard: (board: Container) => void;
+  onDeleteContainer: (container: Container) => void;
   onTemplateFromBoard: (boardId: string) => void;
-  onDuplicateBoard: (boardId: string) => void;
+  onDuplicateContainer: (containerId: string) => void;
 }
 
 function stepCategory(menus: SidebarMenus, category: Category, step: -1 | 1): void {
@@ -118,9 +118,13 @@ export function categoryActions(menus: SidebarMenus, category: Category): MenuAc
   return actions;
 }
 
-export function boardActions(menus: SidebarMenus, board: Container, home: Category): MenuAction[] {
+export function containerActions(
+  menus: SidebarMenus,
+  container: Container,
+  home: Category,
+): MenuAction[] {
   const { workspace } = menus;
-  const wiki = board.kind === 'wiki';
+  const wiki = container.kind === 'wiki';
   const moves = workspace.sidebar
     .filter((entry) => entry.category.id !== home.id)
     .map((entry): MenuAction => ({
@@ -128,11 +132,11 @@ export function boardActions(menus: SidebarMenus, board: Container, home: Catego
       label: m.shell_board_move_to({ category: categoryLabel(entry.category) }),
       icon: FolderInputIcon,
       run: () => {
-        const move = moveToEnd(entry.category.id, board.id, workspace.sidebar);
-        if (move) void workspace.moveContainer(move.boardId, move.categoryId, move.index);
+        const move = moveToEnd(entry.category.id, container.id, workspace.sidebar);
+        if (move) void workspace.moveContainer(move.containerId, move.categoryId, move.index);
       },
     }));
-  const saving = [exportAction(workspace, board, moves.length > 0)];
+  const saving = [exportAction(workspace, container, moves.length > 0)];
   if (menus.guest) return saving;
   return [
     ...moves,
@@ -142,7 +146,7 @@ export function boardActions(menus: SidebarMenus, board: Container, home: Catego
       label: wiki ? m.shell_duplicate_wiki() : m['Sidebar.duplicate-board'](),
       icon: CopyIcon,
       run: () => {
-        menus.onDuplicateBoard(board.id);
+        menus.onDuplicateContainer(container.id);
       },
     },
     ...(wiki
@@ -153,7 +157,7 @@ export function boardActions(menus: SidebarMenus, board: Container, home: Catego
             label: m['Sidebar.template-from-board'](),
             icon: LayoutTemplateIcon,
             run: () => {
-              menus.onTemplateFromBoard(board.id);
+              menus.onTemplateFromBoard(container.id);
             },
           },
         ]),
@@ -161,7 +165,7 @@ export function boardActions(menus: SidebarMenus, board: Container, home: Catego
       id: 'hide',
       label: wiki ? m.shell_hide_wiki() : m['HideBoard.MenuOption'](),
       icon: EyeOffIcon,
-      run: () => void workspace.hideContainer(board.id),
+      run: () => void workspace.hideContainer(container.id),
     },
     {
       id: 'delete',
@@ -170,9 +174,9 @@ export function boardActions(menus: SidebarMenus, board: Container, home: Catego
       destructive: true,
       separated: true,
       // Of the board or wiki on the page the sidebar knows; of the others the server has the say.
-      disabled: board.id === menus.boardId && !menus.canDeleteOpenBoard,
+      disabled: container.id === menus.containerId && !menus.canDeleteOpenContainer,
       run: () => {
-        menus.onDeleteBoard(board);
+        menus.onDeleteContainer(container);
       },
     },
   ];

@@ -30,56 +30,62 @@
   import type { Category, SidebarCategory, Workspace } from '$lib/state/index.ts';
 
   import { shownTitle } from './shown-title.ts';
-  import BoardIcon from './BoardIcon.svelte';
-  import { boardDragMessages } from './drag-messages.ts';
+  import ContainerIcon from './ContainerIcon.svelte';
+  import { containerDragMessages } from './drag-messages.ts';
   import {
-    boardActions,
+    containerActions,
     categoryActions,
     categoryLabel,
     type SidebarMenus,
   } from './sidebar-actions.ts';
-  import { boardMoveOf, dragOrder, dragZones, filterSidebar, titleHas } from './sidebar-logic.ts';
-  import SidebarBoard from './SidebarBoard.svelte';
+  import {
+    containerMoveOf,
+    dragOrder,
+    dragZones,
+    filterSidebar,
+    titleHas,
+  } from './sidebar-logic.ts';
+  import SidebarContainer from './SidebarContainer.svelte';
 
   interface Props {
     workspace: Workspace;
-    /** The board on the page. */
-    boardId: string | undefined;
-    boardHref: (board: Container) => string;
+    /** The board or wiki on the page. */
+    containerId: string | undefined;
+    containerHref: (container: Container) => string;
     /** What the reader typed into the search of the sidebar. */
     query: string;
     /** What the backend found for the query; those the list shows already are left out. */
     found: readonly Container[];
     /** The backend has not answered the query yet. */
     searching: boolean;
-    /** Whether the reader may delete the board on the page. Of the others the sidebar does not know. */
-    canDeleteOpenBoard: boolean;
-    onOpenBoard: (board: Container) => void;
+    /** Whether the reader may delete the board or wiki on the page. Of the others the sidebar does not know. */
+    canDeleteOpenContainer: boolean;
+    onOpenContainer: (container: Container) => void;
     onNewCategory: () => void;
     onRenameCategory: (category: Category) => void;
     onDeleteCategory: (category: Category) => void;
-    onDeleteBoard: (board: Container) => void;
+    onDeleteContainer: (container: Container) => void;
     /** Makes a template of the board, to be changed on its page. */
     onTemplateFromBoard: (boardId: string) => void;
     /** Copies the board or wiki whole, to be opened. */
-    onDuplicateBoard: (boardId: string) => void;
+    onDuplicateContainer: (containerId: string) => void;
   }
 
   let {
     workspace,
-    boardId,
-    boardHref,
+    containerId,
+    containerHref,
     query,
     found,
     searching,
-    canDeleteOpenBoard,
-    onOpenBoard,
+    canDeleteOpenContainer,
+    onOpenContainer,
     onNewCategory,
     onRenameCategory,
     onDeleteCategory,
-    onDeleteBoard,
+    onDeleteContainer,
     onTemplateFromBoard,
-    onDuplicateBoard,
+    onDuplicateContainer,
   }: Props = $props();
 
   const uid = $props.id();
@@ -105,17 +111,17 @@
           }),
           // The backend searches boards only: a hidden wiki is found here.
           ...workspace.hiddenContainers.filter(
-            (board) => board.kind === 'wiki' && titleHas(board.title, query),
+            (container) => container.kind === 'wiki' && titleHas(container.title, query),
           ),
         ]
       : [],
   );
-  const isHidden = (boardId: string): boolean =>
-    workspace.categories.some((category) => category.hiddenContainerIds.includes(boardId));
+  const isHidden = (containerId: string): boolean =>
+    workspace.categories.some((category) => category.hiddenContainerIds.includes(containerId));
 
   const titleOf = shownTitle;
-  const boardOf = (id: string): Container | undefined =>
-    workspace.containers.find((board) => board.id === id);
+  const listedContainer = (id: string): Container | undefined =>
+    workspace.containers.find((container) => container.id === id);
   const categoryName = (id: string): string => {
     const category = workspace.categories.find((one) => one.id === id);
     return category ? categoryLabel(category) : id;
@@ -127,27 +133,27 @@
   const menus = $derived<SidebarMenus>({
     workspace,
     guest,
-    boardId,
-    canDeleteOpenBoard,
+    containerId,
+    canDeleteOpenContainer,
     onNewCategory,
     onRenameCategory,
     onDeleteCategory,
-    onDeleteBoard,
+    onDeleteContainer,
     onTemplateFromBoard,
-    onDuplicateBoard,
+    onDuplicateContainer,
   });
 
   const sortable = new Sortable({
     order: () => (filtering || guest ? [] : dragOrder(workspace.sidebar)),
     zones: () => (filtering || guest ? [] : dragZones(workspace.sidebar)),
     onDrop: ({ itemId, to }) => {
-      const move = boardMoveOf(to, itemId, workspace.sidebar);
-      if (move) void workspace.moveContainer(move.boardId, move.categoryId, move.index);
+      const move = containerMoveOf(to, itemId, workspace.sidebar);
+      if (move) void workspace.moveContainer(move.containerId, move.categoryId, move.index);
     },
-    messages: boardDragMessages(),
+    messages: containerDragMessages(),
     itemLabel: (id) => {
-      const board = boardOf(id);
-      return board ? titleOf(board) : id;
+      const container = listedContainer(id);
+      return container ? titleOf(container) : id;
     },
     listLabel: categoryName,
     zoneLabel: categoryName,
@@ -159,21 +165,21 @@
   let hiddenOpen = $state(false);
 
   const drag = $derived(sortable.active);
-  const lifted = $derived(drag ? boardOf(drag.itemId) : undefined);
+  const lifted = $derived(drag ? listedContainer(drag.itemId) : undefined);
 
-  type Row = { kind: 'board'; board: Container } | { kind: 'gap' };
+  type Row = { kind: 'container'; container: Container } | { kind: 'gap' };
 
   /** The boards of a category with the gap among them, where a drag has one there. */
   function rowsOf(entry: SidebarCategory): Row[] {
     const gapAt = drag?.gap?.listId === entry.category.id ? drag.gap.index : -1;
     const rows: Row[] = [];
     let staying = 0;
-    for (const board of entry.containers) {
-      if (!drag?.itemIds.includes(board.id)) {
+    for (const container of entry.containers) {
+      if (!drag?.itemIds.includes(container.id)) {
         if (staying === gapAt) rows.push({ kind: 'gap' });
         staying += 1;
       }
-      rows.push({ kind: 'board', board });
+      rows.push({ kind: 'container', container });
     }
     if (staying === gapAt) rows.push({ kind: 'gap' });
     return rows;
@@ -235,22 +241,22 @@
           data-drag-list={filtering ? undefined : category.id}
           aria-label={categoryLabel(category)}
         >
-          {#each rows as row (row.kind === 'gap' ? ' gap' : row.board.id)}
-            {#if row.kind === 'board'}
-              <SidebarBoard
-                boardId={row.board.id}
-                title={titleOf(row.board)}
-                icon={row.board.icon}
-                kind={row.board.kind}
-                href={boardHref(row.board)}
-                current={row.board.id === boardId}
+          {#each rows as row (row.kind === 'gap' ? ' gap' : row.container.id)}
+            {#if row.kind === 'container'}
+              <SidebarContainer
+                containerId={row.container.id}
+                title={titleOf(row.container)}
+                icon={row.container.icon}
+                kind={row.container.kind}
+                href={containerHref(row.container)}
+                current={row.container.id === containerId}
                 locale={workspace.locale}
                 draggable={!filtering}
-                lifted={drag?.itemIds.includes(row.board.id) ?? false}
+                lifted={drag?.itemIds.includes(row.container.id) ?? false}
                 describedBy={instructionsId}
-                actions={boardActions(menus, row.board, category)}
+                actions={containerActions(menus, row.container, category)}
                 onOpen={() => {
-                  onOpenBoard(row.board);
+                  onOpenContainer(row.container);
                 }}
               />
             {:else if drag?.mode === 'keyboard' && lifted}
@@ -262,7 +268,7 @@
                   aria-describedby={instructionsId}
                   class="flex min-h-8 items-center gap-2 rounded-md bg-sidebar-accent py-1 pr-2 pl-2 font-medium ring-2 ring-ring outline-none roomy:min-h-touch"
                 >
-                  <BoardIcon
+                  <ContainerIcon
                     icon={lifted.icon}
                     kind={lifted.kind}
                     title={titleOf(lifted)}
@@ -294,14 +300,14 @@
     <div class="pt-2" data-testid="search-more">
       <p class="px-1 py-1 text-xs font-medium text-muted-foreground">{m.shell_search_more()}</p>
       <ul aria-label={m.shell_search_more()}>
-        {#each more as board (board.id)}
-          {@const hidden = isHidden(board.id)}
+        {#each more as container (container.id)}
+          {@const hidden = isHidden(container.id)}
           <li class="flex items-center gap-1">
             <a
-              href={boardHref(board)}
-              aria-current={board.id === boardId ? 'page' : undefined}
-              aria-label={board.kind === 'wiki'
-                ? m.shell_wiki_named({ title: titleOf(board) })
+              href={containerHref(container)}
+              aria-current={container.id === containerId ? 'page' : undefined}
+              aria-label={container.kind === 'wiki'
+                ? m.shell_wiki_named({ title: titleOf(container) })
                 : undefined}
               class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 hover:bg-sidebar-accent roomy:min-h-touch"
               onclick={(event: MouseEvent) => {
@@ -315,16 +321,16 @@
                   return;
                 }
                 event.preventDefault();
-                onOpenBoard(board);
+                onOpenContainer(container);
               }}
             >
-              <BoardIcon
-                icon={board.icon}
-                kind={board.kind}
-                title={titleOf(board)}
+              <ContainerIcon
+                icon={container.icon}
+                kind={container.kind}
+                title={titleOf(container)}
                 locale={workspace.locale}
               />
-              <span class="min-w-0 flex-1 truncate">{titleOf(board)}</span>
+              <span class="min-w-0 flex-1 truncate">{titleOf(container)}</span>
               {#if hidden}
                 <span class="shrink-0 pr-1 text-xs text-muted-foreground">
                   {m.shell_search_hidden()}
@@ -333,9 +339,9 @@
             </a>
             {#if hidden}
               <IconButton
-                label={m.shell_board_unhide({ name: titleOf(board) })}
+                label={m.shell_board_unhide({ name: titleOf(container) })}
                 class="text-muted-foreground"
-                onclick={() => void workspace.unhideContainer(board.id)}
+                onclick={() => void workspace.unhideContainer(container.id)}
               >
                 <EyeIcon />
               </IconButton>
@@ -370,13 +376,13 @@
       </button>
       {#if hiddenOpen}
         <ul>
-          {#each workspace.hiddenContainers as board (board.id)}
+          {#each workspace.hiddenContainers as container (container.id)}
             <li class="flex items-center gap-1">
               <a
-                href={boardHref(board)}
-                aria-current={board.id === boardId ? 'page' : undefined}
-                aria-label={board.kind === 'wiki'
-                  ? m.shell_wiki_named({ title: titleOf(board) })
+                href={containerHref(container)}
+                aria-current={container.id === containerId ? 'page' : undefined}
+                aria-label={container.kind === 'wiki'
+                  ? m.shell_wiki_named({ title: titleOf(container) })
                   : undefined}
                 class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 text-muted-foreground hover:bg-sidebar-accent roomy:min-h-touch"
                 onclick={(event: MouseEvent) => {
@@ -390,21 +396,21 @@
                     return;
                   }
                   event.preventDefault();
-                  onOpenBoard(board);
+                  onOpenContainer(container);
                 }}
               >
-                <BoardIcon
-                  icon={board.icon}
-                  kind={board.kind}
-                  title={titleOf(board)}
+                <ContainerIcon
+                  icon={container.icon}
+                  kind={container.kind}
+                  title={titleOf(container)}
                   locale={workspace.locale}
                 />
-                <span class="min-w-0 flex-1 truncate">{titleOf(board)}</span>
+                <span class="min-w-0 flex-1 truncate">{titleOf(container)}</span>
               </a>
               <IconButton
-                label={m.shell_board_unhide({ name: titleOf(board) })}
+                label={m.shell_board_unhide({ name: titleOf(container) })}
                 class="text-muted-foreground"
-                onclick={() => void workspace.unhideContainer(board.id)}
+                onclick={() => void workspace.unhideContainer(container.id)}
               >
                 <EyeIcon />
               </IconButton>
@@ -447,7 +453,7 @@
     style:height="{drag.height}px"
     style:translate="{sortable.overlay.x}px {sortable.overlay.y}px"
   >
-    <BoardIcon
+    <ContainerIcon
       icon={lifted.icon}
       kind={lifted.kind}
       title={titleOf(lifted)}

@@ -153,7 +153,7 @@
       router.openCard(hit.id);
     } else {
       const kind = hit.kind === 'page' ? 'wiki' : 'board';
-      router.openBoard({ id: hit.containerId, workspaceId: workspace.info?.id ?? '', kind });
+      router.openContainer({ id: hit.containerId, workspaceId: workspace.info?.id ?? '', kind });
       router.go(route, { replace: true });
     }
     await tick();
@@ -175,7 +175,7 @@
   }
 
   function containerOf(hit: SearchHit): string {
-    const container = workspace.containers.find((board) => board.id === hit.containerId);
+    const container = workspace.containers.find((one) => one.id === hit.containerId);
     if (!container) return '';
     if (container.title) return container.title;
     return container.kind === 'wiki' ? m.wiki_untitled() : m['Sidebar.untitled-board']();

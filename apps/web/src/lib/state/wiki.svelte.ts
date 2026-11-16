@@ -455,7 +455,7 @@ export class WikiStore {
     return this.wiki;
   }
 
-  /** The wiki as read for whoever manages it without reading it (`managed-board.ts`). */
+  /** The wiki as read for whoever manages it without reading it (`managed-container.ts`). */
   set container(wiki: Container | undefined) {
     this.wiki = wiki;
   }

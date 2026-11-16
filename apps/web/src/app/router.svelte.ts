@@ -169,10 +169,10 @@ function settled(route: Partial<Route>): Route {
 }
 
 /** The route of a board, or of a wiki where it is one (`kind`). */
-export function placeRoute(board: ContainerPlace): Partial<Route> {
-  return board.kind === 'wiki'
-    ? { workspaceId: board.workspaceId, wikiId: board.id }
-    : { workspaceId: board.workspaceId, boardId: board.id };
+export function placeRoute(container: ContainerPlace): Partial<Route> {
+  return container.kind === 'wiki'
+    ? { workspaceId: container.workspaceId, wikiId: container.id }
+    : { workspaceId: container.workspaceId, boardId: container.id };
 }
 
 /** The address of a route, from the root of the site. */
@@ -305,9 +305,9 @@ export class Router {
    * chosen by the page. A wiki (`kind`) is shown at a wiki's address, its
    * first page chosen by its page.
    */
-  openBoard(board: ContainerPlace): void {
+  openContainer(container: ContainerPlace): void {
     this.#cardEntered = false;
-    this.go(placeRoute(board));
+    this.go(placeRoute(container));
   }
 
   /** Shows a page of the wiki shown. `replace`: in place of the address there. */
