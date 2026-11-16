@@ -10,7 +10,7 @@ use crate::common::{Setup, TestServer};
 
 /// A file of the card's board, recorded long ago and shown by nothing.
 async fn old_file(e: &Editing, th: &TestServer) -> FileInfo {
-    let board_id = card(&th.client, &e.card_id).await.container_id;
+    let board_id = card(&th.client, &e.card_id).await.board_id;
     let file = FileInfo {
         id: new_id(),
         container_id: board_id.clone(),

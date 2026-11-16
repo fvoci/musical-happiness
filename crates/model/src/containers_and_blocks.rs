@@ -268,7 +268,7 @@ fn renew_ids(
     }
     let mut relations = RelationProperties::new();
     for container in &containers {
-        relations.add_container(&container.id, &container.card_properties);
+        relations.add_board(&container.id, &container.card_properties);
     }
     let renamed = renew_block_ids_told(&mut blocks, &relations, unmatched, told);
 

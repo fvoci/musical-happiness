@@ -191,7 +191,7 @@ async fn get_cards_fixture(th: &TestServer) -> Container {
     let user_id = th.client.me().await.id;
     for number in 0..CARD_COUNT {
         let card = Card {
-            container_id: board.id.clone(),
+            board_id: board.id.clone(),
             created_by: user_id.clone(),
             modified_by: user_id.clone(),
             title: number.to_string(),
@@ -263,7 +263,7 @@ async fn create_card_good() {
 
     let card_new = create_card(&th.client, &board.id, &card).await;
 
-    assert_eq!(card_new.container_id, board.id, "the card is on the board");
+    assert_eq!(card_new.board_id, board.id, "the card is on the board");
     assert_eq!(card_new.title, "test card 1", "the title");
     assert_eq!(card_new.icon, "😱", "the icon");
     th.teardown().await;
@@ -387,10 +387,7 @@ async fn patch_card_good() {
         .await
         .ok_json();
 
-    assert_eq!(
-        patched.container_id, board.id,
-        "the card stays on its board"
-    );
+    assert_eq!(patched.board_id, board.id, "the card stays on its board");
     assert_eq!(patched.title, "another title", "the new title");
     assert_eq!(patched.icon, "🐿", "the new icon");
     assert_eq!(patched.properties, updated_props, "the new properties");
@@ -443,7 +440,7 @@ async fn get_card_good() {
 
     let fetched: Card = th.client.get(&card_path(&card.id)).await.ok_json();
 
-    assert_eq!(fetched.container_id, board.id, "the card's board");
+    assert_eq!(fetched.board_id, board.id, "the card's board");
     assert_eq!(fetched.title, card.title, "the title");
     assert_eq!(fetched.icon, card.icon, "the icon");
     assert_eq!(fetched.properties, card.properties, "the properties");
@@ -461,7 +458,7 @@ async fn app_create_card_success_scenario() {
         .await;
     let user_id = th.stranger().await;
     let card = Card {
-        container_id: board.id.clone(),
+        board_id: board.id.clone(),
         created_by: user_id.clone(),
         modified_by: user_id.clone(),
         title: "test card".to_owned(),
@@ -475,7 +472,7 @@ async fn app_create_card_success_scenario() {
         .await
         .expect("the card is created");
 
-    assert_eq!(new_card.container_id, card.container_id, "the board");
+    assert_eq!(new_card.board_id, card.board_id, "the board");
     assert_eq!(new_card.title, card.title, "the title");
     assert_eq!(new_card.properties, card.properties, "the properties");
     th.teardown().await;
@@ -634,7 +631,7 @@ async fn app_patch_card_success_scenario() {
         .await
         .expect("the card is patched");
 
-    assert_eq!(patched.container_id, board.id, "the board");
+    assert_eq!(patched.board_id, board.id, "the board");
     assert_eq!(patched.title, "patched", "the title");
     assert_eq!(patched.icon, "😀", "the icon");
     assert_eq!(patched.properties, expected.properties, "the properties");
@@ -711,7 +708,7 @@ async fn app_get_card_success_scenario() {
 
     let card = th.app.card(&block.id).await.expect("the card is read");
 
-    assert_eq!(card.container_id, board.id, "the board");
+    assert_eq!(card.board_id, board.id, "the board");
     assert_eq!(card.title, block.title, "the title");
     assert_eq!(card.icon, "😀", "the icon");
     assert!(card.is_template, "a template");
@@ -1861,7 +1858,7 @@ async fn card_changes_call_the_webhook() {
 async fn comment_on(client: &Client, card: &Card) -> Block {
     let comment = Block {
         id: new_id(),
-        container_id: card.container_id.clone(),
+        container_id: card.board_id.clone(),
         parent_id: card.id.clone(),
         block_type: BlockType::Comment,
         title: "said".to_owned(),
@@ -1870,7 +1867,7 @@ async fn comment_on(client: &Client, card: &Card) -> Block {
         ..Block::default()
     };
     let stored: Vec<Block> = client
-        .insert_blocks(&card.container_id, std::slice::from_ref(&comment))
+        .insert_blocks(&card.board_id, std::slice::from_ref(&comment))
         .await
         .created_json();
     // The next comment is posted a millisecond later at least.

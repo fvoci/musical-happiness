@@ -88,7 +88,7 @@ impl App {
         let now = now_millis();
         let card = Card {
             id: new_id(),
-            container_id: board_id.to_owned(),
+            board_id: board_id.to_owned(),
             created_by: user_id.to_owned(),
             modified_by: user_id.to_owned(),
             create_at: now,

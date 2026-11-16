@@ -381,10 +381,8 @@ fn related(block: &Block) -> &Value {
 fn renew_block_ids_renames_what_card_relations_name() {
     use fvoci_model::{RelationProperties, UnmatchedRelation, renew_block_ids};
 
-    let relations = RelationProperties::of_container(
-        "board",
-        &[fields(json!({"id": "rel", "type": "relation"}))],
-    );
+    let relations =
+        RelationProperties::of_board("board", &[fields(json!({"id": "rel", "type": "relation"}))]);
     let view = Block {
         block_type: fvoci_model::BlockType::View,
         ..block("view", "board", "board")
@@ -428,8 +426,8 @@ fn renew_block_ids_keeps_a_copied_relation_on_its_board() {
     use fvoci_model::{RELATION_LIMIT, RelationProperties, UnmatchedRelation, renew_block_ids};
 
     let definitions = [fields(json!({"id": "rel", "type": "relation"}))];
-    let mut relations = RelationProperties::of_container("one", &definitions);
-    relations.add_container("two", &definitions);
+    let mut relations = RelationProperties::of_board("one", &definitions);
+    relations.add_board("two", &definitions);
     let mut named: Vec<String> = (0..RELATION_LIMIT).map(|_| id()).collect();
     named.insert(0, "theirs".to_owned());
     named.push("mine".to_owned());

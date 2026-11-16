@@ -68,7 +68,7 @@ impl From<CardError> for AppError {
     fn from(error: CardError) -> Self {
         match error {
             // What a client sent.
-            CardError::ContainerIdMismatch | CardError::Invalid(_) => Self::bad_request(error),
+            CardError::BoardIdMismatch | CardError::Invalid(_) => Self::bad_request(error),
             CardError::ReadAtMissing => Self::bad_request(error).with_field("readAt"),
             // What is stored cannot be read as a card.
             CardError::NotCardBlock | CardError::InvalidFieldType { .. } => {

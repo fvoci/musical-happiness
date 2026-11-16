@@ -19,8 +19,7 @@ use crate::app::App;
 #[serde(rename_all = "camelCase")]
 struct OnboardingStart {
     /// The identifier of the board the tour goes through.
-    #[serde(rename = "boardId")]
-    container_id: String,
+    board_id: String,
     /// The identifier of the workspace.
     workspace_id: String,
 }
@@ -46,9 +45,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 async fn handle_onboard(TextInWorkspace(ws): TextInWorkspace) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
-    let (workspace_id, container_id) = app.prepare_onboarding_tour(user_id, workspace_id).await?;
+    let (workspace_id, board_id) = app.prepare_onboarding_tour(user_id, workspace_id).await?;
     Ok(json_response(&OnboardingStart {
-        container_id,
+        board_id,
         workspace_id,
     }))
 }

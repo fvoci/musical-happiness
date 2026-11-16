@@ -162,7 +162,7 @@ fn block_without_board() -> StoreError {
 #[test]
 fn card_errors_are_the_clients_or_the_servers() {
     assert_eq!(
-        AppError::from(CardError::ContainerIdMismatch).kind(),
+        AppError::from(CardError::BoardIdMismatch).kind(),
         ErrorKind::BadRequest,
         "a card for another board"
     );

@@ -142,11 +142,11 @@ async fn handle_create_card(
     let (mut card, document): (Card, _) = decode_with_document(&body)?;
     // Everything of the request's shape that is refused, before the store is asked.
     let mut refused: Refusals = card.check_request().err().unwrap_or_default();
-    if !card.container_id.is_empty() && card.container_id != board_id {
+    if !card.board_id.is_empty() && card.board_id != board_id {
         refused.refuse(
             "boardId",
             RefusalReason::Invalid,
-            CardError::ContainerIdMismatch.to_string(),
+            CardError::BoardIdMismatch.to_string(),
         );
     }
     refused.into_result()?;
@@ -154,7 +154,7 @@ async fn handle_create_card(
     ws.app
         .check_body_files(&board_id, card.body.as_ref())
         .await?;
-    card.container_id.clone_from(&board_id);
+    card.board_id.clone_from(&board_id);
     card.populate(now_millis());
     card.validate().map_err(AppError::bad_request)?;
 
@@ -262,7 +262,7 @@ async fn handle_patch_card(
         .patch_card(&patch, &card.id, user_id, notification)
         .await
         .map_err(|error| error.moved(BLOCK_FIELDS, "/updatedProperties"))?;
-    tracing::debug!(board_id = %patched.container_id, card_id = %patched.id, user_id, "PatchCard");
+    tracing::debug!(board_id = %patched.board_id, card_id = %patched.id, user_id, "PatchCard");
     Ok(json_response(&patched))
 }
 
@@ -289,7 +289,7 @@ async fn handle_get_card(ws: InWorkspace, Path((_, card_id)): Path<(String, Stri
     )
     .await?;
     let card = ws.app.card_of_block(&block).await?;
-    tracing::debug!(board_id = %card.container_id, card_id = %card.id, user_id, "GetCard");
+    tracing::debug!(board_id = %card.board_id, card_id = %card.id, user_id, "GetCard");
     Ok(json_response(&card))
 }
 
@@ -403,7 +403,7 @@ async fn handle_restore_card_body_version(
         .await?;
     let restored = ws.app.card_of_block(&block).await?;
     tracing::debug!(
-        board_id = %restored.container_id,
+        board_id = %restored.board_id,
         card_id = %restored.id,
         user_id,
         "RestoreCardBodyVersion"

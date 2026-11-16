@@ -219,10 +219,10 @@ async fn a_logged_image_keeps_its_file_before_projection() {
     let (app, card, user1, _) = editing(&th, Value::Null).await;
     let file = FileInfo {
         id: new_id(),
-        container_id: card.container_id.clone(),
+        container_id: card.board_id.clone(),
         stored_name: "7review.png".to_owned(),
         create_at: 1,
-        path: format!("boards/{}/7review.png", card.container_id),
+        path: format!("boards/{}/7review.png", card.board_id),
         name: "review.png".to_owned(),
         extension: ".png".to_owned(),
         size: 7,

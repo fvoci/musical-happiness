@@ -383,7 +383,7 @@ async fn renew_request_ids(
         .iter()
         .any(|block| block.block_type == BlockType::Card)
     {
-        RelationProperties::of_container(
+        RelationProperties::of_board(
             container_id,
             &app.container(container_id).await?.card_properties,
         )

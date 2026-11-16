@@ -65,14 +65,14 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// Extraction fails with 404 unless the token opens the board, and with 429 for an
 /// address that has had too many such answers of late.
 #[derive(Debug)]
-pub(crate) struct SharedContainer {
+pub(crate) struct InSharedContainer {
     /// The application, reaching the rows of the board's organization.
     app: App,
     /// The board the path names.
     container_id: String,
 }
 
-impl FromRequestParts<App> for SharedContainer {
+impl FromRequestParts<App> for InSharedContainer {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
@@ -105,7 +105,7 @@ fn not_shared() -> AppError {
     AppError::not_found("board")
 }
 
-impl SharedContainer {
+impl InSharedContainer {
     /// Whether what the link opens is of `kind`: a wiki's link reads no blocks or cards,
     /// a board's no pages, which are as not there (404) as anything not shared. Every
     /// route but the board itself and its files asks it.
@@ -145,7 +145,7 @@ impl SharedContainer {
     security(()),
     responses((status = 200, description = "The board or the wiki.", body = Container)),
 )]
-async fn handle_get_shared_container(shared: SharedContainer) -> ApiResult {
+async fn handle_get_shared_container(shared: InSharedContainer) -> ApiResult {
     Ok(json_response(&shared.container().await?))
 }
 
@@ -174,7 +174,10 @@ async fn handle_get_shared_container(shared: SharedContainer) -> ApiResult {
     security(()),
     responses((status = 200, description = "The blocks.", body = Vec<Block>)),
 )]
-async fn handle_get_shared_blocks(shared: SharedContainer, RawQuery(query): RawQuery) -> ApiResult {
+async fn handle_get_shared_blocks(
+    shared: InSharedContainer,
+    RawQuery(query): RawQuery,
+) -> ApiResult {
     shared.require_kind(ContainerKind::Board)?;
     let container = shared.container().await?;
     let mut blocks = asked_blocks(&shared.app, &shared.container_id, query.as_deref()).await?;
@@ -209,7 +212,10 @@ async fn handle_get_shared_blocks(shared: SharedContainer, RawQuery(query): RawQ
     security(()),
     responses((status = 200, description = "The cards of the page.", body = Vec<Card>)),
 )]
-async fn handle_get_shared_cards(shared: SharedContainer, RawQuery(query): RawQuery) -> ApiResult {
+async fn handle_get_shared_cards(
+    shared: InSharedContainer,
+    RawQuery(query): RawQuery,
+) -> ApiResult {
     shared.require_kind(ContainerKind::Board)?;
     let container = shared.container().await?;
     let mut cards = cards_page(&shared.app, &shared.container_id, query.as_deref()).await?;
@@ -237,7 +243,7 @@ async fn handle_get_shared_cards(shared: SharedContainer, RawQuery(query): RawQu
     ),
 )]
 async fn handle_get_shared_file(
-    shared: SharedContainer,
+    shared: InSharedContainer,
     Path((_, file_id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> ApiResult {
@@ -258,7 +264,7 @@ async fn handle_get_shared_file(
     responses((status = 200, description = "What is known about the file.", body = FileInfo)),
 )]
 async fn handle_get_shared_file_info(
-    shared: SharedContainer,
+    shared: InSharedContainer,
     Path((_, file_id)): Path<(String, String)>,
 ) -> ApiResult {
     Ok(json_response(
@@ -280,7 +286,7 @@ async fn handle_get_shared_file_info(
     security(()),
     responses((status = 200, description = "The pages.", body = Vec<PageNode>)),
 )]
-async fn handle_get_shared_page_tree(shared: SharedContainer) -> ApiResult {
+async fn handle_get_shared_page_tree(shared: InSharedContainer) -> ApiResult {
     shared.require_kind(ContainerKind::Wiki)?;
     Ok(json_response(
         &shared.app.page_tree(&shared.container_id).await?,
@@ -306,7 +312,7 @@ async fn handle_get_shared_page_tree(shared: SharedContainer) -> ApiResult {
     responses((status = 200, description = "The page.", body = Page)),
 )]
 async fn handle_get_shared_page(
-    shared: SharedContainer,
+    shared: InSharedContainer,
     Path((_, page_id)): Path<(String, String)>,
 ) -> ApiResult {
     shared.require_kind(ContainerKind::Wiki)?;
