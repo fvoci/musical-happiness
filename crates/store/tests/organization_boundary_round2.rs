@@ -638,14 +638,14 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
     assert_eq!(
         without,
         [
-            // Held to its organization by the key to the board: (board_id, org_id).
+            // Held to its organization by the key to the container: (container_id, org_id).
             ("blocks", "(container_id, id)"),
             // An identifier the server makes for the row.
             ("blocks", "(id)"),
-            ("container_members", "(container_id, user_id)"),
-            ("containers", "(id)"),
             ("categories", "(id)"),
             ("category_containers", "(id)"),
+            ("container_members", "(container_id, user_id)"),
+            ("containers", "(id)"),
             ("file_info", "(container_id, name)"),
             ("file_info", "(id)"),
             // The digest of a secret the server makes; a link is found by it before its
@@ -681,7 +681,7 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             ("audit_log".to_owned(), "audit_log_kept".to_owned()),
             (
                 "category_containers".to_owned(),
-                "category_boards_board_of_its_organization".to_owned()
+                "category_containers_container_of_its_organization".to_owned()
             ),
             (
                 "uploads".to_owned(),

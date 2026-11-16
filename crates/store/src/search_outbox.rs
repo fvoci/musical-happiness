@@ -280,7 +280,7 @@ impl Store {
             let now = now_millis();
             let statement = [
                 "INSERT INTO search_outbox (scope, id, org_id, seq, due_at) SELECT ",
-                "'board', bo.id, w.org_id, ",
+                "'container', bo.id, w.org_id, ",
             ]
             .concat();
             let mut sql = scope.sql(&statement);
@@ -365,7 +365,7 @@ pub(crate) async fn note_board(scope: &mut Scope<'_>, board_id: &str) -> Result<
     let now = now_millis();
     let mut sql = scope.sql(
         "INSERT INTO search_outbox (scope, id, org_id, seq, due_at) \
-         SELECT 'board', bo.id, w.org_id, ",
+         SELECT 'container', bo.id, w.org_id, ",
     );
     sql.bind(now)
         .push_bind(", ", now)

@@ -457,7 +457,7 @@ impl Store {
                 sql.bind(WorkspaceRole::Admin.as_str())
                     .push_bind(", via_org_admin = ", true)
                     .push_bind(", prior_role = ", prior.as_str())
-                    .push_bind(", prior_board_roles = ", held.as_str())
+                    .push_bind(", prior_container_roles = ", held.as_str())
                     .push_bind(" WHERE workspace_id = ", Id(workspace_id))
                     .push_bind(" AND user_id = ", Id(user_id));
                 scope.execute(sql).await?;

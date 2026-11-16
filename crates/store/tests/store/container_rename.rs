@@ -45,7 +45,9 @@ fn with_the_new_values(
 
 /// The names of the schema that still speak of a board: tables, columns, indexes,
 /// constraints, policies, triggers and functions. On PostgreSQL the bodies of the
-/// functions too, but for what they say to whom they refuse.
+/// functions too, but for what they say to whom they refuse; and not the columns of
+/// the index of a key, which keep the names they were made with (no statement reads
+/// them there: the definition of an index reads the table's columns).
 async fn names_of_a_board(database: &fvoci_store::testing::TestDatabase) -> Vec<String> {
     let dbconfig = common::raw_dbconfig(database);
     match db_type() {
@@ -80,6 +82,7 @@ async fn names_of_a_board(database: &fvoci_store::testing::TestDatabase) -> Vec<
                  FROM pg_attribute AS a JOIN pg_class AS c ON c.oid = a.attrelid \
                  WHERE c.relnamespace = current_schema()::regnamespace \
                  AND a.attname LIKE '%board%' AND NOT a.attisdropped \
+                 AND NOT EXISTS (SELECT 1 FROM pg_constraint AS k WHERE k.conindid = c.oid) \
                  UNION ALL SELECT 'constraint ' || conname::text FROM pg_constraint \
                  WHERE connamespace = current_schema()::regnamespace AND conname LIKE '%board%' \
                  UNION ALL SELECT 'policy ' || polname::text FROM pg_policy AS p \
@@ -100,6 +103,44 @@ async fn names_of_a_board(database: &fvoci_store::testing::TestDatabase) -> Vec<
             names
         }
     }
+}
+
+/// Every index of the schema: its table, its name, whether it is unique or partial, and
+/// its columns (SQLite), or its definition (PostgreSQL); sorted.
+async fn indexes(database: &fvoci_store::testing::TestDatabase) -> Vec<String> {
+    let dbconfig = common::raw_dbconfig(database);
+    let mut indexes: Vec<String> = match db_type() {
+        DbType::Sqlite => {
+            let mut conn = sqlx::sqlite::SqliteConnection::connect(&dbconfig)
+                .await
+                .expect("the database file opens");
+            let indexes = sqlx::query_scalar(
+                "SELECT m.name || ' ' || l.name || ' ' || l.\"unique\" || ' ' || l.partial || ' ' \
+                 || (SELECT group_concat(i.name, ',') FROM pragma_index_info(l.name) AS i) \
+                 FROM sqlite_master AS m, pragma_index_list(m.name) AS l WHERE m.type = 'table'",
+            )
+            .fetch_all(&mut conn)
+            .await
+            .expect("the indexes are read");
+            conn.close().await.expect("the connection closes");
+            indexes
+        }
+        DbType::Postgres => {
+            let mut conn = common::connect_past_the_store(&dbconfig).await;
+            let indexes = sqlx::query_scalar(
+                "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index AS i \
+                 JOIN pg_class AS c ON c.oid = i.indrelid \
+                 WHERE c.relnamespace = current_schema()::regnamespace",
+            )
+            .fetch_all(&mut conn)
+            .await
+            .expect("the indexes are read");
+            conn.close().await.expect("the connection closes");
+            indexes
+        }
+    };
+    indexes.sort();
+    indexes
 }
 
 /// The rows the tables made after the organizations have of a board: a team's role on
@@ -144,8 +185,8 @@ fn rows_of_the_later_tables(before: &Before, team: &str, invitation: &str) -> St
 /// every table that has a board's name or a column of it (those of the database before
 /// the organizations carried through their migrations, and those of the tables made
 /// since): after the migration every table has the rows it had, under the new names,
-/// and the search's note of a whole board says 'container'. The keys still hold, and
-/// the checks of a row's container find the containers.
+/// and the search's note of a whole board says 'container'. Every index is there as it
+/// was, the keys still hold, and the checks of a row's container find the containers.
 #[tokio::test]
 async fn a_database_with_boards_keeps_every_row_under_the_names_of_the_containers() {
     let database = common::empty_database().await;
@@ -159,6 +200,7 @@ async fn a_database_with_boards_keeps_every_row_under_the_names_of_the_container
     // The changes of the data that earlier migrations left to the server are taken as
     // done (their rows removed), so that what changes below is this migration's alone.
     let old = dump(&database).await;
+    let old_indexes = indexes(&database).await;
     for table in [
         "boards",
         "board_members",
@@ -179,6 +221,16 @@ async fn a_database_with_boards_keeps_every_row_under_the_names_of_the_container
     fvoci_store::testing::migrate_to_the_containers(&database).await;
     let new = dump(&database).await;
     assert_eq!(names_of_a_board(&database).await, Vec::<String>::new());
+    let mut renamed_indexes: Vec<String> = old_indexes
+        .iter()
+        .map(|index| index.replace("board", "container"))
+        .collect();
+    renamed_indexes.sort();
+    assert_eq!(
+        indexes(&database).await,
+        renamed_indexes,
+        "every index is there as it was, under the new names"
+    );
 
     let expected: Dump = old
         .into_iter()
@@ -250,14 +302,35 @@ async fn the_keys_and_the_checks_find_the_containers(
                     new_id()
                 )
             };
-            common::execute_raw(&raw, &filing(&container)).await;
-            let refused = common::try_execute_raw(&raw, &filing(&new_id())).await;
-            assert!(
-                refused
-                    .as_ref()
-                    .is_err_and(common::is_foreign_key_violation),
-                "a filing of no container is refused: {refused:?}"
-            );
+            let upload = |container_id: &str| {
+                format!(
+                    "INSERT INTO uploads (id, user_id, container_id, name, size, content_type, \
+                     part_size, create_at, expires_at, closed_at, multipart_id, org_id) \
+                     SELECT '{}', u.id, '{container_id}', 'a.png', 1, 'image/png', 1, 1, \
+                     9000000000000, 0, '', c.org_id FROM users AS u, containers AS c \
+                     WHERE c.id = '{container}' LIMIT 1",
+                    new_id()
+                )
+            };
+            for (statement, what) in [
+                (filing(&container), "a filing of a container"),
+                (upload(&container), "an upload to a container"),
+            ] {
+                let stored = common::try_execute_raw(&raw, &statement).await;
+                assert!(stored.is_ok(), "{what} is stored: {stored:?}");
+            }
+            for (statement, what) in [
+                (filing(&new_id()), "a filing of no container"),
+                (upload(&new_id()), "an upload to no container"),
+            ] {
+                let refused = common::try_execute_raw(&raw, &statement).await;
+                assert!(
+                    refused
+                        .as_ref()
+                        .is_err_and(common::is_foreign_key_violation),
+                    "{what} is refused: {refused:?}"
+                );
+            }
         }
     }
 }

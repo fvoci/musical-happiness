@@ -36,7 +36,7 @@ pub struct SearchDocument {
 
 /// The columns of a document, of the blocks `b`, their boards `bo` and the boards'
 /// workspaces `w`.
-const DOCUMENT_COLUMNS: &str = "b.id, w.org_id, bo.workspace_id, b.board_id, b.title, COALESCE(b.body_text, ''), b.type, bo.kind";
+const DOCUMENT_COLUMNS: &str = "b.id, w.org_id, bo.workspace_id, b.container_id, b.title, COALESCE(b.body_text, ''), b.type, bo.kind";
 
 /// Starts the statement that reads `columns` of the blocks that have a document, with
 /// their boards `bo` and workspaces `w`: the cards and the pages of the boards and

@@ -47,6 +47,18 @@ BEGIN
     END LOOP;
 END $$;
 
+-- An index keeps the name a column had when the index was made: one on a renamed
+-- column is made again. The index of a key keeps it, as no statement reads it there
+-- (the definition of an index reads the table's columns), and is renamed with its key.
+DROP INDEX blocks_board_id_parent_id_idx;
+CREATE INDEX blocks_container_id_parent_id_idx ON blocks (container_id, parent_id);
+DROP INDEX deleted_blocks_board_id_idx;
+CREATE INDEX deleted_blocks_container_id_idx ON deleted_blocks (container_id);
+DROP INDEX category_boards_board_id_idx;
+CREATE INDEX category_containers_container_id_idx ON category_containers (container_id);
+DROP INDEX file_refs_board_id_name_idx;
+CREATE INDEX file_refs_container_id_name_idx ON file_refs (container_id, name);
+
 -- The other indexes named after a board.
 DO $$
 DECLARE

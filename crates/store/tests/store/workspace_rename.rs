@@ -349,7 +349,7 @@ async fn the_keys_and_the_check_of_an_upload_find_the_workspaces(
                 .await
                 .expect("an import into a workspace of the organization");
             let board: String =
-                sqlx::query_scalar("SELECT id::text FROM boards WHERE NOT is_template")
+                sqlx::query_scalar("SELECT id::text FROM containers WHERE NOT is_template")
                     .fetch_one(&mut common::connect_past_the_store(database.dbconfig()).await)
                     .await
                     .expect("a board");

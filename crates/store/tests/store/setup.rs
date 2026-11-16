@@ -773,6 +773,15 @@ async fn the_date_value_step_rewrites_what_was_stored_before() {
     test.teardown().await;
 }
 
+/// Renames a column of each of `tables`, past the store.
+async fn rename_column(test: &common::TestStore, from: &str, to: &str, tables: &[&str]) {
+    let statements: Vec<String> = tables
+        .iter()
+        .map(|table| format!("ALTER TABLE {table} RENAME COLUMN {from} TO {to};"))
+        .collect();
+    common::execute_raw(&test.dbconfig(), &statements.join(" ")).await;
+}
+
 /// The migration of file references puts down what the blocks show, live and in the
 /// trash, and counts a file that none shows from the migration: it is collected only
 /// once the grace period has passed from then.
@@ -832,7 +841,13 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
     }
     let migrated_at = crate::blocks::now_millis();
 
+    // Migration 3 names the container's column as it was then (`board_id`, which 41
+    // renamed): the tables it reads have it so while it is replayed, its own too after.
+    let read_by_3 = ["blocks", "deleted_blocks", "file_info"];
+    rename_column(&test, "container_id", "board_id", &read_by_3).await;
     let store = test.reconnect().await;
+    rename_column(&test, "board_id", "container_id", &read_by_3).await;
+    rename_column(&test, "board_id", "container_id", &["file_refs"]).await;
     // Only migration 3 was replayed above. Give its recreated table the column
     // migration 14 supplies before exercising today's organization-aware collector.
     if common::db_type() == DbType::Postgres {

@@ -1781,14 +1781,14 @@ async fn a_row_is_held_to_the_organization_of_what_it_hangs_on() {
     assert_eq!(
         held,
         [
-            "blocks.board_id",
-            "board_members.board_id",
-            "boards.workspace_id",
+            "blocks.container_id",
             "categories.workspace_id",
-            "category_boards.category_id",
-            "file_info.board_id",
+            "category_containers.category_id",
+            "container_members.container_id",
+            "containers.workspace_id",
+            "file_info.container_id",
             "organizations.default_workspace_id",
-            "sharing.board_id",
+            "sharing.container_id",
             "subscriptions.block_id",
             "upload_parts.upload_id",
             "workspace_members.workspace_id",
@@ -1834,7 +1834,7 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
     let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
     sqlx::raw_sql(
         "ALTER TABLE workspace_members DROP CONSTRAINT workspace_members_workspace_org_fkey; \
-         ALTER TABLE sharing DROP CONSTRAINT sharing_board_org_fkey",
+         ALTER TABLE sharing DROP CONSTRAINT sharing_container_org_fkey",
     )
     .execute(&mut conn)
     .await

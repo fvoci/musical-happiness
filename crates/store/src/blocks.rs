@@ -27,7 +27,7 @@ use crate::page_places;
 
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
-                             fields, create_at, update_at, board_id, body";
+                             fields, create_at, update_at, container_id, body";
 
 /// The columns a block is read with: [`BLOCK_COLUMNS`], and when its body was last
 /// changed if it is a comment with versions.
