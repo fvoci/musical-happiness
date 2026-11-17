@@ -8,7 +8,8 @@
 //!   appearance, also inside a longer string such as an error message or a path;
 //! * secrets (43 characters of URL-safe base64: stored file names, tokens) become
 //!   `<secret:N>`, numbered the same way, so that a file name is recognized where it
-//!   comes up again;
+//!   comes up again, also in the name of a member (an archive's `fileNames`, by stored
+//!   name); identifiers in names of members stay as they are;
 //! * millisecond timestamps become `<ts>`;
 //! * the seconds to wait of a 429 (`retryAfter`, `Retry-After`) become `<seconds>`;
 //! * values of members named like secrets (`token`) become `<secret>`, and
@@ -748,12 +749,23 @@ impl Placeholders {
                 let number = *self.ids.entry(identifier.to_owned()).or_insert(next);
                 format!("<id:{number}>")
             }
-            Found::Secret(secret) => {
-                let next = self.secrets.len() + 1;
-                let number = *self.secrets.entry(secret.to_owned()).or_insert(next);
-                format!("<secret:{number}>")
-            }
+            Found::Secret(secret) => self.secret(secret),
         })
+    }
+
+    /// The name of a member, its secrets replaced as in a value, so that a map keyed by
+    /// stored file names is the same from run to run. Its identifiers stay as they are.
+    fn key(&mut self, name: &str) -> String {
+        replace_run_specifics(name, |found| match found {
+            Found::Id(identifier) => identifier.to_owned(),
+            Found::Secret(secret) => self.secret(secret),
+        })
+    }
+
+    fn secret(&mut self, secret: &str) -> String {
+        let next = self.secrets.len() + 1;
+        let number = *self.secrets.entry(secret.to_owned()).or_insert(next);
+        format!("<secret:{number}>")
     }
 
     fn body(&mut self, body: &Body, media_type: &str) -> Value {
@@ -780,7 +792,8 @@ impl Placeholders {
                 sorted.sort_by(|a, b| a.0.cmp(b.0));
                 let mut normalized = Map::new();
                 for (name, member) in sorted {
-                    normalized.insert(name.clone(), self.value(member, name));
+                    let key = self.key(name);
+                    normalized.insert(key, self.value(member, name));
                 }
                 Value::Object(normalized)
             }
@@ -908,6 +921,27 @@ mod tests {
             placeholders.text(&text),
             "/files/teams/<id:1>/<id:2>/<secret:1>.png and <secret:1>.png",
             "input {text:?}"
+        );
+    }
+
+    /// A stored file name as the name of a member (an archive's `fileNames`) is the
+    /// same secret as where it is a value; an identifier as a name stays as it is.
+    #[test]
+    fn a_secret_in_the_name_of_a_member_is_replaced_and_an_identifier_kept() {
+        let mut placeholders = Placeholders::default();
+        let recorded = json!({
+            "fileId": format!("{SECRET}.png"),
+            "fileNames": {format!("{SECRET}.png"): "pixel.png"},
+            "properties": {FIRST: "a value"},
+        });
+        assert_eq!(
+            placeholders.value(&recorded, ""),
+            json!({
+                "fileId": "<secret:1>.png",
+                "fileNames": {"<secret:1>.png": "pixel.png"},
+                "properties": {FIRST: "a value"},
+            }),
+            "input {recorded}"
         );
     }
 
