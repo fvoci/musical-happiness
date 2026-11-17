@@ -40,6 +40,8 @@ pub const CARD_FIELDS_MAX_CHARS: usize = 64_000;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(from = "String", into = "String")]
 pub enum BlockType {
+    /// A legacy board block.
+    Board,
     /// A card.
     Card,
     /// A board view.
@@ -51,9 +53,8 @@ pub enum BlockType {
     /// A page of a wiki ([`crate::Page`]).
     Page,
     /// Any other type string, kept as sent, such as a content block type of the original
-    /// (`text`, `image`, ...): no block is written with one any more, and a block stored
-    /// with one before (`board`, which the data step of migration 8 kept) is read as it
-    /// is. The empty string means "no type".
+    /// (`text`, `image`, ...): no block is stored with one. The empty string means "no
+    /// type".
     Other(String),
 }
 
@@ -101,13 +102,14 @@ impl BlockType {
     pub fn fields_max_chars(&self) -> usize {
         match self {
             Self::Card | Self::Comment | Self::Attachment | Self::Page => CARD_FIELDS_MAX_CHARS,
-            Self::View | Self::Other(_) => BLOCK_FIELDS_MAX_CHARS,
+            Self::View | Self::Board | Self::Other(_) => BLOCK_FIELDS_MAX_CHARS,
         }
     }
 
     /// Returns the wire string of this type.
     pub fn as_str(&self) -> &str {
         match self {
+            Self::Board => "board",
             Self::Card => "card",
             Self::View => "view",
             Self::Comment => "comment",
@@ -125,6 +127,7 @@ impl BlockType {
     /// Maps an exact wire string to a known type, if it is one.
     fn known(name: &str) -> Option<Self> {
         Some(match name {
+            "board" => Self::Board,
             "card" => Self::Card,
             "view" => Self::View,
             "comment" => Self::Comment,

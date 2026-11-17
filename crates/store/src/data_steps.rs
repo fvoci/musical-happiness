@@ -18,11 +18,17 @@ const DATE_VALUES: &str = "date_values";
 /// body are deleted (user decision 2026-11-11 11:05 KST).
 const CONTENT_BLOCKS: &str = "content_blocks";
 
-/// The block types that stay, by their type strings, as migration 8 brought the step:
-/// those a block may be given ([`BlockType::is_current`]), the page, which its own
-/// operations make, and `board`, the type of the original's board block, which is no
-/// content block (and which a block of a database of before the step may have).
-const KEPT_TYPES: [&str; 6] = ["card", "view", "comment", "attachment", "page", "board"];
+/// The block types that stay: those a block may be given ([`BlockType::is_current`]),
+/// the page, which its own operations make, and the legacy board block of the
+/// original, which is no content block.
+const KEPT_TYPES: [BlockType; 6] = [
+    BlockType::Card,
+    BlockType::View,
+    BlockType::Comment,
+    BlockType::Attachment,
+    BlockType::Page,
+    BlockType::Board,
+];
 
 /// Does the steps that are still to be done.
 ///
@@ -73,7 +79,7 @@ async fn content_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
     let mut sql =
         scope.sql("WITH RECURSIVE tree(id) AS (SELECT id FROM blocks WHERE type NOT IN (");
     for (index, block_type) in KEPT_TYPES.iter().enumerate() {
-        sql.push_bind(if index == 0 { "" } else { ", " }, *block_type);
+        sql.push_bind(if index == 0 { "" } else { ", " }, block_type.as_str());
     }
     sql.push(
         ") UNION SELECT b.id FROM blocks AS b JOIN tree ON b.parent_id = tree.id) \
@@ -91,7 +97,7 @@ async fn content_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
         let parent_id = row.id(1)?;
         let block = row.json(2, "block")?;
         let block_type = BlockType::from(block["type"].as_str().unwrap_or_default());
-        if !KEPT_TYPES.contains(&block_type.as_str()) {
+        if !KEPT_TYPES.contains(&block_type) {
             gone.push(id.clone());
         }
         children.entry(parent_id).or_default().push(id);
@@ -181,10 +187,10 @@ fn definitions(list: &serde_json::Value) -> impl Iterator<Item = &fvoci_model::J
 mod tests {
     use super::*;
 
-    /// The step keeps what a block may be given, and the page and the type of the
-    /// original's board block besides: a type that becomes current is kept too.
+    /// The step keeps what a block may be given, and the page and the legacy board
+    /// block besides: a type that becomes current is kept too.
     #[test]
-    fn the_kept_types_are_the_current_ones_and_the_page_and_the_board() {
+    fn the_kept_types_are_the_current_ones_and_the_board() {
         let current = [
             "card",
             "view",
@@ -199,12 +205,12 @@ mod tests {
         .into_iter()
         .filter(BlockType::is_current);
         for block_type in current {
-            assert!(KEPT_TYPES.contains(&block_type.as_str()), "{block_type}");
+            assert!(KEPT_TYPES.contains(&block_type), "{block_type}");
         }
-        let besides: Vec<&str> = KEPT_TYPES
-            .into_iter()
-            .filter(|kept| !BlockType::from(*kept).is_current())
+        let besides: Vec<&BlockType> = KEPT_TYPES
+            .iter()
+            .filter(|kept| !kept.is_current())
             .collect();
-        assert_eq!(besides, ["page", "board"]);
+        assert_eq!(besides, [&BlockType::Page, &BlockType::Board]);
     }
 }

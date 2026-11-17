@@ -70,7 +70,7 @@ fn block_decodes_missing_and_null_members_as_empty() {
 
 #[test]
 fn block_type_keeps_unknown_strings_and_parses_strictly() {
-    for name in ["card", "view", "comment", "attachment", "page"] {
+    for name in ["board", "card", "view", "comment", "attachment"] {
         let block_type = BlockType::from(name);
         assert!(
             !matches!(block_type, BlockType::Other(_)),
@@ -82,13 +82,8 @@ fn block_type_keeps_unknown_strings_and_parses_strictly() {
 
     // Decoding is exact: a different case is some other type, kept as sent.
     assert_eq!(BlockType::from("Card"), BlockType::Other("Card".to_owned()));
-    // The content block types of the original, and its board block, are no types of
-    // this server.
+    // The content block types of the original are no types of this server.
     assert_eq!(BlockType::from("text"), BlockType::Other("text".to_owned()));
-    assert_eq!(
-        BlockType::from("board"),
-        BlockType::Other("board".to_owned())
-    );
     assert_eq!(to_json(&BlockType::from("list-item")), json!("list-item"));
     assert_eq!(
         serde_json::from_value::<BlockType>(json!("h1")).expect("decodes"),
