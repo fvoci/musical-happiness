@@ -18,7 +18,7 @@ import path from 'node:path';
 
 import { chooseEncoding } from './build/encodings.ts';
 import { inMemory } from './build/in-memory.ts';
-import { contentSecurityPolicy } from './build/inline-scripts.ts';
+import { contentSecurityPolicy, staticHeaders } from './build/inline-scripts.ts';
 import { hasContentHash } from './build/output.ts';
 
 const DIST = path.resolve(import.meta.dirname, '../dist');
@@ -69,6 +69,7 @@ createServer((request, response) => {
         ? 'public, max-age=31536000, immutable'
         : 'no-cache',
       Vary: 'Accept-Encoding',
+      ...staticHeaders(file),
     };
     if (encoding) {
       headers['Content-Encoding'] = encoding.name;

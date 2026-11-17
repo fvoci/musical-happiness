@@ -16,10 +16,14 @@ export interface PackageLicense {
 
 const require = createRequire(path.resolve(import.meta.dirname, '../../package.json'));
 
-/** Directory of a package that the web app depends on directly. */
-export function packageDirectory(name: string): string {
+/**
+ * Directory of a package that the web app depends on directly, or, with
+ * `from`, that the package in that directory depends on.
+ */
+export function packageDirectory(name: string, from?: string): string {
+  const resolver = from ? createRequire(path.join(from, 'package.json')) : require;
   // `exports` of some packages hide package.json, so walk up from any entry.
-  const searchPaths = require.resolve.paths(name) ?? [];
+  const searchPaths = resolver.resolve.paths(name) ?? [];
   for (const base of searchPaths) {
     const candidate = path.join(base, name);
     if (existsSync(path.join(candidate, 'package.json'))) return candidate;
@@ -46,8 +50,8 @@ export function statedLicense(name: string, licenseText: string): string | undef
   return entry && licenseText.includes(entry.says) ? entry.license : undefined;
 }
 
-export function readPackageLicense(name: string): PackageLicense {
-  const directory = packageDirectory(name);
+export function readPackageLicense(name: string, from?: string): PackageLicense {
+  const directory = packageDirectory(name, from);
   const manifest = JSON.parse(readFileSync(path.join(directory, 'package.json'), 'utf8')) as {
     name: string;
     version: string;

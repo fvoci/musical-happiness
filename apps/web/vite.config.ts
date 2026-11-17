@@ -7,6 +7,7 @@ import { defineConfig } from 'vitest/config';
 
 import { cspHashes } from './tools/build/inline-scripts.ts';
 import { checkHashedNames, precompress } from './tools/build/output.ts';
+import { pdfjsData } from './tools/build/pdfjs-data.ts';
 import { thirdPartyNotices } from './tools/licenses/notices.ts';
 
 /**
@@ -19,11 +20,28 @@ import { thirdPartyNotices } from './tools/licenses/notices.ts';
  */
 const BASE_URL_PLACEHOLDER = '{{.BaseURL}}';
 
+/**
+ * The document the file viewer draws in (src/viewer-frame/), a page of its
+ * own. It is built under `static/`, the one folder the server serves as
+ * files, and is served as it is: it refers to its files relatively, as it
+ * lies beside them.
+ */
+const VIEWER_FRAME = 'static/viewer-frame.html';
+
+/** Names of the output files: hexadecimal hashes, which the server recognises (see `build`). */
+const OUTPUT_NAMES = {
+  hashCharacters: 'hex',
+  entryFileNames: 'static/[name]-[hash:16].js',
+  chunkFileNames: 'static/[name]-[hash:16].js',
+  assetFileNames: 'static/[name]-[hash:16][extname]',
+} as const;
+
 export default defineConfig(({ command }) => ({
   plugins: [
     tailwindcss(),
     svelte(),
     svelteTesting(),
+    pdfjsData(),
     thirdPartyNotices(),
     checkHashedNames(),
     precompress(),
@@ -45,9 +63,12 @@ export default defineConfig(({ command }) => ({
   experimental:
     command === 'build'
       ? {
-          renderBuiltUrl(fileName, { hostType }) {
-            if (hostType === 'html') return `${BASE_URL_PLACEHOLDER}/${fileName}`;
-            return { relative: true };
+          renderBuiltUrl(fileName, { hostId, hostType }) {
+            if (hostType !== 'html') return { relative: true };
+            if (hostId === VIEWER_FRAME) {
+              return `./${path.posix.relative(path.posix.dirname(VIEWER_FRAME), fileName)}`;
+            }
+            return `${BASE_URL_PLACEHOLDER}/${fileName}`;
           },
         }
       : {},
@@ -61,16 +82,22 @@ export default defineConfig(({ command }) => ({
     // Raw data for tools/licenses: which packages ended up in the bundle.
     license: { fileName: '.vite/license.json' },
     rolldownOptions: {
-      output: {
-        // Hexadecimal, because that is what the server recognises as a
-        // content hash. Sixteen digits: a hash of letters a-f only, which the
-        // server would not recognise, has a chance of 1 in 6.6 million.
-        hashCharacters: 'hex',
-        entryFileNames: 'static/[name]-[hash:16].js',
-        chunkFileNames: 'static/[name]-[hash:16].js',
-        assetFileNames: 'static/[name]-[hash:16][extname]',
+      input: {
+        index: path.resolve(import.meta.dirname, 'index.html'),
+        'viewer-frame': path.resolve(import.meta.dirname, VIEWER_FRAME),
       },
+      // Hexadecimal, because that is what the server recognises as a
+      // content hash. Sixteen digits: a hash of letters a-f only, which the
+      // server would not recognise, has a chance of 1 in 6.6 million.
+      output: OUTPUT_NAMES,
     },
+  },
+  // pdf.js's worker, which the viewer's frame starts from its own text
+  // (src/viewer-frame/pdf-worker.ts): a classic script, as a `blob:` worker
+  // of an opaque origin cannot load modules.
+  worker: {
+    format: 'iife',
+    rolldownOptions: { output: OUTPUT_NAMES },
   },
   test: {
     projects: [

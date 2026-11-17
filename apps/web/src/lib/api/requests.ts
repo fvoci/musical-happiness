@@ -169,8 +169,12 @@ export class ServerRequests implements TrashReads {
   }
 
   /** The bytes at `path` under the workspace (a file). */
-  protected inWorkspaceBytes(path: WorkspacePath, params: Record<string, string>): Promise<Blob> {
-    return this.#http.bytes(underWorkspace(path), this.workspaceOf(params));
+  protected inWorkspaceBytes(
+    path: WorkspacePath,
+    params: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<Blob> {
+    return this.#http.bytes(underWorkspace(path), this.workspaceOf(params), {}, signal);
   }
 
   /** The address of `path` under the workspace. */
