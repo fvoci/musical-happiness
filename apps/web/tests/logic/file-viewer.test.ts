@@ -136,6 +136,10 @@ describe('in the frame, an archive is counted and handed on anew', () => {
     expect(kept.byteLength).toBe(raw.byteLength);
   });
 
+  it('a name with a backslash stops the file: docx-preview would find it under many', async () => {
+    await unreadable(zip([{ name: 'word\\header1.xml', data: Buffer.from('<w/>') }]));
+  });
+
   it('parts that share packed bytes stop the file', async () => {
     const archive = zip([
       { name: 'a.xml', data: Buffer.from('<a/>') },
@@ -156,13 +160,17 @@ describe('in the frame, an archive is counted and handed on anew', () => {
 
   it('its XML is told by what it holds, not by its name, and held to 30 MB', async () => {
     // The main part, named .bin, after blanks: up to the limit with the other XML, and one byte past.
-    const base = zipEntries(bytes(blankPaddedDocx(0)))?.reduce((sum, entry) => sum + entry.size, 0);
+    // Relationships count twice: docx-preview may parse them twice as often as a part.
+    const base = zipEntries(bytes(blankPaddedDocx(0)))?.reduce(
+      (sum, entry) => sum + (entry.name.endsWith('.rels') ? 2 : 1) * entry.size,
+      0,
+    );
     const blanks = MARKUP_LIMIT_BYTES - (base ?? 0);
     expect(parts(await repack(buffer(blankPaddedDocx(blanks))))).toHaveLength(3);
     await unreadable(blankPaddedDocx(blanks + 1));
   });
 
-  it('XML is a first byte "<" past a whole byte order mark and any blanks', () => {
+  it('XML is a first character "<" past any blanks, read as JSZip reads text', () => {
     const sniff = (...chunks: number[][]): boolean | undefined => {
       const sniffer = new MarkupSniffer();
       for (const chunk of chunks) sniffer.feed(Uint8Array.from(chunk));
@@ -171,14 +179,18 @@ describe('in the frame, an archive is counted and handed on anew', () => {
     const blanks = Array.from({ length: 5000 }, () => 0x20);
     expect(sniff([0x3c, 0x3f])).toBe(true);
     expect(sniff([0xef, 0xbb], [0xbf, 0x0a, 0x3c])).toBe(true);
-    expect(sniff([0xff, 0xfe, 0x3c, 0x00])).toBe(true);
-    expect(sniff([0xfe, 0xff, 0x00, 0x3c])).toBe(true);
     expect(sniff([0x00, 0x3c])).toBe(true);
     expect(sniff(blanks, blanks, [0x3c])).toBe(true);
-    // A JPEG, a PNG, half a byte order mark, text: none.
+    // Overlong forms, which JSZip's decoder in a browser reads as "<" and as a blank.
+    expect(sniff([0xc0, 0xbc])).toBe(true);
+    expect(sniff([0xc0], [0x3c])).toBe(true);
+    expect(sniff([0xe0, 0x80, 0xbc])).toBe(true);
+    expect(sniff([0xc0, 0xa0, 0x3c])).toBe(true);
+    // A JPEG, a PNG, a UTF-16 mark (garbage to that decoder), text: none.
     expect(sniff([0xff, 0xd8, 0xff, 0xe0])).toBe(false);
     expect(sniff([0x89, 0x50, 0x4e, 0x47])).toBe(false);
-    expect(sniff([0xef, 0x3c])).toBe(false);
+    expect(sniff([0xff, 0xfe, 0x3c, 0x00])).toBe(false);
+    expect(sniff([0xfe, 0xff, 0x00, 0x3c])).toBe(false);
     expect(sniff([0x20, 0xbb, 0x3c])).toBe(false);
     expect(sniff(blanks, [0x41, 0x3c])).toBe(false);
     expect(sniff(blanks)).toBeUndefined();

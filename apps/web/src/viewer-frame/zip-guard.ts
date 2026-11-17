@@ -15,8 +15,8 @@
  *   times over would make the new archive many times the old);
  * - each part is unpacked as a stream, and stopped once it runs past what is
  *   said for it, or past what is left of the limits;
- * - XML is told by what a part holds (its first byte past a byte order mark
- *   and blanks is "<"), not by its name;
+ * - XML is told by what a part holds (its first character past blanks is
+ *   "<", read as the renderer will read it), not by its name;
  * - the new archive has each part's name as the directory's bytes, its true
  *   size, and nothing that was not counted: no extra fields, no comments, no
  *   gaps.
@@ -39,20 +39,20 @@ const END_SIZE = 22;
 const STORED = 0;
 const DEFLATED = 8;
 const ENCRYPTED = 0x0001;
+const BACKSLASH = 0x5c;
 /** The flag that says a name is UTF-8, as the zip-directory reader reads every name. */
 const UTF8_NAMES = 0x0800;
 const VERSION = 20;
 const MOST_32 = 0xffffffff;
 const MOST_16 = 0xffff;
 
-/** A text's byte order marks: UTF-8, UTF-16 little and big endian. */
-const BOMS = [
-  [0xef, 0xbb, 0xbf],
-  [0xff, 0xfe],
-  [0xfe, 0xff],
-];
-/** What may come before a document's first tag: white space, and the other half of UTF-16. */
-const BLANK = new Set([0x20, 0x09, 0x0a, 0x0d, 0x00]);
+/**
+ * The code points that may come before a document's first tag and are not
+ * one: white space, a byte order mark, and NUL (the other half of UTF-16).
+ */
+const BLANK = new Set([0x20, 0x09, 0x0a, 0x0d, 0x00, 0xfeff]);
+/** How much of a part's packed bytes the unpacker is fed at a time: little, so one feed cannot unpack to much. */
+const SLICE = 16 * 1024;
 
 /** A part as counted: what goes into the new archive. */
 interface Part {
@@ -72,13 +72,21 @@ interface Used {
 
 /**
  * Tells, from a part's bytes as they come, whether it is XML (or other text
- * that starts with a tag): its first byte past a whole byte order mark and
- * any number of blanks is "<" (a parser skips the blanks too). Undecided
- * while it has seen only those.
+ * that starts with a tag): its first character past any number of blanks
+ * is "<" (a parser skips the blanks too). Undecided while it has seen only
+ * blanks.
+ *
+ * The bytes are read as JSZip reads a part as text in a browser (its
+ * `buf2string`, from pako), which is lenient: it takes overlong forms and
+ * does not check continuation bytes, so `C0 BC` is "<" to it. Reading them
+ * any stricter would let XML pass here as something else.
  */
 export class MarkupSniffer {
-  #index = 0;
-  #bom: readonly number[] | undefined;
+  /** The code point being joined, and how many continuation bytes it still takes. */
+  #code = 0;
+  #need = 0;
+  /** Bytes of a five- or six-byte form still to skip. */
+  #skip = 0;
   #verdict: boolean | undefined;
 
   /** True when it is XML, false when not, undefined while it cannot tell. */
@@ -88,22 +96,47 @@ export class MarkupSniffer {
 
   feed(chunk: Uint8Array): void {
     for (let at = 0; at < chunk.length && this.#verdict === undefined; at += 1) {
-      this.#verdict = this.#step(chunk[at] ?? 0);
-      this.#index += 1;
+      this.#verdict = this.#byte(chunk[at] ?? 0);
     }
   }
 
-  #step(byte: number): boolean | undefined {
-    const index = this.#index;
-    if (index === 0) {
-      this.#bom = BOMS.find((bom) => bom[0] === byte);
-      if (this.#bom) return undefined;
-    } else if (this.#bom && index < this.#bom.length) {
-      // Not a whole byte order mark: its first byte was neither "<" nor a blank.
-      return this.#bom[index] === byte ? undefined : false;
+  #byte(byte: number): boolean | undefined {
+    if (this.#skip > 0) {
+      this.#skip -= 1;
+      return undefined;
     }
-    if (BLANK.has(byte)) return undefined;
-    return byte === 0x3c;
+    if (this.#need > 0) {
+      this.#code = (this.#code << 6) | (byte & 0x3f);
+      this.#need -= 1;
+      return this.#need > 0 ? undefined : this.#character(this.#code);
+    }
+    if (byte < 0x80) return this.#character(byte);
+    // buf2string's table of lengths, with its quirk: 0xFE is 1, 0xFF stays 6.
+    const length =
+      byte === 0xfe
+        ? 1
+        : byte >= 252
+          ? 6
+          : byte >= 248
+            ? 5
+            : byte >= 240
+              ? 4
+              : byte >= 224
+                ? 3
+                : byte >= 192
+                  ? 2
+                  : 1;
+    if (length > 4) {
+      this.#skip = length - 1;
+      return this.#character(0xfffd);
+    }
+    this.#code = byte & (length === 2 ? 0x1f : length === 3 ? 0x0f : 0x07);
+    this.#need = length - 1;
+    return this.#need > 0 ? undefined : this.#character(this.#code);
+  }
+
+  #character(code: number): boolean | undefined {
+    return BLANK.has(code) ? undefined : code === 0x3c;
   }
 }
 
@@ -134,11 +167,21 @@ function packedParts(
   return spans.map(({ data, end }) => bytes.subarray(data, end));
 }
 
+/**
+ * How many times docx-preview may parse a part, at most, as it finds it
+ * under its two spellings (with and without a leading "/"): twice, and a
+ * part's relationships (`_rels/….rels`) four times. The XML limit holds for
+ * what is parsed, so a part counts toward it that many times over, halved.
+ */
+function readings(name: string): number {
+  return /(?:^|\/)_rels\/[^/]*\.rels$/i.test(name) ? 2 : 1;
+}
+
 /** Whether a part of `size` bytes so far, sniffed so, is past what the parts before left of the limits. */
-function pastLimits(size: number, sniffer: MarkupSniffer, used: Used): boolean {
+function pastLimits(size: number, weight: number, sniffer: MarkupSniffer, used: Used): boolean {
   if (used.total + size > UNPACKED_LIMIT_BYTES) return true;
   // Until it is known not to be XML, it is counted as XML.
-  return sniffer.verdict !== false && used.markup + size > MARKUP_LIMIT_BYTES;
+  return sniffer.verdict !== false && used.markup + weight * size > MARKUP_LIMIT_BYTES;
 }
 
 /** Unpacks deflated bytes, counting and sniffing them; stops once past `most` or the limits. */
@@ -146,12 +189,19 @@ async function inflate(
   packed: Uint8Array<ArrayBuffer>,
   most: number,
   sniffer: MarkupSniffer,
-  used: Used,
+  past: (size: number) => boolean,
 ): Promise<number> {
-  const reader = new Blob([packed])
-    .stream()
-    .pipeThrough(new DecompressionStream('deflate-raw'))
-    .getReader();
+  let at = 0;
+  const slices = new ReadableStream<Uint8Array<ArrayBuffer>>({
+    pull(controller) {
+      if (at >= packed.length) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(packed.slice(at, (at += SLICE)));
+    },
+  });
+  const reader = slices.pipeThrough(new DecompressionStream('deflate-raw')).getReader();
   let size = 0;
   try {
     for (;;) {
@@ -159,7 +209,7 @@ async function inflate(
       if (done) return size;
       size += value.byteLength;
       sniffer.feed(value);
-      if (size > most || pastLimits(size, sniffer, used)) throw new UnreadableFile();
+      if (size > most || past(size)) throw new UnreadableFile();
     }
   } catch {
     // Past what was said or the limits, or not deflated data.
@@ -171,19 +221,25 @@ async function inflate(
 /** A part unpacked and counted into `used`; or `UnreadableFile`. */
 async function count(entry: ZipEntry, packed: Uint8Array<ArrayBuffer>, used: Used): Promise<Part> {
   if (entry.flags & ENCRYPTED) throw new UnreadableFile();
+  // A backslash in a name: docx-preview finds such a part under any mix of it and "/", and
+  // would parse it once for each spelling (a package's part names have none).
+  if (entry.rawName.includes(BACKSLASH)) throw new UnreadableFile();
+  const weight = readings(entry.name);
   const sniffer = new MarkupSniffer();
+  const past = (size: number): boolean => pastLimits(size, weight, sniffer, used);
   let size: number;
   if (entry.method === STORED) {
     size = packed.byteLength;
     sniffer.feed(packed);
-    if (size > entry.size || pastLimits(size, sniffer, used)) throw new UnreadableFile();
+    if (size > entry.size || past(size)) throw new UnreadableFile();
   } else if (entry.method === DEFLATED) {
-    size = await inflate(packed, entry.size, sniffer, used);
+    size = await inflate(packed, entry.size, sniffer, past);
   } else {
     throw new UnreadableFile();
   }
   used.total += size;
-  if (sniffer.verdict) used.markup += size;
+  // A part of blanks only is no XML, but is counted as one all the same.
+  if (sniffer.verdict !== false) used.markup += weight * size;
   return { name: entry.rawName, method: entry.method, crc: entry.crc, packed, size };
 }
 
