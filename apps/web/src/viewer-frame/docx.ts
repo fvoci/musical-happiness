@@ -7,21 +7,33 @@
  * `blob:` addresses, which the frame's policy allows; anything the document
  * links to on the network stays undrawn.
  *
- * The archive it gets is the one the frame wrote of only the parts it
- * counted (`zip-guard.ts`). As it reads the document, docx-preview parses a
- * part at most twice (once for each spelling of its path), which the count
- * allows for. As it draws, it would unpack a picture again for each place
- * the document shows it, all at once; so its package is made to unpack each
- * part once from then on.
+ * docx-preview reads and draws the document in a worker (`docx-worker.ts`),
+ * on a DOM of its own with ceilings, and hands back the steps that build
+ * what it drew; here they are built a slice at a time (`docx-build.ts`). So
+ * the frame's main thread, which the app shares, stays free while the
+ * document is read and drawn, and is given back between slices while it is
+ * built: the viewer's time limit and its "Close" hold (they throw the frame
+ * away, and the worker with it). The archive the worker gets is the one the
+ * frame wrote of only the parts it counted (`zip-guard.ts`); a document that
+ * would draw past the worker's ceilings is refused as too large.
  *
  * A document names its fonts ("맑은 고딕", "Calibri") and most readers have
  * few of them. Every font a document names is followed by the app's own, so
  * that Korean text falls back to Noto Sans KR rather than to whatever the
  * browser picks.
  */
-import { parseAsync, renderDocument, type Options } from 'docx-preview';
-
-import { PageFollower, UnreadableFile, type Drawn, type Render, type Report } from './renderer.ts';
+import { BrokenSteps, build, measureShapes } from './docx-build.ts';
+import { OPTIONS } from './docx-options.ts';
+import { readFromDocxWorker, type FromDocxWorker, type ToDocxWorker } from './docx-protocol.ts';
+import DocxWorker from './docx-worker.ts?worker&inline';
+import {
+  PageFollower,
+  TooLargeFile,
+  UnreadableFile,
+  type Drawn,
+  type Render,
+  type Report,
+} from './renderer.ts';
 
 /** What every font family of the document falls back to: the app's families, as the frame's style sheet has them. */
 const FALLBACK = '"Noto Sans KR", sans-serif';
@@ -93,92 +105,84 @@ class DocxView implements Drawn {
   }
 }
 
-const OPTIONS = {
-  className: 'docx',
-  inWrapper: true,
-  breakPages: true,
-  // Pages break where Word last laid the document out, as well as where it says so:
-  // otherwise a document without manual breaks is one long page.
-  ignoreLastRenderedPageBreak: false,
-  // Fonts are read as bytes the library changes in place, so they cannot be unpacked once
-  // for all; the app's fonts stand in for them.
-  ignoreFonts: true,
-  // Its pattern for the declaration takes time that grows with the square of a line.
-  trimXmlDeclaration: false,
-  renderAltChunks: false,
-  renderComments: false,
-  renderChanges: false,
-  useBase64URL: false,
-  experimental: false,
-} satisfies Partial<Options>;
-
-/** What docx-preview's package is to this: how it finds a part, and unpacks one. */
-interface Package {
-  get(path: string): unknown;
-  load(path: string, type?: string): Promise<unknown>;
-}
-
-function packageOf(document: unknown): Package | undefined {
-  if (typeof document !== 'object' || document === null || !('_package' in document)) {
-    return undefined;
+/** Asks the Word worker to draw the file; its one answer, or a renderer's failure. */
+async function drawInWorker(bytes: ArrayBuffer, token: string): Promise<FromDocxWorker> {
+  const worker = new DocxWorker();
+  try {
+    return await new Promise<FromDocxWorker>((resolve) => {
+      const failed = (): void => {
+        resolve({ kind: 'failed', reason: 'renderer' });
+      };
+      worker.onmessage = (event: MessageEvent) => {
+        resolve(readFromDocxWorker(event.data) ?? { kind: 'failed', reason: 'renderer' });
+      };
+      worker.onerror = failed;
+      worker.onmessageerror = failed;
+      const message: ToDocxWorker = { bytes, token };
+      worker.postMessage(message, [bytes]);
+    });
+  } finally {
+    // Done with this file: whatever the worker still holds goes.
+    worker.terminate();
   }
-  const found: unknown = document._package;
-  if (typeof found !== 'object' || found === null) return undefined;
-  return 'get' in found &&
-    'load' in found &&
-    typeof found.get === 'function' &&
-    typeof found.load === 'function'
-    ? (found as Package)
-    : undefined;
 }
 
-/** The kinds of output an unpacked part is kept as: ones nothing changes after. */
-const KEPT = new Set(['string', 'blob']);
+/** A token no document can know: what the keys of its pictures start with. */
+function newToken(): string {
+  const random = crypto.getRandomValues(new Uint8Array(16));
+  return `fvoci-picture-${Array.from(random, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+const FAILURES = {
+  unreadable: () => new UnreadableFile(),
+  'too-large': () => new TooLargeFile(),
+  renderer: () => new Error('the Word worker failed'),
+};
 
 /**
- * Makes the package unpack each part once for each kind of output, however
- * often the document refers to it. A part is known by the archive's own
- * entry for it, so two spellings of one path are one part.
+ * In development the worker is not built into the chunk: the document is
+ * drawn here, with the page's own DOM, and without the worker's ceilings.
  */
-function unpackOnce(pack: Package): void {
-  const load = pack.load.bind(pack);
-  const unpacked = new Map<unknown, Map<string, Promise<unknown>>>();
-  pack.load = (path, type = 'string') => {
-    const entry = pack.get(path);
-    if (entry === undefined || !KEPT.has(type)) return load(path, type);
-    const kinds = unpacked.get(entry) ?? new Map<string, Promise<unknown>>();
-    unpacked.set(entry, kinds);
-    const known = kinds.get(type);
-    if (known) return known;
-    const loading = load(path, type);
-    kinds.set(type, loading);
-    return loading;
-  };
+async function drawHere(bytes: ArrayBuffer, styles: HTMLElement, body: HTMLElement): Promise<void> {
+  const { parseAsync, renderDocument } = await import('docx-preview');
+  try {
+    const nodes = await renderDocument(await parseAsync(bytes, OPTIONS), OPTIONS);
+    for (const node of nodes) (node.nodeName === 'STYLE' ? styles : body).append(node);
+  } catch {
+    throw new UnreadableFile();
+  }
+}
+
+/** Builds what the worker drew into the two holders, with the pictures' addresses made here. */
+async function drawnByWorker(
+  bytes: ArrayBuffer,
+  styles: HTMLElement,
+  body: HTMLElement,
+): Promise<void> {
+  const token = newToken();
+  const answer = await drawInWorker(bytes, token);
+  if (answer.kind === 'failed') throw FAILURES[answer.reason]();
+  // The addresses are made here, so that they last as long as the frame.
+  const addresses = new Map(answer.images.map(([key, blob]) => [key, URL.createObjectURL(blob)]));
+  const keys = new RegExp(`${token}-\\d+`, 'g');
+  const fill = (value: string): string =>
+    value.includes(token) ? value.replace(keys, (key) => addresses.get(key) ?? '') : value;
+  try {
+    await build(answer.styles, styles, fill);
+    await build(answer.body, body, fill);
+  } catch (error) {
+    throw error instanceof BrokenSteps ? new Error('the Word worker answered out of shape') : error;
+  }
 }
 
 export const render: Render = async (bytes, place, report) => {
-  let parsed: unknown;
-  try {
-    parsed = await parseAsync(bytes, OPTIONS);
-  } catch {
-    throw new UnreadableFile();
-  }
-  const pack = packageOf(parsed);
-  // A version of the library that keeps its package otherwise fails here (as the renderer's
-  // failure) rather than draws without the guard.
-  if (!pack) throw new Error('docx-preview has no package to guard');
-  unpackOnce(pack);
-  let nodes: Node[];
-  try {
-    nodes = await renderDocument(parsed, OPTIONS);
-  } catch {
-    throw new UnreadableFile();
-  }
   const styles = document.createElement('div');
   const body = document.createElement('div');
   body.className = 'docx-body';
-  for (const node of nodes) (node.nodeName === 'STYLE' ? styles : body).appendChild(node);
+  await (import.meta.env.DEV ? drawHere : drawnByWorker)(bytes, styles, body);
+  // Into the page once, built: laid out once.
   place.replaceChildren(styles, body);
+  measureShapes(body);
   fallBack(styles, body);
   const view = new DocxView(body, report);
   report.shown(Math.max(1, view.pages.length));

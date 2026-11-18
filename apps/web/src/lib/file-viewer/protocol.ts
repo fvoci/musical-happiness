@@ -26,7 +26,7 @@ export const VIEWER_KEYS = ['ArrowLeft', 'ArrowRight', '+', '=', '-', '0', 'Esca
 export type ViewerKey = (typeof VIEWER_KEYS)[number];
 
 /** Why the frame could not draw a file. */
-export const FAILURES = ['unreadable', 'locked', 'renderer'] as const;
+export const FAILURES = ['unreadable', 'locked', 'too-large', 'renderer'] as const;
 export type Failure = (typeof FAILURES)[number];
 
 /** The most pages a document is taken to have; a larger count is a broken message. */
