@@ -18,7 +18,7 @@
  * (`src/viewer-frame/renderers.ts`, whose table is typed by `FormatId` and
  * so asks for it).
  */
-import { zipEntries, type ZipEntry } from './zip-directory.ts';
+import { storedPart, zipEntries, type ZipEntry } from './zip-directory.ts';
 
 /** The largest file the viewer opens; a larger one is only offered as a download. */
 export const VIEW_LIMIT_BYTES = 50 * 1024 * 1024;
@@ -49,6 +49,12 @@ function isPdf(bytes: Uint8Array): boolean {
   return false;
 }
 
+/** A ZIP archive: its directory, and its bytes for what a stored part holds. */
+interface Archive {
+  entries: readonly ZipEntry[];
+  bytes: Uint8Array;
+}
+
 /** How a kind is told apart. */
 type Kind =
   /** By its bytes. */
@@ -57,17 +63,34 @@ type Kind =
    * By the parts of the ZIP archive it is. Such a kind is held to the limits
    * on what its parts unpack to, and the frame watches it unpack.
    */
-  | { parts: (entries: readonly ZipEntry[]) => boolean };
+  | { parts: (archive: Archive) => boolean };
 
 /** An Office Open XML package whose main part is `member`: a ZIP archive that has it. */
 const officePackage = (member: string): Kind => ({
-  parts: (entries) => entries.some((entry) => entry.name === member),
+  parts: ({ entries }) => entries.some((entry) => entry.name === member),
 });
+
+/** The media type an HWPX archive's first part, `mimetype`, holds. */
+const HWPX_MEDIA_TYPE = 'application/hwp+zip';
+const ascii = new TextDecoder('ascii');
+
+/**
+ * HWPX: an archive whose part `mimetype` holds its media type, stored as it
+ * is (not deflated), as the format (like EPUB and ODF) writes it.
+ */
+const hwpx: Kind = {
+  parts: ({ entries, bytes }) => {
+    const entry = entries.find((each) => each.name === 'mimetype');
+    const held = entry && storedPart(bytes, entry, HWPX_MEDIA_TYPE.length);
+    return held !== undefined && ascii.decode(held) === HWPX_MEDIA_TYPE;
+  },
+};
 
 /** Every kind, in the order they are tried. */
 const FORMATS = {
   pdf: { bytes: isPdf },
   docx: officePackage('word/document.xml'),
+  hwpx,
 } as const satisfies Record<string, Kind>;
 
 export type FormatId = keyof typeof FORMATS;
@@ -101,8 +124,10 @@ export function unpacksTooLarge(entries: readonly ZipEntry[]): boolean {
 export function examine(bytes: Uint8Array): Examined {
   const entries = zipEntries(bytes);
   const format = FORMAT_IDS.find((id) => {
-    const kind = FORMATS[id];
-    return 'bytes' in kind ? kind.bytes(bytes) : entries !== undefined && kind.parts(entries);
+    const kind: Kind = FORMATS[id];
+    return 'bytes' in kind
+      ? kind.bytes(bytes)
+      : entries !== undefined && kind.parts({ entries, bytes });
   });
   if (!format) return { kind: 'unknown' };
   if (entries && isPackaged(format) && unpacksTooLarge(entries)) {

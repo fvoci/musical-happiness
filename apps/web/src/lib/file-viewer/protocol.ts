@@ -25,8 +25,8 @@ export type Theme = 'light' | 'dark';
 export const VIEWER_KEYS = ['ArrowLeft', 'ArrowRight', '+', '=', '-', '0', 'Escape'] as const;
 export type ViewerKey = (typeof VIEWER_KEYS)[number];
 
-/** Why the frame could not draw a file. */
-export const FAILURES = ['unreadable', 'locked', 'renderer'] as const;
+/** Why the frame could not draw a file; `slow` when its renderer took longer than the frame gives it. */
+export const FAILURES = ['unreadable', 'locked', 'renderer', 'slow'] as const;
 export type Failure = (typeof FAILURES)[number];
 
 /** The most pages a document is taken to have; a larger count is a broken message. */

@@ -1,6 +1,6 @@
 <!--
-  A file shown in the app instead of downloaded: a PDF or a Word document,
-  drawn in a frame that has no origin and no network
+  A file shown in the app instead of downloaded: a PDF, a Word document or a
+  Hangul (HWP, HWPX) document, drawn in a frame that has no origin and no network
   (lib/file-viewer/session.svelte.ts, src/viewer-frame/).
 
   A dialog over the page on a wide screen, the whole screen on a narrow one.

@@ -38,3 +38,7 @@ docs/i18n-conversion.md
 docs/ko-review.md
 PORTING.md | `/team/t`
 PORTING.md | `isTeamAdmin`
+
+# The notices of the HWP renderer's crates name where each crate lives; BLAKE3's
+# project is "BLAKE3-team" on GitHub.
+tools/licenses/rhwp-wasm-crates.txt | BLAKE3-team

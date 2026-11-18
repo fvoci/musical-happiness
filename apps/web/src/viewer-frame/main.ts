@@ -14,13 +14,14 @@ import { isPackaged } from '$lib/file-viewer/formats.ts';
 import {
   readToFrame,
   VIEWER_KEYS,
+  type Failure,
   type FromFrame,
   type Theme,
   type ViewerKey,
 } from '$lib/file-viewer/protocol.ts';
 
-import { LockedFile, UnreadableFile, type Drawn, type Report } from './renderer.ts';
-import { RENDERERS } from './renderers.ts';
+import { LockedFile, SlowRenderer, UnreadableFile, type Drawn, type Report } from './renderer.ts';
+import { CHECKED_IN_WORKER, RENDERERS } from './renderers.ts';
 import { repack } from './zip-guard.ts';
 
 /**
@@ -75,7 +76,16 @@ const report: Report = {
   page: (page) => {
     tell({ kind: 'page', page });
   },
+  failed: (reason) => {
+    tell({ kind: 'failed', reason });
+  },
 };
+
+function failureOf(error: unknown): Failure {
+  if (error instanceof LockedFile) return 'locked';
+  if (error instanceof UnreadableFile) return 'unreadable';
+  return error instanceof SlowRenderer ? 'slow' : 'renderer';
+}
 
 function start(): void {
   const place = document.getElementById('document');
@@ -97,8 +107,9 @@ function start(): void {
         document.documentElement.lang = message.lang;
         RENDERERS[message.format]()
           .then(async (render) => {
-            // An archive's renderer gets it anew, of only the parts counted here.
-            const bytes = isPackaged(message.format) ? await repack(message.bytes) : message.bytes;
+            // An archive's renderer gets it anew, of only the parts counted here (or in its worker).
+            const here = isPackaged(message.format) && !CHECKED_IN_WORKER.has(message.format);
+            const bytes = here ? await repack(message.bytes) : message.bytes;
             return render(bytes, place, report);
           })
           .then((result) => {
@@ -106,15 +117,7 @@ function start(): void {
           })
           .catch((error: unknown) => {
             place.replaceChildren();
-            tell({
-              kind: 'failed',
-              reason:
-                error instanceof LockedFile
-                  ? 'locked'
-                  : error instanceof UnreadableFile
-                    ? 'unreadable'
-                    : 'renderer',
-            });
+            tell({ kind: 'failed', reason: failureOf(error) });
           });
         break;
       }
