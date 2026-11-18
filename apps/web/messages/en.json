@@ -350,6 +350,7 @@
   "viewer_failed": "The file could not be shown.",
   "viewer_slow": "The file took too long to show.",
   "viewer_download_instead": "Download it to open it in another app.",
+  "viewer_page_too_large": "This page is too large to show.",
   "card_upload_progress": "Uploading {name}",
   "card_upload_cancel": "Cancel the upload of {name}",
   "card_upload_failed": "Not uploaded",

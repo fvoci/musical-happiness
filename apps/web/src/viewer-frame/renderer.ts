@@ -2,8 +2,7 @@
  * What a renderer is to the frame: something that draws a file's bytes into
  * a place and then follows the viewer's commands.
  */
-
-import type { Labels } from '$lib/file-viewer/protocol.ts';
+import type { Failure, Labels } from '$lib/file-viewer/protocol.ts';
 
 /** What a renderer tells the viewer around it. */
 export interface Report {
@@ -11,6 +10,10 @@ export interface Report {
   shown(pages: number): void;
   /** The page most in view is now this one (from 1). */
   page(page: number): void;
+  /** The document can no longer be shown, after it was: its renderer failed or took too long. */
+  failed(reason: Failure): void;
+  /** The reader asked for the file to download, from a page the renderer did not draw. */
+  download(): void;
 }
 
 export interface Drawn {
@@ -28,6 +31,9 @@ export class UnreadableFile extends Error {}
 
 /** Thrown when the file would make more than the viewer takes on (its ceilings on what is read and drawn). */
 export class TooLargeFile extends Error {}
+
+/** Thrown when the renderer took longer than the frame gives it, and was stopped. */
+export class SlowRenderer extends Error {}
 
 /** Draws a file into `place`; `labels` are the words it may show of its own, in the app's language. */
 export type Render = (

@@ -14,4 +14,13 @@ export const RENDERERS: Record<FormatId, () => Promise<Render>> = {
   pdf: async () => (await import('./pdf.ts')).render,
   docx: async () => (await import('./docx.ts')).render,
   pptx: async () => (await import('./pptx.ts')).render,
+  hwpx: async () => (await import('./hwp.ts')).renderer('hwpx'),
+  hwp: async () => (await import('./hwp.ts')).renderer('hwp'),
 };
+
+/**
+ * The kinds whose renderer runs in a worker of its own and checks the file
+ * there (an archive unpacked and counted, a compound file's chains): the
+ * frame hands it the bytes as they came.
+ */
+export const CHECKED_IN_WORKER: ReadonlySet<FormatId> = new Set(['hwpx', 'hwp']);

@@ -17,3 +17,6 @@ components.json
 
 # Made from contracts/openapi.json by `pnpm run api:types`; `check` fails when it is stale.
 src/lib/api/contract.ts
+
+# A cargo-about template: its lines are the notices' lines, which Prettier would fold.
+tools/licenses/rhwp-wasm.hbs

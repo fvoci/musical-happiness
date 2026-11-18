@@ -83,6 +83,7 @@ export class ViewerSession {
   readonly #theme: () => Theme;
   readonly #lang: () => string;
   readonly #onKey: (key: ViewerKey) => void;
+  readonly #onDownload: () => void;
   /** Gives up the reading, and stands for "closed". */
   readonly #abort = new AbortController();
   #bytes: ArrayBuffer | undefined;
@@ -96,6 +97,8 @@ export class ViewerSession {
       /** The app's language, for the document's text. */
       lang: () => string;
       onKey: (key: ViewerKey) => void;
+      /** The reader asked, in the frame, for the file to download. */
+      onDownload: () => void;
       limits?: Limits;
     },
   ) {
@@ -103,6 +106,7 @@ export class ViewerSession {
     this.#theme = options.theme;
     this.#lang = options.lang;
     this.#onKey = options.onKey;
+    this.#onDownload = options.onDownload;
     this.#limits = options.limits ?? LIMITS;
     this.#read().catch(() => {
       // A reader of the bytes that threw rather than answering undefined.
@@ -197,7 +201,11 @@ export class ViewerSession {
         // Handed over, not copied: the app keeps the blob for "Download".
         this.#bytes = undefined;
         const open = { format: status.format, bytes, theme: this.#theme(), lang: this.#lang() };
-        const labels = { chart: m.viewer_chart_not_drawn() };
+        const labels = {
+          chart: m.viewer_chart_not_drawn(),
+          pageTooLarge: m.viewer_page_too_large(),
+          download: m.viewer_download(),
+        };
         this.#send({ kind: 'open', ...open, labels }, [bytes]);
         this.#wait(this.#limits.draw);
         break;
@@ -221,6 +229,10 @@ export class ViewerSession {
         break;
       case 'key':
         this.#onKey(message.key);
+        break;
+      case 'download':
+        // From a button in a page the frame shows, so only once it shows the document.
+        if (status.name === 'shown') this.#onDownload();
         break;
     }
   }
