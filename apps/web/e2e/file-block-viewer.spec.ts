@@ -81,13 +81,17 @@ async function putFile(page: Page, body: Locator, name: string, bytes: Buffer, t
 
 /**
  * Selects the block with an arrow from the end of the line above it: the arrow right, which the
- * editor reads from where the caret is (the arrow down measures the page, still settling).
+ * editor reads from where the caret is (the arrow down measures the page, still settling). Right
+ * after the file is put in, a click may come while the page is still drawn (on a loaded machine,
+ * the block was left unselected): the caret is put again until the block is seen selected.
  */
 async function selectByArrow(page: Page, body: Locator, block: Locator): Promise<void> {
-  await body.getByText('Above:').last().click();
-  await page.keyboard.press('End');
-  await page.keyboard.press('ArrowRight');
-  await expect(block).toHaveClass(/ProseMirror-selectednode/);
+  await expect(async () => {
+    await body.getByText('Above:').last().click();
+    await page.keyboard.press('End');
+    await page.keyboard.press('ArrowRight');
+    await expect(block).toHaveClass(/ProseMirror-selectednode/, { timeout: 1000 });
+  }).toPass({ timeout: 5000 });
 }
 
 test('a PDF in a page opens in the viewer by its name and by Enter, and the block is deleted as before', async ({
@@ -114,7 +118,7 @@ test('a PDF in a page opens in the viewer by its name and by Enter, and the bloc
 
   // Reached with Tab from the line above, the name is a button: Enter and Space press it, and
   // the editor makes nothing of them (no line split, no block typed over).
-  const lines = await body.locator(':scope > *').count();
+  const text = await body.innerText();
   await body.getByText('Above:').last().click();
   await page.keyboard.press('End');
   await page.keyboard.press('Tab');
@@ -133,9 +137,20 @@ test('a PDF in a page opens in the viewer by its name and by Enter, and the bloc
     await page.keyboard.press(key);
   }
   await page.keyboard.insertText('가');
-  await expect(body.locator(':scope > *')).toHaveCount(lines);
+  // So on the download, the next stop.
+  await page.keyboard.press('Tab');
+  await expect(block.getByRole('link', { name: `Download ${NAME}` })).toBeFocused();
+  await page.keyboard.press('Backspace');
+  await page.keyboard.insertText('나');
+  await expect.poll(() => body.innerText()).toBe(text);
   await expect(block).toHaveCount(1);
-  await expect(body.getByText('Above:').last()).toHaveText('Above:');
+  // Back in the text with Shift+Tab, the caret is where it was: at the end of the line above.
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(body).toBeFocused();
+  await page.keyboard.type('!');
+  await expect(body.getByText('Above:!')).toHaveCount(1);
+  await page.keyboard.press('Backspace');
 
   // By the keyboard: selected with an arrow, opened with Enter, closed with Escape.
   await selectByArrow(page, body, block);

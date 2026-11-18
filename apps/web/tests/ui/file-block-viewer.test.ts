@@ -26,6 +26,15 @@ import { opensInViewer, VIEW_LIMIT_BYTES } from '$lib/file-viewer/extensions.ts'
 
 import { doc, paragraph, text } from '../support/body-docs.ts';
 
+// A caret given back to the text is scrolled into sight, which asks for the size of text: jsdom
+// has none.
+Range.prototype.getClientRects = function getClientRects() {
+  return [] as unknown as DOMRectList;
+};
+Range.prototype.getBoundingClientRect = function getBoundingClientRect() {
+  return new DOMRect();
+};
+
 const fileBlock = (fileId: string): DocNode => ({ type: 'file', attrs: { fileId } });
 
 const KNOWN: Record<string, FileDetails> = {
@@ -138,35 +147,51 @@ describe('the name of a file the viewer shows', () => {
     expect(editor.state.selection).toBeInstanceOf(NodeSelection);
   });
 
-  it('leaves no caret in the text while it has the focus, which it has back when pressed from the keyboard', async () => {
+  it('takes the caret out of the text while it or the download has the focus, and gives it back', async () => {
     const viewer = link();
     setFileSource(source(viewer));
-    const body = doc(paragraph(text('a')), fileBlock('7minutes.pdf'));
+    const body = doc(paragraph(text('ab')), fileBlock('7minutes.pdf'));
     const { container } = render(BodyEditor, { doc: body });
     const editor = editorIn(container);
     const [block] = await shown(container);
     const button = block?.querySelector<HTMLButtonElement>('button.doc-file-open');
+    const download = block?.querySelector<HTMLElement>('a.doc-file-download');
     const line = editor.view.dom.querySelector('p')?.firstChild ?? null;
-    const carets = (): number => document.getSelection()?.rangeCount ?? 0;
-    // Reached by Tab (the focus given without a press), it leaves no caret for a key to type at.
-    document.getSelection()?.collapse(line, 1);
+    const selection = document.getSelection();
+    // The focus's events are sent as a browser sends them: jsdom moves the selection to what it
+    // focuses, which a browser does not do for a button or a link.
+    const to = (control: HTMLElement | null | undefined, relatedTarget: Element | null): void => {
+      control?.dispatchEvent(new FocusEvent('blur', { relatedTarget }));
+    };
+    for (const control of [button, download]) {
+      // Reached by Tab (or by a press), it leaves no caret for a key to type at...
+      selection?.collapse(line, 1);
+      control?.dispatchEvent(new FocusEvent('focus'));
+      expect(selection?.rangeCount, control?.className).toBe(0);
+      // ...not when it goes elsewhere (the viewer) and comes back, but in the text (Shift+Tab).
+      to(control, document.body);
+      expect(selection?.rangeCount, control?.className).toBe(0);
+      control?.dispatchEvent(new FocusEvent('focus'));
+      to(control, editor.view.dom);
+      expect([selection?.anchorNode, selection?.anchorOffset], control?.className).toEqual([
+        line,
+        1,
+      ]);
+    }
+    // Where the focus goes back when the viewer closes: to the name pressed from the keyboard on
+    // it or by an assistive technology (a click of no pointer), to the editor pressed by a pointer.
     button?.focus();
-    expect(carets()).toBe(0);
-    // Pressed from the keyboard on it (a click of no pointer), it has the focus back.
     button?.click();
     expect(viewer.open.mock.lastCall?.[2]()).toBe(button);
-    // A pointer's press keeps the selection it makes, and the editor has the focus back.
     button?.blur();
-    document.getSelection()?.collapse(line, 1);
-    button?.dispatchEvent(new Event('pointerdown'));
-    button?.focus();
-    expect(carets()).toBe(1);
+    button?.click();
+    expect(viewer.open.mock.lastCall?.[2]()).toBe(button);
     button?.dispatchEvent(new MouseEvent('click', { detail: 1, bubbles: true }));
     expect(viewer.open.mock.lastCall?.[2]()).toBe(editor.view.dom);
     expect(editor.getJSON()).toEqual(body);
   });
 
-  it("keeps the keys pressed on it from the editor: they are the button's", async () => {
+  it('keeps the keys pressed on it, or on the download, from the editor: they are theirs', async () => {
     const viewer = link();
     setFileSource(source(viewer));
     const body = doc(paragraph(text('a')), fileBlock('7minutes.pdf'), paragraph(text('b')));
@@ -206,8 +231,15 @@ describe('the name of a file the viewer shows', () => {
       editor.view.dom.dispatchEvent(event);
       return event.defaultPrevented;
     };
-    button?.focus();
-    expect(typed()).toBe(true);
+    // As on the name, so on the download: a link, which Enter presses.
+    const download = block?.querySelector<HTMLElement>('a.doc-file-download');
+    for (const control of [button, download]) {
+      control?.focus();
+      expect(typed(), control?.className).toBe(true);
+    }
+    const backspace = new KeyboardEvent('keydown', { key: 'Backspace', cancelable: true });
+    download?.dispatchEvent(backspace);
+    expect(backspace.defaultPrevented).toBe(true);
     editor.view.dom.focus();
     expect(typed()).toBe(false);
     expect(viewer.open).not.toHaveBeenCalled();
@@ -260,7 +292,7 @@ describe('the name of a file the viewer shows', () => {
 });
 
 describe('the viewer opened from a file block', () => {
-  it('reads the file by its source, and gives the focus back to the editor or the button', async () => {
+  it('reads the file by its source, and gives the focus back to what its opener finds', async () => {
     vi.spyOn(viewerChunk, 'load').mockResolvedValue(true);
     const bytes = vi.fn((_fileId: string, _signal?: AbortSignal) =>
       Promise.resolve(new Blob(['%PDF'])),
@@ -271,10 +303,9 @@ describe('the viewer opened from a file block', () => {
     expect(view?.opens({ name: 'plans.zip', size: 1 })).toBe(false);
 
     const editor = document.body.appendChild(document.createElement('div'));
-    editor.setAttribute('contenteditable', 'true');
     editor.tabIndex = -1;
-    const button = editor.appendChild(document.createElement('button'));
-    // Opened from the editor's selected block, whose opener gives the focus back to the editor.
+    const button = document.body.appendChild(document.createElement('button'));
+    // The focus goes back to what the opener finds: here, as from a selected block, the editor.
     expect(await view?.open('7minutes.pdf', details, () => editor)).toBe(true);
     expect(viewing.file).toMatchObject({ name: '회의록 2026-11.pdf', size: 2048 });
     const signal = new AbortController().signal;
@@ -299,6 +330,7 @@ describe('the viewer opened from a file block', () => {
     expect(viewing.file).toBeUndefined();
     expect(document.activeElement).toBe(button);
     editor.remove();
+    button.remove();
     shownOnly.remove();
   });
 

@@ -19,6 +19,9 @@ import { NodeSelection, Plugin } from '@tiptap/pm/state';
 import { FILE_BLOCK_ATTRIBUTE, FILE_ID_ATTRIBUTE } from './drawing.ts';
 import { drawFileBlock, pressFileOf } from './file-view.ts';
 
+/** A file block's controls, which the focus may be on. */
+const FILE_CONTROLS = 'button.doc-file-open, a.doc-file-download';
+
 /** The events of the keys and of typing, which the name's button keeps from the editor. */
 const BUTTON_KEYS = new Set([
   'keydown',
@@ -116,13 +119,11 @@ export const FileBlock = Node.create({
               event.preventDefault();
               return true;
             },
-            // With the focus on a file's name, nothing is typed into the body: an edit comes to
-            // the editor itself, and WebKit would make it where the caret was before.
+            // With the focus on a file block's name or download, nothing is typed into the body:
+            // an edit comes to the editor itself, and WebKit would make it where the caret was.
             beforeinput: (view, event) => {
               const focused = view.dom.ownerDocument.activeElement;
-              if (!(focused instanceof Element) || !focused.matches('button.doc-file-open')) {
-                return false;
-              }
+              if (!(focused instanceof Element) || !focused.matches(FILE_CONTROLS)) return false;
               if (!view.dom.contains(focused)) return false;
               event.preventDefault();
               return true;

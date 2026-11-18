@@ -165,18 +165,24 @@ function onPress(event: MouseEvent, link: HTMLAnchorElement, fileId: string, nam
     });
 }
 
+/** Set while Enter on the selected block presses its name (`pressFileOf`). */
+let pressedFromBlock = false;
+
 /**
- * Keeps what is typed on a file's name from the text around it. Enter and
- * Space press the name, and Tab moves on; a key that edits edits nothing
- * from here: WebKit would apply it, and an input method (or text put in)
- * in any browser would type it, where the editor's caret was before the
- * name had the focus. A shortcut of the browser's (find, print) is still
- * the browser's, but not one a browser edits by (bold, italic, underline,
- * paste, cut, undo, redo); AltGr's characters (Ctrl with Alt) are typed,
- * and so are the keys an input method or a dead key takes.
+ * Keeps what is typed on a block's control (its name, its download) from
+ * the text around it. Enter (and Space on the name) press it, and Tab moves
+ * on; a key that edits edits nothing from here. WebKit would apply it, and
+ * an input method (or text put in) in any browser would type it, where the
+ * editor's caret was before the control had the focus: so while it has the
+ * focus, the control takes that caret out of the editor's text, and puts
+ * it back when the focus goes back to the text (Shift+Tab). A shortcut of
+ * the browser's (find, print) is still the browser's, but not one a browser
+ * edits by (bold, italic, underline, paste, cut, undo, redo); AltGr's
+ * characters (Ctrl with Alt) are typed, and so are the keys an input
+ * method or a dead key takes.
  */
-function keepTyping(page: Document, button: HTMLElement): void {
-  button.addEventListener('keydown', (event) => {
+function holdTyping(page: Document, control: HTMLElement): void {
+  control.addEventListener('keydown', (event) => {
     const shortcut = (event.ctrlKey || event.metaKey) && !event.altKey;
     const typed = event.key.length === 1 && event.key !== ' ';
     const composed = event.isComposing || ['Process', 'Dead'].includes(event.key);
@@ -189,19 +195,27 @@ function keepTyping(page: Document, button: HTMLElement): void {
       event.preventDefault();
     }
   });
-  // Given the focus otherwise than by a pointer's press (by Tab, or back from the viewer), the
-  // name leaves no caret in the text to type into. A press keeps the selection it makes: the
-  // editor's, of the block, which Delete deletes once the viewer is closed.
-  let pressed = false;
-  button.addEventListener('pointerdown', () => {
-    pressed = true;
+  // The caret taken out, kept until the focus goes back to the text (it may go to the viewer and
+  // come back to the control first); a press of the control is the editor's, which puts the
+  // selection it makes in place of this one.
+  let caret: Range | undefined;
+  const editor = (): Element | null => control.closest('[contenteditable="true"]');
+  control.addEventListener('focus', () => {
+    const text = editor();
+    const selection = page.getSelection();
+    if (!text || !selection?.anchorNode || !text.contains(selection.anchorNode)) return;
+    caret = selection.getRangeAt(0).cloneRange();
+    selection.removeAllRanges();
   });
-  button.addEventListener('focus', () => {
-    if (!pressed) page.getSelection()?.removeAllRanges();
-    pressed = false;
-  });
-  button.addEventListener('click', () => {
-    pressed = false;
+  control.addEventListener('blur', (event) => {
+    const text = editor();
+    if (!caret || !text || event.relatedTarget !== text) return;
+    const selection = page.getSelection();
+    if (caret.startContainer.isConnected && selection) {
+      selection.removeAllRanges();
+      selection.addRange(caret);
+    }
+    caret = undefined;
   });
 }
 
@@ -233,17 +247,17 @@ function nameOf(
     const again = blocks.find((block) => block.getAttribute(FILE_ID_ATTRIBUTE) === fileId);
     return again?.querySelector<HTMLElement>('button.doc-file-open') ?? null;
   };
-  keepTyping(page, button);
+  holdTyping(page, button);
   button.addEventListener('click', (event) => {
     const block = button.closest<HTMLElement>(FILE_BLOCK_SELECTOR);
-    // Pressed from the keyboard with the focus on it (Tab, then Enter or Space), the name has
-    // the focus back when the viewer closes; pressed by a pointer, or by Enter on the selected
-    // block, the editor has it, whose selection the block still is (Delete deletes it, the
-    // arrows move on from it). Where a body is only shown, the name has it.
-    const fromName = event.detail === 0 && page.activeElement === button;
+    // Pressed by a pointer (a click of one or more presses), or by Enter on the selected block,
+    // the editor has the focus back when the viewer closes, whose selection the block still is
+    // (Delete deletes it, the arrows move on from it); pressed from the keyboard on the name, or
+    // by an assistive technology, the name has it. Where a body is only shown, the name has it.
+    const toEditor = pressedFromBlock || event.detail > 0;
     const back = (): HTMLElement | null => {
       const now = drawn();
-      if (fromName || !now) return now;
+      if (!toEditor || !now) return now;
       return now.closest<HTMLElement>('[contenteditable="true"]') ?? now;
     };
     void viewer.open(fileId, details, back).then((opened) => {
@@ -284,6 +298,7 @@ function draw(element: HTMLElement, fileId: string, details: FileDetails | null 
     link.addEventListener('click', (event) => {
       onPress(event, link, fileId, name);
     });
+    holdTyping(page, link);
     parts.push(link);
   }
   element.replaceChildren(...parts);
@@ -328,6 +343,11 @@ export function saveFileOf(element: HTMLElement): boolean {
 export function pressFileOf(element: HTMLElement): boolean {
   const open = element.querySelector<HTMLButtonElement>('button.doc-file-open');
   if (!open) return saveFileOf(element);
-  open.click();
+  pressedFromBlock = true;
+  try {
+    open.click();
+  } finally {
+    pressedFromBlock = false;
+  }
   return true;
 }
