@@ -117,17 +117,24 @@ describe('in the worker, what rhwp parses of an HWPX as XML is held to the limit
   });
 
   it('a tag of the list may have 1,000 attributes; one more stops the file', async () => {
-    const withAttributes = (count: number): ArrayBuffer => {
-      // The item's id, href and media-type, and as many more as make up the count.
-      const more = Array.from({ length: count - 3 }, (_, at) => `a${String(at)}=""`).join(' ');
+    // The item's id, href and media-type, and as many more as make up the count, written so.
+    const withAttributes = (count: number, more = (at: number) => `a${String(at)}=""`) => {
+      const written = Array.from({ length: count - 3 }, (_, at) => more(at)).join(' ');
       const content = contentHpf([['s0', 'Contents/section0.xml']], ['s0']).replace(
         '<opf:item id=',
-        `<opf:item ${more} id=`,
+        `<opf:item ${written} id=`,
       );
       return buffer(hwpx(content, [{ name: 'Contents/section0.xml', data: xml(10) }]));
     };
     await expect(checkHwpxPackage(withAttributes(1000))).resolves.toBeUndefined();
     await expect(checkHwpxPackage(withAttributes(1001))).rejects.toBeInstanceOf(UnreadableFile);
+    // Each name counts, also one given a value without quotes, given twice, or given no value.
+    for (const more of [(at: number) => `a${String(at)}=1`, () => 'a=""', () => 'a']) {
+      await expect(checkHwpxPackage(withAttributes(1000, more))).resolves.toBeUndefined();
+      await expect(checkHwpxPackage(withAttributes(1001, more))).rejects.toBeInstanceOf(
+        UnreadableFile,
+      );
+    }
   });
 
   it('a spine that names a section twice stops the file', async () => {

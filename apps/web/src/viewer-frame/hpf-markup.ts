@@ -14,10 +14,15 @@
 import { UnreadableFile } from './renderer.ts';
 
 /**
- * The most attributes taken of one tag whose attributes are read: a Hancom
- * list's tags have three or four. A tag of a million took this reader 1.3 s
- * and 180 MiB, and the list may be 30 MB. Past it the file is refused, with
- * the answer zip-guard gives an archive past its limits.
+ * The most attributes of one tag whose attributes are read: a Hancom list's
+ * tags have three or four. Each name written counts, whether it is taken,
+ * given twice, given no value or a value without quotes: quick-xml keeps a
+ * name given a value without quotes and checks each name against those kept
+ * before it, so a tag of many such names, a name repeated after them, costs
+ * rhwp the square of their count (80,000 took it 29 s). A tag of a million
+ * attributes took this reader 1.3 s and 180 MiB, and the list may be 30 MB.
+ * Past it the file is refused, with the answer zip-guard gives an archive
+ * past its limits.
  */
 const TAG_ATTRIBUTE_LIMIT = 1000;
 
@@ -124,9 +129,12 @@ function attributesOf(content: string, from: number): [string, string][] {
     return at;
   };
   let offset = from;
+  let names = 0;
   while (offset >= 0 && offset < content.length) {
     const start = skipSpace(offset);
     if (start >= content.length) break;
+    names += 1;
+    if (names > TAG_ATTRIBUTE_LIMIT) throw new UnreadableFile();
     let end = start + 1;
     while (end < content.length && content[end] !== '=' && !isSpace(content[end])) end += 1;
     if (end >= content.length) break;
@@ -154,7 +162,6 @@ function attributesOf(content: string, from: number): [string, string][] {
     const close = content.indexOf(quote, value + 1);
     if (close < 0) break;
     found.push([key, content.slice(value + 1, close)]);
-    if (found.length > TAG_ATTRIBUTE_LIMIT) throw new UnreadableFile();
     offset = close + 1;
   }
   return found;
