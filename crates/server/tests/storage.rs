@@ -53,7 +53,7 @@ async fn assert_content(
 
 /// The checks every backend must pass. `dir` is a path prefix unique to this run.
 async fn exercise(backend: &FileBackend, dir: &str) {
-    let path = format!("{dir}/boards/20240131/7abc.png");
+    let path = format!("{dir}/0b9f3c1e/7abc/s3cr3t");
     read_and_write(backend, &path, dir).await;
     copy_and_rename(backend, &path, dir).await;
     large_file(backend, dir).await;
@@ -215,7 +215,7 @@ async fn local_backend() {
 
     // The local backend lays files out exactly as given, under its root.
     assert!(
-        root.join("run/boards/20240131/7abc.png").is_file(),
+        root.join("run/0b9f3c1e/7abc/s3cr3t").is_file(),
         "the file is under the root"
     );
     // A file name is taken literally: no part of it is encoded.

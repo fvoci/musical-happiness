@@ -280,39 +280,52 @@ fn the_metrics_address_is_host_and_port() {
         .expect("a valid address")
     };
     assert_eq!(address(""), None, "no metrics");
-    let expected = |host: Option<&str>, port| {
+    let expected = |host: &str, port| {
         Some(MetricsAddress {
-            host: host.map(str::to_owned),
+            host: host.to_owned(),
             port,
         })
     };
-    assert_eq!(address(":9092"), expected(None, 9092), "every interface");
-    assert_eq!(address("127.0.0.1:9092"), expected(Some("127.0.0.1"), 9092));
-    assert_eq!(address("[::1]:9092"), expected(Some("::1"), 9092));
+    assert_eq!(address("127.0.0.1:9092"), expected("127.0.0.1", 9092));
+    assert_eq!(address("0.0.0.0:9092"), expected("0.0.0.0", 9092));
+    assert_eq!(address("[::1]:9092"), expected("::1", 9092));
+    assert_eq!(address("[::]:9092"), expected("::", 9092));
+    assert_eq!(address("localhost:65535"), expected("localhost", 65535));
     assert_eq!(
         address("metrics.internal:0"),
-        expected(Some("metrics.internal"), 0)
+        expected("metrics.internal", 0)
     );
+    assert_eq!(address("fvoci-1:9092"), expected("fvoci-1", 9092));
 }
 
 #[test]
-fn metrics_without_a_host_listen_on_the_loopback_of_a_local_only_server() {
-    let address = |listen_loopback_only: bool| {
-        Configuration {
-            metrics_address: ":9092".to_owned(),
-            listen_loopback_only,
-            ..Configuration::default()
-        }
-        .metrics_listen_address()
-        .expect("a valid address")
-        .expect("metrics are kept")
+fn a_metrics_address_of_every_interface_is_refused_on_a_local_only_server() {
+    let config = |address: &str| Configuration {
+        metrics_address: address.to_owned(),
+        listen_loopback_only: true,
+        ..Configuration::default()
     };
-    assert_eq!(address(false).host, None, "every interface");
-    assert_eq!(
-        address(true).host.as_deref(),
-        Some("localhost"),
-        "the loopback only, as the API"
-    );
+    for every in ["0.0.0.0:9092", "[::]:9092"] {
+        let error = format!(
+            "{:#}",
+            config(every).check().expect_err("not the loopback only")
+        );
+        assert!(
+            error.contains("metrics_address") && error.contains("listen_loopback_only"),
+            "{error}"
+        );
+    }
+    for loopback in ["127.0.0.1:9092", "[::1]:9092", "localhost:9092"] {
+        let address = config(loopback)
+            .metrics_listen_address()
+            .expect("a loopback address")
+            .expect("metrics are kept");
+        assert_eq!(
+            format!("{}:{}", address.host, address.port).replace("::1", "[::1]"),
+            loopback,
+            "listened on as given"
+        );
+    }
 }
 
 #[test]
@@ -329,14 +342,32 @@ fn check_rejects_what_the_server_cannot_honor() {
     parse(r#"{"file_storage": "s3", "file_storage_s3": {"bucket": "b"}}"#)
         .check()
         .expect("s3 is a file backend");
+    // Only host:port: no empty host for every interface, no service names, no zones.
     for address in [
         "9092",
         "localhost",
         ":",
+        ":9092",
+        "localhost:",
         "host:port",
+        "host:http",
         "::1:9092",
+        "[::1]9092",
+        "[::1]:",
+        "[127.0.0.1]:9092",
+        "[fe80::1%eth0]:9092",
         "host:70000",
+        "host:09092",
+        "host:+9092",
         "a b:1",
+        "host_name:1",
+        "-host:1",
+        "host-:1",
+        "a..b:1",
+        ".host:1",
+        "999.1.1.1:1",
+        "user@host:1",
+        "host/path:1",
     ] {
         let text = format!(r#"{{"metrics_address": "{address}"}}"#);
         assert!(

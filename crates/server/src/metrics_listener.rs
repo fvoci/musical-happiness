@@ -118,28 +118,22 @@ async fn answer_scrape(axum::extract::State(app): axum::extract::State<App>) -> 
     }
 }
 
-/// Opens the metrics listener at `address`. A host of none listens on every interface,
-/// IPv6 and IPv4 where the system maps one onto the other, as the API's listener does.
+/// Opens the metrics listener at `address`.
 ///
 /// # Errors
 ///
 /// Returns an error if the host cannot be resolved, or the address cannot be listened
 /// on: taken, or not this machine's.
 pub(crate) async fn bind(address: &MetricsAddress) -> anyhow::Result<tokio::net::TcpListener> {
-    let port = address.port;
-    let listener = match &address.host {
-        Some(host) => tokio::net::TcpListener::bind((host.as_str(), port)).await,
-        None => match tokio::net::TcpListener::bind(("::", port)).await {
-            Ok(listener) => Ok(listener),
-            Err(_) => tokio::net::TcpListener::bind(("0.0.0.0", port)).await,
-        },
+    let MetricsAddress { host, port } = address;
+    let shown = if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
     };
-    let shown = match &address.host {
-        Some(host) if host.contains(':') => format!("[{host}]:{port}"),
-        Some(host) => format!("{host}:{port}"),
-        None => format!(":{port}"),
-    };
-    listener.with_context(|| format!("listening for metrics scrapes on {shown} (metrics_address)"))
+    tokio::net::TcpListener::bind((host.as_str(), *port))
+        .await
+        .with_context(|| format!("listening for metrics scrapes on {shown} (metrics_address)"))
 }
 
 #[cfg(test)]
