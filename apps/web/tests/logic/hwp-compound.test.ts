@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { compoundFile, verifyChains } from '$lib/file-viewer/compound-file.ts';
 import { examine, UNPACKED_LIMIT_BYTES, type FormatId } from '$lib/file-viewer/formats.ts';
 import { checkCompound } from '../../src/viewer-frame/compound-guard.ts';
-import { LockedFile, UnreadableFile } from '../../src/viewer-frame/renderer.ts';
+import { LockedFile, TooLargeFile, UnreadableFile } from '../../src/viewer-frame/renderer.ts';
 
 import {
   compoundFile as writeCompound,
@@ -145,10 +145,10 @@ describe('in the frame, what the streams unpack to is held to the limit', () => 
 
   it('a picture deflated past it, raw or in zlib, stops the file', async () => {
     await expect(checkCompound(withPicture(deflateRawSync(zeros)), LIMIT)).rejects.toThrow(
-      UnreadableFile,
+      TooLargeFile,
     );
     await expect(checkCompound(withPicture(deflateSync(zeros)), LIMIT)).rejects.toThrow(
-      UnreadableFile,
+      TooLargeFile,
     );
   });
 
@@ -159,13 +159,13 @@ describe('in the frame, what the streams unpack to is held to the limit', () => 
     const open = deflateRawSync(part, { finishFlush: constants.Z_SYNC_FLUSH });
     const broken = Buffer.concat([open, Buffer.from([0x07, 0, 0, 0])]);
     await expect(checkCompound(withPicture(junk), LIMIT)).resolves.toBeInstanceOf(ArrayBuffer);
-    await expect(checkCompound(withPicture(junk, broken), LIMIT)).rejects.toThrow(UnreadableFile);
+    await expect(checkCompound(withPicture(junk, broken), LIMIT)).rejects.toThrow(TooLargeFile);
   });
 
   it('a stream that is not deflated counts as it is, and the streams count together', async () => {
     const stored = Buffer.alloc(600 << 10, 0x89);
     await expect(checkCompound(withPicture(stored), LIMIT)).resolves.toBeInstanceOf(ArrayBuffer);
-    await expect(checkCompound(withPicture(stored, stored), LIMIT)).rejects.toThrow(UnreadableFile);
+    await expect(checkCompound(withPicture(stored, stored), LIMIT)).rejects.toThrow(TooLargeFile);
     await expect(
       checkCompound(withPicture(deflateRawSync(Buffer.alloc(900 << 10))), LIMIT),
     ).resolves.toBeInstanceOf(ArrayBuffer);

@@ -13,6 +13,7 @@ import {
   LockedFile,
   PageFollower,
   SlowRenderer,
+  TooLargeFile,
   UnreadableFile,
   type Drawn,
   type Report,
@@ -36,6 +37,7 @@ const GUTTER = 16;
 
 function failure(reason: Extract<FromWorker, { kind: 'failed' }>['reason']): Error {
   if (reason === 'locked') return new LockedFile();
+  if (reason === 'too-large') return new TooLargeFile();
   return reason === 'unreadable' ? new UnreadableFile() : new Error('the HWP renderer failed');
 }
 

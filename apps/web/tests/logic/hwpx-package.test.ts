@@ -8,7 +8,7 @@ import {
   masterPagesOf,
   sectionsOf,
 } from '../../src/viewer-frame/hwpx-package.ts';
-import { UnreadableFile } from '../../src/viewer-frame/renderer.ts';
+import { TooLargeFile, UnreadableFile } from '../../src/viewer-frame/renderer.ts';
 
 import { koreanHwpx, rewriteArchive } from '../support/hwp-files.ts';
 import { zip, type ZipMember } from '../support/viewer-files.ts';
@@ -100,7 +100,7 @@ describe('in the worker, what rhwp parses of an HWPX as XML is held to the limit
     const archive = hwpx(contentHpf([['s0', 'Contents/section0.dat']], ['s0']), [
       { name: 'Contents/section0.dat', data: hidden },
     ]);
-    await expect(checkHwpxPackage(buffer(archive))).rejects.toBeInstanceOf(UnreadableFile);
+    await expect(checkHwpxPackage(buffer(archive))).rejects.toBeInstanceOf(TooLargeFile);
     // So does a part rhwp would not parse; pictures under BinData/ do not.
     const picture = hwpx(contentHpf([['s0', 'Contents/section0.xml']], ['s0']), [
       { name: 'Contents/section0.xml', data: xml(10) },
@@ -124,7 +124,7 @@ describe('in the worker, what rhwp parses of an HWPX as XML is held to the limit
         ],
       );
     await expect(checkHwpxPackage(buffer(archive(20)))).resolves.toBeUndefined();
-    await expect(checkHwpxPackage(buffer(archive(40)))).rejects.toBeInstanceOf(UnreadableFile);
+    await expect(checkHwpxPackage(buffer(archive(40)))).rejects.toBeInstanceOf(TooLargeFile);
   });
 });
 

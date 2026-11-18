@@ -123,7 +123,7 @@ describe("the worker's reader, with rhwp", () => {
     for (const file of [strict, lenient]) {
       expect(await open(new HwpReader({ unpackLimit: 1 << 20 }), 'hwp', file)).toEqual({
         kind: 'failed',
-        reason: 'unreadable',
+        reason: 'too-large',
       });
     }
   });

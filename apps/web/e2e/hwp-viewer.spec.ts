@@ -11,6 +11,7 @@
  * (the phone at 390 pixels), named by the browser too.
  */
 import path from 'node:path';
+import { deflateRawSync } from 'node:zlib';
 
 import {
   expect,
@@ -23,6 +24,7 @@ import {
 
 import {
   compoundFile,
+  compoundStreams,
   HWP_TEXT,
   hwpFileHeader,
   koreanHwp,
@@ -254,6 +256,23 @@ test('the frame and the worker the renderer runs in reach no network', async ({ 
   expect(await page.evaluate(attempt, open)).toBe('reached: 200');
   expect(await inside.evaluate(attempt, open)).toMatch(/^refused/);
   expect(await worker.evaluate(attempt, open)).toMatch(/^refused/);
+});
+
+test('an HWP whose picture unpacks past the limit is stopped in the worker before rhwp reads it', async ({
+  page,
+}) => {
+  await openCard(page);
+  // A file of about 200 KB whose picture unpacks to 1 byte past 200 MiB; its directory says less.
+  const bomb = deflateRawSync(Buffer.alloc(200 * 1024 * 1024 + 1));
+  const streams = compoundStreams(koreanHwp()).map((stream) =>
+    stream.path.startsWith('BinData/') ? { ...stream, data: bomb } : stream,
+  );
+  const started = nextWorker(page);
+  await view(page, 'bomb.hwp', compoundFile(streams), HWP_TYPE);
+  const { ended } = await started;
+  await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
+  await expect(notice(page)).toContainText("This file's contents are too large to preview.");
+  await ended;
 });
 
 test('a page past the memory the renderer may take: it fails, and its worker is stopped', async ({

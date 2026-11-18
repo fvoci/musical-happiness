@@ -19,7 +19,7 @@ import { PAGE_LIMIT } from '$lib/file-viewer/protocol.ts';
 import { checkCompound } from './compound-guard.ts';
 import { checkHwpxPackage } from './hwpx-package.ts';
 import type { FromWorker, PageSize, TextRun, ToWorker } from './hwp-messages.ts';
-import { LockedFile, UnreadableFile } from './renderer.ts';
+import { LockedFile, TooLargeFile, UnreadableFile } from './renderer.ts';
 import { repack } from './zip-guard.ts';
 
 /**
@@ -162,5 +162,6 @@ export class HwpReader {
 
 function failureOf(error: unknown): Extract<FromWorker, { kind: 'failed' }>['reason'] {
   if (error instanceof LockedFile) return 'locked';
+  if (error instanceof TooLargeFile) return 'too-large';
   return error instanceof UnreadableFile ? 'unreadable' : 'renderer';
 }

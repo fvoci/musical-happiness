@@ -24,7 +24,7 @@ import {
 } from '$lib/file-viewer/compound-file.ts';
 import { HWP_SIGNATURE, UNPACKED_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
 
-import { LockedFile, UnreadableFile } from './renderer.ts';
+import { LockedFile, TooLargeFile, UnreadableFile } from './renderer.ts';
 
 /** The signature (32 bytes), the version (4) and the properties (4) of `FileHeader`. */
 const HEAD_SIZE = 40;
@@ -68,7 +68,7 @@ async function unpackedSize(data: Uint8Array<ArrayBuffer>, room: number): Promis
   return most;
 }
 
-/** Throws `UnreadableFile` when the streams unpack to more than `limit` together. */
+/** Throws `TooLargeFile` when the streams unpack to more than `limit` together. */
 async function holdUnpacked(file: CompoundFile, limit: number): Promise<void> {
   let total = 0;
   for (const entry of file.entries) {
@@ -76,13 +76,13 @@ async function holdUnpacked(file: CompoundFile, limit: number): Promise<void> {
     const data = readStream(file, entry, entry.size);
     if (!data) throw new UnreadableFile();
     total += await unpackedSize(data, limit - total);
-    if (total > limit) throw new UnreadableFile();
+    if (total > limit) throw new TooLargeFile();
   }
 }
 
 /**
- * The file as it came, once checked; rejects with `UnreadableFile` or
- * `LockedFile` otherwise. `limit` is what the streams may unpack to.
+ * The file as it came, once checked; rejects with `UnreadableFile`,
+ * `LockedFile` or `TooLargeFile` otherwise. `limit` is what the streams may unpack to.
  */
 export async function checkCompound(
   buffer: ArrayBuffer,

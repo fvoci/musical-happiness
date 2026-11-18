@@ -25,7 +25,7 @@
 import { MARKUP_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
 import { zipEntries, type ZipEntry } from '$lib/file-viewer/zip-directory.ts';
 
-import { UnreadableFile } from './renderer.ts';
+import { TooLargeFile, UnreadableFile } from './renderer.ts';
 
 const PACKAGE = 'Contents/content.hpf';
 const XML = 'application/xml';
@@ -123,8 +123,8 @@ async function partText(bytes: Uint8Array, entry: ZipEntry): Promise<string> {
 }
 
 /**
- * Throws `UnreadableFile` when what rhwp would parse of the package as XML is
- * past the limit, or its spine names a part twice.
+ * Throws `TooLargeFile` when what rhwp would parse of the package as XML is
+ * past the limit, and `UnreadableFile` when its spine names a part twice.
  */
 export async function checkHwpxPackage(archive: ArrayBuffer): Promise<void> {
   const bytes = new Uint8Array(archive);
@@ -141,6 +141,6 @@ export async function checkHwpxPackage(archive: ArrayBuffer): Promise<void> {
     if (entry.name.startsWith('BinData/') && !parsed.has(entry.name)) continue;
     const times = masterPages.has(entry.name) ? Math.max(1, sections.length) : 1;
     total += times * entry.size;
-    if (total > MARKUP_LIMIT_BYTES) throw new UnreadableFile();
+    if (total > MARKUP_LIMIT_BYTES) throw new TooLargeFile();
   }
 }

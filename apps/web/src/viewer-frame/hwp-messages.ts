@@ -33,4 +33,4 @@ export type ToWorker =
 export type FromWorker =
   | { kind: 'opened'; pages: PageSize[] }
   | { kind: 'page'; svg: string; text: TextRun[] }
-  | { kind: 'failed'; reason: 'locked' | 'unreadable' | 'renderer' };
+  | { kind: 'failed'; reason: 'locked' | 'unreadable' | 'too-large' | 'renderer' };
