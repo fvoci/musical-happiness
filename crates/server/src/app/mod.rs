@@ -46,6 +46,7 @@ mod slots;
 mod snapshots;
 
 pub(crate) use download::download;
+pub use mail::UnsentMail;
 pub(crate) use presence::PresenceAccess;
 pub(crate) use server_lock::HeldLock;
 pub(crate) use server_lock::take_server_lock;
@@ -496,6 +497,12 @@ impl App {
         work: impl Future<Output = T> + Send + 'static,
     ) -> tokio::task::JoinHandle<T> {
         self.inner.background.spawn(work)
+    }
+
+    /// The mail queued and not yet delivered or given up: for the shutdown to say what
+    /// it leaves unsent.
+    pub fn unsent_mail(&self) -> UnsentMail {
+        self.inner.mail.unsent()
     }
 
     /// Waits until all background work has finished, or `timeout` has passed. Returns

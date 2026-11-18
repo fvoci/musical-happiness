@@ -70,6 +70,7 @@ mod mail_path;
 mod mail_reset;
 mod mail_reset_review;
 mod mail_ses;
+mod mail_shutdown;
 mod mail_smoke;
 mod metrics;
 mod metrics_accounts;

@@ -1,6 +1,7 @@
 //! The profile `tunnel` of `docker/compose.yaml`, as compose reads it: with a token it
-//! is cloudflared on the network `edge` holding the token as a secret, and without the
-//! profile none of it is there. A tunnel dials Cloudflare, which a trial must not do:
+//! is cloudflared on the network `edge` holding the token as a secret, fvoci's port
+//! stays on the loopback unless `.env` says otherwise, and without the profile none of
+//! it is there. A tunnel dials Cloudflare, which a trial must not do:
 //! cloudflared is run once with a token that is no token, which it reads from its
 //! secret's file and refuses before it dials anything.
 
@@ -56,6 +57,17 @@ pub(super) fn profile(trial: &Trial) -> Result<()> {
     ensure!(
         service["ports"].is_null(),
         "cloudflared publishes a port of the host"
+    );
+    // Beside the tunnel, edge's range is trusted, and so is whatever reaches fvoci's port.
+    let published: Vec<&str> = with["services"]["fvoci"]["ports"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|port| port["host_ip"].as_str())
+        .collect();
+    ensure!(
+        published == ["127.0.0.1"],
+        "with the profile, fvoci's port is published on {published:?}, not on the loopback alone"
     );
 
     let without = config(trial, &[], &token)?;

@@ -440,6 +440,15 @@ impl Server {
         {
             tracing::warn!("background notifications did not finish before shutdown");
         }
+        // Counted once the wait is over: what holds a place then is never sent.
+        let unsent = self.app.unsent_mail();
+        if !unsent.is_empty() {
+            tracing::warn!(
+                recovery = unsent.recovery,
+                invitations = unsent.invitations,
+                "mail not sent before shutdown: it is kept in memory and is lost"
+            );
+        }
         if let Some(server_lock) = self.lock.take() {
             server_lock
                 .close_store_and_release(STORE_CLOSE_TIMEOUT)

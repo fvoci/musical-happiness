@@ -45,6 +45,23 @@ const LONGEST_RETRY_WAIT: Duration = Duration::from_mins(15);
 /// places are for mail that may still go. Invitations wait as long as it stays closed.
 const LONGEST_PATH_WAIT: Duration = Duration::from_mins(15);
 
+/// How many messages are queued and not yet delivered or given up, as
+/// [`Mailer::unsent`] counts them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UnsentMail {
+    /// Password resets and confirmations of a registration, which share a queue.
+    pub recovery: usize,
+    /// Invitations.
+    pub invitations: usize,
+}
+
+impl UnsentMail {
+    /// Whether no message is waiting.
+    pub fn is_empty(self) -> bool {
+        self == Self::default()
+    }
+}
+
 /// Why invitation messages were not queued; nothing of the request was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum InvitationRefusal {
@@ -68,7 +85,11 @@ pub(super) struct Mailer {
     connections: Arc<Semaphore>,
     invitation_connections: Arc<Semaphore>,
     reset_queue: Arc<Semaphore>,
+    /// The places of `reset_queue` (`mail_reset_queue`).
+    reset_places: usize,
     invitation_queue: Arc<Semaphore>,
+    /// The places of `invitation_queue` (`mail_invitation_queue`).
+    invitation_places: usize,
     /// Invitation messages per workspace and hour, up to `invitation_mail_per_hour`.
     workspace_quota: Arc<quota::HourlyQuota>,
     workspace_per_hour: u32,
@@ -139,15 +160,17 @@ impl Mailer {
         outbound: Option<Arc<dyn Outbound>>,
         metrics: Metrics,
     ) -> anyhow::Result<Self> {
+        let reset_places = usize::try_from(settings.mail_reset_queue)?;
+        let invitation_places = usize::try_from(settings.mail_invitation_queue)?;
         Ok(Self {
             outbound,
             from: Arc::from(settings.mail_from.as_str()),
             connections: Arc::new(Semaphore::new(CONNECTIONS)),
             invitation_connections: Arc::new(Semaphore::new(INVITATION_CONNECTIONS)),
-            reset_queue: Arc::new(Semaphore::new(usize::try_from(settings.mail_reset_queue)?)),
-            invitation_queue: Arc::new(Semaphore::new(usize::try_from(
-                settings.mail_invitation_queue,
-            )?)),
+            reset_queue: Arc::new(Semaphore::new(reset_places)),
+            reset_places,
+            invitation_queue: Arc::new(Semaphore::new(invitation_places)),
+            invitation_places,
             workspace_quota: Arc::default(),
             workspace_per_hour: settings.invitation_mail_per_hour,
             org_quota: Arc::default(),
@@ -161,6 +184,16 @@ impl Mailer {
             pace: Arc::new(pace::Pace::new(settings.mail_per_second)),
             metrics,
         })
+    }
+
+    /// The messages that hold a place in a queue now: waiting for their turn or for
+    /// another attempt, or being sent. They are kept in memory only, so a server that
+    /// stops with some loses them.
+    pub(super) fn unsent(&self) -> UnsentMail {
+        UnsentMail {
+            recovery: self.reset_places - self.reset_queue.available_permits(),
+            invitations: self.invitation_places - self.invitation_queue.available_permits(),
+        }
     }
 
     /// Takes the place of one recovery message to the account `user_id` in its queue.

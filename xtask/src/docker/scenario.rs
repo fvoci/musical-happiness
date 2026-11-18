@@ -27,15 +27,15 @@ const FIND_WITHIN: Duration = Duration::from_secs(90);
 const REQUEST_SECONDS: &str = "15";
 
 /// A client of the installation, signed in through its cookie jar.
-struct Client<'a> {
+pub(super) struct Client<'a> {
     base: &'a str,
     jar: PathBuf,
 }
 
 /// An answer: the status and the body.
-struct Answer {
-    status: u16,
-    body: String,
+pub(super) struct Answer {
+    pub(super) status: u16,
+    pub(super) body: String,
 }
 
 impl Answer {
@@ -44,10 +44,21 @@ impl Answer {
     }
 }
 
-impl Client<'_> {
+impl<'a> Client<'a> {
+    /// A client of the installation at `base`, with an empty cookie jar in `directory`
+    /// that only its owner can read.
+    pub(super) fn new(base: &'a str, directory: &Path) -> Result<Self> {
+        let client = Client {
+            base,
+            jar: directory.join("cookies.txt"),
+        };
+        super::write_private(&client.jar, "")?;
+        Ok(client)
+    }
+
     /// Sends a request as the web app does: with the `Origin` of the server's address
     /// and `X-Requested-With`, which a request that changes something needs.
-    fn send(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Answer> {
+    pub(super) fn send(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Answer> {
         let url = format!("{}{path}", self.base);
         let jar = self.jar.to_string_lossy();
         let origin = format!("Origin: {}", self.base);
@@ -154,12 +165,8 @@ fn encoded(words: &str) -> String {
 ///
 /// Fails at the first step that does not answer as it should.
 pub(super) fn run(trial: &Trial, directory: &Path) -> Result<()> {
-    let client = Client {
-        base: &trial.base,
-        jar: directory.join("cookies.txt"),
-    };
     // The session's cookie is the owner's only.
-    super::write_private(&client.jar, "")?;
+    let client = Client::new(&trial.base, directory)?;
 
     let page = client.send("GET", "/", None)?;
     ensure!(
