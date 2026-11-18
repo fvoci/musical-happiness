@@ -4,10 +4,11 @@
  * screen of the app or of a public link. One at a time:
  * `FileViewerHost.svelte`, which the app's frame mounts once, shows it.
  *
- * When the viewer closes, the focus goes back where the file was opened
- * from, or to what was drawn in its place meanwhile; from the editor's
- * selected block, to the editor, whose selection is still the block, so
- * that Delete deletes it and the arrows move on from it.
+ * When the viewer closes, the focus goes where the opener says (`back`):
+ * the name or the link the file was opened from, or what was drawn in its
+ * place meanwhile; from the editor's selected block, the editor, whose
+ * selection is still the block, so that Delete deletes it and the arrows
+ * move on from it.
  */
 import type { FileSource, FileViewerLink } from '$lib/editor/files.ts';
 import { opensInViewer } from '$lib/file-viewer/extensions.ts';
@@ -39,12 +40,7 @@ class Viewing {
   close(): void {
     const back = this.#back?.();
     this.forget();
-    if (!back?.isConnected) return;
-    // From the editor's selected block to the editor, whose selection it still is; from a name
-    // the focus was on (reached by Tab), back to the name.
-    const selected = back.closest('.ProseMirror-selectednode') !== null;
-    const editor = selected ? back.closest<HTMLElement>('[contenteditable="true"]') : null;
-    (editor ?? back).focus({ preventScroll: true });
+    if (back?.isConnected) back.focus({ preventScroll: true });
   }
 
   /** Lets the file go, the focus where it is: the screen it was shown over is gone. */

@@ -44,7 +44,8 @@ export interface FileViewerLink {
   /**
    * Opens the viewer on the file; says whether the viewer came (it may not,
    * with the connection gone). `back` finds where the focus goes back to when
-   * it closes: the name pressed, or the one drawn in its place meanwhile.
+   * it closes: the name pressed (or the one drawn in its place meanwhile), or
+   * the editor whose selection the block is.
    */
   open(fileId: string, details: FileDetails, back: () => HTMLElement | null): Promise<boolean>;
 }

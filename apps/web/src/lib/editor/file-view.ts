@@ -166,6 +166,46 @@ function onPress(event: MouseEvent, link: HTMLAnchorElement, fileId: string, nam
 }
 
 /**
+ * Keeps what is typed on a file's name from the text around it. Enter and
+ * Space press the name, and Tab moves on; a key that edits edits nothing
+ * from here: WebKit would apply it, and an input method (or text put in)
+ * in any browser would type it, where the editor's caret was before the
+ * name had the focus. A shortcut of the browser's (find, print) is still
+ * the browser's, but not one a browser edits by (bold, italic, underline,
+ * paste, cut, undo, redo); AltGr's characters (Ctrl with Alt) are typed,
+ * and so are the keys an input method or a dead key takes.
+ */
+function keepTyping(page: Document, button: HTMLElement): void {
+  button.addEventListener('keydown', (event) => {
+    const shortcut = (event.ctrlKey || event.metaKey) && !event.altKey;
+    const typed = event.key.length === 1 && event.key !== ' ';
+    const composed = event.isComposing || ['Process', 'Dead'].includes(event.key);
+    if (
+      event.key === 'Backspace' ||
+      event.key === 'Delete' ||
+      composed ||
+      (typed && (!shortcut || 'biuvxyz'.includes(event.key.toLowerCase())))
+    ) {
+      event.preventDefault();
+    }
+  });
+  // Given the focus otherwise than by a pointer's press (by Tab, or back from the viewer), the
+  // name leaves no caret in the text to type into. A press keeps the selection it makes: the
+  // editor's, of the block, which Delete deletes once the viewer is closed.
+  let pressed = false;
+  button.addEventListener('pointerdown', () => {
+    pressed = true;
+  });
+  button.addEventListener('focus', () => {
+    if (!pressed) page.getSelection()?.removeAllRanges();
+    pressed = false;
+  });
+  button.addEventListener('click', () => {
+    pressed = false;
+  });
+}
+
+/**
  * The name of a shown file: a button that opens the viewer on it when the
  * viewer shows its kind, its text otherwise. A viewer that does not come
  * (the connection gone) leaves the file to its download.
@@ -186,32 +226,26 @@ function nameOf(
   button.setAttribute('aria-label', label);
   button.setAttribute('title', label);
   button.textContent = name;
-  const back = (): HTMLElement | null => {
+  /** The name drawn for the file now: this one, or the one drawn in its place meanwhile. */
+  const drawn = (): HTMLElement | null => {
     if (button.isConnected) return button;
     const blocks = [...page.querySelectorAll<HTMLElement>(FILE_BLOCK_SELECTOR)];
     const again = blocks.find((block) => block.getAttribute(FILE_ID_ATTRIBUTE) === fileId);
     return again?.querySelector<HTMLElement>('button.doc-file-open') ?? null;
   };
-  // Enter and Space press it, and Tab moves on; a key that edits edits nothing from here
-  // (WebKit would apply it where the editor's caret was before the button had the focus).
-  // A shortcut of the browser's (find, print) is still the browser's, but not one a browser
-  // edits by (bold, italic, underline, paste, cut, undo, redo); AltGr's characters (Ctrl with
-  // Alt) are typed, and so are the keys an input method or a dead key takes.
-  button.addEventListener('keydown', (event) => {
-    const shortcut = (event.ctrlKey || event.metaKey) && !event.altKey;
-    const typed = event.key.length === 1 && event.key !== ' ';
-    const composed = event.isComposing || ['Process', 'Dead'].includes(event.key);
-    if (
-      event.key === 'Backspace' ||
-      event.key === 'Delete' ||
-      composed ||
-      (typed && (!shortcut || 'biuvxyz'.includes(event.key.toLowerCase())))
-    ) {
-      event.preventDefault();
-    }
-  });
-  button.addEventListener('click', () => {
+  keepTyping(page, button);
+  button.addEventListener('click', (event) => {
     const block = button.closest<HTMLElement>(FILE_BLOCK_SELECTOR);
+    // Pressed from the keyboard with the focus on it (Tab, then Enter or Space), the name has
+    // the focus back when the viewer closes; pressed by a pointer, or by Enter on the selected
+    // block, the editor has it, whose selection the block still is (Delete deletes it, the
+    // arrows move on from it). Where a body is only shown, the name has it.
+    const fromName = event.detail === 0 && page.activeElement === button;
+    const back = (): HTMLElement | null => {
+      const now = drawn();
+      if (fromName || !now) return now;
+      return now.closest<HTMLElement>('[contenteditable="true"]') ?? now;
+    };
     void viewer.open(fileId, details, back).then((opened) => {
       if (!opened && block) saveFileOf(block);
     });
