@@ -114,7 +114,8 @@ impl Outcome {
             | StoreError::InvalidId(_)
             | StoreError::Conflict(_)
             | StoreError::NotRestorable { .. }
-            | StoreError::Stale { .. } => Self::Refused,
+            | StoreError::Stale { .. }
+            | StoreError::DocumentWritten { .. } => Self::Refused,
         }
     }
 }

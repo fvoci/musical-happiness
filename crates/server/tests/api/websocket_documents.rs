@@ -282,7 +282,7 @@ async fn malformed_and_server_evicted_documents_leave_no_workspace_watch() {
         "cardId": room.card_id, "doc": null}),
     )
     .await;
-    peer.barrier().await;
+    peer.barrier(&ts).await;
     Revocation::Remove.apply(&ts, &user).await;
     assert_eq!(
         peer.incoming(QUIET).await,
@@ -427,7 +427,7 @@ async fn ending_one_workspace_leaves_a_room_of_another() {
     peer.joined(TEST_WORKSPACE_ID, &room.card_id).await;
     peer.send_json(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
-    peer.barrier().await;
+    peer.barrier(&ts).await;
     ts.client
         .delete(&format!("/w/{ROOT_WORKSPACE_ID}/members/{user}"))
         .await

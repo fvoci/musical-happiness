@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use fvoci_store::Tenant;
+use fvoci_store::{DocAsRead, StoreError, Tenant};
 use tokio::sync::{Mutex, OwnedMutexGuard, OwnedSemaphorePermit};
 use tokio::time::Instant;
 
@@ -111,6 +111,21 @@ impl OpenDoc {
 }
 
 impl OpenDoc {
+    /// The numbers of what is stored of it as this server knows them: as it read them
+    /// when it opened the document, and as its own writes left them since. Every
+    /// write of the document names them, so that the store refuses a server that
+    /// another wrote past (one that lost the lock of the server and has not noticed
+    /// yet). A server that is refused closes the document, and reads it again when it
+    /// is next asked for.
+    pub(super) fn as_read(&self) -> DocAsRead {
+        DocAsRead {
+            epoch: self.epoch,
+            state_seq: self.state_seq,
+            log_end: self.log_end,
+            projected_seq: self.written_seq,
+        }
+    }
+
     /// When its body is to be written, if it has updates whose body is not.
     pub(super) fn write_at(&self) -> Option<Instant> {
         let first = self.first_unwritten?;
@@ -301,7 +316,7 @@ impl Collab {
                 }
                 return Ok(());
             }
-            Err(Opening::Refused(error)) => error,
+            Err(Opening::Refused(error) | Opening::WrittenSince(error)) => error,
             Err(Opening::Died) => {
                 died_over(slot);
                 refusals::unavailable()
@@ -337,7 +352,7 @@ impl Collab {
                 slot.open = Some(open);
                 Ok(())
             }
-            Err(Opening::Refused(error)) => Err(error),
+            Err(Opening::Refused(error) | Opening::WrittenSince(error)) => Err(error),
             Err(Opening::Died) => {
                 died_over(slot);
                 Err(refusals::unavailable())
@@ -416,6 +431,10 @@ pub(super) enum Opening {
     Refused(AppError),
     /// The worker ended over it.
     Died,
+    /// Another process wrote what is stored of the document since it was read here
+    /// ([`StoreError::DocumentWritten`]): the error to answer with. What is stored
+    /// is that process's, and nothing here writes over it.
+    WrittenSince(AppError),
 }
 
 impl From<AppError> for Opening {
@@ -424,9 +443,12 @@ impl From<AppError> for Opening {
     }
 }
 
-impl From<fvoci_store::StoreError> for Opening {
-    fn from(error: fvoci_store::StoreError) -> Self {
-        Self::Refused(error.into())
+impl From<StoreError> for Opening {
+    fn from(error: StoreError) -> Self {
+        match error {
+            StoreError::DocumentWritten { .. } => Self::WrittenSince(error.into()),
+            other => Self::Refused(other.into()),
+        }
     }
 }
 
