@@ -4,7 +4,7 @@
  * `failed`, `page` with `page` or `failed`.
  */
 
-export type HwpFormat = 'hwpx';
+export type HwpFormat = 'hwp' | 'hwpx';
 
 /** A page's size in CSS pixels at the document's own size. */
 export interface PageSize {

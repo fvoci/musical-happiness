@@ -16,7 +16,16 @@ import {
   type WorkerLike,
 } from '../../src/viewer-frame/worker-client.ts';
 
-import { HWP_TEXT, koreanHwpx, lockedHwpx } from '../support/hwp-files.ts';
+import {
+  compoundFile,
+  compoundStreams,
+  HWP_TEXT,
+  hwpFileHeader,
+  koreanHwp,
+  koreanHwpx,
+  lockedHwp,
+  lockedHwpx,
+} from '../support/hwp-files.ts';
 import { zip } from '../support/viewer-files.ts';
 
 const bytes = (buffer: Buffer): Uint8Array =>
@@ -59,9 +68,12 @@ const open = (reader: HwpReader, format: HwpFormat, data: Buffer): Promise<FromW
   reader.answer({ kind: 'open', format, bytes: buffer(data), wasm: WASM });
 
 describe("the worker's reader, with rhwp", () => {
-  it('opens the Korean HWPX sample of two pages and draws them', async () => {
+  it.each([
+    ['hwpx', koreanHwpx],
+    ['hwp', koreanHwp],
+  ] as const)('opens the Korean %s sample of two pages and draws them', async (format, make) => {
     const reader = new HwpReader();
-    const opened = await open(reader, 'hwpx', koreanHwpx());
+    const opened = await open(reader, format, make());
     expect(opened.kind).toBe('opened');
     if (opened.kind !== 'opened') return;
     expect(opened.pages).toHaveLength(2);
@@ -83,8 +95,24 @@ describe("the worker's reader, with rhwp", () => {
     });
   });
 
+  it('opens the HWP sample written again as version 4, and with DIFAT sectors', async () => {
+    const streams = compoundStreams(koreanHwp());
+    const picture = { path: 'BinData/BIN0009.bmp', data: Buffer.alloc(8 << 20, 9) };
+    for (const again of [
+      compoundFile(streams, { version: 4 }),
+      compoundFile([...streams, picture]),
+    ]) {
+      const opened = await open(new HwpReader(), 'hwp', again);
+      expect(opened.kind === 'opened' && opened.pages.length).toBe(2);
+    }
+  });
+
   it('says a document locked with a password is locked', async () => {
     expect(await open(new HwpReader(), 'hwpx', lockedHwpx())).toEqual({
+      kind: 'failed',
+      reason: 'locked',
+    });
+    expect(await open(new HwpReader(), 'hwp', lockedHwp())).toEqual({
       kind: 'failed',
       reason: 'locked',
     });
@@ -93,6 +121,12 @@ describe("the worker's reader, with rhwp", () => {
   it('says a file it cannot read is unreadable', async () => {
     // An archive with the HWPX media type and nothing else: counted, then refused by rhwp.
     expect(await open(new HwpReader(), 'hwpx', hwpxArchive(MIMETYPE))).toEqual({
+      kind: 'failed',
+      reason: 'unreadable',
+    });
+    // A compound file with an HWP header and nothing else: checked, then refused by rhwp.
+    const empty = compoundFile([{ path: 'FileHeader', data: hwpFileHeader() }]);
+    expect(await open(new HwpReader(), 'hwp', empty)).toEqual({
       kind: 'failed',
       reason: 'unreadable',
     });

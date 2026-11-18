@@ -1,9 +1,10 @@
 /**
- * The file viewer with HWPX documents, opened from a card's attachments:
- * the pages of a Korean document turned through, its renderer and
- * WebAssembly fetched only when one is first opened, a locked one, and the
- * worker the renderer runs in kept off the network and stopped past the time
- * limit or when the viewer closes.
+ * The file viewer with HWP and HWPX documents, opened from a card's
+ * attachments: the pages of a Korean document turned through, its renderer
+ * and WebAssembly fetched only when one is first opened, a locked one, another
+ * compound file (an old Word document) and one past the limit offered as a
+ * download, and the worker the renderer runs in kept off the network and
+ * stopped past the time limit or when the viewer closes.
  *
  * With `FVOCI_SCREENS=1` the tests also take pictures of each state into
  * `target/viewer-h1/` (light and dark), at every size the project runs at
@@ -20,13 +21,21 @@ import {
   type Worker,
 } from '@playwright/test';
 
-import { HWP_TEXT, koreanHwpx, lockedHwpx } from '../tests/support/hwp-files.ts';
+import {
+  compoundFile,
+  HWP_TEXT,
+  hwpFileHeader,
+  koreanHwp,
+  koreanHwpx,
+  lockedHwpx,
+} from '../tests/support/hwp-files.ts';
 
 import { boardPath } from './address.ts';
 
 const SCREENS = process.env.FVOCI_SCREENS === '1';
 const SCREENS_DIR = path.resolve(import.meta.dirname, '../../../target/viewer-h1');
 const HWPX_TYPE = 'application/hwp+zip';
+const HWP_TYPE = 'application/x-hwp';
 /** How long the viewer gives a file to be drawn (LIMITS.draw in lib/file-viewer/session.svelte.ts). */
 const DRAW_LIMIT = 30_000;
 
@@ -99,8 +108,13 @@ function nextWorker(page: Page): Promise<{ worker: Worker; ended: Promise<void> 
 async function picture(page: Page, name: string): Promise<void> {
   if (!SCREENS) return;
   const { project } = test.info();
-  const browser = project.use.browserName ?? 'chromium';
-  if (project.name === 'mobile') await page.setViewportSize({ width: 390, height: 844 });
+  // The engine that runs: device presets name it apart from `browserName`.
+  const browser = page.context().browser()?.browserType().name() ?? 'unknown';
+  // The phone at 390 pixels: narrowed when wider, its height kept (WebKit keeps `dvh` as it was).
+  const size = page.viewportSize();
+  if (project.name === 'mobile' && size && size.width > 390) {
+    await page.setViewportSize({ width: 390, height: size.height });
+  }
   for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme });
     await page.waitForFunction(
@@ -172,6 +186,50 @@ test('an HWPX document opens in the viewer, and its pages are turned with the bu
   await page.keyboard.press('Escape');
   await expect(viewer(page)).toHaveCount(0);
   await ended;
+});
+
+test('an HWP document opens the same way', async ({ page }) => {
+  await openCard(page);
+  await view(page, '회의록.hwp', koreanHwp(), HWP_TYPE);
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 2');
+  const text = frameOf(page).locator('.page[data-page="1"] .hwp-text');
+  await expect(text).toContainText(HWP_TEXT.header);
+  await expect(text).toContainText(HWP_TEXT.title);
+  await expect(text).toContainText('김민지');
+  await picture(page, 'hwp');
+});
+
+test('another compound file, as an old Word document is, is offered as a download', async ({
+  page,
+}) => {
+  await openCard(page);
+  const word = compoundFile([
+    { path: 'WordDocument', data: Buffer.alloc(5000, 7) },
+    { path: '\u0001CompObj', data: Buffer.alloc(100, 1) },
+  ]);
+  await view(page, 'notes.hwp', word, HWP_TYPE);
+  await expect(viewer(page)).toHaveAttribute('data-status', 'unknown');
+  await expect(notice(page)).toContainText("This file can't be previewed.");
+  await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
+  await picture(page, 'ole');
+  const downloading = page.waitForEvent('download');
+  await notice(page).getByRole('button', { name: 'Download' }).click();
+  expect((await downloading).suggestedFilename()).toBe('notes.hwp');
+});
+
+test('an HWP document whose streams say they hold more than the limit is not drawn', async ({
+  page,
+}) => {
+  await openCard(page);
+  const huge = compoundFile([
+    { path: 'FileHeader', data: hwpFileHeader(1) },
+    { path: 'BodyText/Section0', data: Buffer.alloc(5000), said: 200 * 1024 * 1024 },
+  ]);
+  await view(page, 'huge.hwp', huge, HWP_TYPE);
+  await expect(viewer(page)).toHaveAttribute('data-status', 'too-large');
+  await expect(notice(page)).toContainText("This file's contents are too large to preview.");
+  await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
 });
 
 test('the frame and the worker the renderer runs in reach no network', async ({ page }) => {

@@ -14,16 +14,27 @@
  * counts them and hands its renderer a new archive of only what it counted
  * (src/viewer-frame/zip-guard.ts).
  *
+ * A kind that is a compound file (OLE: HWP) is told apart by its streams
+ * (`streams`), and held to the same limit on what its streams say they hold
+ * together; the frame checks that they hold no more (compound-file.ts).
+ *
  * Adding a kind: its line in `FORMATS` here and a renderer in the frame
  * (`src/viewer-frame/renderers.ts`, whose table is typed by `FormatId` and
  * so asks for it).
  */
+import {
+  compoundFile,
+  readStream,
+  rootStream,
+  streamTotal,
+  type CompoundFile,
+} from './compound-file.ts';
 import { storedPart, zipEntries, type ZipEntry } from './zip-directory.ts';
 
 /** The largest file the viewer opens; a larger one is only offered as a download. */
 export const VIEW_LIMIT_BYTES = 50 * 1024 * 1024;
 
-/** The most an archive's parts may unpack to, together. */
+/** The most an archive's parts may unpack to, together; and what a compound file's streams may hold. */
 export const UNPACKED_LIMIT_BYTES = 200 * 1024 * 1024;
 /**
  * The most its XML parts (`.xml`, `.rels`) may unpack to, together: the
@@ -63,7 +74,9 @@ type Kind =
    * By the parts of the ZIP archive it is. Such a kind is held to the limits
    * on what its parts unpack to, and the frame watches it unpack.
    */
-  | { parts: (archive: Archive) => boolean };
+  | { parts: (archive: Archive) => boolean }
+  /** By the streams of the compound file it is, which are held to the limit together. */
+  | { streams: (file: CompoundFile) => boolean };
 
 /** An Office Open XML package whose main part is `member`: a ZIP archive that has it. */
 const officePackage = (member: string): Kind => ({
@@ -86,11 +99,24 @@ const hwpx: Kind = {
   },
 };
 
+/** What the stream `FileHeader` of an HWP document starts with. */
+export const HWP_SIGNATURE = 'HWP Document File';
+
+/** HWP: a compound file with a stream `FileHeader` that starts with its signature. */
+const hwp: Kind = {
+  streams: (file) => {
+    const header = rootStream(file, 'FileHeader');
+    const start = header && readStream(file, header, HWP_SIGNATURE.length);
+    return start !== undefined && ascii.decode(start) === HWP_SIGNATURE;
+  },
+};
+
 /** Every kind, in the order they are tried. */
 const FORMATS = {
   pdf: { bytes: isPdf },
   docx: officePackage('word/document.xml'),
   hwpx,
+  hwp,
 } as const satisfies Record<string, Kind>;
 
 export type FormatId = keyof typeof FORMATS;
@@ -100,6 +126,11 @@ export const FORMAT_IDS = Object.keys(FORMATS) as FormatId[];
 /** Whether the kind is a ZIP archive, held to the limits and watched as it unpacks. */
 export function isPackaged(format: FormatId): boolean {
   return 'parts' in FORMATS[format];
+}
+
+/** Whether the kind is a compound file, whose streams are held to the limit. */
+export function isCompound(format: FormatId): boolean {
+  return 'streams' in FORMATS[format];
 }
 
 /** What the viewer makes of a file's bytes. */
@@ -120,19 +151,26 @@ export function unpacksTooLarge(entries: readonly ZipEntry[]): boolean {
   return total > UNPACKED_LIMIT_BYTES || markup > MARKUP_LIMIT_BYTES;
 }
 
+/** Whether a compound file's streams say they hold more than the viewer takes. */
+export function holdsTooMuch(file: CompoundFile): boolean {
+  return streamTotal(file) > UNPACKED_LIMIT_BYTES;
+}
+
 /** The kind of file the bytes are, and whether the viewer takes them. */
 export function examine(bytes: Uint8Array): Examined {
   const entries = zipEntries(bytes);
+  const file = compoundFile(bytes);
   const format = FORMAT_IDS.find((id) => {
     const kind: Kind = FORMATS[id];
-    return 'bytes' in kind
-      ? kind.bytes(bytes)
-      : entries !== undefined && kind.parts({ entries, bytes });
+    if ('bytes' in kind) return kind.bytes(bytes);
+    if ('parts' in kind) return entries !== undefined && kind.parts({ entries, bytes });
+    return file !== undefined && kind.streams(file);
   });
   if (!format) return { kind: 'unknown' };
   if (entries && isPackaged(format) && unpacksTooLarge(entries)) {
     return { kind: 'too-large', format };
   }
+  if (file && isCompound(format) && holdsTooMuch(file)) return { kind: 'too-large', format };
   return { kind: 'format', format };
 }
 
