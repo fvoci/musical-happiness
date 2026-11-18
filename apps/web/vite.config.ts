@@ -8,7 +8,10 @@ import { defineConfig } from 'vitest/config';
 import { cspHashes } from './tools/build/inline-scripts.ts';
 import { checkHashedNames, precompress } from './tools/build/output.ts';
 import { pdfjsData } from './tools/build/pdfjs-data.ts';
+import { rhwpWasm } from './tools/build/rhwp-wasm.ts';
+import { pptxRenderer } from './tools/build/pptx-renderer.ts';
 import { thirdPartyNotices } from './tools/licenses/notices.ts';
+import { workerPackages } from './tools/licenses/worker-packages.ts';
 
 /**
  * The server serves `index.html` for every page of the app and everything
@@ -42,6 +45,8 @@ export default defineConfig(({ command }) => ({
     svelte(),
     svelteTesting(),
     pdfjsData(),
+    rhwpWasm(),
+    pptxRenderer(),
     thirdPartyNotices(),
     checkHashedNames(),
     precompress(),
@@ -57,6 +62,13 @@ export default defineConfig(({ command }) => ({
       {
         find: /^elkjs(\/.*)?$/,
         replacement: path.resolve(import.meta.dirname, 'src/lib/editor/no-elk.ts'),
+      },
+      // The file viewer's PowerPoint renderer draws charts with echarts; the
+      // viewer shows a box in their place, and this stub takes the library's
+      // (see the file and tools/build/pptx-renderer.ts).
+      {
+        find: /^echarts(\/.*)?$/,
+        replacement: path.resolve(import.meta.dirname, 'src/viewer-frame/no-echarts.ts'),
       },
     ],
   },
@@ -92,11 +104,13 @@ export default defineConfig(({ command }) => ({
       output: OUTPUT_NAMES,
     },
   },
-  // pdf.js's worker, which the viewer's frame starts from its own text
-  // (src/viewer-frame/pdf-worker.ts): a classic script, as a `blob:` worker
-  // of an opaque origin cannot load modules.
+  // pdf.js's and rhwp's workers, which the viewer's frame starts from their
+  // own text (src/viewer-frame/pdf-worker.ts, hwp-worker.ts): classic
+  // scripts, as a `blob:` worker of an opaque origin cannot load modules.
   worker: {
     format: 'iife',
+    // What each worker bundles, for the notices (their step does not see inside a worker).
+    plugins: () => [rhwpWasm(), workerPackages()],
     rolldownOptions: { output: OUTPUT_NAMES },
   },
   test: {

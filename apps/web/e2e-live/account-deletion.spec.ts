@@ -5,13 +5,15 @@
  * nothing but taking that back; taken back, the account is as it was. Asked
  * again, the person who runs the server erases it at once on the
  * administration socket, and somebody who reads what the person wrote sees
- * it written by a deleted user.
+ * it written by a deleted user. Somebody who forgot the password meanwhile
+ * resets it by mail, and signs in with the new one to the same way back.
  */
 import { expect, test, type Page } from '@playwright/test';
 
 import {
   apiClient,
   boardPath,
+  inbox,
   makeBoard,
   operator,
   person,
@@ -182,4 +184,49 @@ test('an account is asked to be deleted, taken back, asked again and erased; wha
   expect(readingErrors).toEqual([]);
   await other.close();
   for (const client of [api, waiting, fresh, people]) await client.dispose();
+});
+
+test('an account that waits resets a forgotten password by mail and signs in to take the deletion back', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const forgetful = person('forgetful');
+  await register(base, forgetful);
+  const errors = watchErrors(page);
+  await page.goto('/');
+  await signInOnPage(page, forgetful);
+  await askOnPage(page, forgetful);
+
+  // The password is forgotten: a reset by mail, from the sign-in page.
+  await page.getByRole('link', { name: 'Forgot your password?' }).click();
+  await page.getByLabel('Email address').fill(forgetful.email);
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+  await expect(page.getByRole('status')).toContainText('If this email belongs to an account');
+  await expect
+    .poll(async () => (await inbox(base)).filter((mail) => mail.recipient === forgetful.email))
+    .toHaveLength(1);
+  const mail = (await inbox(base)).find((mail) => mail.recipient === forgetful.email);
+  const link = mail?.decoded
+    .split(/\r?\n/)
+    .find((line) => line.startsWith(base) && line.includes('/reset-password#'));
+  if (!link) throw new Error('the reset message has no link');
+  await page.goto(link.trim());
+  const renewed = { ...forgetful, password: 'a password found again' };
+  await page.getByLabel('New password').fill(renewed.password);
+  await page.getByRole('button', { name: 'Reset password', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Your password has been reset');
+
+  // Signed in with it, the account waits still: the way back, and nothing else.
+  await page.getByRole('link', { name: 'Back to sign in' }).click();
+  await signInToWaiting(page, renewed);
+  await expect(page.getByTestId('account-leaving-text')).toContainText(
+    /It is deleted in 30 days, on \w+ \d+, \d{4}\./,
+  );
+  await page.getByRole('button', { name: 'Cancel the deletion' }).click();
+  await expect(page.getByTestId('app-shell')).toBeVisible();
+  const back = await signedIn(base, renewed);
+  expect((await back.get('/api/v1/users/me')).status()).toBe(200);
+  await back.dispose();
+  expect(errors).toEqual([]);
 });

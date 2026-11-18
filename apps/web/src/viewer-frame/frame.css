@@ -39,10 +39,137 @@ body {
   flex: none;
 }
 
+/* A slide is drawn at its own size and scaled to its box (pptx-view.ts). */
+.slide {
+  overflow: hidden;
+}
+
 .page canvas {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/*
+  An HWP page (hwp-page.ts): rhwp's picture, scaled with the box, and the
+  page's text over it, transparent, laid out at the page's own size and
+  scaled as the box is (`--hwp-scale`, set on the column).
+*/
+.page > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.hwp-text {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: scale(var(--hwp-scale, 1));
+  transform-origin: 0 0;
+  line-height: 1;
+  font-family: 'Noto Sans KR', sans-serif;
+}
+
+.hwp-text > span {
+  position: absolute;
+  white-space: pre;
+  color: transparent;
+  transform-origin: 0 0;
+  cursor: text;
+}
+
+.hwp-text ::selection {
+  background: color-mix(in srgb, Highlight 40%, transparent);
+}
+
+/* The breaks between runs, out of the flow and unpainted when selected, as pdf.js's are. */
+.hwp-text > br {
+  position: absolute;
+}
+
+.hwp-text > br::selection {
+  background: transparent;
+}
+
+/*
+  In place of an HWP page too large to draw (hwp-view.ts): a line that says
+  so and a button that saves the file, on the page's white in either theme,
+  near its top (a page is often taller than the frame): a share of the
+  page's height down, a space that gives way first on a short page.
+*/
+.page-notice {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 6%;
+  overflow: hidden;
+  container-type: size;
+  color: color-mix(in srgb, black 75%, white);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.page-notice::before {
+  content: '';
+  flex: 0 1 8%;
+}
+
+.page-notice p {
+  margin: 0;
+  font-weight: 500;
+}
+
+.page-notice button {
+  margin-top: 12px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, black 17%, white);
+  border-radius: 6px;
+  background: white;
+  color: black;
+  font: inherit;
+  cursor: pointer;
+}
+
+.page-notice button:hover {
+  background: color-mix(in srgb, black 4%, white);
+}
+
+.page-notice button:focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .page-notice button {
+    min-height: 44px;
+  }
+}
+
+/*
+  A page drawn small (a small page after a large first one, zoomed out): the
+  line is left to screen readers and the button made small, so that it fits.
+*/
+@container (width < 150px) or (height < 100px) {
+  .page-notice p {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .page-notice button {
+    margin-top: 0;
+    min-height: 28px;
+    padding: 0 6px;
+    font-size: 12px;
+  }
 }
 
 /* docx-preview's wrapper: its grey and its padding give way to the frame's. */

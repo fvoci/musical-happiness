@@ -14,16 +14,30 @@
  * counts them and hands its renderer a new archive of only what it counted
  * (src/viewer-frame/zip-guard.ts).
  *
+ * A kind that is a compound file (OLE: HWP) is told apart by its streams
+ * (`streams`). What its directory says the streams hold, before anything is
+ * unpacked, is a first answer to whether it is too large; the limit itself is
+ * on what they unpack to, counted in the frame's worker before the renderer
+ * reads them (src/viewer-frame/compound-guard.ts).
+ *
  * Adding a kind: its line in `FORMATS` here and a renderer in the frame
  * (`src/viewer-frame/renderers.ts`, whose table is typed by `FormatId` and
  * so asks for it).
  */
-import { zipEntries, type ZipEntry } from './zip-directory.ts';
+import {
+  compoundFile,
+  readStream,
+  rootStream,
+  startsAsCompound,
+  streamTotal,
+  type CompoundFile,
+} from './compound-file.ts';
+import { storedPart, zipEntries, type ZipEntry } from './zip-directory.ts';
 
 /** The largest file the viewer opens; a larger one is only offered as a download. */
 export const VIEW_LIMIT_BYTES = 50 * 1024 * 1024;
 
-/** The most an archive's parts may unpack to, together. */
+/** The most an archive's parts, or a compound file's streams, may unpack to together. */
 export const UNPACKED_LIMIT_BYTES = 200 * 1024 * 1024;
 /**
  * The most its XML parts (`.xml`, `.rels`) may unpack to, together: the
@@ -49,6 +63,12 @@ function isPdf(bytes: Uint8Array): boolean {
   return false;
 }
 
+/** A ZIP archive: its directory, and its bytes for what a stored part holds. */
+interface Archive {
+  entries: readonly ZipEntry[];
+  bytes: Uint8Array;
+}
+
 /** How a kind is told apart. */
 type Kind =
   /** By its bytes. */
@@ -57,17 +77,50 @@ type Kind =
    * By the parts of the ZIP archive it is. Such a kind is held to the limits
    * on what its parts unpack to, and the frame watches it unpack.
    */
-  | { parts: (entries: readonly ZipEntry[]) => boolean };
+  | { parts: (archive: Archive) => boolean }
+  /** By the streams of the compound file it is, which are held to the limit as they unpack. */
+  | { streams: (file: CompoundFile) => boolean };
 
 /** An Office Open XML package whose main part is `member`: a ZIP archive that has it. */
 const officePackage = (member: string): Kind => ({
-  parts: (entries) => entries.some((entry) => entry.name === member),
+  parts: ({ entries }) => entries.some((entry) => entry.name === member),
 });
+
+/** The media type an HWPX archive's first part, `mimetype`, holds. */
+const HWPX_MEDIA_TYPE = 'application/hwp+zip';
+const ascii = new TextDecoder('ascii');
+
+/**
+ * HWPX: an archive whose part `mimetype` holds its media type, stored as it
+ * is (not deflated), as the format (like EPUB and ODF) writes it.
+ */
+const hwpx: Kind = {
+  parts: ({ entries, bytes }) => {
+    const entry = entries.find((each) => each.name === 'mimetype');
+    const held = entry && storedPart(bytes, entry, HWPX_MEDIA_TYPE.length);
+    return held !== undefined && ascii.decode(held) === HWPX_MEDIA_TYPE;
+  },
+};
+
+/** What the stream `FileHeader` of an HWP document starts with. */
+export const HWP_SIGNATURE = 'HWP Document File';
+
+/** HWP: a compound file with a stream `FileHeader` that starts with its signature. */
+const hwp: Kind = {
+  streams: (file) => {
+    const header = rootStream(file, 'FileHeader');
+    const start = header && readStream(file, header, HWP_SIGNATURE.length);
+    return start !== undefined && ascii.decode(start) === HWP_SIGNATURE;
+  },
+};
 
 /** Every kind, in the order they are tried. */
 const FORMATS = {
   pdf: { bytes: isPdf },
   docx: officePackage('word/document.xml'),
+  pptx: officePackage('ppt/presentation.xml'),
+  hwpx,
+  hwp,
 } as const satisfies Record<string, Kind>;
 
 export type FormatId = keyof typeof FORMATS;
@@ -77,6 +130,11 @@ export const FORMAT_IDS = Object.keys(FORMATS) as FormatId[];
 /** Whether the kind is a ZIP archive, held to the limits and watched as it unpacks. */
 export function isPackaged(format: FormatId): boolean {
   return 'parts' in FORMATS[format];
+}
+
+/** Whether the kind is a compound file, whose streams are held to the limit as they unpack. */
+export function isCompound(format: FormatId): boolean {
+  return 'streams' in FORMATS[format];
 }
 
 /** What the viewer makes of a file's bytes. */
@@ -97,17 +155,34 @@ export function unpacksTooLarge(entries: readonly ZipEntry[]): boolean {
   return total > UNPACKED_LIMIT_BYTES || markup > MARKUP_LIMIT_BYTES;
 }
 
+/**
+ * Whether a compound file's streams say they hold more than the viewer takes,
+ * before anything is unpacked (a file that tells the truth about its streams
+ * can hold no more than its own size; what they unpack to is counted in the
+ * frame).
+ */
+export function holdsTooMuch(file: CompoundFile): boolean {
+  return streamTotal(file) > UNPACKED_LIMIT_BYTES;
+}
+
 /** The kind of file the bytes are, and whether the viewer takes them. */
 export function examine(bytes: Uint8Array): Examined {
   const entries = zipEntries(bytes);
+  const file = compoundFile(bytes);
+  // An archive or a compound file is told by what it holds: a part or a stream of one may
+  // carry another kind's signature (a PDF's, anywhere in the first kilobyte).
+  const holder = entries !== undefined || startsAsCompound(bytes);
   const format = FORMAT_IDS.find((id) => {
-    const kind = FORMATS[id];
-    return 'bytes' in kind ? kind.bytes(bytes) : entries !== undefined && kind.parts(entries);
+    const kind: Kind = FORMATS[id];
+    if ('bytes' in kind) return !holder && kind.bytes(bytes);
+    if ('parts' in kind) return entries !== undefined && kind.parts({ entries, bytes });
+    return file !== undefined && kind.streams(file);
   });
   if (!format) return { kind: 'unknown' };
   if (entries && isPackaged(format) && unpacksTooLarge(entries)) {
     return { kind: 'too-large', format };
   }
+  if (file && isCompound(format) && holdsTooMuch(file)) return { kind: 'too-large', format };
   return { kind: 'format', format };
 }
 
