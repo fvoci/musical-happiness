@@ -8,7 +8,8 @@
  * the name or the link the file was opened from, or what was drawn in its
  * place meanwhile; from the editor's selected block, the editor, whose
  * selection is still the block, so that Delete deletes it and the arrows
- * move on from it.
+ * move on from it. It goes there once the viewer is gone (`returnFocus`):
+ * until then the viewer's dialog holds the focus in itself.
  */
 import type { FileSource, FileViewerLink } from '$lib/editor/files.ts';
 import { opensInViewer } from '$lib/file-viewer/extensions.ts';
@@ -21,6 +22,8 @@ class Viewing {
   file = $state.raw<ViewedFile | undefined>(undefined);
   /** Finds where the focus goes back to. */
   #back: (() => HTMLElement | null) | undefined;
+  /** The same, for the viewer closed and not yet gone. */
+  #returning: (() => HTMLElement | null) | undefined;
 
   /**
    * Opens the viewer on a file once it has arrived; says whether it came
@@ -36,10 +39,17 @@ class Viewing {
     return arrived;
   }
 
-  /** Closes the viewer, and gives the focus back. */
+  /** Closes the viewer; the focus goes back once it is gone (`returnFocus`). */
   close(): void {
-    const back = this.#back?.();
+    const back = this.#back;
     this.forget();
+    this.#returning = back;
+  }
+
+  /** Gives the focus back where the opener says, as the viewer closed goes. */
+  returnFocus(): void {
+    const back = this.#returning?.();
+    this.#returning = undefined;
     if (back?.isConnected) back.focus({ preventScroll: true });
   }
 
@@ -47,6 +57,7 @@ class Viewing {
   forget(): void {
     this.file = undefined;
     this.#back = undefined;
+    this.#returning = undefined;
   }
 }
 

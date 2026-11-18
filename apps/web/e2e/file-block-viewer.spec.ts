@@ -83,15 +83,27 @@ async function putFile(page: Page, body: Locator, name: string, bytes: Buffer, t
  * Selects the block with an arrow from the end of the line above it: the arrow right, which the
  * editor reads from where the caret is (the arrow down measures the page, still settling). Right
  * after the file is put in, a click may come while the page is still drawn (on a loaded machine,
- * the block was left unselected): the caret is put again until the block is seen selected.
+ * the block was left unselected): the caret is put again until it is seen at the end of the line,
+ * and the arrow is pressed once.
  */
 async function selectByArrow(page: Page, body: Locator, block: Locator): Promise<void> {
+  const atEnd = (): Promise<boolean> =>
+    page.evaluate(() => {
+      const selection = document.getSelection();
+      const line = selection?.anchorNode?.parentElement?.closest('p');
+      if (!selection?.anchorNode || line?.textContent !== 'Above:') return false;
+      const rest = document.createRange();
+      rest.setStart(selection.anchorNode, selection.anchorOffset);
+      rest.setEnd(line, line.childNodes.length);
+      return rest.toString() === '';
+    });
   await expect(async () => {
     await body.getByText('Above:').last().click();
     await page.keyboard.press('End');
-    await page.keyboard.press('ArrowRight');
-    await expect(block).toHaveClass(/ProseMirror-selectednode/, { timeout: 1000 });
+    expect(await atEnd()).toBe(true);
   }).toPass({ timeout: 5000 });
+  await page.keyboard.press('ArrowRight');
+  await expect(block).toHaveClass(/ProseMirror-selectednode/);
 }
 
 test('a PDF in a page opens in the viewer by its name and by Enter, and the block is deleted as before', async ({
@@ -151,9 +163,22 @@ test('a PDF in a page opens in the viewer by its name and by Enter, and the bloc
   await page.keyboard.type('!');
   await expect(body.getByText('Above:!')).toHaveCount(1);
   await page.keyboard.press('Backspace');
+  // Pressed by an assistive technology (a click of no pointer, the focus left in the text), the
+  // name has the focus back when the viewer closes, not what had it when the viewer opened.
+  await open.dispatchEvent('click');
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await page.keyboard.press('Escape');
+  await expect(viewer(page)).toHaveCount(0);
+  await expect(open).toBeFocused();
 
-  // By the keyboard: selected with an arrow, opened with Enter, closed with Escape.
+  // By the keyboard: selected with an arrow, to the name and back with Tab and Shift+Tab, still
+  // selected; opened with Enter, closed with Escape.
   await selectByArrow(page, body, block);
+  await page.keyboard.press('Tab');
+  await expect(open).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(body).toBeFocused();
+  await expect(block).toHaveClass(/ProseMirror-selectednode/);
   await page.keyboard.press('Enter');
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
   await page.keyboard.press('Escape');

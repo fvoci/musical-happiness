@@ -25,6 +25,9 @@
       onClose={() => {
         viewing.close();
       }}
+      returnFocus={() => {
+        viewing.returnFocus();
+      }}
     />
   {/key}
 {/if}

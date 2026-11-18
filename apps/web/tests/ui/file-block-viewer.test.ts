@@ -7,7 +7,7 @@
  * (viewing.svelte.ts) gives the focus back to where it was pressed.
  */
 import type { Editor } from '@tiptap/core';
-import { NodeSelection } from '@tiptap/pm/state';
+import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { render } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -71,7 +71,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   setFileSource(previous);
-  viewing.close();
+  viewing.forget();
   vi.restoreAllMocks();
 });
 
@@ -147,47 +147,74 @@ describe('the name of a file the viewer shows', () => {
     expect(editor.state.selection).toBeInstanceOf(NodeSelection);
   });
 
-  it('takes the caret out of the text while it or the download has the focus, and gives it back', async () => {
+  it("takes the caret out of the text while it or the download has the focus; back, the editor's is given back", async () => {
     const viewer = link();
     setFileSource(source(viewer));
-    const body = doc(paragraph(text('ab')), fileBlock('7minutes.pdf'));
+    // A body that starts with the block: the browser's caret at the start would select it.
+    const body = doc(fileBlock('7minutes.pdf'), paragraph(text('ab')));
     const { container } = render(BodyEditor, { doc: body });
     const editor = editorIn(container);
     const [block] = await shown(container);
     const button = block?.querySelector<HTMLButtonElement>('button.doc-file-open');
     const download = block?.querySelector<HTMLElement>('a.doc-file-download');
-    const line = editor.view.dom.querySelector('p')?.firstChild ?? null;
     const selection = document.getSelection();
-    // The focus's events are sent as a browser sends them: jsdom moves the selection to what it
-    // focuses, which a browser does not do for a button or a link.
-    const to = (control: HTMLElement | null | undefined, relatedTarget: Element | null): void => {
-      control?.dispatchEvent(new FocusEvent('blur', { relatedTarget }));
+    const written = (): number[] => {
+      const { anchorNode, anchorOffset, focusNode, focusOffset } = selection ?? {};
+      if (!anchorNode || !focusNode) return [];
+      const { view } = editor;
+      return [
+        view.posAtDOM(anchorNode, anchorOffset ?? 0),
+        view.posAtDOM(focusNode, focusOffset ?? 0),
+      ];
     };
+    editor.view.dom.focus();
+    const { doc: now } = editor.state;
     for (const control of [button, download]) {
-      // Reached by Tab (or by a press), it leaves no caret for a key to type at...
-      selection?.collapse(line, 1);
-      control?.dispatchEvent(new FocusEvent('focus'));
-      expect(selection?.rangeCount, control?.className).toBe(0);
-      // ...not when it goes elsewhere (the viewer) and comes back, but in the text (Shift+Tab).
-      to(control, document.body);
-      expect(selection?.rangeCount, control?.className).toBe(0);
-      control?.dispatchEvent(new FocusEvent('focus'));
-      to(control, editor.view.dom);
-      expect([selection?.anchorNode, selection?.anchorOffset], control?.className).toEqual([
-        line,
-        1,
-      ]);
+      for (const chosen of [TextSelection.create(now, 3), NodeSelection.create(now, 0)]) {
+        const name = `${control?.className ?? ''} ${chosen instanceof NodeSelection ? 'node' : 'text'}`;
+        editor.view.dispatch(editor.state.tr.setSelection(chosen));
+        // The focus's events are sent as a browser sends them: jsdom moves the selection into what
+        // it focuses, which a browser does not do for a button or a link. Reached by Tab (or by a
+        // press), the control leaves no caret for a key to type at...
+        control?.dispatchEvent(new FocusEvent('focus'));
+        expect(selection?.rangeCount, name).toBe(0);
+        // ...and back in the text from it (Shift+Tab), the editor's own selection is written back.
+        editor.view.dom.dispatchEvent(new FocusEvent('focus', { relatedTarget: control }));
+        expect(written(), name).toEqual([chosen.anchor, chosen.head]);
+        expect(editor.state.selection.eq(chosen), name).toBe(true);
+        // WebKit then puts its caret at the first place for one, which the editor reads: the
+        // selection kept is given back.
+        editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(now, 2)));
+        expect(editor.state.selection.eq(chosen), name).toBe(true);
+      }
     }
+    // Not over a selection made after a key, or by a pointer: the user's.
+    const start = (): TextSelection => TextSelection.create(editor.state.doc, 2);
+    const fromName = (): void => {
+      editor.view.dom.dispatchEvent(new FocusEvent('focus', { relatedTarget: button ?? null }));
+    };
+    fromName();
+    editor.view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', ctrlKey: true }));
+    editor.view.dispatch(editor.state.tr.setSelection(start()));
+    expect(editor.state.selection.eq(start())).toBe(true);
+    editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(now, 0)));
+    fromName();
+    editor.view.dispatch(editor.state.tr.setSelection(start()).setMeta('pointer', true));
+    expect(editor.state.selection.eq(start())).toBe(true);
     // Where the focus goes back when the viewer closes: to the name pressed from the keyboard on
-    // it or by an assistive technology (a click of no pointer), to the editor pressed by a pointer.
+    // it, by a pointer that left the focus on it (a double click), or by an assistive technology
+    // (a click of no pointer); to the editor pressed by a pointer, after which the editor has it.
+    const back = (): unknown => viewer.open.mock.lastCall?.[2]();
     button?.focus();
     button?.click();
-    expect(viewer.open.mock.lastCall?.[2]()).toBe(button);
-    button?.blur();
+    expect(back()).toBe(button);
+    button?.dispatchEvent(new MouseEvent('click', { detail: 2, bubbles: true }));
+    expect(back()).toBe(button);
+    editor.view.dom.focus();
     button?.click();
-    expect(viewer.open.mock.lastCall?.[2]()).toBe(button);
+    expect(back()).toBe(button);
     button?.dispatchEvent(new MouseEvent('click', { detail: 1, bubbles: true }));
-    expect(viewer.open.mock.lastCall?.[2]()).toBe(editor.view.dom);
+    expect(back()).toBe(editor.view.dom);
     expect(editor.getJSON()).toEqual(body);
   });
 
@@ -314,19 +341,28 @@ describe('the viewer opened from a file block', () => {
     // A press of another file while one is open opens no second viewer, nor this one on it.
     expect(await view?.open('7plans.pdf', { name: 'plans.pdf', size: 1 }, () => button)).toBe(true);
     expect(viewing.file?.name).toBe('회의록 2026-11.pdf');
+    // Closed, the viewer gives the focus back once it is gone (its dialog has let go of it).
+    button.focus();
     viewing.close();
     expect(viewing.file).toBeUndefined();
+    expect(document.activeElement).toBe(button);
+    viewing.returnFocus();
     expect(document.activeElement).toBe(editor);
 
     const shownOnly = document.body.appendChild(document.createElement('button'));
     await view?.open('7minutes.pdf', details, () => shownOnly);
     viewing.close();
+    viewing.returnFocus();
     expect(document.activeElement).toBe(shownOnly);
+    // Given back once only.
+    button.focus();
+    viewing.returnFocus();
+    expect(document.activeElement).toBe(button);
 
     // Let go of without the focus moving: the screen it was over is gone.
-    button.focus();
     await view?.open('7minutes.pdf', details, () => shownOnly);
     viewing.forget();
+    viewing.returnFocus();
     expect(viewing.file).toBeUndefined();
     expect(document.activeElement).toBe(button);
     editor.remove();

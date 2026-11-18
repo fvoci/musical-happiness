@@ -174,12 +174,12 @@ let pressedFromBlock = false;
  * on; a key that edits edits nothing from here. WebKit would apply it, and
  * an input method (or text put in) in any browser would type it, where the
  * editor's caret was before the control had the focus: so while it has the
- * focus, the control takes that caret out of the editor's text, and puts
- * it back when the focus goes back to the text (Shift+Tab). A shortcut of
- * the browser's (find, print) is still the browser's, but not one a browser
- * edits by (bold, italic, underline, paste, cut, undo, redo); AltGr's
- * characters (Ctrl with Alt) are typed, and so are the keys an input
- * method or a dead key takes.
+ * focus, the editor's caret is out of the document's selection. The editor
+ * keeps its own, and writes it back when the focus comes back to it from
+ * the control (file-block.ts). A shortcut of the browser's (find, print) is
+ * still the browser's, but not one a browser edits by (bold, italic,
+ * underline, paste, cut, undo, redo); AltGr's characters (Ctrl with Alt)
+ * are typed, and so are the keys an input method or a dead key takes.
  */
 function holdTyping(page: Document, control: HTMLElement): void {
   control.addEventListener('keydown', (event) => {
@@ -195,27 +195,12 @@ function holdTyping(page: Document, control: HTMLElement): void {
       event.preventDefault();
     }
   });
-  // The caret taken out, kept until the focus goes back to the text (it may go to the viewer and
-  // come back to the control first); a press of the control is the editor's, which puts the
-  // selection it makes in place of this one.
-  let caret: Range | undefined;
-  const editor = (): Element | null => control.closest('[contenteditable="true"]');
   control.addEventListener('focus', () => {
-    const text = editor();
+    const text = control.closest('[contenteditable="true"]');
     const selection = page.getSelection();
-    if (!text || !selection?.anchorNode || !text.contains(selection.anchorNode)) return;
-    caret = selection.getRangeAt(0).cloneRange();
-    selection.removeAllRanges();
-  });
-  control.addEventListener('blur', (event) => {
-    const text = editor();
-    if (!caret || !text || event.relatedTarget !== text) return;
-    const selection = page.getSelection();
-    if (caret.startContainer.isConnected && selection) {
+    if (text && selection?.anchorNode && text.contains(selection.anchorNode)) {
       selection.removeAllRanges();
-      selection.addRange(caret);
     }
-    caret = undefined;
   });
 }
 
@@ -250,11 +235,13 @@ function nameOf(
   holdTyping(page, button);
   button.addEventListener('click', (event) => {
     const block = button.closest<HTMLElement>(FILE_BLOCK_SELECTOR);
-    // Pressed by a pointer (a click of one or more presses), or by Enter on the selected block,
-    // the editor has the focus back when the viewer closes, whose selection the block still is
-    // (Delete deletes it, the arrows move on from it); pressed from the keyboard on the name, or
-    // by an assistive technology, the name has it. Where a body is only shown, the name has it.
-    const toEditor = pressedFromBlock || event.detail > 0;
+    // Pressed by a pointer that left the focus in the editor (a click, after which the editor has
+    // selected the block and taken the focus), or by Enter on the selected block, the editor has
+    // the focus back when the viewer closes, whose selection the block still is (Delete deletes
+    // it, the arrows move on from it). Pressed from the keyboard on the name, by an assistive
+    // technology, or by a pointer that left the focus on the name (a double or a Shift click),
+    // the name has it back; where a body is only shown, too.
+    const toEditor = pressedFromBlock || (event.detail > 0 && page.activeElement !== button);
     const back = (): HTMLElement | null => {
       const now = drawn();
       if (!toEditor || !now) return now;

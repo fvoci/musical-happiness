@@ -14,7 +14,7 @@
  * does. A press of the name is still the block's to select and drag.
  */
 import { mergeAttributes, Node } from '@tiptap/core';
-import { NodeSelection, Plugin } from '@tiptap/pm/state';
+import { NodeSelection, Plugin, Selection } from '@tiptap/pm/state';
 
 import { FILE_BLOCK_ATTRIBUTE, FILE_ID_ATTRIBUTE } from './drawing.ts';
 import { drawFileBlock, pressFileOf } from './file-view.ts';
@@ -33,6 +33,57 @@ const BUTTON_KEYS = new Set([
   'compositionupdate',
   'compositionend',
 ]);
+
+/**
+ * The editor's selection, kept while the focus is on a block's name or
+ * download, which take it out of the document's (file-view.ts), and given
+ * back when the focus comes back from them (Shift+Tab, or a press the
+ * editor takes the focus back from). Written back as the focus comes,
+ * which Chromium keeps; WebKit then puts its caret at the start of the
+ * text (its first place for a caret), which the editor would take for the
+ * user's: that selection, before any key, press or edit, gives way to the
+ * one kept.
+ */
+function selectionKept(): Plugin {
+  let kept: Selection | undefined;
+  const letGo = (): boolean => {
+    kept = undefined;
+    return false;
+  };
+  return new Plugin({
+    props: {
+      handleDOMEvents: {
+        focus: (view, event) => {
+          const from = event.relatedTarget;
+          if (!(from instanceof Element) || !from.matches(FILE_CONTROLS)) return false;
+          if (!view.dom.contains(from)) return false;
+          kept = view.state.selection;
+          view.focus();
+          return false;
+        },
+        blur: letGo,
+        keydown: letGo,
+        pointerdown: letGo,
+        mousedown: letGo,
+        touchstart: letGo,
+      },
+    },
+    appendTransaction: (transactions, _before, state) => {
+      const back = kept;
+      if (!back || !transactions.some((tr) => tr.selectionSet || tr.docChanged)) return null;
+      kept = undefined;
+      // An edit, or a selection a pointer made, is the user's.
+      if (transactions.some((tr) => tr.docChanged || tr.getMeta('pointer') === true)) return null;
+      const { doc, selection } = state;
+      const start = [
+        Selection.near(doc.resolve(0), 1),
+        Selection.findFrom(doc.resolve(0), 1, true),
+      ];
+      if (selection.eq(back) || !start.some((each) => each && selection.eq(each))) return null;
+      return state.tr.setSelection(back);
+    },
+  });
+}
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -131,6 +182,7 @@ export const FileBlock = Node.create({
           },
         },
       }),
+      selectionKept(),
     ];
   },
 

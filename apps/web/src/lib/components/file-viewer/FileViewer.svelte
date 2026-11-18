@@ -46,9 +46,14 @@
     /** The file; the viewer is made for one and is not handed another. */
     file: ViewedFile;
     onClose: () => void;
+    /**
+     * Gives the focus back as the viewer goes, once its hold on the focus is let go of; without
+     * it, the focus goes back to what had it when the viewer opened.
+     */
+    returnFocus?: () => void;
   }
 
-  let { file, onClose }: Props = $props();
+  let { file, onClose, returnFocus }: Props = $props();
 
   const session = untrack(
     () =>
@@ -178,6 +183,11 @@
         : 'h-[min(calc(100dvh-4rem),64rem)] max-w-[min(64rem,calc(100%-2rem))] sm:max-w-[min(64rem,calc(100%-2rem))]',
     ]}
     {onkeydown}
+    onCloseAutoFocus={(event: Event) => {
+      if (!returnFocus) return;
+      event.preventDefault();
+      returnFocus();
+    }}
   >
     <header class="flex min-h-12 items-center gap-1 border-b py-1 pr-1 pl-4">
       <Dialog.Title class="min-w-0 flex-1 truncate text-base font-semibold"
