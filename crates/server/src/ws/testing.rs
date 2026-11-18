@@ -1,9 +1,10 @@
-//! The seams of the tests: between validating a subscription and registering it, and
-//! the quiet limit of a connection.
+//! The seams of the tests: between validating a subscription and registering it,
+//! whether the connections carried out what they read, and the quiet limit of a
+//! connection.
 
 use std::sync::Arc;
 
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 use super::Hub;
 
@@ -104,5 +105,48 @@ impl Hub {
     /// ninety seconds of `ws/inbound.rs`: those open now from their next wait on.
     pub fn set_quiet_limit(&self, limit: std::time::Duration) {
         self.inner.quiet_limit.set(limit);
+    }
+}
+
+/// How many connections have read a command they have not carried out yet.
+#[derive(Debug)]
+pub(super) struct AtWork(watch::Sender<usize>);
+
+impl Default for AtWork {
+    fn default() -> Self {
+        Self(watch::Sender::new(0))
+    }
+}
+
+impl AtWork {
+    /// Counts a connection that read a command, until what is returned is dropped.
+    pub(super) fn begin(&self) -> Working {
+        self.0.send_modify(|connections| *connections += 1);
+        Working(self.0.clone())
+    }
+}
+
+/// A connection that read a command and has not carried it out yet.
+#[derive(Debug)]
+pub(super) struct Working(watch::Sender<usize>);
+
+impl Drop for Working {
+    fn drop(&mut self) {
+        self.0.send_modify(|connections| *connections -= 1);
+    }
+}
+
+impl Hub {
+    /// Returns once no connection holds a command it read and has not carried out.
+    ///
+    /// The websocket's Pong to a Ping says only that the server read what was sent
+    /// before the Ping: a connection reads on while it carries a command out. It is
+    /// counted here from the command it read, before it reads anything after it, so
+    /// a test that has the Pong and then waits for this knows its commands were
+    /// carried out. A connection held by another seam of the tests keeps this waiting.
+    pub async fn carried_out(&self) {
+        let mut at_work = self.inner.at_work.0.subscribe();
+        // The hub holds the sender: the wait does not end for want of one.
+        let _ = at_work.wait_for(|connections| *connections == 0).await;
     }
 }

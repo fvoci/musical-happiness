@@ -491,6 +491,14 @@ impl Collab {
         if open.writing_scheduled {
             return;
         }
+        #[cfg(feature = "test-util")]
+        if self
+            .inner
+            .due_writes_left
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return;
+        }
         open.writing_scheduled = true;
         let collab = self.clone();
         let app_of_task = app.clone();

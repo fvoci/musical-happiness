@@ -360,6 +360,9 @@ struct HubInner {
     subscription_pause: Mutex<Option<SubscriptionPause>>,
     #[cfg(feature = "test-util")]
     dispatch_pause: Mutex<Option<SubscriptionPause>>,
+    /// The connections that read a command they have not carried out yet.
+    #[cfg(feature = "test-util")]
+    at_work: testing::AtWork,
     /// How long its connections may send nothing ([`inbound::QUIET_LIMIT`]).
     quiet_limit: inbound::QuietLimit,
 }
@@ -386,6 +389,8 @@ impl Hub {
                 subscription_pause: Mutex::default(),
                 #[cfg(feature = "test-util")]
                 dispatch_pause: Mutex::default(),
+                #[cfg(feature = "test-util")]
+                at_work: testing::AtWork::default(),
                 quiet_limit: inbound::QuietLimit::default(),
             }),
             audience,

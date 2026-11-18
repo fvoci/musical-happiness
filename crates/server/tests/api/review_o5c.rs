@@ -74,19 +74,8 @@ async fn a_pending_system_write_does_not_hold_an_organizations_request() {
         ))
         .await
         .expect("subscription sent");
-    socket
-        .send(Message::Ping(vec![7].into()))
-        .await
-        .expect("barrier sent");
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while let Some(frame) = socket.next().await {
-            if matches!(frame.expect("a frame"), Message::Pong(_)) {
-                return;
-            }
-        }
-    })
-    .await
-    .expect("the subscription is registered");
+    // The subscription is registered: the write below has a listener to tell.
+    crate::common::carried_out(ts.app.ws(), &mut socket).await;
 
     let with_listener = category_during_a_system_write(&ts, &user, "open app").await;
     assert!(

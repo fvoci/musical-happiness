@@ -6,7 +6,7 @@
 //! which PostgreSQL alone holds: a caret is kept in the server's memory and never
 //! stored.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use fvoci_model::{ContainerMember, WorkspaceRole};
 use serde_json::{Value, json};
@@ -115,7 +115,7 @@ async fn a_reader_is_told_the_carets_and_shows_none() {
     show(&mut writer, 1).await;
     assert_eq!(reader.caret().await.state, state_of(&user1, 1));
     show(&mut reader, 4).await;
-    reader.barrier().await;
+    reader.barrier(&th).await;
     no_caret(&mut writer, "a reader's caret is not sent on").await;
 
     // Let write, the same connection shows one; made a reader again, it is gone.
@@ -163,7 +163,7 @@ async fn a_caret_is_gone_with_its_member() {
     // Withdrawn again, there is nothing to tell.
     two.send_caret(&awareness(two.client(), 3, &Value::Null))
         .await;
-    two.barrier().await;
+    two.barrier(&th).await;
     no_caret(&mut one, "a caret that is not shown is not withdrawn").await;
 
     // In the room anew without leaving it: the caret of the member before is gone.
@@ -206,7 +206,7 @@ async fn a_caret_is_gone_with_its_member() {
     let mut four = Peer::connect(&th.client2, 104).await;
     four.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     four.leave().await;
-    four.barrier().await;
+    four.barrier(&th).await;
     no_caret(&mut one, "no caret, nothing gone").await;
     th.teardown().await;
 }
@@ -232,14 +232,14 @@ async fn a_caret_stays_in_its_room() {
     one.doc = first_room;
     show(&mut one, 1).await;
     assert_eq!(two.caret().await.doc, two.doc);
-    one.barrier().await;
+    one.barrier(&th).await;
     no_caret(&mut elsewhere, "the caret of another card's room").await;
 
     // And one of the other card's room goes there alone.
     one.doc = second_room;
     show(&mut one, 2).await;
     assert_eq!(elsewhere.caret().await.doc, elsewhere.doc);
-    one.barrier().await;
+    one.barrier(&th).await;
     no_caret(&mut two, "the caret of another card's room").await;
     th.teardown().await;
 }
@@ -287,8 +287,8 @@ async fn a_caret_stays_in_its_organization() {
     show(&mut one, 1).await;
     two.caret().await;
     show(&mut there, 2).await;
-    there.barrier().await;
-    one.barrier().await;
+    there.barrier(&th).await;
+    one.barrier(&th).await;
     no_caret(&mut there, "a caret of our organization's card").await;
     no_caret(&mut one, "a caret of their organization's card").await;
     no_caret(&mut two, "a caret of their organization's card").await;
@@ -371,7 +371,7 @@ async fn what_is_no_caret_of_the_room_is_dropped() {
     one.epoch = epoch + 1;
     show(&mut one, 1).await;
     one.epoch = epoch;
-    one.barrier().await;
+    one.barrier(&th).await;
     no_caret(&mut two, "none of these is a caret of the room").await;
 
     // The room goes on: a caret of 1,024 bytes is told, and an update taken.
@@ -392,17 +392,24 @@ async fn carets_past_the_rate_are_dropped_and_put_nobody_out() {
         .await
         .init_basic()
         .await;
+    // The connection may send ten frames at once and ten more for every second since
+    // it was made.
+    let made = Instant::now();
     let (_table, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     // The joining was five of the ten; these are sixty more at once.
     for at in 0..60 {
         show(&mut one, at).await;
     }
-    one.barrier().await;
+    one.barrier(&th).await;
+    // Twenty where the sixty took under a second to send; a loaded machine takes
+    // longer, and the rate lets through what it does in that time, no more.
+    let seconds = usize::try_from(made.elapsed().as_secs()).expect("a count of seconds");
+    let most = 10 * (seconds + 2);
     while two.step(QUIET).await {}
     let told = two.carets.len();
     assert!(
-        (1..=20).contains(&told),
-        "what the rate let through, and not sixty: {told}"
+        (1..=most).contains(&told),
+        "what the rate let through in {seconds} s (at most {most}), and not sixty: {told}"
     );
     assert!(
         one.unread()
@@ -475,7 +482,7 @@ async fn a_held_member_is_told_no_caret_until_the_check_keeps_them() {
     let meanwhile = async {
         reached.notified().await;
         show(&mut one, 1).await;
-        one.barrier().await;
+        one.barrier(&th).await;
         tab.leave().await;
         assert_eq!(one.caret().await.state, Value::Null, "the tab's caret went");
         no_caret(&mut two, "held, they are told no caret").await;
@@ -497,7 +504,7 @@ async fn a_held_member_is_told_no_caret_until_the_check_keeps_them() {
     let meanwhile = async {
         reached.notified().await;
         show(&mut one, 2).await;
-        one.barrier().await;
+        one.barrier(&th).await;
         go.notify_one();
     };
     let removed = async {
@@ -538,7 +545,7 @@ async fn a_caret_goes_through_the_room_of_a_page() {
     let shown = reader.caret().await;
     assert_eq!(shown.state, state_of(&user1, 1));
     show(&mut reader, 4).await;
-    reader.barrier().await;
+    reader.barrier(&th).await;
     no_caret(&mut writer, "a reader of the wiki shows no caret").await;
     writer.leave().await;
     let gone = reader.caret().await;

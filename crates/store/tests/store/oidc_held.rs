@@ -71,6 +71,9 @@ fn at_the_old(subject: &str) -> Identity<'_> {
 
 /// A sign-in through `provider` to hold, of the person `subject` at the new issuer.
 fn held(provider: &StoredProvider, subject: &str) -> HeldSignIn {
+    // Read once: the tests carry over at times counted from `create_at`, and the
+    // sign-in ends [`ENDS`] after it to the millisecond.
+    let now = now_millis();
     HeldSignIn {
         held_hash: format!("the digest of the browser of {subject}"),
         org_id: provider.org_id.clone(),
@@ -82,8 +85,8 @@ fn held(provider: &StoredProvider, subject: &str) -> HeldSignIn {
         email_unverified: false,
         name: "A Person".to_owned(),
         preferred_username: subject.to_owned(),
-        create_at: now_millis(),
-        expires_at: now_millis() + ENDS,
+        create_at: now,
+        expires_at: now + ENDS,
     }
 }
 

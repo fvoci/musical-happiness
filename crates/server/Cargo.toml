@@ -6,10 +6,17 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+default-run = "fvoci-server"
 
 [[bin]]
 name = "fvoci-server"
 path = "src/main.rs"
+
+# The collab worker of the tests (see the file): built with them, never otherwise.
+[[bin]]
+name = "fvoci-test-worker"
+path = "tests/bin/fvoci-test-worker.rs"
+required-features = ["test-util"]
 
 [dependencies]
 fvoci-collab.workspace = true

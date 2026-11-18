@@ -342,6 +342,9 @@ async fn a_document_past_a_lowered_state_limit_is_written_before_it_is_made_agai
     let th = Setup::native().start().await.init_basic().await;
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
+    // The two hundred updates below may take a loaded machine longer than a body
+    // waits to be written: the server is killed before it writes this one.
+    collab.leave_due_writes();
     let (editor, epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     let line = "d".repeat(24 * 1024);
     let take = async |update: Vec<u8>| {

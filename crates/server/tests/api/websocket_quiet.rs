@@ -23,20 +23,15 @@ async fn server() -> TestServer {
     Setup::native().start().await.init_basic().await
 }
 
-/// Reads until a `PONG` comes, passing over what else does; how long it took.
+/// Reads until a `PONG` comes; how long it took. What else comes meanwhile is kept
+/// as the peer keeps it: the word that a caret went comes once, and may come between
+/// a `PING` and its `PONG`.
 async fn pong(peer: &mut Peer) -> Duration {
     let began = Instant::now();
     peer.send_json(json!({"action": "PING"})).await;
-    loop {
-        match peer.incoming(PATIENCE).await {
-            Incoming::Text(message) if message["action"] == json!("PONG") => {
-                assert_eq!(message, json!({"action": "PONG"}), "a PONG carries nothing");
-                return began.elapsed();
-            }
-            Incoming::Closed | Incoming::Nothing => panic!("no PONG came"),
-            _ => {}
-        }
-    }
+    let answer = peer.text("PONG").await;
+    assert_eq!(answer, json!({"action": "PONG"}), "a PONG carries nothing");
+    began.elapsed()
 }
 
 /// A `PING` is answered with a `PONG` alone, on a connection with a session and on

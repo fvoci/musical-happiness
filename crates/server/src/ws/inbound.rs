@@ -199,6 +199,12 @@ where
         }
     }
 
+    /// Whether nothing that was read ahead waits to be carried out.
+    #[cfg(feature = "test-util")]
+    pub(super) fn nothing_ahead(&self) -> bool {
+        self.ahead.is_empty()
+    }
+
     /// Whether the stream's end is among what was read ahead: nothing comes after it.
     fn ended(&self) -> bool {
         self.ahead
