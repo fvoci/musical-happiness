@@ -17,6 +17,9 @@
 
 const END_SIGNATURE = 0x06054b50;
 const ENTRY_SIGNATURE = 0x02014b50;
+const LOCAL_SIGNATURE = 0x04034b50;
+const LOCAL_SIZE = 30;
+const STORED = 0;
 /** The end record is 22 bytes, followed by a comment of at most 65535. */
 const END_SIZE = 22;
 const END_SEARCH = END_SIZE + 0xffff;
@@ -86,4 +89,26 @@ export function zipEntries(bytes: Uint8Array): ZipEntry[] | undefined {
     at = nameStart + nameLength + extraLength + commentLength;
   }
   return entries;
+}
+
+/**
+ * What a part holds when it is stored as it is (not deflated) and holds at
+ * most `most` bytes, read from after its local header; undefined otherwise.
+ */
+export function storedPart(
+  bytes: Uint8Array,
+  entry: ZipEntry,
+  most: number,
+): Uint8Array | undefined {
+  if (entry.method !== STORED || entry.size !== entry.compressedSize || entry.size > most) {
+    return undefined;
+  }
+  const at = entry.offset;
+  if (at + LOCAL_SIZE > bytes.byteLength) return undefined;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint32(at, true) !== LOCAL_SIGNATURE) return undefined;
+  const start = at + LOCAL_SIZE + view.getUint16(at + 26, true) + view.getUint16(at + 28, true);
+  return start + entry.size <= bytes.byteLength
+    ? bytes.subarray(start, start + entry.size)
+    : undefined;
 }

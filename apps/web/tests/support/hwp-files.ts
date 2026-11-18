@@ -1,0 +1,241 @@
+/**
+ * Files for the tests of the HWP viewer, made here rather than kept as
+ * binaries: an HWP and an HWPX document in Korean with a header, a table, a
+ * picture and a second page, written by rhwp's own exporter (`@rhwp/core`,
+ * the viewer's renderer, run in Node), and a writer of compound files (OLE)
+ * that can tell the lies the viewer must catch. Every file is ours, so the
+ * tests carry no third-party content.
+ */
+import { inflateRawSync } from 'node:zlib';
+
+import { HwpDocument, initSync } from '@rhwp/core';
+
+import {
+  chain,
+  childrenOf,
+  COMPOUND_TYPES,
+  compoundFile as readCompound,
+  readStream,
+  type CompoundEntry,
+  type CompoundFile,
+} from '../../src/lib/file-viewer/compound-file.ts';
+import { zipEntries } from '../../src/lib/file-viewer/zip-directory.ts';
+import { writeCompound } from '../../src/viewer-frame/compound-writer.ts';
+
+import { rhwpWasmHex } from '../../tools/build/rhwp-wasm.ts';
+
+import { png, zip, type ZipMember } from './viewer-files.ts';
+
+/** The text of the sample, for the tests to look for. */
+export const HWP_TEXT = {
+  header: '머리글: 회의록',
+  title: '분기 회의록',
+  body: '이 문서는 한국어 견본입니다. 표와 그림이 들어 있습니다.',
+  cells: ['항목', '담당', '기한', '설계 검토', '김민지', '11월 20일'],
+  second: '둘째 쪽: 다음 회의 안건',
+};
+
+/** The password of the locked samples. */
+export const HWP_PASSWORD = '비밀1234';
+
+let ready = false;
+
+/**
+ * Starts rhwp from the WebAssembly the build hands the frame, its memory held
+ * to the same limit: rhwp's loader keeps the first instance it is given, so the
+ * worker's reader, tried in the same module context, runs on this one.
+ */
+function startRhwp(): void {
+  if (ready) return;
+  initSync({ module: Buffer.from(rhwpWasmHex(), 'hex') });
+  ready = true;
+}
+
+function done(result: string): void {
+  const answer = JSON.parse(result) as { ok?: boolean };
+  if (!answer.ok) throw new Error(`rhwp: ${result}`);
+}
+
+/** HWPUNITs (1/7200 inch) per CSS pixel. */
+const UNITS_PER_PIXEL = 75;
+
+/** The sample, two pages, as rhwp holds it. */
+function koreanDocument(): HwpDocument {
+  startRhwp();
+  const document = HwpDocument.createEmpty();
+  document.createBlankDocument();
+  // A paragraph per line: the title, the body, the table's, the picture's, the second page's.
+  const lines = [HWP_TEXT.title, HWP_TEXT.body, '', '', HWP_TEXT.second];
+  lines.forEach((line, index) => {
+    if (line) done(document.insertText(0, index, 0, line));
+    if (index < lines.length - 1) done(document.splitParagraph(0, index, line.length));
+  });
+  done(document.createTable(0, 2, 0, 2, 3));
+  HWP_TEXT.cells.forEach((cell, index) => {
+    done(document.insertTextInCell(0, 2, 0, index, 0, 0, cell));
+  });
+  // Placed below the table, from the paper's corner: without an offset rhwp puts it in the corner.
+  const [x, y] = [113 * UNITS_PER_PIXEL, 240 * UNITS_PER_PIXEL];
+  const picture = png(200, 100, [46, 125, 210]);
+  done(document.insertPicture(0, 3, 0, '', picture, 15000, 7500, 200, 100, 'png', '그림', x, y));
+  done(document.createHeaderFooter(0, true, 0));
+  done(document.insertTextInHeaderFooter(0, true, 0, 0, 0, HWP_TEXT.header));
+  done(document.insertPageBreak(0, 4, 0));
+  return document;
+}
+
+/**
+ * The part rhwp adds to an HWPX it writes from its own document, which makes
+ * it read the file back with the layout rules of HWP. Hancom's editor drops it
+ * on saving; the samples drop it too, to be read as any HWPX is.
+ */
+const RHWP_ORIGIN = 'META-INF/rhwp-hwp5-origin';
+
+/**
+ * The archive again with each part as `change` makes it (the same, another,
+ * or left out when it gives undefined), each stored or deflated as it was.
+ */
+export function rewriteArchive(
+  archive: Buffer,
+  change: (member: ZipMember) => ZipMember | undefined,
+): Buffer {
+  const members = (zipEntries(archive) ?? []).flatMap((entry) => {
+    const at = entry.offset;
+    const start = at + 30 + archive.readUInt16LE(at + 26) + archive.readUInt16LE(at + 28);
+    const packed = archive.subarray(start, start + entry.compressedSize);
+    const stored = entry.method === 0;
+    const changed = change({
+      name: entry.name,
+      data: stored ? packed : inflateRawSync(packed),
+      stored,
+    });
+    return changed ? [changed] : [];
+  });
+  return zip(members);
+}
+
+export function koreanHwpx(): Buffer {
+  const exported = Buffer.from(koreanDocument().exportHwpx());
+  return rewriteArchive(exported, (member) => (member.name === RHWP_ORIGIN ? undefined : member));
+}
+
+export function koreanHwp(): Buffer {
+  return Buffer.from(koreanDocument().exportHwp());
+}
+
+/**
+ * The Korean HWPX with 30,000 characters in place of the body: rhwp draws
+ * each apart, and its first page comes to about 24,000 elements (past the
+ * frame's ceiling of 20,000); the second is as it was.
+ */
+export function denseHwpx(): Buffer {
+  const words = '가나다라 마바사아 자차카타 파하 ';
+  const body = words.repeat(Math.ceil(30_000 / words.length)).slice(0, 30_000);
+  return rewriteArchive(koreanHwpx(), (member) =>
+    member.name === 'Contents/section0.xml'
+      ? { ...member, data: Buffer.from(member.data.toString('utf8').replace(HWP_TEXT.body, body)) }
+      : member,
+  );
+}
+
+export function lockedHwp(): Buffer {
+  return Buffer.from(koreanDocument().exportHwpWithPassword(HWP_PASSWORD));
+}
+
+export function lockedHwpx(): Buffer {
+  return Buffer.from(koreanDocument().exportHwpxWithPassword(HWP_PASSWORD));
+}
+
+/** A stream of a compound file, and the lies the file can tell about it. */
+export interface CompoundStream {
+  /** Its path, with "/" between storages: `BodyText/Section0`. */
+  path: string;
+  data: Buffer;
+  /** The size its directory entry gives, when not its own. */
+  said?: number;
+  /** Its entry points at the first sector of this stream's chain instead of its own. */
+  sharesWith?: string;
+}
+
+export interface CompoundOptions {
+  /** Makes the chain of the stream at this path come back to its first sector. */
+  cycle?: string;
+  /** 3: sectors of 512 bytes, as HWP files have; 4: of 4096. */
+  version?: 3 | 4;
+}
+
+/** The index of the entry at `path` in the directory of `file`. */
+function entryIndex(file: CompoundFile, path: string): number {
+  let at: CompoundEntry | undefined = file.entries[0];
+  for (const name of path.split('/')) {
+    at = at && childrenOf(file, at).find((entry) => entry.name === name);
+  }
+  const index = at ? file.entries.indexOf(at) : -1;
+  if (index < 0) throw new Error(`no entry ${path}`);
+  return index;
+}
+
+/** Where entry `index` of the directory lies in the file. */
+function entryAt(file: CompoundFile, index: number): number {
+  const perSector = file.sectorSize / 128;
+  const sector = file.directorySectors[Math.floor(index / perSector)] ?? 0;
+  return (sector + 1) * file.sectorSize + (index % perSector) * 128;
+}
+
+/**
+ * A compound file of the streams, as the frame writes one
+ * (src/viewer-frame/compound-writer.ts), then made to tell the lies asked of
+ * it: a size of a stream's own, a chain it shares, a chain that comes back.
+ */
+export function compoundFile(
+  streams: readonly CompoundStream[],
+  { cycle, version = 3 }: CompoundOptions = {},
+): Buffer {
+  const parts = streams.map(({ path, data }) => ({ names: path.split('/'), data }));
+  const out = Buffer.from(writeCompound(parts, version));
+  const file = readCompound(new Uint8Array(out.buffer, out.byteOffset, out.byteLength));
+  if (!file) throw new Error('the writer wrote no compound file');
+  for (const { path, said, sharesWith } of streams) {
+    const at = entryAt(file, entryIndex(file, path));
+    if (said !== undefined) out.writeUInt32LE(said, at + 120);
+    if (sharesWith !== undefined) {
+      const shared = file.entries[entryIndex(file, sharesWith)];
+      out.writeUInt32LE(shared?.start ?? 0, at + 116);
+    }
+  }
+  if (cycle !== undefined) {
+    const entry = file.entries[entryIndex(file, cycle)];
+    const sectors = entry ? chain(file.fat, entry.start) : undefined;
+    const last = sectors?.at(-1);
+    if (!entry || last === undefined) throw new Error(`no chain for ${cycle}`);
+    const perSector = file.sectorSize / 4;
+    const fatSector = file.fatSectors[Math.floor(last / perSector)] ?? 0;
+    out.writeUInt32LE(entry.start, (fatSector + 1) * file.sectorSize + (last % perSector) * 4);
+  }
+  return out;
+}
+
+/** Every stream of a compound file with its path, read with the viewer's own reader. */
+export function compoundStreams(data: Buffer): CompoundStream[] {
+  const file = readCompound(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+  const root = file?.entries[0];
+  if (!file || !root) throw new Error('not a compound file');
+  const walk = (storage: CompoundEntry, prefix: string): CompoundStream[] =>
+    childrenOf(file, storage).flatMap((entry) => {
+      const path = `${prefix}${entry.name}`;
+      if (entry.type === COMPOUND_TYPES.STORAGE) return walk(entry, `${path}/`);
+      const read = readStream(file, entry, entry.size);
+      if (!read) throw new Error(`the stream ${path} does not read`);
+      return [{ path, data: Buffer.from(read) }];
+    });
+  return walk(root, '');
+}
+
+/** A `FileHeader` stream of an HWP document: its signature, version 5.1, and `properties`. */
+export function hwpFileHeader(properties = 0): Buffer {
+  const header = Buffer.alloc(256);
+  header.write('HWP Document File', 'ascii');
+  header.writeUInt32LE(0x05010000, 32);
+  header.writeUInt32LE(properties, 36);
+  return header;
+}

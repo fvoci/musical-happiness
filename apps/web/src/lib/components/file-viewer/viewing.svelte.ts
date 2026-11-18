@@ -11,7 +11,7 @@
  * move on from it. It goes there once the viewer is gone (`returnFocus`):
  * until then the viewer's dialog holds the focus in itself.
  */
-import type { FileSource, FileViewerLink } from '$lib/editor/files.ts';
+import { setFileSource, type FileSource, type FileViewerLink } from '$lib/editor/files.ts';
 import { opensInViewer } from '$lib/file-viewer/extensions.ts';
 import type { ViewedFile } from '$lib/file-viewer/session.svelte.ts';
 
@@ -80,4 +80,9 @@ export function viewerLinkOf(source: Pick<FileSource, 'bytes'>): FileViewerLink 
         back,
       ),
   };
+}
+
+/** Gives the bodies shown their files from `source`; their file blocks open the viewer on them. */
+export function setViewedFileSource(source: FileSource): void {
+  setFileSource({ ...source, view: viewerLinkOf(source) });
 }

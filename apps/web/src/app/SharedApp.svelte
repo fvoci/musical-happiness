@@ -12,8 +12,7 @@
   import { onMount } from 'svelte';
 
   import FileViewerHost from '$lib/components/file-viewer/FileViewerHost.svelte';
-  import { viewerLinkOf } from '$lib/components/file-viewer/viewing.svelte.ts';
-  import { setFileSource } from '$lib/editor/files.ts';
+  import { setViewedFileSource } from '$lib/components/file-viewer/viewing.svelte.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { ContainerKind } from '$lib/logic/wire.ts';
@@ -74,7 +73,7 @@
             shown.report('load', error);
           },
         );
-        setFileSource({ ...files, view: viewerLinkOf(files) });
+        setViewedFileSource(files);
         workspace = made;
         backend = read;
         await made.load(place);

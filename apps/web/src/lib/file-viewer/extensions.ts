@@ -21,6 +21,8 @@ const EXTENSIONS: Record<FormatId, readonly string[]> = {
   docx: ['docx'],
   xlsx: ['xlsx', 'xlsm'],
   pptx: ['pptx'],
+  hwpx: ['hwpx'],
+  hwp: ['hwp'],
 };
 
 const OPENED = new Set(Object.values(EXTENSIONS).flat());

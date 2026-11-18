@@ -11,6 +11,8 @@
  * - the data files of pdf.js the file viewer bundles, under their own
  *   licences (pdfjs-data.ts), and packages inside another package's
  *   prebuilt bundle (prebuilt.ts),
+ * - the HWP renderer, whose code runs in a worker built apart, and the Rust
+ *   crates built into its WebAssembly (rhwp-wasm.ts),
  * - the fonts the font tool produced,
  * - the fonts of the formula library, when that library is in the bundle
  *   (katex-fonts.ts: its package names only the licence of its code).
@@ -32,6 +34,7 @@ import { readPackageLicense, statedLicense, type PackageLicense } from './packag
 import { bundledWorkerPackages } from './worker-packages.ts';
 import { pdfjsDataLicenses } from './pdfjs-data.ts';
 import { prebuiltLicenses } from './prebuilt.ts';
+import { rhwpWasmLicenses } from './rhwp-wasm.ts';
 import { isAllowed, readAllowedLicenses } from './policy.ts';
 
 const WEB_ROOT = path.resolve(import.meta.dirname, '../..');
@@ -124,6 +127,8 @@ export function thirdPartyNotices(): Plugin {
         }
         // The file viewer's pdf.js data: other people's files, under their own licences.
         for (const item of pdfjsDataLicenses(bundledModules)) byName.set(item.name, item);
+        // The HWP renderer: its worker is a build of its own, and its WebAssembly holds crates.
+        for (const item of rhwpWasmLicenses(bundledModules)) byName.set(item.name, item);
         // Packages in the app's workers, which reach the bundle as text (worker-packages.ts).
         for (const item of bundledWorkerPackages()) {
           if (!byName.has(item.name)) byName.set(item.name, item);

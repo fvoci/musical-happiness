@@ -6,8 +6,8 @@
  * bytes, the few words of its own it may show (`Labels`) and a few commands;
  * the frame answers with what the app shows around it: how many pages there
  * are (a workbook's are its sheets, which it names), which one is in view,
- * that it failed, and the keys the reader pressed while the frame had the
- * focus. Nothing else crosses.
+ * that it failed, the keys the reader pressed while the frame had the focus,
+ * and that the reader asked for the file to download. Nothing else crosses.
  *
  * Each side reads what arrives with the reader below, which accepts exactly
  * these shapes and nothing more: a message with an extra field, a field of
@@ -27,8 +27,8 @@ export type Theme = 'light' | 'dark';
 export const VIEWER_KEYS = ['ArrowLeft', 'ArrowRight', '+', '=', '-', '0', 'Escape'] as const;
 export type ViewerKey = (typeof VIEWER_KEYS)[number];
 
-/** Why the frame could not draw a file. */
-export const FAILURES = ['unreadable', 'locked', 'too-large', 'renderer'] as const;
+/** Why the frame could not draw a file; `slow` when its renderer took longer than the frame gives it. */
+export const FAILURES = ['unreadable', 'locked', 'too-large', 'renderer', 'slow'] as const;
 export type Failure = (typeof FAILURES)[number];
 
 /** The most pages a document is taken to have; a larger count is a broken message. */
@@ -52,6 +52,10 @@ export interface SheetSummary {
 export interface Labels {
   /** In the box of a chart that is not drawn (a PowerPoint deck's). */
   chart: string;
+  /** In place of a page past what the frame takes on (an HWP document's). */
+  pageTooLarge: string;
+  /** The button there that saves the file. */
+  download: string;
 }
 
 /** The longest a label may be. */
@@ -77,7 +81,9 @@ export type FromFrame =
   | { kind: 'shown'; pages: number }
   | { kind: 'page'; page: number }
   | { kind: 'failed'; reason: Failure }
-  | { kind: 'key'; key: ViewerKey };
+  | { kind: 'key'; key: ViewerKey }
+  /** The reader pressed a button in the frame that saves the file. */
+  | { kind: 'download' };
 
 type Fields = Record<string, unknown>;
 
@@ -102,9 +108,13 @@ const isLanguage = (value: unknown): value is string =>
 const isLabel = (value: unknown): value is string =>
   typeof value === 'string' && value !== '' && value.length <= LABEL_LIMIT;
 
+const LABEL_KEYS = ['chart', 'pageTooLarge', 'download'] as const;
+
 function readLabels(data: unknown): Labels | undefined {
-  const chart = exactly(data, ['chart'])?.chart;
-  return isLabel(chart) ? { chart } : undefined;
+  const fields = exactly(data, LABEL_KEYS);
+  if (!fields || !LABEL_KEYS.every((key) => isLabel(fields[key]))) return undefined;
+  const { chart, pageTooLarge, download } = fields as Record<(typeof LABEL_KEYS)[number], string>;
+  return { chart, pageTooLarge, download };
 }
 
 const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T =>
@@ -155,6 +165,8 @@ export function readFromFrame(data: unknown): FromFrame | undefined {
       const key = exactly(data, ['kind', 'key'])?.key;
       return isOneOf(VIEWER_KEYS, key) ? { kind: 'key', key } : undefined;
     }
+    case 'download':
+      return exactly(data, ['kind']) ? { kind: 'download' } : undefined;
     default:
       return undefined;
   }

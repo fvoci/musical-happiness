@@ -274,6 +274,7 @@ describe('a message from the frame is taken only in one of its shapes', () => {
     for (const key of VIEWER_KEYS) {
       expect(readFromFrame({ kind: 'key', key })).toEqual({ kind: 'key', key });
     }
+    expect(readFromFrame({ kind: 'download' })).toEqual({ kind: 'download' });
     const sheets = [
       { name: '매출', drawings: false },
       { name: '일정', drawings: true },
@@ -323,6 +324,7 @@ describe('a message from the frame is taken only in one of its shapes', () => {
       { kind: 'failed', reason: 'because' },
       { kind: 'key', key: 'Enter' },
       { kind: 'key', key: 'a' },
+      { kind: 'download', name: 'other.exe' },
       { kind: 'open', format: 'pdf', bytes: new ArrayBuffer(1), theme: 'light' },
       { kind: 'navigate', url: 'https://example.com/' },
     ]) {
@@ -344,11 +346,18 @@ describe('a message from the frame is taken only in one of its shapes', () => {
 describe('a message from the app, in the frame', () => {
   it('opens a file of a kind the viewer draws, with its bytes', () => {
     const buffer = new ArrayBuffer(4);
-    const labels = { chart: '미리 보기에는 차트가 나오지 않습니다' };
+    const labels = {
+      chart: '미리 보기에는 차트가 나오지 않습니다',
+      pageTooLarge: '이 쪽은 너무 커서 보이지 않습니다.',
+      download: '다운로드',
+    };
     const open = { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko', labels };
     expect(readToFrame(open)).toEqual(open);
     expect(readToFrame({ ...open, format: 'pptx' })).toEqual({ ...open, format: 'pptx' });
     expect(readToFrame({ ...open, lang: 'zh-Hans' })).toEqual({ ...open, lang: 'zh-Hans' });
+    const long = 'x'.repeat(LABEL_LIMIT);
+    const most = { ...open, labels: { chart: long, pageTooLarge: long, download: long } };
+    expect(readToFrame(most)).toEqual(most);
     for (const wrong of [
       { ...open, format: 'html' },
       { ...open, bytes: new Uint8Array(4) },
@@ -356,8 +365,12 @@ describe('a message from the app, in the frame', () => {
       { ...open, lang: '' },
       { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko' },
       { ...open, labels: {} },
-      { ...open, labels: { chart: '' } },
-      { ...open, labels: { chart: 'a'.repeat(LABEL_LIMIT + 1) } },
+      { ...open, labels: { chart: labels.chart } },
+      { ...open, labels: { ...labels, chart: '' } },
+      { ...open, labels: { ...labels, download: '' } },
+      { ...open, labels: { ...labels, download: 7 } },
+      { ...open, labels: { ...labels, chart: 'a'.repeat(LABEL_LIMIT + 1) } },
+      { ...open, labels: { ...labels, pageTooLarge: `${long}x` } },
       { ...open, labels: { ...labels, page: 'Page' } },
       { ...open, labels: 'Charts' },
     ]) {

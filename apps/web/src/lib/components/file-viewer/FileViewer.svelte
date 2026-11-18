@@ -1,9 +1,9 @@
 <!--
   A file shown in the app instead of downloaded: a PDF, a Word document, a
-  workbook or a PowerPoint deck, drawn in a frame that has no origin and no
-  network (lib/file-viewer/session.svelte.ts, src/viewer-frame/). A
-  workbook's pages are its sheets, named in tabs under it and in what is
-  announced; a deck's are its slides.
+  workbook, a PowerPoint deck or a Hangul (HWP, HWPX) document, drawn in a
+  frame that has no origin and no network (lib/file-viewer/session.svelte.ts,
+  src/viewer-frame/). A workbook's pages are its sheets, named in tabs under
+  it and in what is announced; a deck's are its slides.
 
   A dialog over the page on a wide screen, the whole screen on a narrow one.
   Pages and zoom are at the bottom, within reach of a thumb. The keys, while
@@ -63,6 +63,9 @@
         lang: getLocale,
         onKey: (key) => {
           command(key);
+        },
+        onDownload: () => {
+          download();
         },
       }),
   );

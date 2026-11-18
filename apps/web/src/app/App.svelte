@@ -19,8 +19,7 @@
   import { onMount } from 'svelte';
 
   import FileViewerHost from '$lib/components/file-viewer/FileViewerHost.svelte';
-  import { viewerLinkOf } from '$lib/components/file-viewer/viewing.svelte.ts';
-  import { setFileSource } from '$lib/editor/files.ts';
+  import { setViewedFileSource } from '$lib/components/file-viewer/viewing.svelte.ts';
   import AccountDeletion from '$lib/features/account/AccountDeletion.svelte';
   import AccountLeaving from '$lib/features/account/AccountLeaving.svelte';
   import { daysLeft } from '$lib/features/account/account-deletion.ts';
@@ -138,8 +137,7 @@
         });
       }
       // The bodies of cards and pages name their images and file blocks by file; the board or
-      // wiki shown has them. A file block that cannot be saved says why, as an attachment does,
-      // and opens the viewer on a file it shows.
+      // wiki shown has them. A file block that cannot be saved says why, as an attachment does.
       const files = fileSourceOf(
         backend,
         () => router.route.wikiId ?? made.board?.boardId,
@@ -147,7 +145,7 @@
           made.report('load', error);
         },
       );
-      setFileSource({ ...files, view: viewerLinkOf(files) });
+      setViewedFileSource(files);
       workspace = made;
       // On the handle of the browser tests and the console too, where there is
       // one (the backend in memory): a test undoes through it.
