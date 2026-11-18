@@ -53,12 +53,12 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "enablePublicSharedBoards": true,
+      "allowPublicLinks": true,
       "featureFlags": {},
-      "maxFileSize": 104857600,
-      "maxImportSize": 268435456,
-      "searchEnabled": true,
-      "teammateNameDisplay": "username"
+      "maxFileBytes": 104857600,
+      "maxImportBytes": 268435456,
+      "nameDisplay": "username",
+      "searchEnabled": true
     }
   },
   {
@@ -67,12 +67,12 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "enablePublicSharedBoards": true,
+      "allowPublicLinks": true,
       "featureFlags": {},
-      "maxFileSize": 104857600,
-      "maxImportSize": 268435456,
-      "searchEnabled": true,
-      "teammateNameDisplay": "username"
+      "maxFileBytes": 104857600,
+      "maxImportBytes": 268435456,
+      "nameDisplay": "username",
+      "searchEnabled": true
     }
   },
   {

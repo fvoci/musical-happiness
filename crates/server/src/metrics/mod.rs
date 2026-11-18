@@ -1,4 +1,4 @@
-//! The Prometheus metrics: kept only if `prometheusaddress` is set, and written in the
+//! The Prometheus metrics: kept only if `metrics_address` is set, and written in the
 //! Prometheus text format. Serving them is the listener's (`metrics_listener`).
 //!
 //! Every name starts with [`PREFIX`], but for the process metrics, which have the names

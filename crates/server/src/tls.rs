@@ -1,4 +1,4 @@
-//! Serving over TLS: `usessl`.
+//! Serving over TLS: `serve_https`.
 
 use std::io;
 use std::net::SocketAddr;

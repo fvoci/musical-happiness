@@ -21,7 +21,7 @@ async fn starting_a_second_server_preserves_the_first_servers_active_local_write
     let saving =
         tokio::spawn(async move { app.save_file(&mut reader, &board.id, "in-flight.txt").await });
     writer.write_all(b"in-flight bytes").await.expect("sent");
-    let writing = Path::new(&ts.app.config().files_path).join(WRITING_DIR);
+    let writing = Path::new(&ts.app.config().file_storage_path).join(WRITING_DIR);
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             if let Ok(mut entries) = tokio::fs::read_dir(&writing).await

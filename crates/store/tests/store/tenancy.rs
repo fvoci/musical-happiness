@@ -30,7 +30,7 @@ async fn the_policies_hold_the_role_the_tests_connect_as() {
         return;
     }
     let database = common::empty_database().await;
-    let mut conn = common::connect_past_the_store(database.dbconfig()).await;
+    let mut conn = common::connect_past_the_store(database.database_connection()).await;
     sqlx::raw_sql(
         "CREATE TABLE probe (x INT); INSERT INTO probe VALUES (1); \
          ALTER TABLE probe ENABLE ROW LEVEL SECURITY",
@@ -235,8 +235,8 @@ async fn nothing_of_an_organization_stays_on_a_pooled_connection() {
 }
 
 /// The tables of the test's schema, by name.
-async fn tables(dbconfig: &str) -> Vec<String> {
-    let mut conn = common::connect_past_the_store(dbconfig).await;
+async fn tables(database_connection: &str) -> Vec<String> {
+    let mut conn = common::connect_past_the_store(database_connection).await;
     let tables: Vec<String> = sqlx::query_scalar(
         "SELECT table_name::text FROM information_schema.tables \
          WHERE table_schema = current_schema() ORDER BY table_name",
@@ -341,7 +341,7 @@ async fn every_table_is_no_organizations_or_behind_the_wall() {
         return;
     }
     let test = common::setup().await;
-    let all = tables(&test.dbconfig()).await;
+    let all = tables(&test.database_connection()).await;
     for global in GLOBAL_TABLES {
         assert!(
             all.iter().any(|table| table == global),
@@ -358,7 +358,7 @@ async fn every_table_is_no_organizations_or_behind_the_wall() {
         "every table that is not nobody's is in the list of the organizations' tables"
     );
 
-    let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
+    let mut conn = common::connect_past_the_store(&test.database_connection()).await;
     let policies = policies(&mut conn).await;
     let wall = policies
         .get(&("containers".to_owned(), "org_wall".to_owned()))
@@ -617,7 +617,7 @@ async fn what_two_organizations_store_stays_apart_in_every_table() {
     something_in_every_table(&theirs, "theirs").await;
     something_in_every_table(&theirs, "theirs.too").await;
 
-    let walled: Vec<String> = tables(&test.dbconfig())
+    let walled: Vec<String> = tables(&test.database_connection())
         .await
         .into_iter()
         .filter(|table| !GLOBAL_TABLES.contains(&table.as_str()))
@@ -851,7 +851,7 @@ async fn an_sqlite_database_holds_one_organization() {
         .expect_err("nothing of it is stored");
     assert!(missing.is_not_found(), "got {missing:?}");
     let refused = common::try_execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         "UPDATE organizations SET is_system = NOT is_system",
     )
     .await
@@ -1328,9 +1328,9 @@ async fn a_database_from_before_organizations_becomes_one_organization() {
     let database = common::empty_database().await;
     fvoci_store::testing::migrate_to_before_organizations(&database).await;
     let before = Before::new();
-    common::execute_raw(&common::raw_dbconfig(&database), &before.statements()).await;
+    common::execute_raw(&common::raw_connection(&database), &before.statements()).await;
 
-    let unset = Store::connect(database.db_type(), database.dbconfig())
+    let unset = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("the store migrates the database");
     // The one organization: found, not made.
@@ -1554,7 +1554,7 @@ async fn the_store_names_a_role_that_is_past_the_wall() {
     }
     let directory = Path::new(env!("CARGO_TARGET_TMPDIR")).join("store-tests");
     let database = fvoci_store::testing::TestDatabase::create_as_superuser(&directory).await;
-    let store = Store::connect(database.db_type(), database.dbconfig())
+    let store = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("a store connects as the superuser");
     let role = store.role_past_the_wall().await.expect("the role is read");
@@ -1621,7 +1621,7 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
     fvoci_store::testing::migrate_to_before_organizations(&database).await;
     let (workspace_id, admin, member, left) = (new_id(), new_id(), new_id(), new_id());
     common::execute_raw(
-        &common::raw_dbconfig(&database),
+        &common::raw_connection(&database),
         &format!(
             "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
              delete_at, is_admin, display_name) VALUES \
@@ -1635,7 +1635,7 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
     )
     .await;
 
-    let unset = Store::connect(database.db_type(), database.dbconfig())
+    let unset = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("the store migrates the database");
     // One organization, and the system's.
@@ -1747,7 +1747,7 @@ async fn a_row_is_held_to_the_organization_of_what_it_hangs_on() {
         return;
     }
     let test = common::setup().await;
-    let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
+    let mut conn = common::connect_past_the_store(&test.database_connection()).await;
     let keys = foreign_keys(&mut conn).await;
     conn.close().await.expect("the connection closes");
     test.teardown().await;
@@ -1831,7 +1831,7 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
         assert!(refused.to_string().contains("foreign key"), "{refused}");
     }
 
-    let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
+    let mut conn = common::connect_past_the_store(&test.database_connection()).await;
     sqlx::raw_sql(
         "ALTER TABLE workspace_members DROP CONSTRAINT workspace_members_workspace_org_fkey; \
          ALTER TABLE sharing DROP CONSTRAINT sharing_container_org_fkey",

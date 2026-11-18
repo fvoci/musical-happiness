@@ -50,13 +50,13 @@ fn configuration(
     token: &str,
 ) -> Configuration {
     Configuration {
-        db_type: database.db_type().as_str().to_owned(),
-        db_config: database.dbconfig().to_owned(),
-        files_driver: "local".to_owned(),
-        files_path: directory.join("uploads").display().to_string(),
+        database_kind: database.db_type().as_str().to_owned(),
+        database_connection: database.database_connection().to_owned(),
+        file_storage: "local".to_owned(),
+        file_storage_path: directory.join("uploads").display().to_string(),
         skip_template_init: true,
-        prometheus_address: "127.0.0.1:0".to_owned(),
-        prometheus_token: token.to_owned(),
+        metrics_address: "127.0.0.1:0".to_owned(),
+        metrics_token: token.to_owned(),
         ..Configuration::default()
     }
 }
@@ -84,7 +84,7 @@ async fn a_token_of_fewer_than_thirty_two_characters_keeps_the_server_from_start
     };
     let error = format!("{error:#}");
     assert!(
-        error.contains("prometheustoken must be at least 32 characters"),
+        error.contains("metrics_token must be at least 32 characters"),
         "{error}"
     );
     assert!(!error.contains(SHORT), "{error}");

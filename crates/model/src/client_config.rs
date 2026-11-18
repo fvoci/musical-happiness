@@ -10,19 +10,20 @@ use crate::serde_util::null_as_default;
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ClientConfig {
-    /// Whether boards may be shared publicly through a read token.
-    pub enable_public_shared_boards: bool,
-    /// How other users' names are displayed.
-    pub teammate_name_display: String,
+    /// Whether boards and wikis may be shared publicly through a read token: the
+    /// setting `allow_public_links`.
+    pub allow_public_links: bool,
+    /// How other users' names are displayed: the setting `name_display`.
+    pub name_display: String,
     /// The server's feature flags.
     #[serde(deserialize_with = "null_as_default")]
     pub feature_flags: BTreeMap<String, String>,
     /// The largest upload the server accepts, in bytes; always more than zero (100 MiB
-    /// unless the server is configured otherwise).
-    pub max_file_size: i64,
+    /// unless the server is configured otherwise): the setting `max_file_bytes`.
+    pub max_file_bytes: i64,
     /// The largest archive an import takes, in bytes; always more than zero (256 MiB
-    /// unless the server is configured otherwise).
-    pub max_import_size: i64,
+    /// unless the server is configured otherwise): the setting `max_import_bytes`.
+    pub max_import_bytes: i64,
     /// Whether what cards and pages say can be searched (`searchWorkspaceContent`):
     /// always, on this server. It searches its search server, or its database where none
     /// is configured; a search server that does not answer, or cannot hold the index,

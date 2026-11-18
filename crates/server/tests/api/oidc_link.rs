@@ -35,7 +35,7 @@ enum Ended {
 struct Linker {
     http: reqwest::Client,
     base_url: String,
-    server_root: String,
+    server_url: String,
 }
 
 fn cookies_set(response: &reqwest::Response) -> Vec<String> {
@@ -60,7 +60,7 @@ impl Linker {
         Self {
             http,
             base_url: ts.base_url.clone(),
-            server_root: ts.app.config().server_root.clone(),
+            server_url: ts.app.config().server_url.clone(),
         }
     }
 
@@ -107,7 +107,7 @@ impl Linker {
             .and_then(|value| value.to_str().ok())
             .expect("the provider sends back");
         let path = back
-            .strip_prefix(self.server_root.trim_end_matches('/'))
+            .strip_prefix(self.server_url.trim_end_matches('/'))
             .expect("under the server's address")
             .to_owned();
         Returning { path, flow }
@@ -146,7 +146,7 @@ impl Linker {
             .get(reqwest::header::LOCATION)
             .and_then(|value| value.to_str().ok())
             .expect("a Location header");
-        let root = self.server_root.trim_end_matches('/');
+        let root = self.server_url.trim_end_matches('/');
         if location == format!("{root}/?oidc_linked=1") {
             return Ended::Linked;
         }

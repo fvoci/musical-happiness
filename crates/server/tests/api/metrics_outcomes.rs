@@ -159,7 +159,7 @@ async fn the_calls_of_the_database_are_measured() {
         );
     }
     for line in after.lines().filter(|line| line.starts_with("fvoci_db_")) {
-        let db_named = ["db=\"sqlite3\"", "db=\"postgres\""]
+        let db_named = ["db=\"sqlite\"", "db=\"postgres\""]
             .iter()
             .any(|value| line.contains(value));
         assert!(db_named || !line.contains("db="), "{line}");
@@ -260,7 +260,7 @@ async fn the_operations_on_the_local_disk_are_measured() {
 async fn an_upload_past_its_limit_is_no_failure_of_the_storage() {
     let server = Setup::native()
         .metrics_at("127.0.0.1:0")
-        .configure(|config| config.max_file_size = 1)
+        .configure(|config| config.max_file_bytes = 1)
         .start()
         .await
         .init_basic()

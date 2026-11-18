@@ -19,7 +19,7 @@ async fn owned_apart(owner: TableOwner) -> TestDatabase {
 /// The owner migrates, and the server's role opens and uses the tables it brought.
 async fn a_role_that_does_not_own_the_tables_uses_them(owner: TableOwner) {
     let database = owned_apart(owner).await;
-    let owner_store = Store::connect(database.db_type(), database.owner_dbconfig())
+    let owner_store = Store::connect(database.db_type(), database.owner_database_connection())
         .await
         .expect("the owner brings the schema up to date");
     if owner == TableOwner::Role {
@@ -34,7 +34,7 @@ async fn a_role_that_does_not_own_the_tables_uses_them(owner: TableOwner) {
     }
     owner_store.close().await;
 
-    let store = Store::connect(database.db_type(), database.dbconfig())
+    let store = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("the server's role opens the schema as it is");
     let (org_id, workspace_id) = common::organization(&store, "apart").await;
@@ -66,9 +66,14 @@ async fn a_role_that_does_not_own_the_tables_refuses_a_schema_that_is_behind() {
     for owner in [TableOwner::Superuser, TableOwner::Role] {
         let database = owned_apart(owner).await;
         let behind = testing::latest_migration() - 1;
-        testing::migrate_up_to(database.db_type(), database.owner_dbconfig(), behind).await;
+        testing::migrate_up_to(
+            database.db_type(),
+            database.owner_database_connection(),
+            behind,
+        )
+        .await;
 
-        let refused = Store::connect(database.db_type(), database.dbconfig())
+        let refused = Store::connect(database.db_type(), database.database_connection())
             .await
             .expect_err("the server's role does not migrate");
         assert!(
@@ -77,7 +82,7 @@ async fn a_role_that_does_not_own_the_tables_refuses_a_schema_that_is_behind() {
             "{owner:?}: {refused}"
         );
 
-        let untouched = Store::open(database.db_type(), database.owner_dbconfig())
+        let untouched = Store::open(database.db_type(), database.owner_database_connection())
             .await
             .expect("the owner connects");
         assert!(
@@ -89,11 +94,11 @@ async fn a_role_that_does_not_own_the_tables_refuses_a_schema_that_is_behind() {
         );
         untouched.close().await;
 
-        let owner_store = Store::connect(database.db_type(), database.owner_dbconfig())
+        let owner_store = Store::connect(database.db_type(), database.owner_database_connection())
             .await
             .expect("the owner brings it up to date");
         owner_store.close().await;
-        let store = Store::connect(database.db_type(), database.dbconfig())
+        let store = Store::connect(database.db_type(), database.database_connection())
             .await
             .expect("then the server's role opens it");
         store.close().await;
@@ -109,18 +114,18 @@ async fn a_role_that_does_not_own_the_tables_is_told_why_a_record_is_not_this_bu
         return;
     }
     let database = owned_apart(TableOwner::Superuser).await;
-    Store::connect(database.db_type(), database.owner_dbconfig())
+    Store::connect(database.db_type(), database.owner_database_connection())
         .await
         .expect("the owner brings the schema up to date")
         .close()
         .await;
     common::execute_raw(
-        database.owner_dbconfig(),
+        database.owner_database_connection(),
         "INSERT INTO _sqlx_migrations (version, description, success, checksum, \
          execution_time) VALUES (999999, 'newer', true, '\\x00', 0)",
     )
     .await;
-    let refused = Store::connect(database.db_type(), database.dbconfig())
+    let refused = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect_err("a newer server's record is refused");
     assert!(
@@ -139,7 +144,7 @@ async fn a_role_that_may_not_make_tables_refuses_an_empty_schema() {
         return;
     }
     let database = owned_apart(TableOwner::Superuser).await;
-    let refused = Store::connect(database.db_type(), database.dbconfig())
+    let refused = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect_err("nothing is made as the server's role");
     assert!(
@@ -155,8 +160,13 @@ async fn a_role_that_may_not_make_tables_refuses_an_empty_schema() {
 async fn a_role_that_does_not_own_the_tables_does_the_data_steps_left_to_it() {
     let database = owned_apart(TableOwner::Superuser).await;
     let latest = testing::latest_migration();
-    testing::migrate_up_to(database.db_type(), database.owner_dbconfig(), latest).await;
-    let store = Store::connect(database.db_type(), database.dbconfig())
+    testing::migrate_up_to(
+        database.db_type(),
+        database.owner_database_connection(),
+        latest,
+    )
+    .await;
+    let store = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("the server's role opens the schema and does the data steps");
     assert_eq!(
@@ -176,13 +186,13 @@ async fn a_role_that_was_not_granted_a_table_is_told_which() {
         return;
     }
     let database = owned_apart(TableOwner::Superuser).await;
-    Store::connect(database.db_type(), database.owner_dbconfig())
+    Store::connect(database.db_type(), database.owner_database_connection())
         .await
         .expect("the owner brings the schema up to date")
         .close()
         .await;
     common::execute_raw(
-        database.owner_dbconfig(),
+        database.owner_database_connection(),
         "DO $$ DECLARE grantee text; BEGIN \
            FOR grantee IN SELECT DISTINCT g.grantee FROM information_schema.role_table_grants g \
              WHERE g.table_schema = current_schema() AND g.table_name = 'blocks' \
@@ -191,7 +201,7 @@ async fn a_role_that_was_not_granted_a_table_is_told_which() {
            END LOOP; END $$",
     )
     .await;
-    let refused = Store::connect(database.db_type(), database.dbconfig())
+    let refused = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect_err("a table the role may not write is refused");
     let said = refused.to_string();
@@ -207,7 +217,7 @@ async fn a_role_that_does_not_own_the_tables_cannot_turn_the_wall_off() {
         return;
     }
     let database = owned_apart(TableOwner::Superuser).await;
-    let owner_store = Store::connect(database.db_type(), database.owner_dbconfig())
+    let owner_store = Store::connect(database.db_type(), database.owner_database_connection())
         .await
         .expect("the owner brings the schema up to date");
     owner_store.close().await;
@@ -220,7 +230,7 @@ async fn a_role_that_does_not_own_the_tables_cannot_turn_the_wall_off() {
         "DROP TABLE blocks",
         "CREATE TABLE intruder (id integer)",
     ] {
-        let refused = common::try_execute_raw(database.dbconfig(), statement)
+        let refused = common::try_execute_raw(database.database_connection(), statement)
             .await
             .expect_err(statement);
         let said = refused.to_string();

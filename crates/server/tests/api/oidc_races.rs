@@ -435,7 +435,7 @@ async fn a_start_with_a_forged_host_keeps_the_configured_callback_address() {
         .into_owned();
     let expected = format!(
         "{}/api/v1/auth/oidc/callback/{org_id}",
-        ts.app.config().server_root.trim_end_matches('/')
+        ts.app.config().server_url.trim_end_matches('/')
     );
     ts.teardown().await;
     fake.stop();

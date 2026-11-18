@@ -783,7 +783,7 @@ mod tests {
         let directory =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/deadline-tests");
         let database = TestDatabase::create(&directory).await;
-        let store = Store::connect(database.db_type(), database.dbconfig())
+        let store = Store::connect(database.db_type(), database.database_connection())
             .await
             .expect("test store");
         let counting = |to: u64| {

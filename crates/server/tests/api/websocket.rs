@@ -524,7 +524,10 @@ async fn block_subscription_needs_the_read_token() {
 #[tokio::test]
 async fn the_server_pings_at_the_configured_interval() {
     let th = Setup::native()
-        .configure(|config| config.websocket_ping_seconds = 1)
+        .configure(|config| {
+            config.websocket_ping_seconds = 1;
+            config.skip_websocket_pings = false;
+        })
         .start()
         .await;
     let mut socket = Socket::connect(&th).await;
@@ -971,6 +974,7 @@ async fn a_session_that_runs_out_closes_its_websocket_connection() {
     let th = Setup::native()
         .configure(|config| {
             config.websocket_ping_seconds = 1;
+            config.skip_websocket_pings = false;
             config.session_idle_days = 3;
         })
         .start()

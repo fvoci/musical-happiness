@@ -282,7 +282,7 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
         .init_basic()
         .await;
     let config = ts.client.get("/client-config").await;
-    assert_eq!(config.value()["maxImportSize"], json!(1000));
+    assert_eq!(config.value()["maxImportBytes"], json!(1000));
 
     let response = open_import(&ts.client, TEST_WORKSPACE_ID, 1001).await;
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
@@ -345,7 +345,7 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
 #[tokio::test]
 async fn an_archive_over_its_limits_stores_nothing() {
     let ts = Setup::native()
-        .configure(|config| config.max_file_size = 1000)
+        .configure(|config| config.max_file_bytes = 1000)
         .start()
         .await
         .init_basic()
@@ -411,7 +411,7 @@ async fn an_archive_over_its_limits_stores_nothing() {
 async fn the_share_of_a_user_is_twice_the_larger_limit() {
     let ts = Setup::native()
         .configure(|config| {
-            config.max_file_size = 1000;
+            config.max_file_bytes = 1000;
             config.max_import_bytes = 2000;
             config.max_pending_upload_bytes = 100_000;
         })

@@ -275,25 +275,26 @@ enum Pool {
 }
 
 impl Store {
-    /// Connects to the database described by the server's `dbtype` and `dbconfig`
-    /// settings and brings its schema up to date, as [`Store::migrate`] does: an empty
-    /// database gets the whole schema, an older one the migrations it lacks. A role that
-    /// does not own the tables opens only a schema that is up to date.
+    /// Connects to the database described by the server's `database_kind` and
+    /// `database_connection` settings and brings its schema up to date, as
+    /// [`Store::migrate`] does: an empty database gets the whole schema, an older one the
+    /// migrations it lacks. A role that does not own the tables opens only a schema that
+    /// is up to date.
     ///
     /// The tables have fixed names. To keep them apart from other tables in one
     /// PostgreSQL database, give the server a schema of its own with `search_path` in
-    /// `dbconfig`.
+    /// `database_connection`.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Config`] if `dbconfig` cannot be used, [`StoreError::Schema`]
-    /// if the database is not this server's to open (one with this server's tables but
-    /// no migration record, one migrated by a newer server) or the role may not read and
-    /// write its tables, [`StoreError::SchemaNotOwned`] if the schema is to be changed and
-    /// the role does not own the tables, and [`StoreError::Database`] if the database
-    /// cannot be reached.
-    pub async fn connect(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
-        let store = Self::open(db_type, dbconfig).await?;
+    /// Returns [`StoreError::Config`] if `database_connection` cannot be used,
+    /// [`StoreError::Schema`] if the database is not this server's to open (one with this
+    /// server's tables but no migration record, one migrated by a newer server) or the
+    /// role may not read and write its tables, [`StoreError::SchemaNotOwned`] if the
+    /// schema is to be changed and the role does not own the tables, and
+    /// [`StoreError::Database`] if the database cannot be reached.
+    pub async fn connect(db_type: DbType, connection: &str) -> Result<Self, StoreError> {
+        let store = Self::open(db_type, connection).await?;
         store.migrate().await?;
         Ok(store)
     }
@@ -356,18 +357,18 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Config`] if `dbconfig` cannot be used, and
+    /// Returns [`StoreError::Config`] if `database_connection` cannot be used, and
     /// [`StoreError::Database`] if the database cannot be reached.
-    pub async fn open(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
+    pub async fn open(db_type: DbType, connection: &str) -> Result<Self, StoreError> {
         let mut lock_file = None;
         // What an abandoned write may still take to land (`visibility::settle_after`).
         let longest_wait = match db_type {
-            DbType::Sqlite => connect::sqlite_settings(dbconfig)?.busy_timeout,
+            DbType::Sqlite => connect::sqlite_settings(connection)?.busy_timeout,
             DbType::Postgres => Duration::ZERO,
         };
         let pool = match db_type {
             DbType::Sqlite => {
-                let settings = connect::sqlite_settings(dbconfig)?;
+                let settings = connect::sqlite_settings(connection)?;
                 let database =
                     (!settings.in_memory).then(|| settings.options.get_filename().to_path_buf());
                 let options = if settings.in_memory {
@@ -387,7 +388,7 @@ impl Store {
                 Pool::Sqlite(pool)
             }
             DbType::Postgres => {
-                let settings = connect::postgres_settings(dbconfig)?;
+                let settings = connect::postgres_settings(connection)?;
                 let mut options = PgPoolOptions::new().max_connections(MAX_CONNECTIONS);
                 if let Some(timeout) = settings.connect_timeout {
                     options = options.acquire_timeout(timeout.max(Duration::from_secs(1)));

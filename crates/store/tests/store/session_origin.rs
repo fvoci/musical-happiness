@@ -314,7 +314,7 @@ async fn the_migration_fills_the_origin_or_ends_the_session() {
         )
     };
     common::execute_raw(
-        &common::raw_dbconfig(&database),
+        &common::raw_connection(&database),
         &[
             format!(
                 "INSERT INTO organizations (id, name, settings, create_at, update_at) \
@@ -336,7 +336,7 @@ async fn the_migration_fills_the_origin_or_ends_the_session() {
         .concat(),
     )
     .await;
-    let store = Store::connect(database.db_type(), database.dbconfig())
+    let store = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("migrated");
     let present = store.get_session("digest-present", T0, 0).await;

@@ -2195,7 +2195,7 @@ async fn undelete_container_leaves_out_the_membership_of_a_user_who_is_gone() {
     );
 
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("DELETE FROM users WHERE id = '{leaver_id}'"),
     )
     .await;
@@ -2234,7 +2234,7 @@ async fn undelete_container_brings_back_the_membership_of_a_user_who_was_deactiv
         .await
         .expect("the board is deleted");
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("UPDATE users SET delete_at = 1700000000000 WHERE id = '{deactivated_id}'"),
     )
     .await;
@@ -2284,7 +2284,7 @@ async fn undelete_container_restores_a_board_whose_creator_is_gone_as_made_by_no
         .expect("the board is deleted");
     // Nothing that exists names the creator any more.
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("DELETE FROM users WHERE id = '{creator_id}'"),
     )
     .await;
@@ -2361,7 +2361,7 @@ async fn undelete_block_restores_a_block_whose_creator_is_gone_as_made_by_nobody
         .await
         .expect("the card is deleted");
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("DELETE FROM users WHERE id = '{author_id}'"),
     )
     .await;
@@ -3564,7 +3564,7 @@ async fn the_schema_refuses_a_minimum_role_that_is_none() {
 
     for role in ["", "admin", "owner"] {
         let refused = common::try_execute_raw(
-            &test.dbconfig(),
+            &test.database_connection(),
             &format!("UPDATE containers SET minimum_role = '{role}' WHERE id = '{board_id}'"),
         )
         .await;
@@ -3572,7 +3572,7 @@ async fn the_schema_refuses_a_minimum_role_that_is_none() {
     }
     for role in ["viewer", "commenter", "editor"] {
         common::execute_raw(
-            &test.dbconfig(),
+            &test.database_connection(),
             &format!("UPDATE containers SET minimum_role = '{role}' WHERE id = '{board_id}'"),
         )
         .await;
@@ -4027,7 +4027,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         .await
         .expect("the board is stored");
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!(
             "UPDATE containers SET is_builtin = TRUE WHERE id = '{}'",
             board.id

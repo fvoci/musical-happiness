@@ -11,7 +11,7 @@ use futures_util::StreamExt as _;
 use fvoci_model::{ContainerMember, ContainerType, UploadPart};
 use fvoci_server::app::{CLOSED_UPLOAD_GRACE_MILLIS, UPLOAD_LIFETIME_MILLIS};
 use fvoci_server::auth::now_millis;
-use fvoci_server::config::{AmazonS3Config, Configuration};
+use fvoci_server::config::{Configuration, S3Config};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -416,11 +416,11 @@ async fn an_abandoned_upload_leaves_nothing() {
 }
 
 /// Opening an upload takes the permission of `uploadFile`, a name, and a size within
-/// `maxfilesize`.
+/// `max_file_bytes`.
 #[tokio::test]
 async fn opening_an_upload_is_checked() {
     let ts = Setup::native()
-        .configure(|config| config.max_file_size = 1000)
+        .configure(|config| config.max_file_bytes = 1000)
         .start()
         .await
         .init_basic()
@@ -685,7 +685,7 @@ async fn a_user_has_at_most_eight_uploads_open() {
 async fn the_bytes_open_uploads_hold_back_are_limited() {
     let ts = Setup::native()
         .configure(|config| {
-            config.max_file_size = 1000;
+            config.max_file_bytes = 1000;
             config.max_import_bytes = 1000;
             config.max_pending_upload_bytes = 2500;
         })
@@ -788,7 +788,7 @@ async fn the_sweep_removes_what_no_upload_owns() {
         .await
         .check_no_content();
     let uploads = ts.app.config().tmp_dir().join("uploads");
-    let writing = Path::new(&ts.app.config().files_path).join(".tmp/writing");
+    let writing = Path::new(&ts.app.config().file_storage_path).join(".tmp/writing");
     let strays = [
         uploads.join("gone-upload").join("1.abc"),
         uploads.join(format!("{live}.completing-xyz")).join("1.abc"),
@@ -824,7 +824,7 @@ async fn a_single_upload_takes_one_part() {
     let board = ts
         .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
         .await;
-    let files = Path::new(&ts.app.config().files_path).to_path_buf();
+    let files = Path::new(&ts.app.config().file_storage_path).to_path_buf();
 
     let response = crate::files::upload(&ts.client, &board.id, "a.bin", &file_of(PART)).await;
     response.check_created();
@@ -987,16 +987,16 @@ pub(crate) fn configure_s3(config: &mut Configuration, bucket: &str) {
     let var = |name: &str| std::env::var(name).unwrap_or_default();
     let or = |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.to_owned());
     config.upload_part_bytes = 5 * 1024 * 1024;
-    "amazons3".clone_into(&mut config.files_driver);
-    config.files_s3_config = AmazonS3Config {
+    "s3".clone_into(&mut config.file_storage);
+    config.file_storage_s3 = S3Config {
         access_key_id: or("FVOCI_S3_TEST_ACCESS_KEY", "any"),
         secret_access_key: or("FVOCI_S3_TEST_SECRET_KEY", "any"),
         bucket: bucket.to_owned(),
-        path_prefix: "upload-tests".to_owned(),
+        key_prefix: "upload-tests".to_owned(),
         region: or("FVOCI_S3_TEST_REGION", "us-east-1"),
         endpoint: var("FVOCI_S3_TEST_ENDPOINT"),
-        ssl: var("FVOCI_S3_TEST_SSL") == "true",
-        ..AmazonS3Config::default()
+        https: var("FVOCI_S3_TEST_SSL") == "true",
+        ..S3Config::default()
     };
 }
 

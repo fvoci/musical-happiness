@@ -1,7 +1,7 @@
 //! The metrics listener: the metrics served at [`PATH`] on a listener of their own,
 //! never on the API's.
 //!
-//! A scrape must send the bearer token of `prometheustoken` if it is set, and needs
+//! A scrape must send the bearer token of `metrics_token` if it is set, and needs
 //! nothing if it is empty; the listener is meant for an address only the monitoring
 //! can reach either way (`docs/configuration.md`, "키: 지표").
 
@@ -27,7 +27,7 @@ const PATH: &str = "/metrics";
 /// as the API does, with a problem (RFC 9457), and so it serves the pages such an
 /// answer points at; without the identifier of a request, as nothing is logged here.
 pub(crate) fn router(app: App) -> Router {
-    let token = app.config().metrics_token();
+    let token = app.config().metrics_scrape_token();
     Router::new()
         .route(PATH, get(answer_scrape))
         .route_layer(middleware::from_fn_with_state(token, require_token))
@@ -139,8 +139,7 @@ pub(crate) async fn bind(address: &MetricsAddress) -> anyhow::Result<tokio::net:
         Some(host) => format!("{host}:{port}"),
         None => format!(":{port}"),
     };
-    listener
-        .with_context(|| format!("listening for metrics scrapes on {shown} (prometheusaddress)"))
+    listener.with_context(|| format!("listening for metrics scrapes on {shown} (metrics_address)"))
 }
 
 #[cfg(test)]
@@ -186,13 +185,13 @@ mod tests {
             .finish();
         let _logging = tracing::subscriber::set_default(subscriber);
         let config = crate::config::Configuration {
-            prometheus_token: token.unwrap_or_default().to_owned(),
+            metrics_token: token.unwrap_or_default().to_owned(),
             ..crate::config::Configuration::default()
         };
         let router = Router::new()
             .route(PATH, get(|| async { "the metrics" }))
             .route_layer(middleware::from_fn_with_state(
-                config.metrics_token(),
+                config.metrics_scrape_token(),
                 require_token,
             ));
         let mut request = Request::get(PATH);

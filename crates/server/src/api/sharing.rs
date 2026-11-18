@@ -129,7 +129,7 @@ async fn handle_post_sharing(
 ) -> ApiResult {
     require_share_permission(&ws.app, &ws.session.user_id, &container_id).await?;
 
-    if !ws.app.config().enable_public_shared_boards {
+    if !ws.app.config().allow_public_links {
         tracing::warn!(
             container_id,
             user_id = %ws.session.user_id,

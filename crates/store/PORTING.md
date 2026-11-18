@@ -20,14 +20,14 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 
 ## 의도적 차이
 
-1. **MySQL/MariaDB 미지원.** `dbtype: mysql`은 시작 오류다.
+1. **MySQL/MariaDB 미지원.** `database_kind: mysql`은 시작 오류다(모르는 종류).
 2. **버전 40 미만 스키마의 업그레이드 미지원.** 원본 서버로 먼저 올려야 한다.
 3. **SQLite에서도 트랜잭션.** 원본은 SQLite에서 `@withTransaction` 메서드도 트랜잭션 없이 실행한다(`sqlstore/public_methods.go`). 포트는 실패 시 전부 되돌린다.
 4. **history 행이 충돌하지 않는다.** history 테이블의 기본 키는 `(id, insert_at)`이고 SQLite의 기본 `insert_at`은 밀리초 해상도라, 원본은 같은 레코드를 1ms 안에 두 번 쓰면 기본 키 충돌로 실패한다(원본 테스트에 `time.Sleep(1ms)` 회피 코드가 있다). 포트는 SQLite에서 프로세스 안에서 단조 증가하는 밀리초를, PostgreSQL에서 `clock_timestamp()`를 `insert_at`에 직접 넣는다.
 5. **이미지·첨부 블록 삭제가 동작한다.** 원본은 블록을 지울 때 `FileInfo`라는 테이블을 갱신하는데(`sqlstore/blocks.go:430`, `:987`), standalone에는 그 테이블이 없다. 오라클 확인: 이미지 블록, 또는 이미지를 가진 카드를 지우면 500 `no such table: FileInfo`가 나고 블록은 남는다(SQLite에서는 history에 삭제 행만 남는다). 포트는 접두사가 붙은 `file_info`의 `delete_at`을 갱신하고 삭제를 끝낸다.
 6. **사용자 설정(preferences)의 카테고리 값이 다르다.** → 루트 `PORTING.md`의 결정 항목 1. S6에서 정리됨: `fvoci`로 확정되어 항목을 닫았다.
-7. **`dbconfig`에서 모르는 파라미터는 시작 오류다.** 원본 드라이버는 조용히 무시하거나 드라이버별로 다르게 처리한다.
-8. **인메모리 SQLite는 스토어마다 따로다.** 원본은 `file::memory:?cache=shared`를 여는 모든 연결이 한 DB를 본다.
+7. **`database_connection`은 SQLite 경로(`?busy_timeout_ms=`)나 `postgres://` URL뿐이고, 모르는 파라미터는 시작 오류다.** 원본 드라이버의 꼴(`file:`, `_busy_timeout`, `key=value` 목록 등)은 받지 않는다.
+8. **인메모리 SQLite는 스토어마다 따로다.** 원본은 `file::memory:?cache=shared`를 여는 모든 연결이 한 DB를 본다. 이 서버의 꼴은 `:memory:`다.
 9. **부분 결과와 오류를 함께 돌려주지 않는다.** 원본의 `GetBlocksByIDs`, `GetBoardsInTeamByIds`, `GetUsersList`는 일부만 찾았을 때 찾은 목록과 `ErrNotAllFound`를 함께 돌려준다. 포트는 오류만 돌려준다. 호출하는 쪽은 오류일 때 목록을 쓰지 않는다(`server/app/blocks.go:106`, `server/app/auth.go:72-75`).
 10. **패닉 대신 오류.** 패치 개수가 ID 개수보다 적으면 원본은 인덱스 범위 초과로 패닉한다(`sqlstore/blocks.go:335`, `sqlstore/boards_and_blocks.go:79,87`). 포트는 `BlockIdsAndPatchesMismatch`/`ContainerIdsAndPatchesMismatch`를 돌려준다. 전역 팀 템플릿을 `properties` 없이 넣을 때의 nil 맵 패닉(`sqlstore/board.go:302`)도 없다.
 11. **닫힌 집합의 저장 값.** 행의 보드 타입·최소 역할·구독자 타입이 모르는 값이면 `StoreError::Corrupt`다. 원본은 문자열을 그대로 읽는다. 카테고리 `type`이 NULL이거나 비어 있으면 `custom`으로 읽는다(원본의 기본값과 같다).
@@ -97,7 +97,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 | `GetCategory`, `GetUserCategories`, `CreateCategory`, `UpdateCategory`, `DeleteCategory`, `ReorderCategories` | `get_category(id)`, `get_user_categories(user_id, workspace_id)`, `create_category(&Category)`, `update_category(&Category)`, `delete_category(id, user_id, workspace_id)`, `reorder_categories(user_id, workspace_id, Vec<String>)` |
 | `GetUserCategoryBoards`, `AddUpdateCategoryBoard`, `ReorderCategoryBoards`, `SetBoardVisibility` | `get_user_category_containers(user_id, workspace_id)`, `add_update_category_container(user_id, category_id, &[String])`, `reorder_category_containers(category_id, Vec<String>)`, `set_container_visibility(user_id, category_id, container_id, ContainerVisibility)` |
 | `DBType`, `DBVersion`, `Shutdown` | `db_type()`, `db_version()`, `close()` |
-| `sqlstore.New` + `server.NewStore` | `Store::connect(DbType, dbconfig, table_prefix)` |
+| `sqlstore.New` + `server.NewStore` | `Store::connect(DbType, database_connection)` |
 
 옮기지 않은 메서드와 이유:
 

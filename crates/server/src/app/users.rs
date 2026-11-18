@@ -253,10 +253,10 @@ impl App {
     /// full name, unless the configuration shows them.
     pub fn sanitize_profile(&self, user: &mut User) {
         sanitize(user);
-        if !self.config().show_email_address {
+        if !self.config().show_email_addresses {
             user.email.clear();
         }
-        if !self.config().show_full_name {
+        if !self.config().show_full_names {
             user.first_name.clear();
             user.last_name.clear();
         }

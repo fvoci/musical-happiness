@@ -55,10 +55,10 @@ async fn a_start_refused_over_the_role_makes_nothing_in_the_database() {
         .join(fvoci_model::new_id());
     let database = TestDatabase::create_as_superuser(&directory).await;
     let config = Configuration {
-        db_type: database.db_type().as_str().to_owned(),
-        db_config: database.dbconfig().to_owned(),
+        database_kind: database.db_type().as_str().to_owned(),
+        database_connection: database.database_connection().to_owned(),
         org_creation: "open".to_owned(),
-        files_path: directory.join("uploads").display().to_string(),
+        file_storage_path: directory.join("uploads").display().to_string(),
         skip_template_init: true,
         ..Configuration::default()
     };
@@ -67,7 +67,7 @@ async fn a_start_refused_over_the_role_makes_nothing_in_the_database() {
         .expect_err("the server does not start as a superuser");
     assert!(format!("{refused:#}").contains("superuser"), "{refused:#}");
 
-    let store = Store::open(database.db_type(), database.dbconfig())
+    let store = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("the database is reached");
     let no_table = store
@@ -97,10 +97,10 @@ async fn a_server_for_several_organizations_does_not_start_as_a_role_with_bypass
     // the making of it checks.
     let database = TestDatabase::create_as_role_with_bypassrls(&directory).await;
     let config = |org_creation: &str| Configuration {
-        db_type: database.db_type().as_str().to_owned(),
-        db_config: database.dbconfig().to_owned(),
+        database_kind: database.db_type().as_str().to_owned(),
+        database_connection: database.database_connection().to_owned(),
         org_creation: org_creation.to_owned(),
-        files_path: directory.join("uploads").display().to_string(),
+        file_storage_path: directory.join("uploads").display().to_string(),
         skip_template_init: true,
         ..Configuration::default()
     };
@@ -113,7 +113,7 @@ async fn a_server_for_several_organizations_does_not_start_as_a_role_with_bypass
         "the refusal says why: {refusal}"
     );
 
-    let store = Store::open(database.db_type(), database.dbconfig())
+    let store = Store::open(database.db_type(), database.database_connection())
         .await
         .expect("the database is reached");
     let no_table = store
