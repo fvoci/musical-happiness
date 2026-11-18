@@ -30,11 +30,11 @@ fn renamed(name: &str) -> String {
 
 /// Reads every table of the database past the store, the migrator's own left out.
 pub(crate) async fn dump(database: &fvoci_store::testing::TestDatabase) -> Dump {
-    let dbconfig = common::raw_dbconfig(database);
+    let database_connection = common::raw_connection(database);
     let mut dump = Dump::new();
     match db_type() {
         DbType::Sqlite => {
-            let mut conn = sqlx::sqlite::SqliteConnection::connect(&dbconfig)
+            let mut conn = sqlx::sqlite::SqliteConnection::connect(&database_connection)
                 .await
                 .expect("the database file opens");
             let tables: Vec<String> = sqlx::query_scalar(
@@ -62,7 +62,7 @@ pub(crate) async fn dump(database: &fvoci_store::testing::TestDatabase) -> Dump 
             conn.close().await.expect("the connection closes");
         }
         DbType::Postgres => {
-            let mut conn = common::connect_past_the_store(&dbconfig).await;
+            let mut conn = common::connect_past_the_store(&database_connection).await;
             let tables: Vec<String> = sqlx::query_scalar(
                 "SELECT table_name::text FROM information_schema.tables \
                  WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'",
@@ -132,10 +132,10 @@ fn board_with_the_new_name(text: &str) -> Value {
 /// The names of the schema that still speak of a team: tables, columns, indexes,
 /// constraints, triggers, and on PostgreSQL the bodies of functions.
 async fn names_of_a_team(database: &fvoci_store::testing::TestDatabase) -> Vec<String> {
-    let dbconfig = common::raw_dbconfig(database);
+    let database_connection = common::raw_connection(database);
     let names: Vec<String> = match db_type() {
         DbType::Sqlite => {
-            let mut conn = sqlx::sqlite::SqliteConnection::connect(&dbconfig)
+            let mut conn = sqlx::sqlite::SqliteConnection::connect(&database_connection)
                 .await
                 .expect("the database file opens");
             let names = sqlx::query_scalar(
@@ -157,7 +157,7 @@ async fn names_of_a_team(database: &fvoci_store::testing::TestDatabase) -> Vec<S
             names
         }
         DbType::Postgres => {
-            let mut conn = common::connect_past_the_store(&dbconfig).await;
+            let mut conn = common::connect_past_the_store(&database_connection).await;
             let names = sqlx::query_scalar(
                 "SELECT 'relation ' || relname::text FROM pg_class \
                  WHERE relnamespace = current_schema()::regnamespace AND relname LIKE '%team%' \
@@ -198,7 +198,7 @@ async fn a_database_with_teams_keeps_every_row_under_the_names_of_the_workspaces
     let database = common::empty_database().await;
     fvoci_store::testing::migrate_to_before_organizations(&database).await;
     let before = Before::new();
-    let raw = common::raw_dbconfig(&database);
+    let raw = common::raw_connection(&database);
     common::execute_raw(&raw, &before.statements()).await;
     fvoci_store::testing::migrate_to_before_workspaces(&database).await;
     let deleted_board = before.id("deleted_board");
@@ -229,7 +229,7 @@ async fn a_database_with_teams_keeps_every_row_under_the_names_of_the_workspaces
     fvoci_store::testing::migrate_to_the_workspaces(&database).await;
     let new = dump(&database).await;
     assert_eq!(names_of_a_team(&database).await, Vec::<String>::new());
-    let store = Store::connect(database.db_type(), database.dbconfig())
+    let store = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("the store migrates the database");
     the_keys_and_the_check_of_an_upload_find_the_workspaces(&store, &database, workspace).await;
@@ -307,7 +307,7 @@ async fn the_keys_and_the_check_of_an_upload_find_the_workspaces(
 ) {
     match db_type() {
         DbType::Sqlite => {
-            let path = common::raw_dbconfig(database);
+            let path = common::raw_connection(database);
             let mut conn = sqlx::sqlite::SqliteConnection::connect(&path)
                 .await
                 .expect("the database file opens");
@@ -338,7 +338,9 @@ async fn the_keys_and_the_check_of_an_upload_find_the_workspaces(
                 ..Upload::default()
             };
             let admin: String = sqlx::query_scalar("SELECT id::text FROM users WHERE is_admin")
-                .fetch_one(&mut common::connect_past_the_store(database.dbconfig()).await)
+                .fetch_one(
+                    &mut common::connect_past_the_store(database.database_connection()).await,
+                )
                 .await
                 .expect("the administrator");
             let into = |target: &str| Upload {
@@ -350,7 +352,9 @@ async fn the_keys_and_the_check_of_an_upload_find_the_workspaces(
                 .expect("an import into a workspace of the organization");
             let board: String =
                 sqlx::query_scalar("SELECT id::text FROM containers WHERE NOT is_template")
-                    .fetch_one(&mut common::connect_past_the_store(database.dbconfig()).await)
+                    .fetch_one(
+                        &mut common::connect_past_the_store(database.database_connection()).await,
+                    )
                     .await
                     .expect("a board");
             ours.create_upload(&into(&board))

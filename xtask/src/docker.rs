@@ -411,7 +411,7 @@ impl Secrets {
     fn env_file(&self, images: &images::Names, port: u16) -> String {
         format!(
             "FVOCI_IMAGE={}\nFVOCI_SEARCH_IMAGE={}\nFVOCI_HOST_PORT={port}\n\
-             FVOCI_SERVERROOT=http://localhost:{port}\nFVOCI_ORG_CREATION=open\n\
+             FVOCI_SERVER_URL=http://localhost:{port}\nFVOCI_ORG_CREATION=open\n\
              POSTGRES_PASSWORD={}\nFVOCI_DB_PASSWORD={}\nFVOCI_SECRET_KEY={}\n\
              FVOCI_SEARCH_PASSWORD={}\nFVOCI_METRICS_TOKEN={}\n\
              FVOCI_S3_ACCESS_KEY_ID=\nFVOCI_S3_SECRET_ACCESS_KEY=\nFVOCI_SMTP_PASSWORD=\n",

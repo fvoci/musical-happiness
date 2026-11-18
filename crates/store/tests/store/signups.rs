@@ -179,7 +179,7 @@ async fn the_migration_of_the_registrations_keeps_every_record_of_the_audit_log(
     fvoci_store::testing::migrate_to_before_signups(&database).await;
     let (org, lapsed, carried, actor) = (new_id(), new_id(), new_id(), new_id());
     common::execute_raw(
-        &common::raw_dbconfig(&database),
+        &common::raw_connection(&database),
         &format!(
             "INSERT INTO organizations (id, name, settings, create_at, update_at) \
              VALUES ('{org}', 'Org', '{{}}', 1, 1); \
@@ -193,7 +193,7 @@ async fn the_migration_of_the_registrations_keeps_every_record_of_the_audit_log(
         ),
     )
     .await;
-    let store = Store::connect(database.db_type(), database.dbconfig())
+    let store = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("migrated");
     let ours = store.for_org(&org).expect("organization");
@@ -235,7 +235,7 @@ async fn the_migration_of_the_registrations_keeps_every_record_of_the_audit_log(
 
     // The operator's confirmation is a record the log takes now.
     common::execute_raw(
-        &common::raw_dbconfig(&database),
+        &common::raw_connection(&database),
         &format!(
             "INSERT INTO audit_log (id, org_id, actor_kind, action, target_id, subject_id, \
              create_at) VALUES ('{}', '{org}', 'server_operator', 'email_verified_by_operator', \

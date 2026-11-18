@@ -19,7 +19,7 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn new(server_root: &str) -> Self {
+    fn new(server_url: &str) -> Self {
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("web-tests")
             .join(new_id());
@@ -42,7 +42,7 @@ impl Fixture {
             "<!doctype html><title>frame</title>",
         );
         write("secret.txt", "outside static");
-        let web = WebRoot::new(&dir, server_root);
+        let web = WebRoot::new(&dir, server_url);
         Self { dir, web }
     }
 

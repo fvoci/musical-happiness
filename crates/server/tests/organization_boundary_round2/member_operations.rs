@@ -159,7 +159,7 @@ impl Named {
     /// Asks every operation as the member: the status of each, by its identifier.
     async fn sweep(&self) -> BTreeMap<String, u16> {
         // An answer that sends the member elsewhere (the sign-in callback's, to
-        // `serverroot`) is the answer: what is there is not the server's.
+        // `server_url`) is the answer: what is there is not the server's.
         let member = self.member.not_following_redirects();
         let mut answers = BTreeMap::new();
         for (method, template, operation) in operations() {

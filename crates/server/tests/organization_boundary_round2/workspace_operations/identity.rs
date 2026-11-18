@@ -33,7 +33,7 @@ pub(super) async fn exercise(case: &mut Case, server: &TestServer, fake: &FakePr
         provider["redirectUri"],
         format!(
             "{}/api/v1/auth/oidc/callback/{}",
-            server.app.config().server_root.trim_end_matches('/'),
+            server.app.config().server_url.trim_end_matches('/'),
             case.org
         ),
         "provider redirect names this organization"
@@ -86,7 +86,7 @@ async fn sign_in(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
         .to_str()
         .expect("callback");
     let path = callback
-        .strip_prefix(server.app.config().server_root.trim_end_matches('/'))
+        .strip_prefix(server.app.config().server_url.trim_end_matches('/'))
         .expect("callback to this server");
     assert!(
         path.starts_with(&format!("/api/v1/auth/oidc/callback/{}?", case.org)),
@@ -104,7 +104,7 @@ async fn sign_in(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
     );
     assert_eq!(
         completed.headers[header::LOCATION],
-        format!("{}/", server.app.config().server_root.trim_end_matches('/')),
+        format!("{}/", server.app.config().server_url.trim_end_matches('/')),
         "successful callback opens the app"
     );
     let session = completed

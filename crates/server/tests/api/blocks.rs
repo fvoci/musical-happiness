@@ -2429,7 +2429,7 @@ async fn block_changes_call_the_webhook() {
     let (posted, serving) = start_webhook_receiver().await;
     let th = Setup::native()
         .configure(|config| {
-            config.webhook_update = WEBHOOK_URL.get().into_iter().cloned().collect();
+            config.block_change_webhooks = WEBHOOK_URL.get().into_iter().cloned().collect();
         })
         .start()
         .await

@@ -11,7 +11,7 @@ use bytes::Bytes;
 use fvoci_model::{ContainerType, new_id};
 use fvoci_server::app::{App, CLOSED_UPLOAD_GRACE_MILLIS, FileToUpload};
 use fvoci_server::auth::now_millis;
-use fvoci_server::config::{AmazonS3Config, Configuration};
+use fvoci_server::config::{Configuration, S3Config};
 use fvoci_store::{Call, DbType, Observer, Store};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::oneshot;
@@ -20,16 +20,16 @@ use crate::common::{Setup, TEST_WORKSPACE_ID};
 
 fn configure(config: &mut Configuration) {
     let var = |key: &str, default: &str| std::env::var(key).unwrap_or_else(|_| default.to_owned());
-    "amazons3".clone_into(&mut config.files_driver);
-    config.files_s3_config = AmazonS3Config {
+    "s3".clone_into(&mut config.file_storage);
+    config.file_storage_s3 = S3Config {
         endpoint: var("FVOCI_S3_TEST_ENDPOINT", ""),
         bucket: var("FVOCI_S3_TEST_BUCKET", ""),
         access_key_id: var("FVOCI_S3_TEST_ACCESS_KEY", "any"),
         secret_access_key: var("FVOCI_S3_TEST_SECRET_KEY", "any"),
         region: var("FVOCI_S3_TEST_REGION", "us-east-1"),
-        ssl: var("FVOCI_S3_TEST_SSL", "false") == "true",
-        path_prefix: format!("file-review/{}", new_id()),
-        ..AmazonS3Config::default()
+        https: var("FVOCI_S3_TEST_SSL", "false") == "true",
+        key_prefix: format!("file-review/{}", new_id()),
+        ..S3Config::default()
     };
 }
 
@@ -121,9 +121,12 @@ async fn with_s3_a_completion_cannot_record_an_object_another_cleaner_removed() 
 
     // A second process at the same database, with the closed-session grace elapsed:
     // without the lock of the server its cleaner does not run.
-    let independent = Store::connect(ts.app.store().db_type(), &ts.app.config().db_config)
-        .await
-        .expect("an independent pool");
+    let independent = Store::connect(
+        ts.app.store().db_type(),
+        &ts.app.config().database_connection,
+    )
+    .await
+    .expect("an independent pool");
     let second = App::new(
         ts.app.config().clone(),
         independent.clone(),

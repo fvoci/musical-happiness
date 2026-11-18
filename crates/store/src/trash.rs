@@ -23,17 +23,13 @@ use serde::de::DeserializeOwned;
 use crate::Store;
 use crate::block_derived;
 use crate::blocks::{self, Paging, parents_first};
-use crate::body_docs;
-use crate::body_links;
-use crate::body_versions;
 use crate::category_containers::{self, ContainerPlace};
 use crate::comment_places;
-use crate::comment_versions;
 use crate::containers;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
-use crate::file_refs::{self, NewBodyFiles};
+use crate::file_refs::NewBodyFiles;
 use crate::loose_objects;
 use crate::members;
 use crate::org_admin;
@@ -413,14 +409,7 @@ pub(crate) async fn remove_what_they_left(scope: &mut Scope<'_>) -> Result<u64, 
     .concat();
     let sql = scope.sql(&orphans);
     let records = scope.execute(sql).await?;
-    // What the blocks gone for good showed is shown no more, and the texts the comments
-    // among them had go with them.
-    comment_versions::forget_gone_comments(scope).await?;
-    body_docs::forget_gone_blocks(scope).await?;
-    body_versions::forget_gone_blocks(scope).await?;
-    body_links::forget_gone_blocks(scope).await?;
-    file_refs::forget_gone_blocks(scope).await?;
-    file_refs::mark(scope, None).await?;
+    block_derived::forget_gone_blocks(scope).await?;
     Ok(records)
 }
 

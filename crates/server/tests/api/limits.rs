@@ -312,7 +312,7 @@ async fn account_routes_with_a_session_are_behind_the_json_limit() {
 }
 
 /// The routes that take files are not behind the JSON limit: uploads have a limit of
-/// their own, the `maxfilesize` setting.
+/// their own, the `max_file_bytes` setting.
 #[tokio::test]
 async fn uploads_are_not_behind_the_json_limit() {
     let th = Setup::native()
@@ -372,8 +372,7 @@ async fn after_a_message_of(th: &TestServer, length: usize) -> Outcome {
 #[tokio::test]
 async fn a_websocket_message_over_the_limit_ends_the_connection() {
     let th = Setup::native()
-        // Pings would count as traffic on the idle connection.
-        .configure(|config| config.websocket_ping_seconds = 0)
+        // Pings would count as traffic on the idle connection: the harness's are off.
         .start()
         .await
         .init_basic()

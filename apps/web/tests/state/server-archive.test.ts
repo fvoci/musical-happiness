@@ -90,7 +90,7 @@ describe('an export', () => {
 });
 
 describe('an import', () => {
-  function importServer(maxImportSize: number) {
+  function importServer(maxImportBytes: number) {
     const calls: { method: string; url: string; json: unknown }[] = [];
     vi.stubGlobal('fetch', (url: string, init: RequestInit = {}) => {
       const method = init.method ?? 'GET';
@@ -108,7 +108,7 @@ describe('an import', () => {
             },
           }),
         );
-      if (url.endsWith('/client-config')) return answer(200, { maxFileSize: 10, maxImportSize });
+      if (url.endsWith('/client-config')) return answer(200, { maxFileBytes: 10, maxImportBytes });
       if (url.endsWith('/archive/uploads')) {
         return answer(201, { uploadId: 'up9', partSize: 4, partCount: 2, expiresAt: 1 });
       }

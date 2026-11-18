@@ -29,7 +29,7 @@ const BASE_URL_PLACEHOLDER: &str = "{{.BaseURL}}";
 /// own, so that it never runs with the app's origin.
 const STATIC_DOCUMENT_POLICY: &str = "sandbox allow-scripts";
 
-/// The web app directory (`webpath`) and how it is served.
+/// The web app directory (`web_app_path`) and how it is served.
 #[derive(Debug, Clone)]
 pub struct WebRoot {
     root: PathBuf,
@@ -37,15 +37,15 @@ pub struct WebRoot {
 }
 
 impl WebRoot {
-    /// Creates the web root for the `webpath` and `serverRoot` settings.
-    pub fn new(web_path: impl AsRef<Path>, server_root: &str) -> Self {
+    /// Creates the web root for the `web_app_path` and `server_url` settings.
+    pub fn new(web_app_path: impl AsRef<Path>, server_url: &str) -> Self {
         Self {
-            root: web_path.as_ref().to_path_buf(),
-            base_url: base_url(server_root),
+            root: web_app_path.as_ref().to_path_buf(),
+            base_url: base_url(server_url),
         }
     }
 
-    /// The path the web app is served under: the path part of `serverRoot`.
+    /// The path the web app is served under: the path part of `server_url`.
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
@@ -155,12 +155,12 @@ pub fn not_found() -> Response {
         .into_response()
 }
 
-/// Returns the path part of the `serverRoot` URL, which is the base URL of the web app.
+/// Returns the path part of the `server_url` URL, which is the base URL of the web app.
 ///
 /// The path is taken as it is: a trailing slash stays, and a URL without a path gives the
-/// empty string. A `serverRoot` that is not a URL also gives the empty string.
-pub fn base_url(server_root: &str) -> String {
-    let Some((_, rest)) = server_root.split_once("://") else {
+/// empty string. A `server_url` that is not a URL also gives the empty string.
+pub fn base_url(server_url: &str) -> String {
+    let Some((_, rest)) = server_url.split_once("://") else {
         return String::new();
     };
     let end = rest.find(['?', '#']).unwrap_or(rest.len());
@@ -187,15 +187,15 @@ mod tests {
     /// The base URL cases of `Test_NewServer` in `server/web/webserver_test.go`. The
     /// listen address cases of that test are covered where the listener is created.
     #[test]
-    fn base_url_is_the_path_of_the_server_root() {
+    fn base_url_is_the_path_of_the_server_url() {
         let cases = [
             ("https://some-fake-server.com/fake-url", "/fake-url"),
             ("https://localhost:8080/fake-url", "/fake-url"),
             // "should return '/' as base url is not good!"
             ("https://localhost:8080/#!@$@#@", "/"),
         ];
-        for (server_root, want) in cases {
-            assert_eq!(base_url(server_root), want, "serverRoot {server_root}");
+        for (server_url, want) in cases {
+            assert_eq!(base_url(server_url), want, "server_url {server_url}");
         }
     }
 

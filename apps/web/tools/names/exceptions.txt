@@ -8,9 +8,7 @@
 #
 # `*` stands for any part of a name, `**` for any number of folders.
 
-# A person one works with: the server's setting of how people's names are shown keeps
-# the original's name (teammateNameDisplay), and a template's card says "@mention
-# teammates".
+# A person one works with: a template's card says "@mention teammates".
 ** | teammate
 
 # The names and keywords of the emoji, as CLDR gives them: steam.

@@ -136,7 +136,7 @@ async fn upload_file_with_permissions() {
 #[tokio::test]
 async fn upload_file_reaching_the_max_file_size() {
     let ts = Setup::native()
-        .configure(|config| config.max_file_size = 1)
+        .configure(|config| config.max_file_bytes = 1)
         .start()
         .await
         .init_basic()

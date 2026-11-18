@@ -415,7 +415,7 @@ async fn the_versions_of_a_template_comment_in_the_trash_follow_it_into_its_orga
     let database = fvoci_store::testing::TestDatabase::create(&directory).await;
     fvoci_store::testing::migrate_to_the_organizations(&database).await;
     let (template, comment, one_org) = (new_id(), new_id(), new_id());
-    let mut conn = common::connect_past_the_store(database.dbconfig()).await;
+    let mut conn = common::connect_past_the_store(database.database_connection()).await;
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "INSERT INTO deleted_boards (id, team_id, deleted_at, deletion_id, board, members, \
          files, org_id) VALUES ('{template}', '{SYSTEM_WORKSPACE_ID}', {now}, '{deletion}', \
@@ -433,7 +433,7 @@ async fn the_versions_of_a_template_comment_in_the_trash_follow_it_into_its_orga
     .expect("the trash as 0014 left it");
     drop(conn);
 
-    let store = Store::connect(database.db_type(), database.dbconfig())
+    let store = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("the store migrates the database");
     store
@@ -441,7 +441,7 @@ async fn the_versions_of_a_template_comment_in_the_trash_follow_it_into_its_orga
         .purge_trash(0)
         .await
         .expect("the trash is purged");
-    let mut conn = common::connect_past_the_store(database.dbconfig()).await;
+    let mut conn = common::connect_past_the_store(database.database_connection()).await;
     let kept: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT org_id::text FROM comment_versions WHERE block_id = '{comment}'"
     )))
@@ -611,7 +611,7 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
         return;
     }
     let test = common::setup().await;
-    let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
+    let mut conn = common::connect_past_the_store(&test.database_connection()).await;
     let keys: Vec<(String, String)> = sqlx::query_as(
         "SELECT c.relname::text, \
          substring(pg_get_indexdef(i.indexrelid) FROM 'USING btree (.*)$') \

@@ -1,15 +1,16 @@
 //! The server configuration: a JSON file, `FVOCI_*` environment variables, and a few
 //! command-line overrides.
 //!
-//! The file has the keys of the original server's `config.json`, so existing files keep
-//! working. Keys are matched without regard to case, as the original does. Keys this
-//! server does not know are ignored.
+//! A key of the file matches a setting only when it is written exactly as the setting
+//! is named. Keys that no setting reads are named, without their values, in a warning
+//! when the server starts ([`Configuration::check`]).
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Context as _, bail};
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::{Map, Value};
 
 /// The prefix of the environment variables that override configuration keys.
@@ -38,59 +39,87 @@ pub use secret_key::{ENV_ONLY, SECRET_KEY_ENV};
 
 use crate::auth::sealed::SecretKey;
 
-/// The settings of the S3 file backend, the `filess3config` object.
+/// The keys of an object of the configuration file that no setting reads, by name.
+/// Their values are not kept: one may be a secret.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UnreadKeys(Vec<String>);
+
+impl<'de> Deserialize<'de> for UnreadKeys {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(UnreadKeysVisitor)
+    }
+}
+
+/// Reads the keys of a map in order, and passes over their values.
+struct UnreadKeysVisitor;
+
+impl<'de> serde::de::Visitor<'de> for UnreadKeysVisitor {
+    type Value = UnreadKeys;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the keys of an object")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<UnreadKeys, A::Error> {
+        let mut keys = Vec::new();
+        while let Some((key, IgnoredAny)) = map.next_entry::<String, IgnoredAny>()? {
+            keys.push(key);
+        }
+        keys.sort_unstable();
+        Ok(UnreadKeys(keys))
+    }
+}
+
+/// The settings of the S3 file backend, the object `file_storage_s3`.
 #[derive(Clone, Default, Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
-pub struct AmazonS3Config {
+pub struct S3Config {
     /// The access key; empty to use the environment's credentials.
-    #[serde(rename = "accesskeyid")]
     pub access_key_id: String,
     /// The secret key.
-    #[serde(rename = "secretaccesskey")]
     pub secret_access_key: String,
     /// The bucket files are stored in.
     pub bucket: String,
     /// A prefix put before every object key.
-    #[serde(rename = "pathprefix")]
-    pub path_prefix: String,
+    pub key_prefix: String,
     /// The region of the bucket.
     pub region: String,
     /// The endpoint host, with port if needed; empty for AWS.
     pub endpoint: String,
     /// Whether to talk to the endpoint over TLS.
-    pub ssl: bool,
-    /// Whether to sign requests with the legacy version 2 scheme. Not supported.
-    #[serde(rename = "signv2")]
-    pub sign_v2: bool,
+    pub https: bool,
     /// Whether to ask for server-side encryption of stored objects.
-    pub sse: bool,
+    pub server_side_encryption: bool,
     /// The request timeout in milliseconds; zero for the default.
-    pub timeout: i64,
+    pub timeout_ms: i64,
+    /// The keys of the object that no setting reads. Last: it takes what the others
+    /// leave.
+    #[serde(flatten)]
+    #[cfg_attr(test, serde(skip_serializing))]
+    pub unread: UnreadKeys,
 }
 
-impl std::fmt::Debug for AmazonS3Config {
+impl std::fmt::Debug for S3Config {
     /// Leaves out the secret key.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AmazonS3Config")
+        f.debug_struct("S3Config")
             .field("access_key_id", &self.access_key_id)
             .field("bucket", &self.bucket)
-            .field("path_prefix", &self.path_prefix)
+            .field("key_prefix", &self.key_prefix)
             .field("region", &self.region)
             .field("endpoint", &self.endpoint)
-            .field("ssl", &self.ssl)
-            .field("sign_v2", &self.sign_v2)
-            .field("sse", &self.sse)
-            .field("timeout", &self.timeout)
+            .field("https", &self.https)
+            .field("server_side_encryption", &self.server_side_encryption)
+            .field("timeout_ms", &self.timeout_ms)
             .finish_non_exhaustive()
     }
 }
 
 /// The server configuration.
 ///
-/// The serde names are the keys of the configuration file in lower case; [`Configuration::read`]
-/// lower-cases the file's keys before decoding. `docs/configuration.md` documents every
-/// key, and a test holds the two together.
+/// The name of each setting is its key in the configuration file. `docs/configuration.md`
+/// documents every key, and a test holds the two together.
 #[derive(Clone, Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
@@ -100,53 +129,41 @@ impl std::fmt::Debug for AmazonS3Config {
 )]
 pub struct Configuration {
     /// The public URL of the server. Its path is the base path the web app is served under.
-    #[serde(rename = "serverroot")]
-    pub server_root: String,
+    pub server_url: String,
     /// The port to listen on.
     pub port: u16,
-    /// The database kind: `sqlite3` or `postgres`.
-    #[serde(rename = "dbtype")]
-    pub db_type: String,
-    /// The database connection string, in the format of the original server.
-    #[serde(rename = "dbconfig")]
-    pub db_config: String,
+    /// The database kind: `sqlite` or `postgres`.
+    pub database_kind: String,
+    /// The database connection: the path of an SQLite file, or a PostgreSQL URL.
+    pub database_connection: String,
     /// How many times to try to reach the database at startup.
-    #[serde(rename = "dbpingattempts")]
-    pub db_ping_attempts: u32,
+    pub database_connect_attempts: u32,
     /// How long a server that starts waits for the lock of the server of its database,
     /// which another process holds, before it refuses to start, in seconds.
     pub server_lock_wait_seconds: u64,
     /// Whether to serve HTTPS, with `./cert/cert.pem` and `./cert/key.pem`.
-    #[serde(rename = "usessl")]
-    pub use_ssl: bool,
+    pub serve_https: bool,
     /// The directory holding the web app: `index.html` and `static/`.
-    #[serde(rename = "webpath")]
-    pub web_path: String,
-    /// The file backend: `local` or `amazons3`.
-    #[serde(rename = "filesdriver")]
-    pub files_driver: String,
-    /// The settings of the `amazons3` file backend.
-    #[serde(rename = "filess3config")]
-    pub files_s3_config: AmazonS3Config,
+    pub web_app_path: String,
+    /// The file backend: `local` or `s3`.
+    pub file_storage: String,
+    /// The settings of the `s3` file backend.
+    pub file_storage_s3: S3Config,
     /// The directory of the `local` file backend.
-    #[serde(rename = "filespath")]
-    pub files_path: String,
+    pub file_storage_path: String,
     /// The largest accepted upload in bytes: 100 MiB unless set. At least 1, and at most
     /// what an upload in parts carries (`upload_part_bytes` × 10,000).
-    #[serde(rename = "maxfilesize")]
-    pub max_file_size: i64,
+    pub max_file_bytes: i64,
     /// Where the Prometheus metrics are served, as `host:port`; empty for none. A
-    /// listener of their own, apart from the API's ([`Configuration::metrics_address`]).
-    #[serde(rename = "prometheusaddress")]
-    pub prometheus_address: String,
+    /// listener of their own, apart from the API's ([`Configuration::metrics_listen_address`]).
+    pub metrics_address: String,
     /// The bearer token a scrape of the metrics must send; empty for none. Never
-    /// written by `Debug` ([`Configuration::metrics_token`]).
-    #[serde(rename = "prometheustoken")]
-    pub prometheus_token: String,
+    /// written by `Debug` ([`Configuration::metrics_scrape_token`]).
+    pub metrics_token: String,
     /// URLs that receive a POST with every changed block.
-    pub webhook_update: Vec<String>,
+    pub block_change_webhooks: Vec<String>,
     /// Further origins whose pages may send requests that change something and open
-    /// websocket connections, next to the origin of `serverRoot`. For development,
+    /// websocket connections, next to the origin of `server_url`. For development,
     /// where the web app is served by a tool of its own on another port.
     pub allowed_origins: Vec<String>,
     /// How many days a session may go unused before it ends.
@@ -154,33 +171,21 @@ pub struct Configuration {
     /// How many days after signing in a session ends, however much it is used.
     pub session_max_days: u32,
     /// Whether to listen on the loopback interface only.
-    #[serde(rename = "localonly")]
-    pub local_only: bool,
+    pub listen_loopback_only: bool,
     /// Whether to serve the administration API on a Unix socket.
-    #[serde(rename = "enablelocalmode")]
-    pub enable_local_mode: bool,
+    pub serve_admin_socket: bool,
     /// The path of the administration socket.
-    #[serde(rename = "localmodesocketlocation")]
-    pub local_mode_socket_location: String,
-    /// Whether boards may be shared publicly through a read token.
-    #[serde(rename = "enablepublicsharedboards")]
-    pub enable_public_shared_boards: bool,
+    pub admin_socket_path: String,
+    /// Whether boards and wikis may be shared publicly through a read token.
+    pub allow_public_links: bool,
     /// Feature flags handed to the web app.
-    #[serde(rename = "featureflags")]
     pub feature_flags: BTreeMap<String, String>,
     /// How the web app displays other users' names.
-    #[serde(rename = "teammatenamedisplay")]
-    pub teammate_name_display: String,
+    pub name_display: String,
     /// Whether user lists include email addresses.
-    #[serde(rename = "showemailaddress")]
-    pub show_email_address: bool,
+    pub show_email_addresses: bool,
     /// Whether user lists include first and last names.
-    #[serde(rename = "showfullname")]
-    pub show_full_name: bool,
-    /// The authentication mode. Only `native` is supported. Signing in through an
-    /// organization's `OpenID Connect` provider is the organization's to set, beside it.
-    #[serde(rename = "authmode")]
-    pub auth_mode: String,
+    pub show_full_names: bool,
     /// Whether the providers of the organizations may be reached at addresses that are
     /// not public (loopback, private networks): for an installation whose provider is
     /// on its own network. Off, such a provider is neither stored nor signed in
@@ -207,8 +212,10 @@ pub struct Configuration {
     /// several (`open`). `open` needs PostgreSQL, and a database role that the wall
     /// between organizations holds.
     pub org_creation: String,
-    /// How often the server pings each websocket, in seconds; zero to never ping. Keeps
-    /// proxies and CDNs from closing idle connections.
+    /// How often the server pings each websocket, in seconds: 1 to
+    /// [`MAX_WEBSOCKET_PING_SECONDS`]. Keeps proxies and CDNs from closing idle
+    /// connections, and a page whose timers are stopped within the quiet limit of a
+    /// connection.
     pub websocket_ping_seconds: u64,
     /// How many connections may read one shared board by its public link at once:
     /// following its blocks by the link's read token, or visiting it with that token.
@@ -235,7 +242,7 @@ pub struct Configuration {
     /// upload takes.
     pub upload_part_bytes: u64,
     /// The directory of the server's temporary files: the parts of uploads that are not
-    /// complete yet. Empty for `.tmp` under `filespath`. Not the system's temporary
+    /// complete yet. Empty for `.tmp` under `file_storage_path`. Not the system's temporary
     /// directory, which may be held in memory.
     pub tmp_path: String,
     /// The most bytes all open uploads in parts of the server may hold back at once:
@@ -305,41 +312,50 @@ pub struct Configuration {
     pub wiki: wiki::WikiSettings,
     /// Whether to skip importing the built-in templates at startup. Not a configuration
     /// file key; the test harness sets it so a server that does not need templates
-    /// starts quickly, as the original's `SkipTemplateInit` does.
+    /// starts quickly.
     #[serde(skip)]
     pub skip_template_init: bool,
+    /// Whether the websockets go unpinged, whatever `websocket_ping_seconds` says. Not a
+    /// configuration file key; the test harness sets it where pings would only be noise,
+    /// as it sets `skip_template_init`.
+    #[serde(skip)]
+    pub skip_websocket_pings: bool,
+    /// The keys of the file that no setting reads. Last: it takes what the others,
+    /// the flattened ones among them, leave.
+    #[serde(flatten)]
+    #[cfg_attr(test, serde(skip_serializing))]
+    pub unread: UnreadKeys,
 }
 
 impl Default for Configuration {
     fn default() -> Self {
         Self {
-            server_root: "http://localhost:8000".to_owned(),
+            server_url: "http://localhost:8000".to_owned(),
             port: 8000,
-            db_type: "sqlite3".to_owned(),
-            db_config: "./fvoci.db".to_owned(),
-            db_ping_attempts: 5,
+            database_kind: "sqlite".to_owned(),
+            database_connection: "./fvoci.db".to_owned(),
+            database_connect_attempts: 5,
             server_lock_wait_seconds: 30,
-            use_ssl: false,
-            web_path: "./pack".to_owned(),
-            files_driver: "local".to_owned(),
-            files_s3_config: AmazonS3Config::default(),
-            files_path: "./files".to_owned(),
-            max_file_size: DEFAULT_MAX_FILE_SIZE,
-            prometheus_address: String::new(),
-            prometheus_token: String::new(),
-            webhook_update: Vec::new(),
+            serve_https: false,
+            web_app_path: "./pack".to_owned(),
+            file_storage: "local".to_owned(),
+            file_storage_s3: S3Config::default(),
+            file_storage_path: "./files".to_owned(),
+            max_file_bytes: DEFAULT_MAX_FILE_BYTES,
+            metrics_address: String::new(),
+            metrics_token: String::new(),
+            block_change_webhooks: Vec::new(),
             allowed_origins: Vec::new(),
             session_idle_days: 14,
             session_max_days: 90,
-            local_only: false,
-            enable_local_mode: false,
-            local_mode_socket_location: "/var/tmp/fvoci_local.socket".to_owned(),
-            enable_public_shared_boards: false,
+            listen_loopback_only: false,
+            serve_admin_socket: false,
+            admin_socket_path: "/var/tmp/fvoci_local.socket".to_owned(),
+            allow_public_links: false,
             feature_flags: BTreeMap::new(),
-            teammate_name_display: "username".to_owned(),
-            show_email_address: false,
-            show_full_name: false,
-            auth_mode: "native".to_owned(),
+            name_display: "username".to_owned(),
+            show_email_addresses: false,
+            show_full_names: false,
             oidc_allow_private_addresses: false,
             oidc_extra_ca_file: String::new(),
             oidc_former_provider_days: 30,
@@ -376,46 +392,41 @@ impl Default for Configuration {
             search: search::SearchSettings::default(),
             wiki: wiki::WikiSettings::default(),
             skip_template_init: false,
+            skip_websocket_pings: false,
+            unread: UnreadKeys::default(),
         }
     }
 }
 
 impl std::fmt::Debug for Configuration {
-    /// Leaves out the database connection string, which may hold a password.
+    /// Leaves out the database connection, which may hold a password.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Configuration")
             .field("smtp", &self.smtp)
             .field("mail", &self.mail)
             .field("search", &self.search)
             .field("wiki", &self.wiki)
-            .field("server_root", &self.server_root)
+            .field("server_url", &self.server_url)
             .field("port", &self.port)
-            .field("db_type", &self.db_type)
-            .field("use_ssl", &self.use_ssl)
-            .field("web_path", &self.web_path)
-            .field("files_driver", &self.files_driver)
-            .field("files_s3_config", &self.files_s3_config)
-            .field("files_path", &self.files_path)
-            .field("max_file_size", &self.max_file_size)
-            .field("webhook_update", &self.webhook_update)
+            .field("database_kind", &self.database_kind)
+            .field("serve_https", &self.serve_https)
+            .field("web_app_path", &self.web_app_path)
+            .field("file_storage", &self.file_storage)
+            .field("file_storage_s3", &self.file_storage_s3)
+            .field("file_storage_path", &self.file_storage_path)
+            .field("max_file_bytes", &self.max_file_bytes)
+            .field("block_change_webhooks", &self.block_change_webhooks)
             .field("allowed_origins", &self.allowed_origins)
             .field("session_idle_days", &self.session_idle_days)
             .field("session_max_days", &self.session_max_days)
-            .field("local_only", &self.local_only)
-            .field("enable_local_mode", &self.enable_local_mode)
-            .field(
-                "local_mode_socket_location",
-                &self.local_mode_socket_location,
-            )
-            .field(
-                "enable_public_shared_boards",
-                &self.enable_public_shared_boards,
-            )
+            .field("listen_loopback_only", &self.listen_loopback_only)
+            .field("serve_admin_socket", &self.serve_admin_socket)
+            .field("admin_socket_path", &self.admin_socket_path)
+            .field("allow_public_links", &self.allow_public_links)
             .field("feature_flags", &self.feature_flags)
-            .field("teammate_name_display", &self.teammate_name_display)
-            .field("show_email_address", &self.show_email_address)
-            .field("show_full_name", &self.show_full_name)
-            .field("auth_mode", &self.auth_mode)
+            .field("name_display", &self.name_display)
+            .field("show_email_addresses", &self.show_email_addresses)
+            .field("show_full_names", &self.show_full_names)
             .field(
                 "oidc_allow_private_addresses",
                 &self.oidc_allow_private_addresses,
@@ -474,6 +485,7 @@ impl std::fmt::Debug for Configuration {
                 &self.password_hash_queue_seconds,
             )
             .field("collab", &self.collab)
+            .field("unread", &self.unread)
             .finish_non_exhaustive()
     }
 }
@@ -482,7 +494,7 @@ const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
 
 /// The largest file, unless the configuration says otherwise: 100 MiB (decision 16 of
 /// `docs/s6-design.md`).
-const DEFAULT_MAX_FILE_SIZE: i64 = 100 * 1024 * 1024;
+const DEFAULT_MAX_FILE_BYTES: i64 = 100 * 1024 * 1024;
 
 /// What all open uploads may hold back, unless the configuration says otherwise: 2 GiB
 /// (`docs/s6-design.md` 5.6, 8).
@@ -507,55 +519,13 @@ pub const MIN_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024;
 /// The largest part an S3 multipart upload takes, and so the largest part size.
 pub const MAX_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 
-/// Keys this server does not read, of the original server's configuration or under an
-/// earlier name, each with what to do instead; a key of `filess3config` as
-/// `filess3config.<key>`. A file or an
-/// environment that sets one to something is refused: a server that silently ignored it
-/// would run differently from what its operator wrote.
-const REMOVED_KEYS: [(&str, &str); 11] = [
-    (
-        "dbtableprefix",
-        "tables have fixed names; to keep them apart from other tables in one PostgreSQL \
-         database, give the server a schema of its own with search_path in dbconfig",
-    ),
-    (
-        "trust_forwarded_for",
-        "name the reverse proxies in trusted_proxies; X-Forwarded-For is believed from \
-         them only",
-    ),
-    (
-        "securecookie",
-        "the session cookie is Secure exactly when serverRoot is an https address",
-    ),
-    (
-        "session_expire_time",
-        "a session ends after session_idle_days without use and session_max_days after \
-         signing in, both in days",
-    ),
-    (
-        "session_refresh_time",
-        "when a session was last used is recorded at most every ten minutes; there is \
-         nothing to set",
-    ),
-    (
-        "logging_cfg_file",
-        "the log is set with FVOCI_LOG_LEVEL and FVOCI_LOG_FORMAT",
-    ),
-    (
-        "logging_cfg_json",
-        "the log is set with FVOCI_LOG_LEVEL and FVOCI_LOG_FORMAT",
-    ),
-    ("audit_cfg_file", "there is no audit log"),
-    ("audit_cfg_json", "there is no audit log"),
-    (
-        "filess3config.trace",
-        "requests to the object store are not logged one by one",
-    ),
-    (
-        "smtp_from",
-        "the sender of all mail, whatever its way, is mail_from (FVOCI_MAIL_FROM)",
-    ),
-];
+/// The longest period of the websockets' pings, in seconds: a Ping must come back
+/// within the quiet limit of a connection (90 seconds, `contracts/websocket.md` 3) with
+/// a margin for a slow network (30 seconds).
+pub const MAX_WEBSOCKET_PING_SECONDS: u64 = 59;
+
+/// The object of the file whose keys are settings too, each named `<object>.<key>`.
+const NESTED: &str = "file_storage_s3";
 
 /// The environment variable of a key: [`ENV_PREFIX`] and the key in capitals, a dot as
 /// `_`.
@@ -563,17 +533,8 @@ fn env_name(key: &str) -> String {
     format!("{ENV_PREFIX}{}", key.to_uppercase().replace('.', "_"))
 }
 
-/// The value of a key in the file's keys, a key of `filess3config` named
-/// `filess3config.<key>`.
-fn value_of<'a>(keys: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
-    match key.split_once('.') {
-        Some((outer, inner)) => keys.get(outer).and_then(|outer| outer.get(inner)),
-        None => keys.get(key),
-    }
-}
-
-/// Sets a key in the file's keys, a key of `filess3config` named `filess3config.<key>`
-/// (which [`Configuration::parse`] has made an object).
+/// Sets a key in the file's keys, a key of `file_storage_s3` named
+/// `file_storage_s3.<key>` (which [`Configuration::parse`] has made an object).
 fn set_value(keys: &mut Map<String, Value>, key: &str, value: Value) {
     match key.split_once('.') {
         Some((outer, inner)) => {
@@ -587,7 +548,7 @@ fn set_value(keys: &mut Map<String, Value>, key: &str, value: Value) {
     }
 }
 
-/// Whether a configuration value says nothing: what a removed key may still hold.
+/// Whether a configuration value says nothing: what an empty template leaves.
 fn is_unset(value: &Value) -> bool {
     match value {
         Value::Null | Value::Bool(false) => true,
@@ -633,31 +594,24 @@ impl Configuration {
     ///
     /// # Errors
     ///
-    /// Returns an error if `text` is not a JSON object, gives a key twice (also in
-    /// letters of different cases), holds a value of the wrong type, sets a key this
-    /// server no longer has, or an environment override cannot be parsed.
+    /// Returns an error if `text` is not a JSON object, gives a key twice, holds a value
+    /// of the wrong type, or an environment override cannot be parsed.
     pub fn parse(text: &str, env: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
-        let Value::Object(file) =
+        let Value::Object(mut keys) =
             serde_json::from_str(text).context("the file is not valid JSON")?
         else {
             bail!("the configuration must be a JSON object");
         };
-        // Which of two values of a key would win is the order of the text, or of the
-        // letters: a key given twice is refused, by its name alone (its value may be a
-        // secret, such as the token of the metrics).
+        // Which of two values of a key would win is the order of the text: a key given
+        // twice is refused, by its name alone (its value may be a secret, such as the
+        // token of the metrics).
         keys::check_each_once(text)?;
-        let mut keys = lower_case_keys(file);
-        match keys.remove("filess3config") {
-            Some(Value::Object(s3)) => {
-                keys.insert(
-                    "filess3config".to_owned(),
-                    Value::Object(lower_case_keys(s3)),
-                );
-            }
+        match keys.get(NESTED) {
+            Some(Value::Object(_)) => {}
             None | Some(Value::Null) => {
-                keys.insert("filess3config".to_owned(), Value::Object(Map::new()));
+                keys.insert(NESTED.to_owned(), Value::Object(Map::new()));
             }
-            Some(_) => bail!("filess3config must be a JSON object"),
+            Some(_) => bail!("{NESTED} must be a JSON object"),
         }
 
         for (key, kind) in ENV_KEYS
@@ -676,27 +630,6 @@ impl Configuration {
             }
         }
 
-        for (key, instead) in REMOVED_KEYS {
-            let variable = env_name(key);
-            if env(&variable).is_some_and(|text| !text.trim().is_empty()) {
-                bail!("{variable}, the variable of {key}, is no longer read: {instead}");
-            }
-            if value_of(&keys, key).is_some_and(|value| !is_unset(value)) {
-                bail!("{key} is no longer a setting: {instead}");
-            }
-        }
-        // The S3 credentials come from the AWS_* variables only; a variable named like
-        // the other S3 settings would otherwise be passed over without a word.
-        for key in ["filess3config.accesskeyid", "filess3config.secretaccesskey"] {
-            let name = env_name(key);
-            if env(&name).is_some_and(|text| !text.trim().is_empty()) {
-                bail!(
-                    "{name} is not read: leave filess3config.accesskeyid empty and give the \
-                     credentials as AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
-                );
-            }
-        }
-
         scrapes::check_token_is_text(&keys)?;
         smtp::check_password_is_text(&keys)?;
         mail::check_secrets_are_text(&keys)?;
@@ -706,6 +639,34 @@ impl Configuration {
             .context("a key has a value of the wrong type")?;
         config.secret_key = secret_key;
         Ok(config)
+    }
+
+    /// The warning of the keys of the file that no setting reads, if it has any: their
+    /// names, each quoted as a string is (a key may hold a line break), never their
+    /// values, which may be secrets.
+    #[must_use]
+    pub fn unread_keys_warning(&self) -> Option<String> {
+        let unread = self.unread_keys();
+        (!unread.is_empty()).then(|| {
+            let names: Vec<String> = unread.iter().map(|key| format!("{key:?}")).collect();
+            format!(
+                "the configuration file has keys that no setting reads: {}",
+                names.join(", ")
+            )
+        })
+    }
+
+    /// The keys of the file that no setting reads, by name: a key of `file_storage_s3`
+    /// as `file_storage_s3.<key>`.
+    #[must_use]
+    pub fn unread_keys(&self) -> Vec<String> {
+        let nested = self
+            .file_storage_s3
+            .unread
+            .0
+            .iter()
+            .map(|key| format!("{NESTED}.{key}"));
+        self.unread.0.iter().cloned().chain(nested).collect()
     }
 
     /// How long a session may go unused before it ends, in milliseconds.
@@ -729,10 +690,10 @@ impl Configuration {
     }
 
     /// The directory of the server's temporary files: `tmp_path`, or `.tmp` under
-    /// `filespath`.
+    /// `file_storage_path`.
     pub fn tmp_dir(&self) -> std::path::PathBuf {
         if self.tmp_path.is_empty() {
-            std::path::Path::new(&self.files_path).join(".tmp")
+            std::path::Path::new(&self.file_storage_path).join(".tmp")
         } else {
             std::path::PathBuf::from(&self.tmp_path)
         }
@@ -751,21 +712,15 @@ impl Configuration {
 
     /// Checks that the configuration only asks for what this server supports.
     ///
-    /// Returns the warnings for settings that are accepted but have no effect.
+    /// Returns the warnings: keys of the file that no setting reads, and settings that
+    /// are accepted but work against each other.
     ///
     /// # Errors
     ///
-    /// Returns an error naming the first setting this server cannot honor: an
-    /// authentication mode other than `native`, a metrics address that is no `host:port`,
-    /// port 0, a limit of zero, an unknown file backend, or version 2 request signing for
-    /// S3.
+    /// Returns an error naming the first setting this server cannot honor: a metrics
+    /// address that is no `host:port`, port 0, a limit of zero, a ping period out of its
+    /// range, or an unknown file backend.
     pub fn check(&self) -> anyhow::Result<Vec<String>> {
-        if self.auth_mode != "native" {
-            bail!(
-                "authMode {:?} is not supported; this server only has native authentication",
-                self.auth_mode
-            );
-        }
         if ![ORG_CREATION_FIRST_USER_ONLY, ORG_CREATION_OPEN].contains(&self.org_creation.as_str())
         {
             bail!(
@@ -775,11 +730,11 @@ impl Configuration {
             );
         }
         // SQLite holds one organization, and nothing would keep several apart. (A
-        // dbtype that is none is refused where the database is opened.)
-        if self.takes_several_organizations() && self.db_type == "sqlite3" {
+        // database_kind that is none is refused where the database is opened.)
+        if self.takes_several_organizations() && self.database_kind == "sqlite" {
             bail!(
-                "org_creation is {ORG_CREATION_OPEN:?}, which needs dbtype \"postgres\": an \
-                 SQLite database holds one organization"
+                "org_creation is {ORG_CREATION_OPEN:?}, which needs database_kind \"postgres\": \
+                 an SQLite database holds one organization"
             );
         }
         // Zero would listen on any free port, not on one the operator can name.
@@ -791,9 +746,15 @@ impl Configuration {
         if self.max_request_bytes == 0 {
             bail!("max_request_bytes must be a positive number of bytes, not 0");
         }
+        if !(1..=MAX_WEBSOCKET_PING_SECONDS).contains(&self.websocket_ping_seconds) {
+            bail!(
+                "websocket_ping_seconds must be 1 to {MAX_WEBSOCKET_PING_SECONDS}, not {}",
+                self.websocket_ping_seconds
+            );
+        }
         // The session cookie and the check of where a request comes from both follow
         // from this address.
-        crate::auth::token::Origins::new(&self.server_root, &self.allowed_origins)
+        crate::auth::token::Origins::new(&self.server_url, &self.allowed_origins)
             .map_err(anyhow::Error::msg)?;
         crate::client_address::TrustedProxies::parse(&self.trusted_proxies)
             .map_err(anyhow::Error::msg)?;
@@ -811,46 +772,47 @@ impl Configuration {
         self.mail.check(&self.smtp)?;
         self.search.server()?;
         self.wiki.check()?;
-        self.metrics_address()?;
+        self.metrics_listen_address()?;
         self.check_metrics_token()?;
-        match self.files_driver.as_str() {
-            "local" => {}
-            "amazons3" => {
-                if self.files_s3_config.sign_v2 {
-                    bail!(
-                        "filess3config.SignV2 is not supported; requests are signed with version 4"
-                    );
-                }
-            }
-            other => bail!("filesdriver {other:?} is not supported; use \"local\" or \"amazons3\""),
+        if !["local", "s3"].contains(&self.file_storage.as_str()) {
+            bail!(
+                "file_storage {:?} is not supported; use \"local\" or \"s3\"",
+                self.file_storage
+            );
         }
 
-        let mut warnings = Vec::new();
+        Ok(self.warnings())
+    }
+
+    /// The warnings of a configuration that is accepted: keys of the file that no
+    /// setting reads, and settings that work against each other.
+    fn warnings(&self) -> Vec<String> {
+        let mut warnings: Vec<String> = self.unread_keys_warning().into_iter().collect();
         // Reached over HTTPS without ending TLS itself: something in front of the server
         // does, and every request arrives from its address. Unless the server is told
         // which address that is, all clients are one client to the login limits (one
         // that guesses holds everybody up) and to the readers of a public link (one
         // address's share of a board is all a board takes).
-        if self.server_root.starts_with("https://")
-            && !self.use_ssl
+        if self.server_url.starts_with("https://")
+            && !self.serve_https
             && self.trusted_proxies.is_empty()
         {
             warnings.push(
-                "serverRoot is https but the server does not end TLS itself (usessl is off) and \
-                 trusted_proxies is empty: behind a reverse proxy every client is seen at the \
-                 proxy's address, and the login limits and the readers of a public link \
-                 (public_link_connections_per_address) then count all clients as one; set \
-                 trusted_proxies to the proxy's addresses"
+                "server_url is https but the server does not end TLS itself (serve_https is \
+                 off) and trusted_proxies is empty: behind a reverse proxy every client is \
+                 seen at the proxy's address, and the login limits and the readers of a \
+                 public link (public_link_connections_per_address) then count all clients \
+                 as one; set trusted_proxies to the proxy's addresses"
                     .to_owned(),
             );
         }
-        if !self.prometheus_token.is_empty() && self.prometheus_address.is_empty() {
+        if !self.metrics_token.is_empty() && self.metrics_address.is_empty() {
             warnings.push(
-                "prometheustoken is set but prometheusaddress is empty: no metrics are served"
+                "metrics_token is set but metrics_address is empty: no metrics are served"
                     .to_owned(),
             );
         }
-        Ok(warnings)
+        warnings
     }
 
     /// Checks the settings of the login limits and of the queue of password work.
@@ -915,14 +877,6 @@ impl Configuration {
         }
         Ok(())
     }
-}
-
-/// The keys of `map` in small letters; [`keys::check_each_once`] has seen that no two
-/// become one.
-fn lower_case_keys(map: Map<String, Value>) -> Map<String, Value> {
-    map.into_iter()
-        .map(|(key, value)| (key.to_lowercase(), value))
-        .collect()
 }
 
 #[cfg(test)]

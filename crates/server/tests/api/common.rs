@@ -111,7 +111,7 @@ async fn test_database(role: DatabaseRole, directory: &Path) -> TestDatabase {
         DatabaseRole::Superuser => TestDatabase::create_as_superuser(directory).await,
         DatabaseRole::NotTheOwner(owner) => {
             let database = TestDatabase::create_owned_apart(directory, owner).await;
-            Store::connect(database.db_type(), database.owner_dbconfig())
+            Store::connect(database.db_type(), database.owner_database_connection())
                 .await
                 .expect("the owner brings the schema up to date")
                 .close()
@@ -126,7 +126,7 @@ async fn test_database(role: DatabaseRole, directory: &Path) -> TestDatabase {
 pub(crate) struct Setup {
     /// Whether `user1` is registered and signed in on both clients at the start.
     one_user: bool,
-    public_shared_boards: bool,
+    allow_public_links: bool,
     base_path: String,
     configure: Vec<fn(&mut Configuration)>,
     admin_socket: Option<PathBuf>,
@@ -139,7 +139,7 @@ pub(crate) struct Setup {
     /// Whether the built-in templates are imported at startup. Off by default so a
     /// server starts quickly; the counterpart of the original's `SkipTemplateInit`.
     with_templates: bool,
-    /// `prometheusaddress`.
+    /// `metrics_address`.
     metrics_at: Option<String>,
     /// Certificates the client of the providers trusts besides the system's.
     oidc_roots: Vec<Vec<u8>>,
@@ -163,7 +163,7 @@ impl Setup {
     /// `SetupTestHelperLocalMode`: native authentication with public sharing turned on.
     pub(crate) fn local_mode() -> Self {
         Self {
-            public_shared_boards: true,
+            allow_public_links: true,
             ..Self::default()
         }
     }
@@ -206,7 +206,7 @@ impl Setup {
         self
     }
 
-    /// Keeps the metrics and serves them at `address` (`prometheusaddress`).
+    /// Keeps the metrics and serves them at `address` (`metrics_address`).
     pub(crate) fn metrics_at(mut self, address: &str) -> Self {
         self.metrics_at = Some(address.to_owned());
         self
@@ -250,14 +250,14 @@ impl Setup {
         self
     }
 
-    /// Opens the administration socket at `path` (`enablelocalmode`).
+    /// Opens the administration socket at `path` (`serve_admin_socket`).
     pub(crate) fn admin_socket(mut self, path: &Path) -> Self {
         self.admin_socket = Some(path.to_owned());
         self
     }
 
-    /// Reads the certificate and the key for `usessl` from these files. The server only
-    /// serves TLS if the configuration turns `usessl` on as well; the clients of
+    /// Reads the certificate and the key for `serve_https` from these files. The server only
+    /// serves TLS if the configuration turns `serve_https` on as well; the clients of
     /// [`TestServer`] do not speak it.
     pub(crate) fn tls_files(mut self, tls_files: TlsFiles) -> Self {
         self.tls_files = Some(tls_files);
@@ -274,19 +274,19 @@ impl Setup {
         let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("api-tests")
             .join(new_id());
-        let web_path = directory.join("web");
-        write_test_web_app(&web_path);
+        let web_app_path = directory.join("web");
+        write_test_web_app(&web_app_path);
 
         let database = test_database(self.database_role, &directory).await;
         let mut config = Configuration {
-            db_type: database.db_type().as_str().to_owned(),
-            db_config: database.dbconfig().to_owned(),
-            web_path: web_path.display().to_string(),
-            files_driver: "local".to_owned(),
-            files_path: directory.join("uploads").display().to_string(),
-            enable_public_shared_boards: self.public_shared_boards,
+            database_kind: database.db_type().as_str().to_owned(),
+            database_connection: database.database_connection().to_owned(),
+            web_app_path: web_app_path.display().to_string(),
+            file_storage: "local".to_owned(),
+            file_storage_path: directory.join("uploads").display().to_string(),
+            allow_public_links: self.allow_public_links,
             // Pings are tested on their own; elsewhere they would only be noise.
-            websocket_ping_seconds: 0,
+            skip_websocket_pings: true,
             // Importing the templates is slow; only tests that ask for them pay it.
             skip_template_init: !self.with_templates,
             // Every client of a test comes from one address, and many sign in at once.
@@ -303,11 +303,11 @@ impl Setup {
             ..Configuration::default()
         };
         if let Some(path) = &self.admin_socket {
-            config.enable_local_mode = true;
-            config.local_mode_socket_location = path.display().to_string();
+            config.serve_admin_socket = true;
+            config.admin_socket_path = path.display().to_string();
         }
         if let Some(address) = &self.metrics_at {
-            address.clone_into(&mut config.prometheus_address);
+            address.clone_into(&mut config.metrics_address);
         }
         config
             .oidc_extra_root_certificates
@@ -379,15 +379,15 @@ impl Setup {
     }
 }
 
-fn write_test_web_app(web_path: &std::path::Path) {
-    std::fs::create_dir_all(web_path.join("static")).expect("the web directory is created");
+fn write_test_web_app(web_app_path: &std::path::Path) {
+    std::fs::create_dir_all(web_app_path.join("static")).expect("the web directory is created");
     std::fs::write(
-        web_path.join("index.html"),
+        web_app_path.join("index.html"),
         "<html><head><base href=\"{{.BaseURL}}/\"></head><body>test web app</body></html>",
     )
     .expect("the index page is written");
     std::fs::write(
-        web_path.join("static").join("main.js"),
+        web_app_path.join("static").join("main.js"),
         "console.log('test');",
     )
     .expect("a static file is written");
@@ -396,10 +396,10 @@ fn write_test_web_app(web_path: &std::path::Path) {
 /// Stores the organization of a test server and its two workspaces, the root workspace first.
 async fn seed_workspaces(config: &Configuration) -> String {
     let db_type = config
-        .db_type
+        .database_kind
         .parse()
         .expect("the test database type is one the store knows");
-    let store = Store::connect(db_type, &config.db_config)
+    let store = Store::connect(db_type, &config.database_connection)
         .await
         .expect("the test database takes the schema");
     let workspace = |workspace_id: &str| Workspace {
@@ -811,7 +811,7 @@ impl Client {
     }
 
     /// This client, answered with a redirect instead of following it: a test server's
-    /// `serverroot` is the default, which leads to whatever listens on port 8000 of the
+    /// `server_url` is the default, which leads to whatever listens on port 8000 of the
     /// machine, if anything does.
     pub(crate) fn not_following_redirects(&self) -> Self {
         Self {

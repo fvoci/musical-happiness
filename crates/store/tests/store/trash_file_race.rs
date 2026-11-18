@@ -12,7 +12,7 @@ use crate::common;
 /// A trigger in this test's schema pauses the purge after its statement's snapshot,
 /// while its row lock still lets a new image's FOR KEY SHARE through.
 async fn pause_marking(test: &common::TestStore) -> (PgConnection, i64) {
-    let mut gate = common::connect_past_the_store(&test.dbconfig()).await;
+    let mut gate = common::connect_past_the_store(&test.database_connection()).await;
     let key: i64 = sqlx::query_scalar("SELECT pg_backend_pid()::bigint")
         .fetch_one(&mut gate)
         .await
@@ -188,7 +188,7 @@ async fn race_with_mark(test: &common::TestStore, card: &str, patch: &BlockPatch
 
 async fn assert_fresh_retention(test: &common::TestStore, card: &str, user: &str, file: &FileInfo) {
     let unmarked = common::try_execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!(
             "UPDATE file_info SET unreferenced_at = unreferenced_at \
          WHERE id = '{}' AND unreferenced_at IS NULL",

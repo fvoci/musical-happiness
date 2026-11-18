@@ -125,12 +125,12 @@ test('a file over the server’s limit is refused before it is sent, and says th
   // A file one byte over the limit, with no bytes written (a sparse file).
   const video = testInfo.outputPath('video.bin');
   const handle = openSync(video, 'w');
-  ftruncateSync(handle, config.maxFileSize + 1);
+  ftruncateSync(handle, config.maxFileBytes + 1);
   closeSync(handle);
   await page.getByTestId('attach-input').setInputFiles(video);
   await expect(page.locator('[data-problem]')).toBeVisible();
   await expect(page.locator('[data-problem]')).toContainText(
-    `${(config.maxFileSize / 1024 / 1024).toFixed(1)} MiB`,
+    `${(config.maxFileBytes / 1024 / 1024).toFixed(1)} MiB`,
   );
   expect(opened).toBe(0);
   await api.dispose();

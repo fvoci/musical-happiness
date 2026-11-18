@@ -136,10 +136,10 @@ fn in_order(value: &Value) -> String {
 /// the index of a key, which keep the names they were made with (no statement reads
 /// them there: the definition of an index reads the table's columns).
 async fn names_of_a_board(database: &fvoci_store::testing::TestDatabase) -> Vec<String> {
-    let dbconfig = common::raw_dbconfig(database);
+    let database_connection = common::raw_connection(database);
     match db_type() {
         DbType::Sqlite => {
-            let mut conn = sqlx::sqlite::SqliteConnection::connect(&dbconfig)
+            let mut conn = sqlx::sqlite::SqliteConnection::connect(&database_connection)
                 .await
                 .expect("the database file opens");
             let names = sqlx::query_scalar(
@@ -161,7 +161,7 @@ async fn names_of_a_board(database: &fvoci_store::testing::TestDatabase) -> Vec<
             names
         }
         DbType::Postgres => {
-            let mut conn = common::connect_past_the_store(&dbconfig).await;
+            let mut conn = common::connect_past_the_store(&database_connection).await;
             let names = sqlx::query_scalar(
                 "SELECT 'relation ' || relname::text FROM pg_class \
                  WHERE relnamespace = current_schema()::regnamespace AND relname LIKE '%board%' \
@@ -195,10 +195,10 @@ async fn names_of_a_board(database: &fvoci_store::testing::TestDatabase) -> Vec<
 /// Every index of the schema: its table, its name, whether it is unique or partial, and
 /// its columns (SQLite), or its definition (PostgreSQL); sorted.
 async fn indexes(database: &fvoci_store::testing::TestDatabase) -> Vec<String> {
-    let dbconfig = common::raw_dbconfig(database);
+    let database_connection = common::raw_connection(database);
     let mut indexes: Vec<String> = match db_type() {
         DbType::Sqlite => {
-            let mut conn = sqlx::sqlite::SqliteConnection::connect(&dbconfig)
+            let mut conn = sqlx::sqlite::SqliteConnection::connect(&database_connection)
                 .await
                 .expect("the database file opens");
             let indexes = sqlx::query_scalar(
@@ -213,7 +213,7 @@ async fn indexes(database: &fvoci_store::testing::TestDatabase) -> Vec<String> {
             indexes
         }
         DbType::Postgres => {
-            let mut conn = common::connect_past_the_store(&dbconfig).await;
+            let mut conn = common::connect_past_the_store(&database_connection).await;
             let indexes = sqlx::query_scalar(
                 "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index AS i \
                  JOIN pg_class AS c ON c.oid = i.indrelid \
@@ -318,7 +318,7 @@ async fn a_database_with_boards_keeps_every_row_under_the_names_of_the_container
     let database = common::empty_database().await;
     fvoci_store::testing::migrate_to_before_organizations(&database).await;
     let before = Before::new();
-    let raw = common::raw_dbconfig(&database);
+    let raw = common::raw_connection(&database);
     common::execute_raw(&raw, &before.statements()).await;
     fvoci_store::testing::migrate_to_before_containers(&database).await;
     let (team, invitation) = (new_id(), new_id());
@@ -392,7 +392,7 @@ async fn a_database_with_boards_keeps_every_row_under_the_names_of_the_container
         assert_eq!(&new_rows, rows, "{table}: the same rows");
     }
 
-    let store = Store::connect(database.db_type(), database.dbconfig())
+    let store = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("the store migrates the database");
     the_keys_and_the_checks_find_the_containers(&database).await;
@@ -407,7 +407,7 @@ async fn a_database_with_boards_keeps_every_row_under_the_names_of_the_container
 async fn the_keys_and_the_checks_find_the_containers(
     database: &fvoci_store::testing::TestDatabase,
 ) {
-    let raw = common::raw_dbconfig(database);
+    let raw = common::raw_connection(database);
     match db_type() {
         DbType::Sqlite => {
             let mut conn = sqlx::sqlite::SqliteConnection::connect(&raw)

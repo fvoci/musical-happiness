@@ -12,12 +12,12 @@ CloudFront와 Cloudflare의 수치, 정책 이름은 2026-11-10에 각 벤더 �
 | `/static/*`, 그 밖의 파일 | `Cache-Control: no-cache`, `ETag`, `Last-Modified` | 저장하더라도 매번 오리진에 재검증한다. | 위와 같고, 조건부 요청 헤더(`If-None-Match`, `If-Modified-Since`). |
 | `/api/v1/*` | `Cache-Control: no-store` | 캐시하지 않는다. | 메서드 `GET`, `HEAD`, `OPTIONS`, `PUT`, `POST`, `PATCH`, `DELETE`. 뷰어 헤더 전부(최소 `Cookie`, `Origin`, `X-Requested-With`, `Content-Type`, 그리고 브라우저가 아닌 클라이언트가 쓰는 `Authorization`). 쿼리 문자열 전부(공유 보드의 `readToken` 포함). 쿠키 `__Host-fvoci_session`(HTTP로 서비스하면 `fvoci_session`). 응답의 `Set-Cookie`와 `Retry-After`를 그대로 돌려준다. |
 | `/api/v1/w/{workspace}/containers/{container}/files/{file}`, `/api/v1/shared/{container}/files/{file}` | `Cache-Control: private, no-cache`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; frame-ancestors 'none'`, `Range` 지원 | 캐시하지 않는다. | 위와 같고 `Range`, `If-Range`. |
-| `/ws` | WebSocket(`101 Switching Protocols`) | 캐시하지 않는다. | 메서드 `GET`. 헤더 `Upgrade`, `Connection`, `Sec-WebSocket-*`, 그리고 `Origin`과 `Cookie`. 인증은 핸드셰이크에서 세션 쿠키로 하고, `Origin`이 서버 자신의 것(`serverRoot`)이나 `allowed_origins`가 아니면 403으로 거절한다. CDN이 `Origin`을 고쳐 쓰거나 쿠키를 떼면 실시간 갱신이 되지 않는다. |
+| `/ws` | WebSocket(`101 Switching Protocols`) | 캐시하지 않는다. | 메서드 `GET`. 헤더 `Upgrade`, `Connection`, `Sec-WebSocket-*`, 그리고 `Origin`과 `Cookie`. 인증은 핸드셰이크에서 세션 쿠키로 하고, `Origin`이 서버 자신의 것(`server_url`)이나 `allowed_origins`가 아니면 403으로 거절한다. CDN이 `Origin`을 고쳐 쓰거나 쿠키를 떼면 실시간 갱신이 되지 않는다. |
 | 그 밖의 모든 경로 | 웹 앱의 `index.html`, 상태 200, `Cache-Control: no-cache`. `/problems`와 그 아래는 오류의 종류를 설명하는 글(`text/plain`, `Cache-Control: public, max-age=3600`)이다 | 캐시하지 않거나 매번 재검증한다. `/problems`는 캐시해도 된다. | 메서드 `GET`, `HEAD`. 그 외에는 필요 없다. |
 
 - 정적 파일 옆에 `<file>.br`이나 `<file>.gz`가 있고 클라이언트가 받아들이면, 서버는 미리 압축한 파일을 `Content-Encoding`, `Vary: Accept-Encoding`과 함께 보낸다. CDN 캐시 키에 `Accept-Encoding`이 반영되어야 한다.
 - 무언가를 바꾸는 API 요청(`GET`, `HEAD`, `OPTIONS`가 아닌 것)에는 `X-Requested-With: XMLHttpRequest`가 있어야 한다. 없으면 서버가 403(`reason`이 `csrf`)으로 답한다. `Origin` 헤더가 있으면 그 값이 서버 자신의 것이거나 `allowed_origins`에 있어야 하고, 아니면 403(`foreign_origin`)이다. CDN이 `X-Requested-With`를 떼거나 `Origin`을 바꾸면 로그인을 포함해 쓰는 요청 전체가 403이 된다. `Authorization: Bearer`를 단 요청은 `X-Requested-With` 없이도 받는다.
-- 세션은 로그인 응답의 `Set-Cookie`로 간다: `HttpOnly`, `SameSite=Lax`, `Path=/`이고, `serverRoot`가 `https`면 이름이 `__Host-fvoci_session`이고 `Secure`가 붙는다(`http`면 `fvoci_session`). 응답 본문에는 토큰이 없다. 브라우저가 아닌 클라이언트는 같은 토큰을 `Authorization: Bearer <token>`으로 보낼 수 있다. 쿼리 문자열로는 세션 토큰을 받지 않는다. 공유 보드는 쿼리 매개변수 `readToken`을 쓴다.
+- 세션은 로그인 응답의 `Set-Cookie`로 간다: `HttpOnly`, `SameSite=Lax`, `Path=/`이고, `server_url`이 `https`면 이름이 `__Host-fvoci_session`이고 `Secure`가 붙는다(`http`면 `fvoci_session`). 응답 본문에는 토큰이 없다. 브라우저가 아닌 클라이언트는 같은 토큰을 `Authorization: Bearer <token>`으로 보낼 수 있다. 쿼리 문자열로는 세션 토큰을 받지 않는다. 공유 보드는 쿼리 매개변수 `readToken`을 쓴다.
 - `__Host-` 쿠키는 브라우저가 `Secure`, `Path=/`, `Domain` 없음일 때만 받는다. CDN이나 프록시가 `Set-Cookie`에 `Domain`을 더하거나 `Path`를 고치면 브라우저가 쿠키를 버려 로그인이 되지 않는다.
 - 첨부 파일 경로는 `.png`, `.pdf` 같은 확장자로 끝날 수 있다. 확장자 기준으로 캐시하는 CDN에서는 `/api/*`를 명시적으로 캐시에서 빼야 한다.
 - 경로 접두사 아래에서 서비스하면(2장) 이 문서의 모든 경로 패턴 앞에 접두사가 붙는다. 예: `/boards/static/*`, `/boards/api/*`, `/boards/ws`.
@@ -26,17 +26,17 @@ CloudFront와 Cloudflare의 수치, 정책 이름은 2026-11-10에 각 벤더 �
 
 | 설정 | 프록시 뒤에서의 의미 |
 | --- | --- |
-| `serverRoot` | 공개 URL. 예: `https://boards.example.com`. 오리진 주소가 아니라 CDN에 연결한 도메인을 적는다. base path도 이 값에서 정해진다. 서버는 이 값을 `index.html`에 채워 보낸다. |
-| `FVOCI_HTTP_SERVER_BASEPATH` (환경 변수) | 경로 접두사 아래에서 서비스할 때 쓴다. |
-| `port`, `localOnly` | 수신 포트. `localOnly`가 true면 `localhost`에서만 받는다. 같은 호스트의 프록시나 터널 뒤에 둘 때 쓴다. |
-| `useSSL` | TLS는 보통 CDN에서 끝난다. 오리진은 사설망 안에서 HTTP로 두거나 `useSSL`로 HTTPS를 쓴다. `useSSL`을 켰는데 `./cert/cert.pem`이나 `./cert/key.pem`이 없으면 서버는 뜨지 않는다(평문으로 떨어지지 않는다). |
+| `server_url` | 공개 URL. 예: `https://boards.example.com`. 오리진 주소가 아니라 CDN에 연결한 도메인을 적는다. base path도 이 값에서 정해진다. 서버는 이 값을 `index.html`에 채워 보낸다. |
+| `FVOCI_BASE_PATH` (환경 변수) | 경로 접두사 아래에서 서비스할 때 쓴다. |
+| `port`, `listen_loopback_only` | 수신 포트. `listen_loopback_only`가 true면 `localhost`에서만 받는다. 같은 호스트의 프록시나 터널 뒤에 둘 때 쓴다. |
+| `serve_https` | TLS는 보통 CDN에서 끝난다. 오리진은 사설망 안에서 HTTP로 두거나 `serve_https`로 HTTPS를 쓴다. `serve_https`를 켰는데 `./cert/cert.pem`이나 `./cert/key.pem`이 없으면 서버는 뜨지 않는다(평문으로 떨어지지 않는다). |
 | `trusted_proxies` | 기본값은 빈 목록. 서버 앞에 있는 프록시의 주소와 주소 범위(`10.0.0.0/8` 같은)를 적는다. 그 주소에서 온 요청만 `X-Forwarded-For`를 믿고, 목록을 오른쪽에서부터 읽어 믿는 프록시가 아닌 첫 주소를 클라이언트로 본다. 요청 로그와 로그인 시도 제한이 같은 주소를 쓴다. |
-| `allowed_origins` | 기본값은 빈 목록. `serverRoot` 말고도 쓰는 요청과 WebSocket 핸드셰이크를 받을 출처(`https://host[:port]`). |
+| `allowed_origins` | 기본값은 빈 목록. `server_url` 말고도 쓰는 요청과 WebSocket 핸드셰이크를 받을 출처(`https://host[:port]`). |
 | `session_idle_days`, `session_max_days` | 기본값 14, 90. 쿠키의 `Max-Age`는 한가함 한도와 같다. |
-| `websocket_ping_seconds` | 기본값 30. 서버가 이 간격으로 ping 프레임을 보낸다. 0이면 끈다. |
-| `maxfilesize` | 서버 자체의 업로드 한도(바이트). 기본값 100 MiB. 0이나 음수는 시작 오류다. CDN의 한도와 별개로 적용된다. 큰 파일은 청크(`upload_part_bytes`, 기본 8 MiB)로 나눠 오므로 CDN의 요청 본문 한도는 부분 하나보다 크면 된다. |
+| `websocket_ping_seconds` | 기본값 30, 1–59. 서버가 이 간격으로 ping 프레임을 보낸다. |
+| `max_file_bytes` | 서버 자체의 업로드 한도(바이트). 기본값 100 MiB. 0이나 음수는 시작 오류다. CDN의 한도와 별개로 적용된다. 큰 파일은 청크(`upload_part_bytes`, 기본 8 MiB)로 나눠 오므로 CDN의 요청 본문 한도는 부분 하나보다 크면 된다. |
 
-- 서버가 로그인 시도를 제한한다: (계정, 주소) 쌍의 연속 실패, 계정 전체의 연속 실패, 주소당 분당 시도 수, 그리고 비밀번호 해시의 대기열. 넘으면 429와 `Retry-After`로 답한다(설정 `login_pair_*`, `login_account_*`, `login_address_attempts_per_minute`, `password_hash_*`). 주소별 제한은 서버가 보는 클라이언트 주소에 달렸으므로, CDN 뒤에서는 `trusted_proxies`를 맞게 적어야 한다. 비워 두면 모든 요청이 CDN의 주소에서 온 것으로 보여 주소당 제한이 모든 사용자에게 한꺼번에 걸리고, (계정, 주소) 쌍의 기다림도 주소가 하나라 한 사람이 틀린 계정을 모두가 기다린다. `serverRoot`가 https이고 `usessl`이 꺼져 있는데 `trusted_proxies`가 비어 있으면 서버가 시작할 때 경고를 낸다. `X-Forwarded-For`의 항목은 `주소:포트` 꼴도 읽고, `Forwarded` 헤더(RFC 7239)는 읽지 않는다. CDN이나 WAF의 rate limiting(3.5, 4.4)은 그 앞의 한 겹으로 둔다.
+- 서버가 로그인 시도를 제한한다: (계정, 주소) 쌍의 연속 실패, 계정 전체의 연속 실패, 주소당 분당 시도 수, 그리고 비밀번호 해시의 대기열. 넘으면 429와 `Retry-After`로 답한다(설정 `login_pair_*`, `login_account_*`, `login_address_attempts_per_minute`, `password_hash_*`). 주소별 제한은 서버가 보는 클라이언트 주소에 달렸으므로, CDN 뒤에서는 `trusted_proxies`를 맞게 적어야 한다. 비워 두면 모든 요청이 CDN의 주소에서 온 것으로 보여 주소당 제한이 모든 사용자에게 한꺼번에 걸리고, (계정, 주소) 쌍의 기다림도 주소가 하나라 한 사람이 틀린 계정을 모두가 기다린다. `server_url`이 https이고 `serve_https`가 꺼져 있는데 `trusted_proxies`가 비어 있으면 서버가 시작할 때 경고를 낸다. `X-Forwarded-For`의 항목은 `주소:포트` 꼴도 읽고, `Forwarded` 헤더(RFC 7239)는 읽지 않는다. CDN이나 WAF의 rate limiting(3.5, 4.4)은 그 앞의 한 겹으로 둔다.
 - 클라이언트가 `X-Forwarded-For`를 직접 보내면 CloudFront는 뷰어 주소를 그 값의 끝에 덧붙이고([출처](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/RequestAndResponseBehaviorCustomOrigin.html), 2026-11-10 확인), Cloudflare도 기존 값에 덧붙인다([출처](https://developers.cloudflare.com/fundamentals/reference/http-headers/), 2026-11-10 확인). 따라서 목록의 왼쪽 끝은 클라이언트가 보낸 값일 수 있고, 서버는 그것을 믿지 않는다: 오른쪽에서부터 `trusted_proxies`에 있는 주소를 지나 처음 만나는 주소를 쓴다. CDN의 주소 범위가 바뀌면 `trusted_proxies`도 바꿔야 한다(범위가 빠지면 그 CDN 노드가 클라이언트로 보인다).
 - 오리진에는 CDN만 접근할 수 있게 막는다. 오리진이 직접 열려 있으면 CDN의 WAF 규칙을 우회할 수 있다.
 
@@ -90,7 +90,7 @@ Allowed HTTP methods에서 고를 수 있는 조합은 `GET, HEAD` / `GET, HEAD,
 
 - WebSocket은 모든 배포에서 자동으로 켜져 있다. 동작에서 모든 뷰어 헤더를 전달하거나(`AllViewer`), 최소한 `Sec-WebSocket-Key`와 `Sec-WebSocket-Version`을 전달해야 한다. 문서가 이름을 든 관리형 정책은 `AllViewer`다.
 - CloudFront는 WebSocket을 HTTP/1.1로만 지원한다.
-- 유휴 타임아웃은 10분이다. 오리진에서 클라이언트로 가는 바이트가 10분 동안 없으면 연결을 닫는다. 서버의 ping(기본 30초)이 오리진에서 나가는 바이트이므로 기본 설정이면 닫히지 않는다. `websocket_ping_seconds`를 0으로 두면 조용한 연결이 10분마다 끊긴다.
+- 유휴 타임아웃은 10분이다. 오리진에서 클라이언트로 가는 바이트가 10분 동안 없으면 연결을 닫는다. 서버의 ping(`websocket_ping_seconds`, 1–59초, 기본 30초)이 오리진에서 나가는 바이트이므로 닫히지 않는다.
 
 ### 3.4 타임아웃과 요청 본문 크기
 
@@ -106,7 +106,7 @@ Allowed HTTP methods에서 고를 수 있는 조합은 `GET, HEAD` / `GET, HEAD,
 - 아카이브 가져오기(`POST /api/v1/w/{workspaceId}/archive/import`)처럼 서버가 본문을 다 받은 뒤 응답하기까지 30초를 넘길 수 있는 요청은 response timeout을 늘려야 한다. 넘기면 CloudFront가 504로 답한다.
 - 업로드 본문을 전송하는 시간이 response timeout에 포함되는지는 문서에서 확인하지 못했다. 큰 파일로 직접 시험해야 한다.
 - Keep-alive timeout이 효과를 내려면 오리진이 지속 연결을 허용해야 한다.
-- CloudFront의 본문 한도는 크므로, 실제 한도는 서버의 `maxfilesize`와 중간 프록시 설정이 정한다.
+- CloudFront의 본문 한도는 크므로, 실제 한도는 서버의 `max_file_bytes`와 중간 프록시 설정이 정한다.
 
 ### 3.5 AWS WAF rate-based rule 예시
 
@@ -167,7 +167,7 @@ Cloudflare의 기본 동작([출처](https://developers.cloudflare.com/cache/con
 출처: [WebSockets](https://developers.cloudflare.com/network/websockets/) (2026-11-10 확인).
 
 - WebSocket은 모든 플랜에서 지원한다. 대시보드 Network 페이지의 **WebSockets** 토글이 On인지 확인한다. 문서는 추가 설정 없이 프록시된 WebSocket을 지원한다고 적지만 토글의 기본값은 명시하지 않는다.
-- 양방향으로 데이터가 없는 상태가 일정 시간 이어지면 Cloudflare가 연결을 닫는다. 이 유휴 시간의 값은 문서에 적혀 있지 않아 확인하지 못했다. Enterprise는 담당 팀을 통해 값을 바꿀 수 있다. 서버의 ping(`websocket_ping_seconds`, 기본 30)을 켜 둔다.
+- 양방향으로 데이터가 없는 상태가 일정 시간 이어지면 Cloudflare가 연결을 닫는다. 이 유휴 시간의 값은 문서에 적혀 있지 않아 확인하지 못했다. Enterprise는 담당 팀을 통해 값을 바꿀 수 있다. 서버의 ping(`websocket_ping_seconds`, 기본 30)이 그보다 짧은지 본다.
 - Cloudflare가 자사 네트워크에 새 코드를 배포하면서 서버를 재시작하면 WebSocket 연결이 끊긴다. 가끔 생기는 재연결은 정상이다.
 
 ### 4.3 업로드 크기와 타임아웃
@@ -178,7 +178,7 @@ Cloudflare의 기본 동작([출처](https://developers.cloudflare.com/cache/con
 | Proxy Read Timeout | 125초. 넘으면 `524`. Enterprise만 조정 가능(최대 6,000초) | [Connection limits](https://developers.cloudflare.com/fundamentals/reference/connection-limits/), [Error 524](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-524/) |
 | Proxy Write Timeout | 30초. 넘으면 `524`. 조정할 수 없다. | 위 두 문서 |
 
-- 서버의 `maxfilesize`를 플랜 한도보다 크게 두어도 Cloudflare가 먼저 `413`으로 막는다. 두 값을 맞춘다.
+- 서버의 `max_file_bytes`를 플랜 한도보다 크게 두어도 Cloudflare가 먼저 `413`으로 막는다. 두 값을 맞춘다.
 - 아카이브 가져오기는 본문이 크고 처리 시간이 길 수 있다. 플랜 한도를 넘는 파일이나 응답까지 125초를 넘기는 요청은 프록시를 거치지 않는 DNS-only 호스트 이름으로 보내거나 플랜을 올려야 한다. Cloudflare 문서도 같은 방법을 든다.
 - 한도를 올려도 아주 큰 업로드는 크기 한도에 닿기 전에 연결 타임아웃이나 read timeout으로 실패할 수 있다고 Cloudflare 문서가 적고 있다.
 
@@ -264,17 +264,17 @@ curl -si --http1.1 --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket'
 
 **배포 뒤에도 예전 `index.html`이 나온다.** `curl -sI`로 `Cache-Control: no-cache`가 그대로 오는지, 캐시 적중 표시(`X-Cache`, `CF-Cache-Status`, `Age`)가 있는지 본다. CloudFront에서는 기본 동작의 cache policy에서 Minimum TTL이 0인지 확인한다. 0보다 크면 `no-cache`가 있어도 그 시간만큼 캐시한다. Cloudflare에서는 HTML을 캐시 대상으로 만들면서 Edge TTL을 고정한 Cache Rule이 있는지 확인한다. 정책을 고친 뒤 무효화(invalidation, purge)를 한 번 실행한다. 해시가 있는 정적 파일은 이름이 바뀌므로 무효화할 필요가 없다.
 
-**WebSocket이 일정한 간격으로 끊긴다.** 간격이 약 10분이고 CloudFront를 쓰면 유휴 타임아웃이다(3.3). `websocket_ping_seconds`가 0이 아닌지 확인한다. CDN과 서버 사이에 로드 밸런서나 프록시가 더 있으면 그 유휴 타임아웃도 확인하고, ping 간격을 경로에서 가장 짧은 유휴 타임아웃보다 짧게 둔다. 연결이 아예 열리지 않으면 `/ws` 동작이 `Sec-WebSocket-*` 헤더를 전달하는지, Cloudflare의 WebSockets 토글이 켜져 있는지 본다.
+**WebSocket이 일정한 간격으로 끊긴다.** 간격이 약 10분이고 CloudFront를 쓰면 유휴 타임아웃이다(3.3). CDN과 서버 사이에 로드 밸런서나 프록시가 더 있으면 그 유휴 타임아웃도 확인하고, ping 간격을 경로에서 가장 짧은 유휴 타임아웃보다 짧게 둔다. 연결이 아예 열리지 않으면 `/ws` 동작이 `Sec-WebSocket-*` 헤더를 전달하는지, Cloudflare의 WebSockets 토글이 켜져 있는지 본다.
 
-**업로드가 413으로 실패한다.** Cloudflare에서는 플랜의 업로드 한도(4.3)가 가장 흔한 원인이다. 그 다음으로 서버의 `maxfilesize`, CDN과 서버 사이 프록시의 본문 한도를 확인한다. CloudFront에 AWS WAF의 Core rule set이 붙어 있으면 413이 아니라 403으로 실패한다(3.5). 큰 아카이브 가져오기가 504(CloudFront)나 524(Cloudflare)로 끝나면 크기가 아니라 타임아웃 문제다(3.4, 4.3).
+**업로드가 413으로 실패한다.** Cloudflare에서는 플랜의 업로드 한도(4.3)가 가장 흔한 원인이다. 그 다음으로 서버의 `max_file_bytes`, CDN과 서버 사이 프록시의 본문 한도를 확인한다. CloudFront에 AWS WAF의 Core rule set이 붙어 있으면 413이 아니라 403으로 실패한다(3.5). 큰 아카이브 가져오기가 504(CloudFront)나 524(Cloudflare)로 끝나면 크기가 아니라 타임아웃 문제다(3.4, 4.3).
 
 **로그인한 뒤 다시 로그인 화면으로 돌아간다.** 순서대로 확인한다.
 
-1. `serverRoot`가 공개 URL과 같은지, base path가 CDN의 경로 패턴과 같은지 본다. 서버가 `index.html`에 채워 주는 주소가 틀리면 웹 앱이 다른 주소로 API를 부른다.
+1. `server_url`이 공개 URL과 같은지, base path가 CDN의 경로 패턴과 같은지 본다. 서버가 `index.html`에 채워 주는 주소가 틀리면 웹 앱이 다른 주소로 API를 부른다.
 2. 5장의 4번 요청이 JSON으로 오는지 본다. HTML이 오면 요청이 `/api/*` 동작이 아니라 기본 동작으로 가고 있거나, custom error response가 응답을 바꾸고 있다.
 3. CloudFront에서 `/api/*` 동작에 origin request policy가 붙어 있는지 본다. 없으면 쿠키가 오리진으로 가지 않아 로그인은 성공하고 그 뒤의 모든 조회가 401이 된다.
-4. 로그인 응답의 `Set-Cookie`가 브라우저까지 그대로 오는지 본다. `Domain`이 붙었거나 `Path`가 `/`가 아니면 브라우저가 `__Host-` 쿠키를 버린다. `serverRoot`가 `http`인데 공개 주소가 `https`면 서버가 접두사 없는 이름을 쓰고 `Secure`를 붙이지 않는다.
-5. 로그인 자체가 403이면 `Origin`이 `serverRoot`와 같은지 본다(스킴, 호스트, 포트).
+4. 로그인 응답의 `Set-Cookie`가 브라우저까지 그대로 오는지 본다. `Domain`이 붙었거나 `Path`가 `/`가 아니면 브라우저가 `__Host-` 쿠키를 버린다. `server_url`이 `http`인데 공개 주소가 `https`면 서버가 접두사 없는 이름을 쓰고 `Secure`를 붙이지 않는다.
+5. 로그인 자체가 403이면 `Origin`이 `server_url`과 같은지 본다(스킴, 호스트, 포트).
 6. 공유 보드 링크만 실패하면 쿼리 문자열(`readToken`)이 전달되는지 본다.
 
 ## 7. 검증 범위
