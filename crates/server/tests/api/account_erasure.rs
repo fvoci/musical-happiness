@@ -323,5 +323,18 @@ async fn of_another_organization(th: &TestServer) -> (Client, String) {
         .add_workspace_member(&workspace_id, &user_id, fvoci_model::WorkspaceRole::Member)
         .await
         .expect("a member of its workspace");
+    assert!(
+        th.app
+            .store()
+            .resolve_workspace(&user_id, ROOT_WORKSPACE_ID)
+            .await
+            .expect("membership is checked")
+            .is_none(),
+        "out of the first organization's workspace"
+    );
+    client
+        .get(&format!("{ROOT_WS}/boards"))
+        .await
+        .check_not_found();
     (client, workspace_id)
 }

@@ -73,6 +73,7 @@ pub mod testing;
 mod trash;
 mod uploads;
 mod users;
+mod users_by_id;
 mod visibility;
 mod workspace_membership;
 mod workspaces;

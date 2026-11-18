@@ -384,9 +384,10 @@ async fn handle_get_workspace_users(ws: InWorkspace, RawQuery(query): RawQuery) 
 ///
 /// An account that was deleted is answered to whoever asks by its identifier, seen
 /// before or not, as what is left of it: the identifier, an empty `username`, `email`
-/// and `displayName`, and `createAt`, `updateAt` and `deleteAt` all zero, so that
-/// neither when it was made nor when it went is told. The empty `username` is what
-/// tells it, not a time: a page shows a deleted user where it wrote or is mentioned.
+/// and `displayName`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
+/// the account is answered, neither when it went nor when it was asked to (the
+/// identifier is kept as it was made). The empty `username` is what tells it, not a
+/// time: a page shows a deleted user where it wrote or is mentioned.
 /// `deleteAt` is not zero for a writer whose account waits to be deleted, who is
 /// answered as they are, with their name.
 #[utoipa::path(

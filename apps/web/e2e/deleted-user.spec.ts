@@ -50,7 +50,8 @@ test('what a deleted user wrote stays, under no name', async ({ page }) => {
   });
   // Asked by identifier they are what is left of the account; asked by name, nobody.
   expect(place.left?.username).toBe('');
-  expect(place.left?.deleteAt).toBeGreaterThan(0);
+  // Nor when the account came or went.
+  expect([place.left?.createAt, place.left?.updateAt, place.left?.deleteAt]).toEqual([0, 0, 0]);
   expect(place.found).toEqual([]);
 
   await page.goto(`${boardPath(place.boardId, place.viewId, place.cardId)}?gone=1`);

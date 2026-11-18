@@ -71,7 +71,8 @@ struct RequestPasswordReset {
 /// the request never waits for either. Accounts without passwords receive no mail. An
 /// account that waits to be deleted is sent a link as one in use is, so that its person
 /// may sign in and take the deletion back; one whose erasing began, or that was erased,
-/// is sent none.
+/// is sent none (a message already on its way as the erasing begins carries a link that
+/// sets nothing).
 /// Requests are limited by address only, with the login setting of attempts per minute
 /// and a separate counter (429); never by email. An account is sent at most
 /// `mail_reset_per_account_hour` messages an hour: more requests are answered the same

@@ -28,7 +28,7 @@ use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::uploads::{OpenUploads, UploadUsage};
-use crate::{body_versions, invitations, memberships_everywhere, users, workspaces};
+use crate::{body_versions, invitations, memberships_everywhere, users, users_by_id, workspaces};
 
 mod sign_in;
 
@@ -317,7 +317,7 @@ impl Store {
     ) -> Result<Vec<User>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                users::found_users_by_ids(scope, user_ids, |sql, scope| {
+                users_by_id::found_users_by_ids(scope, user_ids, |sql, scope| {
                     push_seen(sql, scope, sight);
                 })
                 .await

@@ -333,7 +333,8 @@ fn reset_token(mail: &crate::fake_smtp::Received) -> String {
 
 /// Somebody who asked to delete their account and forgot the password asks for a reset
 /// by mail, sets a new one, and signs in with it to the way back: the account waits
-/// still, until its person takes the deletion back there.
+/// still, until its person takes the deletion back there. The guesses that locked the
+/// account before lock it no more.
 #[tokio::test]
 async fn an_account_that_waits_resets_its_password_and_signs_in_to_the_way_back() {
     use crate::common::USER2_USERNAME;
@@ -342,6 +343,10 @@ async fn an_account_that_waits_resets_its_password_and_signs_in_to_the_way_back(
     let smtp = FakeSmtp::start_on(0).await;
     let th = Setup::native()
         .smtp(smtp.settings())
+        .configure(|config| {
+            config.login_account_max_failures = 2;
+            config.login_account_lock_seconds = 600;
+        })
         .start()
         .await
         .init_basic()
@@ -354,6 +359,16 @@ async fn an_account_that_waits_resets_its_password_and_signs_in_to_the_way_back(
         )
         .await
         .ok_json();
+    for _ in 0..2 {
+        th.anonymous()
+            .login(USER2_USERNAME, "a forgotten password")
+            .await
+            .check_unauthorized();
+    }
+    th.anonymous()
+        .login(USER2_USERNAME, PASSWORD)
+        .await
+        .check_status(StatusCode::TOO_MANY_REQUESTS);
     th.anonymous()
         .post(
             "/password-reset/request",
@@ -371,11 +386,12 @@ async fn an_account_that_waits_resets_its_password_and_signs_in_to_the_way_back(
         .await
         .check_no_content();
 
+    // Unlocked, the new password signs in, and the old one no more.
+    let back = th.login(USER2_USERNAME, "New-password-1").await;
     th.anonymous()
         .login(USER2_USERNAME, PASSWORD)
         .await
         .check_unauthorized();
-    let back = th.login(USER2_USERNAME, "New-password-1").await;
     let me = back.get("/users/me").await;
     me.check_unauthorized();
     assert_eq!(
@@ -398,13 +414,20 @@ async fn an_account_that_waits_resets_its_password_and_signs_in_to_the_way_back(
 }
 
 /// The operator's reset link reaches an account that waits to be deleted, and an
-/// account whose erasing began gets none: neither a new link, nor anything of one made
-/// before it began.
+/// account whose erasing began gets none: neither a new link, by the operator or by
+/// mail, nor anything of one made before it began.
 #[tokio::test]
 async fn an_account_being_erased_gets_no_reset_and_an_earlier_link_sets_nothing() {
     use crate::common::USER2_USERNAME;
+    use crate::fake_smtp::FakeSmtp;
 
-    let th = Setup::native().start().await.init_basic().await;
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .start()
+        .await
+        .init_basic()
+        .await;
     let user2 = th.client2.me().await.id;
     th.client2
         .post(
@@ -428,14 +451,27 @@ async fn an_account_being_erased_gets_no_reset_and_an_earlier_link_sets_nothing(
         .await
         .expect("its erasing began");
     let refused = th.app.password_reset_link(USER2_USERNAME).await;
-    assert!(refused.is_err(), "no link: {refused:?}");
+    assert_eq!(
+        refused.as_ref().map_err(|error| error.status()).err(),
+        Some(404),
+        "no link: {refused:?}"
+    );
     let stored = th
         .app
         .store()
         .create_password_reset(&user2, "a-digest", fvoci_server::auth::now_millis())
         .await
         .expect("asked");
-    assert!(!stored, "nor one by mail");
+    assert!(!stored, "nor one stored");
+    // Nor one by mail: asked for first, it is not the message that comes.
+    for email in ["user2@sample.com", "user1@sample.com"] {
+        th.anonymous()
+            .post("/password-reset/request", &json!({ "email": email }))
+            .await
+            .check_no_content();
+    }
+    let mail = smtp.received(1).await;
+    assert_eq!(mail[0].recipient, "user1@sample.com", "user1's alone");
     th.anonymous()
         .post(
             "/password-reset/complete",
@@ -457,4 +493,5 @@ async fn an_account_being_erased_gets_no_reset_and_an_earlier_link_sets_nothing(
         .expect("as if it had not begun");
     th.login(USER2_USERNAME, PASSWORD).await;
     th.teardown().await;
+    smtp.stop().await;
 }

@@ -15,18 +15,11 @@ use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::password_reset;
 use crate::sessions;
-use crate::{directory, members};
+use crate::{directory, members, users_by_id};
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
-const USER_COLUMNS: &str =
+pub(crate) const USER_COLUMNS: &str =
     "id, username, email, password_hash, create_at, update_at, delete_at, is_admin, display_name";
-
-/// [`USER_COLUMNS`], with the times of an erased account read as zero: when it was made,
-/// erased and asked to be are not told of an account that is gone.
-const ERASED_AS_NOBODY: &str = "id, username, email, password_hash, \
-     CASE WHEN erased_at > 0 THEN 0 ELSE create_at END, \
-     CASE WHEN erased_at > 0 THEN 0 ELSE update_at END, \
-     CASE WHEN erased_at > 0 THEN 0 ELSE delete_at END, is_admin, display_name";
 
 /// What a user is to the instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,7 +148,7 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if none of the users exists and
     /// [`StoreError::NotAllFound`] unless exactly one user is found per identifier.
     pub async fn get_users_list(&self, user_ids: &[String]) -> Result<Vec<User>, StoreError> {
-        self.with_conn(async |scope| users_by_ids(scope, user_ids, |_, _| ()).await)
+        self.with_conn(async |scope| users_by_id::users_by_ids(scope, user_ids, |_, _| ()).await)
             .await
     }
 
@@ -510,66 +503,6 @@ fn select_users(scope: &Scope<'_>) -> Sql {
     ))
 }
 
-/// The users with the given identifiers among those `narrow` keeps, oldest first.
-///
-/// # Errors
-///
-/// Returns [`StoreError::NotFound`] if none of the users is found and
-/// [`StoreError::NotAllFound`] unless exactly one user is found per identifier.
-pub(crate) async fn users_by_ids(
-    scope: &mut Scope<'_>,
-    user_ids: &[String],
-    narrow: impl Fn(&mut Sql, &Scope<'_>),
-) -> Result<Vec<User>, StoreError> {
-    let users = found_users_by_ids(scope, user_ids, narrow).await?;
-    if users.is_empty() {
-        return Err(user_not_found());
-    }
-    // Preserved quirk: the counts are compared, so naming a user twice fails even
-    // though that user exists (`server/services/store/sqlstore/user.go:111`).
-    if users.len() != user_ids.len() {
-        return Err(StoreError::NotAllFound {
-            entity: "user",
-            ids: user_ids.to_vec(),
-        });
-    }
-    Ok(users)
-}
-
-/// The users with the given identifiers among those `narrow` keeps, oldest first, each
-/// once: an identifier of nobody it keeps finds nothing, as one of nobody at all.
-///
-/// An account that waits to be deleted is among them as it is, with its name: until it
-/// is erased it is a member of what it was, and wrote what it wrote. One that was
-/// erased is found whatever `narrow` keeps, as the row it left: its identifier, no
-/// name and its three times zero, by which whoever reads what it wrote, or a mention
-/// of it, is told that the account is gone and not when it came or went. Nothing of a
-/// person is in that row to keep from anybody. Looked up by name ([`search_users`])
-/// neither is found.
-///
-/// # Errors
-///
-/// Returns [`StoreError::Database`] if the query fails.
-pub(crate) async fn found_users_by_ids(
-    scope: &mut Scope<'_>,
-    user_ids: &[String],
-    narrow: impl Fn(&mut Sql, &Scope<'_>),
-) -> Result<Vec<User>, StoreError> {
-    if user_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut sql = scope.sql(&format!(
-        "SELECT {ERASED_AS_NOBODY} FROM users WHERE id IN ("
-    ));
-    sql.bind_list(user_ids.iter().map(|id| Id(id))).push(
-        ") AND (erased_at > 0 OR ((delete_at = 0 OR delete_after > 0 OR erase_started_at > 0)",
-    );
-    narrow(&mut sql, scope);
-    // Oldest first by the times answered, so that the order tells no more than they do.
-    sql.push(")) ORDER BY CASE WHEN erased_at > 0 THEN 0 ELSE create_at END, id");
-    fetch_users(scope, sql).await
-}
-
 /// The ten oldest users among those `narrow` keeps, oldest first, whose login name or
 /// display name contains `search_query`, ignoring case; the ten oldest of them for an
 /// empty query.
@@ -620,7 +553,7 @@ pub(crate) async fn search_users(
     fetch_users(scope, sql).await
 }
 
-async fn fetch_users(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<User>, StoreError> {
+pub(crate) async fn fetch_users(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<User>, StoreError> {
     scope
         .fetch_all(sql)
         .await?
@@ -648,7 +581,7 @@ fn user_from_row(row: &Row) -> Result<User, StoreError> {
 ///
 /// Preserved quirk: it does not say which user is missing; clients see `{user} not found`
 /// (`server/services/store/sqlstore/user.go:54` and `:95`).
-fn user_not_found() -> StoreError {
+pub(crate) fn user_not_found() -> StoreError {
     StoreError::not_found("user")
 }
 
