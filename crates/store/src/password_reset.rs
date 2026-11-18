@@ -19,7 +19,7 @@ fn resettable() -> String {
 
 impl Store {
     /// Stores a reset credential for an account that has a password and that somebody can
-    /// sign in to: in use, or waiting to be deleted ([`users::WAITS`]), whose person may
+    /// sign in to: in use, or waiting to be deleted (`users::WAITS`), whose person may
     /// have forgotten the password they would take the deletion back with. Expired
     /// credentials are removed before the new one is stored.
     ///

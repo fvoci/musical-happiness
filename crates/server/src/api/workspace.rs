@@ -379,8 +379,8 @@ async fn handle_get_workspace_users(ws: InWorkspace, RawQuery(query): RawQuery) 
 /// somebody the user does not see finds nothing, as one of nobody: the answer does not
 /// tell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or
 /// last changed a card, block or comment of a board of the workspace they read, also
-/// after leaving the workspace. Oldest account first by `createAt`, then by identifier,
-/// not in the order of the request.
+/// after leaving the workspace. Oldest account first, not in the order of the request:
+/// by `createAt`, then by identifier.
 ///
 /// An account that was deleted is answered to whoever asks by its identifier, seen
 /// before or not, as what is left of it: the identifier, an empty `username`, `email`

@@ -452,7 +452,10 @@ async fn an_account_being_erased_gets_no_reset_and_an_earlier_link_sets_nothing(
         .expect("its erasing began");
     let refused = th.app.password_reset_link(USER2_USERNAME).await;
     assert_eq!(
-        refused.as_ref().map_err(|error| error.status()).err(),
+        refused
+            .as_ref()
+            .map_err(fvoci_server::error::AppError::status)
+            .err(),
         Some(404),
         "no link: {refused:?}"
     );
