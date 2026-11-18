@@ -435,7 +435,7 @@ fn container_not_in_trash() -> StoreError {
 /// Limits a list of the trash to one page, if `paging` has a page size.
 pub(crate) fn push_paging(sql: &mut Sql, paging: Option<Paging>) {
     if let Some(paging) = paging.filter(|paging| paging.per_page > 0) {
-        let offset = i64::from(paging.page) * i64::from(paging.per_page);
+        let offset = paging.offset();
         sql.push_bind(" LIMIT ", i64::from(paging.per_page))
             .push_bind(" OFFSET ", offset);
     }

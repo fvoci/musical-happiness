@@ -73,30 +73,16 @@ impl Collab {
                     .as_ref()
                     .is_some_and(|open| open.editors.iter().any(|editor| editor == user_id));
         let new_editors: &[&str] = if known { &[] } else { &[user_id] };
+        let as_read = slot.open.as_ref().expect("the document is open").as_read();
         #[cfg(feature = "test-util")]
         self.paused_before_log().await;
         let logged = app
             .store()
-            .append_body_updates(card_id, &entries, &files, new_editors, body_before)
+            .append_body_updates(card_id, &entries, as_read, &files, new_editors, body_before)
             .await;
         let seqs = match logged {
             Ok(seqs) => seqs,
-            Err(error) => {
-                // Taken by the worker and not logged: the document is opened again as
-                // it is stored, at once, so that what others typed is still written.
-                self.forget(slot).await;
-                if let Err(reopened) = self.ensure_open(app, card_id, slot).await {
-                    tracing::warn!(%reopened, card_id, "cannot open a document again after an update that was not logged");
-                }
-                return Err(match error {
-                    StoreError::InvalidBlock { .. } => AppError::bad_request(
-                        "the update names a file (of an image or a file block) the board or \
-                         wiki does not have",
-                    )
-                    .with_reason(Reason::UpdateRefused),
-                    other => other.into(),
-                });
-            }
+            Err(error) => return Err(self.not_logged(app, card_id, slot, error).await),
         };
         if body_before == BodyBefore::Keep {
             // The store kept the body the card held, by those put down before.
@@ -117,6 +103,36 @@ impl Collab {
             repair,
             remade,
         })
+    }
+
+    /// Opens again, as it is stored and at once, a document that holds an update its
+    /// worker took and the store did not log, so that what others typed is still
+    /// written; what the update is refused with. So is a document another process
+    /// wrote since it was read here, and its room is told: what its editors hold
+    /// lacks what that one wrote.
+    async fn not_logged(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        error: StoreError,
+    ) -> AppError {
+        self.forget(slot).await;
+        if let Err(reopened) = self.ensure_open(app, card_id, slot).await {
+            tracing::warn!(%reopened, card_id, "cannot open a document again after an update that was not logged");
+        }
+        match error {
+            StoreError::InvalidBlock { .. } => AppError::bad_request(
+                "the update names a file (of an image or a file block) the board or wiki \
+                 does not have",
+            )
+            .with_reason(Reason::UpdateRefused),
+            StoreError::DocumentWritten { .. } => {
+                self.tell(app, card_id, DocChange::Reopened);
+                error.into()
+            }
+            other => other.into(),
+        }
     }
 
     /// Makes the document again from its body if its state is near its limit, and
@@ -216,14 +232,37 @@ impl Collab {
         }
     }
 
-    /// Stores the document's state in place of its log.
+    /// Stores the document's state in place of its log. A document another process
+    /// wrote since it was read here is closed: its numbers are the store's no more,
+    /// and it is read again when it is next asked for.
     async fn fold(&self, app: &App, card_id: &str, slot: &mut Held) -> Result<(), AppError> {
         let state = bytes(self.ask(app, card_id, slot, Request::State).await?)?;
         let open = slot.open.as_mut().expect("the document is open");
         let through = open.log_end;
-        app.store().fold_body_doc(card_id, &state, through).await?;
-        open.state_seq = through;
-        Ok(())
+        let folded = app
+            .store()
+            .fold_body_doc(card_id, &state, through, open.as_read())
+            .await;
+        match folded {
+            Ok(()) => {
+                open.state_seq = through;
+                Ok(())
+            }
+            Err(error @ StoreError::DocumentWritten { .. }) => {
+                self.written_past(app, card_id, slot).await;
+                Err(error.into())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Closes a document another process wrote since it was read here, and tells its
+    /// room ([`DocChange::Reopened`]): its numbers are the store's no more, and its
+    /// editors may lack what the other wrote. The next request, the room's among them,
+    /// reads it again as it is stored.
+    async fn written_past(&self, app: &App, card_id: &str, slot: &mut Held) {
+        self.forget(slot).await;
+        self.tell(app, card_id, DocChange::Reopened);
     }
 
     /// Writes the document's body to its card, and makes the document again from it;
@@ -278,6 +317,10 @@ impl Collab {
                 self.forget(slot).await;
                 Err(error)
             }
+            Err(Opening::WrittenSince(error)) => {
+                self.written_past(app, card_id, slot).await;
+                Err(error)
+            }
             Err(Opening::Died) => {
                 self.lost(slot);
                 died_over(slot);
@@ -292,7 +335,10 @@ impl Collab {
     /// for it; whatever fails, `open` is no document to go on with: the caller closes
     /// it (its number is the new one's once that is open). Refused to a process that
     /// lost the lock of the server: making a document again empties its log, as a fold
-    /// does, and the log may hold what the server that took the lock wrote since.
+    /// does, and the log may hold what the server that took the lock wrote since. A
+    /// process learns that it lost the lock a while after it did
+    /// (`app/server_lock.rs`), so the store is told what was read of the document,
+    /// and refuses one that was written since.
     pub(super) async fn remake_from(
         &self,
         app: &App,
@@ -314,7 +360,7 @@ impl Collab {
         let digest = body_digest(body);
         open.epoch = app
             .store()
-            .remake_body_doc(card_id, &state, &digest)
+            .remake_body_doc(card_id, &state, &digest, open.as_read())
             .await?;
         open.state_seq = open.log_end;
         open.written_seq = open.log_end;
@@ -385,6 +431,7 @@ impl Collab {
         let through = open.log_end;
         let changed = digest != open.body_digest;
         let last_writer = open.last_writer.clone();
+        let as_read = open.as_read();
         let mut read_at = held.update_at;
         #[cfg(feature = "test-util")]
         self.paused_before_projection().await;
@@ -399,8 +446,13 @@ impl Collab {
                     through,
                     &digest,
                     &last_writer,
+                    as_read,
                 )
                 .await;
+            if let Err(error @ StoreError::DocumentWritten { .. }) = projected {
+                self.written_past(app, card_id, slot).await;
+                return Err(error.into());
+            }
             let Err(StoreError::Stale { .. }) = projected else {
                 projected?;
                 break;
@@ -437,6 +489,14 @@ impl Collab {
     /// unless one waits to already.
     pub(super) fn schedule_write(&self, app: &App, card_id: &str, open: &mut OpenDoc) {
         if open.writing_scheduled {
+            return;
+        }
+        #[cfg(feature = "test-util")]
+        if self
+            .inner
+            .due_writes_left
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             return;
         }
         open.writing_scheduled = true;

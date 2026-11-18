@@ -1288,7 +1288,12 @@ async fn with_s3_a_completion_without_record_leaves_no_object() {
             .as_str()
             .expect("a file identifier")
             .to_owned();
-        assert!(path.ends_with(&file_id), "the object is the file");
+        // The key ends in the secret the stored name begins with, before its extension.
+        assert_eq!(
+            path.rsplit('/').next(),
+            file_id.strip_suffix(".txt"),
+            "the object is the file"
+        );
         let download = ts
             .client
             .get(&format!(

@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use super::App;
 use super::blocks::ChangeNotification;
-use super::files::{FILE, new_place};
+use super::files::FILE;
 use super::loose_objects::{WRITE_TIMEOUT, Written};
 use crate::error::{AppError, Reason};
 use crate::storage::StorageError;
@@ -190,13 +190,9 @@ impl App {
         if source.is_current {
             return Ok(described(source.clone()));
         }
-        let info = self
-            .file_info(container_id, file_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(FILE))?;
         // The mark, the bytes, then the row that says where they are and takes the
         // mark away, as a copied file is written.
-        let path = new_place(container_id, &info.extension);
+        let path = self.new_version_place(container_id).await?;
         self.mark_writing(&path).await?;
         let copied = self.files().copy(&source.path, &path);
         if let Err(error) = tokio::time::timeout(WRITE_TIMEOUT, copied)

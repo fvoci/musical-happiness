@@ -45,10 +45,31 @@ class FakeObserver {
 
 const report = () =>
   ({
+    sheets: vi.fn<Report['sheets']>(),
     shown: vi.fn<Report['shown']>(),
     page: vi.fn<Report['page']>(),
     failed: vi.fn<Report['failed']>(),
+    download: vi.fn<Report['download']>(),
   }) satisfies Report;
+
+const LABELS = {
+  chart: 'Charts are not shown in the preview',
+  pageTooLarge: 'This page is too large to show.',
+  download: 'Download',
+};
+const SIZES = [
+  { width: 800, height: 1100 },
+  { width: 800, height: 1100 },
+];
+const DRAWN = { kind: 'page', svg: '<svg xmlns="http://www.w3.org/2000/svg"/>', text: [] };
+
+/** Tells the view's observer that `target` came into view, or left it. */
+function sight(target: Element | null | undefined, isIntersecting: boolean): void {
+  observers[0]?.callback(
+    [{ target, isIntersecting } as unknown as IntersectionObserverEntry],
+    {} as IntersectionObserver,
+  );
+}
 
 describe('the pages of an HWP document, once shown', () => {
   beforeEach(() => {
@@ -66,51 +87,42 @@ describe('the pages of an HWP document, once shown', () => {
     const client = new WorkerClient(worker, 1000);
     const told = report();
     const place = document.createElement('main');
-    new HwpView(
-      client,
-      [
-        { width: 800, height: 1100 },
-        { width: 800, height: 1100 },
-      ],
-      place,
-      told,
-    );
-    const second = place.querySelector('[data-page="2"]');
-    if (!second) throw new Error('no box for page 2');
-    observers[0]?.callback(
-      [{ target: second, isIntersecting: true } as unknown as IntersectionObserverEntry],
-      {} as IntersectionObserver,
-    );
+    new HwpView(client, SIZES, place, told, LABELS);
+    sight(place.querySelector('[data-page="2"]'), true);
     expect(worker.sent).toEqual([{ kind: 'page', page: 2 }]);
     await vi.advanceTimersByTimeAsync(1000);
     expect(worker.terminated).toBe(true);
     expect(told.failed).toHaveBeenCalledWith('slow');
   });
 
-  it('a page past what the frame takes on: the file is too large, and the worker is stopped', async () => {
+  it('a page past what the frame takes on says so in its place, and the others are drawn', async () => {
     const worker = new FakeWorker();
     const client = new WorkerClient(worker, 1000);
     const told = report();
     const place = document.createElement('main');
-    new HwpView(
-      client,
-      [
-        { width: 800, height: 1100 },
-        { width: 800, height: 1100 },
-      ],
-      place,
-      told,
-    );
-    const second = place.querySelector('[data-page="2"]');
-    if (!second) throw new Error('no box for page 2');
-    observers[0]?.callback(
-      [{ target: second, isIntersecting: true } as unknown as IntersectionObserverEntry],
-      {} as IntersectionObserver,
-    );
+    new HwpView(client, SIZES, place, told, LABELS);
+    const [first, second] = [...place.querySelectorAll('.page')];
+    sight(second, true);
     worker.answer({ kind: 'failed', reason: 'too-large' });
     await vi.advanceTimersByTimeAsync(10);
-    expect(told.failed).toHaveBeenCalledWith('too-large');
-    expect(worker.terminated).toBe(true);
+    expect(second?.querySelector('.page-notice p')?.textContent).toBe(LABELS.pageTooLarge);
+    expect(told.failed).not.toHaveBeenCalled();
+    expect(worker.terminated).toBe(false);
+    second?.querySelector('button')?.click();
+    expect(told.download).toHaveBeenCalledOnce();
+    sight(first, true);
+    worker.answer(DRAWN);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(first?.querySelector('svg')).not.toBeNull();
+    // Out of view and back: the notice again, and the worker is not asked to draw it again.
+    sight(second, false);
+    expect(second?.children).toHaveLength(0);
+    sight(second, true);
+    expect(second?.querySelector('.page-notice')).not.toBeNull();
+    expect(worker.sent).toEqual([
+      { kind: 'page', page: 2 },
+      { kind: 'page', page: 1 },
+    ]);
   });
 
   it('a page that left the view before it was drawn is not reported', async () => {
@@ -118,26 +130,12 @@ describe('the pages of an HWP document, once shown', () => {
     const client = new WorkerClient(worker, 1000);
     const told = report();
     const place = document.createElement('main');
-    new HwpView(
-      client,
-      [
-        { width: 800, height: 1100 },
-        { width: 800, height: 1100 },
-      ],
-      place,
-      told,
-    );
+    new HwpView(client, SIZES, place, told, LABELS);
     const [first, second] = [...place.querySelectorAll('.page')];
-    const sight = (target: Element | undefined, isIntersecting: boolean): void => {
-      observers[0]?.callback(
-        [{ target, isIntersecting } as unknown as IntersectionObserverEntry],
-        {} as IntersectionObserver,
-      );
-    };
     sight(first, true);
     sight(second, true);
     sight(second, false);
-    worker.answer({ kind: 'page', svg: '<svg xmlns="http://www.w3.org/2000/svg"/>', text: [] });
+    worker.answer(DRAWN);
     await vi.advanceTimersByTimeAsync(10);
     // Page 2 was given up before it was sent: only page 1 went to the worker.
     expect(worker.sent).toEqual([{ kind: 'page', page: 1 }]);
@@ -154,12 +152,34 @@ describe('the renderer of HWP documents', () => {
       wasm: async () => '00',
       limit: 30_000,
     });
-    const opening = render(new ArrayBuffer(4), document.createElement('main'), report());
+    const opening = render(new ArrayBuffer(4), document.createElement('main'), report(), LABELS);
     await vi.waitFor(() => {
       expect(worker.sent).toHaveLength(1);
     });
     window.dispatchEvent(new PageTransitionEvent('pagehide'));
     expect(worker.terminated).toBe(true);
     await expect(opening).rejects.toBeInstanceOf(WorkerClosed);
+  });
+
+  it('shows a document whose first page is too large to draw, that page saying so', async () => {
+    vi.stubGlobal('IntersectionObserver', FakeObserver);
+    const worker = new FakeWorker();
+    const render = renderer('hwp', { worker: () => worker, wasm: async () => '00', limit: 30_000 });
+    const told = report();
+    const place = document.createElement('main');
+    const opening = render(new ArrayBuffer(4), place, told, LABELS);
+    await vi.waitFor(() => {
+      expect(worker.sent).toHaveLength(1);
+    });
+    worker.answer({ kind: 'opened', pages: SIZES });
+    await vi.waitFor(() => {
+      expect(worker.sent).toHaveLength(2);
+    });
+    worker.answer({ kind: 'failed', reason: 'too-large' });
+    await expect(opening).resolves.toBeDefined();
+    expect(told.shown).toHaveBeenCalledWith(2);
+    expect(place.querySelector('[data-page="1"] .page-notice')).not.toBeNull();
+    expect(worker.terminated).toBe(false);
+    vi.unstubAllGlobals();
   });
 });

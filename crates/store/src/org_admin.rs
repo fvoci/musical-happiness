@@ -106,7 +106,9 @@ impl Store {
         .await
     }
 
-    /// One page of the members of the handle's organization, the oldest member first.
+    /// One page of the members of the handle's organization, the oldest member first:
+    /// those whose account is in use, and those whose account waits to be deleted, who
+    /// are members until it is erased.
     ///
     /// # Errors
     ///
@@ -116,7 +118,8 @@ impl Store {
             let mut sql = scope.sql(
                 "SELECT om.user_id, u.username, u.display_name, om.role \
                  FROM organization_members AS om JOIN users AS u ON u.id = om.user_id \
-                 WHERE u.delete_at = 0 AND om.org_id = ",
+                 WHERE (u.delete_at = 0 OR (u.delete_after > 0 AND u.erase_started_at = 0)) \
+                 AND om.org_id = ",
             );
             sql.bind(scope.org()?)
                 .push(" ORDER BY om.create_at, om.user_id");
@@ -391,31 +394,7 @@ impl Store {
             if scope.fetch_optional(sql).await?.is_none() {
                 return Ok(Purged::default());
             }
-            let mut sql = scope.sql("SELECT id FROM containers WHERE workspace_id = ");
-            sql.bind(Id(workspace_id)).push(" ORDER BY id");
-            let containers: Vec<String> = scope
-                .fetch_all(sql)
-                .await?
-                .iter()
-                .map(|row| row.id(0))
-                .collect::<Result<_, _>>()?;
-            for container_id in &containers {
-                trash::delete_container(scope, container_id, "").await?;
-            }
-            let mut purged =
-                trash::remove_containers(scope, Trashed::OfWorkspace(workspace_id)).await?;
-            purged.records += trash::remove_what_they_left(scope).await?;
-            for table in ["categories", "workspace_members"] {
-                let mut sql = scope.sql(&format!("DELETE FROM {table} WHERE workspace_id = "));
-                sql.bind(Id(workspace_id));
-                scope.execute(sql).await?;
-            }
-            // Its audit log goes with it: the schema lets a record go once its workspace
-            // is not there.
-            let mut sql = scope.sql("DELETE FROM workspaces WHERE id = ");
-            sql.bind(Id(workspace_id));
-            scope.execute(sql).await?;
-            Ok(purged)
+            remove_workspace(scope, workspace_id).await
         })
         .await
     }
@@ -564,6 +543,41 @@ pub(crate) async fn change_org_role(
         revoke_joinings(scope, user_id, actor).await?;
     }
     Ok(())
+}
+
+/// Removes a workspace of the scope's organization for good, and everything in it, as
+/// [`Store::purge_workspace`] says: each of its boards goes into the trash and from
+/// there for good with those that were in it, their files doomed, and its categories,
+/// its members and its audit log go with it. The caller holds the organization's row
+/// and the workspace's.
+pub(crate) async fn remove_workspace(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+) -> Result<Purged, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM containers WHERE workspace_id = ");
+    sql.bind(Id(workspace_id)).push(" ORDER BY id");
+    let containers: Vec<String> = scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.id(0))
+        .collect::<Result<_, _>>()?;
+    for container_id in &containers {
+        trash::delete_container(scope, container_id, "").await?;
+    }
+    let mut purged = trash::remove_containers(scope, Trashed::OfWorkspace(workspace_id)).await?;
+    purged.records += trash::remove_what_they_left(scope).await?;
+    for table in ["categories", "workspace_members"] {
+        let mut sql = scope.sql(&format!("DELETE FROM {table} WHERE workspace_id = "));
+        sql.bind(Id(workspace_id));
+        scope.execute(sql).await?;
+    }
+    // Its audit log goes with it: the schema lets a record go once its workspace
+    // is not there.
+    let mut sql = scope.sql("DELETE FROM workspaces WHERE id = ");
+    sql.bind(Id(workspace_id));
+    scope.execute(sql).await?;
+    Ok(purged)
 }
 
 /// Holds the handle's organization's row ([`hold_organization_row`]) and reads it:
@@ -786,10 +800,7 @@ pub(crate) fn name_taken(error: StoreError) -> StoreError {
 fn push_page(sql: &mut crate::db::Sql, paging: Paging) {
     if paging.per_page > 0 {
         sql.push_bind(" LIMIT ", i64::from(paging.per_page))
-            .push_bind(
-                " OFFSET ",
-                i64::from(paging.page) * i64::from(paging.per_page),
-            );
+            .push_bind(" OFFSET ", paging.offset());
     }
 }
 

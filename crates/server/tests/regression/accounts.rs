@@ -38,10 +38,16 @@ pub(crate) async fn system(s: &mut Session) {
         ["sqlite", "postgres"].contains(&db_type),
         "ping names the database kind, got {db_type:?}"
     );
-    // The database kind is the one thing that differs between the two test runs.
+    // The database kind differs between the two test runs, and the version between
+    // releases: the snapshot keeps neither.
+    assert_eq!(
+        ping["version"],
+        json!(env!("CARGO_PKG_VERSION")),
+        "ping gives the server's version"
+    );
     s.note(
         "ping version and sku",
-        &json!([ping["version"], ping["sku"], "<db>"]),
+        &json!(["<version>", ping["sku"], "<db>"]),
     );
     s.get("client config", &format!("{API}/client-config"))
         .await;

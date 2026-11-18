@@ -123,6 +123,21 @@ export function koreanHwp(): Buffer {
   return Buffer.from(koreanDocument().exportHwp());
 }
 
+/**
+ * The Korean HWPX with 30,000 characters in place of the body: rhwp draws
+ * each apart, and its first page comes to about 24,000 elements (past the
+ * frame's ceiling of 20,000); the second is as it was.
+ */
+export function denseHwpx(): Buffer {
+  const words = '가나다라 마바사아 자차카타 파하 ';
+  const body = words.repeat(Math.ceil(30_000 / words.length)).slice(0, 30_000);
+  return rewriteArchive(koreanHwpx(), (member) =>
+    member.name === 'Contents/section0.xml'
+      ? { ...member, data: Buffer.from(member.data.toString('utf8').replace(HWP_TEXT.body, body)) }
+      : member,
+  );
+}
+
 export function lockedHwp(): Buffer {
   return Buffer.from(koreanDocument().exportHwpWithPassword(HWP_PASSWORD));
 }

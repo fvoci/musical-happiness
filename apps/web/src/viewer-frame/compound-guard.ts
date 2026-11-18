@@ -11,11 +11,11 @@
  * text, its pictures). rhwp (0.8.7) unpacks them itself: the text (DocInfo,
  * BodyText, ViewText) within a budget of its own (256 MiB a stream, 512 MiB
  * in all), but the pictures (BinData) with none, and a file it reads leniently
- * (one its compound file reader refuses) the same. So every stream is
- * unpacked here first, as rhwp unpacks it (raw deflate, then zlib, and as it
- * came when neither reads it), counting the bytes and keeping none. What
- * comes out before a stream fails to unpack counts as well: rhwp may have
- * taken it, and the memory it took stays.
+ * (one its compound file reader refuses) the same. So what every stream
+ * unpacks to is counted here first, as rhwp unpacks it (raw deflate, then
+ * zlib, and as it came when neither reads it), by reading its codes without
+ * unpacking it (deflated-size.ts). What comes out before a stream fails to
+ * unpack counts as well: rhwp may have taken it, and the memory it took stays.
  */
 import {
   childrenOf,
@@ -30,64 +30,27 @@ import {
 import { HWP_SIGNATURE, UNPACKED_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
 
 import { writeCompound, type CompoundPart } from './compound-writer.ts';
+import { largerDeflatedSize } from './deflated-size.ts';
 import { LockedFile, TooLargeFile, UnreadableFile } from './renderer.ts';
 
 /** The signature (32 bytes), the version (4) and the properties (4) of `FileHeader`. */
 const HEAD_SIZE = 40;
 /** The property that says the document is locked with a password. */
 const PASSWORD = 1 << 1;
-/** How rhwp unpacks a stream, in the order it tries. */
-const DEFLATES = ['deflate-raw', 'deflate'] as const;
-/**
- * How much of a stream is handed to the unpacker at a time: it unpacks what
- * it is given ahead of what is read, and a slice of deflated bytes unpacks
- * to about a thousand times its size at most.
- */
-const SLICE = 16 * 1024;
+/** Where the deflated bytes start as rhwp tries them: raw, then after a zlib header. */
+const RAW_START = 0;
+const ZLIB_START = 2;
 
 const ascii = new TextDecoder('ascii');
 
-/** How much a stream unpacks to as `format`, counted as far as `room`; and whether it all did. */
-async function inflated(
-  data: Uint8Array<ArrayBuffer>,
-  format: (typeof DEFLATES)[number],
-  room: number,
-): Promise<{ size: number; whole: boolean }> {
-  let at = 0;
-  const slices = new ReadableStream<Uint8Array<ArrayBuffer>>({
-    pull(controller) {
-      if (at >= data.length) {
-        controller.close();
-        return;
-      }
-      controller.enqueue(data.slice(at, (at += SLICE)));
-    },
-  });
-  const reader = slices.pipeThrough(new DecompressionStream(format)).getReader();
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) return { size, whole: true };
-      size += value.byteLength;
-      if (size > room) break;
-    }
-  } catch {
-    return { size, whole: false };
-  }
-  await reader.cancel().catch(() => undefined);
-  return { size, whole: false };
-}
-
-/** The most a stream may unpack to as rhwp unpacks it, counted as far as `room`. */
-async function unpackedSize(data: Uint8Array<ArrayBuffer>, room: number): Promise<number> {
-  let most = data.byteLength;
-  for (const format of DEFLATES) {
-    const { size, whole } = await inflated(data, format, room);
-    most = Math.max(most, size);
-    if (whole || most > room) break;
-  }
-  return most;
+/**
+ * The most a stream may unpack to as rhwp unpacks it, counted as far as
+ * `room`. Each way is counted, whichever rhwp keeps: the count of one is a
+ * bound on what rhwp unpacks that way, not a sign that rhwp took it.
+ */
+function unpackedSize(data: Uint8Array, room: number): number {
+  if (data.byteLength > room) return data.byteLength;
+  return Math.max(data.byteLength, largerDeflatedSize(data, RAW_START, ZLIB_START, room));
 }
 
 /**
@@ -120,7 +83,7 @@ function streamsOf(file: CompoundFile): { names: string[]; entry: CompoundEntry 
  * The streams, read and counted as they unpack; throws `TooLargeFile` when
  * they unpack to more than `limit` together.
  */
-async function counted(file: CompoundFile, limit: number): Promise<CompoundPart[]> {
+function counted(file: CompoundFile, limit: number): CompoundPart[] {
   const streams = streamsOf(file);
   if (!streams) throw new UnreadableFile();
   const parts: CompoundPart[] = [];
@@ -128,7 +91,7 @@ async function counted(file: CompoundFile, limit: number): Promise<CompoundPart[
   for (const { names, entry } of streams) {
     const data = readStream(file, entry, entry.size);
     if (!data) throw new UnreadableFile();
-    total += await unpackedSize(data, limit - total);
+    total += unpackedSize(data, limit - total);
     if (total > limit) throw new TooLargeFile();
     parts.push({ names, data });
   }
@@ -136,14 +99,11 @@ async function counted(file: CompoundFile, limit: number): Promise<CompoundPart[
 }
 
 /**
- * The file written anew of its streams, once checked; rejects with
+ * The file written anew of its streams, once checked; throws
  * `UnreadableFile`, `LockedFile` or `TooLargeFile` otherwise. `limit` is what
  * the streams may unpack to.
  */
-export async function checkCompound(
-  buffer: ArrayBuffer,
-  limit = UNPACKED_LIMIT_BYTES,
-): Promise<ArrayBuffer> {
+export function checkCompound(buffer: ArrayBuffer, limit = UNPACKED_LIMIT_BYTES): ArrayBuffer {
   const file = compoundFile(new Uint8Array(buffer));
   if (!file || !verifyChains(file)) throw new UnreadableFile();
   const header = rootStream(file, 'FileHeader');
@@ -154,7 +114,7 @@ export async function checkCompound(
   }
   const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
   if (view.getUint32(36, true) & PASSWORD) throw new LockedFile();
-  const parts = await counted(file, limit);
+  const parts = counted(file, limit);
   try {
     return writeCompound(parts).buffer;
   } catch {

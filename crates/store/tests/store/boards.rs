@@ -1302,7 +1302,7 @@ async fn delete_and_undelete_container_take_the_blocks_along() {
         Block {
             id: card_id.clone(),
             container_id: board_id.clone(),
-            parent_id: board_id.clone(),
+            parent_id: String::new(),
             ..Block::default()
         },
         Block {
@@ -1552,7 +1552,7 @@ async fn remove_default_templates_removes_system_templates_and_their_blocks_past
     let new_block_of = |board: &Container| Block {
         id: new_id(),
         container_id: board.id.clone(),
-        parent_id: board.id.clone(),
+        parent_id: String::new(),
         ..Block::default()
     };
     let mut blocks = vec![

@@ -96,9 +96,10 @@ impl App {
     /// A missing account or unavailable lookup leaves the identifier absent; the command
     /// still performs its own checks and returns their outcome.
     pub(crate) async fn operator_user_id(&self, username: &str) -> Option<String> {
-        match self.store().get_user_by_username(username).await {
-            Ok(user) => Some(user.id),
-            Err(error) if error.is_not_found() => None,
+        // Whatever the account's state: a command may be about one that waits to be
+        // deleted, which has its name still.
+        match self.store().account_id_by_username(username).await {
+            Ok(user_id) => user_id,
             Err(error) => {
                 tracing::warn!(%error, "the target of an operator's command could not be read");
                 None

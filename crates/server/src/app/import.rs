@@ -6,12 +6,9 @@
 //! their tree before anything is stored (`places`). An archive of another version is
 //! refused (`docs/s6-design.md` 3.10).
 
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::io::{self, Read, Seek, SeekFrom, Write as _};
 use std::mem;
 use std::path::Path;
-use std::sync::Arc;
 
 use bytes::Bytes;
 use fvoci_model::{
@@ -31,6 +28,10 @@ use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
 use crate::metrics::ContainerWork;
 use crate::permissions;
+use archive::{
+    Archive, check_entry, entry_limit, entry_name, open_archive, read_entry, remove_unpacked,
+    too_many_entries, unpack_entry,
+};
 use fvoci_store::StoreError;
 
 /// The most an archive's entries may decompress to together (`docs/s6-design.md` 4.2):
@@ -39,12 +40,6 @@ const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// The most entries an archive has (`docs/s6-design.md` 4.2).
 const MAX_ENTRIES: u64 = 10_000;
-
-/// The signature each entry of a ZIP's central directory begins with (APPNOTE 4.3.12).
-const CENTRAL_HEADER: &[u8; 4] = b"PK\x01\x02";
-
-/// How much of an archive is read at a time to count its central headers.
-const SCAN_CHUNK_BYTES: usize = 1024 * 1024;
 
 /// The largest `board.jsonl` that is read (`docs/s6-design.md` 4.2).
 const MAX_JSONL_BYTES: u64 = 64 * 1024 * 1024;
@@ -170,15 +165,40 @@ impl App {
         let StoredContainers {
             by_dir: stored,
             copies,
-            file_names,
+            files,
         } = self
             .store_archive_containers(&zip, containers, options, &elsewhere, &mut left_out)
             .await?;
 
         // Second pass: the files, placed under their board.
+        let entries = (&zip, largest_file, unpacked_file.as_path());
+        let file_map = self.store_archive_files(entries, &stored, &files).await?;
+
+        self.point_at_stored_files(&stored, &file_map, &copies, &options.modified_by)
+            .await;
+        tracing::debug!(containers_imported = stored.len(), "import archive - done");
+        Ok(Imported {
+            members_left_out: left_out.len(),
+        })
+    }
+
+    /// Stores the file entries of the archive (`entries`: the archive, the limit of a
+    /// file's size and where an entry is unpacked to), each under the board of its
+    /// directory among `stored`, but those its board line says are missing, and returns
+    /// the stored name of each new file by its board and the name of its entry.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::save_archive_entry`], with the entry named.
+    async fn store_archive_files(
+        &self,
+        (zip, largest_file, unpacked): (&Archive, u64, &Path),
+        stored: &HashMap<String, Container>,
+        files: &HashMap<String, ArchiveFiles>,
+    ) -> Result<HashMap<(String, String), String>, AppError> {
         let mut file_map: HashMap<(String, String), String> = HashMap::new();
         for index in 0..zip.len() {
-            let (dir, filename) = entry_name(&zip, index)?;
+            let (dir, filename) = entry_name(zip, index)?;
             // An entry without a file name is a directory of a re-packed archive.
             if filename.is_empty() || filename == "version.json" || filename == "board.jsonl" {
                 continue;
@@ -187,8 +207,17 @@ impl App {
                 tracing::warn!(dir, filename, "skipping orphan image in archive");
                 continue;
             };
-            let name = name_in(&file_names, &dir, &filename);
-            let entry = (&zip, index, largest_file, unpacked_file.as_path());
+            let said = files.get(&dir);
+            if said.is_some_and(|said| said.missing.contains(&filename)) {
+                tracing::warn!(
+                    dir,
+                    filename,
+                    "skipping an entry of the archive that its board says is missing"
+                );
+                continue;
+            }
+            let name = name_in(files, &dir, &filename);
+            let entry = (zip, index, largest_file, unpacked);
             let saved = self.save_archive_entry(entry, &container.id, name).await;
             let new_name = saved.map_err(|error| {
                 error.context(format_args!(
@@ -197,13 +226,7 @@ impl App {
             })?;
             file_map.insert((container.id.clone(), filename), new_name);
         }
-
-        self.point_at_stored_files(&stored, &file_map, &copies, &options.modified_by)
-            .await;
-        tracing::debug!(containers_imported = stored.len(), "import archive - done");
-        Ok(Imported {
-            members_left_out: left_out.len(),
-        })
+        Ok(file_map)
     }
 
     /// Unpacks the entry of the archive at its index (`entry`: the archive, the index,
@@ -250,8 +273,8 @@ impl App {
             let jsonl = read_entry(zip, index, MAX_JSONL_BYTES).await?;
             let mut container = parse_board_jsonl(jsonl, options, elsewhere).await?;
             stored
-                .file_names
-                .insert(dir.clone(), mem::take(&mut container.file_names));
+                .files
+                .insert(dir.clone(), mem::take(&mut container.files));
             // Two blocks of an archive that share an identifier are no archive of this
             // server's: the first is the one named.
             for (old, new) in mem::take(&mut container.renamed) {
@@ -284,7 +307,7 @@ impl App {
             containers_and_blocks,
             members,
             renamed: _,
-            file_names: _,
+            files: _,
         } = container;
         // Keep only members who are in the workspace: a board takes no others. A guest of
         // the workspace keeps a role no higher than editor. A membership without a role
@@ -366,12 +389,22 @@ struct ParsedContainer {
     members: Vec<ContainerMember>,
     /// The new identifier of each of its blocks that was asked for, by its old one.
     renamed: HashMap<String, String>,
-    /// The names its board lines give its files ([`file_names_of`]).
-    file_names: FileNames,
+    /// What its board lines say of its files.
+    files: ArchiveFiles,
 }
 
 /// The name of each file of a directory of an archive, by the name of its entry.
 type FileNames = HashMap<String, String>;
+
+/// What the board lines of a directory of an archive say of its files.
+#[derive(Debug, Default)]
+struct ArchiveFiles {
+    /// The name of each file, by the name of its entry ([`file_names_of`]).
+    names: FileNames,
+    /// The entries the export did not find (`missingFiles`, [`missing_files_of`]): none
+    /// is stored, and what shows them shows no file.
+    missing: HashSet<String>,
+}
 
 impl ParsedContainer {
     /// What its bodies name that is no block of its own: what was a block of its own
@@ -419,20 +452,16 @@ struct StoredContainers {
     /// The new identifier of each block that a body of another board names, by its old
     /// one.
     copies: HashMap<String, String>,
-    /// The names the board lines give the files, by the directory of the archive.
-    file_names: HashMap<String, FileNames>,
+    /// What the board lines say of the files, by the directory of the archive.
+    files: HashMap<String, ArchiveFiles>,
 }
 
 /// The name a file of the archive is stored with: the one the board line of its
 /// directory gives it ([`file_names_of`]), or failing that the name of its entry.
-fn name_in<'a>(
-    file_names: &'a HashMap<String, FileNames>,
-    dir: &str,
-    filename: &'a str,
-) -> &'a str {
-    file_names
+fn name_in<'a>(files: &'a HashMap<String, ArchiveFiles>, dir: &str, filename: &'a str) -> &'a str {
+    files
         .get(dir)
-        .and_then(|names| names.get(filename))
+        .and_then(|said| said.names.get(filename))
         .map_or(filename, String::as_str)
 }
 
@@ -462,7 +491,7 @@ async fn parse_board_jsonl(
     // worker of the runtime.
     let (workspace_id, modified_by) = (options.workspace_id.clone(), options.modified_by.clone());
     let limits = options.page_limits;
-    let (mut containers_and_blocks, members, file_names) = tokio::task::spawn_blocking(move || {
+    let (mut containers_and_blocks, members, files) = tokio::task::spawn_blocking(move || {
         let parsed = parse_archive_lines(&jsonl, &workspace_id, &modified_by)?;
         // As the store would refuse them, before the first board is stored: an archive
         // exported before a card's content became its body may hold content blocks,
@@ -515,13 +544,13 @@ async fn parse_board_jsonl(
         containers_and_blocks,
         members,
         renamed,
-        file_names,
+        files,
     })
 }
 
 /// Removes the blocks that nothing in the archive leads to, and returns how many went:
-/// those whose parent is neither a block nor a board of the archive, the blocks below
-/// them, and blocks that are each other's parents without any of them being on a board.
+/// those whose parent is no block of the archive, the blocks below them, and blocks that
+/// are each other's parents without any of them being on a board.
 ///
 /// Such a block belongs to nothing that is imported: no card lists it, and its parent
 /// would be a reference to something outside the import.
@@ -529,15 +558,11 @@ async fn parse_board_jsonl(
 /// One walk down from the blocks that are directly on a board; the time it takes grows
 /// with the number of blocks and not with how deep they are nested.
 fn drop_orphans(containers_and_blocks: &mut ContainersAndBlocks) -> usize {
-    let ContainersAndBlocks { containers, blocks } = containers_and_blocks;
-    let container_ids: HashSet<&str> = containers
-        .iter()
-        .map(|container| container.id.as_str())
-        .collect();
+    let blocks = &mut containers_and_blocks.blocks;
     let mut below: HashMap<&str, Vec<usize>> = HashMap::new();
     let mut reached: Vec<usize> = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
-        if block.parent_id.is_empty() || container_ids.contains(block.parent_id.as_str()) {
+        if block.parent_id.is_empty() {
             reached.push(index);
         } else {
             below
@@ -582,7 +607,20 @@ fn file_names_of(board: &Value) -> FileNames {
         .collect()
 }
 
-/// Parses a board's `board.jsonl` into its boards, blocks, members and the names of its
+/// The stored names a board line says the export did not find (`missingFiles`): the
+/// strings of the list, anything else in it left out.
+fn missing_files_of(board: &Value) -> HashSet<String> {
+    board
+        .get("missingFiles")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Parses a board's `board.jsonl` into its boards, blocks, members and what it says of its
 /// files, with fresh modification metadata but the identifiers from the archive.
 ///
 /// # Errors
@@ -592,12 +630,12 @@ fn parse_archive_lines(
     jsonl: &[u8],
     workspace_id: &str,
     modified_by: &str,
-) -> Result<(ContainersAndBlocks, Vec<ContainerMember>, FileNames), AppError> {
+) -> Result<(ContainersAndBlocks, Vec<ContainerMember>, ArchiveFiles), AppError> {
     let modifier_user = modified_by;
     let now = now_millis();
     let mut containers_and_blocks = ContainersAndBlocks::default();
     let mut container_members: Vec<ContainerMember> = Vec::new();
-    let mut file_names = FileNames::new();
+    let mut files = ArchiveFiles::default();
     let mut container_id = String::new();
 
     for (number, raw) in jsonl.split(|&byte| byte == b'\n').enumerate() {
@@ -613,7 +651,8 @@ fn parse_archive_lines(
         })?;
         match archive_line.line_type.as_str() {
             "board" => {
-                file_names.extend(file_names_of(&archive_line.data));
+                files.names.extend(file_names_of(&archive_line.data));
+                files.missing.extend(missing_files_of(&archive_line.data));
                 let mut container: Container = serde_json::from_value(with_workspace_named(
                     archive_line.data,
                 ))
@@ -658,260 +697,12 @@ fn parse_archive_lines(
             }
         }
     }
-    Ok((containers_and_blocks, container_members, file_names))
+    Ok((containers_and_blocks, container_members, files))
 }
 
 /// A filter for all of a board's blocks.
 fn container_blocks(container_id: &str) -> fvoci_store::BlockFilter {
     fvoci_store::BlockFilter::container(container_id)
-}
-
-/// The archive as it is read while it is imported. Cloning it copies no content.
-type Archive = zip::ZipArchive<SharedFile>;
-
-/// A file read at positions of its own: each clone has its own position over the one
-/// open file, so that the archive can be cloned into each task that reads an entry.
-#[derive(Debug, Clone)]
-struct SharedFile {
-    file: Arc<std::fs::File>,
-    len: u64,
-    position: u64,
-}
-
-impl Read for SharedFile {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        #[cfg(unix)]
-        let read = std::os::unix::fs::FileExt::read_at(&*self.file, buf, self.position)?;
-        #[cfg(windows)]
-        let read = std::os::windows::fs::FileExt::seek_read(&*self.file, buf, self.position)?;
-        #[cfg(not(any(unix, windows)))]
-        compile_error!("an archive is read at positions, which unix and windows have");
-        self.position = self
-            .position
-            .saturating_add(u64::try_from(read).unwrap_or(u64::MAX));
-        Ok(read)
-    }
-}
-
-impl Seek for SharedFile {
-    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
-        let position = match to {
-            SeekFrom::Start(offset) => Some(offset),
-            SeekFrom::End(offset) => self.len.checked_add_signed(offset),
-            SeekFrom::Current(offset) => self.position.checked_add_signed(offset),
-        };
-        self.position = position.ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "a seek before the start")
-        })?;
-        Ok(self.position)
-    }
-}
-
-/// Opens the archive in the file at `path` and reads its directory, off the runtime's
-/// workers.
-async fn open_archive(path: &Path) -> Result<Archive, AppError> {
-    let path = path.to_owned();
-    tokio::task::spawn_blocking(move || {
-        let file = std::fs::File::open(&path).map_err(|error| {
-            AppError::internal(format_args!("cannot open the archive: {error}"))
-        })?;
-        let len = file
-            .metadata()
-            .map_err(|error| AppError::internal(format_args!("cannot read the archive: {error}")))?
-            .len();
-        let mut file = SharedFile {
-            file: Arc::new(file),
-            len,
-            position: 0,
-        };
-        // Counted before the directory is read, as reading it holds every entry in memory.
-        // Every entry the reader keeps begins with the central header's signature, so it
-        // keeps at most as many entries as signatures, whatever the end records say. The
-        // capacity it reserves first follows the declared count, which the crate bounds
-        // only by the file's length (about a 47th of it, as entries): that reservation is
-        // not bounded here (`docs/contract-pending.md` 5).
-        let headers = count_central_headers(&mut file, MAX_ENTRIES).map_err(|error| {
-            AppError::internal(format_args!("cannot read the archive: {error}"))
-        })?;
-        if headers > MAX_ENTRIES {
-            return Err(too_many_entries());
-        }
-        file.position = 0;
-        zip::ZipArchive::new(file).map_err(|error| AppError::bad_request(format_args!("{error}")))
-    })
-    .await
-    .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))?
-}
-
-/// The refusal of an archive of more than [`MAX_ENTRIES`] entries.
-fn too_many_entries() -> AppError {
-    AppError::too_large(
-        format_args!("the archive has more than {MAX_ENTRIES} entries"),
-        MAX_ENTRIES,
-    )
-}
-
-/// Counts the central headers' signatures in what `reader` gives, up to the first count
-/// over `limit`, where it stops reading.
-fn count_central_headers(reader: &mut impl Read, limit: u64) -> io::Result<u64> {
-    let mut chunk = vec![0; SCAN_CHUNK_BYTES];
-    // The last bytes of the chunk before: a signature may span two chunks.
-    let mut carried = 0;
-    let mut count: u64 = 0;
-    loop {
-        let read = match reader.read(chunk.get_mut(carried..).unwrap_or_default()) {
-            Ok(0) => return Ok(count),
-            Ok(read) => read,
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error),
-        };
-        let filled = chunk.get(..carried + read).unwrap_or_default();
-        let found = filled
-            .windows(CENTRAL_HEADER.len())
-            .filter(|window| window == CENTRAL_HEADER)
-            .count();
-        count = count.saturating_add(u64::try_from(found).unwrap_or(u64::MAX));
-        if count > limit {
-            return Ok(count);
-        }
-        // Three bytes are kept: four would count a signature at the end twice.
-        let keep = filled.len().min(CENTRAL_HEADER.len() - 1);
-        let start = filled.len() - keep;
-        chunk.copy_within(start..start + keep, 0);
-        carried = keep;
-    }
-}
-
-/// The most an entry may unpack to: a `board.jsonl`, the archive's `version.json` (the
-/// one at its root), or a file, which is held to the limit of an upload.
-fn entry_limit(dir: &str, filename: &str, largest_file: u64) -> u64 {
-    match filename {
-        "board.jsonl" => MAX_JSONL_BYTES,
-        "version.json" if dir == "." => MAX_VERSION_BYTES,
-        _ => largest_file,
-    }
-}
-
-/// Returns the cleaned directory and the base file name of an archive entry, without
-/// reading its content.
-fn entry_name(zip: &Archive, index: usize) -> Result<(String, String), AppError> {
-    let name = zip
-        .name_for_index(index)
-        .ok_or_else(|| AppError::bad_request("invalid archive entry"))?
-        .map_err(|error| {
-            AppError::bad_request(format_args!("invalid archive entry name: {error}"))
-        })?;
-    Ok(split_entry_name(&name))
-}
-
-/// Reads the content of an archive entry, at most `limit` bytes of it. Decompression is
-/// done off the runtime's workers, which it would hold up.
-async fn read_entry(zip: &Archive, index: usize, limit: u64) -> Result<Bytes, AppError> {
-    let mut zip = zip.clone();
-    tokio::task::spawn_blocking(move || {
-        let mut bytes = Vec::new();
-        decompress(&mut zip, index, limit, &mut bytes)?;
-        Ok(Bytes::from(bytes))
-    })
-    .await
-    .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))?
-}
-
-/// Unpacks an archive entry, at most `limit` bytes of it, into the file `to`, off the
-/// runtime's workers.
-async fn unpack_entry(zip: &Archive, index: usize, limit: u64, to: &Path) -> Result<(), AppError> {
-    let mut zip = zip.clone();
-    let to = to.to_owned();
-    tokio::task::spawn_blocking(move || {
-        let file = std::fs::File::create(&to).map_err(|error| {
-            AppError::internal(format_args!("cannot unpack an archive entry: {error}"))
-        })?;
-        let mut out = io::BufWriter::new(file);
-        decompress(&mut zip, index, limit, &mut out)?;
-        out.flush().map_err(|error| {
-            AppError::internal(format_args!("cannot unpack an archive entry: {error}"))
-        })
-    })
-    .await
-    .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))?
-}
-
-/// Removes an unpacked entry once it is stored, or failed to be.
-async fn remove_unpacked(path: &Path) {
-    match fs::remove_file(path).await {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => tracing::error!(%error, "an unpacked archive entry could not be removed"),
-    }
-}
-
-/// Reads an archive entry through without keeping it, as [`read_entry`] would read it:
-/// its checksum and its bound are checked. Returns how much it unpacks to.
-async fn check_entry(zip: &Archive, index: usize, limit: u64) -> Result<u64, AppError> {
-    let mut zip = zip.clone();
-    tokio::task::spawn_blocking(move || decompress(&mut zip, index, limit, &mut io::sink()))
-        .await
-        .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))?
-}
-
-/// Decompresses an archive entry into `out`, at most `limit` bytes of it, and returns
-/// how many. The reader checks the entry's checksum when it reaches the end.
-fn decompress(
-    zip: &mut Archive,
-    index: usize,
-    limit: u64,
-    out: &mut impl io::Write,
-) -> Result<u64, AppError> {
-    let mut entry = zip
-        .by_index(index)
-        .map_err(|error| AppError::bad_request(format_args!("{error}")))?;
-    let name = entry.name().map(Cow::into_owned).unwrap_or_default();
-    let read =
-        io::copy(&mut entry.by_ref().take(limit.saturating_add(1)), out).map_err(|error| {
-            AppError::bad_request(format_args!("cannot read archive entry: {error}"))
-        })?;
-    if read > limit {
-        return Err(AppError::too_large(
-            format_args!("the archive entry {name} unpacks to more than {limit} bytes"),
-            limit,
-        ));
-    }
-    Ok(read)
-}
-
-/// Splits an archive entry name into its cleaned directory and its base file name, as
-/// the original does with `filepath.Split` and `path.Clean`. The directory is only ever
-/// a map key, and the file name never has a path separator, so a `..` in the name cannot
-/// escape the storage root.
-fn split_entry_name(name: &str) -> (String, String) {
-    match name.rsplit_once('/') {
-        Some((dir, filename)) => (clean_dir(dir), filename.to_owned()),
-        None => (".".to_owned(), name.to_owned()),
-    }
-}
-
-/// Normalises a directory path the way Go's `path.Clean` does for the names this import
-/// meets: it resolves `.` and `..` segments. The result is used only as a map key.
-fn clean_dir(dir: &str) -> String {
-    let mut parts: Vec<&str> = Vec::new();
-    for segment in dir.split('/') {
-        match segment {
-            "" | "." => {}
-            ".." => {
-                if matches!(parts.last(), Some(&last) if last != "..") {
-                    parts.pop();
-                } else {
-                    parts.push("..");
-                }
-            }
-            other => parts.push(other),
-        }
-    }
-    if parts.is_empty() {
-        ".".to_owned()
-    } else {
-        parts.join("/")
-    }
 }
 
 /// Validates an archive's `version.json`.
@@ -974,6 +765,7 @@ fn with_workspace_named(mut data: Value) -> Value {
     data
 }
 
+mod archive;
 mod places;
 mod pointing;
 #[cfg(test)]

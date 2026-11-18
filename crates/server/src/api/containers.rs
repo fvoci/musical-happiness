@@ -3,7 +3,8 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Container, ContainerPatch, ContainerType, ContainersAndBlocks, JsonMap, MinimumRole,
+    Container, ContainerKind, ContainerPatch, ContainerType, ContainersAndBlocks, JsonMap,
+    MinimumRole,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -39,83 +40,91 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 
 // -- what the handlers of this area share ----------------------------------------------
 
-/// A member of a board or board patch whose value is outside its closed set.
-///
-/// The model decodes the board type and the minimum role into enums, so a value outside
-/// them fails the decoding. The original decodes any string and rejects it later, after
-/// other checks and with messages of its own. To answer as the original does, the
-/// handlers take such members out of the JSON before decoding it and report them where
-/// the original validates.
+/// What a JSON object of a request is, for [`check_closed_members`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum InvalidContainerMember {
-    /// `type` is neither `O` nor `P`.
-    Type,
-    /// `minimumRole` is not a board role.
-    MinimumRole,
+pub(super) enum BoardObject {
+    /// A new board: it has a `type`.
+    Board,
+    /// A patch of a board: each member may be left out or `null`.
+    Patch,
 }
 
-impl InvalidContainerMember {
-    /// The bad request the original answers with.
-    pub(super) fn into_error(self) -> AppError {
-        AppError::bad_request(match self {
-            Self::Type => "invalid-board-type",
-            Self::MinimumRole => "invalid-board-minimum-role",
-        })
+/// Refuses a board or a board patch whose `type` or `minimumRole` is outside its closed
+/// set, a board whose `kind` is, and a board without a `type`, naming the member below `at` (the JSON
+/// Pointer of the object in the body, empty for the body itself). The refusal does not
+/// repeat the value: decoding would refuse it too, in words that do.
+///
+/// # Errors
+///
+/// Returns a bad request naming the first of `type`, `minimumRole` and `kind` that is
+/// refused.
+pub(super) fn check_closed_members(
+    object: &JsonMap,
+    at: &str,
+    kind: BoardObject,
+) -> Result<(), AppError> {
+    /// Whether `value` is there, not `null`, and no `T`.
+    fn is_outside<T: DeserializeOwned>(value: Option<&Value>) -> bool {
+        value.is_some_and(|value| !value.is_null() && T::deserialize(value).is_err())
     }
-}
 
-/// Removes the `type` and `minimumRole` members of a JSON board patch that are strings
-/// outside their closed sets. Returns the first one in the original's order of checking:
-/// the type, then the minimum role.
-pub(super) fn take_invalid_patch_members(patch: &mut JsonMap) -> Option<InvalidContainerMember> {
-    fn is_string_outside<T: DeserializeOwned>(value: Option<&Value>) -> bool {
-        matches!(value, Some(Value::String(_)))
-            && value.is_some_and(|value| T::deserialize(value).is_err())
-    }
-
-    let mut invalid = None;
-    // In reverse order, so that the first in the original's order wins.
-    if is_string_outside::<MinimumRole>(patch.get("minimumRole")) {
-        patch.remove("minimumRole");
-        invalid = Some(InvalidContainerMember::MinimumRole);
-    }
-    if is_string_outside::<ContainerType>(patch.get("type")) {
-        patch.remove("type");
-        invalid = Some(InvalidContainerMember::Type);
-    }
-    invalid
-}
-
-/// Does for a JSON board what [`take_invalid_patch_members`] does for a patch. A board
-/// must have a type, so a board without one is reported too, and gets the private type
-/// to stand in: the original treats every board that is not open as private until it
-/// validates the type.
-pub(super) fn take_invalid_container_members(
-    container: &mut JsonMap,
-) -> Option<InvalidContainerMember> {
-    let mut invalid = take_invalid_patch_members(container);
-    if matches!(container.get("type"), None | Some(Value::Null)) {
-        container.insert(
-            "type".to_owned(),
-            Value::from(ContainerType::Private.as_str()),
+    let type_value = object.get("type");
+    let no_type = kind == BoardObject::Board && type_value.is_none_or(Value::is_null);
+    if no_type || is_outside::<ContainerType>(type_value) {
+        return Err(
+            AppError::bad_request("the type of a board is `O` (open) or `P` (private)")
+                .with_pointer(format!("{at}/type")),
         );
-        invalid = Some(InvalidContainerMember::Type);
     }
-    invalid
+    if is_outside::<MinimumRole>(object.get("minimumRole")) {
+        return Err(AppError::bad_request(
+            "the minimum role of a board is `viewer`, `commenter` or `editor`",
+        )
+        .with_pointer(format!("{at}/minimumRole")));
+    }
+    if kind == BoardObject::Board && is_outside::<ContainerKind>(object.get("kind")) {
+        return Err(
+            AppError::bad_request("the kind of a board is `board` or `wiki`")
+                .with_pointer(format!("{at}/kind")),
+        );
+    }
+    Ok(())
 }
 
-/// Decodes the body of a board patch. A type or minimum role outside its closed set is a
-/// bad request with the original's message.
+/// Does [`check_closed_members`] for each object of the list that is the member `list` of
+/// `body` (`containers`).
+///
+/// # Errors
+///
+/// Returns the refusal of the first object that has one.
+pub(super) fn check_listed_boards(
+    body: &JsonMap,
+    list: &str,
+    kind: BoardObject,
+) -> Result<(), AppError> {
+    let objects = body
+        .get(list)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten();
+    for (index, object) in objects.enumerate() {
+        if let Some(object) = object.as_object() {
+            check_closed_members(object, &format!("/{list}/{index}"), kind)?;
+        }
+    }
+    Ok(())
+}
+
+/// Decodes the body of a board patch. A type or minimum role outside its closed set is
+/// refused at the member ([`check_closed_members`]).
 fn decode_container_patch(body: &[u8]) -> Result<ContainerPatch, AppError> {
-    let mut patch = json_object(decode_json(body)?)?;
+    let patch = json_object(decode_json(body)?)?;
     // A board is of one kind from when it is made: a patch that names one is refused,
     // whatever kind it names, where another member it does not know is left out.
     if patch.contains_key("kind") {
         return Err(AppError::bad_request("the kind of a board never changes").with_field("kind"));
     }
-    if let Some(invalid) = take_invalid_patch_members(&mut patch) {
-        return Err(invalid.into_error());
-    }
+    check_closed_members(&patch, "", BoardObject::Patch)?;
     serde_json::from_value(Value::Object(patch)).map_err(AppError::bad_request)
 }
 
@@ -139,16 +148,12 @@ async fn handle_create_board(ws: InWorkspace, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
     // Whoever works in the workspace makes boards in it, open ones and private ones.
     ws.require_container_maker("access denied to create board")?;
-    let mut requested = json_object(decode_json(&body)?)?;
-    let invalid = take_invalid_container_members(&mut requested);
+    let requested = json_object(decode_json(&body)?)?;
+    check_closed_members(&requested, "", BoardObject::Board)?;
     let mut board: Container =
         serde_json::from_value(Value::Object(requested)).map_err(AppError::bad_request)?;
     ws.place_container(&mut board, "workspaceId")?;
-
     board.validate().map_err(AppError::bad_request)?;
-    if let Some(invalid) = invalid {
-        return Err(invalid.into_error());
-    }
 
     let board = ws.app.create_container_with_admin(board, user_id).await?;
     Ok(created(&board))

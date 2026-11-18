@@ -14,9 +14,8 @@ use super::contract::params::{BlockId, SubscriberId};
 use super::contract::tag;
 use super::workspace::InWorkspace;
 
-use super::decode_object_members;
 use super::require_permission_through;
-use super::{ApiResult, created, json_response, no_content};
+use super::{ApiResult, created, decode_json, json_object, json_response, no_content};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
@@ -57,21 +56,19 @@ struct SubscriptionRequest {
 }
 
 impl SubscriptionRequest {
-    /// Decodes the body: a member that is `null` or missing leaves the default. A body
-    /// that is no JSON object, `null` included, or whose members have the wrong types is
-    /// a bad request.
+    /// Decodes the body: a member that is missing leaves the default. A body that is no
+    /// JSON object, `null` included, or whose members have the wrong types (`null` among
+    /// them) is a bad request.
     fn decode(body: &[u8]) -> Result<Self, AppError> {
-        let members = decode_object_members(body)?;
+        let members = json_object(decode_json(body)?)?;
         serde_json::from_value(Value::Object(members)).map_err(AppError::bad_request)
     }
 
-    /// Validates in the original's order (server/model/subscription.go `IsValid`):
-    /// block identifier, block type, subscriber identifier, subscriber type.
+    /// Validates every member and refuses all that are wrong at once: block identifier,
+    /// block type, subscriber identifier, subscriber type.
     fn into_subscription(self) -> Result<Subscription, AppError> {
         let subscriber_type = match self.subscriber_type.as_str() {
             "user" => Some(SubscriberType::User),
-            // The original also takes `channel`, for the channels of its host
-            // application. There are none here.
             _ => None,
         };
         let subscription = Subscription {

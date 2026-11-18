@@ -121,7 +121,14 @@ impl Server {
         let app = App::new(config, store, files)?;
         // Before the slow work below: an address that is taken is reported at once.
         let metrics_listener = match app.config().metrics_listen_address()? {
-            Some(address) => Some(metrics_listener::bind(&address).await?),
+            Some(address) => {
+                let reach = if app.config().listen_loopback_only {
+                    metrics_listener::Reach::LoopbackOnly
+                } else {
+                    metrics_listener::Reach::Any
+                };
+                Some(metrics_listener::bind(&address, reach).await?)
+            }
             None => None,
         };
         let server_lock = app.hold_server_lock(server_lock);
@@ -473,16 +480,6 @@ fn spawn_metrics_server(
     })
 }
 
-/// Returns the address the server listens on, in the original's notation: `localhost:8000`
-/// for a local-only server, `:8000` for all interfaces.
-pub fn listen_address(config: &Configuration) -> String {
-    if config.listen_loopback_only {
-        format!("localhost:{}", config.port)
-    } else {
-        format!(":{}", config.port)
-    }
-}
-
 /// Tells browsers not to say where a request comes from when a page of this server
 /// leads elsewhere: the address of a shared board carries its read token.
 async fn send_no_referrer(request: Request, next: middleware::Next) -> Response {
@@ -500,6 +497,7 @@ async fn send_no_referrer(request: Request, next: middleware::Next) -> Response 
 pub async fn keep_house(app: &App) {
     clean_up_sessions(app).await;
     app.end_lapsed_former_providers().await;
+    app.erase_due_accounts().await;
     // What became of each job is the metrics' to count, where the tasks run them.
     let _ = purge_trash(app).await;
     let _ = collect_unreferenced_files(app).await;
@@ -635,7 +633,7 @@ async fn remove_doomed_objects(app: &App) -> JobOutcome {
 
 /// Starts the task that deletes the sessions that have ended, the former providers
 /// whose time ran out, and the registrations that were not confirmed in their seven
-/// days. It runs once at the
+/// days, and erases the accounts whose wait to be deleted ran out. It runs once at the
 /// start, so that a server that is restarted often still gets to it, and then every
 /// interval.
 fn start_session_clean_up(app: &App) -> RecurringTask {
@@ -645,6 +643,7 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
         async move {
             clean_up_sessions(&app).await;
             app.end_lapsed_former_providers().await;
+            app.erase_due_accounts().await;
         }
     })
 }

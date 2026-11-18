@@ -178,29 +178,14 @@ pub(crate) struct Peer {
 }
 
 impl Peer {
-    /// Waits until preceding commands were read, without changing document state.
-    pub(crate) async fn barrier(&mut self) {
-        self.stream
-            .send(Message::Ping(vec![7].into()))
-            .await
-            .expect("ping sent");
-        tokio::time::timeout(PATIENCE, async {
-            loop {
-                match self
-                    .stream
-                    .next()
-                    .await
-                    .expect("connection stays open")
-                    .expect("protocol frame")
-                {
-                    Message::Pong(_) => return,
-                    Message::Ping(_) => {}
-                    message => panic!("unexpected frame before barrier: {message:?}"),
-                }
-            }
-        })
-        .await
-        .expect("server read the preceding commands");
+    /// Waits until the server has carried out what this connection sent before
+    /// ([`crate::common::carried_out`]), without changing document state.
+    pub(crate) async fn barrier(&mut self, th: &TestServer) {
+        let came = crate::common::carried_out(th.app.ws(), &mut self.stream).await;
+        assert!(
+            came.is_empty(),
+            "unexpected frames before barrier: {came:?}"
+        );
     }
 
     /// A connection of the client's session, whose editor is `client`.

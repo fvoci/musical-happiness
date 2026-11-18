@@ -827,3 +827,44 @@ async fn a_comment_made_a_card_and_back_keeps_its_versions() {
 
     test.teardown().await;
 }
+
+/// The organization the keys of a board's files begin with is that of the board's
+/// workspace; a board the handle does not reach has none (PostgreSQL: another
+/// organization's).
+#[tokio::test]
+async fn a_boards_files_are_of_its_workspaces_organization() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "owner").await;
+    let workspace_id = common::workspace(&test).await;
+    let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
+    assert_eq!(
+        test.org_of_container(&boards[0].id).await.expect("found"),
+        test.org_id,
+        "the test's organization"
+    );
+    let missing = test.org_of_container(&new_id()).await;
+    assert!(
+        matches!(missing, Err(StoreError::NotFound(_))),
+        "{missing:?}"
+    );
+    if common::db_type() == fvoci_store::DbType::Postgres {
+        let unset = test.scoped(fvoci_store::Tenant::Unset);
+        let (other_org, other_workspace) = common::organization(&unset, "the other").await;
+        let theirs = test.for_org(&other_org).expect("an identifier");
+        let other_user = common::user(&theirs, "theirs").await;
+        let other_boards =
+            common::create_test_boards(&theirs, &other_workspace, &other_user, 1).await;
+        let other_board = &other_boards[0].id;
+        assert_eq!(
+            theirs.org_of_container(other_board).await.expect("found"),
+            other_org,
+            "theirs by their handle"
+        );
+        let from_ours = test.org_of_container(other_board).await;
+        assert!(
+            matches!(from_ours, Err(StoreError::NotFound(_))),
+            "not by ours: {from_ours:?}"
+        );
+    }
+    test.teardown().await;
+}

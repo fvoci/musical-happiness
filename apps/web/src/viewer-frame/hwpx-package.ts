@@ -21,7 +21,8 @@
  * The package is read as rhwp's reader reads it (hpf-markup.ts): elements by
  * their local name (`item`, `itemref`, whatever comes before the last `:`),
  * attributes by their exact name (`id`, `href`, `media-type`, `idref`) with
- * their values as written, and markup ended where that reader ends it.
+ * their values as written, and markup ended where that reader ends it. A tag
+ * with more than 1,000 attributes stops the file.
  */
 import { MARKUP_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
 import { zipEntries, type ZipEntry } from '$lib/file-viewer/zip-directory.ts';
@@ -107,9 +108,10 @@ async function partText(bytes: Uint8Array, entry: ZipEntry): Promise<string> {
 
 /**
  * Throws `TooLargeFile` when what rhwp would parse of the package as XML is
- * past the limit, and `UnreadableFile` when its spine names a part twice or
- * the archive holds two parts of one name (rhwp reads the last, so the list
- * read here would not be its list).
+ * past the limit, and `UnreadableFile` when its spine names a part twice, the
+ * archive holds two parts of one name (rhwp reads the last, so the list read
+ * here would not be its list), or the list is markup rhwp's reader stops at
+ * or has a tag of more than 1,000 attributes (hpf-markup.ts).
  */
 export async function checkHwpxPackage(archive: ArrayBuffer): Promise<void> {
   const bytes = new Uint8Array(archive);

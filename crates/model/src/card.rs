@@ -11,7 +11,6 @@ use crate::body::{Body, BodyChange, BodySummary};
 use crate::card_property::{PersonProperties, check_card_property_values};
 use crate::id::new_id;
 use crate::refusal::{RefusalReason, Refusals};
-use crate::serde_util::null_as_default;
 
 /// The member of a card's fields that holds its icon.
 pub(crate) const CARD_ICON_FIELD: &str = "icon";
@@ -19,8 +18,8 @@ pub(crate) const CARD_ICON_FIELD: &str = "icon";
 /// Errors from validating cards and converting them to and from blocks.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum CardError {
-    /// The card has a missing or malformed member.
-    #[error("invalid card, {0}")]
+    /// The card has a missing or malformed member; the words say which.
+    #[error("{0}")]
     Invalid(&'static str),
     /// The block to convert is not of type `card`.
     #[error("cannot convert block to card: not a card block")]
@@ -31,8 +30,8 @@ pub enum CardError {
         /// The name of the offending field.
         field: &'static str,
     },
-    /// The card belongs to a different board than the one named in the request.
-    #[error("Board IDs do not match")]
+    /// The card names another board than the request's path does.
+    #[error("the card names another board than the path")]
     BoardIdMismatch,
     /// A new body is sent without the time the card was read at.
     #[error("a new body is sent with readAt, the updateAt of the card as it was read")]
@@ -44,53 +43,39 @@ pub enum CardError {
 #[serde(default, rename_all = "camelCase")]
 pub struct Card {
     /// The card's identifier.
-    #[serde(deserialize_with = "null_as_default")]
     pub id: String,
     /// The identifier of the board the card belongs to.
-    #[serde(deserialize_with = "null_as_default")]
     pub board_id: String,
     /// The identifier of the user who created the card.
-    #[serde(deserialize_with = "null_as_default")]
     pub created_by: String,
     /// The identifier of the user who last modified the card.
-    #[serde(deserialize_with = "null_as_default")]
     pub modified_by: String,
     /// The display title.
-    #[serde(deserialize_with = "null_as_default")]
     pub title: String,
     /// The card's icon; at most one grapheme.
-    #[serde(deserialize_with = "null_as_default")]
     pub icon: String,
     /// Whether the card is a template.
-    #[serde(deserialize_with = "null_as_default")]
     pub is_template: bool,
     /// Property values keyed by property identifier: a string, a list of strings, or
     /// `null`, and for a property of the type `date` a date value (`{"from":
     /// "2026-03-05"}`, `{"from": "2026-03-05", "to": "2026-03-09"}` or `{"from":
     /// 1772703000000}`) or `null`.
-    #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub properties: JsonMap,
     /// The card's body. `null` for a card without one, and in a list of cards, which
     /// says only whether there is one (`hasBody`): a card is read alone for its body.
     pub body: Option<Body>,
     /// Whether the card has a body.
-    #[serde(deserialize_with = "null_as_default")]
     pub has_body: bool,
     /// How many task items the body has.
-    #[serde(deserialize_with = "null_as_default")]
     pub tasks_total: u32,
     /// How many task items of the body are checked.
-    #[serde(deserialize_with = "null_as_default")]
     pub tasks_done: u32,
     /// Creation time in milliseconds since the Unix epoch.
-    #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    #[serde(deserialize_with = "null_as_default")]
     pub update_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
-    #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
     /// When the card's last comment was posted (the `createAt` of the newest of its
     /// comments, the blocks of the type `comment` directly on it), in milliseconds since
@@ -99,7 +84,6 @@ pub struct Card {
     /// comment does not change the card's `updateAt`. A new comment comes as
     /// `UPDATE_BLOCK`, so a client can keep the newer time; after a deletion the card is
     /// read again for it. A number sent here in a request is ignored.
-    #[serde(deserialize_with = "null_as_default")]
     pub last_comment_at: i64,
     /// What a gallery shows of the card's body: only in a list asked for it
     /// (`getCards` with `preview=true`), and left out otherwise. A request need not send
@@ -212,17 +196,17 @@ impl Card {
     /// or timestamp, or an icon of more than one grapheme.
     pub fn validate(&self) -> Result<(), CardError> {
         if self.id.is_empty() {
-            return Err(CardError::Invalid("ID is missing"));
+            return Err(CardError::Invalid(NO_ID));
         }
         if self.board_id.is_empty() {
-            return Err(CardError::Invalid("BoardID is missing"));
+            return Err(CardError::Invalid(NO_BOARD));
         }
         check_icon(&self.icon)?;
         if self.create_at == 0 {
-            return Err(CardError::Invalid("CreateAt"));
+            return Err(CardError::Invalid(NO_CREATE_AT));
         }
         if self.update_at == 0 {
-            return Err(CardError::Invalid("UpdateAt"));
+            return Err(CardError::Invalid(NO_UPDATE_AT));
         }
         Ok(())
     }
@@ -338,15 +322,11 @@ pub struct CardPatch {
     /// for that property. The card's other values stay as they are: two patches that
     /// set different properties of a card at about the same time both keep theirs, and
     /// of two that set the same property the later one wins.
-    #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub updated_properties: JsonMap,
     /// Identifiers of properties whose value the card is to lose. A property named here
     /// and in `updatedProperties` loses its value.
-    #[serde(
-        deserialize_with = "null_as_default",
-        skip_serializing_if = "Vec::is_empty"
-    )]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub deleted_properties: Vec<String>,
     /// The new body; `null` takes the body away. Sent only with `readAt`.
     #[serde(skip_serializing_if = "BodyChange::is_keep")]
@@ -454,7 +434,16 @@ impl CardPatch {
 }
 
 /// What an icon of more than one grapheme cluster is refused with.
-pub(crate) const ICON_OF_SEVERAL: &str = "Icon can have only one grapheme";
+pub(crate) const ICON_OF_SEVERAL: &str = "an icon is at most one grapheme";
+
+/// The words of [`CardError::Invalid`] for a card without an identifier.
+const NO_ID: &str = "the card has no identifier";
+/// The words of [`CardError::Invalid`] for a card without a board.
+const NO_BOARD: &str = "the card is on no board";
+/// The words of [`CardError::Invalid`] for a card without the time it was made.
+const NO_CREATE_AT: &str = "the card has no createAt";
+/// The words of [`CardError::Invalid`] for a card without the time it was changed.
+const NO_UPDATE_AT: &str = "the card has no updateAt";
 
 /// Whether the text may be an icon, of a card or of a page: at most one grapheme
 /// cluster.

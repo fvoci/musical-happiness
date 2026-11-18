@@ -99,9 +99,10 @@ impl Place<'_> {
     /// Checks one block of the board: its type, and its parent as a write would find it.
     fn check(&self, block: &Block) -> Result<(), AppError> {
         check_type(block, self.kind)?;
-        // A block directly on its board may name the board as its parent.
+        // A block directly on its board has no parent; the board is none, and is refused
+        // as another board of the archive is.
         let parent_id = block.parent_id.as_str();
-        let parent_type = if parent_id.is_empty() || parent_id == self.container_id {
+        let parent_type = if parent_id.is_empty() {
             None
         } else if let Some(parent) = self.placed.get(parent_id) {
             if parent.container_id != self.container_id {
@@ -179,11 +180,7 @@ fn check_tree(wiki_id: &str, blocks: &[&Block], limits: PageLimits) -> Result<()
         .iter()
         .map(|page| PageNode {
             id: page.id.clone(),
-            parent_id: if page.parent_id == wiki_id {
-                String::new()
-            } else {
-                page.parent_id.clone()
-            },
+            parent_id: page.parent_id.clone(),
             ..PageNode::default()
         })
         .collect();
@@ -245,7 +242,7 @@ mod tests {
     #[test]
     fn a_tree_of_pages_and_their_comments_within_the_limits_is_taken() {
         let blocks = [
-            ("a", "w", BlockType::Page),
+            ("a", "", BlockType::Page),
             ("b", "a", BlockType::Page),
             ("c", "", BlockType::Page),
             ("x", "b", BlockType::Comment),
@@ -257,8 +254,9 @@ mod tests {
     fn what_the_store_refuses_of_a_wiki_is_refused_with_its_message() {
         let page = || BlockType::Page;
         let comment = || BlockType::Comment;
-        let cases: [(Blocks<'_>, BlockError); 7] = [
+        let cases: [(Blocks<'_>, BlockError); 8] = [
             (&[("a", "", BlockType::Card)], BlockError::NotPageOnWiki),
+            (&[("a", "w", page())], BlockError::ParentNotOnContainer),
             (
                 &[("a", "", page()), ("b", "x", page())],
                 BlockError::ParentNotOnContainer,
@@ -292,8 +290,12 @@ mod tests {
 
     #[test]
     fn what_the_store_refuses_of_a_board_is_refused_and_what_nothing_leads_to_is_left() {
-        let cases: [(Blocks<'_>, BlockError); 4] = [
+        let cases: [(Blocks<'_>, BlockError); 5] = [
             (&[("p", "", BlockType::Page)], BlockError::PageOffWiki),
+            (
+                &[("c", "w", BlockType::Card)],
+                BlockError::ParentNotOnContainer,
+            ),
             (
                 &[("x", "", BlockType::Comment)],
                 BlockError::CommentNotOnCardOrPage,

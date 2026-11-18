@@ -1,7 +1,9 @@
 <!--
   The files attached to a card: their names and sizes; a file's name opens it
-  in the viewer (lib/components/file-viewer), which lists its versions
-  (file-versions.ts), and a button beside it downloads it; and, where the reader may edit, attaching more (the
+  in the viewer (lib/components/file-viewer, over the card, as a file
+  block's does: `viewing.svelte.ts`), which lists its versions
+  (file-versions.ts), and a button beside it
+  downloads it; and, where the reader may edit, attaching more (the
   button, or files dropped on this part of the card; several at once),
   following an upload while it runs, giving it up, and deleting a file.
 
@@ -17,7 +19,7 @@
   import UploadIcon from '@lucide/svelte/icons/upload';
   import XIcon from '@lucide/svelte/icons/x';
 
-  import { viewerChunk } from '$lib/components/file-viewer/chunk.svelte.ts';
+  import { viewing } from '$lib/components/file-viewer/viewing.svelte.ts';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { humanFileSize } from '$lib/logic/format.ts';
@@ -76,9 +78,6 @@
     attach(event.dataTransfer?.files);
   }
 
-  /** The file open in the viewer. */
-  let viewing = $state.raw<Attachment | undefined>(undefined);
-
   const plainPress = (event: MouseEvent): boolean =>
     event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey;
 
@@ -90,18 +89,15 @@
   function onView(event: MouseEvent, attachment: Attachment): void {
     if (!plainPress(event)) return;
     event.preventDefault();
-    void viewerChunk.load().then((arrived) => {
-      if (arrived) viewing = attachment;
-      else download(attachment.fileId, attachment.name);
+    const { id, fileId, name, size } = attachment;
+    const file = { name, size, read: (signal?: AbortSignal) => card.fileBytes(fileId, signal) };
+    // Closed, the viewer gives the focus back to the name it was opened from.
+    const back = () =>
+      document.querySelector<HTMLElement>(`[data-attachment="${CSS.escape(id)}"] a`);
+    const versions = attachmentVersions(board, card, attachment);
+    void viewing.open(file, back, versions).then((arrived) => {
+      if (!arrived) download(fileId, name);
     });
-  }
-
-  function closeViewer(): void {
-    const closed = viewing;
-    viewing = undefined;
-    if (!closed) return;
-    // The dialog is gone with its focus: back to the name it was opened from.
-    document.querySelector<HTMLElement>(`[data-attachment="${CSS.escape(closed.id)}"] a`)?.focus();
   }
 
   /** Saves a file under its own name (save.ts). */
@@ -274,17 +270,4 @@
       {/each}
     </ul>
   </section>
-{/if}
-
-{#if viewing && viewerChunk.component}
-  {@const attachment = viewing}
-  <viewerChunk.component
-    file={{
-      name: attachment.name,
-      size: attachment.size,
-      read: (signal?: AbortSignal) => card.fileBytes(attachment.fileId, signal),
-    }}
-    versions={attachmentVersions(board, card, attachment)}
-    onClose={closeViewer}
-  />
 {/if}

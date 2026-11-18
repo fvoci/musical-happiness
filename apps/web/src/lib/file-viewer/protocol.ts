@@ -3,9 +3,11 @@
  *
  * The frame is a document without an origin of its own (`sandbox` without
  * `allow-same-origin`) and without the network. The app hands it a file's
- * bytes and a few commands; the frame answers with what the app shows around
- * it: how many pages there are, which one is in view, that it failed, and the
- * keys the reader pressed while the frame had the focus. Nothing else crosses.
+ * bytes, the few words of its own it may show (`Labels`) and a few commands;
+ * the frame answers with what the app shows around it: how many pages there
+ * are (a workbook's are its sheets, which it names), which one is in view,
+ * that it failed, the keys the reader pressed while the frame had the focus,
+ * and that the reader asked for the file to download. Nothing else crosses.
  *
  * Each side reads what arrives with the reader below, which accepts exactly
  * these shapes and nothing more: a message with an extra field, a field of
@@ -33,19 +35,55 @@ export type Failure = (typeof FAILURES)[number];
 export const PAGE_LIMIT = 100_000;
 export const ZOOM_MIN = 0.25;
 export const ZOOM_MAX = 4;
+/** The most sheets a workbook is shown with, and the longest name of one, in UTF-16 units. */
+export const SHEET_LIMIT = 1000;
+export const SHEET_NAME_LENGTH = 100;
+
+/** A sheet of a workbook, as the viewer names it: and whether it has charts or pictures it does not draw. */
+export interface SheetSummary {
+  name: string;
+  drawings: boolean;
+}
+
+/**
+ * The words the frame may show of its own, in the app's language: the frame
+ * loads none of the app's messages.
+ */
+export interface Labels {
+  /** In the box of a chart that is not drawn (a PowerPoint deck's). */
+  chart: string;
+  /** In place of a page past what the frame takes on (an HWP document's). */
+  pageTooLarge: string;
+  /** The button there that saves the file. */
+  download: string;
+}
+
+/** The longest a label may be. */
+export const LABEL_LIMIT = 200;
 
 export type ToFrame =
-  | { kind: 'open'; format: FormatId; bytes: ArrayBuffer; theme: Theme; lang: string }
+  | {
+      kind: 'open';
+      format: FormatId;
+      bytes: ArrayBuffer;
+      theme: Theme;
+      lang: string;
+      labels: Labels;
+    }
   | { kind: 'page'; page: number }
   | { kind: 'zoom'; zoom: number }
   | { kind: 'theme'; theme: Theme };
 
 export type FromFrame =
   | { kind: 'ready' }
+  /** A workbook's sheets, its pages in order: told before it is shown. */
+  | { kind: 'sheets'; sheets: SheetSummary[] }
   | { kind: 'shown'; pages: number }
   | { kind: 'page'; page: number }
   | { kind: 'failed'; reason: Failure }
-  | { kind: 'key'; key: ViewerKey };
+  | { kind: 'key'; key: ViewerKey }
+  /** The reader pressed a button in the frame that saves the file. */
+  | { kind: 'download' };
 
 type Fields = Record<string, unknown>;
 
@@ -67,8 +105,36 @@ const isTheme = (value: unknown): value is Theme => value === 'light' || value =
 const isLanguage = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8}){0,3}$/.test(value);
 
+const isLabel = (value: unknown): value is string =>
+  typeof value === 'string' && value !== '' && value.length <= LABEL_LIMIT;
+
+const LABEL_KEYS = ['chart', 'pageTooLarge', 'download'] as const;
+
+function readLabels(data: unknown): Labels | undefined {
+  const fields = exactly(data, LABEL_KEYS);
+  if (!fields || !LABEL_KEYS.every((key) => isLabel(fields[key]))) return undefined;
+  const { chart, pageTooLarge, download } = fields as Record<(typeof LABEL_KEYS)[number], string>;
+  return { chart, pageTooLarge, download };
+}
+
 const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T =>
   typeof value === 'string' && (list as readonly string[]).includes(value);
+
+function sheetOf(data: unknown): SheetSummary | undefined {
+  const fields = exactly(data, ['name', 'drawings']);
+  if (!fields || typeof fields.drawings !== 'boolean' || typeof fields.name !== 'string') {
+    return undefined;
+  }
+  const { name, drawings } = fields;
+  return name.length >= 1 && name.length <= SHEET_NAME_LENGTH ? { name, drawings } : undefined;
+}
+
+function sheetsOf(data: unknown): SheetSummary[] | undefined {
+  const sheets = exactly(data, ['kind', 'sheets'])?.sheets;
+  if (!Array.isArray(sheets) || sheets.length < 1 || sheets.length > SHEET_LIMIT) return undefined;
+  const read = sheets.map(sheetOf);
+  return read.every((sheet) => sheet !== undefined) ? read : undefined;
+}
 
 function kindOf(data: unknown): unknown {
   return typeof data === 'object' && data !== null ? (data as Fields).kind : undefined;
@@ -79,6 +145,10 @@ export function readFromFrame(data: unknown): FromFrame | undefined {
   switch (kindOf(data)) {
     case 'ready':
       return exactly(data, ['kind']) ? { kind: 'ready' } : undefined;
+    case 'sheets': {
+      const sheets = sheetsOf(data);
+      return sheets ? { kind: 'sheets', sheets } : undefined;
+    }
     case 'shown': {
       const pages = exactly(data, ['kind', 'pages'])?.pages;
       return isPage(pages) ? { kind: 'shown', pages } : undefined;
@@ -95,6 +165,8 @@ export function readFromFrame(data: unknown): FromFrame | undefined {
       const key = exactly(data, ['kind', 'key'])?.key;
       return isOneOf(VIEWER_KEYS, key) ? { kind: 'key', key } : undefined;
     }
+    case 'download':
+      return exactly(data, ['kind']) ? { kind: 'download' } : undefined;
     default:
       return undefined;
   }
@@ -104,11 +176,13 @@ export function readFromFrame(data: unknown): FromFrame | undefined {
 export function readToFrame(data: unknown): ToFrame | undefined {
   switch (kindOf(data)) {
     case 'open': {
-      const fields = exactly(data, ['kind', 'format', 'bytes', 'theme', 'lang']);
+      const fields = exactly(data, ['kind', 'format', 'bytes', 'theme', 'lang', 'labels']);
       if (!fields || !isFormatId(fields.format) || !isTheme(fields.theme)) return undefined;
       if (!(fields.bytes instanceof ArrayBuffer) || !isLanguage(fields.lang)) return undefined;
+      const labels = readLabels(fields.labels);
+      if (!labels) return undefined;
       const { format, bytes, theme, lang } = fields;
-      return { kind: 'open', format, bytes, theme, lang };
+      return { kind: 'open', format, bytes, theme, lang, labels };
     }
     case 'page': {
       const page = exactly(data, ['kind', 'page'])?.page;

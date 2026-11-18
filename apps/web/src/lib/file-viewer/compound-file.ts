@@ -264,6 +264,26 @@ function streamChain(file: CompoundFile, entry: CompoundEntry): number[] | undef
   return chain(isMini(entry) ? file.miniFat : file.fat, entry.start);
 }
 
+/** Each file's mini stream once read; null when its root has no chain to read. */
+const miniStreams = new WeakMap<CompoundFile, Uint8Array<ArrayBuffer> | null>();
+
+/**
+ * The mini stream (the root's own stream), read the first time a stream in
+ * it is: a document of thousands of small streams reads it once, not once
+ * for each.
+ */
+function miniStreamOf(file: CompoundFile): Uint8Array<ArrayBuffer> | undefined {
+  let miniStream = miniStreams.get(file);
+  if (miniStream === undefined) {
+    const root = file.entries[0];
+    const rootChain = root ? chain(file.fat, root.start) : undefined;
+    miniStream =
+      root && rootChain ? gather(file.bytes, rootChain, file.sectorSize, root.size) : null;
+    miniStreams.set(file, miniStream);
+  }
+  return miniStream ?? undefined;
+}
+
 /**
  * The first `most` bytes of a stream (all of it when it is shorter); undefined
  * when its chain does not hold what it says.
@@ -280,10 +300,8 @@ export function readStream(
     if (sectors.length * file.sectorSize < entry.size) return undefined;
     return gather(file.bytes, sectors, file.sectorSize, length);
   }
-  const root = file.entries[0];
-  const rootChain = root ? chain(file.fat, root.start) : undefined;
-  if (!root || !rootChain || sectors.length * MINI_SECTOR_SIZE < entry.size) return undefined;
-  const miniStream = gather(file.bytes, rootChain, file.sectorSize, root.size);
+  const miniStream = miniStreamOf(file);
+  if (!miniStream || sectors.length * MINI_SECTOR_SIZE < entry.size) return undefined;
   return fill(new Uint8Array(length), sectors, MINI_SECTOR_SIZE, (sector) => {
     const from = sector * MINI_SECTOR_SIZE;
     return miniStream.subarray(from, from + MINI_SECTOR_SIZE);

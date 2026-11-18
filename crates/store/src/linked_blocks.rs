@@ -169,7 +169,7 @@ impl Store {
                 .bind_list(container_ids.iter().map(|id| Id(id)))
                 .push(")) ORDER BY create_at, id");
             if paging.per_page > 0 {
-                let offset = i64::from(paging.page) * i64::from(paging.per_page);
+                let offset = paging.offset();
                 sql.push_bind(" LIMIT ", i64::from(paging.per_page))
                     .push_bind(" OFFSET ", offset);
             }

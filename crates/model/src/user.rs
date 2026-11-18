@@ -6,7 +6,6 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::refusal::{RefusalReason, Refusals};
-use crate::serde_util::null_as_default;
 use crate::settings::{
     CLIENT_STATE_MAX_NAME_LENGTH, ClientStateError, check_client_state_name,
     check_client_state_value,
@@ -41,11 +40,15 @@ pub struct User {
     /// The hash of the password, as a PHC string.
     #[serde(skip)]
     pub password_hash: String,
-    /// Creation time in milliseconds since the Unix epoch.
+    /// Creation time in milliseconds since the Unix epoch; zero for a deleted account
+    /// (an empty `username`).
     pub create_at: i64,
-    /// Last modification time in milliseconds since the Unix epoch.
+    /// Last modification time in milliseconds since the Unix epoch; zero for a deleted
+    /// account.
     pub update_at: i64,
-    /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
+    /// When the account was put out of use (deactivated, or its deletion asked), in
+    /// milliseconds since the Unix epoch; zero for one in use, and for a deleted account,
+    /// which an empty `username` tells.
     pub delete_at: i64,
     /// Whether the user is an administrator of the instance. Decided by the server;
     /// nothing a request says about it is taken over.
@@ -93,10 +96,8 @@ impl fmt::Debug for User {
 #[serde(default, rename_all = "camelCase")]
 pub struct UserPreferencesPatch {
     /// Entries to set, by name.
-    #[serde(deserialize_with = "null_as_default")]
     pub updated_fields: BTreeMap<String, String>,
     /// Names of entries to remove.
-    #[serde(deserialize_with = "null_as_default")]
     pub deleted_fields: Vec<String>,
 }
 

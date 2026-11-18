@@ -14,7 +14,8 @@ import {
   type MemberRole,
 } from '../logic/wire.ts';
 
-import type { Backend, ContainerRole, CardDraft, Paging } from './backend.ts';
+import type { Backend, ContainerRole, CardDraft } from './backend.ts';
+import { allPages } from './page-reads.ts';
 import { BackendError } from './problems.ts';
 
 /**
@@ -38,9 +39,6 @@ export async function containerOfWorkspace(
   }
   return board;
 }
-
-/** Every card in the trash, in one page: a page size of zero is all of them. */
-const ALL: Paging = { page: 0, perPage: 0 };
 
 /** What a copy of a card is made from: the board it is on, as its store has it. */
 interface CopiedFrom {
@@ -75,7 +73,9 @@ export async function draftOfCopy(
     .flatMap((template) => parseRelationValue(cardProperty(source, template.id)));
   if (named.some((id) => !onBoard.has(id))) {
     // Unread, the trash names nothing: the copy then leaves those cards out.
-    const trash = await backend.deletedCards(from.boardId, ALL).catch(() => []);
+    const trash = await allPages((paging) => backend.deletedCards(from.boardId, paging)).catch(
+      () => [],
+    );
     for (const item of trash) onBoard.add(item.id);
   }
   return {

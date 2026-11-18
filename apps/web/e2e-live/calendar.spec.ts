@@ -171,7 +171,7 @@ test('on the server: a card made on a day, undone; a timed card moved keeps its 
   const cardsOf = async (): Promise<Schemas['Card'][]> =>
     (await (
       await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
-        params: { perPage: 0 },
+        params: { perPage: 1000 },
       })
     ).json()) as Schemas['Card'][];
   const dueOf = async (cardId: string): Promise<unknown> =>

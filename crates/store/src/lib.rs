@@ -6,6 +6,8 @@
 //!
 //! The schema is this server's own: a list of migrations applied by sqlx's migrator.
 
+mod account_deletion;
+mod account_erasure;
 mod accounts;
 mod audit;
 mod block_derived;
@@ -72,6 +74,7 @@ pub mod testing;
 mod trash;
 mod uploads;
 mod users;
+mod users_by_id;
 mod visibility;
 mod workspace_membership;
 mod workspaces;
@@ -83,11 +86,13 @@ use sqlx::Connection as _;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
+pub use account_deletion::{DeletionAsking, DeletionStanding};
+pub use account_erasure::{ErasedFrom, Erasing, ErasureEnd, ErasureStart, HandedOver};
 pub use accounts::Founding;
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
 pub use body_digest::body_digest;
-pub use body_docs::{LoggedUpdate, StoredDoc};
+pub use body_docs::{DocAsRead, LoggedUpdate, StoredDoc};
 pub use body_versions::{BodyBefore, DEFAULT_BODY_VERSIONS_KEPT, KeptVersion};
 pub use category_containers::{ContainerPlace, ContainerVisibility};
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;

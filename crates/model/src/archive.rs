@@ -1,6 +1,5 @@
 //! The board archive format used for import and export.
 
-use crate::serde_util::null_as_default;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -9,10 +8,8 @@ use serde_json::Value;
 #[serde(default)]
 pub struct ArchiveHeader {
     /// The archive format version.
-    #[serde(deserialize_with = "null_as_default")]
     pub version: i64,
     /// The export time in milliseconds since the Unix epoch.
-    #[serde(deserialize_with = "null_as_default")]
     pub date: i64,
 }
 

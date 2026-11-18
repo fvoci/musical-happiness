@@ -297,7 +297,7 @@ impl Store {
                     password_hash,
                     identity,
                 } => {
-                    if user_id != trier_id {
+                    if !is_trier_in_use(scope, user_id, trier_id).await? {
                         return Ok(Err(OidcRefusal::NotTheTrier));
                     }
                     let account = OidcAccount::Known {
@@ -535,4 +535,19 @@ fn pending_from_row(row: &Row) -> Result<PendingProvider, StoreError> {
         sealed_client_secret: row.text(3)?,
         create_at: row.int(4)?,
     })
+}
+
+/// Whether the account a trial ended in is the trier's own, in use: it is held in use
+/// to the end of the transaction, so that an account that waits to be deleted changes
+/// nothing of its organization (signing in to one opens the way back alone), and one
+/// asked to be deleted meanwhile waits for this.
+async fn is_trier_in_use(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    trier_id: &str,
+) -> Result<bool, StoreError> {
+    if user_id != trier_id {
+        return Ok(false);
+    }
+    crate::users::hold_in_use(scope, trier_id).await
 }

@@ -8,7 +8,7 @@ export function exampleBlock(id: string, type: Block['type'] = 'card'): Block {
     id,
     type,
     containerId: 'example-board',
-    parentId: 'example-board',
+    parentId: '',
     createdBy: 'example-reader',
     modifiedBy: 'example-reader',
     schema: 1,

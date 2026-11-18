@@ -2,8 +2,9 @@
  * The file block of a page's body, on the backend in memory: a file chosen
  * through the slash menu, or dropped, that is no picture goes up and becomes
  * a block with its name and size, on one line however narrow the screen; its
- * link and Enter save the same bytes under its name. Files chosen together
- * become blocks in the order chosen.
+ * link saves the same bytes under its name, and Enter opens a PDF in the
+ * viewer (file-block-viewer.spec.ts). Files chosen together become blocks in
+ * the order chosen.
  */
 import { expect, test, type Download, type Locator, type Page } from '@playwright/test';
 
@@ -32,6 +33,7 @@ async function newPage(page: Page): Promise<Locator> {
 
 test('a file chosen through the slash menu is a file block that saves its bytes under its name', async ({
   page,
+  browserName,
 }) => {
   const body = await newPage(page);
   await body.click();
@@ -54,17 +56,22 @@ test('a file chosen through the slash menu is a file block that saves its bytes 
 
   const link = block.getByRole('link', { name: `Download ${NAME}` });
   const [saved] = await Promise.all([page.waitForEvent('download'), link.click()]);
-  expect(saved.suggestedFilename()).toBe(NAME);
+  // WebKit saves a name's spaces as `_`.
+  expect(saved.suggestedFilename()).toBe(
+    browserName === 'webkit' ? NAME.replaceAll(' ', '_') : NAME,
+  );
   expect(await bytesOf(saved)).toBe(PDF);
 
-  // Reached by the keyboard: an arrow from the line above selects it, Enter saves it.
+  // Reached by the keyboard: an arrow from the line above selects it, Enter opens it in the viewer.
   await body.getByText('Minutes:').click();
   await page.keyboard.press('End');
   await page.keyboard.press('ArrowDown');
   await expect(block).toHaveClass(/ProseMirror-selectednode/);
-  const [byKey] = await Promise.all([page.waitForEvent('download'), page.keyboard.press('Enter')]);
-  expect(await bytesOf(byKey)).toBe(PDF);
-  // Enter saved it, and left the block where it was.
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('file-viewer')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('file-viewer')).toHaveCount(0);
+  // Enter opened it, and left the block where it was.
   await expect(block).toHaveCount(1);
 
   // 390 pixels across: one line, the name cut short, the button in reach.

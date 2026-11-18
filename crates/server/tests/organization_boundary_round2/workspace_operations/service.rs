@@ -57,7 +57,54 @@ pub(super) async fn exercise(
         )
         .await;
     case.client.token = changed.session_cookie().expect("rotated session cookie");
+    deletion(case, server).await;
     case.run("logout", &[], json!({})).await;
+}
+
+/// The founder asks to delete the account, signs in to it while it waits, and takes
+/// the asking back. Meanwhile somebody else administers the organization, and the
+/// instance: a founder is the only administrator of theirs, who does not go.
+async fn deletion(case: &mut Case, server: &TestServer) {
+    const CHANGED: &str = "changed parity password";
+    let store = server
+        .app
+        .store()
+        .for_org(&case.org)
+        .expect("organization scope");
+    let peer = case.peer.clone();
+    let stand_in = async |role: &str, administers: bool| {
+        for statement in [
+            format!("UPDATE organization_members SET role = '{role}' WHERE user_id = '{peer}'"),
+            format!("UPDATE users SET is_admin = {administers} WHERE id = '{peer}'"),
+        ] {
+            store
+                .execute_unchecked(&statement)
+                .await
+                .expect("the peer stands in");
+        }
+    };
+    stand_in("admin", true).await;
+    let standing = case.run("getAccountDeletion", &[], json!({})).await.value();
+    assert_eq!(
+        standing["soleAdminOf"],
+        json!([]),
+        "somebody else administers the organization: {standing}"
+    );
+    let name = case.label.clone();
+    case.run(
+        "requestAccountDeletion",
+        &[],
+        json!({"username": name, "password": CHANGED}),
+    )
+    .await;
+    let back = server
+        .anonymous()
+        .post("/login", &json!({"username": name, "password": CHANGED}))
+        .await;
+    assert_eq!(back.status.as_u16(), 204, "an account that waits signs in");
+    case.client.token = back.session_cookie().expect("login cookie");
+    case.run("cancelAccountDeletion", &[], json!({})).await;
+    stand_in("member", false).await;
 }
 
 async fn account(case: &mut Case) {

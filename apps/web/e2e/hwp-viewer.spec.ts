@@ -10,21 +10,16 @@
  * `target/viewer-h1/` (light and dark), at every size the project runs at
  * (the phone at 390 pixels), named by the browser too.
  */
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { deflateRawSync } from 'node:zlib';
 
-import {
-  expect,
-  test,
-  type FrameLocator,
-  type Locator,
-  type Page,
-  type Worker,
-} from '@playwright/test';
+import { expect, test, type Locator, type Page, type Worker } from '@playwright/test';
 
 import {
   compoundFile,
   compoundStreams,
+  denseHwpx,
   HWP_TEXT,
   hwpFileHeader,
   koreanHwp,
@@ -33,7 +28,7 @@ import {
   rewriteArchive,
 } from '../tests/support/hwp-files.ts';
 
-import { boardPath } from './address.ts';
+import { attach, frameOf, openCard, viewer } from './file-viewer.support.ts';
 
 const SCREENS = process.env.FVOCI_SCREENS === '1';
 const SCREENS_DIR = path.resolve(import.meta.dirname, '../../../target/viewer-h1');
@@ -42,57 +37,11 @@ const HWP_TYPE = 'application/x-hwp';
 /** How long the viewer gives a file to be drawn (LIMITS.draw in lib/file-viewer/session.svelte.ts). */
 const DRAW_LIMIT = 30_000;
 
-interface Dev {
-  backend: {
-    workspaces(): Promise<{ id: string }[]>;
-    boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
-    views(boardId: string): Promise<{ id: string; title: string }[]>;
-    cards(boardId: string): Promise<{ id: string; title: string }[]>;
-  };
-}
-
-/** Opens the card everything is tried on, by its address. */
-async function openCard(page: Page): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByTestId('board-page')).toBeVisible();
-  const place = await page.evaluate(async () => {
-    const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const [workspace] = await backend.workspaces();
-    const boards = await backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title.startsWith('Project Tasks'));
-    if (!board) throw new Error('no board of tasks');
-    const views = await backend.views(board.id);
-    const card = (await backend.cards(board.id)).find(
-      (each) => each.title === 'Identify dependencies',
-    );
-    if (!card) throw new Error('no card');
-    const first = [...views].sort((a, b) => a.title.localeCompare(b.title))[0];
-    return { boardId: board.id, viewId: first?.id ?? '', cardId: card.id };
-  });
-  await page.goto(boardPath(place.boardId, place.viewId, place.cardId));
-  await expect(page.getByTestId('card-attachments')).toBeVisible();
-}
-
-async function attach(
-  page: Page,
-  name: string,
-  buffer: Buffer,
-  mimeType: string,
-): Promise<Locator> {
-  await page.getByTestId('attach-input').setInputFiles({ name, mimeType, buffer });
-  const row = page.getByTestId('card-attachments').locator('[data-attachment]', { hasText: name });
-  await expect(row).toBeVisible();
-  return row;
-}
-
 async function view(page: Page, name: string, buffer: Buffer, mimeType: string): Promise<void> {
   const row = await attach(page, name, buffer, mimeType);
   await row.getByRole('link', { name }).click();
 }
 
-const viewer = (page: Page): Locator => page.getByTestId('file-viewer');
-const frameOf = (page: Page): FrameLocator =>
-  page.frameLocator('[data-testid="file-viewer-frame"]');
 const notice = (page: Page): Locator => page.getByTestId('file-viewer-notice');
 
 /** The next worker the viewer's frame starts (from a `blob:` of its opaque origin), and its end. */
@@ -275,21 +224,55 @@ test('an HWP whose picture unpacks past the limit is stopped in the worker befor
   await ended;
 });
 
-test('a page drawn past what the frame takes on says the file is too large', async ({ page }) => {
+test('pictures that each end with a byte rhwp passes over count all they unpack to', async ({
+  page,
+}) => {
   await openCard(page);
-  // 30,000 characters on the first page, each drawn apart: past 20,000 elements.
-  const words = '가나다라 마바사아 자차카타 파하 ';
-  const body = words.repeat(Math.ceil(30_000 / words.length)).slice(0, 30_000);
-  const dense = rewriteArchive(koreanHwpx(), (member) =>
-    member.name === 'Contents/section0.xml'
-      ? { ...member, data: Buffer.from(member.data.toString('utf8').replace(HWP_TEXT.body, body)) }
-      : member,
-  );
+  // 13 pictures of 16 MiB, each deflated to less than 16 KiB and followed by a byte of junk: rhwp
+  // passes over the byte, and a browser's unpacker fails on it and drops what it unpacked last.
+  const picture = Buffer.concat([deflateRawSync(Buffer.alloc(16 * 1024 * 1024)), Buffer.from([7])]);
+  expect(picture.length).toBeLessThan(16 * 1024);
+  const pictures = Array.from({ length: 13 }, (_, at) => ({
+    path: `BinData/BIN${String(at + 100).padStart(4, '0')}.png`,
+    data: picture,
+  }));
   const started = nextWorker(page);
-  await view(page, 'dense.hwpx', dense, HWPX_TYPE);
+  await view(
+    page,
+    'junk.hwp',
+    compoundFile([...compoundStreams(koreanHwp()), ...pictures]),
+    HWP_TYPE,
+  );
   const { ended } = await started;
   await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
   await expect(notice(page)).toContainText("This file's contents are too large to preview.");
+  await ended;
+});
+
+test('a page drawn past what the frame takes on says so in its place, and the others are drawn', async ({
+  page,
+}) => {
+  await openCard(page);
+  // 30,000 characters on the first page, each drawn apart: past 20,000 elements.
+  const started = nextWorker(page);
+  await view(page, 'dense.hwpx', denseHwpx(), HWPX_TYPE);
+  const { ended } = await started;
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 2');
+  const frame = frameOf(page);
+  const first = frame.locator('.page[data-page="1"]');
+  await expect(first.locator('.page-notice')).toContainText('This page is too large to show.');
+  await expect(first.locator('svg')).toHaveCount(0);
+  await picture(page, 'hwp-page-too-large');
+  const downloading = page.waitForEvent('download');
+  await first.getByRole('button', { name: 'Download' }).click();
+  expect((await downloading).suggestedFilename()).toBe('dense.hwpx');
+  await viewer(page).getByRole('button', { name: 'Next page' }).click();
+  const second = frame.locator('.page[data-page="2"]');
+  await expect(second.locator('.hwp-text')).toContainText(HWP_TEXT.second);
+  await expect(second.locator('svg')).toBeVisible();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await page.keyboard.press('Escape');
   await ended;
 });
 
@@ -339,4 +322,61 @@ test('past the time limit the viewer gives up, and the worker is stopped', async
   await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
   await ended;
   for (const release of held) await release().catch(() => undefined);
+});
+
+test('the notice in place of a page fits in the page, however it is drawn', async ({ page }) => {
+  // The frame's own rules, on page boxes as a page is drawn: on a phone and at half that, a small
+  // page after a large one at half that again, pages much wider than tall, and a box just tall
+  // enough for the Korean line on two lines (and the taller button of a touch screen).
+  const css = readFileSync(
+    path.resolve(import.meta.dirname, '../src/viewer-frame/frame.css'),
+    'utf8',
+  );
+  // Each size, whether the line is shown (or left to screen readers, the page drawn small), and
+  // in which language.
+  const sizes = [
+    [358, 506, true, 'en'],
+    [179, 253, true, 'ko'],
+    [89, 126, false, 'ko'],
+    [500, 125, true, 'en'],
+    [1000, 150, true, 'en'],
+    [300, 100, false, 'en'],
+    [200, 116, true, 'ko'],
+    [300, 44, false, 'en'],
+  ] as const;
+  const words = {
+    en: ['This page is too large to show.', 'Download'],
+    ko: ['이 쪽은 너무 커서 보이지 않습니다.', '다운로드'],
+  };
+  const boxes = sizes
+    .map(([width, height, , language]) => {
+      const [line, button] = words[language];
+      return `<div class="page" style="width:${String(width)}px;height:${String(height)}px"><div class="page-notice"><p>${line}</p><button type="button">${button}</button></div></div>`;
+    })
+    .join('');
+  await page.setContent(`<style>${css}</style><div class="pages">${boxes}</div>`);
+  const laidOut = await page.locator('.page-notice').evaluateAll((notices) =>
+    notices.map((notice) => {
+      const box = notice.getBoundingClientRect();
+      const inside = (element: Element | null): boolean => {
+        const part = element?.getBoundingClientRect();
+        return (
+          part !== undefined &&
+          part.left >= box.left &&
+          part.right <= box.right &&
+          part.top >= box.top &&
+          part.bottom <= box.bottom
+        );
+      };
+      const line = notice.querySelector('p');
+      return {
+        button: inside(notice.querySelector('button')),
+        // Left to screen readers, it is a pixel wide (and a little more at some pixel ratios).
+        line: (line?.getBoundingClientRect().width ?? 0) > 2 ? inside(line) : 'for screen readers',
+      };
+    }),
+  );
+  expect(laidOut).toEqual(
+    sizes.map(([, , shown]) => ({ button: true, line: shown ? true : 'for screen readers' })),
+  );
 });

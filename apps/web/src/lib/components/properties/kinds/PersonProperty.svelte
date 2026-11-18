@@ -14,7 +14,7 @@
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { userDisplayName } from '$lib/logic/users.ts';
+  import { isGone, userDisplayName } from '$lib/logic/users.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { cn } from '$lib/utils.js';
 
@@ -58,7 +58,9 @@
   const nameOf = (id: string): string => {
     const known = (candidate: PropertyUser): boolean => candidate.id === id;
     const user = users.find(known) ?? named?.find(known);
-    return user ? userDisplayName(user) : m['centerPanel.unknown-user']();
+    if (!user) return m['centerPanel.unknown-user']();
+    // What is left of a deleted account has no name: the card keeps who it was set to.
+    return isGone(user) ? m.people_deleted_user() : userDisplayName(user);
   };
 
   const searchTexts = (user: PropertyUser): string[] => [user.username, user.displayName];

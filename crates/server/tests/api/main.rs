@@ -7,8 +7,11 @@
 mod block_types;
 mod common;
 
+mod account_deletion;
+mod account_erasure;
 mod admin;
 mod admins;
+mod behind_a_tunnel;
 mod blocks;
 mod board_broadcasts;
 mod board_copies;
@@ -27,6 +30,7 @@ mod collab_folds;
 mod collab_images;
 mod collab_upkeep;
 mod collab_whole;
+mod collab_written_past;
 mod comments;
 mod compression;
 mod content_blocks;
@@ -105,6 +109,7 @@ mod references_to;
 mod refusals;
 mod relation_copies;
 mod relations;
+mod request_forms;
 mod review_o5c;
 mod role_table;
 mod rooms;

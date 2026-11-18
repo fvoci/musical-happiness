@@ -28,7 +28,7 @@ use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::uploads::{OpenUploads, UploadUsage};
-use crate::{body_versions, invitations, memberships_everywhere, users, workspaces};
+use crate::{body_versions, invitations, memberships_everywhere, users, users_by_id, workspaces};
 
 mod sign_in;
 
@@ -318,7 +318,7 @@ impl Store {
     ) -> Result<Vec<User>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                users::found_users_by_ids(scope, user_ids, |sql, scope| {
+                users_by_id::found_users_by_ids(scope, user_ids, |sql, scope| {
                     push_seen(sql, scope, sight);
                 })
                 .await
@@ -801,6 +801,7 @@ impl Store {
                 );
                 sql.bind(token_hash);
                 invitations::push_live_but_for(&mut sql, now, replacing);
+                invitations::push_maker_in_use(&mut sql);
                 sql.push(IN_USE)
                     .push(&scope.same_organization(&[("i", "t")]));
                 match scope.fetch_optional(sql).await? {
@@ -893,7 +894,9 @@ fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
 
 /// The instance's own organization as `scope` reaches the organizations: the oldest
 /// non-system one in use ([`Store::instance_organization`]).
-async fn oldest_organization(scope: &mut Scope<'_>) -> Result<Option<String>, StoreError> {
+pub(crate) async fn oldest_organization(
+    scope: &mut Scope<'_>,
+) -> Result<Option<String>, StoreError> {
     let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
     sql.bind(false)
         .push_bind(" AND delete_at = ", 0_i64)

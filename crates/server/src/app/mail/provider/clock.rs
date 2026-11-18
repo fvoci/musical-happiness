@@ -35,7 +35,7 @@ impl Moment {
         let millis = i64::try_from(seconds)
             .unwrap_or(i64::MAX)
             .saturating_mul(1000);
-        let (year, month, day) = crate::app::files::civil_from_millis(millis);
+        let (year, month, day) = civil_from_millis(millis);
         let of_day = seconds % 86_400;
         Self {
             year,
@@ -80,9 +80,38 @@ impl Moment {
     }
 }
 
+/// The year, month and day (UTC) of a time in milliseconds since the Unix epoch.
+///
+/// Howard Hinnant's `civil_from_days` algorithm.
+fn civil_from_millis(millis: i64) -> (i64, u32, u32) {
+    let days = millis.div_euclid(86_400_000);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = u32::try_from(doy - (153 * mp + 2) / 5 + 1).unwrap_or(1);
+    let month = u32::try_from(if mp < 10 { mp + 3 } else { mp - 9 }).unwrap_or(1);
+    let year = if month <= 2 { year + 1 } else { year };
+    (year, month, day)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn civil_from_millis_matches_known_dates() {
+        assert_eq!(civil_from_millis(0), (1970, 1, 1), "the Unix epoch");
+        // 2026-11-10T05:15:39Z.
+        assert_eq!(
+            civil_from_millis(1_794_287_739_000),
+            (2026, 11, 10),
+            "a date of this year"
+        );
+    }
 
     #[test]
     fn a_moment_reads_as_the_dates_of_the_published_examples() {

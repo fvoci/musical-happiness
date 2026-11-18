@@ -5,9 +5,11 @@
  * which hwp-page.ts copies into the box; a page that scrolls far away gives
  * its picture back. A worker stopped after the document was shown (too slow
  * over a page, or failed on its own) is reported, as no page can be drawn
- * any more; so is a page past what the frame takes on, as the file is then
- * too large to show.
+ * any more. A page past what the frame takes on (hwp-document.ts) says so in
+ * its place, with a button that saves the file, and the others are drawn.
  */
+import type { Labels } from '$lib/file-viewer/protocol.ts';
+
 import type { FromWorker, PageSize, TextRun, ToWorker } from './hwp-messages.ts';
 import { pagePicture, pageText } from './hwp-page.ts';
 import {
@@ -54,24 +56,48 @@ export async function ask(
   return answer;
 }
 
+/** What a page shows when it is past what the frame takes on: a line that says so, and a button. */
+function tooLargeNotice(labels: Labels, download: () => void): HTMLElement {
+  const notice = document.createElement('div');
+  notice.className = 'page-notice';
+  const said = document.createElement('p');
+  said.textContent = labels.pageTooLarge;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = labels.download;
+  button.addEventListener('click', download);
+  notice.append(said, button);
+  return notice;
+}
+
 /** One page: its box in the column, and what is drawn in it while it is in view. */
 class Page {
   readonly box = document.createElement('div');
   readonly number: number;
   readonly size: PageSize;
+  /** What the page shows in place of a drawing that would be too large. */
+  readonly #notice: () => HTMLElement;
   /** The draw under way or done, until the page is cleared. */
   #drawing: Promise<void> | undefined;
   #giveUp: AbortController | undefined;
+  /** The worker said the page is too large: it is not asked again (it would draw it again). */
+  #tooLarge = false;
 
-  constructor(number: number, size: PageSize) {
+  constructor(number: number, size: PageSize, notice: () => HTMLElement) {
     this.number = number;
     this.size = size;
+    this.#notice = notice;
     this.box.className = 'page';
     this.box.dataset.page = String(number);
   }
 
   draw(client: WorkerClient): Promise<void> {
     if (this.#drawing) return this.#drawing;
+    if (this.#tooLarge) {
+      this.box.replaceChildren(this.#notice());
+      this.#drawing = Promise.resolve();
+      return this.#drawing;
+    }
     const giveUp = new AbortController();
     this.#giveUp = giveUp;
     // Asked each time: the page may leave the view while the answer comes or the font loads.
@@ -90,7 +116,13 @@ class Page {
       })
       .catch((error: unknown) => {
         // A later draw of the page, once it came back into view, is not this one's to clear.
-        if (this.#giveUp === giveUp) this.clear();
+        const current = this.#giveUp === giveUp;
+        if (error instanceof TooLargeFile) {
+          this.#tooLarge = true;
+          if (current) this.box.replaceChildren(this.#notice());
+          return;
+        }
+        if (current) this.clear();
         throw error;
       });
     return this.#drawing;
@@ -118,11 +150,16 @@ export class HwpView implements Drawn {
     sizes: readonly PageSize[],
     place: HTMLElement,
     report: Report,
+    labels: Labels,
   ) {
     this.#client = client;
     this.#report = report;
     this.#column.className = 'pages';
-    this.#pages = sizes.map((size, index) => new Page(index + 1, size));
+    const notice = (): HTMLElement =>
+      tooLargeNotice(labels, () => {
+        report.download();
+      });
+    this.#pages = sizes.map((size, index) => new Page(index + 1, size, notice));
     this.#column.append(...this.#pages.map((page) => page.box));
     place.replaceChildren(this.#column);
     const observer = new IntersectionObserver(
@@ -162,14 +199,7 @@ export class HwpView implements Drawn {
   }
 
   #draw(page: Page): void {
-    page.draw(this.#client).catch((error: unknown) => {
-      // A page past what the frame takes on: the file is too large to show, and nothing more is
-      // asked of the worker (asked again, it would draw the page again).
-      if (error instanceof TooLargeFile) {
-        this.#client.close();
-        this.#report.failed('too-large');
-        return;
-      }
+    page.draw(this.#client).catch(() => {
       // A page that cannot be drawn, or was given up as it left the view, stays blank. But a
       // worker that was stopped (too slow, or failed on its own) draws no page any more.
       const stopped = this.#client.closed;
@@ -187,7 +217,10 @@ export class HwpView implements Drawn {
     }
   }
 
-  /** Draws the first page, the one in view when the document opens; rejects when it cannot be drawn. */
+  /**
+   * Draws the first page, the one in view when the document opens; rejects
+   * when it cannot be drawn (one too large to draw shows that it is).
+   */
   drawFirst(): Promise<void> {
     return this.#pages[0]?.draw(this.#client) ?? Promise.resolve();
   }

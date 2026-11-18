@@ -9,9 +9,22 @@
  * what is counted is what rhwp reads (hwpx-package.ts).
  *
  * Where quick-xml stops with an error, rhwp refuses the file; so this throws
- * `UnreadableFile` there.
+ * `UnreadableFile` there, and also past `TAG_ATTRIBUTE_LIMIT`.
  */
 import { UnreadableFile } from './renderer.ts';
+
+/**
+ * The most attributes of one tag whose attributes are read: a Hancom list's
+ * tags have three or four. Each name written counts, whether it is taken,
+ * given twice, given no value or a value without quotes: quick-xml keeps a
+ * name given a value without quotes and checks each name against those kept
+ * before it, so a tag of many such names, a name repeated after them, costs
+ * rhwp the square of their count (80,000 took it 29 s). A tag of a million
+ * attributes took this reader 1.3 s and 180 MiB, and the list may be 30 MB.
+ * Past it the file is refused, with the answer zip-guard gives an archive
+ * past its limits.
+ */
+const TAG_ATTRIBUTE_LIMIT = 1000;
 
 /** A start or empty tag: its name as written, and the attributes rhwp takes, in order. */
 export interface Tag {
@@ -104,7 +117,7 @@ function bangEnd(xml: string, open: number): number {
 }
 
 /** The attributes quick-xml's iterator gives without an error (the ones `.flatten()` keeps). */
-export function attributesOf(content: string, from: number): [string, string][] {
+function attributesOf(content: string, from: number): [string, string][] {
   const found: [string, string][] = [];
   const keys = new Set<string>();
   const firstSpace = (at: number): number => {
@@ -116,9 +129,12 @@ export function attributesOf(content: string, from: number): [string, string][] 
     return at;
   };
   let offset = from;
+  let names = 0;
   while (offset >= 0 && offset < content.length) {
     const start = skipSpace(offset);
     if (start >= content.length) break;
+    names += 1;
+    if (names > TAG_ATTRIBUTE_LIMIT) throw new UnreadableFile();
     let end = start + 1;
     while (end < content.length && content[end] !== '=' && !isSpace(content[end])) end += 1;
     if (end >= content.length) break;
@@ -194,7 +210,8 @@ class OpenNames {
  * gives them, each read no further than asked (its attributes only when
  * `attributes()` is called). Throws `UnreadableFile` where that reader stops
  * with an error: markup that does not end, an end tag that closes no element
- * of its name, an `&` that is no reference, markup it does not know.
+ * of its name, an `&` that is no reference, markup it does not know; and when
+ * a tag has more attributes than `TAG_ATTRIBUTE_LIMIT` (as they are read).
  */
 export function readTags(xml: string, visit: (tag: Tag) => void): void {
   const open = new OpenNames();
@@ -214,8 +231,9 @@ export function readTags(xml: string, visit: (tag: Tag) => void): void {
     } else if (next === '/') {
       end = tagEnd(xml, start + 1);
       // Blanks after the name are let be; a name of blanks alone is kept as it is.
-      const written = xml.slice(start + 2, end);
-      if (!open.close(xml, written.replace(/[ \r\n\t]+$/, '') || written)) {
+      let nameEnd = end;
+      while (nameEnd > start + 2 && isSpace(xml[nameEnd - 1])) nameEnd -= 1;
+      if (!open.close(xml, xml.slice(start + 2, nameEnd > start + 2 ? nameEnd : end))) {
         throw new UnreadableFile();
       }
     } else {

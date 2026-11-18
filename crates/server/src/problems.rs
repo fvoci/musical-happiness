@@ -202,6 +202,9 @@ fn describe_reason(reason: Reason) -> &'static str {
             "Status 409. The change would leave the board, the workspace or the server \
              without an administrator. Make somebody else one first."
         }
+        Reason::AccountDeletionPending | Reason::SignInAgain => {
+            describe_account_deletion(reason).unwrap_or_default()
+        }
         Reason::AdminRequired => "Status 403. Only an administrator of the server may do this.",
         Reason::TeamSelfJoining => {
             "Status 403. While joined as organization administrator, you cannot add yourself to a team. Another workspace administrator may add you. Direct board roles end with the administrative joining."
@@ -259,6 +262,25 @@ fn describe_reason(reason: Reason) -> &'static str {
         // reason that is none of theirs fails the tests.
         _ => describe_the_rest(reason),
     }
+}
+
+/// The descriptions of the reasons of deleting an account.
+fn describe_account_deletion(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
+        Reason::AccountDeletionPending => {
+            "Status 401, with a session that is good: its account was asked to be deleted \
+             and waits. Every operation answers so but `getAccountDeletion`, which says \
+             until when it waits, `cancelAccountDeletion`, which puts the account in use \
+             again as it was, and `logout`."
+        }
+        Reason::SignInAgain => {
+            "Status 403, asking to delete an account that has no password \
+             (`requestAccountDeletion`): the session was not made through a provider in \
+             the last five minutes. Sign in through the provider again (`startOidcLogin`) \
+             and send the request from the session that comes of it."
+        }
+        _ => return None,
+    })
 }
 
 /// The description of a reason of the search of bodies, of the limits of a wiki's tree
@@ -409,7 +431,12 @@ fn describe_organization(reason: Reason) -> Option<&'static str> {
         }
         Reason::LastOrgAdmin => {
             "Status 409. The change would leave the organization without an administrator. \
-             Make somebody else one first."
+             Make somebody else one first. From `requestAccountDeletion`: the account is \
+             the only administrator of an organization that has other people in it, or \
+             of the server's own first organization, and `orgId` names that organization, \
+             the first by identifier if there are several (`getAccountDeletion` lists \
+             them all). Another organization that has nobody else does not stand in the \
+             way: it goes with the account."
         }
         Reason::PublicLinksOff => {
             "Status 403. The organization has turned its public links off: no board of it is \
@@ -488,8 +515,10 @@ fn describe_editing_together(reason: Reason) -> &'static str {
              that holds the documents ended or did not answer in time, which drops what was \
              under way, or did so again and again with this document, which is closed for \
              a while; or a write of the card's whole body came while what its editors typed \
-             could not be written to the card first, and was not done. The document is as \
-             it was stored before. Try again later."
+             could not be written to the card first, and was not done; or another process \
+             wrote the stored document since this one read it (a server that lost the lock \
+             of its database and has not gone down yet), and this one leaves it alone. The \
+             document is as it was stored before. Try again later."
         }
         other => describe_rooms(other),
     }

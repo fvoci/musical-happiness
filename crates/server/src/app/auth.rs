@@ -125,7 +125,7 @@ impl App {
             // there is now, the password may still be right.
             let current = self
                 .store()
-                .get_user_by_id(&user.id)
+                .account_by_id(&user.id)
                 .await
                 .map_err(|error| {
                     // Deactivated meanwhile: the login is refused as any other.
@@ -235,11 +235,13 @@ impl App {
         Ok(found)
     }
 
-    /// Looks a user up for a login; a user who is not there is `None`.
+    /// Looks a user up for a login; a user who is not there is `None`. An account that
+    /// waits to be deleted is there: its person signs in to take the asking back, and
+    /// its name and address are taken as any account's.
     async fn find_user_for_login(&self, lookup: Lookup<'_>) -> Result<Option<User>, AppError> {
         let found = match lookup {
-            Lookup::Username(name) => self.store().get_user_by_username(name).await,
-            Lookup::Email(email) => self.store().get_user_by_email(email).await,
+            Lookup::Username(name) => self.store().account_by_username(name).await,
+            Lookup::Email(email) => self.store().account_by_email(email).await,
         };
         match found {
             Ok(user) => Ok(Some(user)),

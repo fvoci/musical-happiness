@@ -150,20 +150,8 @@ async fn a_second_orgs_read_token_can_subscribe_to_its_card_updates() {
         ))
         .await
         .expect("B's card subscription is sent");
-    socket
-        .send(Message::Ping(vec![2].into()))
-        .await
-        .expect("an ordering barrier");
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while let Some(message) = socket.next().await {
-            if matches!(message.expect("a websocket frame"), Message::Pong(_)) {
-                return;
-            }
-        }
-        panic!("the socket closed before the barrier");
-    })
-    .await
-    .expect("the subscription command was processed");
+    // The subscription is registered before the change it is to be told of.
+    super::common::carried_out(app.ws(), &mut socket).await;
     app.ws()
         .broadcast_block_change(&board.workspace_id, &card)
         .await;

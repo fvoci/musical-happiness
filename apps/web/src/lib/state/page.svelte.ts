@@ -17,6 +17,7 @@ import type { DocNode } from '../editor/schema.ts';
 import { isBackendError, type BodyDoc, type BodyDocState, type WikiPage } from './backend.ts';
 import { REJOIN_SPACING, afterPutOut } from './card-parts.ts';
 import { PageComments } from './page-comments.svelte.ts';
+import { mentionedIn } from './user-names.ts';
 import type { WikiStore } from './wiki.svelte.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 
@@ -96,6 +97,8 @@ export class PageStore {
       if (!first && detail.updateAt <= this.#readAt) return;
       this.#readAt = detail.updateAt;
       if (!sameDoc(detail.body, this.body)) this.body = detail.body;
+      // Somebody the page mentions may be no member any more: their name is asked for.
+      void this.wiki.workspace.learnUsers(mentionedIn(detail.body));
       [this.status, this.missing] = ['ready', false];
       this.#shown = true;
     } catch (error) {

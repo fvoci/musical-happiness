@@ -7,6 +7,7 @@
 //! Unix epoch as an argument; the one place that reads a clock is [`new_id`], whose
 //! identifiers begin with the time they were made.
 
+mod account_deletion;
 mod allowlist;
 mod archive;
 mod auth;
@@ -48,6 +49,10 @@ mod upload;
 mod user;
 mod workspace;
 
+pub use account_deletion::{
+    ACCOUNT_DELETION_GRACE_DAYS, AccountDeletion, AccountDeletionAsked, DeleteAccountRequest,
+    DeletionProof, Leaving, LeavingOrganization, OrganizationName,
+};
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
     AuthParamError, ChangePasswordRequest, DISPLAY_NAME_MAX_LENGTH, LoginRequest,
@@ -57,7 +62,7 @@ pub use auth::{
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
-    BlockType, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, PropertyChanges, TYPE_SHOWN_CHARS,
+    BlockType, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, PropertyChanges,
     stamp_modification_metadata,
 };
 pub use block_ids::{UnmatchedRelation, generate_block_ids, renew_block_ids};
@@ -93,7 +98,7 @@ pub use date_value::{
     DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
 };
 pub use deleted_item::DeletedItem;
-pub use file_info::{FileInfo, is_storage_path};
+pub use file_info::{FileInfo, FileKey, is_storage_path};
 pub use file_version::{FileVersion, FileVersionBase, NewFileVersion};
 pub use id::{is_id, new_id};
 pub use invitation::{

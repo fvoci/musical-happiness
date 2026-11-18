@@ -1585,17 +1585,16 @@ async fn a_user_has_a_display_name_of_their_choosing() {
     let response = accept(&th, &link, &pam).await;
     response.check_bad_request();
     assert_eq!(response.refused_at(), "/account/displayName");
-    // Left out or null where the account is made: none.
-    for (username, extra) in [("dwight", None), ("angela", Some(Value::Null))] {
-        let mut account = json!({"username": username, "email": format!("{username}@sample.com"),
-                                 "password": PASSWORD});
-        if let Some(value) = extra {
-            account["displayName"] = value;
-        }
-        accept(&th, &link, &account).await.check_ok();
-        let made = th.login(username, PASSWORD).await.me().await;
-        assert_eq!(made.display_name, "", "{username}");
-    }
+    // Left out where the account is made: none. `null` is no name, and refused.
+    let mut account = json!({"username": "dwight", "email": "dwight@sample.com",
+                             "password": PASSWORD});
+    accept(&th, &link, &account).await.check_ok();
+    let made = th.login("dwight", PASSWORD).await.me().await;
+    assert_eq!(made.display_name, "");
+    account["username"] = json!("angela");
+    account["email"] = json!("angela@sample.com");
+    account["displayName"] = Value::Null;
+    accept(&th, &link, &account).await.check_bad_request();
 
     // White space around a name goes; empty, blank or null: none.
     let trimmed: User = jim

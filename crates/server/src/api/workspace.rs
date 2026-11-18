@@ -19,10 +19,10 @@ use utoipa_axum::routes;
 
 use super::contract::bodies::UserIds;
 use super::contract::params::{
-    CappedPerPage, MemberWorkspaceId, Page, UserId, UserSearch, WorkerWorkspaceId, WorkspaceId,
+    MemberWorkspaceId, Page, PerPage, UserId, UserSearch, WorkerWorkspaceId, WorkspaceId,
 };
 use super::contract::tag;
-use super::org_admin::requested_page;
+use super::paging::paging_params;
 use super::session::session_of;
 use super::{ApiResult, MAX_USER_IDS, RequiredSession, decode_json, json_response, query_param};
 use crate::app::App;
@@ -379,7 +379,17 @@ async fn handle_get_workspace_users(ws: InWorkspace, RawQuery(query): RawQuery) 
 /// somebody the user does not see finds nothing, as one of nobody: the answer does not
 /// tell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or
 /// last changed a card, block or comment of a board of the workspace they read, also
-/// after leaving the workspace. Oldest account first, not in the order of the request.
+/// after leaving the workspace. Oldest account first, not in the order of the request:
+/// by `createAt`, then by identifier.
+///
+/// An account that was deleted is answered to whoever asks by its identifier, seen
+/// before or not, as what is left of it: the identifier, an empty `username`, `email`
+/// and `displayName`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
+/// the account is answered, neither when it went nor when it was asked to (the
+/// identifier is kept as it was made). The empty `username` is what tells it, not a
+/// time: a page shows a deleted user where it wrote or is mentioned.
+/// `deleteAt` is not zero for a writer whose account waits to be deleted, who is
+/// answered as they are, with their name.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/users",
@@ -449,22 +459,21 @@ async fn handle_get_workspace_user(
 /// organization; and an administrator of the workspace who could not read a board
 /// giving somebody (themselves or another) a role on it. A board's title is there where
 /// the reader sees the board. For whoever works in the workspace (a member who is no
-/// guest), of any organization. 50 to a page unless `perPage` says otherwise, at most
-/// 200. The records are never changed or removed but with the workspace, when it is
+/// guest), of any organization. The records are never changed or removed but with the workspace, when it is
 /// removed for good.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/audit",
     operation_id = "getWorkspaceAudit",
     tag = tag::WORKSPACES,
-    params(WorkerWorkspaceId, Page, CappedPerPage),
+    params(WorkerWorkspaceId, Page, PerPage),
     responses((status = 200, description = "The records of the page.", body = Vec<AuditRecord>)),
 )]
 async fn handle_get_workspace_audit(ws: InWorkspace, RawQuery(query): RawQuery) -> ApiResult {
     if !permissions::reads_the_audit_log(Some(ws.role)) {
         return Err(workspace_not_found());
     }
-    let paging = requested_page(query.as_deref())?;
+    let paging = paging_params(query.as_deref())?;
     Ok(json_response(
         &ws.app
             .workspace_audit(&ws.session.user_id, &ws.workspace_id, paging)

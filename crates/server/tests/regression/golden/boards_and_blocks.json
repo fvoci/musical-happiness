@@ -103,10 +103,10 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid containerId elsewhere (no board of the request has that id)",
+      "detail": "the block is on no board of the request",
       "errors": [
         {
-          "detail": "invalid containerId elsewhere (no board of the request has that id)",
+          "detail": "the block is on no board of the request",
           "pointer": "/blocks/0/containerId",
           "reason": "invalid"
         }
@@ -145,7 +145,14 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid-board-type",
+      "detail": "the type of a board is `O` (open) or `P` (private)",
+      "errors": [
+        {
+          "detail": "the type of a board is `O` (open) or `P` (private)",
+          "pointer": "/containers/0/type",
+          "reason": "invalid"
+        }
+      ],
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,

@@ -461,7 +461,8 @@ export interface paths {
         put?: never;
         /**
          * Sign out
-         * @description Ends the session of the request and clears its cookie.
+         * @description Ends the session of the request and clears its cookie. The session of an account
+         *     that waits to be deleted is ended too.
          */
         post: operations["logout"];
         delete?: never;
@@ -510,8 +511,7 @@ export interface paths {
          * The audit log of an organization
          * @description One page of what was done to the organization itself, the newest first: who made a
          *     member an administrator or a member, made, renamed, deleted or brought back a
-         *     workspace, and turned the public links off or on. 50 to a page unless `perPage` says
-         *     otherwise, at most 200.
+         *     workspace, and turned the public links off or on.
          */
         get: operations["getOrgAudit"];
         put?: never;
@@ -531,8 +531,7 @@ export interface paths {
         };
         /**
          * The members of an organization
-         * @description One page of them with their roles, the oldest member first. 50 to a page unless
-         *     `perPage` says otherwise, at most 200.
+         * @description One page of them with their roles, the oldest member first.
          */
         get: operations["getOrgMembers"];
         put?: never;
@@ -889,8 +888,11 @@ export interface paths {
          *     All of the account's sessions and WebSocket connections end, and so do its other
          *     reset links, as they do when the password is changed or set by an operator. The sign-in
          *     lock of the account, at its user name and its email, ends, and so does the wait of the
-         *     address that finished the reset. A missing, expired or already used token answers the
-         *     same 400, naming `token` in `errors`.
+         *     address that finished the reset. An account that waits to be deleted waits still:
+         *     signing in with the new password shows the way back (`getAccountDeletion`), and
+         *     taking the deletion back is the person's own act there. A missing, expired or already
+         *     used token answers the same 400, naming `token` in `errors`, and so does the token of
+         *     an account whose erasing began.
          */
         post: operations["completePasswordReset"];
         delete?: never;
@@ -912,7 +914,11 @@ export interface paths {
          * Request a password reset
          * @description Answers 204 with an empty body for an existing account, an absent account and
          *     an account without a password. Lookup and delivery run in the background;
-         *     the request never waits for either. Accounts without passwords receive no mail.
+         *     the request never waits for either. Accounts without passwords receive no mail. An
+         *     account that waits to be deleted is sent a link as one in use is, so that its person
+         *     may sign in and take the deletion back; one whose erasing began, or that was erased,
+         *     is sent none (a message already on its way as the erasing begins carries a link that
+         *     sets nothing).
          *     Requests are limited by address only, with the login setting of attempts per minute
          *     and a separate counter (429); never by email. An account is sent at most
          *     `mail_reset_per_account_hour` messages an hour: more requests are answered the same
@@ -1006,7 +1012,7 @@ export interface paths {
          *     cookie the name and the address of a registration that waits are taken.
          *
          *     The name and the email address must not be blank, the email address must look like
-         *     one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
+         *     one, the display name (`displayName`, may be left out) is checked as `patchMe` checks it,
          *     the password must have at least 8 characters and at most 1024 bytes, and the organization
          *     name must not be blank, and is otherwise read as a display name is; otherwise the
          *     request is 400, and `errors` names every member that is refused, each with
@@ -1245,6 +1251,82 @@ export interface paths {
          *     their size.
          */
         patch: operations["patchClientState"];
+        trace?: never;
+    };
+    "/api/v1/users/me/deletion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What deleting the account comes to
+         * @description What stands in the way of deleting the account of the session, and what goes with
+         *     it, as things are now. The server keeps an administrator (`lastInstanceAdmin`), and
+         *     so does every organization that has other people in it (`soleAdminOf`): the account
+         *     is not deleted while either names it. An organization that has nobody but the
+         *     account (`organizations`) goes with it, with everything in it: its workspaces,
+         *     boards and wikis, their files, and its records. How much it holds (`boards`,
+         *     `wikis`, `files`) is told to a session that opens it, and left out for one of an
+         *     organization that takes only sessions made through its provider. `proof` says what
+         *     `requestAccountDeletion` asks for.
+         *
+         *     Also answered to the session of an account that waits to be deleted, the one
+         *     operation besides `cancelAccountDeletion` and `logout` that such a session opens:
+         *     `requestedAt` and `deleteAfter` are there then, and left out otherwise.
+         */
+        get: operations["getAccountDeletion"];
+        put?: never;
+        /**
+         * Ask to delete the account
+         * @description Puts the account of the session out of use, to be erased after thirty days
+         *     (`graceDays` of `getAccountDeletion`): every session of it ends, this one too, and
+         *     its cookie is cleared. Until it is erased, whoever signs in to the account gets a
+         *     session that opens nothing (every operation is 401 with the reason
+         *     `account_deletion_pending`) but `getAccountDeletion`, `cancelAccountDeletion` and
+         *     `logout`. While it waits, the account stays a member of what it is a member of,
+         *     shown as one, and what it wrote stays; the links of invitations it made let nobody
+         *     in, and it may wait past the thirty days until it is erased.
+         *
+         *     Erased, the account is gone from every organization, workspace, board and wiki; a
+         *     board it alone administered passes to an administrator of its workspace; nothing of
+         *     the person is kept, and what it wrote stays under its identifier, which
+         *     `getWorkspaceUsersById` answers with no name: the writer is a deleted user. An
+         *     organization that has nobody else goes with it, but the server's own first one,
+         *     whose only administrator stays as the only one of an organization with other
+         *     people does.
+         *
+         *     `username` is the account's login name, in any letter case: another is 400 naming
+         *     `/username`. An account with a password (`proof` is `password`) sends it: a wrong
+         *     one is 400 with the reason `invalid_credentials`, naming `/password`, and too many
+         *     are 429, as for `changePassword`. An account without one (`proof` is `sign_in`)
+         *     asks from a session made through a provider no more than five minutes ago:
+         *     otherwise 403 with the reason `sign_in_again`.
+         *
+         *     An organization that would go with the account and that takes only sessions made
+         *     through its provider is asked of such a session: any other is 401 with the reason
+         *     `sso_required` and its `orgId`. Leaving an organization is the account's own, and
+         *     asked of any session.
+         *
+         *     The server's only administrator stays (409, reason `last_admin`), and so does the
+         *     only administrator of an organization that stays when the account goes: one that
+         *     has other people in it, or the server's own first organization (409, reason
+         *     `last_org_admin`, `orgId` naming the first such organization): make somebody else
+         *     an administrator first.
+         */
+        post: operations["requestAccountDeletion"];
+        /**
+         * Take back the asking to delete the account
+         * @description Puts the account of the session in use again, as it was: for the session of an
+         *     account that waits to be deleted, which opens everything again from the next
+         *     request. A session of an account that does not wait is 409, and so is one whose
+         *     account is being erased already.
+         */
+        delete: operations["cancelAccountDeletion"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/users/me/identities": {
@@ -1486,7 +1568,8 @@ export interface paths {
          *     `board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with
          *     the `limit` passed, and nothing of it is stored. The blocks that show files are
          *     pointed at the board's new copies of them, the images and file blocks of bodies
-         *     included; a card value that does not fit its property's kind is cleared, as a copy
+         *     included. A file the board's line lists under `missingFiles` is not stored, even when
+         *     the archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy
          *     does. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the
          *     comments on them with it. What a write would refuse of an archive's boards, wikis
          *     and blocks is 400 before any of them is stored, with the message the write has: a
@@ -1553,8 +1636,7 @@ export interface paths {
          *     organization; and an administrator of the workspace who could not read a board
          *     giving somebody (themselves or another) a role on it. A board's title is there where
          *     the reader sees the board. For whoever works in the workspace (a member who is no
-         *     guest), of any organization. 50 to a page unless `perPage` says otherwise, at most
-         *     200. The records are never changed or removed but with the workspace, when it is
+         *     guest), of any organization. The records are never changed or removed but with the workspace, when it is
          *     removed for good.
          */
         get: operations["getWorkspaceAudit"];
@@ -1833,8 +1915,7 @@ export interface paths {
         /**
          * The cards of a board
          * @description One page of the board's cards, for the board's members. Oldest first; the pages cut
-         *     that order. A `page` or `perPage` that is no whole number is 400. With
-         *     `preview=true` each card has its `preview` (the first image and the beginning of the
+         *     that order. With `preview=true` each card has its `preview` (the first image and the beginning of the
          *     text of its body), which a list without it leaves out.
          */
         get: operations["getCards"];
@@ -1897,8 +1978,7 @@ export interface paths {
          *     title, when it was deleted and by whom; `undeleteBlock` brings one back until the
          *     trash is emptied of it. A card that went with the block it was on (another card, a
          *     view) comes back with that block, and is not listed. For the board's editors. The
-         *     last deleted first; the pages cut that order. A `page` or `perPage` that is no whole
-         *     number is 400.
+         *     last deleted first; the pages cut that order.
          */
         get: operations["getDeletedCards"];
         put?: never;
@@ -2246,7 +2326,9 @@ export interface paths {
          *     stored name, which an import gives the files it stores. A name an upload could not
          *     have (blank, with U+0000, over 255 characters, or of another extension than the
          *     stored name) is passed over and its file keeps the name of its entry, and an archive
-         *     without the member is read as before. A wiki is written as a board is, its `kind` `wiki`: its
+         *     without the member is read as before. A file a block shows that the board does not
+         *     have, its record or its bytes gone, gets no entry: it is listed under `missingFiles`
+         *     of the board's line, by stored name. A wiki is written as a board is, its `kind` `wiki`: its
          *     pages as they stand and the comments on them are its blocks (not the pages in its
          *     trash, nor the versions of bodies).
          *
@@ -3027,8 +3109,7 @@ export interface paths {
          * What names a card or a page
          * @description The cards and pages of this workspace whose body names the block of the path with a
          *     reference, or which have a comment whose body does, on a board or a wiki the user
-         *     reads; the block itself is never among them. Oldest first, 50 to a page unless
-         *     `perPage` says otherwise, at most 200. What names it from where the user does not
+         *     reads; the block itself is never among them. Oldest first. What names it from where the user does not
          *     read is left out and takes no place in a page: the answer does not say how many
          *     there are, nor whether there are any.
          *
@@ -3282,8 +3363,7 @@ export interface paths {
          *     of when they were deleted, or every one of them for an administrator of the
          *     workspace, which is who `undeleteContainer` lets bring them back: each
          *     with its identifier, its title, when it was deleted and by whom. The last deleted
-         *     first; the pages cut that order. A `page` or `perPage` that is no whole number is
-         *     400. For users of the workspace.
+         *     first; the pages cut that order. For users of the workspace.
          *
          *     The wikis in the trash are in the same list, which go there and come back as boards
          *     do (`deleteContainer`, `undeleteContainer`): each entry says its `kind`.
@@ -3401,7 +3481,17 @@ export interface paths {
          *     somebody the user does not see finds nothing, as one of nobody: the answer does not
          *     tell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or
          *     last changed a card, block or comment of a board of the workspace they read, also
-         *     after leaving the workspace. Oldest account first, not in the order of the request.
+         *     after leaving the workspace. Oldest account first, not in the order of the request:
+         *     by `createAt`, then by identifier.
+         *
+         *     An account that was deleted is answered to whoever asks by its identifier, seen
+         *     before or not, as what is left of it: the identifier, an empty `username`, `email`
+         *     and `displayName`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
+         *     the account is answered, neither when it went nor when it was asked to (the
+         *     identifier is kept as it was made). The empty `username` is what tells it, not a
+         *     time: a page shows a deleted user where it wrote or is mentioned.
+         *     `deleteAt` is not zero for a writer whose account waits to be deleted, who is
+         *     answered as they are, with their name.
          */
         post: operations["getWorkspaceUsersById"];
         delete?: never;
@@ -3830,8 +3920,7 @@ export interface paths {
          *     pages below it went with it; `undeletePage` brings one back with those until the
          *     trash is emptied of it (`trash_retention_days`, as for a board's cards). A page that
          *     went with the page it was below comes back with that page, and is not listed. For
-         *     the wiki's editors. The last deleted first; the pages cut that order. A `page` or
-         *     `perPage` that is no whole number is 400.
+         *     the wiki's editors. The last deleted first; the pages cut that order.
          */
         get: operations["getDeletedPages"];
         put?: never;
@@ -3873,6 +3962,57 @@ export interface components {
              *     characters. Empty or `null` for none, and the login name is shown.
              */
             displayName?: string | null;
+        };
+        /**
+         * @description What deleting the account of the session comes to: what stands in its way, what
+         *     goes with it, and, once it was asked, until when it waits.
+         */
+        AccountDeletion: {
+            /**
+             * Format: int64
+             * @description When the account is erased at the earliest, in milliseconds since the Unix
+             *     epoch; left out while the deletion is not asked.
+             */
+            deleteAfter?: number;
+            /**
+             * Format: int64
+             * @description How many days an account waits between the asking and the erasing.
+             */
+            graceDays: number;
+            /**
+             * @description Whether the account is the server's only administrator, who stays: the server
+             *     keeps one.
+             */
+            lastInstanceAdmin: boolean;
+            /**
+             * @description The organizations that have nobody but the account, which go with it, and
+             *     everything in them. The server's own first organization is never one.
+             */
+            organizations: components["schemas"]["LeavingOrganization"][];
+            /** @description How the request shows that it is the person's. */
+            proof: components["schemas"]["DeletionProof"];
+            /**
+             * Format: int64
+             * @description When the deletion was asked, in milliseconds since the Unix epoch; left out
+             *     while it is not.
+             */
+            requestedAt?: number;
+            /**
+             * @description The organizations the account is the only administrator of that stay when it
+             *     goes: those that have other people in them, and the server's own first
+             *     organization, which goes with no account. Somebody else is made an
+             *     administrator of each before the account can be deleted.
+             */
+            soleAdminOf: components["schemas"]["OrganizationName"][];
+        };
+        /** @description The answer to a request to delete the account. */
+        AccountDeletionAsked: {
+            /**
+             * Format: int64
+             * @description When the account is erased at the earliest, in milliseconds since the Unix
+             *     epoch.
+             */
+            deleteAfter: number;
         };
         /** @description Whether a user is to be an administrator of the instance. */
         AdminChange: {
@@ -4277,7 +4417,7 @@ export interface components {
          */
         CategoryUpdate: {
             /** @description Whether the category is collapsed in the sidebar. Left out, it is not. */
-            collapsed?: boolean | null;
+            collapsed?: boolean;
             /** @description The category of the path. */
             id: string;
             /** @description The display name; not blank. */
@@ -4509,6 +4649,16 @@ export interface components {
             /** @description The boards. */
             containers: components["schemas"]["Container"][];
         };
+        /** @description A request to delete the account of the session. */
+        DeleteAccountRequest: {
+            /**
+             * @description The account's password; left out, or empty, by an account that has none. Not
+             *     `null`, as no member that is not optional is.
+             */
+            password?: string;
+            /** @description The account's login name, typed out: that the person means this account. */
+            username: string;
+        };
         /** @description The identifiers of boards and blocks to delete together. */
         DeleteContainersAndBlocks: {
             /** @description The identifiers of the blocks. */
@@ -4563,6 +4713,11 @@ export interface components {
             /** @description The page's title when it was deleted. */
             title: string;
         };
+        /**
+         * @description How an account shows that the request to delete it is its person's.
+         * @enum {string}
+         */
+        DeletionProof: "password" | "sign_in";
         /**
          * @description How much room the interface gives each thing.
          * @enum {string}
@@ -4790,6 +4945,32 @@ export interface components {
             /** @description The token of the link. */
             token: string;
         };
+        /**
+         * @description An organization that goes with the account of its only member, and how much is in
+         *     it. The numbers are left out for an organization the session that asks does not
+         *     open (one that takes only sessions made through its provider).
+         */
+        LeavingOrganization: {
+            /**
+             * Format: int64
+             * @description How many boards it has in use, templates not counted.
+             */
+            boards?: number;
+            /**
+             * Format: int64
+             * @description How many files its boards and wikis in use hold.
+             */
+            files?: number;
+            /** @description The organization's identifier. */
+            id: string;
+            /** @description Its name; empty if it was given none. */
+            name: string;
+            /**
+             * Format: int64
+             * @description How many wikis it has in use.
+             */
+            wikis?: number;
+        };
         /** @description A card or a page as a reference shows it: what it is called, and where it is. */
         LinkedBlock: {
             /** @description The identifier of the board the card is on, or of the wiki the page is of. */
@@ -4877,13 +5058,13 @@ export interface components {
          */
         MemberRoles: {
             /** @description The user administers the board. */
-            schemeAdmin?: boolean | null;
+            schemeAdmin?: boolean;
             /** @description The user may comment on the board's cards. */
-            schemeCommenter?: boolean | null;
+            schemeCommenter?: boolean;
             /** @description The user may edit the board. */
-            schemeEditor?: boolean | null;
+            schemeEditor?: boolean;
             /** @description The user may view the board. */
-            schemeViewer?: boolean | null;
+            schemeViewer?: boolean;
         };
         /**
          * @description The minimum role of a board: the role a user gets who joins the board, or is added
@@ -4900,8 +5081,8 @@ export interface components {
          */
         NewAccount: {
             /**
-             * @description The name to be shown by; may be left out, `null` or empty for none. Read as
-             *     `patchMe` reads it.
+             * @description The name to be shown by; may be left out or empty for none, not `null`. Checked
+             *     as `patchMe` checks it: at most 64 UTF-16 code units without control characters.
              */
             displayName?: string;
             /** @description The email address. */
@@ -4932,7 +5113,7 @@ export interface components {
              */
             fields?: {
                 [key: string]: unknown;
-            } | null;
+            };
             /**
              * @description A name for the block within the request. The server gives every block a new
              *     identifier, and where one block of the request names another (as its `parentId`,
@@ -4940,19 +5121,19 @@ export interface components {
              *     the new identifier there. Blocks that come under one name get one identifier,
              *     which cannot be stored twice; a block that no other names needs no `id`.
              */
-            id?: string | null;
+            id?: string;
             /**
              * @description The block this one is below: a block of the same board, or the name of another
              *     block of the request. Left out for a block directly on its board.
              */
-            parentId?: string | null;
+            parentId?: string;
             /**
              * Format: int64
              * @description The schema version of the block.
              */
-            schema?: number | null;
+            schema?: number;
             /** @description The display title. */
-            title?: string | null;
+            title?: string;
             /**
              * @description The block type: `card`, `view`, `comment` or `attachment`. Any other type is
              *     refused (400 naming `type`): a card's content is its body.
@@ -4972,57 +5153,58 @@ export interface components {
              */
             cardProperties?: {
                 [key: string]: unknown;
-            }[] | null;
+            }[];
             /** @description The board's description. */
-            description?: string | null;
+            description?: string;
             /** @description The board's icon, usually one emoji. */
-            icon?: string | null;
+            icon?: string;
             /**
              * @description Only where boards and blocks are made together, and needed there: a name by
              *     which the blocks of the request say which board they belong to. The server gives
              *     the board another identifier. Where one board is made, a board with an `id` is
              *     refused.
              */
-            id?: string | null;
+            id?: string;
             /** @description Whether the board is a template. */
-            isTemplate?: boolean | null;
-            minimumRole?: components["schemas"]["MinimumRole"] | null;
+            isTemplate?: boolean;
+            /** @description The role a user gets who joins the board. Left out, `editor`. */
+            minimumRole?: components["schemas"]["MinimumRole"];
             /** @description Free-form properties of the board itself. */
             properties?: {
                 [key: string]: unknown;
-            } | null;
+            };
             /** @description Whether the description is shown in the interface. */
-            showDescription?: boolean | null;
+            showDescription?: boolean;
             /**
              * Format: int64
              * @description The version of the built-in template the board came from.
              */
-            templateVersion?: number | null;
+            templateVersion?: number;
             /** @description The board's title. */
-            title?: string | null;
+            title?: string;
             /** @description Whether the board is open or private. */
             type: components["schemas"]["ContainerType"];
         };
         /** @description A card to make. */
         NewCard: {
             /** @description The board of the path, if it is there at all. */
-            boardId?: string | null;
+            boardId?: string;
             body?: components["schemas"]["Body"] | null;
             /** @description The card's icon; at most one grapheme. */
-            icon?: string | null;
+            icon?: string;
             /** @description Whether the card is a template. */
-            isTemplate?: boolean | null;
+            isTemplate?: boolean;
             /** @description Property values by property identifier: a string, a list of strings, or `null`. */
             properties?: {
                 [key: string]: unknown;
-            } | null;
+            };
             /** @description The display title. */
-            title?: string | null;
+            title?: string;
         };
         /** @description A sidebar category to make. */
         NewCategory: {
             /** @description Whether the category is collapsed in the sidebar. */
-            collapsed?: boolean | null;
+            collapsed?: boolean;
             /** @description The display name; not blank. */
             name: string;
             /**
@@ -5030,8 +5212,12 @@ export interface components {
              * @description The position of the category among the user's categories. It is stored 10
              *     higher: see `createCategory`.
              */
-            sortOrder?: number | null;
-            type?: components["schemas"]["CategoryType"] | null;
+            sortOrder?: number;
+            /**
+             * @description Left out, `custom`. A category that is made as `system` can be neither renamed
+             *     nor deleted afterwards.
+             */
+            type?: components["schemas"]["CategoryType"];
             /** @description The user of the session: a user makes categories for themselves only. */
             userId: string;
             /** @description The workspace of the path. */
@@ -5079,13 +5265,13 @@ export interface components {
              * @description The user administers the board. Only who manages the board's roles may ask for
              *     this.
              */
-            schemeAdmin?: boolean | null;
+            schemeAdmin?: boolean;
             /** @description The user may comment on the board's cards. */
-            schemeCommenter?: boolean | null;
+            schemeCommenter?: boolean;
             /** @description The user may edit the board. */
-            schemeEditor?: boolean | null;
+            schemeEditor?: boolean;
             /** @description The user may view the board. */
-            schemeViewer?: boolean | null;
+            schemeViewer?: boolean;
             /** @description The identifier of the user, who must be able to see the board's workspace. */
             userId: string;
         };
@@ -5375,6 +5561,13 @@ export interface components {
              */
             publicLinks: boolean;
         };
+        /** @description An organization named to its member. */
+        OrganizationName: {
+            /** @description The organization's identifier. */
+            id: string;
+            /** @description Its name; empty if it was given none. */
+            name: string;
+        };
         /** @description A change of an organization: what is left out stays as it is. */
         OrganizationPatch: {
             /** @description The new name, at most `MAX_NAME_CHARS` characters; may be empty. */
@@ -5549,7 +5742,8 @@ export interface components {
             limit?: number;
             /**
              * @description The organization whose provider the session must be made through, with the
-             *     reason `sso_required`: what the sign-in is started for.
+             *     reason `sso_required`: what the sign-in is started for. With the reason
+             *     `last_org_admin`, the organization that would be left without an administrator.
              */
             orgId?: string;
             /**
@@ -5621,8 +5815,8 @@ export interface components {
         /** @description A request to register a new user. */
         RegisterRequest: {
             /**
-             * @description The name to be shown by; may be left out, `null` or empty for none. Read as
-             *     `patchMe` reads it.
+             * @description The name to be shown by; may be left out or empty for none, not `null`. Checked
+             *     as `patchMe` checks it: at most 64 UTF-16 code units without control characters.
              */
             displayName?: string;
             /** @description The email address. */
@@ -5708,13 +5902,16 @@ export interface components {
             db_version: string;
             /** @description The edition of the server. */
             edition: string;
-            /** @description The CPU architecture the server runs on. */
+            /** @description The CPU architecture the server runs on, as Rust names it (`x86_64`, `aarch64`). */
             os_arch: string;
-            /** @description The operating system the server runs on. */
+            /**
+             * @description The operating system the server runs on, as Rust names it (`linux`, `macos`,
+             *     `windows`).
+             */
             os_type: string;
             /** @description The kind of deployment: always `personal_server`. */
             sku: string;
-            /** @description The server version. */
+            /** @description The version of the server, the one the contract's `info.version` gives too. */
             version: string;
         };
         /**
@@ -5935,12 +6132,15 @@ export interface components {
         User: {
             /**
              * Format: int64
-             * @description Creation time in milliseconds since the Unix epoch.
+             * @description Creation time in milliseconds since the Unix epoch; zero for a deleted account
+             *     (an empty `username`).
              */
             createAt: number;
             /**
              * Format: int64
-             * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
+             * @description When the account was put out of use (deactivated, or its deletion asked), in
+             *     milliseconds since the Unix epoch; zero for one in use, and for a deleted account,
+             *     which an empty `username` tells.
              */
             deleteAt: number;
             /**
@@ -5957,7 +6157,8 @@ export interface components {
             isAdmin: boolean;
             /**
              * Format: int64
-             * @description Last modification time in milliseconds since the Unix epoch.
+             * @description Last modification time in milliseconds since the Unix epoch; zero for a deleted
+             *     account.
              */
             updateAt: number;
             /** @description The login name. */
@@ -6737,9 +6938,9 @@ export interface operations {
     getOrgAudit: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;
@@ -6774,9 +6975,9 @@ export interface operations {
     getOrgMembers: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;
@@ -7535,9 +7736,9 @@ export interface operations {
                 all?: string;
                 /** @description Asks for the one block with this identifier, in a list of one. 404 if the board has no such block. */
                 blockId?: string;
-                /** @description Narrows the list to the blocks with this parent. With the identifier of the board, to the blocks directly on the board. */
+                /** @description Narrows the list to the blocks below the block of this identifier. */
                 parentId?: string;
-                /** @description Narrows the list to the blocks of this type. The word `unknown` narrows nothing. */
+                /** @description Narrows the list to the blocks of this type, written as the blocks have it. */
                 type?: string;
             };
             header?: never;
@@ -7574,9 +7775,9 @@ export interface operations {
             query: {
                 /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
                 readToken: string;
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
                 /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
                 preview?: boolean;
@@ -7881,6 +8082,108 @@ export interface operations {
                         [key: string]: string;
                     };
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getAccountDeletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What deleting the account comes to. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountDeletion"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    requestAccountDeletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description The account waits to be erased. */
+            200: {
+                headers: {
+                    /** @description Clears the session cookie. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountDeletionAsked"];
+                };
+            };
+            /** @description The password was wrong too often, or the server has too much password work to do at the moment. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    cancelAccountDeletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account is in use again. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -8307,9 +8610,9 @@ export interface operations {
     getWorkspaceAudit: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;
@@ -8559,9 +8862,9 @@ export interface operations {
                 all?: string;
                 /** @description Asks for the one block with this identifier, in a list of one. 404 if the board has no such block. */
                 blockId?: string;
-                /** @description Narrows the list to the blocks with this parent. With the identifier of the board, to the blocks directly on the board. */
+                /** @description Narrows the list to the blocks below the block of this identifier. */
                 parentId?: string;
-                /** @description Narrows the list to the blocks of this type. The word `unknown` narrows nothing. */
+                /** @description Narrows the list to the blocks of this type, written as the blocks have it. */
                 type?: string;
             };
             header?: never;
@@ -8869,9 +9172,9 @@ export interface operations {
     getCards: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
                 /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
                 preview?: boolean;
@@ -8989,9 +9292,9 @@ export interface operations {
     getDeletedCards: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;
@@ -10893,9 +11196,9 @@ export interface operations {
     getReferencesTo: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;
@@ -11347,9 +11650,9 @@ export interface operations {
     getDeletedContainers: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;
@@ -12338,9 +12641,9 @@ export interface operations {
     getDeletedPages: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;

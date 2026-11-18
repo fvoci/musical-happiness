@@ -274,15 +274,15 @@ impl App {
             ));
         }
         let part_size = i64::try_from(self.config().upload_part_bytes).unwrap_or(i64::MAX);
-        // An empty file has no part to send; its parts, none, are kept as on the disk.
-        // An archive's parts are on the disk too.
+        // An empty file has no part to send: its parts, none, are on the disk, as an archive's.
         let multipart = self
             .files()
             .multipart()
             .filter(|_| new.size > 0 && purpose == UploadPurpose::File);
-        let path = multipart
-            .map(|_| FilePlace::new(target, &new.name).path)
-            .unwrap_or_default();
+        let path = match multipart {
+            Some(_) => self.new_file_place(target, &new.name).await?.path,
+            None => String::new(),
+        };
         let (container_id, workspace_id) = match purpose {
             UploadPurpose::File => (target.to_owned(), String::new()),
             UploadPurpose::Import => (String::new(), target.to_owned()),

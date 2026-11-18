@@ -1,7 +1,5 @@
 //! Cards: the card view of blocks of type `card`.
 
-use std::num::IntErrorKind;
-
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
@@ -22,17 +20,13 @@ use super::workspace::InWorkspace;
 
 use super::blocks::BLOCK_FIELDS;
 use super::change_notification;
+use super::paging::paging_params;
 use super::{ApiResult, TRUE, created, json_response, query_param};
 use super::{decode_with_document, require_container_permission, require_permission_through};
 use crate::app::{App, CardPreviews};
 use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
-
-/// The page of cards a request without `page` gets.
-pub(super) const DEFAULT_PAGE: i64 = 0;
-/// The number of cards a page has in a request without `perPage`.
-pub(super) const DEFAULT_PER_PAGE: i64 = 100;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -41,39 +35,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_card_body_versions))
         .routes(routes!(handle_get_card_body_version))
         .routes(routes!(handle_restore_card_body_version))
-}
-
-/// Reads the `page` and `perPage` of a list that is answered in pages. Both are read,
-/// so that a request with both wrong is told of both.
-pub(super) fn page_params(query: Option<&str>) -> Result<(i64, i64), AppError> {
-    let page = int_query_param(query, "page", DEFAULT_PAGE);
-    let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE);
-    match (page, per_page) {
-        (Ok(page), Ok(per_page)) => Ok((page, per_page)),
-        (Err(refusal), Ok(_)) | (Ok(_), Err(refusal)) => Err(refusal),
-        (Err(page), Err(per_page)) => Err(page.and(per_page)),
-    }
-}
-
-/// Reads a whole number from a query parameter; `default` if the parameter is absent
-/// or empty.
-pub(super) fn int_query_param(
-    query: Option<&str>,
-    name: &str,
-    default: i64,
-) -> Result<i64, AppError> {
-    let text = query_param(query, name);
-    if text.is_empty() {
-        return Ok(default);
-    }
-    text.parse().map_err(|error: std::num::ParseIntError| {
-        let reason = match error.kind() {
-            IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => "out of range",
-            _ => "not a whole number",
-        };
-        AppError::bad_request(format_args!("invalid `{name}` parameter: {reason}"))
-            .with_parameter(name)
-    })
 }
 
 /// Returns the card with the given identifier for a handler of `/cards/{cardId}`, if
@@ -171,8 +132,7 @@ async fn handle_create_card(
 /// The cards of a board
 ///
 /// One page of the board's cards, for the board's members. Oldest first; the pages cut
-/// that order. A `page` or `perPage` that is no whole number is 400. With
-/// `preview=true` each card has its `preview` (the first image and the beginning of the
+/// that order. With `preview=true` each card has its `preview` (the first image and the beginning of the
 /// text of its body), which a list without it leaves out.
 #[utoipa::path(
     get,
@@ -208,14 +168,13 @@ pub(super) async fn cards_page(
     board_id: &str,
     query: Option<&str>,
 ) -> Result<Vec<Card>, AppError> {
-    let (page, per_page) = page_params(query)?;
+    let page = paging_params(query)?;
     let previews = if query_param(query, "preview") == TRUE {
         CardPreviews::With
     } else {
         CardPreviews::Without
     };
-    app.cards_for_board(board_id, page, per_page, previews)
-        .await
+    app.cards_for_board(board_id, page, previews).await
 }
 
 /// Change a card

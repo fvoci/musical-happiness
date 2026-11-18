@@ -177,8 +177,10 @@ without a search server (a search there searches its database).
 
 ## Request bodies
 
-A request schema lists the members a request is for. An optional member may be left out or \
-be `null`. A member the schema marks as required is one the request cannot do without; \
+A request schema lists the members a request is for. A member that is not required may be \
+left out. `null` is a value only of a member whose schema allows it, and is then none; `null` \
+for any other member is refused with 400, as a value of another type is. A member the schema \
+marks as required is one the request cannot do without; \
 where the server takes a missing one as empty instead of refusing the request, the result \
 is that of the empty value (a login without a password is a failed login). A body with \
 members the schema does not list is mostly not refused for them. The exceptions: \
@@ -218,6 +220,16 @@ const SCHEMAS: &[(&str, Members)] = &[
         "AcceptedInvitation",
         Members::AllBut(&["containerId", "containerKind"]),
     ),
+    (
+        "AccountDeletion",
+        Members::AllBut(&["requestedAt", "deleteAfter"]),
+    ),
+    ("AccountDeletionAsked", Members::All),
+    (
+        "LeavingOrganization",
+        Members::AllBut(&["boards", "wikis", "files"]),
+    ),
+    ("OrganizationName", Members::All),
     ("EmailVerified", Members::AllBut(&["containerId"])),
     ("Block", Members::AllBut(&["editedAt"])),
     ("Body", Members::AsWritten),
@@ -363,6 +375,7 @@ const SCHEMAS: &[(&str, Members)] = &[
         Members::Only(&["issuer", "clientId"]),
     ),
     ("OidcStartRequest", Members::Only(&[])),
+    ("DeleteAccountRequest", Members::Only(&["username"])),
     (
         "PatchContainersAndBlocks",
         Members::Only(&["containerIds", "containerPatches"]),
@@ -382,6 +395,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("UserPreferencesPatch", Members::Only(&[])),
     // Closed sets of words.
     ("CardOpen", Members::AsWritten),
+    ("DeletionProof", Members::AsWritten),
     ("CategoryType", Members::AsWritten),
     ("ContainerKind", Members::AsWritten),
     ("ContainerType", Members::AsWritten),

@@ -17,6 +17,15 @@ export function userDisplayName(user: UserNames): string {
   return user.displayName === '' ? user.username : `${user.displayName} (@${user.username})`;
 }
 
+/**
+ * Whether the account of the user was deleted: what is left of it is its
+ * identifier, without a name. What they wrote stays, and whoever reads it is
+ * shown a deleted user.
+ */
+export function isGone(user: UserNames): boolean {
+  return user.username === '';
+}
+
 /** The longest display name the server takes, in UTF-16 code units as `String.length` counts. */
 export const DISPLAY_NAME_MAX_LENGTH = 64;
 

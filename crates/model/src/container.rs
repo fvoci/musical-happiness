@@ -12,7 +12,6 @@ use crate::allowlist::holds_nul;
 use crate::card_property::{
     CardPropertyError, PersonProperties, validate_card_property_definitions,
 };
-use crate::serde_util::null_as_default;
 
 /// Who may see and join a board.
 #[derive(
@@ -278,20 +277,16 @@ pub enum ContainerError {
 pub struct Container {
     /// The board's identifier.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub id: String,
     /// The identifier of the workspace the board belongs to.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub workspace_id: String,
     /// The identifier of the user who created the board; empty for a built-in template,
     /// which no user made.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub created_by: String,
     /// The identifier of the user who last modified the board.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub modified_by: String,
     /// Whether the board is open or private.
     #[serde(rename = "type")]
@@ -301,64 +296,52 @@ pub struct Container {
     /// is no template and has no card properties, and the operations that are about
     /// cards answer for a wiki as for a board that is not there.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub kind: ContainerKind,
     /// The role a user gets who joins the board, or is added by somebody who does not
     /// manage its roles. Never empty and never admin.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub minimum_role: MinimumRole,
     /// The board's title. No text of a board (this, `description`, `icon`, and the
     /// strings and member names of `properties` and `cardProperties`) holds U+0000:
     /// 400 naming the member.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub title: String,
     /// The board's description.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub description: String,
     /// The board's icon, usually one emoji.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub icon: String,
     /// Whether the description is shown in the interface.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub show_description: bool,
     /// Whether the board is a template.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub is_template: bool,
     /// Whether the board is one of the templates the server ships with. They are
     /// offered to every workspace and nobody can change them. The server decides this:
     /// what a client sends here is ignored.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub is_builtin: bool,
     /// The version of the built-in template this board came from.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub template_version: i64,
     /// Free-form properties of the board itself.
-    #[serde(default, deserialize_with = "null_as_default")]
+    #[serde(default)]
     #[schema(value_type = Object)]
     pub properties: JsonMap,
     /// The property definitions of the board's cards, in display order.
-    #[serde(default, deserialize_with = "null_as_default")]
+    #[serde(default)]
     #[schema(value_type = Vec<Object>)]
     pub card_properties: Vec<JsonMap>,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub update_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
     #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
 }
 
@@ -509,18 +492,14 @@ pub struct ContainerPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show_description: Option<bool>,
     /// Board properties to set.
-    #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub updated_properties: JsonMap,
     /// Keys of board properties to remove.
-    #[serde(deserialize_with = "null_as_default")]
     pub deleted_properties: Vec<String>,
     /// Card property definitions to add or replace, matched by their `id`.
-    #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Vec<Object>)]
     pub updated_card_properties: Vec<JsonMap>,
     /// Identifiers of card property definitions to remove.
-    #[serde(deserialize_with = "null_as_default")]
     pub deleted_card_properties: Vec<String>,
 }
 
@@ -621,26 +600,20 @@ fn property_id(property: &JsonMap) -> Option<String> {
 )]
 pub struct ContainerMember {
     /// The identifier of the board.
-    #[serde(deserialize_with = "null_as_default")]
     pub container_id: String,
     /// The identifier of the user.
-    #[serde(deserialize_with = "null_as_default")]
     pub user_id: String,
     /// The user's independent roles on the board. Nothing stores any; not part of the
     /// JSON form.
     #[serde(skip)]
     pub roles: String,
     /// The user administers the board.
-    #[serde(deserialize_with = "null_as_default")]
     pub scheme_admin: bool,
     /// The user may edit the board.
-    #[serde(deserialize_with = "null_as_default")]
     pub scheme_editor: bool,
     /// The user may comment on the board's cards.
-    #[serde(deserialize_with = "null_as_default")]
     pub scheme_commenter: bool,
     /// The user may view the board.
-    #[serde(deserialize_with = "null_as_default")]
     pub scheme_viewer: bool,
     /// The membership has no directly stored role record.
     #[serde(skip_serializing_if = "std::ops::Not::not")]

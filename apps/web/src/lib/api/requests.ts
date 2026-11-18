@@ -10,6 +10,7 @@ import type { FileDetails } from '../editor/files.ts';
 import type { Container } from '../logic/wire.ts';
 import type {
   AcceptedInvitation,
+  AccountDeletion,
   DeletedItem,
   LinkedIdentity,
   InvitationPreview,
@@ -341,6 +342,26 @@ export class ServerRequests implements TrashReads {
 
   async identities(): Promise<LinkedIdentity[]> {
     return this.#http.request<Schemas['LinkedIdentity'][]>('/api/v1/users/me/identities');
+  }
+
+  async deletion(): Promise<AccountDeletion> {
+    return this.#http.request<Schemas['AccountDeletion']>('/api/v1/users/me/deletion');
+  }
+
+  async requestDeletion(username: string, password: string): Promise<number> {
+    const request: Schemas['DeleteAccountRequest'] = password
+      ? { username, password }
+      : { username };
+    const asked = await this.#http.request<Schemas['AccountDeletionAsked']>(
+      '/api/v1/users/me/deletion',
+      {},
+      { method: 'POST', json: request },
+    );
+    return asked.deleteAfter;
+  }
+
+  async cancelDeletion(): Promise<void> {
+    await this.#http.request('/api/v1/users/me/deletion', {}, { method: 'DELETE' });
   }
 
   async unlinkIdentity(identity: LinkedIdentity, password: string): Promise<void> {

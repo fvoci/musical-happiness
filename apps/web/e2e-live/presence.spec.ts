@@ -127,7 +127,6 @@ async function cardsInEveryView(
         data: [
           {
             type: 'view',
-            parentId: board.boardId,
             containerId: board.boardId,
             title: kind,
             fields: { viewType: kind },

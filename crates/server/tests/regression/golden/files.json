@@ -128,7 +128,7 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "request Content-Type isn't multipart/form-data",
+      "detail": "the body must be a multipart/form-data form",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,

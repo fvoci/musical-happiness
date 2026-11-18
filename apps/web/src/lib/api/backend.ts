@@ -12,6 +12,7 @@ import type {
   BoardView,
 } from '../logic/wire.ts';
 import { openRoomLater } from '../state/doc-opener.ts';
+import { allPages } from '../state/page-reads.ts';
 import { applyViewPatch } from '../state/patches.ts';
 import {
   BackendError,
@@ -575,24 +576,21 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return viewOf(view);
   }
 
-  /** Every card of the board, in one page (`perPage` 0 asks for all). */
+  /** Every card of the board, read page after page. */
   async cards(boardId: string): Promise<CardSummary[]> {
-    const cards = await this.inWorkspace<Schemas['Card'][]>(
-      '/boards/{boardId}/cards',
-      { boardId },
-      { query: { perPage: 0 } },
-    );
-    return cards.map(cardOf);
+    return (await this.#everyCard(boardId, {})).map(cardOf);
   }
 
   /** The previews of the cards (`getCards` with `preview=true`); a card without one has none. */
   async cardPreviews(boardId: string): Promise<Map<string, CardPreview>> {
-    const cards = await this.inWorkspace<Schemas['Card'][]>(
-      '/boards/{boardId}/cards',
-      { boardId },
-      { query: { perPage: 0, preview: 'true' } },
+    return previewsOf(await this.#everyCard(boardId, { preview: 'true' }));
+  }
+
+  #everyCard(boardId: string, query: Record<string, string>): Promise<Schemas['Card'][]> {
+    const path = '/boards/{boardId}/cards';
+    return allPages((paging) =>
+      this.inWorkspace<Schemas['Card'][]>(path, { boardId }, { query: { ...paging, ...query } }),
     );
-    return previewsOf(cards);
   }
 
   /** A card with its body. */

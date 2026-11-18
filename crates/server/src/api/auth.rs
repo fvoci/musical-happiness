@@ -12,6 +12,7 @@ use utoipa_axum::routes;
 use super::contract::tag;
 use super::signup_cookie::{marker_of, with_marker};
 
+use super::session::AccountSession;
 use super::{ApiResult, RequiredSession, created, decode_object, no_content};
 use crate::app::App;
 use crate::client_address::ClientAddress;
@@ -117,7 +118,8 @@ pub(super) fn with_session_cookie(app: &App, token: &str, mut response: Response
 
 /// Sign out
 ///
-/// Ends the session of the request and clears its cookie.
+/// Ends the session of the request and clears its cookie. The session of an account
+/// that waits to be deleted is ended too.
 #[utoipa::path(
     post,
     path = "/logout",
@@ -129,11 +131,8 @@ pub(super) fn with_session_cookie(app: &App, token: &str, mut response: Response
         headers(("Set-Cookie" = String, description = "Clears the session cookie.")),
     )),
 )]
-async fn handle_logout(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-) -> ApiResult {
-    app.logout(&session.id).await?;
+async fn handle_logout(State(app): State<App>, account: AccountSession) -> ApiResult {
+    app.logout(&account.session.id).await?;
     let mut response = no_content();
     response
         .headers_mut()
@@ -172,7 +171,7 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
 /// cookie the name and the address of a registration that waits are taken.
 ///
 /// The name and the email address must not be blank, the email address must look like
-/// one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
+/// one, the display name (`displayName`, may be left out) is checked as `patchMe` checks it,
 /// the password must have at least 8 characters and at most 1024 bytes, and the organization
 /// name must not be blank, and is otherwise read as a display name is; otherwise the
 /// request is 400, and `errors` names every member that is refused, each with

@@ -185,6 +185,12 @@ reasons! {
     /// The change would leave the board, the workspace or the instance without an
     /// administrator.
     LastAdmin => "last_admin", "Last administrator";
+    /// The session is of an account that waits to be deleted: it opens the way back
+    /// and nothing else.
+    AccountDeletionPending => "account_deletion_pending", "Account waits to be deleted";
+    /// An account without a password asks for what its session, not made through a
+    /// provider just now, does not prove to be its person's.
+    SignInAgain => "sign_in_again", "Sign in again";
     /// Only an administrator of the instance may do this.
     AdminRequired => "admin_required", "Administrator required";
     /// A guest of the workspace is given no role on a board above editor.
@@ -925,6 +931,13 @@ impl From<StoreError> for AppError {
             StoreError::Stale { .. } => {
                 Self::conflict("the block has changed since it was read").context(error)
             }
+            // Another process wrote the document (or a write of this one was stored
+            // though its answer never came): the next try finds what is stored.
+            StoreError::DocumentWritten { .. } => Self::service_unavailable(
+                "what is stored of the document was written since this server read it",
+            )
+            .with_reason(Reason::DocumentUnavailable)
+            .context(error),
             other => Self::from(anyhow::Error::from(other)),
         }
     }
@@ -972,6 +985,7 @@ impl From<SubscriptionError> for AppError {
     }
 }
 
+mod account_errors;
 mod model_errors;
 #[cfg(test)]
 mod tests;

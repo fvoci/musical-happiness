@@ -16,6 +16,7 @@ use fvoci_server::app::App;
 use fvoci_server::collab::worker::WorkerCommand;
 use fvoci_server::config::Configuration;
 use fvoci_server::config::collab::CollabSettings;
+use fvoci_server::ws::Hub;
 use fvoci_server::{Server, TlsFiles};
 use fvoci_store::testing::{TableOwner, TestDatabase};
 use fvoci_store::{SharingChange, Store};
@@ -25,10 +26,51 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
+use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 /// A websocket connection to a test server.
 pub(crate) type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+/// Waits until the server has carried out what `socket` sent before, and returns the
+/// frames that came meanwhile (the websocket's own Ping and Pong apart).
+///
+/// The Pong to a Ping says that the server read what was sent before the Ping, not
+/// that it did it: a connection reads on while it carries a command out. The hub says
+/// the rest ([`Hub::carried_out`]), for every connection: one that another seam of the
+/// tests holds keeps this waiting.
+///
+/// # Panics
+///
+/// Panics if the connection ends first, or the server is not done in ten seconds.
+pub(crate) async fn carried_out(hub: &Hub, socket: &mut WebSocket) -> Vec<Message> {
+    use futures_util::{SinkExt as _, StreamExt as _};
+
+    let carried_out = async {
+        socket
+            .send(Message::Ping(vec![7].into()))
+            .await
+            .expect("the Ping is sent");
+        let mut came = Vec::new();
+        loop {
+            let frame = socket
+                .next()
+                .await
+                .expect("the connection stays open")
+                .expect("a websocket frame");
+            match frame {
+                Message::Pong(_) => break,
+                Message::Ping(_) => {}
+                frame => came.push(frame),
+            }
+        }
+        hub.carried_out().await;
+        came
+    };
+    tokio::time::timeout(Duration::from_secs(10), carried_out)
+        .await
+        .expect("the server carried out what the connection sent")
+}
 
 pub(crate) const USER1_USERNAME: &str = "user1";
 pub(crate) const USER2_USERNAME: &str = "user2";
@@ -293,10 +335,12 @@ impl Setup {
             // The limit by address is tested where a test turns it on.
             login_address_attempts_per_minute: 0,
             // The executable of the tests is no server: the workers of editing together
-            // are started from the server's.
+            // are started from the worker of the tests, which is built with what the
+            // tests ask of a worker whatever the server's executable was last built
+            // with.
             collab: CollabSettings {
                 worker_command: Some(WorkerCommand::of_executable(
-                    env!("CARGO_BIN_EXE_fvoci-server").into(),
+                    env!("CARGO_BIN_EXE_fvoci-test-worker").into(),
                 )),
                 ..CollabSettings::default()
             },

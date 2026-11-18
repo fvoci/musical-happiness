@@ -28,8 +28,12 @@ pub(crate) struct Name {
 pub(crate) struct Names {
     pub(crate) server: Name,
     pub(crate) search: Name,
-    /// The commit, in full.
+    /// The commit, in full, with `-dirty` for a tree with uncommitted changes: what the
+    /// server reports as its `commit`.
     revision: String,
+    /// The commit's time (`%cI`), what the server reports as its `build_date`: a build of
+    /// one commit says the same whenever it is made.
+    created: String,
     /// `sha-<short commit>`, with `-dirty` for a tree with uncommitted changes.
     tag: String,
     /// The processor, as Docker names it: `arm64`, `amd64`.
@@ -50,17 +54,23 @@ impl Names {
         } else {
             Tree::Changed
         };
+        let created = asked("git", &["-C", &root, "log", "-1", "--format=%cI"])?;
         let arch = asked("docker", &["version", "--format", "{{.Server.Arch}}"])?;
-        Ok(Self::new(&revision, tree, &arch))
+        Ok(Self::new(&revision, &created, tree, &arch))
     }
 
     /// Names of a commit that is no checkout's, for the tests.
     #[cfg(test)]
     pub(crate) fn for_tests() -> Self {
-        Self::new("0123456789abcdef", Tree::Committed, "arm64")
+        Self::new(
+            "0123456789abcdef",
+            "2026-11-19T03:00:00+09:00",
+            Tree::Committed,
+            "arm64",
+        )
     }
 
-    fn new(revision: &str, tree: Tree, arch: &str) -> Self {
+    fn new(revision: &str, created: &str, tree: Tree, arch: &str) -> Self {
         let short = revision.get(..12).unwrap_or(revision);
         let tag = match tree {
             Tree::Committed => format!("sha-{short}"),
@@ -76,10 +86,24 @@ impl Names {
         Self {
             server: name("fvoci-server"),
             search: name("fvoci-search"),
-            revision: revision.to_owned(),
+            revision: match tree {
+                Tree::Committed => revision.to_owned(),
+                Tree::Changed => format!("{revision}-dirty"),
+            },
+            created: created.to_owned(),
             tag,
             arch: arch.to_owned(),
         }
+    }
+
+    /// What the server built for these names reports as its `commit` in ping.
+    pub(crate) fn revision(&self) -> &str {
+        &self.revision
+    }
+
+    /// What the server built for these names reports as its `build_date` in ping.
+    pub(crate) fn created(&self) -> &str {
+        &self.created
     }
 }
 
@@ -103,6 +127,21 @@ fn asked(program: &str, arguments: &[&str]) -> Result<String> {
     Ok(answer.output)
 }
 
+/// The build arguments of both images: the commit and its time, which the server reports
+/// in ping and the labels carry, and the tag.
+fn build_arguments(names: &Names) -> Vec<String> {
+    let given = [
+        format!("FVOCI_BUILD_HASH={}", names.revision),
+        format!("FVOCI_BUILD_DATE={}", names.created),
+        format!("FVOCI_CREATED={}", names.created),
+        format!("FVOCI_VERSION={}", names.tag),
+    ];
+    given
+        .into_iter()
+        .flat_map(|argument| ["--build-arg".to_owned(), argument])
+        .collect()
+}
+
 /// Builds both images for this machine's processor, with the commit and the time in
 /// their labels.
 ///
@@ -110,20 +149,7 @@ fn asked(program: &str, arguments: &[&str]) -> Result<String> {
 ///
 /// Fails if a build fails.
 pub(crate) fn build(root: &Path, names: &Names) -> Result<()> {
-    // The commit's time, so that a build of a commit says the same whenever it is made.
-    let root_text = root.to_string_lossy();
-    let created = asked("git", &["-C", &root_text, "log", "-1", "--format=%cI"])?;
-    let hash = format!("FVOCI_BUILD_HASH={}", names.revision);
-    let created = format!("FVOCI_CREATED={created}");
-    let version = format!("FVOCI_VERSION={}", names.tag);
-    let common = [
-        "--build-arg",
-        &hash,
-        "--build-arg",
-        &created,
-        "--build-arg",
-        &version,
-    ];
+    let common = build_arguments(names);
     let builds: [(&str, &Name, &[&str]); 2] = [
         (
             "the server's image",
@@ -139,7 +165,7 @@ pub(crate) fn build(root: &Path, names: &Names) -> Result<()> {
     for (what, name, rest) in builds {
         say(&format!("\n==> building {what}, {}", name.local));
         let mut arguments = vec!["build", "--tag", &name.local];
-        arguments.extend(common);
+        arguments.extend(common.iter().map(String::as_str));
         arguments.extend_from_slice(rest);
         steps::run(root, "docker", &arguments, &[("DOCKER_BUILDKIT", "1")])?;
     }
@@ -201,22 +227,33 @@ mod tests {
 
     #[test]
     fn the_tags_name_the_commit_and_the_processor() {
-        let names = Names::new("0123456789abcdef0123", Tree::Committed, "arm64");
+        let names = Names::new("0123456789abcdef0123", "", Tree::Committed, "arm64");
         assert_eq!(
             names.server.local,
             "ghcr.io/fvoci/fvoci-server:sha-0123456789ab-arm64"
         );
         assert_eq!(names.search.repository, "ghcr.io/fvoci/fvoci-search");
-        let dirty = Names::new("0123456789abcdef0123", Tree::Changed, "amd64");
+        let dirty = Names::new("0123456789abcdef0123", "", Tree::Changed, "amd64");
         assert_eq!(
             dirty.search.local,
             "ghcr.io/fvoci/fvoci-search:sha-0123456789ab-dirty-amd64"
+        );
+        assert_eq!(names.revision(), "0123456789abcdef0123");
+        assert_eq!(
+            dirty.revision(),
+            "0123456789abcdef0123-dirty",
+            "a server built from changes no commit holds does not claim the commit"
         );
     }
 
     #[test]
     fn the_plan_pushes_this_machines_images_and_lists_both_processors() {
-        let plan = push_plan(&Names::new("0123456789abcdef", Tree::Committed, "arm64"));
+        let plan = push_plan(&Names::new(
+            "0123456789abcdef",
+            "",
+            Tree::Committed,
+            "arm64",
+        ));
         assert!(plan.contains("docker push ghcr.io/fvoci/fvoci-server:sha-0123456789ab-arm64"));
         assert!(plan.contains(
             "imagetools create --tag ghcr.io/fvoci/fvoci-search:sha-0123456789ab \

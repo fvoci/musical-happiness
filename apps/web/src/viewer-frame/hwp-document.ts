@@ -27,7 +27,8 @@ import { repack } from './zip-guard.ts';
  * picture into the page as text, as often as the page shows it; this much is
  * a page with the largest picture a file the viewer takes can hold. Past it,
  * or past `PAGE_ELEMENT_LIMIT`, the page is not handed to the frame, whose
- * thread is the app's, and the file is too large to show.
+ * thread is the app's: the frame says in its place that it is too large to
+ * show, and draws the others.
  */
 export const PAGE_SVG_LIMIT = 80 * 1024 * 1024;
 
@@ -110,7 +111,7 @@ async function checked(
   message: Extract<ToWorker, { kind: 'open' }>,
   unpackLimit: number,
 ): Promise<ArrayBuffer> {
-  if (message.format === 'hwp') return await checkCompound(message.bytes, unpackLimit);
+  if (message.format === 'hwp') return checkCompound(message.bytes, unpackLimit);
   const archive = await repack(message.bytes);
   await checkHwpxPackage(archive);
   return archive;
@@ -132,11 +133,11 @@ export class HwpReader {
   readonly #limits: Required<ReaderLimits>;
 
   constructor(limits: ReaderLimits = {}) {
+    // A limit given as `undefined` is the constant, not none.
     this.#limits = {
-      svg: PAGE_SVG_LIMIT,
-      elements: PAGE_ELEMENT_LIMIT,
-      unpacked: UNPACKED_LIMIT_BYTES,
-      ...limits,
+      svg: limits.svg ?? PAGE_SVG_LIMIT,
+      elements: limits.elements ?? PAGE_ELEMENT_LIMIT,
+      unpacked: limits.unpacked ?? UNPACKED_LIMIT_BYTES,
     };
   }
 

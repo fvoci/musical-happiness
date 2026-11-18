@@ -122,6 +122,14 @@ pub enum StoreError {
         update_at: i64,
     },
 
+    /// A block's document was written since whoever writes it now read it: it logged
+    /// an update, was folded, was made again, or its body was written to the block.
+    #[error("the document of block {block_id} was written since it was read")]
+    DocumentWritten {
+        /// The block.
+        block_id: String,
+    },
+
     /// The operation is about one organization and the store's handle names none
     /// ([`Tenant`](crate::Tenant)). A mistake of the caller: the HTTP layer answers it
     /// as a server error.

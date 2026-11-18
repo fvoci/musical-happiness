@@ -110,7 +110,7 @@ async fn board_with_file(ts: &TestServer) -> (Container, String) {
 async fn attach(ts: &TestServer, board_id: &str, file_id: &str) -> String {
     let card = Block {
         id: new_id(),
-        parent_id: board_id.to_owned(),
+        parent_id: String::new(),
         container_id: board_id.to_owned(),
         block_type: BlockType::Card,
         create_at: 1,

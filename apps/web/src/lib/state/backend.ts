@@ -46,7 +46,9 @@ import type { WikisOfBackend } from './wiki-types.ts';
 export type {
   AcceptedInvitation,
   Account,
+  AccountDeletion,
   InvitationPreview,
+  LeavingOrganization,
   LinkedIdentity,
   LoginOptions,
   LoginOrganization,
@@ -79,7 +81,10 @@ export interface User extends UserNames {
   isAdmin?: boolean;
   createAt: number;
   updateAt: number;
-  /** Not 0: the account was deactivated; it stays so that what it made keeps an author. */
+  /**
+   * Not 0: the account was deactivated; it stays so that what it made keeps an author.
+   * One that was deleted has an empty `username` and all three times 0.
+   */
   deleteAt: number;
 }
 

@@ -3,6 +3,10 @@ import type { Editor } from '@tiptap/core';
 import { render } from '@testing-library/svelte';
 import { expect, it, vi } from 'vitest';
 
+// Loaded with this file, before the test's clock runs. CardBody asks for the editor's
+// code when the room opens (editor-chunk.svelte.ts); reading it for the first time takes
+// a loaded machine longer than any wait of the test, and here it is already read.
+import '$lib/editor/BodyEditor.svelte';
 import CardBody from '$lib/features/card/CardBody.svelte';
 
 import { openFirstBoard } from '../../state/support.ts';

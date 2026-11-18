@@ -37,7 +37,7 @@ const START: Start = {
 
 /** The renderer of HWP (a compound file) or HWPX (an archive). */
 export function renderer(format: HwpFormat, start: Start = START): Render {
-  return async (bytes, place, report) => {
+  return async (bytes, place, report, labels) => {
     const client = new WorkerClient(start.worker(), start.limit);
     // The viewer takes the frame out of the page when it closes: the worker stops then too.
     window.addEventListener(
@@ -51,9 +51,9 @@ export function renderer(format: HwpFormat, start: Start = START): Render {
       const wasm = await start.wasm();
       const opened = await ask(client, { kind: 'open', format, bytes, wasm }, [bytes]);
       if (opened.kind !== 'opened') throw new Error('the HWP renderer answered out of turn');
-      const view = new HwpView(client, opened.pages, place, report);
+      const view = new HwpView(client, opened.pages, place, report, labels);
       // Shown once the reader sees a page: the time to draw it counts, and a first page that
-      // cannot be drawn is a failure rather than a white box.
+      // cannot be drawn is a failure rather than a white box (one too large to draw says so).
       await view.drawFirst();
       report.shown(opened.pages.length);
       return view;

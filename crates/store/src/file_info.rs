@@ -43,6 +43,29 @@ impl Store {
         .await
     }
 
+    /// Returns the organization of a board or wiki, which the keys of its files begin
+    /// with ([`fvoci_model::FileKey`]): that of its workspace.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if the handle reaches no such container, and
+    /// [`StoreError::Database`] if the query fails.
+    pub async fn org_of_container(&self, container_id: &str) -> Result<String, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(
+                "SELECT w.org_id FROM containers AS c JOIN workspaces AS w \
+                 ON w.id = c.workspace_id WHERE c.id = ",
+            );
+            sql.bind(Id(container_id));
+            let row = scope
+                .fetch_optional(sql)
+                .await?
+                .ok_or_else(|| StoreError::not_found("board"))?;
+            row.id(0)
+        })
+        .await
+    }
+
     /// Stores a record about a file.
     ///
     /// # Errors

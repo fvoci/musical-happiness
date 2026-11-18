@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { hasContentHash } from '../../tools/build/output.ts';
 import { styleSheetPackages } from '../../tools/licenses/notices.ts';
 import { isAllowed, readAllowedLicenses } from '../../tools/licenses/policy.ts';
+import { packageDirectoryOf } from '../../tools/licenses/worker-packages.ts';
 
 describe('licence policy', () => {
   const allowed = new Set(readAllowedLicenses());
@@ -58,5 +59,17 @@ describe('content hash in a file name, as the server sees it', () => {
     ['THIRD_PARTY_NOTICES.txt', false],
   ])('%s: %s', (name, expected) => {
     expect(hasContentHash(name)).toBe(expected);
+  });
+});
+
+describe("the packages of the app's workers", () => {
+  it('are found by the path of each module', () => {
+    const store = '/w/node_modules/.pnpm/saxes@6.0.0/node_modules';
+    expect(packageDirectoryOf(`${store}/saxes/lib/saxes.js`)).toBe(`${store}/saxes`);
+    expect(packageDirectoryOf(`${store}/@scope/name/dist/a.js?inline`)).toBe(
+      `${store}/@scope/name`,
+    );
+    expect(packageDirectoryOf('/w/apps/web/src/viewer-frame/pptx-worker.ts')).toBeUndefined();
+    expect(packageDirectoryOf('\0vite/preload-helper.js')).toBeUndefined();
   });
 });

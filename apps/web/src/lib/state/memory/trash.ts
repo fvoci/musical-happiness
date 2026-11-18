@@ -7,6 +7,7 @@
 import type { Container, ContainerMember } from '../../logic/wire.ts';
 import type { Category, DeletedItem, Paging } from '../backend.ts';
 
+import { pageOf } from './paging.ts';
 import { fail } from './refuse.ts';
 import type { World } from './world.ts';
 
@@ -16,16 +17,6 @@ export interface ContainerPlace {
   categoryId: string;
   index: number;
   hidden: boolean;
-}
-
-/** As the server has it when a request does not say. */
-const DEFAULT_PAGING: Paging = { page: 0, perPage: 100 };
-
-/** A page of a list, as the server cuts one: `perPage` zero or less is all of it. */
-function pageOf<T>(items: T[], paging: Paging | undefined): T[] {
-  const { page, perPage } = paging ?? DEFAULT_PAGING;
-  if (perPage <= 0) return items;
-  return items.slice(page * perPage, page * perPage + perPage);
 }
 
 const latestFirst = (first: DeletedItem, second: DeletedItem): number =>

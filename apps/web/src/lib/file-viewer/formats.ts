@@ -20,9 +20,9 @@
  * on what they unpack to, counted in the frame's worker before the renderer
  * reads them (src/viewer-frame/compound-guard.ts).
  *
- * Adding a kind: its line in `FORMATS` here and a renderer in the frame
- * (`src/viewer-frame/renderers.ts`, whose table is typed by `FormatId` and
- * so asks for it).
+ * Adding a kind: its line in `FORMATS` here, its extensions in
+ * `extensions.ts` and a renderer in the frame (`src/viewer-frame/renderers.ts`);
+ * both tables are typed by `FormatId` and so ask for them.
  */
 import {
   compoundFile,
@@ -34,8 +34,8 @@ import {
 } from './compound-file.ts';
 import { storedPart, zipEntries, type ZipEntry } from './zip-directory.ts';
 
-/** The largest file the viewer opens; a larger one is only offered as a download. */
-export const VIEW_LIMIT_BYTES = 50 * 1024 * 1024;
+/** The largest file the viewer opens, kept where the first screen reads it (`extensions.ts`). */
+export { VIEW_LIMIT_BYTES } from './extensions.ts';
 
 /** The most an archive's parts, or a compound file's streams, may unpack to together. */
 export const UNPACKED_LIMIT_BYTES = 200 * 1024 * 1024;
@@ -124,6 +124,8 @@ const hwp: Kind = {
 const FORMATS = {
   pdf: { bytes: isPdf },
   docx: officePackage('word/document.xml'),
+  xlsx: officePackage('xl/workbook.xml'),
+  pptx: officePackage('ppt/presentation.xml'),
   hwpx,
   hwp,
 } as const satisfies Record<string, Kind>;

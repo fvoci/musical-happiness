@@ -89,6 +89,14 @@ describe("an HWPX package's list, read as rhwp reads it", () => {
     expect(performance.now() - started).toBeLessThan(500);
   });
 
+  it('an end tag of many blanks is unreadable, at once', () => {
+    const started = performance.now();
+    expect(() => listed(`<package><a></a${' '.repeat(100_000)}x></package>`)).toThrow(
+      UnreadableFile,
+    );
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it('without a spine, takes every XML part whose address says "section", in order', () => {
     const list = listed(
       contentHpf(
@@ -106,6 +114,27 @@ describe("an HWPX package's list, read as rhwp reads it", () => {
 describe('in the worker, what rhwp parses of an HWPX as XML is held to the limit', () => {
   it('the sample passes', async () => {
     await expect(checkHwpxPackage(buffer(koreanHwpx()))).resolves.toBeUndefined();
+  });
+
+  it('a tag of the list may have 1,000 attributes; one more stops the file', async () => {
+    // The item's id, href and media-type, and as many more as make up the count, written so.
+    const withAttributes = (count: number, more = (at: number) => `a${String(at)}=""`) => {
+      const written = Array.from({ length: count - 3 }, (_, at) => more(at)).join(' ');
+      const content = contentHpf([['s0', 'Contents/section0.xml']], ['s0']).replace(
+        '<opf:item id=',
+        `<opf:item ${written} id=`,
+      );
+      return buffer(hwpx(content, [{ name: 'Contents/section0.xml', data: xml(10) }]));
+    };
+    await expect(checkHwpxPackage(withAttributes(1000))).resolves.toBeUndefined();
+    await expect(checkHwpxPackage(withAttributes(1001))).rejects.toBeInstanceOf(UnreadableFile);
+    // Each name counts, also one given a value without quotes, given twice, or given no value.
+    for (const more of [(at: number) => `a${String(at)}=1`, () => 'a=""', () => 'a']) {
+      await expect(checkHwpxPackage(withAttributes(1000, more))).resolves.toBeUndefined();
+      await expect(checkHwpxPackage(withAttributes(1001, more))).rejects.toBeInstanceOf(
+        UnreadableFile,
+      );
+    }
   });
 
   it('a spine that names a section twice stops the file', async () => {
