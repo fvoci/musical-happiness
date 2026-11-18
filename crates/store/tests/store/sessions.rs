@@ -245,7 +245,7 @@ async fn a_session_of_a_deactivated_user_is_not_found() {
     );
 
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("UPDATE users SET delete_at = {T0} WHERE id = '{user_id}'"),
     )
     .await;
@@ -259,7 +259,7 @@ async fn a_session_of_a_deactivated_user_is_not_found() {
     );
 
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("UPDATE users SET delete_at = 0 WHERE id = '{user_id}'"),
     )
     .await;
@@ -556,7 +556,7 @@ async fn create_session_for_a_deactivated_user_stores_nothing() {
     let store = &test.store;
     let user_id = common::user(store, "leaving").await;
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("UPDATE users SET delete_at = {T0} WHERE id = '{user_id}'"),
     )
     .await;
@@ -570,7 +570,7 @@ async fn create_session_for_a_deactivated_user_stores_nothing() {
 
     // Active again, the user gets the same session: the refused call stored nothing.
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("UPDATE users SET delete_at = 0 WHERE id = '{user_id}'"),
     )
     .await;
@@ -803,7 +803,7 @@ async fn the_live_sessions_are_those_that_would_be_found() {
     assert!(!is_valid(&test, "digest-1", T0 + 1, T0).await);
     assert!(is_valid(&test, "digest-2", T0 + 1, T0).await);
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("UPDATE users SET delete_at = {T0} WHERE id = '{leaving_id}'"),
     )
     .await;
@@ -824,7 +824,7 @@ async fn a_readiness_check_behind_a_lock_on_the_sessions_gives_up_by_itself() {
     let test = common::setup().await;
     test.check_ready().await.expect("ready without a lock");
     if common::db_type() == fvoci_store::DbType::Postgres {
-        let mut holder = common::connect_past_the_store(&test.dbconfig()).await;
+        let mut holder = common::connect_past_the_store(&test.database_connection()).await;
         let mut lock = sqlx::Connection::begin(&mut holder)
             .await
             .expect("a transaction of the test's own");

@@ -18,19 +18,19 @@ impl Configuration {
         let largest = self
             .upload_part_bytes
             .saturating_mul(u64::try_from(fvoci_model::MAX_UPLOAD_PARTS).unwrap_or(0));
-        if u64::try_from(self.max_file_size).map_or(true, |size| size == 0 || size > largest) {
+        if u64::try_from(self.max_file_bytes).map_or(true, |size| size == 0 || size > largest) {
             bail!(
-                "maxfilesize must be 1 to {largest} bytes (upload_part_bytes times 10,000 \
+                "max_file_bytes must be 1 to {largest} bytes (upload_part_bytes times 10,000 \
                  parts), not {}",
-                self.max_file_size
+                self.max_file_bytes
             );
         }
         // Less would refuse the largest file with 429 every time, as if it might fit later.
         // Positive, as checked above.
-        let max_file_size = u64::try_from(self.max_file_size).unwrap_or(0);
-        if self.max_pending_upload_bytes < max_file_size {
+        let max_file_bytes = u64::try_from(self.max_file_bytes).unwrap_or(0);
+        if self.max_pending_upload_bytes < max_file_bytes {
             bail!(
-                "max_pending_upload_bytes must be at least maxfilesize ({max_file_size}), \
+                "max_pending_upload_bytes must be at least max_file_bytes ({max_file_bytes}), \
                  not {}",
                 self.max_pending_upload_bytes
             );

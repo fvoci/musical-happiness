@@ -632,7 +632,7 @@ mod tests {
         let path = directory.join("settle.db");
         let store = Store::open(
             crate::DbType::Sqlite,
-            &format!("{}?_busy_timeout=120000", path.display()),
+            &format!("{}?busy_timeout_ms=120000", path.display()),
         )
         .await
         .expect("a store");
@@ -692,7 +692,7 @@ mod tests {
         let directory =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/visibility-tests");
         let database = TestDatabase::create(&directory).await;
-        let store = Store::connect(database.db_type(), database.dbconfig())
+        let store = Store::connect(database.db_type(), database.database_connection())
             .await
             .expect("test store");
         let error: Result<(), StoreError> = store

@@ -227,7 +227,7 @@ impl App {
         // Fragments never reach HTTP request targets, proxy logs or Referer headers.
         Ok(format!(
             "{}/verify-email#{token}",
-            self.config().server_root.trim_end_matches('/')
+            self.config().server_url.trim_end_matches('/')
         ))
     }
 

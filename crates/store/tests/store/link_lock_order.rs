@@ -42,7 +42,7 @@ fn mailed_like<'a>(
 /// Whether the row of the link `first` comes before that of `second` in its table, as
 /// a scan of the whole table meets them.
 async fn comes_before(test: &TestStore, first: &str, second: &str) -> bool {
-    let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
+    let mut conn = common::connect_past_the_store(&test.database_connection()).await;
     sqlx::query_scalar(
         "SELECT (SELECT ctid FROM invitations WHERE id = $1::uuid) \
          < (SELECT ctid FROM invitations WHERE id = $2::uuid)",
@@ -56,7 +56,7 @@ async fn comes_before(test: &TestStore, first: &str, second: &str) -> bool {
 
 /// The digests of the tokens of the links that are there and not revoked.
 async fn unrevoked(test: &TestStore) -> Vec<String> {
-    let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
+    let mut conn = common::connect_past_the_store(&test.database_connection()).await;
     sqlx::query_scalar("SELECT token_hash FROM invitations WHERE revoked_at = 0 ORDER BY 1")
         .fetch_all(&mut conn)
         .await
@@ -93,7 +93,7 @@ async fn revoking_a_link_and_deleting_its_board_wait_for_each_other() {
         "UPDATE invitations SET uses = uses + 1 WHERE id = '{}'",
         parent.id
     );
-    common::execute_raw(&test.dbconfig(), &used).await;
+    common::execute_raw(&test.database_connection(), &used).await;
     assert!(
         comes_before(&test, &child.id, &parent.id).await,
         "the deletion meets the child first"

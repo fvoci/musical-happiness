@@ -35,7 +35,7 @@ pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
         Ok(()) => Ok(store),
         Err(error @ StoreError::SchemaNotOwned { .. }) => Err(anyhow::Error::from(error).context(
             "the server does not start: run `fvoci-server --migrate` first, with the \
-                 dbconfig of the role that owns the tables",
+                 database_connection of the role that owns the tables",
         )),
         Err(error) => Err(error).context("bringing the database's schema up to date"),
     }
@@ -106,14 +106,14 @@ async fn migrate_under_the_lock(store: &Store, config: &Configuration) -> anyhow
     })
 }
 
-/// Connects to the database, trying up to `dbpingattempts` times a second apart, so that
+/// Connects to the database, trying up to `database_connect_attempts` times a second apart, so that
 /// a server started together with its database waits for it.
 async fn connect(config: &Configuration) -> anyhow::Result<Store> {
-    let db_type: DbType = config.db_type.parse()?;
-    let attempts = config.db_ping_attempts.max(1);
+    let db_type: DbType = config.database_kind.parse()?;
+    let attempts = config.database_connect_attempts.max(1);
     let mut attempt = 1;
     loop {
-        match Store::open(db_type, &config.db_config).await {
+        match Store::open(db_type, &config.database_connection).await {
             Ok(store) => return Ok(store),
             Err(fvoci_store::StoreError::Database(error)) if attempt < attempts => {
                 tracing::warn!(%error, attempt, attempts, "the database is not reachable yet");

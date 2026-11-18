@@ -24,7 +24,9 @@ async fn main() -> anyhow::Result<()> {
 async fn hold(directory: &std::path::Path, database: &TestDatabase) -> anyhow::Result<()> {
     std::fs::write(
         directory.join("database.json"),
-        serde_json::to_vec(&serde_json::json!({"dbconfig": database.dbconfig()}))?,
+        serde_json::to_vec(
+            &serde_json::json!({"database_connection": database.database_connection()}),
+        )?,
     )?;
     {
         let mut stdout = std::io::stdout().lock();

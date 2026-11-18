@@ -1483,7 +1483,7 @@ export interface paths {
          *     original (the line-based version 1 and the ZIP of version 2) and a ZIP without
          *     `version.json` are 400, and nothing of them is stored. An archive of more than
          *     10,000 entries, whose entries unpack to more than 1 GiB together, or with a
-         *     `board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with
+         *     `board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with
          *     the `limit` passed, and nothing of it is stored. The blocks that show files are
          *     pointed at the board's new copies of them, the images and file blocks of bodies
          *     included; a card value that does not fit its property's kind is cleared, as a copy
@@ -1526,9 +1526,9 @@ export interface paths {
          * Open an upload of an archive
          * @description Opens an upload of an archive to import into the workspace, sent in parts as a file is
          *     with `createUpload`, and imported with `importArchive` once every part is received.
-         *     An archive larger than `maxImportSize` of `getClientConfig` is 413. It counts
+         *     An archive larger than `maxImportBytes` of `getClientConfig` is 413. It counts
          *     toward the same limits as the uploads of files, which hold back at most twice the
-         *     larger of `maxFileSize` and `maxImportSize` for a user. For users of the workspace who
+         *     larger of `maxFileBytes` and `maxImportBytes` for a user. For users of the workspace who
          *     are not guests, as `importArchive`.
          */
         post: operations["createImportUpload"];
@@ -2315,9 +2315,9 @@ export interface paths {
          * @description Stores a file with the board. The request is a `multipart/form-data` form whose
          *     part `file` carries the file and a file name. The file is limited to one part of an
          *     upload in parts (8 MiB unless the server is configured otherwise), and to the
-         *     `maxFileSize` of `getClientConfig` where that is less; a larger one is 413. Where
+         *     `maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where
          *     the limit is the part, the refusal has the reason `upload_in_parts`: a file within
-         *     `maxFileSize` can be sent with `createUpload`. A file that is refused or cut off is
+         *     `maxFileBytes` can be sent with `createUpload`. A file that is refused or cut off is
          *     not kept. The `fileId` of the answer ends in the extension of the file name, in lower
          *     case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
          *     anything but letters and digits in it, is left off. For editors.
@@ -2610,9 +2610,9 @@ export interface paths {
          * Open an upload
          * @description Opens an upload of a file to the board in parts. The answer says how large the
          *     parts are and how many; send each with `putUploadPart`, in any order and again
-         *     after a failure, then `completeUpload`. A file larger than `maxFileSize` of
+         *     after a failure, then `completeUpload`. A file larger than `maxFileBytes` of
          *     `getClientConfig` is 413. A user has at most 8
-         *     uploads open, holding back at most twice `maxFileSize` together, and the server's
+         *     uploads open, holding back at most twice `maxFileBytes` together, and the server's
          *     open uploads hold back at most what it is configured for: an upload over one of
          *     these is 429, with the reason `too_many_uploads`, `uploads_pending` or
          *     `server_uploads_pending`. An upload is open until it is completed, abandoned or
@@ -4205,8 +4205,11 @@ export interface components {
         };
         /** @description The part of the server configuration that the web client needs. */
         ClientConfig: {
-            /** @description Whether boards may be shared publicly through a read token. */
-            enablePublicSharedBoards: boolean;
+            /**
+             * @description Whether boards and wikis may be shared publicly through a read token: the
+             *     setting `allow_public_links`.
+             */
+            allowPublicLinks: boolean;
             /** @description The server's feature flags. */
             featureFlags: {
                 [key: string]: string;
@@ -4214,15 +4217,17 @@ export interface components {
             /**
              * Format: int64
              * @description The largest upload the server accepts, in bytes; always more than zero (100 MiB
-             *     unless the server is configured otherwise).
+             *     unless the server is configured otherwise): the setting `max_file_bytes`.
              */
-            maxFileSize: number;
+            maxFileBytes: number;
             /**
              * Format: int64
              * @description The largest archive an import takes, in bytes; always more than zero (256 MiB
-             *     unless the server is configured otherwise).
+             *     unless the server is configured otherwise): the setting `max_import_bytes`.
              */
-            maxImportSize: number;
+            maxImportBytes: number;
+            /** @description How other users' names are displayed: the setting `name_display`. */
+            nameDisplay: string;
             /**
              * @description Whether what cards and pages say can be searched (`searchWorkspaceContent`):
              *     always, on this server. It searches its search server, or its database where none
@@ -4230,8 +4235,6 @@ export interface components {
              *     answers each search 503 (`search_unavailable`).
              */
             searchEnabled: boolean;
-            /** @description How other users' names are displayed. */
-            teammateNameDisplay: string;
         };
         /**
          * @description A text a comment had before its body was changed: the body then, who wrote it and
@@ -4984,7 +4987,7 @@ export interface components {
             name: string;
             /**
              * Format: int64
-             * @description The size of the file in bytes. More than `maxFileSize` of `getClientConfig` is
+             * @description The size of the file in bytes. More than `maxFileBytes` of `getClientConfig` is
              *     413.
              */
             size: number;
@@ -5550,7 +5553,7 @@ export interface components {
             build_number: string;
             /** @description The commit the server was built from; empty unless set at build time. */
             commit: string;
-            /** @description The database kind: `sqlite3` or `postgres`. */
+            /** @description The database kind: `sqlite` or `postgres`. */
             db_type: string;
             /** @description The database's version string. */
             db_version: string;

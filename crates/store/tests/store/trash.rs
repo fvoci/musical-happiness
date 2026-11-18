@@ -98,7 +98,7 @@ async fn a_block_stored_off_its_place_is_still_changed() {
         format!("UPDATE blocks SET parent_id = NULL WHERE id = '{comment_id}'"),
         format!("UPDATE blocks SET parent_id = '{comment_id}' WHERE id = '{below_id}'"),
     ] {
-        common::execute_raw(&test.dbconfig(), &statement).await;
+        common::execute_raw(&test.database_connection(), &statement).await;
     }
     for id in [&comment_id, &below_id] {
         let patch = BlockPatch {
@@ -167,7 +167,7 @@ async fn a_comment_does_not_come_back_onto_what_is_no_card() {
     common::insert_blocks(store, &mut old, &user_id).await;
     let old = &old[1];
     let on_board = format!("UPDATE blocks SET parent_id = NULL WHERE id = '{}'", old.id);
-    common::execute_raw(&test.dbconfig(), &on_board).await;
+    common::execute_raw(&test.database_connection(), &on_board).await;
     store
         .delete_block(&old.id, &user_id)
         .await

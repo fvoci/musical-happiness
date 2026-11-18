@@ -83,7 +83,7 @@ async fn long_unknown_paths_methods_problems_and_headers_do_not_add_series() {
 async fn bearer_header_shapes_and_long_guesses_do_not_leak_tokens() {
     let server = Setup::native()
         .metrics_at("127.0.0.1:0")
-        .configure(|config| TOKEN.clone_into(&mut config.prometheus_token))
+        .configure(|config| TOKEN.clone_into(&mut config.metrics_token))
         .start()
         .await;
     let cases = [
@@ -120,7 +120,7 @@ async fn bearer_header_shapes_and_long_guesses_do_not_leak_tokens() {
 async fn conflicting_authorization_headers_are_rejected_in_either_order() {
     let server = Setup::native()
         .metrics_at("127.0.0.1:0")
-        .configure(|config| TOKEN.clone_into(&mut config.prometheus_token))
+        .configure(|config| TOKEN.clone_into(&mut config.metrics_token))
         .start()
         .await;
     let valid = format!("Bearer {TOKEN}");

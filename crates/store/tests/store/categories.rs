@@ -73,7 +73,7 @@ fn sort_orders(categories: &[Category]) -> Vec<i64> {
 /// Runs statements on the test's database, bypassing the store, to stage rows the store
 /// itself never writes.
 async fn execute_raw(test: &TestStore, sql: &str) {
-    common::execute_raw(&test.dbconfig(), sql).await;
+    common::execute_raw(&test.database_connection(), sql).await;
 }
 
 /// `testGetCreateCategory`.

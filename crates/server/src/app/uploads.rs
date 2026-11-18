@@ -192,7 +192,7 @@ impl App {
     /// # Errors
     ///
     /// Returns a bad request for an empty or too long name, a negative size or a content
-    /// type that is too long; a 413 for a file larger than `maxfilesize`; a 429 if the
+    /// type that is too long; a 413 for a file larger than `max_file_bytes`; a 429 if the
     /// user has [`MAX_OPEN_UPLOADS`] sessions open, or the open sessions would hold back
     /// more bytes than the user's share (twice the largest upload, a file or an archive)
     /// or the server's (`max_pending_upload_bytes`); and the store's error.

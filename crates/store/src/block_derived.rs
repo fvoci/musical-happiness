@@ -7,11 +7,11 @@
 use fvoci_model::{Block, SearchKind};
 use serde_json::Value;
 
-use crate::body_links;
 use crate::db::Scope;
 use crate::error::StoreError;
 use crate::file_refs::{self, NewBodyFiles};
 use crate::search_outbox;
+use crate::{body_docs, body_links, body_versions, comment_versions};
 
 /// Whether the search server holds a document of the block: of a card or a page, but
 /// not of a card that is a template of its board (`isTemplate` is `true`), as
@@ -101,4 +101,17 @@ pub(crate) async fn container_trashed(
     container_id: &str,
 ) -> Result<(), StoreError> {
     search_outbox::note_container(scope, container_id).await
+}
+
+/// Forgets what blocks that are gone for good, neither on a board nor in the trash,
+/// leave behind: what they showed is shown no more (a file no block shows is marked, to
+/// be collected after the grace period), their bodies, versions and links go, and the
+/// texts of the comments among them.
+pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+    comment_versions::forget_gone_comments(scope).await?;
+    body_docs::forget_gone_blocks(scope).await?;
+    body_versions::forget_gone_blocks(scope).await?;
+    body_links::forget_gone_blocks(scope).await?;
+    file_refs::forget_gone_blocks(scope).await?;
+    file_refs::mark(scope, None).await
 }

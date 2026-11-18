@@ -52,18 +52,22 @@ async fn a_sqlite_database_symlink_cannot_bypass_the_server_lock() {
         .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
         .await;
     let config = ts.app.config();
-    let database = config.db_config.split('?').next().expect("a filename");
+    let database = config
+        .database_connection
+        .split('?')
+        .next()
+        .expect("a filename");
     let alias = PathBuf::from(database).with_extension("alias.db");
     std::os::unix::fs::symlink(database, &alias).expect("an alias of the same database");
     let mut aliased = config.clone();
-    aliased.db_config = format!("{}?_busy_timeout=5000", alias.display());
+    aliased.database_connection = format!("{}?busy_timeout_ms=5000", alias.display());
     aliased.server_lock_wait_seconds = 0;
     let app = ts.app.clone();
     let (mut writer, mut reader) = tokio::io::duplex(64);
     let saving =
         tokio::spawn(async move { app.save_file(&mut reader, &board.id, "in-flight.txt").await });
     writer.write_all(b"in-flight bytes").await.expect("sent");
-    wait_for_partial_file(&Path::new(&config.files_path).join(WRITING_DIR)).await;
+    wait_for_partial_file(&Path::new(&config.file_storage_path).join(WRITING_DIR)).await;
 
     let second = Server::new(aliased, "").await;
     let refused = second
@@ -166,9 +170,12 @@ async fn a_worker_that_observed_lock_loss_cannot_delete_the_new_holders_file() {
             .expect("paths checked"),
         "all paths are canonical"
     );
-    let independent = Store::connect(ts.app.store().db_type(), &ts.app.config().db_config)
-        .await
-        .expect("a separate pool controls the handover");
+    let independent = Store::connect(
+        ts.app.store().db_type(),
+        &ts.app.config().database_connection,
+    )
+    .await
+    .expect("a separate pool controls the handover");
     let (reached, paused) = oneshot::channel();
     let (resume, wait) = mpsc::channel();
     assert!(
@@ -260,7 +267,7 @@ async fn shutdown_cannot_release_the_server_lock_before_an_old_write_commits() {
     let server = Server::new(config.clone(), "")
         .await
         .expect("the server restarts");
-    let independent = Store::connect(DbType::Postgres, &config.db_config)
+    let independent = Store::connect(DbType::Postgres, &config.database_connection)
         .await
         .expect("a separate pool controls the table lock");
     let locking = independent.clone();

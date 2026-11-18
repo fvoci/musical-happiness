@@ -42,7 +42,7 @@ impl Gate {
     /// transaction stops holding what it held before, and for an update or a deletion
     /// the row too: a row trigger runs once its row is locked.
     pub(crate) async fn before(test: &TestStore, event: &str, table: &str, when: &str) -> Self {
-        let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
+        let mut conn = common::connect_past_the_store(&test.database_connection()).await;
         let key: i64 = sqlx::query_scalar("SELECT pg_backend_pid()::bigint")
             .fetch_one(&mut conn)
             .await
@@ -74,7 +74,7 @@ impl Gate {
     /// locks (a `SELECT ... FOR UPDATE`): a transaction stops where it waits for them,
     /// holding what it held before.
     pub(crate) async fn holding(test: &TestStore, holding: &str) -> Self {
-        let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
+        let mut conn = common::connect_past_the_store(&test.database_connection()).await;
         let key: i64 = sqlx::query_scalar("SELECT pg_backend_pid()::bigint")
             .fetch_one(&mut conn)
             .await
@@ -126,10 +126,14 @@ impl Gate {
 
     /// A store as [`Gate::second_store`] is, of the organization `org_id`.
     pub(crate) async fn second_store_of(&self, test: &TestStore, org_id: &str) -> Store {
-        let dbconfig = test.dbconfig();
-        let separator = if dbconfig.contains('?') { '&' } else { '?' };
+        let database_connection = test.database_connection();
+        let separator = if database_connection.contains('?') {
+            '&'
+        } else {
+            '?'
+        };
         let named = format!(
-            "{dbconfig}{separator}application_name={SECOND}-{}",
+            "{database_connection}{separator}application_name={SECOND}-{}",
             self.key
         );
         Store::connect(DbType::Postgres, &named)

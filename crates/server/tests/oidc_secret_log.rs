@@ -106,10 +106,10 @@ async fn start(
     tokio::task::JoinHandle<anyhow::Result<()>>,
 ) {
     let config = Configuration {
-        db_type: database.db_type().as_str().to_owned(),
-        db_config: database.dbconfig().to_owned(),
-        files_driver: "local".to_owned(),
-        files_path: directory.join("uploads").display().to_string(),
+        database_kind: database.db_type().as_str().to_owned(),
+        database_connection: database.database_connection().to_owned(),
+        file_storage: "local".to_owned(),
+        file_storage_path: directory.join("uploads").display().to_string(),
         skip_template_init: true,
         login_address_attempts_per_minute: 0,
         secret_key: Some(SecretKey::from_base64(key_text).expect("a key")),
@@ -117,7 +117,7 @@ async fn start(
         oidc_extra_root_certificates: vec![fake.certificate_der.clone()],
         ..Configuration::default()
     };
-    let root = config.server_root.clone();
+    let root = config.server_url.clone();
     let server = Server::new(config, "").await.expect("the server starts");
     tracing::debug!(config = ?server.app().config(), "the configuration");
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))

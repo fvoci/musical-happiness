@@ -365,6 +365,17 @@ pub(crate) async fn note_container(
     if !scope.keeps_search_outbox() {
         return Ok(());
     }
+    note_container_regardless(scope, container_id).await
+}
+
+/// Notes that everything of the board changed whether or not the list is kept: for a
+/// change of the data after the migrations, which is made before the server knows
+/// whether it has a search server. A server without one forgets the list before it
+/// serves.
+pub(crate) async fn note_container_regardless(
+    scope: &mut Scope<'_>,
+    container_id: &str,
+) -> Result<(), StoreError> {
     let now = now_millis();
     let mut sql = scope.sql(
         "INSERT INTO search_outbox (scope, id, org_id, seq, due_at) \

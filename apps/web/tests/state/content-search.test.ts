@@ -243,12 +243,12 @@ describe('the search on the server', () => {
 
   it('is on as the settings for clients say, which are read once', async () => {
     const config = {
-      enablePublicSharedBoards: true,
+      allowPublicLinks: true,
       featureFlags: {},
-      maxFileSize: 1,
-      maxImportSize: 1,
+      maxFileBytes: 1,
+      maxImportBytes: 1,
       searchEnabled: true,
-      teammateNameDisplay: 'username',
+      nameDisplay: 'username',
     };
     const asked = serve({ '/api/v1/client-config': config });
     const backend = serverBackend('');

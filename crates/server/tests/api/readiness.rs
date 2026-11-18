@@ -103,7 +103,8 @@ async fn a_files_directory_that_is_no_directory_is_not_ready() {
     let server = Setup::native()
         .configure(|config| {
             // A file, which the server only reads here.
-            concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml").clone_into(&mut config.files_path);
+            concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")
+                .clone_into(&mut config.file_storage_path);
         })
         .start()
         .await;
@@ -125,7 +126,7 @@ async fn readiness_refuses_a_files_directory_that_cannot_be_written() {
     use std::os::unix::fs::PermissionsExt as _;
 
     let server = Setup::native().start().await;
-    let directory = std::path::Path::new(&server.app.config().files_path);
+    let directory = std::path::Path::new(&server.app.config().file_storage_path);
     std::fs::create_dir_all(directory).expect("the test's directory exists");
     let permissions = std::fs::metadata(directory)
         .expect("the original permissions")
@@ -147,7 +148,9 @@ async fn readiness_refuses_a_files_directory_that_cannot_be_written() {
     response.check_error(StatusCode::SERVICE_UNAVAILABLE, "not ready: files");
     assert_nothing_left(directory);
     assert!(
-        !response.text().contains(&server.app.config().files_path),
+        !response
+            .text()
+            .contains(&server.app.config().file_storage_path),
         "no path in the answer: {}",
         response.text()
     );
@@ -175,7 +178,7 @@ fn assert_nothing_left(directory: &std::path::Path) {
 async fn the_check_of_the_files_leaves_nothing_in_the_directory() {
     let server = Setup::native().start().await;
     ready(&server).await.check_ok();
-    assert_nothing_left(std::path::Path::new(&server.app.config().files_path));
+    assert_nothing_left(std::path::Path::new(&server.app.config().file_storage_path));
     server.teardown().await;
 }
 

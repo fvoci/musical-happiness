@@ -76,7 +76,7 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
                 root,
                 &cargo,
                 &["test", "--workspace", "--locked"],
-                &[(DB_TYPE_ENV, "sqlite3")],
+                &[(DB_TYPE_ENV, "sqlite")],
             )
         }));
     }
