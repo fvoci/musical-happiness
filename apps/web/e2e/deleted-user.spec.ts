@@ -19,7 +19,7 @@ interface Dev {
     usersById(
       workspaceId: string,
       ids: string[],
-    ): Promise<{ username: string; deleteAt: number }[]>;
+    ): Promise<{ username: string; createAt: number; updateAt: number; deleteAt: number }[]>;
     searchUsers(workspaceId: string, query: string): Promise<unknown[]>;
   };
 }
