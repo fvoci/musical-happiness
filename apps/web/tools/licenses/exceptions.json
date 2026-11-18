@@ -28,7 +28,7 @@
     {
       "name": "tslib",
       "license": "0BSD",
-      "reason": "Runtime helpers of the WebAssembly loaders inside Storybook and the message compiler. Not in the output."
+      "reason": "Runtime helpers of the WebAssembly loaders inside Storybook and the message compiler, and of echarts, which the PowerPoint renderer depends on and the build replaces with a stub (src/viewer-frame/no-echarts.ts). Not in the output."
     },
     {
       "name": "argparse",
@@ -37,6 +37,11 @@
     }
   ],
   "notShipped": [
+    {
+      "name": "mtx-decompressor",
+      "license": "MPL-2.0",
+      "reason": "The decoder of embedded fonts, a dependency of the PowerPoint renderer that its bundle also carries inside it. The viewer draws no embedded fonts: the build cuts the decoder out of the renderer's bundle (tools/build/pptx-renderer.ts) and fails if any of its text reaches the output."
+    },
     {
       "name": "elkjs",
       "license": "EPL-2.0 OR GPL-3.0-or-later",

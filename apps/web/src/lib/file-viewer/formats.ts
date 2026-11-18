@@ -68,6 +68,7 @@ const officePackage = (member: string): Kind => ({
 const FORMATS = {
   pdf: { bytes: isPdf },
   docx: officePackage('word/document.xml'),
+  pptx: officePackage('ppt/presentation.xml'),
 } as const satisfies Record<string, Kind>;
 
 export type FormatId = keyof typeof FORMATS;
