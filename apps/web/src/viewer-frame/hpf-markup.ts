@@ -16,7 +16,7 @@ import { UnreadableFile } from './renderer.ts';
 /** A start or empty tag: its name as written, and the attributes rhwp takes, in order. */
 export interface Tag {
   name: string;
-  attributes: [string, string][];
+  attributes: () => [string, string][];
 }
 
 const isSpace = (char: string | undefined): boolean =>
@@ -160,19 +160,49 @@ function checkReferences(text: string): void {
 }
 
 /**
- * The start and empty tags of `xml`, in order, as rhwp's reader gives them.
- * Throws `UnreadableFile` where it stops with an error: markup that does not
- * end, an end tag that closes no element of its name, an `&` that is no
- * reference, markup it does not know.
+ * The names of the elements open, each kept as where it starts and how long
+ * it is: a stack of numbers rather than of strings, as a list may open
+ * millions of elements.
  */
-export function tagsOf(xml: string): Tag[] {
-  const tags: Tag[] = [];
-  const open: string[] = [];
+class OpenNames {
+  #slots = new Int32Array(64);
+  #size = 0;
+
+  push(start: number, length: number): void {
+    if (this.#size + 2 > this.#slots.length) {
+      const grown = new Int32Array(this.#slots.length * 2);
+      grown.set(this.#slots);
+      this.#slots = grown;
+    }
+    this.#slots[this.#size] = start;
+    this.#slots[this.#size + 1] = length;
+    this.#size += 2;
+  }
+
+  /** Closes the element last opened: whether it is named `name` in `xml` (false when none is). */
+  close(xml: string, name: string): boolean {
+    if (this.#size === 0) return false;
+    this.#size -= 2;
+    const start = this.#slots[this.#size] ?? 0;
+    const length = this.#slots[this.#size + 1] ?? 0;
+    return length === name.length && xml.startsWith(name, start);
+  }
+}
+
+/**
+ * Hands `visit` the start and empty tags of `xml`, in order, as rhwp's reader
+ * gives them, each read no further than asked (its attributes only when
+ * `attributes()` is called). Throws `UnreadableFile` where that reader stops
+ * with an error: markup that does not end, an end tag that closes no element
+ * of its name, an `&` that is no reference, markup it does not know.
+ */
+export function readTags(xml: string, visit: (tag: Tag) => void): void {
+  const open = new OpenNames();
   let at = 0;
   for (;;) {
     const start = xml.indexOf('<', at);
     checkReferences(xml.slice(at, start < 0 ? xml.length : start));
-    if (start < 0) return tags;
+    if (start < 0) return;
     const next = xml[start + 1];
     let end: number;
     if (next === undefined) throw new UnreadableFile();
@@ -185,17 +215,21 @@ export function tagsOf(xml: string): Tag[] {
       end = tagEnd(xml, start + 1);
       // Blanks after the name are let be; a name of blanks alone is kept as it is.
       const written = xml.slice(start + 2, end);
-      const name = written.replace(/[ \r\n\t]+$/, '') || written;
-      if (open.pop() !== name) throw new UnreadableFile();
+      if (!open.close(xml, written.replace(/[ \r\n\t]+$/, '') || written)) {
+        throw new UnreadableFile();
+      }
     } else {
       end = tagEnd(xml, start + 1);
       const empty = end - 1 > start && xml[end - 1] === '/';
-      const content = xml.slice(start + 1, empty ? end - 1 : end);
-      let nameEnd = 0;
-      while (nameEnd < content.length && !isSpace(content[nameEnd])) nameEnd += 1;
-      const name = content.slice(0, nameEnd);
-      if (!empty) open.push(name);
-      tags.push({ name, attributes: attributesOf(content, nameEnd) });
+      const contentEnd = empty ? end - 1 : end;
+      let nameEnd = start + 1;
+      while (nameEnd < contentEnd && !isSpace(xml[nameEnd])) nameEnd += 1;
+      if (!empty) open.push(start + 1, nameEnd - start - 1);
+      const content = (): string => xml.slice(start + 1, contentEnd);
+      visit({
+        name: xml.slice(start + 1, nameEnd),
+        attributes: () => attributesOf(content(), nameEnd - start - 1),
+      });
     }
     at = end + 1;
   }

@@ -193,6 +193,18 @@ describe("the worker's reader holds an HWPX to the limits before rhwp reads it",
   });
 });
 
+/** How many pages rhwp opens a file with, read directly; 'refused' when it does not. */
+function rhwpPages(file: Buffer): number | 'refused' {
+  try {
+    const document = new HwpDocument(new Uint8Array(file));
+    const pages = document.pageCount();
+    document.free();
+    return pages;
+  } catch {
+    return 'refused';
+  }
+}
+
 describe('what the check reads of the spine is what rhwp reads', () => {
   const REF = '<opf:itemref idref="section0"/>';
   const QUOTED_REF = "<opf:itemref idref='section0'/>";
@@ -234,19 +246,41 @@ describe('what the check reads of the spine is what rhwp reads', () => {
       expect(ref).not.toBe('');
       return { ...member, data: Buffer.from(text.replace(ref, ref + markup)) };
     });
-    let opened: number | 'refused';
-    try {
-      const document = new HwpDocument(new Uint8Array(file));
-      opened = document.pageCount();
-      document.free();
-    } catch {
-      opened = 'refused';
-    }
-    expect(opened).toBe(pages);
+    expect(rhwpPages(file)).toBe(pages);
     const checked = await checkHwpxPackage(buffer(file)).then(
       () => 'passes',
       (error: unknown) => (error instanceof UnreadableFile ? 'unreadable' : String(error)),
     );
     expect(checked).toBe(pages === 2 ? 'passes' : 'unreadable');
+  });
+});
+
+describe('the list the check reads is the one rhwp reads', () => {
+  it('an archive that holds a part twice is refused: rhwp reads the last, in either order', async () => {
+    const members: ZipMember[] = [];
+    rewriteArchive(koreanHwpx(), (member) => {
+      members.push(member);
+      return member;
+    });
+    const list = members.find((member) => member.name === 'Contents/content.hpf');
+    if (!list) throw new Error('no list');
+    const text = list.data.toString('utf8');
+    const ref = /<opf:itemref idref="section0"[^>]*\/>/.exec(text)?.[0] ?? '';
+    const twice = { ...list, data: Buffer.from(text.replace(ref, ref + ref)) };
+    const orders: [ZipMember[], number][] = [
+      [[list, twice], 4],
+      [[twice, list], 2],
+    ];
+    for (const [lists, pages] of orders) {
+      const file = zip(members.flatMap((member) => (member === list ? lists : [member])));
+      expect(rhwpPages(file)).toBe(pages);
+      await expect(checkHwpxPackage(buffer(file))).rejects.toBeInstanceOf(UnreadableFile);
+    }
+  });
+
+  it('a list past the XML limit is too large, before it is read', async () => {
+    // Read, this list would be unreadable: its markup does not end.
+    const content = `${' '.repeat(MARKUP_LIMIT_BYTES)}<opf:package`;
+    await expect(checkHwpxPackage(buffer(hwpx(content, [])))).rejects.toBeInstanceOf(TooLargeFile);
   });
 });

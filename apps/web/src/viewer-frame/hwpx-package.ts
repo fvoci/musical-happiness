@@ -26,7 +26,7 @@
 import { MARKUP_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
 import { zipEntries, type ZipEntry } from '$lib/file-viewer/zip-directory.ts';
 
-import { tagsOf } from './hpf-markup.ts';
+import { readTags } from './hpf-markup.ts';
 import { TooLargeFile, UnreadableFile } from './renderer.ts';
 
 const PACKAGE = 'Contents/content.hpf';
@@ -55,17 +55,17 @@ interface Listed {
 export function listed(xml: string): Listed {
   const items: Item[] = [];
   const spine: string[] = [];
-  for (const { name, attributes } of tagsOf(xml)) {
+  readTags(xml, ({ name, attributes }) => {
     const local = name.slice(name.lastIndexOf(':') + 1);
     if (local === 'itemref') {
-      for (const [key, value] of attributes) if (key === 'idref') spine.push(value);
+      for (const [key, value] of attributes()) if (key === 'idref') spine.push(value);
     } else if (local === 'item') {
-      const found = new Map(attributes);
+      const found = new Map(attributes());
       const id = found.get('id') ?? '';
       const href = found.get('href') ?? '';
       if (id && href) items.push({ id, href, mediaType: found.get('media-type') ?? '' });
     }
-  }
+  });
   return { items, spine };
 }
 
@@ -107,13 +107,20 @@ async function partText(bytes: Uint8Array, entry: ZipEntry): Promise<string> {
 
 /**
  * Throws `TooLargeFile` when what rhwp would parse of the package as XML is
- * past the limit, and `UnreadableFile` when its spine names a part twice.
+ * past the limit, and `UnreadableFile` when its spine names a part twice or
+ * the archive holds two parts of one name (rhwp reads the last, so the list
+ * read here would not be its list).
  */
 export async function checkHwpxPackage(archive: ArrayBuffer): Promise<void> {
   const bytes = new Uint8Array(archive);
   const entries = zipEntries(bytes);
   if (!entries) throw new UnreadableFile();
+  if (new Set(entries.map((entry) => entry.name)).size !== entries.length) {
+    throw new UnreadableFile();
+  }
   const main = entries.find((entry) => entry.name === PACKAGE);
+  // The list is XML to rhwp, whatever it starts with: held to the limit before it is read.
+  if (main && main.size > MARKUP_LIMIT_BYTES) throw new TooLargeFile();
   const list = main ? listed(await partText(bytes, main)) : { items: [], spine: [] };
   const sections = sectionsOf(list);
   if (new Set(sections).size !== sections.length) throw new UnreadableFile();
