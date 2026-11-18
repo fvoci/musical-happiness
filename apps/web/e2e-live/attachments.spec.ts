@@ -80,10 +80,10 @@ test('a file of two parts is attached on the server and downloads as the same by
   );
   expect(sha(await fetched.body())).toBe(sha(bytes));
 
-  // The link on the card downloads it, after a reload too.
+  // The button beside it downloads it, after a reload too.
   await page.reload();
   const downloading = page.waitForEvent('download');
-  await section.getByRole('link', { name: 'scan.bin' }).click();
+  await section.getByRole('button', { name: 'Download scan.bin' }).click();
   const download = await downloading;
   expect(download.suggestedFilename()).toBe('scan.bin');
   // Saved, not read where the browser put it: a browser reached over the network (Linux's

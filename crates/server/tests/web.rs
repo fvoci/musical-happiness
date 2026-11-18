@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use axum::body::{Body, to_bytes};
 use axum::http::header::{
-    ACCEPT_ENCODING, CACHE_CONTROL, CONTENT_ENCODING, CONTENT_RANGE, CONTENT_TYPE, ETAG,
-    IF_NONE_MATCH, RANGE, VARY,
+    ACCEPT_ENCODING, ACCESS_CONTROL_ALLOW_ORIGIN, CACHE_CONTROL, CONTENT_ENCODING, CONTENT_RANGE,
+    CONTENT_SECURITY_POLICY, CONTENT_TYPE, ETAG, IF_NONE_MATCH, RANGE, VARY,
 };
 use axum::http::{Request, StatusCode};
 use axum::response::Response;
@@ -37,6 +37,10 @@ impl Fixture {
         write("static/app-0123456789abcdef.js.gz", "GZIP-BYTES");
         write("static/app-0123456789abcdef.js.zst", "ZSTD-BYTES");
         write("static/sub/nested.css", "body{}");
+        write(
+            "static/viewer-frame.html",
+            "<!doctype html><title>frame</title>",
+        );
         write("secret.txt", "outside static");
         let web = WebRoot::new(&dir, server_url);
         Self { dir, web }
@@ -93,6 +97,54 @@ async fn static_file_without_a_content_hash_must_be_revalidated() {
     let again = fixture.get("main.js", &[(IF_NONE_MATCH, &etag)]).await;
     assert_eq!(again.status(), StatusCode::NOT_MODIFIED);
     assert_eq!(header(&again, &CACHE_CONTROL), "no-cache");
+}
+
+/// The file viewer's frame has an opaque origin: it reads the app's files across origins.
+#[tokio::test]
+async fn static_files_may_be_read_from_any_origin() {
+    let fixture = Fixture::new("http://localhost:8000");
+
+    for path in ["main.js", "app-0123456789abcdef.js", "sub/nested.css"] {
+        let response = fixture.get(path, &[]).await;
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(
+            header(&response, &ACCESS_CONTROL_ALLOW_ORIGIN),
+            "*",
+            "{path}"
+        );
+        assert!(
+            response.headers().get(CONTENT_SECURITY_POLICY).is_none(),
+            "{path} is not sandboxed"
+        );
+    }
+}
+
+/// Opened on its own, the viewer's frame is sandboxed as it is in the app's iframe, by
+/// whatever name reaches it.
+#[tokio::test]
+async fn the_viewer_frame_is_sandboxed() {
+    let fixture = Fixture::new("http://localhost:8000");
+
+    for path in [
+        "viewer-frame.html",
+        "viewer%2Dframe.html",
+        "viewer-frame%2Ehtml",
+    ] {
+        let response = fixture.get(path, &[]).await;
+
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(
+            header(&response, &CONTENT_SECURITY_POLICY),
+            "sandbox allow-scripts",
+            "{path}"
+        );
+        assert_eq!(
+            header(&response, &ACCESS_CONTROL_ALLOW_ORIGIN),
+            "*",
+            "{path}"
+        );
+        assert_eq!(header(&response, &CACHE_CONTROL), "no-cache", "{path}");
+    }
 }
 
 #[tokio::test]
