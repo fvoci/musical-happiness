@@ -15,10 +15,10 @@ use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::password_reset;
 use crate::sessions;
-use crate::{directory, members};
+use crate::{directory, members, users_by_id};
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
-const USER_COLUMNS: &str =
+pub(crate) const USER_COLUMNS: &str =
     "id, username, email, password_hash, create_at, update_at, delete_at, is_admin, display_name";
 
 /// What a user is to the instance.
@@ -69,6 +69,10 @@ const SEARCH_LIMIT: usize = 10;
 /// where that is the same.
 const OLDEST_FIRST: &str = " ORDER BY create_at, id";
 
+/// The condition that an account waits to be deleted: its person asked, and may still
+/// take the asking back (`account_deletion.rs`). Not once its erasing began.
+pub(crate) const WAITS: &str = "delete_after > 0 AND erase_started_at = 0";
+
 /// One stored preference of a user.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Preference {
@@ -113,6 +117,30 @@ impl Store {
             .await
     }
 
+    /// The identifier of the account with the login name, in any letter case, whatever
+    /// its state: in use, out of use, waiting to be deleted or being erased. `None` if
+    /// there is none: an account that was erased has no name. For the server's
+    /// operator, who erases an account by its name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn account_id_by_username(
+        &self,
+        username: &str,
+    ) -> Result<Option<String>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT id FROM users WHERE erased_at = 0 AND ");
+            Lookup::Username(username).push_condition(&mut sql);
+            scope
+                .fetch_optional(sql)
+                .await?
+                .map(|row| row.id(0))
+                .transpose()
+        })
+        .await
+    }
+
     /// Returns the users with the given identifiers, oldest first.
     ///
     /// # Errors
@@ -120,7 +148,7 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if none of the users exists and
     /// [`StoreError::NotAllFound`] unless exactly one user is found per identifier.
     pub async fn get_users_list(&self, user_ids: &[String]) -> Result<Vec<User>, StoreError> {
-        self.with_conn(async |scope| users_by_ids(scope, user_ids, |_, _| ()).await)
+        self.with_conn(async |scope| users_by_id::users_by_ids(scope, user_ids, |_, _| ()).await)
             .await
     }
 
@@ -149,6 +177,40 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if there is no such user.
     pub async fn get_user_by_username(&self, username: &str) -> Result<User, StoreError> {
         self.with_conn(async |scope| find_user(scope, Lookup::Username(username)).await)
+            .await
+    }
+
+    /// Returns the account with the given identifier that somebody can sign in to: one
+    /// in use, or one that waits to be deleted (its `delete_at` is not zero then),
+    /// whose session opens the way back and nothing else.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if there is no such account.
+    pub async fn account_by_id(&self, user_id: &str) -> Result<User, StoreError> {
+        self.with_conn(async |scope| account_by_id(scope, user_id).await)
+            .await
+    }
+
+    /// Returns the account with the given name, in any letter case, that somebody can
+    /// sign in to, as [`Store::account_by_id`] has it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if there is no such account.
+    pub async fn account_by_username(&self, username: &str) -> Result<User, StoreError> {
+        self.with_conn(async |scope| find_account(scope, Lookup::Username(username)).await)
+            .await
+    }
+
+    /// Returns the account with the given email address as its own, in any letter case,
+    /// that somebody can sign in to, as [`Store::account_by_id`] has it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if there is no such account.
+    pub async fn account_by_email(&self, email: &str) -> Result<User, StoreError> {
+        self.with_conn(async |scope| find_account(scope, Lookup::Email(email)).await)
             .await
     }
 
@@ -211,7 +273,8 @@ impl Store {
         // The instance's organization as it is now, whose administrators are the
         // instance's; asked again in the transaction, after the instance's row is held:
         // were it another by then, nothing is followed into this one. (It cannot be
-        // another today: no organization is deleted, and a new one is the youngest.)
+        // another today: the oldest organization goes with no account, the only way
+        // one goes, and a new one is the youngest.)
         let store = match self.instance_organization().await? {
             Some(org_id) => self.for_org(&org_id)?,
             None => self.scoped(crate::Tenant::Unset),
@@ -440,55 +503,6 @@ fn select_users(scope: &Scope<'_>) -> Sql {
     ))
 }
 
-/// The users with the given identifiers among those `narrow` keeps, oldest first.
-///
-/// # Errors
-///
-/// Returns [`StoreError::NotFound`] if none of the users is found and
-/// [`StoreError::NotAllFound`] unless exactly one user is found per identifier.
-pub(crate) async fn users_by_ids(
-    scope: &mut Scope<'_>,
-    user_ids: &[String],
-    narrow: impl Fn(&mut Sql, &Scope<'_>),
-) -> Result<Vec<User>, StoreError> {
-    let users = found_users_by_ids(scope, user_ids, narrow).await?;
-    if users.is_empty() {
-        return Err(user_not_found());
-    }
-    // Preserved quirk: the counts are compared, so naming a user twice fails even
-    // though that user exists (`server/services/store/sqlstore/user.go:111`).
-    if users.len() != user_ids.len() {
-        return Err(StoreError::NotAllFound {
-            entity: "user",
-            ids: user_ids.to_vec(),
-        });
-    }
-    Ok(users)
-}
-
-/// The users with the given identifiers among those `narrow` keeps, oldest first, each
-/// once: an identifier of nobody it keeps finds nothing, as one of nobody at all.
-///
-/// # Errors
-///
-/// Returns [`StoreError::Database`] if the query fails.
-pub(crate) async fn found_users_by_ids(
-    scope: &mut Scope<'_>,
-    user_ids: &[String],
-    narrow: impl Fn(&mut Sql, &Scope<'_>),
-) -> Result<Vec<User>, StoreError> {
-    if user_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut sql = select_users(scope);
-    narrow(&mut sql, scope);
-    sql.push(" AND id IN (")
-        .bind_list(user_ids.iter().map(|id| Id(id)))
-        .push(")")
-        .push(OLDEST_FIRST);
-    fetch_users(scope, sql).await
-}
-
 /// The ten oldest users among those `narrow` keeps, oldest first, whose login name or
 /// display name contains `search_query`, ignoring case; the ten oldest of them for an
 /// empty query.
@@ -539,7 +553,7 @@ pub(crate) async fn search_users(
     fetch_users(scope, sql).await
 }
 
-async fn fetch_users(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<User>, StoreError> {
+pub(crate) async fn fetch_users(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<User>, StoreError> {
     scope
         .fetch_all(sql)
         .await?
@@ -567,7 +581,7 @@ fn user_from_row(row: &Row) -> Result<User, StoreError> {
 ///
 /// Preserved quirk: it does not say which user is missing; clients see `{user} not found`
 /// (`server/services/store/sqlstore/user.go:54` and `:95`).
-fn user_not_found() -> StoreError {
+pub(crate) fn user_not_found() -> StoreError {
     StoreError::not_found("user")
 }
 
@@ -584,7 +598,10 @@ impl Lookup<'_> {
     fn push_condition(self, sql: &mut Sql) {
         match self {
             Self::Id(id) => sql.push_bind("id = ", Id(id)),
-            Self::Username(name) => sql.push_bind("lower(username) = lower(", name).push(")"),
+            // An erased account has no name, and is found by none.
+            Self::Username(name) => sql
+                .push_bind("username <> '' AND lower(username) = lower(", name)
+                .push(")"),
             // An account with no address of its own (one made through a provider) is
             // found by none, not even by an empty one.
             Self::Email(email) => sql
@@ -606,10 +623,37 @@ async fn find_user(scope: &mut Scope<'_>, lookup: Lookup<'_>) -> Result<User, St
         .ok_or_else(user_not_found)
 }
 
-/// Whether an account that is not deleted has the address `email` as its own, in any
-/// letter case.
+/// The account with the identifier that somebody can sign in to, as
+/// [`Store::account_by_id`] has it.
+pub(crate) async fn account_by_id(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<User, StoreError> {
+    find_account(scope, Lookup::Id(user_id)).await
+}
+
+/// Returns the account `lookup` selects that somebody can sign in to: in use, or
+/// waiting to be deleted ([`WAITS`]).
+async fn find_account(scope: &mut Scope<'_>, lookup: Lookup<'_>) -> Result<User, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT {USER_COLUMNS} FROM users WHERE (delete_at = 0 OR ({WAITS})) AND "
+    ));
+    lookup.push_condition(&mut sql);
+    fetch_users(scope, sql)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(user_not_found)
+}
+
+/// Whether an account in use, one that waits to be deleted, or one that is being
+/// erased (its row has the address until the erasing ends) has the address `email` as
+/// its own, in any letter case.
 pub(crate) async fn has_address(scope: &mut Scope<'_>, email: &str) -> Result<bool, StoreError> {
-    let mut sql = scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND ");
+    let mut sql = scope.sql(&format!(
+        "SELECT 1 FROM users \
+         WHERE (delete_at = 0 OR ({WAITS}) OR (erase_started_at > 0 AND erased_at = 0)) AND "
+    ));
     Lookup::Email(email).push_condition(&mut sql);
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
@@ -717,6 +761,18 @@ async fn lock_user(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreErro
         Some(_) => Ok(()),
         None => Err(StoreError::UserNotFound(user_id.to_owned())),
     }
+}
+
+/// Holds the row of the account against being put out of use until the transaction
+/// ends, and says whether it is in use: an asking to delete it waits for this, or
+/// this finds it asked.
+pub(crate) async fn hold_in_use(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM users WHERE delete_at = 0 AND id = ");
+    sql.bind(Id(user_id));
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR SHARE");
+    }
+    Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
 /// The preferences of a user in one category, by name.

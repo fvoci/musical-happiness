@@ -128,6 +128,25 @@ export function isSignedOut(error: unknown): error is BackendError {
   return isBackendError(error) && error.status === 401 && error.reason !== 'sso_required';
 }
 
+/**
+ * The session is of an account that waits to be deleted (401,
+ * `account_deletion_pending`): it opens nothing but taking that back.
+ */
+export function isLeaving(error: unknown): error is BackendError {
+  return (
+    isBackendError(error) && error.status === 401 && error.reason === 'account_deletion_pending'
+  );
+}
+
+/**
+ * How the session is over, when that is what a refusal says: nobody is
+ * signed in (`signedOut`), or the account waits to be deleted (`leaving`).
+ */
+export function sessionOver(error: unknown): 'signedOut' | 'leaving' | undefined {
+  if (isLeaving(error)) return 'leaving';
+  return isSignedOut(error) ? 'signedOut' : undefined;
+}
+
 /** The stored version differs from the one the write was based on. */
 export function isConflict(error: unknown): error is BackendError {
   return isBackendError(error) && error.status === 409;

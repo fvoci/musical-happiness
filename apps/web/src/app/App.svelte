@@ -21,6 +21,9 @@
   import FileViewerHost from '$lib/components/file-viewer/FileViewerHost.svelte';
   import { viewerLinkOf } from '$lib/components/file-viewer/viewing.svelte.ts';
   import { setFileSource } from '$lib/editor/files.ts';
+  import AccountDeletion from '$lib/features/account/AccountDeletion.svelte';
+  import AccountLeaving from '$lib/features/account/AccountLeaving.svelte';
+  import { daysLeft } from '$lib/features/account/account-deletion.ts';
   import InvitePage from '$lib/features/account/InvitePage.svelte';
   import LinkedSignIns from '$lib/features/account/LinkedSignIns.svelte';
   import SignInPage from '$lib/features/account/SignInPage.svelte';
@@ -126,7 +129,8 @@
       const { backend } = started;
       account = started.account;
       organizations = started.organizations;
-      const made = new Workspace({ backend, locale: currentLocale, lastWorkspace });
+      const goneUserName = (): string => m.people_deleted_user();
+      const made = new Workspace({ backend, locale: currentLocale, lastWorkspace, goneUserName });
       if (started.people) {
         providePeople(made, {
           people: started.people,
@@ -202,6 +206,17 @@
     // Where this account was going is not where the next one starts.
     takeReturn();
     router.restart({});
+  }
+
+  /**
+   * Asks for the account to be deleted: every session of it is over, and the
+   * page starts again at the sign-in, which says in how many days it goes.
+   */
+  async function askDeletion(username: string, password: string): Promise<void> {
+    const due = await signedIn(async () => account?.requestDeletion(username, password));
+    workspace?.close();
+    takeReturn();
+    router.restart({}, { query: `account_leaving=${daysLeft(due ?? 0, Date.now())}` });
   }
 
   /** The token of the invitation the address is the link of, if it is one. */
@@ -280,6 +295,13 @@
       {justLinked}
       reveal={linkedAsked}
     />
+    {#if workspace.me}
+      <AccountDeletion
+        username={workspace.me.username}
+        read={() => signedIn(() => of.deletion())}
+        onDelete={askDeletion}
+      />
+    {/if}
   {/if}
 {/snippet}
 
@@ -297,6 +319,19 @@
       <p class="mt-2 text-muted-foreground" role="status">{m.app_loading()}</p>
     </div>
   </main>
+{:else if workspace.status === 'leaving' && account}
+  {@const waiting = account}
+  <AccountLeaving
+    read={() => waiting.deletion()}
+    onCancel={async () => {
+      await waiting.cancelDeletion();
+      location.reload();
+    }}
+    onStale={() => void retryLoad()}
+    onSignOut={() => void signOut()}
+    locale={currentLocale()}
+  />
+  <Problems {workspace} />
 {:else if invitation !== undefined && account}
   {@const signedInAs = workspace.status === 'ready' ? workspace.me : undefined}
   {@const accounts = account}
@@ -322,6 +357,7 @@
   />
 {:else if workspace.status === 'signedOut' && account}
   <SignInPage
+    leavingDays={Number(cameBack.get('account_leaving')) || undefined}
     onSignIn={async (login: string, password: string) => {
       await account?.signIn(login, password);
       // A session that ended while working here: what is on the page (the
@@ -373,7 +409,7 @@
     forgotHref={`${router.href({}).replace(/\/$/, '')}/forgot-password`}
     {...signInWays(account, (orgId: string) => toProvider(orgId), router.href({}))}
   />
-{:else if workspace.status === 'failed' || workspace.status === 'signedOut'}
+{:else if workspace.status !== 'ready'}
   <main class="grid min-h-dvh place-items-center p-4">
     <div class="text-center">
       <p class="text-lg font-medium" role="alert">{m.app_load_failed()}</p>

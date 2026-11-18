@@ -8,7 +8,7 @@ pub mod sealed;
 pub mod secret;
 pub mod token;
 
-use fvoci_model::{ContainerKind, Session};
+use fvoci_model::{ContainerKind, Leaving, Session};
 use fvoci_store::{SharedContainer, Store};
 
 use crate::config::Configuration;
@@ -134,12 +134,45 @@ impl Authenticator {
         {
             Ok(session) => Ok(session),
             // An unknown or expired token is an everyday refusal; a store that fails is
-            // the server's fault and is reported as such.
+            // the server's fault and is reported as such. The session of an account that
+            // waits to be deleted is told so: it is good for the way back.
             Err(error) if error.is_not_found() => {
-                Err(AppError::unauthorized("invalid session token"))
+                Err(match self.leaving_session_at(token, now).await? {
+                    Some(_) => AppError::account_deletion_pending(),
+                    None => AppError::unauthorized("invalid session token"),
+                })
             }
             Err(error) => Err(AppError::from(error).context("looking up the session")),
         }
+    }
+
+    /// The session a token belongs to, if it is one of an account that waits to be
+    /// deleted, and until when the account waits: the session that opens the way back
+    /// and nothing else. `None` for any other token, also one of an account in use.
+    ///
+    /// # Errors
+    ///
+    /// Returns a server error if the session cannot be looked up.
+    pub async fn leaving_session(
+        &self,
+        token: &str,
+    ) -> Result<Option<(Session, Leaving)>, AppError> {
+        self.leaving_session_at(token, now_millis()).await
+    }
+
+    async fn leaving_session_at(
+        &self,
+        token: &str,
+        now: i64,
+    ) -> Result<Option<(Session, Leaving)>, AppError> {
+        self.store
+            .leaving_session(
+                &secret::token_digest(token),
+                now,
+                now.saturating_sub(self.session_idle_millis),
+            )
+            .await
+            .map_err(|error| AppError::from(error).context("looking up the session"))
     }
 
     /// Returns whether `read_token` grants read access to a shared board's blocks, which

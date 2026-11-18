@@ -264,10 +264,12 @@ export class Router {
    * address takes the place of such an entry, as `go` does it, and of the
    * current one where `replace` asks for it.
    */
-  restart(route: Partial<Route>, options: { replace?: boolean } = {}): void {
+  restart(route: Partial<Route>, options: { replace?: boolean; query?: string } = {}): void {
     const overOverlay = releaseOverlayEntries() > 0;
-    if (overOverlay || options.replace) window.location.replace(this.href(route));
-    else window.location.assign(this.href(route));
+    // What the page that starts is told once (`query`), as a provider tells it what became of a sign-in.
+    const address = this.href(route) + (options.query ? `?${options.query}` : '');
+    if (overOverlay || options.replace) window.location.replace(address);
+    else window.location.assign(address);
   }
 
   /** Goes to a route. `replace` puts it in place of the current entry instead of after it. */

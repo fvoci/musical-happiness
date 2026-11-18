@@ -27,7 +27,7 @@ it('distinguishes a server operator from a person whose account is gone', () => 
     "Server operator released the organization's single sign-on requirement",
   );
   expect(screen.getByTestId('audit-list')).toHaveTextContent(
-    "a former user released the organization's single sign-on requirement",
+    "Deleted user released the organization's single sign-on requirement",
   );
 });
 

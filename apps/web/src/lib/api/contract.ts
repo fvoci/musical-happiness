@@ -461,7 +461,8 @@ export interface paths {
         put?: never;
         /**
          * Sign out
-         * @description Ends the session of the request and clears its cookie.
+         * @description Ends the session of the request and clears its cookie. The session of an account
+         *     that waits to be deleted is ended too.
          */
         post: operations["logout"];
         delete?: never;
@@ -889,8 +890,11 @@ export interface paths {
          *     All of the account's sessions and WebSocket connections end, and so do its other
          *     reset links, as they do when the password is changed or set by an operator. The sign-in
          *     lock of the account, at its user name and its email, ends, and so does the wait of the
-         *     address that finished the reset. A missing, expired or already used token answers the
-         *     same 400, naming `token` in `errors`.
+         *     address that finished the reset. An account that waits to be deleted waits still:
+         *     signing in with the new password shows the way back (`getAccountDeletion`), and
+         *     taking the deletion back is the person's own act there. A missing, expired or already
+         *     used token answers the same 400, naming `token` in `errors`, and so does the token of
+         *     an account whose erasing began.
          */
         post: operations["completePasswordReset"];
         delete?: never;
@@ -912,7 +916,11 @@ export interface paths {
          * Request a password reset
          * @description Answers 204 with an empty body for an existing account, an absent account and
          *     an account without a password. Lookup and delivery run in the background;
-         *     the request never waits for either. Accounts without passwords receive no mail.
+         *     the request never waits for either. Accounts without passwords receive no mail. An
+         *     account that waits to be deleted is sent a link as one in use is, so that its person
+         *     may sign in and take the deletion back; one whose erasing began, or that was erased,
+         *     is sent none (a message already on its way as the erasing begins carries a link that
+         *     sets nothing).
          *     Requests are limited by address only, with the login setting of attempts per minute
          *     and a separate counter (429); never by email. An account is sent at most
          *     `mail_reset_per_account_hour` messages an hour: more requests are answered the same
@@ -1245,6 +1253,82 @@ export interface paths {
          *     their size.
          */
         patch: operations["patchClientState"];
+        trace?: never;
+    };
+    "/api/v1/users/me/deletion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What deleting the account comes to
+         * @description What stands in the way of deleting the account of the session, and what goes with
+         *     it, as things are now. The server keeps an administrator (`lastInstanceAdmin`), and
+         *     so does every organization that has other people in it (`soleAdminOf`): the account
+         *     is not deleted while either names it. An organization that has nobody but the
+         *     account (`organizations`) goes with it, with everything in it: its workspaces,
+         *     boards and wikis, their files, and its records. How much it holds (`boards`,
+         *     `wikis`, `files`) is told to a session that opens it, and left out for one of an
+         *     organization that takes only sessions made through its provider. `proof` says what
+         *     `requestAccountDeletion` asks for.
+         *
+         *     Also answered to the session of an account that waits to be deleted, the one
+         *     operation besides `cancelAccountDeletion` and `logout` that such a session opens:
+         *     `requestedAt` and `deleteAfter` are there then, and left out otherwise.
+         */
+        get: operations["getAccountDeletion"];
+        put?: never;
+        /**
+         * Ask to delete the account
+         * @description Puts the account of the session out of use, to be erased after thirty days
+         *     (`graceDays` of `getAccountDeletion`): every session of it ends, this one too, and
+         *     its cookie is cleared. Until it is erased, whoever signs in to the account gets a
+         *     session that opens nothing (every operation is 401 with the reason
+         *     `account_deletion_pending`) but `getAccountDeletion`, `cancelAccountDeletion` and
+         *     `logout`. While it waits, the account stays a member of what it is a member of,
+         *     shown as one, and what it wrote stays; the links of invitations it made let nobody
+         *     in, and it may wait past the thirty days until it is erased.
+         *
+         *     Erased, the account is gone from every organization, workspace, board and wiki; a
+         *     board it alone administered passes to an administrator of its workspace; nothing of
+         *     the person is kept, and what it wrote stays under its identifier, which
+         *     `getWorkspaceUsersById` answers with no name: the writer is a deleted user. An
+         *     organization that has nobody else goes with it, but the server's own first one,
+         *     whose only administrator stays as the only one of an organization with other
+         *     people does.
+         *
+         *     `username` is the account's login name, in any letter case: another is 400 naming
+         *     `/username`. An account with a password (`proof` is `password`) sends it: a wrong
+         *     one is 400 with the reason `invalid_credentials`, naming `/password`, and too many
+         *     are 429, as for `changePassword`. An account without one (`proof` is `sign_in`)
+         *     asks from a session made through a provider no more than five minutes ago:
+         *     otherwise 403 with the reason `sign_in_again`.
+         *
+         *     An organization that would go with the account and that takes only sessions made
+         *     through its provider is asked of such a session: any other is 401 with the reason
+         *     `sso_required` and its `orgId`. Leaving an organization is the account's own, and
+         *     asked of any session.
+         *
+         *     The server's only administrator stays (409, reason `last_admin`), and so does the
+         *     only administrator of an organization that stays when the account goes: one that
+         *     has other people in it, or the server's own first organization (409, reason
+         *     `last_org_admin`, `orgId` naming the first such organization): make somebody else
+         *     an administrator first.
+         */
+        post: operations["requestAccountDeletion"];
+        /**
+         * Take back the asking to delete the account
+         * @description Puts the account of the session in use again, as it was: for the session of an
+         *     account that waits to be deleted, which opens everything again from the next
+         *     request. A session of an account that does not wait is 409, and so is one whose
+         *     account is being erased already.
+         */
+        delete: operations["cancelAccountDeletion"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/users/me/identities": {
@@ -3310,7 +3394,17 @@ export interface paths {
          *     somebody the user does not see finds nothing, as one of nobody: the answer does not
          *     tell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or
          *     last changed a card, block or comment of a board of the workspace they read, also
-         *     after leaving the workspace. Oldest account first, not in the order of the request.
+         *     after leaving the workspace. Oldest account first, not in the order of the request:
+         *     by `createAt`, then by identifier.
+         *
+         *     An account that was deleted is answered to whoever asks by its identifier, seen
+         *     before or not, as what is left of it: the identifier, an empty `username`, `email`
+         *     and `displayName`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
+         *     the account is answered, neither when it went nor when it was asked to (the
+         *     identifier is kept as it was made). The empty `username` is what tells it, not a
+         *     time: a page shows a deleted user where it wrote or is mentioned.
+         *     `deleteAt` is not zero for a writer whose account waits to be deleted, who is
+         *     answered as they are, with their name.
          */
         post: operations["getWorkspaceUsersById"];
         delete?: never;
@@ -3782,6 +3876,57 @@ export interface components {
              *     characters. Empty or `null` for none, and the login name is shown.
              */
             displayName?: string | null;
+        };
+        /**
+         * @description What deleting the account of the session comes to: what stands in its way, what
+         *     goes with it, and, once it was asked, until when it waits.
+         */
+        AccountDeletion: {
+            /**
+             * Format: int64
+             * @description When the account is erased at the earliest, in milliseconds since the Unix
+             *     epoch; left out while the deletion is not asked.
+             */
+            deleteAfter?: number;
+            /**
+             * Format: int64
+             * @description How many days an account waits between the asking and the erasing.
+             */
+            graceDays: number;
+            /**
+             * @description Whether the account is the server's only administrator, who stays: the server
+             *     keeps one.
+             */
+            lastInstanceAdmin: boolean;
+            /**
+             * @description The organizations that have nobody but the account, which go with it, and
+             *     everything in them. The server's own first organization is never one.
+             */
+            organizations: components["schemas"]["LeavingOrganization"][];
+            /** @description How the request shows that it is the person's. */
+            proof: components["schemas"]["DeletionProof"];
+            /**
+             * Format: int64
+             * @description When the deletion was asked, in milliseconds since the Unix epoch; left out
+             *     while it is not.
+             */
+            requestedAt?: number;
+            /**
+             * @description The organizations the account is the only administrator of that stay when it
+             *     goes: those that have other people in them, and the server's own first
+             *     organization, which goes with no account. Somebody else is made an
+             *     administrator of each before the account can be deleted.
+             */
+            soleAdminOf: components["schemas"]["OrganizationName"][];
+        };
+        /** @description The answer to a request to delete the account. */
+        AccountDeletionAsked: {
+            /**
+             * Format: int64
+             * @description When the account is erased at the earliest, in milliseconds since the Unix
+             *     epoch.
+             */
+            deleteAfter: number;
         };
         /** @description Whether a user is to be an administrator of the instance. */
         AdminChange: {
@@ -4418,6 +4563,13 @@ export interface components {
             /** @description The boards. */
             containers: components["schemas"]["Container"][];
         };
+        /** @description A request to delete the account of the session. */
+        DeleteAccountRequest: {
+            /** @description The account's password; left out, or empty, by an account that has none. */
+            password?: string;
+            /** @description The account's login name, typed out: that the person means this account. */
+            username: string;
+        };
         /** @description The identifiers of boards and blocks to delete together. */
         DeleteContainersAndBlocks: {
             /** @description The identifiers of the blocks. */
@@ -4472,6 +4624,11 @@ export interface components {
             /** @description The page's title when it was deleted. */
             title: string;
         };
+        /**
+         * @description How an account shows that the request to delete it is its person's.
+         * @enum {string}
+         */
+        DeletionProof: "password" | "sign_in";
         /**
          * @description How much room the interface gives each thing.
          * @enum {string}
@@ -4654,6 +4811,32 @@ export interface components {
         InvitationToken: {
             /** @description The token of the link. */
             token: string;
+        };
+        /**
+         * @description An organization that goes with the account of its only member, and how much is in
+         *     it. The numbers are left out for an organization the session that asks does not
+         *     open (one that takes only sessions made through its provider).
+         */
+        LeavingOrganization: {
+            /**
+             * Format: int64
+             * @description How many boards it has in use, templates not counted.
+             */
+            boards?: number;
+            /**
+             * Format: int64
+             * @description How many files its boards and wikis in use hold.
+             */
+            files?: number;
+            /** @description The organization's identifier. */
+            id: string;
+            /** @description Its name; empty if it was given none. */
+            name: string;
+            /**
+             * Format: int64
+             * @description How many wikis it has in use.
+             */
+            wikis?: number;
         };
         /** @description A card or a page as a reference shows it: what it is called, and where it is. */
         LinkedBlock: {
@@ -5226,6 +5409,13 @@ export interface components {
              */
             publicLinks: boolean;
         };
+        /** @description An organization named to its member. */
+        OrganizationName: {
+            /** @description The organization's identifier. */
+            id: string;
+            /** @description Its name; empty if it was given none. */
+            name: string;
+        };
         /** @description A change of an organization: what is left out stays as it is. */
         OrganizationPatch: {
             /** @description The new name, at most `MAX_NAME_CHARS` characters; may be empty. */
@@ -5400,7 +5590,8 @@ export interface components {
             limit?: number;
             /**
              * @description The organization whose provider the session must be made through, with the
-             *     reason `sso_required`: what the sign-in is started for.
+             *     reason `sso_required`: what the sign-in is started for. With the reason
+             *     `last_org_admin`, the organization that would be left without an administrator.
              */
             orgId?: string;
             /**
@@ -5786,12 +5977,15 @@ export interface components {
         User: {
             /**
              * Format: int64
-             * @description Creation time in milliseconds since the Unix epoch.
+             * @description Creation time in milliseconds since the Unix epoch; zero for a deleted account
+             *     (an empty `username`).
              */
             createAt: number;
             /**
              * Format: int64
-             * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
+             * @description When the account was put out of use (deactivated, or its deletion asked), in
+             *     milliseconds since the Unix epoch; zero for one in use, and for a deleted account,
+             *     which an empty `username` tells.
              */
             deleteAt: number;
             /**
@@ -5808,7 +6002,8 @@ export interface components {
             isAdmin: boolean;
             /**
              * Format: int64
-             * @description Last modification time in milliseconds since the Unix epoch.
+             * @description Last modification time in milliseconds since the Unix epoch; zero for a deleted
+             *     account.
              */
             updateAt: number;
             /** @description The login name. */
@@ -7732,6 +7927,108 @@ export interface operations {
                         [key: string]: string;
                     };
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getAccountDeletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What deleting the account comes to. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountDeletion"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    requestAccountDeletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description The account waits to be erased. */
+            200: {
+                headers: {
+                    /** @description Clears the session cookie. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountDeletionAsked"];
+                };
+            };
+            /** @description The password was wrong too often, or the server has too much password work to do at the moment. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    cancelAccountDeletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account is in use again. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {

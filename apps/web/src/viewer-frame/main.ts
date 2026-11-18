@@ -109,7 +109,7 @@ function start(): void {
           .then(async (render) => {
             // An archive's renderer gets it anew, of only the parts counted here.
             const bytes = isPackaged(message.format) ? await repack(message.bytes) : message.bytes;
-            return render(bytes, place, report);
+            return render(bytes, place, report, message.labels);
           })
           .then((result) => {
             drawn = result;

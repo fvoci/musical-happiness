@@ -3,7 +3,7 @@
  * a place and then follows the viewer's commands.
  */
 
-import type { SheetSummary } from '$lib/file-viewer/protocol.ts';
+import type { Labels, SheetSummary } from '$lib/file-viewer/protocol.ts';
 
 /** What a renderer tells the viewer around it. */
 export interface Report {
@@ -31,7 +31,13 @@ export class UnreadableFile extends Error {}
 /** Thrown when the file would make more than the viewer takes on (its ceilings on what is read and drawn). */
 export class TooLargeFile extends Error {}
 
-export type Render = (bytes: ArrayBuffer, place: HTMLElement, report: Report) => Promise<Drawn>;
+/** Draws a file into `place`; `labels` are the words it may show of its own, in the app's language. */
+export type Render = (
+  bytes: ArrayBuffer,
+  place: HTMLElement,
+  report: Report,
+  labels: Labels,
+) => Promise<Drawn>;
 
 /** How long after a page is brought into view the scrolling it caused is let be, in milliseconds. */
 const PIN_SETTLES = 150;

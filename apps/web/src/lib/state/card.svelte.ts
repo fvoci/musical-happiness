@@ -109,7 +109,7 @@ export class CardStore {
       ]);
       if (this.#closed) return;
       this.#takeDetail(detail);
-      void this.board.workspace.learnUsers(authorIds(comments));
+      void this.board.workspace.learnUsers(authorIds([detail, ...comments]));
       this.#comments = comments;
       this.#attachments = attachments;
       this.status = 'ready';

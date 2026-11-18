@@ -19,7 +19,8 @@
   let { records, locale, timeZone, testId = 'audit-list' }: Props = $props();
 
   function named(person: AuditPerson | null): string {
-    if (!person || person.username === '') return m.audit_gone_user();
+    // An account that was deleted keeps its records, under no name.
+    if (!person || person.username === '') return m.people_deleted_user();
     return person.displayName
       ? `${person.displayName} (@${person.username})`
       : `@${person.username}`;

@@ -1,8 +1,9 @@
 <!--
-  A file shown in the app instead of downloaded: a PDF, a Word document or a
-  workbook, drawn in a frame that has no origin and no network
-  (lib/file-viewer/session.svelte.ts, src/viewer-frame/). A workbook's pages
-  are its sheets, named in tabs under it and in what is announced.
+  A file shown in the app instead of downloaded: a PDF, a Word document, a
+  workbook or a PowerPoint deck, drawn in a frame that has no origin and no
+  network (lib/file-viewer/session.svelte.ts, src/viewer-frame/). A
+  workbook's pages are its sheets, named in tabs under it and in what is
+  announced; a deck's are its slides.
 
   A dialog over the page on a wide screen, the whole screen on a narrow one.
   Pages and zoom are at the bottom, within reach of a thumb. The keys, while
@@ -71,13 +72,25 @@
   const framed = $derived(status.name === 'opening' || status.name === 'shown');
   /** The sheet shown, when the file is a workbook. */
   const sheet = $derived(session.sheets[session.page - 1]);
+  /** A deck's pages are its slides, and are called so. */
+  const slides = $derived(status.name === 'shown' && status.format === 'pptx');
   const where = $derived(
     sheet
       ? m.viewer_sheet({ page: session.page, pages: session.pages, name: sheet.name })
-      : m.viewer_page({ page: session.page, pages: session.pages }),
+      : (slides ? m.viewer_slide : m.viewer_page)({ page: session.page, pages: session.pages }),
   );
   /** What is said of the page turned to: of a sheet with drawings, that they are not shown. */
   const announced = $derived(sheet?.drawings ? `${where} ${m.viewer_sheet_drawings()}` : where);
+  const previous = $derived(
+    sheet
+      ? m.viewer_previous_sheet()
+      : slides
+        ? m.viewer_previous_slide()
+        : m.viewer_previous_page(),
+  );
+  const next = $derived(
+    sheet ? m.viewer_next_sheet() : slides ? m.viewer_next_slide() : m.viewer_next_page(),
+  );
 
   closeOnBack(
     () => true,
@@ -258,7 +271,7 @@
     {#if status.name === 'shown'}
       <footer class="flex min-h-12 items-center justify-center gap-1 border-t p-1">
         <IconButton
-          label={sheet ? m.viewer_previous_sheet() : m.viewer_previous_page()}
+          label={previous}
           disabled={session.page <= 1}
           onclick={() => {
             session.goTo(session.page - 1);
@@ -271,7 +284,7 @@
           <span class="sr-only">{where}</span>
         </p>
         <IconButton
-          label={sheet ? m.viewer_next_sheet() : m.viewer_next_page()}
+          label={next}
           disabled={session.page >= session.pages}
           onclick={() => {
             session.goTo(session.page + 1);

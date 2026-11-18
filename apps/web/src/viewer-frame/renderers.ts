@@ -1,7 +1,7 @@
 /**
  * The renderer of each kind of file, fetched the first time a file of that
  * kind is opened. Each is a chunk of its own with its library, so opening a
- * PDF does not fetch the Word renderer or the spreadsheet one.
+ * PDF fetches none of the Word, spreadsheet or PowerPoint renderers.
  *
  * Adding a kind: its line in `FORMATS` of `$lib/file-viewer/formats.ts`, a module
  * here that exports `render`, and its line in this table.
@@ -14,4 +14,5 @@ export const RENDERERS: Record<FormatId, () => Promise<Render>> = {
   pdf: async () => (await import('./pdf.ts')).render,
   docx: async () => (await import('./docx.ts')).render,
   xlsx: async () => (await import('./xlsx.ts')).render,
+  pptx: async () => (await import('./pptx.ts')).render,
 };

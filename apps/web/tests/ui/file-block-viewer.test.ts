@@ -383,6 +383,8 @@ describe('the files the viewer is likely to show', () => {
   it.each([
     ['a.pdf', 1, true],
     ['보고서.DOCX', 1, true],
+    ['발표.pptx', 1, true],
+    ['a.ppt', 1, false],
     ['a.pdf', VIEW_LIMIT_BYTES, true],
     ['a.pdf', VIEW_LIMIT_BYTES + 1, false],
     ['a.zip', 1, false],
