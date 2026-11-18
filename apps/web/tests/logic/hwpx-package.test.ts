@@ -116,6 +116,20 @@ describe('in the worker, what rhwp parses of an HWPX as XML is held to the limit
     await expect(checkHwpxPackage(buffer(koreanHwpx()))).resolves.toBeUndefined();
   });
 
+  it('a tag of the list may have 1,000 attributes; one more stops the file', async () => {
+    const withAttributes = (count: number): ArrayBuffer => {
+      // The item's id, href and media-type, and as many more as make up the count.
+      const more = Array.from({ length: count - 3 }, (_, at) => `a${String(at)}=""`).join(' ');
+      const content = contentHpf([['s0', 'Contents/section0.xml']], ['s0']).replace(
+        '<opf:item id=',
+        `<opf:item ${more} id=`,
+      );
+      return buffer(hwpx(content, [{ name: 'Contents/section0.xml', data: xml(10) }]));
+    };
+    await expect(checkHwpxPackage(withAttributes(1000))).resolves.toBeUndefined();
+    await expect(checkHwpxPackage(withAttributes(1001))).rejects.toBeInstanceOf(UnreadableFile);
+  });
+
   it('a spine that names a section twice stops the file', async () => {
     const twice = hwpx(contentHpf([['s0', 'Contents/section0.xml']], ['s0', 's0']), [
       { name: 'Contents/section0.xml', data: xml(10) },

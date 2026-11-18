@@ -21,7 +21,8 @@
  * The package is read as rhwp's reader reads it (hpf-markup.ts): elements by
  * their local name (`item`, `itemref`, whatever comes before the last `:`),
  * attributes by their exact name (`id`, `href`, `media-type`, `idref`) with
- * their values as written, and markup ended where that reader ends it.
+ * their values as written (at most 1,000 of a tag), and markup ended where
+ * that reader ends it.
  */
 import { MARKUP_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
 import { zipEntries, type ZipEntry } from '$lib/file-viewer/zip-directory.ts';

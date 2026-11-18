@@ -9,9 +9,17 @@
  * what is counted is what rhwp reads (hwpx-package.ts).
  *
  * Where quick-xml stops with an error, rhwp refuses the file; so this throws
- * `UnreadableFile` there.
+ * `UnreadableFile` there, and also past `TAG_ATTRIBUTE_LIMIT`.
  */
 import { UnreadableFile } from './renderer.ts';
+
+/**
+ * The most attributes taken of one tag whose attributes are read: a Hancom
+ * list's tags have three or four. A tag of a million took this reader 1.3 s
+ * and 180 MiB, and the list may be 30 MB. Past it the file is refused, with
+ * the answer zip-guard gives an archive past its limits.
+ */
+const TAG_ATTRIBUTE_LIMIT = 1000;
 
 /** A start or empty tag: its name as written, and the attributes rhwp takes, in order. */
 export interface Tag {
@@ -146,6 +154,7 @@ function attributesOf(content: string, from: number): [string, string][] {
     const close = content.indexOf(quote, value + 1);
     if (close < 0) break;
     found.push([key, content.slice(value + 1, close)]);
+    if (found.length > TAG_ATTRIBUTE_LIMIT) throw new UnreadableFile();
     offset = close + 1;
   }
   return found;
@@ -194,7 +203,8 @@ class OpenNames {
  * gives them, each read no further than asked (its attributes only when
  * `attributes()` is called). Throws `UnreadableFile` where that reader stops
  * with an error: markup that does not end, an end tag that closes no element
- * of its name, an `&` that is no reference, markup it does not know.
+ * of its name, an `&` that is no reference, markup it does not know; and when
+ * a tag has more attributes than `TAG_ATTRIBUTE_LIMIT` (as they are read).
  */
 export function readTags(xml: string, visit: (tag: Tag) => void): void {
   const open = new OpenNames();
