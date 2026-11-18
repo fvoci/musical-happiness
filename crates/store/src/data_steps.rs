@@ -113,7 +113,8 @@ async fn content_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
 /// Deletes the blocks of the type `board` with every block below them, on the boards
 /// and in the trash, of every organization, and what they leave behind
 /// ([`block_derived::forget_gone_blocks`]); the search server is told of the boards
-/// they were on. Returns how many blocks were deleted.
+/// they were on. Where there were none, nothing changes. Returns how many blocks were
+/// deleted.
 ///
 /// Unlike the steps before it, this one runs on a database that may hold several
 /// organizations: a block is named by its organization and its identifier.
@@ -133,9 +134,12 @@ async fn board_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
     let live = keys_of(&scope.fetch_all(sql).await?, org)?;
     let mut deleted = u64::try_from(live.len()).unwrap_or(u64::MAX);
     deleted += delete_from_trash(scope, org, &live, |block_type| block_type == BOARD_TYPE).await?;
-    block_derived::forget_gone_blocks(scope).await?;
-    for container_id in &containers {
-        search_outbox::note_container_regardless(scope, container_id).await?;
+    // A database that had no such block is left as it was.
+    if deleted > 0 {
+        block_derived::forget_gone_blocks(scope).await?;
+        for container_id in &containers {
+            search_outbox::note_container_regardless(scope, container_id).await?;
+        }
     }
     Ok(deleted)
 }
