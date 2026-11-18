@@ -78,9 +78,9 @@ parameter!(AllBlocks: Query "all", String, False, "Any value that is not empty a
 parameter!(OneBlockId: Query "blockId", String, False, "Asks for the one block with this identifier, in a list of one. 404 if the board has no such block.");
 parameter!(ParentId: Query "parentId", String, False, "Narrows the list to the blocks below the block of this identifier.");
 parameter!(BlockTypeFilter: Query "type", String, False, "Narrows the list to the blocks of this type, written as the blocks have it.");
-parameter!(Page: Query "page", u32, False, "The page, counted from 0. Left out, the first one. Below 0 is 400.");
-parameter!(PerPage: Query "perPage", u32, False, "How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400.");
-parameter!(CappedPerPage: Query "perPage", u32, False, "How many a page has, at most 200. Left out or 0, 50. Below 0 is 400.");
+parameter!(Page: Query "page", u32, False, "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.");
+parameter!(PerPage: Query "perPage", u32, False, "How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400.");
+parameter!(CappedPerPage: Query "perPage", u32, False, "How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400.");
 parameter!(SearchTerm: Query "q", String, False, "What to look for. Without it nothing is found.");
 parameter!(TitleTerm: Query "q", String, False, "The words to look for in titles, at most 200 characters. Without it, what was changed last is found.");
 parameter!(SearchField: Query "field", String, False, "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.");

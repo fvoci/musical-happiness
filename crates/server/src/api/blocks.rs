@@ -667,12 +667,10 @@ async fn handle_patch_blocks(
         );
     }
     let mut seen = std::collections::HashSet::new();
-    for block_id in &batch.block_ids {
+    for (index, block_id) in batch.block_ids.iter().enumerate() {
         if !seen.insert(block_id.as_str()) {
-            return Err(
-                AppError::bad_request(format_args!("block {block_id} is listed twice"))
-                    .with_field("blockIds"),
-            );
+            return Err(AppError::bad_request("a block is listed twice")
+                .with_pointer(format!("/blockIds/{index}")));
         }
     }
     for (block_id, patch) in batch.block_ids.iter().zip(&batch.block_patches) {

@@ -13,10 +13,10 @@ use fvoci_model::{
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::cards::paging_params;
 use super::contract::params::{CappedPerPage, OrgId, OrgWorkspaceId, Page, UserId};
 use super::contract::tag;
 use super::org::OrgAdmin;
+use super::paging::paging_params;
 use super::{ApiResult, created, decode_object, json_response, no_content};
 use crate::app::{App, DEFAULT_PER_PAGE, PageAsked};
 use crate::error::AppError;

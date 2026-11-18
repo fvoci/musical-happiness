@@ -135,6 +135,10 @@ describe('references, in memory', () => {
     const [second] = await titles({ page: 1, perPage: 1 });
     expect([first, second]).toEqual(await titles());
     expect(await titles({ page: 2, perPage: 1 })).toEqual([]);
+    // `perPage` 0 is the server's 50, not all of them; below 0 is refused.
+    expect((await titles({ page: 1, perPage: 0 })).length).toBe(0);
+    expect((await titles({ page: 0, perPage: 0 })).sort()).toEqual(['Beta', 'Gamma']);
+    await expect(titles({ page: -1, perPage: 1 })).rejects.toMatchObject({ status: 400 });
 
     // Only the body as it is now counts.
     await write(gamma.id, naming(beta.id));

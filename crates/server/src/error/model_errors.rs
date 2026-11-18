@@ -27,7 +27,7 @@ impl From<BlockError> for AppError {
                 .with_reason(Reason::TooManyPages)
                 .with_limit(u64::from(limit)),
             BlockError::InvalidRelation(error) => Self::from(error),
-            BlockError::TypeNotCurrent(_)
+            BlockError::TypeNotCurrent
             | BlockError::TypeStrandsComments
             | BlockError::PageByBlocks
             | BlockError::PageOffWiki

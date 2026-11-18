@@ -1,7 +1,5 @@
 //! Cards: the card view of blocks of type `card`.
 
-use std::num::IntErrorKind;
-
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
@@ -22,6 +20,7 @@ use super::workspace::InWorkspace;
 
 use super::blocks::BLOCK_FIELDS;
 use super::change_notification;
+use super::paging::paging_params;
 use super::{ApiResult, TRUE, created, json_response, query_param};
 use super::{decode_with_document, require_container_permission, require_permission_through};
 use crate::app::{App, CardPreviews, ListPage};
@@ -29,8 +28,6 @@ use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
-/// The page of a list a request without `page` gets.
-const DEFAULT_PAGE: u32 = 0;
 /// The number of items a page of a list has in a request without `perPage`.
 const DEFAULT_PER_PAGE: u32 = 100;
 
@@ -48,58 +45,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 pub(super) fn page_params(query: Option<&str>) -> Result<ListPage, AppError> {
     let (page, per_page) = paging_params(query, DEFAULT_PER_PAGE)?;
     Ok(ListPage { page, per_page })
-}
-
-/// Reads the `page` and `perPage` of any list answered in pages: each a whole number
-/// from 0, `page` 0 and `perPage` `default_per_page` when left out. Both are read, so
-/// that a request with both wrong is told of both.
-pub(super) fn paging_params(
-    query: Option<&str>,
-    default_per_page: u32,
-) -> Result<(u32, u32), AppError> {
-    let page = count_query_param(query, "page", DEFAULT_PAGE);
-    let per_page = count_query_param(query, "perPage", default_per_page);
-    match (page, per_page) {
-        (Ok(page), Ok(per_page)) => Ok((page, per_page)),
-        (Err(refusal), Ok(_)) | (Ok(_), Err(refusal)) => Err(refusal),
-        (Err(page), Err(per_page)) => Err(page.and(per_page)),
-    }
-}
-
-/// Reads a count from a query parameter: a whole number from 0 to [`u32::MAX`];
-/// `default` if the parameter is absent or empty.
-fn count_query_param(query: Option<&str>, name: &str, default: u32) -> Result<u32, AppError> {
-    let number = int_query_param(query, name, i64::from(default))?;
-    u32::try_from(number).map_err(|_| {
-        let reason = if number < 0 {
-            "below 0"
-        } else {
-            "out of range"
-        };
-        AppError::bad_request(format_args!("invalid `{name}` parameter: {reason}"))
-            .with_parameter(name)
-    })
-}
-
-/// Reads a whole number from a query parameter; `default` if the parameter is absent
-/// or empty.
-pub(super) fn int_query_param(
-    query: Option<&str>,
-    name: &str,
-    default: i64,
-) -> Result<i64, AppError> {
-    let text = query_param(query, name);
-    if text.is_empty() {
-        return Ok(default);
-    }
-    text.parse().map_err(|error: std::num::ParseIntError| {
-        let reason = match error.kind() {
-            IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => "out of range",
-            _ => "not a whole number",
-        };
-        AppError::bad_request(format_args!("invalid `{name}` parameter: {reason}"))
-            .with_parameter(name)
-    })
 }
 
 /// Returns the card with the given identifier for a handler of `/cards/{cardId}`, if

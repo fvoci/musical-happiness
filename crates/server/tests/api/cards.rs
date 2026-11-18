@@ -1116,7 +1116,7 @@ async fn get_cards_paging() {
     assert_eq!(count("?page=51&perPage=2").await, 1, "the last card");
     assert_eq!(count("?page=1000&perPage=2").await, 0, "beyond the end");
     assert_eq!(
-        count("?perPage=4294967295").await,
+        count("?perPage=2147483647").await,
         total,
         "the largest page"
     );
@@ -1126,7 +1126,7 @@ async fn get_cards_paging() {
     for query in [
         "?perPage=-1",
         "?page=-1",
-        "?page=4294967296",
+        "?page=2147483648",
         "?perPage=1000000000000",
     ] {
         let response = th.client.get(&format!("{path}{query}")).await;

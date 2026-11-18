@@ -3,7 +3,8 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Container, ContainerPatch, ContainerType, ContainersAndBlocks, JsonMap, MinimumRole,
+    Container, ContainerKind, ContainerPatch, ContainerType, ContainersAndBlocks, JsonMap,
+    MinimumRole,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -49,13 +50,14 @@ pub(super) enum BoardObject {
 }
 
 /// Refuses a board or a board patch whose `type` or `minimumRole` is outside its closed
-/// set, and a board without a `type`, naming the member below `at` (the JSON Pointer of
-/// the object in the body, empty for the body itself). The refusal does not repeat the
-/// value: decoding would refuse it too, in words that do.
+/// set, a board whose `kind` is, and a board without a `type`, naming the member below `at` (the JSON
+/// Pointer of the object in the body, empty for the body itself). The refusal does not
+/// repeat the value: decoding would refuse it too, in words that do.
 ///
 /// # Errors
 ///
-/// Returns a bad request naming the first of `type` and `minimumRole` that is refused.
+/// Returns a bad request naming the first of `type`, `minimumRole` and `kind` that is
+/// refused.
 pub(super) fn check_closed_members(
     object: &JsonMap,
     at: &str,
@@ -80,11 +82,17 @@ pub(super) fn check_closed_members(
         )
         .with_pointer(format!("{at}/minimumRole")));
     }
+    if kind == BoardObject::Board && is_outside::<ContainerKind>(object.get("kind")) {
+        return Err(
+            AppError::bad_request("the kind of a board is `board` or `wiki`")
+                .with_pointer(format!("{at}/kind")),
+        );
+    }
     Ok(())
 }
 
-/// Does [`check_closed_members`] for each object of the list `list` of `body`, which is
-/// the JSON Pointer of the list (`/containers`).
+/// Does [`check_closed_members`] for each object of the list that is the member `list` of
+/// `body` (`containers`).
 ///
 /// # Errors
 ///
@@ -95,13 +103,13 @@ pub(super) fn check_listed_boards(
     kind: BoardObject,
 ) -> Result<(), AppError> {
     let objects = body
-        .get(list.trim_start_matches('/'))
+        .get(list)
         .and_then(Value::as_array)
         .into_iter()
         .flatten();
     for (index, object) in objects.enumerate() {
         if let Some(object) = object.as_object() {
-            check_closed_members(object, &format!("{list}/{index}"), kind)?;
+            check_closed_members(object, &format!("/{list}/{index}"), kind)?;
         }
     }
     Ok(())

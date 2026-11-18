@@ -5,7 +5,7 @@
 
 use fvoci_model::{BlockPatch, Body, BodyChange, BodyError, JsonMap};
 use serde::de::DeserializeOwned;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::error::AppError;
 
@@ -196,18 +196,6 @@ pub(crate) fn decode_with_document<T: DeserializeOwned>(
     Ok((decoded, change))
 }
 
-/// Reads the members of a request body that must be a JSON object, leaving out those
-/// that are `null`: a member that is `null` counts as not sent.
-///
-/// # Errors
-///
-/// Returns a bad request if the body is not a JSON object.
-pub(crate) fn decode_object_members(body: &[u8]) -> Result<Map<String, Value>, AppError> {
-    let mut members = json_object(decode_json(body)?)?;
-    members.retain(|_, member| !member.is_null());
-    Ok(members)
-}
-
 #[cfg(test)]
 mod tests {
     use serde::Deserialize;
@@ -244,15 +232,6 @@ mod tests {
             },
             "an object with the members is decoded"
         );
-    }
-
-    #[test]
-    fn null_members_count_as_not_sent() {
-        let members = decode_object_members(br#"{"a": null, "b": 1}"#).expect("an object");
-        assert_eq!(members.len(), 1, "{members:?}");
-        assert_eq!(members["b"], 1);
-        let error = decode_object_members(b"null").expect_err("null is no object");
-        assert_eq!(error.kind(), ErrorKind::BadRequest);
     }
 
     #[test]

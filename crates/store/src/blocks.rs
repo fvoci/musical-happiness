@@ -125,6 +125,14 @@ pub struct Paging {
     pub per_page: u32,
 }
 
+impl Paging {
+    /// How many records come before the page; at most `i64::MAX`, past every record.
+    #[must_use]
+    pub fn offset(self) -> i64 {
+        i64::from(self.page).saturating_mul(i64::from(self.per_page))
+    }
+}
+
 /// Whether a duplicate is an ordinary copy or a template.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DuplicateAs {
@@ -608,7 +616,7 @@ fn filtered_blocks(scope: &Scope<'_>, filter: &BlockFilter, columns: &str) -> Sq
     sql.push(OLDEST_FIRST);
     // A page size of zero does not limit, and the offset of any page is then zero.
     if let Some(paging) = filter.paging.filter(|paging| paging.per_page > 0) {
-        let offset = i64::from(paging.page) * i64::from(paging.per_page);
+        let offset = paging.offset();
         sql.push_bind(" LIMIT ", i64::from(paging.per_page))
             .push_bind(" OFFSET ", offset);
     }

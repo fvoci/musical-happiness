@@ -844,10 +844,7 @@
         "properties": {
           "collapsed": {
             "description": "Whether the category is collapsed in the sidebar. Left out, it is not.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           },
           "id": {
             "description": "The category of the path.",
@@ -1926,31 +1923,19 @@
         "properties": {
           "schemeAdmin": {
             "description": "The user administers the board.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           },
           "schemeCommenter": {
             "description": "The user may comment on the board's cards.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           },
           "schemeEditor": {
             "description": "The user may edit the board.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           },
           "schemeViewer": {
             "description": "The user may view the board.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -2006,39 +1991,24 @@
           "fields": {
             "additionalProperties": true,
             "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card,\na comment or an attachment and 800,000 for a view. The `properties` of a card\namong them are values by property identifier: a string, a list of strings, or\n`null`.",
-            "type": [
-              "object",
-              "null"
-            ]
+            "type": "object"
           },
           "id": {
             "description": "A name for the block within the request. The server gives every block a new\nidentifier, and where one block of the request names another (as its `parentId`,\nor in the fields `contentOrder`, `cardOrder` and `defaultTemplateId`) it puts\nthe new identifier there. Blocks that come under one name get one identifier,\nwhich cannot be stored twice; a block that no other names needs no `id`.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "parentId": {
             "description": "The block this one is below: a block of the same board, or the name of another\nblock of the request. Left out for a block directly on its board.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "schema": {
             "description": "The schema version of the block.",
             "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": "integer"
           },
           "title": {
             "description": "The display title.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "type": {
             "description": "The block type: `card`, `view`, `comment` or `attachment`. Any other type is\nrefused (400 naming `type`): a card's content is its body.",
@@ -2067,79 +2037,45 @@
               "additionalProperties": true,
               "type": "object"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "description": {
             "description": "The board's description.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "icon": {
             "description": "The board's icon, usually one emoji.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "id": {
             "description": "Only where boards and blocks are made together, and needed there: a name by\nwhich the blocks of the request say which board they belong to. The server gives\nthe board another identifier. Where one board is made, a board with an `id` is\nrefused.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "isTemplate": {
             "description": "Whether the board is a template.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           },
           "minimumRole": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/MinimumRole",
-                "description": "The role a user gets who joins the board. Left out, `editor`."
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/MinimumRole",
+            "description": "The role a user gets who joins the board. Left out, `editor`."
           },
           "properties": {
             "additionalProperties": true,
             "description": "Free-form properties of the board itself.",
-            "type": [
-              "object",
-              "null"
-            ]
+            "type": "object"
           },
           "showDescription": {
             "description": "Whether the description is shown in the interface.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           },
           "templateVersion": {
             "description": "The version of the built-in template the board came from.",
             "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": "integer"
           },
           "title": {
             "description": "The board's title.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "type": {
             "$ref": "#/components/schemas/ContainerType",
@@ -2156,10 +2092,7 @@
         "properties": {
           "boardId": {
             "description": "The board of the path, if it is there at all.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "body": {
             "oneOf": [
@@ -2174,32 +2107,20 @@
           },
           "icon": {
             "description": "The card's icon; at most one grapheme.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "isTemplate": {
             "description": "Whether the card is a template.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           },
           "properties": {
             "additionalProperties": true,
             "description": "Property values by property identifier: a string, a list of strings, or `null`.",
-            "type": [
-              "object",
-              "null"
-            ]
+            "type": "object"
           },
           "title": {
             "description": "The display title.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           }
         },
         "type": "object"
@@ -2209,10 +2130,7 @@
         "properties": {
           "collapsed": {
             "description": "Whether the category is collapsed in the sidebar.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           },
           "name": {
             "description": "The display name; not blank.",
@@ -2221,21 +2139,11 @@
           "sortOrder": {
             "description": "The position of the category among the user's categories. It is stored 10\nhigher: see `createCategory`.",
             "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": "integer"
           },
           "type": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CategoryType",
-                "description": "Left out, `custom`. A category that is made as `system` can be neither renamed\nnor deleted afterwards."
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/CategoryType",
+            "description": "Left out, `custom`. A category that is made as `system` can be neither renamed\nnor deleted afterwards."
           },
           "userId": {
             "description": "The user of the session: a user makes categories for themselves only.",
@@ -2309,31 +2217,19 @@
         "properties": {
           "schemeAdmin": {
             "description": "The user administers the board. Only who manages the board's roles may ask for\nthis.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           },
           "schemeCommenter": {
             "description": "The user may comment on the board's cards.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           },
           "schemeEditor": {
             "description": "The user may edit the board.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           },
           "schemeViewer": {
             "description": "The user may view the board.",
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": "boolean"
           },
           "userId": {
             "description": "The identifier of the user, who must be able to see the board's workspace.",
@@ -5535,7 +5431,7 @@
             }
           },
           {
-            "description": "The page, counted from 0. Left out, the first one. Below 0 is 400.",
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "page",
             "required": false,
@@ -5546,7 +5442,7 @@
             }
           },
           {
-            "description": "How many a page has, at most 200. Left out or 0, 50. Below 0 is 400.",
+            "description": "How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "perPage",
             "required": false,
@@ -5603,7 +5499,7 @@
             }
           },
           {
-            "description": "The page, counted from 0. Left out, the first one. Below 0 is 400.",
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "page",
             "required": false,
@@ -5614,7 +5510,7 @@
             }
           },
           {
-            "description": "How many a page has, at most 200. Left out or 0, 50. Below 0 is 400.",
+            "description": "How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "perPage",
             "required": false,
@@ -6775,7 +6671,7 @@
             }
           },
           {
-            "description": "The page, counted from 0. Left out, the first one. Below 0 is 400.",
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "page",
             "required": false,
@@ -6786,7 +6682,7 @@
             }
           },
           {
-            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400.",
+            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "perPage",
             "required": false,
@@ -7830,7 +7726,7 @@
             }
           },
           {
-            "description": "The page, counted from 0. Left out, the first one. Below 0 is 400.",
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "page",
             "required": false,
@@ -7841,7 +7737,7 @@
             }
           },
           {
-            "description": "How many a page has, at most 200. Left out or 0, 50. Below 0 is 400.",
+            "description": "How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "perPage",
             "required": false,
@@ -8785,7 +8681,7 @@
             }
           },
           {
-            "description": "The page, counted from 0. Left out, the first one. Below 0 is 400.",
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "page",
             "required": false,
@@ -8796,7 +8692,7 @@
             }
           },
           {
-            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400.",
+            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "perPage",
             "required": false,
@@ -9008,7 +8904,7 @@
             }
           },
           {
-            "description": "The page, counted from 0. Left out, the first one. Below 0 is 400.",
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "page",
             "required": false,
@@ -9019,7 +8915,7 @@
             }
           },
           {
-            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400.",
+            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "perPage",
             "required": false,
@@ -11670,7 +11566,7 @@
             }
           },
           {
-            "description": "The page, counted from 0. Left out, the first one. Below 0 is 400.",
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "page",
             "required": false,
@@ -11681,7 +11577,7 @@
             }
           },
           {
-            "description": "How many a page has, at most 200. Left out or 0, 50. Below 0 is 400.",
+            "description": "How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "perPage",
             "required": false,
@@ -12378,7 +12274,7 @@
             }
           },
           {
-            "description": "The page, counted from 0. Left out, the first one. Below 0 is 400.",
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "page",
             "required": false,
@@ -12389,7 +12285,7 @@
             }
           },
           {
-            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400.",
+            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "perPage",
             "required": false,
@@ -14059,7 +13955,7 @@
             }
           },
           {
-            "description": "The page, counted from 0. Left out, the first one. Below 0 is 400.",
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "page",
             "required": false,
@@ -14070,7 +13966,7 @@
             }
           },
           {
-            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400.",
+            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400.",
             "in": "query",
             "name": "perPage",
             "required": false,

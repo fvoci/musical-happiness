@@ -72,7 +72,7 @@ async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiRes
     ws.require_container_maker("access denied to create board")?;
     let mut object = json_object(decode_json(&body)?)?;
     // Each board's type and minimum role are refused as `createBoard` refuses them.
-    check_listed_boards(&object, "/containers", BoardObject::Board)?;
+    check_listed_boards(&object, "containers", BoardObject::Board)?;
     let bodies = take_block_bodies(objects_mut(&mut object, "blocks"), Some(BLOCKS));
     let mut request: ContainersAndBlocks =
         serde_json::from_value(Value::Object(object)).map_err(AppError::bad_request)?;
@@ -165,7 +165,7 @@ async fn handle_patch_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResu
     let user_id = &ws.session.user_id;
     let mut object = json_object(decode_json(&body)?)?;
     // Each patch's type and minimum role are refused as `patchContainer` refuses them.
-    check_listed_boards(&object, "/containerPatches", BoardObject::Patch)?;
+    check_listed_boards(&object, "containerPatches", BoardObject::Patch)?;
     let names_a_kind: Vec<bool> = objects_mut(&mut object, "containerPatches")
         .map(|patch| patch.is_some_and(|patch| patch.contains_key("kind")))
         .collect();

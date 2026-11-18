@@ -12,9 +12,10 @@ use super::contract::bodies::{CategoryUpdate, NewCategory};
 use super::contract::params::{CategoryId, ContainerId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
 
-use super::decode_object_members;
 use super::workspace::{InWorkspace, TextInContainer};
-use super::{ApiResult, decode_json, json_response, no_content, require_container_visible};
+use super::{
+    ApiResult, decode_json, json_object, json_response, no_content, require_container_visible,
+};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
@@ -46,11 +47,11 @@ struct CategoryRequest {
 }
 
 impl CategoryRequest {
-    /// Decodes a category: a member that is `null` or missing leaves the default, and so
-    /// does a blank `type`. A body that is no JSON object, `null` included, or whose
-    /// members have the wrong types is a bad request.
+    /// Decodes a category: a member that is missing leaves the default, and so does a
+    /// blank `type`. A body that is no JSON object, `null` included, or whose members
+    /// have the wrong types (`null` among them) is a bad request.
     fn decode(body: &[u8]) -> Result<Self, AppError> {
-        let mut members = decode_object_members(body)?;
+        let mut members = json_object(decode_json(body)?)?;
         let unknown_type_is_blank = match members.get("type") {
             Some(Value::String(text)) if !is_category_type(text) => Some(text.trim().is_empty()),
             _ => None,

@@ -5,9 +5,9 @@ use fvoci_model::{SearchHit, SearchKind};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::cards::int_query_param;
 use super::contract::params::{ContentKind, ContentLimit, ContentText, MemberWorkspaceId};
 use super::contract::tag;
+use super::paging::int_query_param;
 use super::workspace::InContainer;
 use super::{ApiResult, json_response, query_param};
 use crate::app::App;

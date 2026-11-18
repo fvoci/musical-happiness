@@ -265,10 +265,7 @@ impl Store {
             sql.push(" ORDER BY a.create_at DESC, a.id DESC");
             if paging.per_page > 0 {
                 sql.push_bind(" LIMIT ", i64::from(paging.per_page))
-                    .push_bind(
-                        " OFFSET ",
-                        i64::from(paging.page) * i64::from(paging.per_page),
-                    );
+                    .push_bind(" OFFSET ", paging.offset());
             }
             scope
                 .fetch_all(sql)

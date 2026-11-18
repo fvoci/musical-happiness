@@ -8,7 +8,7 @@ use serde_json::json;
 use crate::blocks::{
     blocks_of, blocks_path, create_board_in_store, insert, insert_one, new_block, titles,
 };
-use crate::common::{Setup, TEST_WS};
+use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS};
 
 /// A request member that is no `Option` refuses `null`, as it refuses a value of another
 /// type; one that is (a block's `body`, a patch's `title`) takes it as none.
@@ -127,6 +127,12 @@ async fn the_pages_of_a_list_are_counted_from_zero() {
         0,
         "a page past the last is empty"
     );
+    let largest = "page=2147483647&perPage=2147483647";
+    assert_eq!(
+        count(largest).await,
+        0,
+        "the last page there can be is empty"
+    );
 
     let trash_path = format!("{TEST_WS}/boards/{}/trash/cards", board.id);
     for path in [&cards_path, &trash_path] {
@@ -146,7 +152,7 @@ async fn the_pages_of_a_list_are_counted_from_zero() {
             ["parameter page", "parameter perPage"],
             "both are told of"
         );
-        let response = th.client.get(&format!("{path}?page=4294967296")).await;
+        let response = th.client.get(&format!("{path}?page=2147483648")).await;
         assert_eq!(
             response.refused_at(),
             "parameter page",
@@ -201,6 +207,109 @@ async fn the_board_is_no_parent_of_its_blocks() {
         "no block is below the board"
     );
     assert_eq!(titles(&blocks_of(&th.client, &board.id).await), ["card"]);
+
+    th.teardown().await;
+}
+
+/// The lists of an organization, of a workspace's audit and of a wiki's trash read
+/// `page` and `perPage` as every list does.
+#[tokio::test]
+async fn every_list_refuses_a_page_below_0_or_beyond_the_largest() {
+    let th = Setup::native().start().await.init_basic().await;
+    let org = crate::org_admin::org_of(&th).await;
+    let made = th
+        .client
+        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "P"}))
+        .await;
+    made.check_created();
+    let wiki = made.value()["id"].as_str().expect("an id").to_owned();
+    for path in [
+        format!("/org/{org}/members"),
+        format!("/org/{org}/audit"),
+        format!("{TEST_WS}/audit"),
+        format!("{TEST_WS}/wikis/{wiki}/trash/pages"),
+        format!("{TEST_WS}/trash/containers"),
+    ] {
+        th.client
+            .get(&format!("{path}?page=0&perPage=0"))
+            .await
+            .check_ok();
+        for (query, refused) in [
+            ("page=-1", "page"),
+            ("perPage=-1", "perPage"),
+            ("perPage=2147483648", "perPage"),
+        ] {
+            let response = th.client.get(&format!("{path}?{query}")).await;
+            response.check_bad_request();
+            assert_eq!(
+                response.refused_at(),
+                format!("parameter {refused}"),
+                "{path}?{query}"
+            );
+        }
+    }
+
+    th.teardown().await;
+}
+
+/// The board is no parent in a batch of patches, nor where boards and blocks are made
+/// together, where the blocks name their board by the request's own name for it.
+#[tokio::test]
+async fn the_board_is_no_parent_in_a_batch_or_with_new_boards() {
+    let th = Setup::one_user().start().await;
+    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
+
+    let response = th
+        .client
+        .patch(
+            &blocks_path(&board.id),
+            &json!({"blockIds": [card.id], "blockPatches": [{"parentId": board.id}]}),
+        )
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.refused_at(), "/blockPatches/0/parentId");
+    assert_eq!(blocks_of(&th.client, &board.id).await[0].parent_id, "");
+
+    let response = th
+        .client
+        .post(
+            &format!("{TEST_WS}/boards-and-blocks"),
+            &json!({
+                "containers": [{"id": "b", "workspaceId": crate::common::TEST_WORKSPACE_ID, "type": "P"}],
+                "blocks": [{"id": "x", "containerId": "b", "parentId": "b", "type": "card",
+                            "createAt": 1, "updateAt": 1}],
+            }),
+        )
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.refused_at(), "/blocks/0/parentId");
+
+    th.teardown().await;
+}
+
+/// A category's `type` and `name` are strings: `null` is neither, and refused where a
+/// blank `type` is the default.
+#[tokio::test]
+async fn null_is_refused_by_categories() {
+    let th = Setup::one_user().start().await;
+    let user = th.client.me().await;
+    let path = format!("{TEST_WS}/categories");
+    for (member, blank) in [("type", json!(null)), ("name", json!(null))] {
+        let mut body =
+            json!({"name": "Named", "userId": user.id, "workspaceId": TEST_WORKSPACE_ID});
+        body[member] = blank;
+        let response = th.client.post(&path, &body).await;
+        response.check_bad_request();
+        assert!(
+            response.text().contains("invalid type: null"),
+            "{member}: {}",
+            response.text()
+        );
+    }
+    let body =
+        json!({"name": "Blank", "userId": user.id, "workspaceId": TEST_WORKSPACE_ID, "type": ""});
+    th.client.post(&path, &body).await.check_created();
 
     th.teardown().await;
 }

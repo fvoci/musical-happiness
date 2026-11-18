@@ -1656,8 +1656,8 @@ async fn create_category_answers_the_stored_category() {
         "the created category"
     );
 
-    // A blank type and a `null` type are the default type.
-    for blank in [json!("  "), json!(""), Value::Null] {
+    // A blank type is the default type; `null` is none (`request_forms`).
+    for blank in [json!("  "), json!("")] {
         let response = th
             .client
             .post(
@@ -1716,9 +1716,9 @@ async fn create_category_refuses_invalid_requests() {
             "category name cannot be empty".to_owned(),
         ),
         (
-            "a `null` name",
+            "a `null` name, no name and no string",
             json!({"name": null, "userId": user.id, "workspaceId": ROOT_WORKSPACE_ID}),
-            "category name cannot be empty".to_owned(),
+            "invalid type: null, expected a string".to_owned(),
         ),
         (
             "an unknown type",

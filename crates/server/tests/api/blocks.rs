@@ -1824,10 +1824,8 @@ async fn patch_blocks_batch_refusals() {
         .client
         .patch(&path, &batch(&[(card, "card 2"), (card, "card 3")]))
         .await;
-    response.check_error(
-        StatusCode::BAD_REQUEST,
-        &format!("block {} is listed twice", card.id),
-    );
+    response.check_error(StatusCode::BAD_REQUEST, "a block is listed twice");
+    assert_eq!(response.refused_at(), "/blockIds/1");
 
     // As many patches as identifiers. (The original crashes on fewer patches and
     // ignores the extra ones.)

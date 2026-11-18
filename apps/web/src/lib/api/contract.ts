@@ -4186,7 +4186,7 @@ export interface components {
          */
         CategoryUpdate: {
             /** @description Whether the category is collapsed in the sidebar. Left out, it is not. */
-            collapsed?: boolean | null;
+            collapsed?: boolean;
             /** @description The category of the path. */
             id: string;
             /** @description The display name; not blank. */
@@ -4742,13 +4742,13 @@ export interface components {
          */
         MemberRoles: {
             /** @description The user administers the board. */
-            schemeAdmin?: boolean | null;
+            schemeAdmin?: boolean;
             /** @description The user may comment on the board's cards. */
-            schemeCommenter?: boolean | null;
+            schemeCommenter?: boolean;
             /** @description The user may edit the board. */
-            schemeEditor?: boolean | null;
+            schemeEditor?: boolean;
             /** @description The user may view the board. */
-            schemeViewer?: boolean | null;
+            schemeViewer?: boolean;
         };
         /**
          * @description The minimum role of a board: the role a user gets who joins the board, or is added
@@ -4797,7 +4797,7 @@ export interface components {
              */
             fields?: {
                 [key: string]: unknown;
-            } | null;
+            };
             /**
              * @description A name for the block within the request. The server gives every block a new
              *     identifier, and where one block of the request names another (as its `parentId`,
@@ -4805,19 +4805,19 @@ export interface components {
              *     the new identifier there. Blocks that come under one name get one identifier,
              *     which cannot be stored twice; a block that no other names needs no `id`.
              */
-            id?: string | null;
+            id?: string;
             /**
              * @description The block this one is below: a block of the same board, or the name of another
              *     block of the request. Left out for a block directly on its board.
              */
-            parentId?: string | null;
+            parentId?: string;
             /**
              * Format: int64
              * @description The schema version of the block.
              */
-            schema?: number | null;
+            schema?: number;
             /** @description The display title. */
-            title?: string | null;
+            title?: string;
             /**
              * @description The block type: `card`, `view`, `comment` or `attachment`. Any other type is
              *     refused (400 naming `type`): a card's content is its body.
@@ -4837,57 +4837,58 @@ export interface components {
              */
             cardProperties?: {
                 [key: string]: unknown;
-            }[] | null;
+            }[];
             /** @description The board's description. */
-            description?: string | null;
+            description?: string;
             /** @description The board's icon, usually one emoji. */
-            icon?: string | null;
+            icon?: string;
             /**
              * @description Only where boards and blocks are made together, and needed there: a name by
              *     which the blocks of the request say which board they belong to. The server gives
              *     the board another identifier. Where one board is made, a board with an `id` is
              *     refused.
              */
-            id?: string | null;
+            id?: string;
             /** @description Whether the board is a template. */
-            isTemplate?: boolean | null;
-            minimumRole?: components["schemas"]["MinimumRole"] | null;
+            isTemplate?: boolean;
+            /** @description The role a user gets who joins the board. Left out, `editor`. */
+            minimumRole?: components["schemas"]["MinimumRole"];
             /** @description Free-form properties of the board itself. */
             properties?: {
                 [key: string]: unknown;
-            } | null;
+            };
             /** @description Whether the description is shown in the interface. */
-            showDescription?: boolean | null;
+            showDescription?: boolean;
             /**
              * Format: int64
              * @description The version of the built-in template the board came from.
              */
-            templateVersion?: number | null;
+            templateVersion?: number;
             /** @description The board's title. */
-            title?: string | null;
+            title?: string;
             /** @description Whether the board is open or private. */
             type: components["schemas"]["ContainerType"];
         };
         /** @description A card to make. */
         NewCard: {
             /** @description The board of the path, if it is there at all. */
-            boardId?: string | null;
+            boardId?: string;
             body?: components["schemas"]["Body"] | null;
             /** @description The card's icon; at most one grapheme. */
-            icon?: string | null;
+            icon?: string;
             /** @description Whether the card is a template. */
-            isTemplate?: boolean | null;
+            isTemplate?: boolean;
             /** @description Property values by property identifier: a string, a list of strings, or `null`. */
             properties?: {
                 [key: string]: unknown;
-            } | null;
+            };
             /** @description The display title. */
-            title?: string | null;
+            title?: string;
         };
         /** @description A sidebar category to make. */
         NewCategory: {
             /** @description Whether the category is collapsed in the sidebar. */
-            collapsed?: boolean | null;
+            collapsed?: boolean;
             /** @description The display name; not blank. */
             name: string;
             /**
@@ -4895,8 +4896,12 @@ export interface components {
              * @description The position of the category among the user's categories. It is stored 10
              *     higher: see `createCategory`.
              */
-            sortOrder?: number | null;
-            type?: components["schemas"]["CategoryType"] | null;
+            sortOrder?: number;
+            /**
+             * @description Left out, `custom`. A category that is made as `system` can be neither renamed
+             *     nor deleted afterwards.
+             */
+            type?: components["schemas"]["CategoryType"];
             /** @description The user of the session: a user makes categories for themselves only. */
             userId: string;
             /** @description The workspace of the path. */
@@ -4930,13 +4935,13 @@ export interface components {
              * @description The user administers the board. Only who manages the board's roles may ask for
              *     this.
              */
-            schemeAdmin?: boolean | null;
+            schemeAdmin?: boolean;
             /** @description The user may comment on the board's cards. */
-            schemeCommenter?: boolean | null;
+            schemeCommenter?: boolean;
             /** @description The user may edit the board. */
-            schemeEditor?: boolean | null;
+            schemeEditor?: boolean;
             /** @description The user may view the board. */
-            schemeViewer?: boolean | null;
+            schemeViewer?: boolean;
             /** @description The identifier of the user, who must be able to see the board's workspace. */
             userId: string;
         };
@@ -6591,9 +6596,9 @@ export interface operations {
     getOrgAudit: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 is 400. */
+                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400. */
                 perPage?: number;
             };
             header?: never;
@@ -6628,9 +6633,9 @@ export interface operations {
     getOrgMembers: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 is 400. */
+                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400. */
                 perPage?: number;
             };
             header?: never;
@@ -7428,9 +7433,9 @@ export interface operations {
             query: {
                 /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
                 readToken: string;
-                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400. */
+                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400. */
                 perPage?: number;
                 /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
                 preview?: boolean;
@@ -8161,9 +8166,9 @@ export interface operations {
     getWorkspaceAudit: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 is 400. */
+                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400. */
                 perPage?: number;
             };
             header?: never;
@@ -8723,9 +8728,9 @@ export interface operations {
     getCards: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400. */
+                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400. */
                 perPage?: number;
                 /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
                 preview?: boolean;
@@ -8843,9 +8848,9 @@ export interface operations {
     getDeletedCards: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400. */
+                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400. */
                 perPage?: number;
             };
             header?: never;
@@ -10539,9 +10544,9 @@ export interface operations {
     getReferencesTo: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 is 400. */
+                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400. */
                 perPage?: number;
             };
             header?: never;
@@ -10993,9 +10998,9 @@ export interface operations {
     getDeletedContainers: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400. */
+                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400. */
                 perPage?: number;
             };
             header?: never;
@@ -11984,9 +11989,9 @@ export interface operations {
     getDeletedPages: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400. */
+                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400. */
                 perPage?: number;
             };
             header?: never;

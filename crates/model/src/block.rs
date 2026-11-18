@@ -240,10 +240,11 @@ pub enum BlockError {
     #[error("block fields size limit exceeded")]
     FieldsSizeLimitExceeded,
     /// A new block, or a patch, gives a type that no new block has
-    /// ([`BlockType::is_current`]). The type is as the client wrote it, at most
-    /// [`TYPE_SHOWN_CHARS`] characters of it; see [`BlockError::type_not_current`].
-    #[error("a block of the type {0:?} is not made any more: a card's content is its body")]
-    TypeNotCurrent(String),
+    /// ([`BlockType::is_current`]); see [`BlockError::type_not_current`].
+    #[error(
+        "a block is a `card`, a `view`, a `comment` or an `attachment`: a card's content is its body"
+    )]
+    TypeNotCurrent,
     /// The `properties` among the fields are not well-formed card property values.
     #[error(transparent)]
     InvalidCardProperties(#[from] CardPropertyError),
@@ -342,23 +343,15 @@ fn is_card_field_of_its_kind(field: &str, value: &Value) -> bool {
             .is_none_or(|(_, _, is_of_kind)| is_of_kind(value))
 }
 
-/// How much of a type that is refused a [`BlockError::TypeNotCurrent`] shows: the
-/// client's own text, which may be long, is not echoed whole.
-pub const TYPE_SHOWN_CHARS: usize = 64;
-
 impl BlockError {
-    /// The refusal of `block_type` as the type of a new block or of a patch, with at most
-    /// [`TYPE_SHOWN_CHARS`] characters of it.
+    /// The refusal of `block_type` as the type of a new block or of a patch.
     #[must_use]
     pub fn type_not_current(block_type: &BlockType) -> Self {
         if *block_type == BlockType::Page {
-            return Self::PageByBlocks;
+            Self::PageByBlocks
+        } else {
+            Self::TypeNotCurrent
         }
-        let name = block_type.as_str();
-        Self::TypeNotCurrent(match name.char_indices().nth(TYPE_SHOWN_CHARS) {
-            Some((end, _)) => format!("{}…", &name[..end]),
-            None => name.to_owned(),
-        })
     }
 }
 
