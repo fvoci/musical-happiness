@@ -69,6 +69,9 @@ function forwardKeys(): void {
 }
 
 const report: Report = {
+  sheets: (sheets) => {
+    tell({ kind: 'sheets', sheets });
+  },
   shown: (pages) => {
     tell({ kind: 'shown', pages });
   },

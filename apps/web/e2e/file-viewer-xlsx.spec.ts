@@ -1,0 +1,247 @@
+/**
+ * Workbooks (XLSX) in the file viewer, on the backend in memory: the Korean
+ * workbook opened from a card's attachments shows its sheets as pages, its
+ * values in their formats, its merged title and frozen rows, and says which
+ * sheet has drawings it does not draw; a large sheet draws only what is in
+ * view; a workbook opened from a page's file block; one past a ceiling, an
+ * old Excel file, and one read slowly that "Close" and the time limit end,
+ * worker and all. The frame asks the network for nothing.
+ */
+import { expect, test, type Locator, type Page } from '@playwright/test';
+
+import { manyCellsXlsx, manyMergesXlsx } from '../tests/support/hostile-xlsx.ts';
+import { koreanXlsx, largeXlsx, XLSX_TEXT } from '../tests/support/viewer-xlsx.ts';
+
+import { openApp } from './shell.support.ts';
+import { attach, frameOf, openCard, picture, viewer } from './viewer.support.ts';
+import { nameThePage, newWiki, pageBody } from './wiki.support.ts';
+
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/**
+ * The texts of the cells of `sheet` drawn as the frame scrolls across it, from its left to its
+ * right and back: how many times each was drawn at once, at most.
+ */
+async function cellsAcross(sheet: Locator): Promise<Map<string, number>> {
+  const seen = new Map<string, number>();
+  const scroll = (x: number): Promise<number> =>
+    sheet.evaluate(async (_, to) => {
+      window.scrollTo(to, 0);
+      // The sheet is drawn anew on the scroll, before the next frame.
+      await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      return document.documentElement.scrollWidth - window.innerWidth;
+    }, x);
+  const across = await scroll(0);
+  for (let x = 0; ; x = Math.min(across, x + 150)) {
+    await scroll(x);
+    const texts = await sheet
+      .getByRole('cell')
+      .evaluateAll((cells) => cells.map((cell) => cell.textContent.trim()));
+    const here = new Map<string, number>();
+    for (const text of texts) here.set(text, (here.get(text) ?? 0) + 1);
+    for (const [text, count] of here) seen.set(text, Math.max(count, seen.get(text) ?? 0));
+    if (x >= across) break;
+  }
+  await scroll(0);
+  return seen;
+}
+
+/** The requests the viewer's frame makes, from its document on. */
+function frameRequests(page: Page): string[] {
+  const made: string[] = [];
+  page.on('request', (request) => {
+    const frame = request.frame();
+    if (
+      frame.url().includes('/static/viewer-frame.html') ||
+      request.url().includes('/static/viewer-frame.html')
+    ) {
+      made.push(`${request.resourceType()} ${new URL(request.url()).pathname}`);
+    }
+  });
+  return made;
+}
+
+test.describe('in Korean', () => {
+  test.use({ locale: 'ko-KR' });
+
+  test('a workbook in Korean opens on its first sheet, and its sheets are its pages', async ({
+    page,
+  }) => {
+    const requests = frameRequests(page);
+    await openCard(page);
+    const row = await attach(page, '분기 매출.xlsx', koreanXlsx(), XLSX_TYPE);
+    await row.getByRole('link', { name: '분기 매출.xlsx' }).click();
+    await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+    const frame = frameOf(page);
+    const sheet = frame.getByRole('table', { name: XLSX_TEXT.sheets[0] });
+    await expect(sheet).toBeVisible();
+    await expect(page.getByTestId('file-viewer-announce')).toHaveText('시트 2개 중 1번째: 매출');
+    const tabs = page.getByTestId('file-viewer-sheets').getByRole('button');
+    await expect(tabs).toHaveText([...XLSX_TEXT.sheets]);
+    await expect(tabs.first()).toHaveAttribute('aria-current', 'true');
+
+    // The values in their formats, each in one cell (on a phone, some only once scrolled to),
+    // the merged title over its five columns, the note one cell of text.
+    const seen = await cellsAcross(sheet);
+    for (const text of [
+      XLSX_TEXT.title,
+      ...XLSX_TEXT.headers,
+      ...XLSX_TEXT.sales,
+      ...XLSX_TEXT.rates,
+      ...XLSX_TEXT.deadlines,
+      XLSX_TEXT.total,
+      '#DIV/0!',
+      'TRUE',
+      XLSX_TEXT.inline,
+      XLSX_TEXT.note,
+    ]) {
+      expect(seen.get(text), text).toBe(1);
+    }
+    await expect(sheet.getByRole('cell', { name: XLSX_TEXT.title })).toHaveAttribute(
+      'aria-colspan',
+      '5',
+    );
+    await expect(page.getByTestId('file-viewer-drawings')).toHaveCount(0);
+    await picture(page, 'xlsx-korean');
+
+    // The frozen rows stay as the sheet scrolls under them.
+    const header = sheet.getByRole('cell', { name: XLSX_TEXT.headers[0], exact: true });
+    const before = await header.boundingBox();
+    await frame.locator('body').evaluate(() => {
+      window.scrollTo(0, 300);
+    });
+    await expect.poll(async () => (await header.boundingBox())?.y).toBe(before?.y);
+
+    // The next sheet: by the button, announced by its name; its drawings are said not to be drawn.
+    await page.getByRole('button', { name: '다음 시트' }).click();
+    await expect(page.getByTestId('file-viewer-announce')).toHaveText('시트 2개 중 2번째: 일정');
+    const schedule = frame.getByRole('table', { name: XLSX_TEXT.sheets[1] });
+    for (const text of [XLSX_TEXT.schedule, ...XLSX_TEXT.meetings, XLSX_TEXT.builtIn]) {
+      await expect(schedule.getByRole('cell', { name: text, exact: true })).toHaveCount(1);
+    }
+    // The hidden column is not drawn.
+    await expect(schedule.getByRole('cell', { name: '숨긴 열' })).toHaveCount(0);
+    await expect(page.getByTestId('file-viewer-drawings')).toHaveText(
+      '이 시트의 차트와 그림은 보이지 않습니다.',
+    );
+    await picture(page, 'xlsx-schedule');
+
+    // And back by its tab.
+    await tabs.first().click();
+    await expect(page.getByTestId('file-viewer-announce')).toHaveText('시트 2개 중 1번째: 매출');
+    await expect(frame.getByRole('table', { name: XLSX_TEXT.sheets[0] })).toBeVisible();
+
+    // Nothing but the frame's own document and what it is built of.
+    expect(
+      requests.filter((request) => !/^(document|script|stylesheet|font) /.test(request)),
+    ).toEqual([]);
+  });
+});
+
+test('a large sheet draws only what is in view, and as far down as it goes', async ({ page }) => {
+  await openCard(page);
+  const row = await attach(page, 'large.xlsx', largeXlsx(5_000, 30), XLSX_TYPE);
+  await row.getByRole('link', { name: 'large.xlsx' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  const frame = frameOf(page);
+  await expect(frame.getByRole('cell', { name: '행 2', exact: true })).toBeVisible();
+  const cells = (): Promise<number> => frame.locator('.xlsx-cell').count();
+  // A screen's worth: 30 columns by 5,000 rows is 150,000 cells.
+  expect(await cells()).toBeLessThan(2_000);
+  await picture(page, 'xlsx-large');
+  await frame.locator('body').evaluate(() => {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+  });
+  // The sheet goes on 50 rows past its last, as a spreadsheet does, and no further.
+  const numbers = frame.locator('.xlsx-ruler-down');
+  const last = numbers.getByText('5050', { exact: true });
+  await expect(last).toBeVisible();
+  await expect(numbers.getByText('5051', { exact: true })).toHaveCount(0);
+  expect(await cells()).toBeLessThan(2_000);
+  // Fifty rows up, the last row of cells is at the bottom of the view.
+  const height = (await last.boundingBox())?.height ?? 0;
+  await frame.locator('body').evaluate((_, up) => {
+    window.scrollBy(0, -up);
+  }, height * 50);
+  await expect(frame.getByRole('cell', { name: '행 5000', exact: true })).toBeVisible();
+  expect(await cells()).toBeLessThan(2_000);
+  // The first row is frozen: it stays at the top at the bottom of the sheet.
+  await expect(frame.getByRole('cell', { name: '행 1', exact: true })).toBeVisible();
+});
+
+test('a workbook in a page opens from its file block', async ({ page }) => {
+  await openApp(page);
+  await newWiki(page, 'Budget');
+  await page.getByTestId('wiki-first-page').click();
+  await nameThePage(page, 'Sales');
+  const body = pageBody(page);
+  await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', 'ready');
+  await body.click();
+  await page.keyboard.type('/');
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    page.keyboard.press('Enter'),
+  ]);
+  await chooser.setFiles({ name: 'sales.xlsx', mimeType: XLSX_TYPE, buffer: koreanXlsx() });
+  const block = body.locator('[data-file-block]');
+  await expect(block).toHaveAttribute('data-state', 'shown');
+  await block.getByRole('button', { name: 'View sales.xlsx' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await expect(page.getByTestId('file-viewer-announce')).toHaveText('Sheet 1 of 2: 매출');
+  await expect(frameOf(page).getByRole('cell', { name: XLSX_TEXT.sales[0] })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(viewer(page)).toHaveCount(0);
+});
+
+test('a workbook past a ceiling, and an old Excel file, are offered as downloads', async ({
+  page,
+}) => {
+  await openCard(page);
+  const merges = await attach(page, 'merges.xlsx', manyMergesXlsx(100_001), XLSX_TYPE);
+  await merges.getByRole('link', { name: 'merges.xlsx' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
+  await expect(page.getByTestId('file-viewer-notice')).toContainText(
+    "This file's contents are too large to preview.",
+  );
+  await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
+  await page.getByTestId('file-viewer-close').click();
+
+  // The compound file of Excel 97 to 2003: a kind the viewer does not draw.
+  const ole = Buffer.concat([
+    Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]),
+    Buffer.alloc(504),
+  ]);
+  const old = await attach(page, 'old.xls', ole, 'application/vnd.ms-excel');
+  await old.getByRole('link', { name: 'old.xls' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'unknown');
+  await expect(page.getByTestId('file-viewer-notice')).toContainText(
+    "This file can't be previewed.",
+  );
+});
+
+test('while a large workbook is read, "Close" ends the viewer and its worker', async ({ page }) => {
+  await openCard(page);
+  const row = await attach(page, 'cells.xlsx', manyCellsXlsx(900_000, 9_000), XLSX_TYPE);
+  await row.getByRole('link', { name: 'cells.xlsx' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
+  await expect.poll(() => page.workers().length).toBeGreaterThan(0);
+  await page.getByTestId('file-viewer-close').click();
+  await expect(viewer(page)).toHaveCount(0, { timeout: 2000 });
+  await expect.poll(() => page.workers().length).toBe(0);
+});
+
+test('a workbook read past the time limit is given up, worker and all', async ({ page }) => {
+  await page.clock.install();
+  await openCard(page);
+  const row = await attach(page, 'slow.xlsx', manyCellsXlsx(900_000, 9_000), XLSX_TYPE);
+  await row.getByRole('link', { name: 'slow.xlsx' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
+  await expect.poll(() => page.workers().length).toBeGreaterThan(0);
+  await page.clock.runFor(31_000);
+  await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
+  await expect(page.getByTestId('file-viewer-notice')).toContainText(
+    'The file took too long to show.',
+  );
+  await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
+  await expect.poll(() => page.workers().length).toBe(0);
+});

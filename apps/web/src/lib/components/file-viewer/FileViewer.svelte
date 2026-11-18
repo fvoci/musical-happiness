@@ -1,7 +1,8 @@
 <!--
-  A file shown in the app instead of downloaded: a PDF or a Word document,
-  drawn in a frame that has no origin and no network
-  (lib/file-viewer/session.svelte.ts, src/viewer-frame/).
+  A file shown in the app instead of downloaded: a PDF, a Word document or a
+  workbook, drawn in a frame that has no origin and no network
+  (lib/file-viewer/session.svelte.ts, src/viewer-frame/). A workbook's pages
+  are its sheets, named in tabs under it and in what is announced.
 
   A dialog over the page on a wide screen, the whole screen on a narrow one.
   Pages and zoom are at the bottom, within reach of a thumb. The keys, while
@@ -23,6 +24,8 @@
   import { untrack } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
+
+  import SheetTabs from './SheetTabs.svelte';
   import { display } from '$lib/display.svelte.ts';
   import {
     frameAddress,
@@ -61,6 +64,13 @@
   const compact = $derived(page.stage === 'compact');
   const status = $derived(session.status);
   const framed = $derived(status.name === 'opening' || status.name === 'shown');
+  /** The sheet shown, when the file is a workbook. */
+  const sheet = $derived(session.sheets[session.page - 1]);
+  const where = $derived(
+    sheet
+      ? m.viewer_sheet({ page: session.page, pages: session.pages, name: sheet.name })
+      : m.viewer_page({ page: session.page, pages: session.pages }),
+  );
 
   closeOnBack(
     () => true,
@@ -218,13 +228,22 @@
 
     <!-- In the page from the start, so that the first page is announced as well as the next. -->
     <p class="sr-only" aria-live="polite" data-testid="file-viewer-announce">
-      {status.name === 'shown' ? m.viewer_page({ page: session.page, pages: session.pages }) : ''}
+      {status.name === 'shown' ? where : ''}
     </p>
 
+    {#if status.name === 'shown' && session.sheets.length > 0}
+      <SheetTabs
+        sheets={session.sheets}
+        current={session.page}
+        onPick={(picked: number) => {
+          session.goTo(picked);
+        }}
+      />
+    {/if}
     {#if status.name === 'shown'}
       <footer class="flex min-h-12 items-center justify-center gap-1 border-t p-1">
         <IconButton
-          label={m.viewer_previous_page()}
+          label={sheet ? m.viewer_previous_sheet() : m.viewer_previous_page()}
           disabled={session.page <= 1}
           onclick={() => {
             session.goTo(session.page - 1);
@@ -234,10 +253,10 @@
         </IconButton>
         <p class="min-w-16 text-center text-sm tabular-nums" data-testid="file-viewer-page">
           <span aria-hidden="true">{session.page} / {session.pages}</span>
-          <span class="sr-only">{m.viewer_page({ page: session.page, pages: session.pages })}</span>
+          <span class="sr-only">{where}</span>
         </p>
         <IconButton
-          label={m.viewer_next_page()}
+          label={sheet ? m.viewer_next_sheet() : m.viewer_next_page()}
           disabled={session.page >= session.pages}
           onclick={() => {
             session.goTo(session.page + 1);

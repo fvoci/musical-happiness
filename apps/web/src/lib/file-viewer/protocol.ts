@@ -4,8 +4,9 @@
  * The frame is a document without an origin of its own (`sandbox` without
  * `allow-same-origin`) and without the network. The app hands it a file's
  * bytes and a few commands; the frame answers with what the app shows around
- * it: how many pages there are, which one is in view, that it failed, and the
- * keys the reader pressed while the frame had the focus. Nothing else crosses.
+ * it: how many pages there are (a workbook's are its sheets, which it names),
+ * which one is in view, that it failed, and the keys the reader pressed while
+ * the frame had the focus. Nothing else crosses.
  *
  * Each side reads what arrives with the reader below, which accepts exactly
  * these shapes and nothing more: a message with an extra field, a field of
@@ -33,6 +34,15 @@ export type Failure = (typeof FAILURES)[number];
 export const PAGE_LIMIT = 100_000;
 export const ZOOM_MIN = 0.25;
 export const ZOOM_MAX = 4;
+/** The most sheets a workbook is shown with, and the longest name of one, in UTF-16 units. */
+export const SHEET_LIMIT = 1000;
+export const SHEET_NAME_LENGTH = 100;
+
+/** A sheet of a workbook, as the viewer names it: and whether it has charts or pictures it does not draw. */
+export interface SheetSummary {
+  name: string;
+  drawings: boolean;
+}
 
 export type ToFrame =
   | { kind: 'open'; format: FormatId; bytes: ArrayBuffer; theme: Theme; lang: string }
@@ -42,6 +52,8 @@ export type ToFrame =
 
 export type FromFrame =
   | { kind: 'ready' }
+  /** A workbook's sheets, its pages in order: told before it is shown. */
+  | { kind: 'sheets'; sheets: SheetSummary[] }
   | { kind: 'shown'; pages: number }
   | { kind: 'page'; page: number }
   | { kind: 'failed'; reason: Failure }
@@ -70,6 +82,22 @@ const isLanguage = (value: unknown): value is string =>
 const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T =>
   typeof value === 'string' && (list as readonly string[]).includes(value);
 
+function sheetOf(data: unknown): SheetSummary | undefined {
+  const fields = exactly(data, ['name', 'drawings']);
+  if (!fields || typeof fields.drawings !== 'boolean' || typeof fields.name !== 'string') {
+    return undefined;
+  }
+  const { name, drawings } = fields;
+  return name.length >= 1 && name.length <= SHEET_NAME_LENGTH ? { name, drawings } : undefined;
+}
+
+function sheetsOf(data: unknown): SheetSummary[] | undefined {
+  const sheets = exactly(data, ['kind', 'sheets'])?.sheets;
+  if (!Array.isArray(sheets) || sheets.length < 1 || sheets.length > SHEET_LIMIT) return undefined;
+  const read = sheets.map(sheetOf);
+  return read.every((sheet) => sheet !== undefined) ? read : undefined;
+}
+
 function kindOf(data: unknown): unknown {
   return typeof data === 'object' && data !== null ? (data as Fields).kind : undefined;
 }
@@ -79,6 +107,10 @@ export function readFromFrame(data: unknown): FromFrame | undefined {
   switch (kindOf(data)) {
     case 'ready':
       return exactly(data, ['kind']) ? { kind: 'ready' } : undefined;
+    case 'sheets': {
+      const sheets = sheetsOf(data);
+      return sheets ? { kind: 'sheets', sheets } : undefined;
+    }
     case 'shown': {
       const pages = exactly(data, ['kind', 'pages'])?.pages;
       return isPage(pages) ? { kind: 'shown', pages } : undefined;

@@ -19,6 +19,7 @@ export const VIEW_LIMIT_BYTES = 50 * 1024 * 1024;
 const EXTENSIONS: Record<FormatId, readonly string[]> = {
   pdf: ['pdf'],
   docx: ['docx'],
+  xlsx: ['xlsx'],
 };
 
 const OPENED = new Set(Object.values(EXTENSIONS).flat());
