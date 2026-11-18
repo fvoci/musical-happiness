@@ -44,6 +44,8 @@ export type FromPptxWorker =
       parts: PptxParts;
       /** Every character the slides' text has, once: the fonts the frame loads before it draws. */
       characters: string;
+      /** The pixels of the pictures each slide shows, by the slide's name: what drawing it holds. */
+      pixels: Map<string, number>;
     }
   | { kind: 'failed'; reason: PptxFailure };
 
@@ -75,6 +77,8 @@ function mapOf<T>(
 
 const isString = (value: unknown): value is string => typeof value === 'string';
 const isBytes = (value: unknown): value is Uint8Array => value instanceof Uint8Array;
+const isCount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0;
 
 /** The parts, when `value` has every field in its shape and nothing else of note; undefined otherwise. */
 function readParts(value: unknown): PptxParts | undefined {
@@ -110,5 +114,8 @@ export function readFromPptxWorker(data: unknown): FromPptxWorker | undefined {
   }
   if (message.kind !== 'read' || !isString(message.characters)) return undefined;
   const parts = readParts(message.parts);
-  return parts ? { kind: 'read', parts, characters: message.characters } : undefined;
+  const pixels = mapOf(message.pixels, isCount);
+  return parts && pixels
+    ? { kind: 'read', parts, characters: message.characters, pixels }
+    : undefined;
 }

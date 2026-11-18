@@ -18,7 +18,9 @@
  *   worked out pixel by pixel on the frame's thread, once for each effect;
  * - the text is laid out once for each tab in it;
  * - a place or size beyond any slide's, or a slide size beyond what
- *   PowerPoint allows, is a lie of the file.
+ *   PowerPoint allows, is a lie of the file;
+ * - a SmartArt drawing that shows SmartArt itself would have the renderer
+ *   draw it inside itself without end.
  *
  * The relationships are the ones the worker wrote (`pptx-parts.ts`), which
  * the renderer reads as they are; what the slides' XML names is counted
@@ -47,6 +49,8 @@ export const DECK_LIMITS = {
   extent: 10 * SLIDE_SIDE,
   /** The most pixels one picture may decode to (a 48-megapixel photograph has fewer). */
   picture: 50_000_000,
+  /** SmartArt drawings that show SmartArt: none (PowerPoint writes none). */
+  'SmartArt in SmartArt': 0,
 } as const;
 
 /**
@@ -86,7 +90,8 @@ const WORK = ['elements', 'shapes', 'textBodies', 'cells', 'text'] as const;
 export const LIMITS = { ...DECK_LIMITS, ...SLIDE_LIMITS };
 export type Limits = Record<keyof typeof LIMITS, number>;
 
-type SlideCount = Record<keyof typeof SLIDE_LIMITS, number>;
+/** What drawing one slide asks for, by the ceiling of a slide each is held to. */
+export type SlideCount = Record<keyof typeof SLIDE_LIMITS, number>;
 
 /** The name of a part's relationship part. */
 const relationshipsOf = (part: string): string => {
@@ -190,6 +195,7 @@ function related(sorted: Sorted, part: string, type: string): string | undefined
 interface SlideMeasure {
   over: string[];
   characters: Set<string>;
+  count: SlideCount;
 }
 
 /** The layout and master a slide is drawn with, as the renderer finds them. */
@@ -230,7 +236,7 @@ function measureSlide(sorted: Sorted, slide: string, limits: Limits): SlideMeasu
       if (sorted.parts.diagramDrawings.has(drawing)) take(drawing, own, 2 * diagrams, true);
     }
   }
-  return { over: counter.over(limits), characters };
+  return { over: counter.over(limits), characters, count: counter.count };
 }
 
 /** The parts the renderer parses before it draws any slide. */
@@ -256,8 +262,12 @@ function deckOver(sorted: Sorted, limits: Limits): string[] {
   for (const pixels of sorted.pixels.values()) {
     if (pixels.width * pixels.height > limits.picture) over.add('picture');
   }
+  const nested = [...parts.diagramDrawings.keys()].filter(
+    (drawing) => (measures.get(drawing)?.diagrams ?? 0) > 0,
+  );
+  if (nested.length > limits['SmartArt in SmartArt']) over.add('SmartArt in SmartArt');
   const presentation = measures.get('ppt/presentation.xml');
-  const sides = presentation?.size ? [presentation.size.cx, presentation.size.cy] : [];
+  const sides = presentation?.size ? [...presentation.size.cx, ...presentation.size.cy] : [];
   if (sides.some((each) => !(each >= SLIDE_SIDE_MIN && each <= limits['slide size']))) {
     over.add('slide size');
   }
@@ -280,30 +290,33 @@ function deckOver(sorted: Sorted, limits: Limits): string[] {
   return [...over];
 }
 
-/**
- * Every ceiling the presentation passes, each once, and the characters of
- * all the slides' text; `limits` are the ceilings (other ones only in tests).
- */
-export function measureCeilings(
-  sorted: Sorted,
-  limits: Limits = LIMITS,
-): { over: string[]; characters: string } {
+/** What the presentation asks for, measured. */
+export interface Measured {
+  /** Every ceiling it passes, each once. */
+  over: string[];
+  /** The characters of all the slides' text, each once. */
+  characters: string;
+  /** What drawing each slide asks for, by the slide's name. */
+  slides: Map<string, SlideCount>;
+}
+
+/** Measures the presentation against the ceilings `limits` (other ones only in tests). */
+export function measureCeilings(sorted: Sorted, limits: Limits = LIMITS): Measured {
   const over = new Set(deckOver(sorted, limits));
   const characters = new Set<string>();
+  const slides = new Map<string, SlideCount>();
   for (const slide of sorted.parts.slides.keys()) {
     const measured = measureSlide(sorted, slide, limits);
     for (const name of measured.over) over.add(name);
     for (const character of measured.characters) characters.add(character);
+    slides.set(slide, measured.count);
   }
-  return { over: [...over], characters: [...characters].join('') };
+  return { over: [...over], characters: [...characters].join(''), slides };
 }
 
-/**
- * Checks the presentation against every ceiling; throws `TooMuch` past one.
- * Returns the characters of all the slides' text, each once.
- */
-export function checkCeilings(sorted: Sorted): string {
-  const { over, characters } = measureCeilings(sorted);
-  if (over[0] !== undefined) throw new TooMuch(over[0]);
-  return characters;
+/** Checks the presentation against every ceiling; throws `TooMuch` past one. */
+export function checkCeilings(sorted: Sorted): Measured {
+  const measured = measureCeilings(sorted);
+  if (measured.over[0] !== undefined) throw new TooMuch(measured.over[0]);
+  return measured;
 }

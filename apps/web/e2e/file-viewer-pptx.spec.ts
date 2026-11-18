@@ -17,6 +17,7 @@ import {
   frameOf,
   frameReaches,
   recordTicks,
+  sharesThread,
   ticks,
   openCard,
   picture,
@@ -318,6 +319,8 @@ test('while slides are drawn, the app answers', async ({ page }) => {
   // Nor did one slide hold the thread long: a bound well past the slowest engine's slide.
   const longest = Math.max(0, ...during.slice(1).map((tick, index) => tick - (during[index] ?? 0)));
   expect(longest).toBeLessThan(1_500);
+  // And all this says something: the frame holds the page's thread when it holds its own.
+  expect(await sharesThread(page)).toBe(true);
 });
 
 test('while slides are drawn, "Close" closes the viewer', async ({ page }) => {

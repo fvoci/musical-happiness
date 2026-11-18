@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { examine } from '$lib/file-viewer/formats.ts';
 import { LIMITS, measureCeilings } from '../../src/viewer-frame/pptx-ceilings.ts';
 import { pixelsOf } from '../../src/viewer-frame/pptx-images.ts';
-import { resolveTarget, sortParts, type Sorted } from '../../src/viewer-frame/pptx-parts.ts';
+import {
+  resolveTarget,
+  sortParts,
+  writeRelationships,
+  type Sorted,
+} from '../../src/viewer-frame/pptx-parts.ts';
 import { readFromPptxWorker } from '../../src/viewer-frame/pptx-protocol.ts';
 import { readPresentation } from '../../src/viewer-frame/pptx-read.ts';
 import { unpack } from '../../src/viewer-frame/pptx-unpack.ts';
@@ -111,6 +116,28 @@ describe('the PowerPoint worker reads a presentation into the parts the renderer
     expect([...parts.parts.media.keys()]).toEqual(['ppt/media/image1.png']);
     expect(parts.pixels.get('ppt/media/image1.png')).toEqual({ width: 3, height: 2 });
   });
+
+  it('a picture is kept only under a name of a kind the renderer hands to the browser', async () => {
+    // The renderer reads a name ending in .emf itself, whatever its bytes say they are.
+    const header = pngHeader(4000, 4000);
+    const file = deck({
+      slides: [{ shapes: '' }],
+      parts: [
+        { name: 'media/image1.emf', data: header },
+        { name: 'media/image2.EMF', data: header },
+        { name: 'media/image3.tif', data: header },
+        { name: 'media/image4.JPG', data: png(2, 2, [0, 0, 0]) },
+      ],
+    });
+    expect([...(await sorted(file)).parts.media.keys()]).toEqual(['ppt/media/image4.JPG']);
+  });
+
+  it('the answer says the pixels of the pictures each slide shows', async () => {
+    const answer = await readPresentation(await repacked(koreanPptx()));
+    if (answer.kind !== 'read') throw new Error(answer.reason);
+    expect([...answer.pixels.keys()].sort()).toEqual([...answer.parts.slides.keys()].sort());
+    expect(answer.pixels.get('ppt/slides/slide1.xml')).toBe(300 * 150);
+  });
 });
 
 describe('each ceiling stops the deck that passes it, and only that one', () => {
@@ -193,6 +220,32 @@ describe('the relationships the frame gets are the ones the worker counted', () 
     ]);
     expect(parts.slideRels.get('ppt/slides/_rels/slide1.xml.rels')).toContain(
       'Target="/ppt/slideLayouts/slideLayout1.xml"',
+    );
+  });
+
+  it('an identifier longer than a name is counted by, or with a line break, is left out', async () => {
+    const long = 'r'.repeat(300);
+    const file = deck({
+      slides: [
+        {
+          shapes: '',
+          links: [
+            { id: long, type: 'image', target: '../media/image1.png' },
+            { id: 'a&#10;b', type: 'image', target: '../media/image1.png' },
+            { id: 'rIdTab', type: 'image', target: '../media/image1.png&#9;' },
+            { id: 'rIdPicture', type: 'image', target: '../media/image1.png' },
+          ],
+        },
+      ],
+      parts: [{ name: 'media/image1.png', data: png(2, 2, [0, 0, 0]) }],
+    });
+    const kept = (await sorted(file)).relationships.get('ppt/slides/_rels/slide1.xml.rels');
+    expect(kept?.map((each) => each.id)).toEqual(['rIdLayout', 'rIdPicture']);
+  });
+
+  it('a line break is written as a reference, which a parser keeps as it is', async () => {
+    expect(writeRelationships([{ id: 'a\nb', type: 't\tu', target: '/x\ry' }])).toContain(
+      'Id="a&#10;b" Type="t&#9;u" Target="/x&#13;y"',
     );
   });
 
@@ -323,6 +376,10 @@ describe('the answer of the worker is taken only in its shape', () => {
       readFromPptxWorker({ ...answer, parts: { ...answer.parts, media: new Map([['a', 'b']]) } }),
     ).toBeUndefined();
     expect(readFromPptxWorker({ ...answer, characters: 1 })).toBeUndefined();
+    expect(readFromPptxWorker({ ...answer, pixels: undefined })).toBeUndefined();
+    expect(readFromPptxWorker({ ...answer, pixels: new Map([['x', -1]]) })).toBeUndefined();
+    expect(readFromPptxWorker({ ...answer, pixels: new Map([['x', Infinity]]) })).toBeUndefined();
+    expect(readFromPptxWorker(answer)).toEqual(answer);
     expect(readFromPptxWorker(null)).toBeUndefined();
   });
 });

@@ -31,8 +31,9 @@ export async function readPresentation(bytes: ArrayBuffer): Promise<FromPptxWork
     if (sorted.parts.presentation === '' || sorted.parts.slides.size === 0) {
       throw new UnreadableFile();
     }
-    const characters = checkCeilings(sorted);
-    return { kind: 'read', parts: sorted.parts, characters };
+    const { characters, slides } = checkCeilings(sorted);
+    const pixels = new Map([...slides].map(([slide, count]) => [slide, count.pixels]));
+    return { kind: 'read', parts: sorted.parts, characters, pixels };
   } catch (error) {
     return failure(error);
   }

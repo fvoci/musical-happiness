@@ -55,6 +55,10 @@ export interface DeckSpec {
   slideList?: string;
   /** More of the presentation part, as XML after its elements (`<p:extLst>…`). */
   presentationExtra?: string;
+  /** The attributes of the slide size, when they are not `cx` and `cy` of `size`. */
+  sizeAttributes?: string;
+  /** More of the presentation's relationships. */
+  presentationLinks?: Link[];
 }
 
 const box = (x: number, y: number, cx: number, cy: number): string =>
@@ -198,7 +202,7 @@ export function deck(spec: DeckSpec): Buffer {
     )
     .join('');
   const types = `${XML}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>${overrides}</Types>`;
-  const presentation = `${XML}<p:presentation ${NAMESPACES}><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rIdMaster"/></p:sldMasterIdLst><p:sldIdLst>${slideList}</p:sldIdLst><p:sldSz cx="${size.cx}" cy="${size.cy}"/><p:notesSz cx="6858000" cy="9144000"/>${spec.presentationExtra ?? ''}</p:presentation>`;
+  const presentation = `${XML}<p:presentation ${NAMESPACES}><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rIdMaster"/></p:sldMasterIdLst><p:sldIdLst>${slideList}</p:sldIdLst><p:sldSz ${spec.sizeAttributes ?? `cx="${size.cx}" cy="${size.cy}"`}/><p:notesSz cx="6858000" cy="9144000"/>${spec.presentationExtra ?? ''}</p:presentation>`;
   const presentationLinks: Link[] = [
     { id: 'rIdMaster', type: 'slideMaster', target: 'slideMasters/slideMaster1.xml' },
     { id: 'rIdTheme', type: 'theme', target: 'theme/theme1.xml' },
@@ -207,6 +211,7 @@ export function deck(spec: DeckSpec): Buffer {
       type: 'slide',
       target: `slides/slide${index + 1}.xml`,
     })),
+    ...(spec.presentationLinks ?? []),
   ];
   const master = `${XML}<p:sldMaster ${NAMESPACES}>${tree(spec.masterShapes ?? '')}<p:clrMap ${COLOR_MAP}/><p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rIdLayout"/></p:sldLayoutIdLst></p:sldMaster>`;
   const layout = `${XML}<p:sldLayout ${NAMESPACES} type="blank">${tree(spec.layoutShapes ?? '')}<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>`;

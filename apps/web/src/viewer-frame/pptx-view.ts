@@ -27,13 +27,25 @@ const GUTTER = 16;
  * zoom put in view: the frame's memory is the app's process's.
  */
 const DRAWN_LIMIT = 16;
+/**
+ * The most pixels of pictures the slides drawn at once may show together:
+ * what one slide may show (`SLIDE_LIMITS.pixels` in `pptx-ceilings.ts`). A
+ * slide over what is left waits until others are taken out; the first is
+ * drawn whatever it shows.
+ */
+export const PIXELS_DRAWN = 150_000_000;
+/** How long a frame is waited for: a hidden page has none, and the slide is drawn all the same. */
+const FRAME_WAIT = 100;
 
 /** Draws the slide at `index` (from 0). */
 export type DrawSlide = (index: number, options: SlideRendererOptions) => SlideHandle;
 
+/** The next frame, or `FRAME_WAIT` milliseconds, whichever comes first. */
 const nextFrame = (): Promise<void> =>
   new Promise((resolve) => {
+    const waited = setTimeout(resolve, FRAME_WAIT);
     requestAnimationFrame(() => {
+      clearTimeout(waited);
       resolve();
     });
   });
@@ -47,12 +59,15 @@ const yieldThread = (): Promise<void> =>
 class Slide {
   readonly box = document.createElement('div');
   readonly number: number;
+  /** The pixels of the pictures it shows. */
+  readonly pixels: number;
   handle: SlideHandle | undefined;
   /** The renderer could not draw it: it stays an empty box and is not tried again. */
   failed = false;
 
-  constructor(number: number) {
+  constructor(number: number, pixels: number) {
     this.number = number;
+    this.pixels = pixels;
     this.box.className = 'page slide';
     this.box.dataset.page = String(number);
   }
@@ -83,6 +98,7 @@ export class PptxView implements Drawn {
     report: Report,
     draw: DrawSlide,
     chart: string,
+    pixels: ReadonlyMap<string, number>,
   ) {
     this.#presentation = presentation;
     this.#draw = draw;
@@ -98,7 +114,9 @@ export class PptxView implements Drawn {
     };
     const column = document.createElement('div');
     column.className = 'pages';
-    this.#slides = presentation.slides.map((_, index) => new Slide(index + 1));
+    this.#slides = presentation.slides.map(
+      (slide, index) => new Slide(index + 1, pixels.get(slide.slidePath) ?? 0),
+    );
     column.append(...this.#slides.map((slide) => slide.box));
     place.replaceChildren(column);
     this.#observer = new IntersectionObserver(
@@ -162,17 +180,21 @@ export class PptxView implements Drawn {
   /**
    * The slide to draw next: of those near the view not drawn yet, one in the
    * frame's view before one only near it, the first first; none while
-   * `DRAWN_LIMIT` slides are drawn.
+   * `DRAWN_LIMIT` slides are drawn, and none whose pictures would take those
+   * drawn past `PIXELS_DRAWN`.
    */
   #next(): Slide | undefined {
-    const drawn = this.#slides.filter((slide) => slide.handle).length;
-    if (drawn >= DRAWN_LIMIT) return undefined;
+    const drawn = this.#slides.filter((slide) => slide.handle);
+    if (drawn.length >= DRAWN_LIMIT) return undefined;
+    const shown = drawn.reduce((sum, slide) => sum + slide.pixels, 0);
+    const fits = (slide: Slide): boolean =>
+      drawn.length === 0 || shown + slide.pixels <= PIXELS_DRAWN;
     const inView = (slide: Slide): number => {
       const { top, bottom } = slide.box.getBoundingClientRect();
       return bottom > 0 && top < window.innerHeight ? 0 : 1;
     };
     return [...this.#visible]
-      .filter((slide) => !slide.handle && !slide.failed)
+      .filter((slide) => !slide.handle && !slide.failed && fits(slide))
       .map((slide) => ({ slide, rank: inView(slide) }))
       .sort((a, b) => a.rank - b.rank || a.slide.number - b.slide.number)[0]?.slide;
   }

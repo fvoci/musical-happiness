@@ -18,13 +18,19 @@
  * part is written anew, each target the name of a part that is kept, as an
  * absolute name the renderer resolves to that very name, of a type it reads
  * (a chart's, whose part is left out, too: the renderer draws a box there).
- * A relationship part that gives an identifier twice is unreadable.
+ * A relationship part that gives an identifier twice is unreadable, as is
+ * a slide list that would have the renderer read one slide (and its
+ * relationships) twice. An identifier longer than `NAME_LENGTH`, or one
+ * or a target with a tab or a line break (which a parser reads as a space
+ * once written back), is left out. A picture is kept only under a name of a
+ * kind the renderer hands to the browser as a picture (it reads `.emf`
+ * itself, by the name, whatever the bytes).
  */
 import { SaxesParser } from 'saxes';
 
 import type { PptxParts } from './pptx-protocol.ts';
 import { pixelsOf, type Pixels } from './pptx-images.ts';
-import { measure, type PartMeasure } from './pptx-xml.ts';
+import { measure, NAME_LENGTH, type PartMeasure } from './pptx-xml.ts';
 import { UnreadableFile } from './renderer.ts';
 
 const RELATIONSHIPS = 'http://schemas.openxmlformats.org/package/2006/relationships';
@@ -93,8 +99,14 @@ export interface Sorted {
 
 const decoder = new TextDecoder('utf-8');
 
-/** Whether the renderer reads the name as it is: no escapes, backslashes, queries or fragments. */
-export const isPlainName = (name: string): boolean => !/[%\\?#]/.test(name);
+/** Whether the renderer reads the name as it is: no escapes, backslashes, queries, fragments, tabs or line breaks. */
+export const isPlainName = (name: string): boolean => !/[%\\?#\t\n\r]/.test(name);
+
+/** The endings of the pictures' names the renderer hands to the browser to decode (its `xm`, `Rn`). */
+const PICTURE_ENDINGS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']);
+
+/** The ending of a name, as the renderer takes it (after the last dot, wherever it is). */
+const endingOf = (name: string): string => (name.split('.').pop() ?? '').toLowerCase();
 
 /** A type the renderer draws by, of those in `TYPES`. */
 function isKeptType(type: string): boolean {
@@ -161,6 +173,7 @@ function readRelationships(
   const seen = new Set<string>();
   for (const { id, type, target, outside } of parseRelationships(text)) {
     if (outside || !isKeptType(type)) continue;
+    if (id.length > NAME_LENGTH || /[\t\n\r]/.test(id + target)) continue;
     // The renderer would keep the first's place and the last's target: no file PowerPoint writes.
     if (seen.has(id)) throw new UnreadableFile();
     seen.add(id);
@@ -173,8 +186,17 @@ function readRelationships(
 
 const escape = (value: string): string =>
   value.replace(
-    /[&<>"]/g,
-    (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[character] ?? '',
+    /[&<>"\t\n\r]/g,
+    (character) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        '\t': '&#9;',
+        '\n': '&#10;',
+        '\r': '&#13;',
+      })[character] ?? '',
   );
 
 /** A relationship part of only these relationships. */
@@ -242,6 +264,7 @@ export function sortParts(unpacked: ReadonlyMap<string, Uint8Array>): Sorted {
   for (const [name, bytes] of unpacked) {
     if (!isPlainName(name)) continue;
     if (name.startsWith('ppt/media/')) {
+      if (!PICTURE_ENDINGS.has(endingOf(name))) continue;
       const pixels = pixelsOf(bytes);
       if (!pixels) continue;
       parts.media.set(name, bytes);
@@ -263,5 +286,31 @@ export function sortParts(unpacked: ReadonlyMap<string, Uint8Array>): Sorted {
     sorted.measures.set(name, measure(text));
     place(parts, name, text);
   }
+  if (listsASlideTwice(sorted)) throw new UnreadableFile();
   return sorted;
+}
+
+/**
+ * Whether the renderer may read one slide (and its relationships) twice: it
+ * reads a slide once for each entry of the slide list, an entry by one of
+ * its attributes named `id`, or, when no entry leads to a slide, once for
+ * each relationship of the presentation to it.
+ */
+function listsASlideTwice(sorted: Sorted): boolean {
+  const refs = sorted.measures.get('ppt/presentation.xml')?.slideRefs ?? [];
+  const relationships = sorted.relationships.get('ppt/_rels/presentation.xml.rels') ?? [];
+  const links = new Map(relationships.map((each) => [each.id, resolveTarget('ppt', each.target)]));
+  const linked = [...links.values()].filter((part) => sorted.parts.slides.has(part));
+  if (new Set(linked).size < linked.length) return true;
+  const named = new Set<string>();
+  for (const ids of refs) {
+    const slides = new Set(
+      ids.flatMap((id) => links.get(id) ?? []).filter((part) => sorted.parts.slides.has(part)),
+    );
+    for (const slide of slides) {
+      if (named.has(slide)) return true;
+      named.add(slide);
+    }
+  }
+  return false;
 }

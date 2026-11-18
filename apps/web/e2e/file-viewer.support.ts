@@ -145,6 +145,23 @@ export async function recordTicks(page: Page): Promise<void> {
 export const ticks = (page: Page): Promise<number[]> =>
   page.evaluate(() => (window as unknown as { fvociTicks: number[] }).fvociTicks);
 
+/**
+ * Whether the viewer's frame runs on the app's page's thread, as the freeze
+ * tests take it to (a browser may give a sandboxed frame a process of its
+ * own, and then they would show nothing): the frame keeps its thread for
+ * 300 ms while a timer of the page's is due.
+ */
+export async function sharesThread(page: Page): Promise<boolean> {
+  const late = timerLateness(page);
+  await viewerFrame(page).evaluate(() => {
+    const until = performance.now() + 300;
+    while (performance.now() < until) {
+      // Holding the thread.
+    }
+  });
+  return (await late) > 200;
+}
+
 /** How late a timer of 100 ms on the app's page fires, in milliseconds. */
 export function timerLateness(page: Page): Promise<number> {
   return page.evaluate(

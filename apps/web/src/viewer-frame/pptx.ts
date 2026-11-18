@@ -90,7 +90,7 @@ export const render: Render = async (bytes, place, report, labels) => {
     if (!slide) throw new Error(`no slide ${index}`);
     return renderSlide(model, slide, options);
   };
-  const view = new PptxView(model, place, report, draw, labels.chart);
+  const view = new PptxView(model, place, report, draw, labels.chart, answer.pixels);
   // Shown once the reader sees a slide, so that the time to draw counts and a slide that
   // cannot be drawn is a failure rather than a white box.
   await view.drawFirst();

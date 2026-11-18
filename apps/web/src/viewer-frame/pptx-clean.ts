@@ -66,10 +66,13 @@ export function cleanSlide(slide: HTMLElement, chart: string): void {
   for (const element of slide.querySelectorAll('*')) {
     cleanAttributes(element);
     if (element instanceof HTMLElement || element instanceof SVGElement) cleanStyle(element);
+    // The renderer's box (a dashed border, its text centred), not text of the deck's that says the same.
     if (
       element instanceof HTMLElement &&
       element.childElementCount === 0 &&
-      element.textContent === NO_CHART
+      element.textContent === NO_CHART &&
+      element.style.borderStyle === 'dashed' &&
+      element.style.justifyContent === 'center'
     ) {
       element.textContent = chart;
       element.setAttribute(CHART_MARK, '');

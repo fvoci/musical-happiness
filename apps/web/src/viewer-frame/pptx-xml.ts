@@ -9,7 +9,10 @@
  * What it cannot read as the renderer does, it counts more of: a picture is
  * any value of an attribute that names a picture's relationship, wherever
  * it is, and a table's cells are its `a:tc`, or its rows times its columns
- * when that is more.
+ * when that is more. The renderer reads an attribute by its name with or
+ * without a prefix (its `attr`), so every count here takes the worst of the
+ * attributes of that local name: any that names a SmartArt, the largest
+ * length, any slide side out of bounds.
  *
  * The frame parses the same text with the browser's `DOMParser`, so what is
  * read here is what is drawn: a part that is not well formed (with
@@ -23,12 +26,39 @@ import { UnreadableFile } from './renderer.ts';
 
 /** The elements that are a shape on a slide, whatever their prefix. */
 const SHAPES = new Set(['sp', 'pic', 'cxnSp', 'grpSp', 'graphicFrame', 'contentPart']);
-/** The elements that place a shape or a group's children. */
-const PLACES = new Set(['off', 'ext', 'chOff', 'chExt']);
+/**
+ * The attributes the renderer reads as a length in EMU (those it turns into
+ * pixels: places, sizes, insets, margins, radii, column widths, row heights,
+ * tab stops), whatever element has them.
+ */
+const LENGTHS = new Set([
+  'x',
+  'y',
+  'cx',
+  'cy',
+  'w',
+  'h',
+  'dist',
+  'blurRad',
+  'rad',
+  'tIns',
+  'rIns',
+  'lIns',
+  'bIns',
+  'marL',
+  'marR',
+  'marT',
+  'marB',
+  'indent',
+  'defTabSz',
+  'pos',
+]);
+/** The largest font size PowerPoint allows (4,000 points), in hundredths of a point. */
+const FONT_SIZE = 400_000;
 /** The effects of a picture the renderer works out pixel by pixel, on the frame's thread. */
 const PIXEL_EFFECTS = new Set(['duotone', 'lum', 'biLevel']);
-/** The longest attribute value kept as one that may name a relationship. */
-const NAME_LENGTH = 255;
+/** The longest attribute value kept as one that may name a relationship (a longer Id is left out). */
+export const NAME_LENGTH = 255;
 /** The slide size the renderer takes for a side the presentation does not give (its default), in EMU. */
 const DEFAULT_SIZE = { cx: 9_144_000, cy: 6_858_000 };
 
@@ -45,7 +75,7 @@ export interface PartMeasure {
   depth: number;
   /** Characters of text. */
   text: number;
-  /** Tab characters in the text: the renderer lays the text out once for each. */
+  /** Tab characters in the text and tab elements (`a:tab`): the renderer lays the text out once for each. */
   tabs: number;
   shapes: number;
   /** The shapes' text bodies, those of table cells left out: the renderer fits each to its box by measuring it. */
@@ -57,14 +87,23 @@ export interface PartMeasure {
   /** How often each attribute value occurs (those up to `NAME_LENGTH` long): a relationship is named by one. */
   names: Map<string, number>;
   blips: Blip[];
-  /** The SmartArt the part shows (`a:graphicData` of a diagram): each draws a drawing of its own. */
+  /** The SmartArt the part shows (`a:graphicData` naming a diagram): each draws a drawing of its own. */
   diagrams: number;
-  /** The largest place or extent a shape or group gives (`off`, `ext`, `chOff`, `chExt`), in EMU, either way. */
+  /**
+   * The largest length any attribute of `LENGTHS` gives, in EMU, either way
+   * (a number past any, Infinity); or past it, a font size past `FONT_SIZE`.
+   */
   extent: number;
   /** The slides the part lists (`p:sldId`), when it is the presentation. */
   slideIds: number;
-  /** The slide size (`p:sldSz` under the root) in EMU, as the renderer reads it, when the part gives one. */
-  size?: { cx: number; cy: number };
+  /** For each slide it lists, the values of its attributes named `id` (with a prefix or none). */
+  slideRefs: string[][];
+  /**
+   * The sides the slide size (`p:sldSz` under the root) may be read as, in
+   * EMU, when the part gives one: each `cx` and `cy` of it, or the renderer's
+   * default for a side it gives no number for.
+   */
+  size?: { cx: number[]; cy: number[] };
   /** The characters of the text, each once. */
   characters: Set<string>;
 }
@@ -77,16 +116,16 @@ interface Open {
   table?: { rows: number; columns: number; cells: number };
 }
 
-function emu(value: string | undefined): number {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
+/** A length as the renderer reads it (`Number`), its size either way; no number is none. */
+function length(value: string): number {
+  const number = Math.abs(Number(value));
+  return Number.isNaN(number) ? 0 : number;
 }
 
-/** A side of the slide as the renderer reads it: the number, or its default when there is none. */
-function side(value: string | undefined, fallback: number): number {
-  if (value === undefined) return fallback;
-  const number = Number(value);
-  return Number.isNaN(number) ? fallback : number;
+/** The sides a slide size's attributes of one name may be read as: each number, or the default when none is. */
+function sides(values: string[], fallback: number): number[] {
+  const numbers = values.map(Number).filter((number) => !Number.isNaN(number));
+  return numbers.length > 0 ? numbers : [fallback];
 }
 
 function emptyMeasure(bytes: number): PartMeasure {
@@ -105,6 +144,7 @@ function emptyMeasure(bytes: number): PartMeasure {
     diagrams: 0,
     extent: 0,
     slideIds: 0,
+    slideRefs: [],
     characters: new Set(),
   };
 }
@@ -112,13 +152,24 @@ function emptyMeasure(bytes: number): PartMeasure {
 type Tag = { local: string; attributes: Record<string, { local: string; value: string }> };
 
 /** What an element adds to the measure, besides the counts every element has. */
+/** Whether a text body is a table cell's: `a:tbl`, `a:tr`, `a:tc`, then it, as the renderer reads a table. */
+function inCell(open: Open[]): boolean {
+  const at = open.length;
+  return (
+    open[at - 1]?.local === 'tc' && open[at - 2]?.local === 'tr' && open[at - 3]?.local === 'tbl'
+  );
+}
+
 function take(tag: Tag, open: Open[], measured: PartMeasure, element: Open): void {
   const { local } = tag;
   const attributes = Object.values(tag.attributes);
-  const value = (name: string): string | undefined =>
-    attributes.find((each) => each.local === name)?.value;
+  /** Every value of the attributes of local name `name`: the renderer may read any of them. */
+  const values = (name: string): string[] =>
+    attributes.filter((each) => each.local === name).map((each) => each.value);
   const blip = open.findLast((each) => each.blip)?.blip;
-  for (const { value: named } of attributes) {
+  for (const { local: name, value: named } of attributes) {
+    if (LENGTHS.has(name)) measured.extent = Math.max(measured.extent, length(named));
+    if (name === 'sz' && length(named) > FONT_SIZE) measured.extent = Infinity;
     if (named.length > NAME_LENGTH) continue;
     measured.names.set(named, (measured.names.get(named) ?? 0) + 1);
     blip?.names.add(named);
@@ -128,26 +179,25 @@ function take(tag: Tag, open: Open[], measured: PartMeasure, element: Open): voi
     measured.blips.push(element.blip);
   } else if (PIXEL_EFFECTS.has(local) && blip) {
     blip.effects += 1;
-  } else if (local === 'txBody' && !open.some((each) => each.local === 'tc')) {
+  } else if (local === 'txBody' && !inCell(open)) {
     measured.textBodies += 1;
+  } else if (local === 'tab') {
+    measured.tabs += 1;
   } else if (local === 'tbl') {
     element.table = { rows: 0, columns: 0, cells: 0 };
   } else if (local === 'tr' || local === 'gridCol' || local === 'tc') {
     const table = open.findLast((each) => each.table)?.table;
     if (table) table[local === 'tr' ? 'rows' : local === 'gridCol' ? 'columns' : 'cells'] += 1;
-  } else if (local === 'graphicData' && (value('uri') ?? '').includes('diagram')) {
+  } else if (local === 'graphicData' && values('uri').some((uri) => uri.includes('diagram'))) {
     measured.diagrams += 1;
-  } else if (PLACES.has(local)) {
-    for (const name of ['x', 'y', 'cx', 'cy']) {
-      measured.extent = Math.max(measured.extent, Math.abs(emu(value(name))));
-    }
   } else if (local === 'sldId') {
     measured.slideIds += 1;
+    measured.slideRefs.push(values('id'));
   } else if (local === 'sldSz' && open.length === 1 && !measured.size) {
     // The renderer reads the first under the root (its `child`), and a side that is no number as its default.
     measured.size = {
-      cx: side(value('cx'), DEFAULT_SIZE.cx),
-      cy: side(value('cy'), DEFAULT_SIZE.cy),
+      cx: sides(values('cx'), DEFAULT_SIZE.cx),
+      cy: sides(values('cy'), DEFAULT_SIZE.cy),
     };
   }
 }

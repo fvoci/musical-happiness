@@ -180,6 +180,8 @@ export const HOSTILE_PPTX: Record<string, () => Buffer> = {
       slides: [{ shapes: '' }],
       themeExtra: `<a:extLst><a:ext uri="{fvoci}">${'<a:x/>'.repeat(DECK_LIMITS['elements before the first slide'])}</a:ext></a:extLst>`,
     }),
+  // The renderer would draw the drawing inside itself, without end: never drawn in a test.
+  'SmartArt in SmartArt': () => smartArtPptx(1, 1, diagramFrame(2)),
 };
 
 /**
@@ -201,23 +203,29 @@ export function layoutAndSlidePptx(layoutTarget = '../slideLayouts/slideLayout1.
 }
 
 /** A SmartArt frame: a diagram's `graphicFrame`, its parts named by the slide's relationships. */
-const diagramFrame = (id: number): string =>
-  `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="${id}" name="Diagram ${id}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="0" y="0"/><a:ext cx="1000" cy="1000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:relIds xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" r:dm="rIdData" r:lo="rIdLayoutData" r:qs="rIdStyle" r:cs="rIdColors"/></a:graphicData></a:graphic></p:graphicFrame>`;
+const diagramFrame = (
+  id: number,
+  uri = 'uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"',
+): string =>
+  `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="${id}" name="Diagram ${id}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="0" y="0"/><a:ext cx="1000" cy="1000"/></p:xfrm><a:graphic><a:graphicData ${uri}><dgm:relIds xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" r:dm="rIdData" r:lo="rIdLayoutData" r:qs="rIdStyle" r:cs="rIdColors"/></a:graphicData></a:graphic></p:graphicFrame>`;
 
-/** A SmartArt drawing of `boxes` text boxes. */
-const drawing = (boxes: number): string =>
-  `<dsp:drawing xmlns:dsp="http://schemas.microsoft.com/office/drawing/2008/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dsp:spTree>${Array.from(
+/** A SmartArt drawing of `boxes` text boxes, and `more` (XML) after them. */
+const drawing = (boxes: number, more = ''): string =>
+  `<dsp:drawing xmlns:dsp="http://schemas.microsoft.com/office/drawing/2008/diagram" ${NAMESPACES}><dsp:spTree>${Array.from(
     { length: boxes },
     (_, index) =>
       `<dsp:sp modelId="{${index}}"><dsp:txBody><a:bodyPr/><a:p><a:r><a:t>가</a:t></a:r></a:p></dsp:txBody></dsp:sp>`,
-  ).join('')}</dsp:spTree></dsp:drawing>`;
+  ).join('')}${more}</dsp:spTree></dsp:drawing>`;
 
-/** `frames` SmartArt frames that draw one drawing of `boxes` text boxes, each frame once. */
-export function smartArtPptx(frames: number, boxes: number): Buffer {
+/**
+ * `frames` SmartArt frames that draw one drawing of `boxes` text boxes (and
+ * `more`, XML), each frame once; `uri` names the frames' diagram.
+ */
+export function smartArtPptx(frames: number, boxes: number, more = '', uri?: string): Buffer {
   return one(
-    Array.from({ length: frames }, (_, index) => diagramFrame(index + 2)).join(''),
+    Array.from({ length: frames }, (_, index) => diagramFrame(index + 2, uri)).join(''),
     [{ id: 'rIdDrawing', type: 'diagramDrawing', target: '../diagrams/drawing1.xml' }],
-    [{ name: 'diagrams/drawing1.xml', data: Buffer.from(drawing(boxes)) }],
+    [{ name: 'diagrams/drawing1.xml', data: Buffer.from(drawing(boxes, more)) }],
   );
 }
 
@@ -277,8 +285,8 @@ export const DISGUISED_PPTX: Record<string, { ceiling: string; make: () => Buffe
   'a picture recoloured three ways': {
     ceiling: 'recoloured',
     make: () => {
-      // Under the ceiling once, past it three times over.
-      const side = Math.ceil(Math.sqrt(SLIDE_LIMITS.recoloured / 2));
+      // Under the ceiling twice over, past it three times over: each effect counts.
+      const side = Math.ceil(Math.sqrt(SLIDE_LIMITS.recoloured / 3)) + 1;
       return one(
         picture(
           2,
@@ -321,6 +329,154 @@ export const DISGUISED_PPTX: Record<string, { ceiling: string; make: () => Buffe
     // Each frame alone is far under every ceiling: the drawing's boxes, once for each frame.
     ceiling: 'textBodies',
     make: () => smartArtPptx(40, 4),
+  },
+  'a SmartArt named by an attribute with a prefix besides one without': {
+    ceiling: 'textBodies',
+    make: () =>
+      smartArtPptx(
+        40,
+        4,
+        '',
+        'xmlns:q="urn:fvoci" q:uri="x" uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"',
+      ),
+  },
+  'a size read without its prefix, after a small one with one': {
+    ceiling: 'extent',
+    make: () =>
+      one(
+        shape(2, 'rect', PLACE, '2E7DD2').replace(
+          /<a:ext cx="\d+" cy="\d+"\/>/,
+          `<a:ext xmlns:q="urn:fvoci" q:cx="1" cx="${DECK_LIMITS.extent + 1}" cy="1000"/>`,
+        ),
+      ),
+  },
+  'a slide size read without its prefix': {
+    ceiling: 'slide size',
+    make: () =>
+      deck({
+        slides: [{ shapes: '' }],
+        sizeAttributes: `xmlns:q="urn:fvoci" q:cx="${SLIDE.cx}" cx="${DECK_LIMITS['slide size'] + 1}" cy="${SLIDE.cy}"`,
+      }),
+  },
+  'a column as wide as no slide': {
+    ceiling: 'extent',
+    make: () =>
+      one(
+        table(2, PLACE, [['']]).replace(
+          /<a:gridCol w="\d+"\/>/,
+          `<a:gridCol w="${DECK_LIMITS.extent + 1}"/>`,
+        ),
+      ),
+  },
+  'a place that is no finite number': {
+    ceiling: 'extent',
+    make: () =>
+      one(shape(2, 'rect', PLACE, '2E7DD2').replace(/<a:off x="\d+"/, '<a:off x="Infinity"')),
+  },
+  'tabs as elements': {
+    ceiling: 'tabs',
+    make: () =>
+      one(textBox(2, PLACE, [run('가', 2400, '', '<a:tab/>'.repeat(SLIDE_LIMITS.tabs + 1))])),
+  },
+  'text boxes under a slide root named as a table cell': {
+    ceiling: 'textBodies',
+    make: () => {
+      const boxes = Array.from({ length: SLIDE_LIMITS.textBodies + 1 }, (_, index) =>
+        textBox(index + 2, PLACE, ['']),
+      ).join('');
+      return deck({
+        slides: [
+          {
+            shapes: '',
+            xml: `<p:tc ${NAMESPACES}><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${boxes}</p:spTree></p:cSld></p:tc>`,
+          },
+        ],
+      });
+    },
+  },
+  'a table whose rows and columns are more than its cells': {
+    ceiling: 'cells',
+    make: () => {
+      const columns = 50;
+      const rows = Math.floor(SLIDE_LIMITS.cells / columns) + 1;
+      const grid = '<a:gridCol w="10000"/>'.repeat(columns);
+      const row = '<a:tr h="100"><a:tc><a:txBody><a:bodyPr/><a:p/></a:txBody></a:tc></a:tr>';
+      return one(
+        table(2, PLACE, [['']])
+          .replace(/<a:tblGrid>.*<\/a:tblGrid>/, `<a:tblGrid>${grid}</a:tblGrid>`)
+          .replace(/<a:tr [^>]*>.*<\/a:tr>/, row.repeat(rows)),
+      );
+    },
+  },
+  'text boxes on the master, which every slide draws': {
+    ceiling: 'textBodies',
+    make: () =>
+      deck({
+        slides: [{ shapes: '' }],
+        masterShapes: Array.from({ length: SLIDE_LIMITS.textBodies + 1 }, (_, index) =>
+          textBox(index + 2, PLACE, ['']),
+        ).join(''),
+      }),
+  },
+  "large pictures on the layout, by the layout's relationships": {
+    ceiling: 'pixels',
+    make: () => {
+      const side = Math.floor(Math.sqrt(DECK_LIMITS.picture));
+      const count = Math.floor(SLIDE_LIMITS.pixels / (side * side)) + 1;
+      return deck({
+        slides: [{ shapes: '' }],
+        layoutShapes: Array.from({ length: count }, (_, index) =>
+          picture(index + 2, 'rIdPicture', PLACE),
+        ).join(''),
+        layoutLinks: [image('image1.png')],
+        parts: [{ name: 'media/image1.png', data: pngHeader(side, side) }],
+      });
+    },
+  },
+  'a picture the renderer finds under the last "media" of its name': {
+    ceiling: 'pixels',
+    make: () => {
+      const side = Math.floor(Math.sqrt(DECK_LIMITS.picture));
+      const count = Math.floor(SLIDE_LIMITS.pixels / (side * side)) + 1;
+      return one(
+        Array.from({ length: count }, (_, index) => picture(index + 2, 'rIdPicture', PLACE)).join(
+          '',
+        ),
+        [{ id: 'rIdPicture', type: 'image', target: '../media/small/media/image1.png' }],
+        [
+          { name: 'media/small/media/image1.png', data: tinyPng() },
+          { name: 'media/image1.png', data: pngHeader(side, side) },
+        ],
+      );
+    },
+  },
+  'more slides listed than there are': {
+    ceiling: 'slides',
+    make: () =>
+      deck({
+        slides: [{ shapes: '' }],
+        slideList: Array.from(
+          { length: DECK_LIMITS.slides + 1 },
+          (_, index) => `<p:sldId id="${256 + index}" r:id="rIdNone${index}"/>`,
+        ).join(''),
+      }),
+  },
+  'a slide listed twice': {
+    ceiling: 'unreadable',
+    make: () =>
+      deck({
+        slides: [{ shapes: '' }],
+        slideList: '<p:sldId id="256" r:id="rIdSlide1"/><p:sldId id="257" r:id="rIdSlide1"/>',
+      }),
+  },
+  'a slide two relationships of the presentation lead to': {
+    ceiling: 'unreadable',
+    make: () =>
+      deck({
+        slides: [{ shapes: '' }],
+        slideList: '',
+        presentationLinks: [{ id: 'rIdAgain', type: 'slide', target: 'slides/slide1.xml' }],
+      }),
   },
   'a relationship given twice': {
     ceiling: 'unreadable',
