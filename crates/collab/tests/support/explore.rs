@@ -169,7 +169,7 @@ impl World {
 }
 
 const CLIENTS: [u64; 6] = [1, 2, 3, 5, 0, (1 << 53) - 1];
-const NAMES: [&str; 13] = [
+const NAMES: [&str; 14] = [
     "paragraph",
     "heading",
     "bulletList",
@@ -181,6 +181,7 @@ const NAMES: [&str; 13] = [
     "hardBreak",
     "mention",
     "reference",
+    "file",
     "video",
     "",
 ];

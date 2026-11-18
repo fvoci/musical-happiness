@@ -7,7 +7,7 @@ import { Editor } from '@tiptap/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { bodyExtensions } from '$lib/editor/extensions.ts';
-import { setFileUrlResolver } from '$lib/editor/files.ts';
+import { setFileSource } from '$lib/editor/files.ts';
 import { markdownToBlocks } from '$lib/editor/markdown.ts';
 import {
   MARK_SPECS,
@@ -221,7 +221,7 @@ describe('HTML from elsewhere', () => {
 
 describe('drawing', () => {
   it('draws an image from the address the resolver gives for its file', () => {
-    const previous = setFileUrlResolver((fileId) => `/files/board-1/${fileId}`);
+    const previous = setFileSource({ url: (fileId) => `/files/board-1/${fileId}` });
     const target = create({
       type: 'doc',
       content: [{ type: 'image', attrs: { fileId: 'file-1', alt: 'chart' } }],
@@ -230,7 +230,7 @@ describe('drawing', () => {
     expect(image?.getAttribute('src')).toBe('/files/board-1/file-1');
     expect(image?.getAttribute('data-file-id')).toBe('file-1');
     expect(image?.getAttribute('alt')).toBe('chart');
-    setFileUrlResolver(previous);
+    setFileSource(previous);
   });
 
   it('draws an image without an address when the file cannot be resolved', () => {

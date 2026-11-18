@@ -330,13 +330,14 @@ async fn handle_delete_container(
 /// built-in template for everyone.
 ///
 /// A wiki is copied as a board is, with its pages as they stand: their tree and order,
-/// titles, icons and bodies, the images of the bodies given files of their own, and
-/// what a body names among the wiki's pages named in the copy by its copy (what it
-/// names elsewhere stays as it was). The comments on the pages, the versions of their
-/// bodies, the pages in the trash, the wiki's other members and teams and its public
-/// link are not copied. A wiki is no template: `asTemplate=true` is 400. A copy deeper
-/// or with more pages than the organization's limits allow, lowered since the wiki
-/// grew, is 400 with the reason `page_too_deep` or `too_many_pages` and the `limit`.
+/// titles, icons and bodies, the images and file blocks of the bodies given files of
+/// their own, and what a body names among the wiki's pages named in the copy by its
+/// copy (what it names elsewhere stays as it was). The comments on the pages, the
+/// versions of their bodies, the pages in the trash, the wiki's other members and teams
+/// and its public link are not copied. A wiki is no template: `asTemplate=true` is 400.
+/// A copy deeper or with more pages than the organization's limits allow, lowered since
+/// the wiki grew, is 400 with the reason `page_too_deep` or `too_many_pages` and the
+/// `limit`.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/containers/{containerId}/duplicate",

@@ -85,8 +85,8 @@ impl App {
     ///
     /// Returns a not-found error if the card has no such version (any more) or is not
     /// there any more, a conflict if the version's body may not be stored any more or
-    /// shows an image whose file is not there any more, and the errors of a write of
-    /// the whole body ([`crate::collab::Collab::write_whole`]).
+    /// names a file (of an image or a file block) that is not there any more, and the
+    /// errors of a write of the whole body ([`crate::collab::Collab::write_whole`]).
     pub async fn restore_body_version(
         &self,
         card: &Block,
@@ -139,7 +139,8 @@ impl App {
             .await?
         {
             return Err(AppError::conflict(
-                "the version shows an image whose file is not there any more",
+                "the version names a file (of an image or a file block) that is not there any \
+                 more",
             ));
         }
         let patch = BlockPatch {

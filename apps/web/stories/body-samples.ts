@@ -1,5 +1,6 @@
 /** Made-up bodies for the stories of the read-only view. */
 import type { BodyReferences } from '$lib/editor/body-editor.ts';
+import type { FileDetails, FileSource } from '$lib/editor/files.ts';
 import type { ShownReference } from '$lib/editor/reference-chip.ts';
 import type { DocNode } from '$lib/editor/schema.ts';
 
@@ -26,7 +27,7 @@ export const PEOPLE: Record<string, string> = {
 };
 
 /** A picture for a file identifier that starts with `file-`; the others have no address. */
-export function sampleFileUrl(fileId: string): string | undefined {
+function sampleFileUrl(fileId: string): string | undefined {
   if (!fileId.startsWith('file-')) return undefined;
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="160">` +
@@ -34,6 +35,25 @@ export function sampleFileUrl(fileId: string): string | undefined {
     `<text x="240" y="88" text-anchor="middle" font-size="24" font-family="sans-serif">${fileId}</text></svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
+
+/** What the stories know of the files of file blocks; one that starts with `gone-` is not there. */
+const SAMPLE_FILES: Record<string, FileDetails> = {
+  'file-minutes.pdf': {
+    name: '2026년 11월 운영위원회 회의록과 첨부 자료 모음 (최종본).pdf',
+    size: 482_304,
+  },
+  'file-budget.xlsx': { name: 'budget.xlsx', size: 18_944 },
+  'file-photos.zip': { name: 'photos.zip', size: 52_428_800 },
+};
+
+/** The stories' files: pictures made up from the identifier, and the records above. */
+export const sampleFileSource: FileSource = {
+  url: sampleFileUrl,
+  details: (fileId) =>
+    Promise.resolve(
+      fileId.startsWith('gone-') ? null : (SAMPLE_FILES[fileId] ?? { name: fileId, size: 1024 }),
+    ),
+};
 
 /** Every kind of node and mark a body may contain. */
 export const MIXED: DocNode = {
@@ -262,5 +282,19 @@ export const REFERENCES: DocNode = {
       attrs: { level: 2 },
       content: [reference(PLAN), words(' in a heading')],
     },
+  ],
+};
+
+const fileBlock = (fileId: string): DocNode => ({ type: 'file', attrs: { fileId } });
+
+/** File blocks: a document, a sheet, an archive, a name too long for the line, and a file that is gone. */
+export const FILES: DocNode = {
+  type: 'doc',
+  content: [
+    paragraph(text('회의 자료')),
+    fileBlock('file-minutes.pdf'),
+    fileBlock('file-budget.xlsx'),
+    fileBlock('file-photos.zip'),
+    fileBlock('gone-draft.pdf'),
   ],
 };

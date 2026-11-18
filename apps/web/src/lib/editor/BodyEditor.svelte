@@ -45,7 +45,8 @@
   import type { ReferenceOptions } from './reference.ts';
   import { emptyDoc, isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
   import { suggestionList } from './suggestion-list.ts';
-  import { fromUpload, ImageUpload } from './uploads.ts';
+  import { SlashMenu } from './slash-menu.ts';
+  import { BodyUpload, fromUpload, type Pending } from './uploads.ts';
 
   let {
     doc,
@@ -57,7 +58,7 @@
     onChange,
     onFocus,
     onBlur,
-    uploadImage,
+    uploadFile,
     placeholder = '',
     readPlaceholder = '',
     class: className,
@@ -70,7 +71,7 @@
     readsFirst,
     onEditor,
     canWrite = false,
-    onImageDropped,
+    onUploadDropped,
     onFitsAgain,
     onDraftDropped,
   }: BodyEditorProps = $props();
@@ -82,24 +83,33 @@
   let unreadable = $state(false);
   /**
    * The last thing that came of something the reader did and is to be said:
-   * an image not put in, a formula's source not kept (which an image's does
-   * not replace). Gone once the reader writes again.
+   * an image or a file block not put in (`upload`), a formula's source not
+   * kept (which an upload's does not replace). Gone once the reader writes
+   * again.
    */
-  let said = $state<{ text: string; image: boolean }>();
-  let uploads = $state(0);
+  let said = $state<{ text: string; upload: boolean }>();
+  let uploads = $state.raw<Pending>({ image: 0, file: 0 });
 
   const status = $derived.by(() => {
     if (unreadable) return m.editor_body_unreadable();
-    // A formula's loss is said even while an image goes up; an image's waits for the uploads.
-    if (said && !said.image) return said.text;
-    if (uploads > 0) return m.editor_image_uploading();
+    // A formula's loss is said even while a file goes up; a file's waits for the uploads.
+    if (said && !said.upload) return said.text;
+    if (uploads.file > 0) return m.editor_file_uploading();
+    if (uploads.image > 0) return m.editor_image_uploading();
     return said?.text ?? '';
   });
 
   const UPLOAD_SAID = {
-    failed: m.editor_image_failed,
-    gone: m.editor_image_gone,
-    refused: m.editor_image_refused,
+    image: {
+      failed: m.editor_image_failed,
+      gone: m.editor_image_gone,
+      refused: m.editor_image_refused,
+    },
+    file: {
+      failed: m.editor_file_failed,
+      gone: m.editor_file_gone,
+      refused: m.editor_file_refused,
+    },
   };
 
   const nameOf = (userId: string): string =>
@@ -166,6 +176,42 @@
     render: suggestionList({ kind: 'reference', label: m.editor_suggest_references }),
   };
 
+  /**
+   * Files pasted, dropped or chosen go up through `uploadFile` as they are asked: the counts
+   * under way, and what is said of one that ends otherwise than in the body.
+   */
+  const uploading = BodyUpload.configure({
+    upload: () => uploadFile,
+    uploadingLabel: (kind) =>
+      kind === 'file' ? m.editor_file_uploading() : m.editor_image_uploading(),
+    onProgress: (pending, ended, destroyed) => {
+      uploads = pending;
+      if (destroyed) {
+        if (ended?.outcome === 'gone') onUploadDropped?.(ended.kind);
+        return;
+      }
+      if (ended && ended.outcome !== 'done' && !(said && !said.upload)) {
+        said = { text: UPLOAD_SAID[ended.kind][ended.outcome](), upload: true };
+      }
+    },
+  });
+
+  /** The slash menu: only where files can be added, for a file is all it offers for now. */
+  const slashMenu = SlashMenu.configure({
+    entries: () =>
+      uploadFile
+        ? [
+            {
+              value: 'file',
+              label: m.editor_slash_file(),
+              words: ['file', 'attachment', 'upload', '파일', '첨부'],
+              run: (current) => current.storage.bodyUpload.choose(),
+            },
+          ]
+        : [],
+    render: suggestionList({ kind: 'slash', label: m.editor_slash_label }),
+  });
+
   /** What binds the editor to a shared document, keeps the reader's moves through what the others do, and shows their carets. */
   const sharing = (shared: NonNullable<BodyEditorProps['collab']>) => [
     Collaboration.configure({ document: shared, field: BODY_FIELD }),
@@ -210,20 +256,8 @@
             render: suggestionList({ kind: 'emoji', label: m.editor_suggest_emoji }),
           },
         }),
-        ImageUpload.configure({
-          upload: () => uploadImage,
-          uploadingLabel: m.editor_image_uploading,
-          onProgress: (pending, outcome, destroyed) => {
-            uploads = pending;
-            if (destroyed) {
-              if (outcome === 'gone') onImageDropped?.();
-              return;
-            }
-            if (outcome !== undefined && outcome !== 'done' && !(said && !said.image)) {
-              said = { text: UPLOAD_SAID[outcome](), image: true };
-            }
-          },
-        }),
+        uploading,
+        slashMenu,
       ],
       editorProps: { attributes: rootAttributes() },
       onTransaction: fromEditor(({ transaction }: { transaction: Transaction }) => {
@@ -243,7 +277,7 @@
       may: () => shared !== undefined && canWrite,
       dropped: fromEditor((why: DroppedWhy) => {
         const text = why === 'gone' ? m.editor_formula_gone() : m.editor_formula_refused();
-        said = { text, image: false };
+        said = { text, upload: false };
       }),
     });
     // What it could not draw is gone again: the editor, which took nothing from the shared

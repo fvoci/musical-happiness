@@ -27,6 +27,9 @@ export class LockedFile extends Error {}
 /** Thrown when the bytes are not a readable file of the kind. */
 export class UnreadableFile extends Error {}
 
+/** Thrown when the file would make more than the viewer takes on (its ceilings on what is read and drawn). */
+export class TooLargeFile extends Error {}
+
 /** Thrown when the renderer took longer than the frame gives it, and was stopped. */
 export class SlowRenderer extends Error {}
 

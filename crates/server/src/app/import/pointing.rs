@@ -11,13 +11,13 @@ use crate::app::App;
 
 impl App {
     /// Points every block of each imported board that shows a file at the newly stored
-    /// one: the `fileId` or `attachmentId` of an attachment block, and the
-    /// images of a body. A name the archive brought no file for becomes the empty name
-    /// in a block's fields, and its image in a body an empty paragraph. A body that
+    /// one: the `fileId` or `attachmentId` of an attachment block, and the images and
+    /// file blocks of a body. A name the archive brought no file for becomes the empty
+    /// name in a block's fields, and its node in a body an empty paragraph. A body that
     /// names a block of another board of the archive is pointed at its copy (`copies`,
     /// old identifier to new), which was not known when the body was stored. Failures
     /// are logged, as in the original.
-    pub(super) async fn fix_images_attachments(
+    pub(super) async fn point_at_stored_files(
         &self,
         container_map: &HashMap<String, Container>,
         file_map: &HashMap<(String, String), String>,

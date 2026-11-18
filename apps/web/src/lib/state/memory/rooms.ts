@@ -58,7 +58,7 @@ import { ROOM_LIMITS } from '../../logic/doc-room.ts';
 import { leftByWriters, roomWrote, typedBy, writersLeft } from './body-versions.ts';
 import { reads } from './container-access.ts';
 import { roleOn } from './comments.ts';
-import { changeOf, imageFileIds, LIMITS } from './shapes.ts';
+import { bodyFileIds, changeOf, LIMITS } from './shapes.ts';
 import { MemoryCarets } from './room-carets.ts';
 import type { Room, RoomUser, Seat, TabMessage } from './room-seats.ts';
 import { bodyOf, documentOf, sameBody, tabKey } from './room-docs.ts';
@@ -362,9 +362,9 @@ export class MemoryRooms {
     if (body === undefined) return 'update_refused';
     if (body === null) return undefined;
     if (storedSize(body) > LIMITS.bodyBytes) return 'document_too_large';
-    // An image shows a file of this board, or none.
+    // An image or a file block names a file of this board or wiki, or none.
     const files = this.#world.files;
-    if (imageFileIds(body).some((fileId) => files.get(fileId)?.containerId !== room.containerId)) {
+    if (bodyFileIds(body).some((fileId) => files.get(fileId)?.containerId !== room.containerId)) {
       return 'update_refused';
     }
     return undefined;

@@ -36,6 +36,7 @@
   import {
     CARD_WORDS,
     FORMULA_DROPPED,
+    FILE_DROPPED,
     IMAGE_DROPPED,
     LATE_NOTE,
     lostNote,
@@ -59,7 +60,7 @@
       | 'retryBody'
       | 'sayLost'
       | 'dismissLost'
-      | 'uploadImage'
+      | 'uploadFile'
     >;
     /** Whose body it is, for the words it says: a card's, or a wiki's page's. */
     of?: 'card' | 'page';
@@ -191,8 +192,8 @@
           onFitsAgain={() => {
             made += 1;
           }}
-          onImageDropped={() => {
-            card.sayLost(IMAGE_DROPPED);
+          onUploadDropped={(kind) => {
+            card.sayLost(kind === 'file' ? FILE_DROPPED : IMAGE_DROPPED);
           }}
           onDraftDropped={() => {
             card.sayLost(FORMULA_DROPPED);
@@ -204,7 +205,7 @@
           placeholder={words.placeholder()}
           readPlaceholder={words.readEmpty?.() ?? ''}
           class="min-h-24 text-base outline-none"
-          uploadImage={(file: File) => card.uploadImage(file)}
+          uploadFile={(file: File) => card.uploadFile(file)}
           onEditor={(editor: TiptapEditor) => {
             caret.take(editor, writable);
           }}

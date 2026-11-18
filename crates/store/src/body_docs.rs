@@ -16,7 +16,7 @@ use crate::blocks;
 use crate::body_versions::{self, BodyBefore, BodyWrite};
 use crate::db::{Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
-use crate::file_refs::{self, NewImages};
+use crate::file_refs::{self, NewBodyFiles};
 
 /// A stored document and the updates it took after its state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,9 +161,9 @@ impl Store {
 
     /// Logs updates a block's document took, in order and all or none, and gives
     /// their numbers. Each comes with the user whose editor sent it; empty for the
-    /// server's own. `images` are the files the images of the document's body show
-    /// with them: those the block does not show yet are asked of its board and held as
-    /// a write of its body holds them ([`crate::NewImages::Recorded`]), and the block
+    /// server's own. `files` are the files the images and file blocks of the
+    /// document's body name with them: those the block does not show yet are asked of its board and held as
+    /// a write of its body holds them ([`crate::NewBodyFiles::Recorded`]), and the block
     /// shows them from now on, so that the files are not collected before the body is
     /// written to it. `new_editors` are those of the senders who are not yet put down
     /// as having written the body since its newest version
@@ -174,12 +174,12 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if the block, or its document, is not there,
-    /// and [`StoreError::InvalidBlock`] if its board has no file of an image.
+    /// and [`StoreError::InvalidBlock`] if its board has no file one of them names.
     pub async fn append_body_updates(
         &self,
         block_id: &str,
         updates: &[(&[u8], &str)],
-        images: &[String],
+        files: &[String],
         new_editors: &[&str],
         body_before: BodyBefore,
     ) -> Result<Vec<i64>, StoreError> {
@@ -187,8 +187,8 @@ impl Store {
             if body_before == BodyBefore::Keep {
                 body_versions::keep_held(scope, block_id).await?;
             }
-            if !images.is_empty() {
-                file_refs::show_images(scope, block_id, images).await?;
+            if !files.is_empty() {
+                file_refs::show_body_files(scope, block_id, files).await?;
             }
             body_versions::note_editors(scope, block_id, new_editors).await?;
             let now = now_millis();
@@ -319,8 +319,13 @@ impl Store {
                 // that follows from the block changes: it is as it was stored.
                 None => {
                     let block = blocks::get_block(scope, block_id).await?;
-                    block_derived::refresh(scope, &block, Before::Unchanged, NewImages::Unchecked)
-                        .await?;
+                    block_derived::refresh(
+                        scope,
+                        &block,
+                        Before::Unchanged,
+                        NewBodyFiles::Unchecked,
+                    )
+                    .await?;
                 }
                 Some(body) => {
                     let patch = BlockPatch {

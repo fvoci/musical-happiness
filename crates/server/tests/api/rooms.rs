@@ -767,7 +767,7 @@ async fn a_refused_update_goes_to_nobody_and_what_goes_out_is_logged_first() {
     };
 
     // Bytes that are no update; and an update the worker takes and the log refuses
-    // (it shows an image whose file the board does not have).
+    // (it names a file the board does not have).
     let image = crate::collab_images::showing("7nothing.png");
     for refused in [&b"no update"[..], &image] {
         one.send_update(refused).await;

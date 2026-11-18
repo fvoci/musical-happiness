@@ -1,0 +1,59 @@
+/**
+ * The files of the backend in memory: an upload, taken in parts as the
+ * server takes a large one, and a file read through its board or wiki only.
+ */
+import type { UploadedFile, UploadOptions } from '../backend.ts';
+
+import { memberRole } from './container-access.ts';
+import { fail } from './refuse.ts';
+import { LIMITS } from './shapes.ts';
+import type { StoredFile, World } from './world.ts';
+
+/**
+ * Stores `file` with the board or wiki `containerId`, telling the progress
+ * after each part; `enter` is the backend's way into a call, asked before
+ * each part (where a test holds or fails it, and a signal gives it up).
+ */
+export async function storeUpload(
+  world: World,
+  containerId: string,
+  file: File,
+  options: UploadOptions,
+  enter: (signal?: AbortSignal) => Promise<void>,
+): Promise<UploadedFile> {
+  if (file.size > LIMITS.fileBytes) {
+    fail(413, 'the file is too large', { limit: LIMITS.fileBytes });
+  }
+  const parts = Math.max(1, Math.ceil(file.size / LIMITS.uploadPartBytes));
+  for (let part = 1; part <= parts; part += 1) {
+    await enter(options.signal);
+    options.onProgress?.({
+      sentBytes: Math.min(file.size, part * LIMITS.uploadPartBytes),
+      totalBytes: file.size,
+    });
+  }
+  const stored = {
+    fileId: world.newId(),
+    containerId,
+    name: file.name,
+    size: file.size,
+    contentType: file.type || 'application/octet-stream',
+    blob: file as Blob,
+  };
+  world.files.set(stored.fileId, stored);
+  const { blob: _blob, containerId: _containerId, ...answer } = stored;
+  return answer;
+}
+
+/** A file of the board or wiki, for whoever may read it; 404 for one of anything else. */
+export function readableFile(
+  world: World,
+  userId: string,
+  containerId: string,
+  fileId: string,
+): StoredFile {
+  memberRole(world, userId, containerId, 'any');
+  const file = world.files.get(fileId);
+  if (file?.containerId !== containerId) fail(404, 'no such file');
+  return file;
+}

@@ -370,12 +370,12 @@ async fn handle_get_card_body_version(
 /// Writes the body of the version to the card again, as a write of the whole body by
 /// the caller: those who edit the card together are sent the body as a new document
 /// (`contracts/websocket.md`), the body it replaces is kept as a version first, with
-/// what they typed, and the body written is the card's newest version, by the
-/// caller. The versions before stay as they are. A card that has that body already is
-/// left as it is. For editors of the card's board (403 for its other members); to a
-/// user who is no member of it there is no such card. A number the card has no
-/// version of, or has none of any more, is 404. A version whose body may not be
-/// stored any more, or shows an image whose file the board no longer has, is 409.
+/// what they typed, and the body written is the card's newest version, by the caller.
+/// The versions before stay as they are. A card that has that body already is left as
+/// it is. For editors of the card's board (403 for its other members); to a user who is
+/// no member of it there is no such card. A number the card has no version of, or has
+/// none of any more, is 404. A version whose body may not be stored any more, or names
+/// a file (an image, a file block) the board no longer has, is 409.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/cards/{cardId}/body-versions/{version}/restore",

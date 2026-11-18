@@ -1,7 +1,8 @@
 /**
  * The file viewer, opened from a card's attachments: a PDF turned through,
  * a Word document in Korean, a file it does not know, one too large, one
- * that says it unpacks to too much and one that hides how much, and
+ * that says it unpacks to too much and one that hides how much, Word
+ * documents that would draw too much or draw slowly, and
  * the frame the renderers run in kept off the network and the app's storage.
  *
  * With `FVOCI_SCREENS=1` the tests also take pictures of each state into
@@ -13,12 +14,14 @@ import path from 'node:path';
 
 import { expect, test, type FrameLocator, type Locator, type Page } from '@playwright/test';
 
+import { manyLinksDocx, nestedSuperscriptDocx } from '../tests/support/hostile-docx.ts';
 import {
   blankPaddedDocx,
   DOCX_LINK,
   DOCX_TEXT,
   koreanDocx,
   koreanPdf,
+  repeatedHeaderDocx,
   zip,
 } from '../tests/support/viewer-files.ts';
 
@@ -320,4 +323,45 @@ test('a Word document whose XML is past the limit under another name is stopped 
     'The file could not be shown: it may be damaged.',
   );
   await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
+});
+
+for (const [name, make] of [
+  ['pages.docx', () => repeatedHeaderDocx(600, 2000)],
+  ['nested.docx', () => nestedSuperscriptDocx(30)],
+] as const) {
+  test(`a small Word document that would draw too much is refused: ${name}`, async ({ page }) => {
+    await openCard(page);
+    const row = await attach(page, name, make(), DOCX_TYPE);
+    await row.getByRole('link', { name }).click();
+    await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
+    await expect(page.getByTestId('file-viewer-notice')).toContainText(
+      "This file's contents are too large to preview.",
+    );
+    await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
+  });
+}
+
+test('while a Word document is drawn, the app answers and "Close" closes the viewer', async ({
+  page,
+}) => {
+  await openCard(page);
+  // 60,000 links: docx-preview looks each up among all, for seconds, in the worker.
+  const row = await attach(page, 'links.docx', manyLinksDocx(60_000), DOCX_TYPE);
+  await row.getByRole('link', { name: 'links.docx' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
+  // The page's timers keep their time: nothing holds its thread.
+  const late = await page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const start = performance.now();
+        setTimeout(() => {
+          resolve(performance.now() - start - 100);
+        }, 100);
+      }),
+  );
+  expect(late).toBeLessThan(500);
+  await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
+  await page.getByTestId('file-viewer-close').click();
+  await expect(viewer(page)).toHaveCount(0, { timeout: 2000 });
+  await expect(row.getByRole('link', { name: 'links.docx' })).toBeFocused();
 });

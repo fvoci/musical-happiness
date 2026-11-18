@@ -20,7 +20,14 @@ import {
   type ViewerKey,
 } from '$lib/file-viewer/protocol.ts';
 
-import { LockedFile, SlowRenderer, UnreadableFile, type Drawn, type Report } from './renderer.ts';
+import {
+  LockedFile,
+  SlowRenderer,
+  TooLargeFile,
+  UnreadableFile,
+  type Drawn,
+  type Report,
+} from './renderer.ts';
 import { CHECKED_IN_WORKER, RENDERERS } from './renderers.ts';
 import { repack } from './zip-guard.ts';
 
@@ -84,6 +91,7 @@ const report: Report = {
 function failureOf(error: unknown): Failure {
   if (error instanceof LockedFile) return 'locked';
   if (error instanceof UnreadableFile) return 'unreadable';
+  if (error instanceof TooLargeFile) return 'too-large';
   return error instanceof SlowRenderer ? 'slow' : 'renderer';
 }
 

@@ -3,7 +3,7 @@
 //! and `server/services/auth/email.go`.
 
 use fvoci_model::{
-    BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType,
+    BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType, Body,
     CARD_FIELDS_MAX_CHARS, ChangePasswordRequest, Container, ContainerError, ContainerSearchField,
     RegisterRequest, is_email_valid,
 };
@@ -24,6 +24,31 @@ fn block_validate_requires_a_board() {
     );
     assert_eq!(block().validate(), Ok(()));
     assert_eq!(BlockError::EmptyContainerId.to_string(), "boardID is empty");
+}
+
+/// A comment's body has no file block, though it may have an image; a block of a type
+/// without a body has none at all.
+#[test]
+fn block_validate_keeps_file_blocks_out_of_comments() {
+    let body = |kind: &str| {
+        Body::parse(json!({"type": "doc", "content": [{"type": kind, "attrs": {"fileId": "7a"}}]}))
+            .expect("an allowed body")
+    };
+    let of = |block_type, kind: &str| Block {
+        block_type,
+        body: body(kind),
+        ..block()
+    };
+    assert_eq!(
+        of(BlockType::Comment, "file").validate(),
+        Err(BlockError::FileBlockInComment)
+    );
+    assert_eq!(of(BlockType::Comment, "image").validate(), Ok(()));
+    assert_eq!(of(BlockType::Card, "file").validate(), Ok(()));
+    assert_eq!(
+        of(BlockType::View, "file").validate(),
+        Err(BlockError::BodyNotAllowed)
+    );
 }
 
 #[test]

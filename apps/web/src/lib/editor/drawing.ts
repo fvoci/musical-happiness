@@ -24,6 +24,14 @@ export const REFERENCE_CLASS = 'reference';
 export const REFERENCE_ID_ATTRIBUTE = 'data-block-id';
 
 /**
+ * The element a file block is drawn as, in the editor and where a body is
+ * only shown: it carries the file's identifier and is marked as a file
+ * block; what it shows of its file (file-view.ts) is put into it.
+ */
+export const FILE_BLOCK_ATTRIBUTE = 'data-file-block';
+export const FILE_ID_ATTRIBUTE = 'data-file-id';
+
+/**
  * A formula in the page, before and after it is drawn. Both the editor and
  * the read-only view first put this element where the formula goes, with the
  * source as its text and in `data-latex`; the source shows until the formula

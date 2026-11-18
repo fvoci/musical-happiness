@@ -460,8 +460,8 @@ impl App {
     }
 
     /// Copies a block of a board and its direct children, except comments, under new
-    /// identifiers, gives copied images and attachments files of their own, and returns
-    /// the copies, the copy of the block itself first. Websocket listeners are told in
+    /// identifiers, gives copied images, file blocks and attachments files of their own,
+    /// and returns the copies, the copy of the block itself first. Websocket listeners are told in
     /// the background; webhooks are not told about duplicates.
     ///
     /// # Errors

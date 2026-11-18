@@ -15,7 +15,7 @@ import type { BodyWrite, Comment, CommentVersion } from '../backend.ts';
 import type { Wikis } from '../wiki-types.ts';
 
 import { memberRole } from './container-access.ts';
-import { checkedBody } from './bodies.ts';
+import { checkedComment } from './bodies.ts';
 import {
   earlierVersions,
   mayChangeComment,
@@ -87,7 +87,7 @@ export function commentsOf(on: OnPage): Comment[] {
 export function createComment(on: OnPage, body: DocNode): Comment {
   commenterRole(on);
   pageOn(on);
-  const text = checkedBody(on.world, on.wikiId, body);
+  const text = checkedComment(on.world, on.wikiId, body);
   if (text === null) fail(400, 'a comment has a text', { field: 'body' });
   const now = on.world.now();
   const comment: StoredBlock = {
@@ -117,7 +117,7 @@ export function patchComment(on: OnPage, commentId: string, write: BodyWrite): C
   if (!mayChangeComment(role, comment.createdBy === on.userId)) {
     fail(403, "access denied to change other users' comments");
   }
-  const text = checkedBody(on.world, on.wikiId, write.body);
+  const text = checkedComment(on.world, on.wikiId, write.body);
   if (text === null) fail(400, 'a comment has a text', { field: 'body' });
   if (comment.updateAt !== write.readAt) fail(409, 'the comment changed since it was read');
   const before = comment.body ?? null;

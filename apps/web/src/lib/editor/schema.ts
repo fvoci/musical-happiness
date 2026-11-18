@@ -13,9 +13,9 @@
 /**
  * The version of this list. A stored body carries the version it was written
  * under. Version 2 added the two formula nodes, `inlineMath` and `blockMath`;
- * version 3 the `reference` to a card or a page.
+ * version 3 the `reference` to a card or a page; version 4 the `file` block.
  */
-export const BODY_VERSION = 3;
+export const BODY_VERSION = 4;
 
 /** The largest body, as the bytes of its JSON in UTF-8 (`storedSize`). */
 export const MAX_BODY_BYTES = 1024 * 1024;
@@ -113,6 +113,7 @@ const BLOCKS = [
   'codeBlock',
   'horizontalRule',
   'image',
+  'file',
   'blockMath',
 ] as const;
 const INLINE = ['text', 'hardBreak', 'mention', 'reference', 'inlineMath'] as const;
@@ -139,6 +140,8 @@ export const NODE_SPECS: Record<string, NodeSpec> = {
     children: [],
     minChildren: 0,
   },
+  // A file block names its file; its name, size and kind are read where it is shown.
+  file: { attrs: { fileId: required(isNonEmptyText(100)) }, children: [], minChildren: 0 },
   mention: { attrs: { userId: required(isUserId) }, children: [], minChildren: 0 },
   // A reference is the identifier of a card or a page; its title is read where it is shown.
   reference: { attrs: { id: required(isBlockId) }, children: [], minChildren: 0 },

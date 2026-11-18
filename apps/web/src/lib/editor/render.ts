@@ -24,6 +24,8 @@
  *   whatever the validator said.
  */
 import {
+  FILE_BLOCK_ATTRIBUTE,
+  FILE_ID_ATTRIBUTE,
   IMAGE_ATTRIBUTES,
   LINK_ATTRIBUTES,
   MATH_SLOTS,
@@ -312,6 +314,15 @@ class BodyDrawing {
     return element;
   }
 
+  /** The place of a file block, as the editor makes it; what it shows of its file is drawn into it later. */
+  #fileBlock(node: DocNode): HTMLElement {
+    const element = this.#page.createElement('div');
+    const fileId = textAttribute(node, 'fileId');
+    if (fileId !== undefined) element.setAttribute(FILE_ID_ATTRIBUTE, fileId);
+    element.setAttribute(FILE_BLOCK_ATTRIBUTE, '');
+    return element;
+  }
+
   #block(node: DocNode): HTMLElement | undefined {
     switch (node.type) {
       case 'paragraph':
@@ -353,6 +364,8 @@ class BodyDrawing {
         return this.#page.createElement('hr');
       case 'image':
         return this.#image(node);
+      case 'file':
+        return this.#fileBlock(node);
       case 'blockMath':
         return this.#math('blockMath', node);
       default:

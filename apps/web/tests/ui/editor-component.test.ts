@@ -9,7 +9,7 @@ import { render } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import BodyEditor from '$lib/editor/BodyEditor.svelte';
-import { setFileUrlResolver } from '$lib/editor/files.ts';
+import { setFileSource } from '$lib/editor/files.ts';
 import { countTasks, plainText, validateDoc, type DocNode } from '$lib/editor/schema.ts';
 
 import {
@@ -306,18 +306,20 @@ describe('images given to the editor as files', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('takes no picture the server would not have drawn (an SVG)', () => {
-    const uploadImage = vi.fn((_file: File) => Promise.resolve('file-1'));
-    const { container } = render(BodyEditor, { doc: null, uploadImage });
-    expect(
-      give(editorIn(container), [new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' })]),
-    ).toBe(false);
-    expect(uploadImage).not.toHaveBeenCalled();
+  it('takes a picture the server would not have drawn (an SVG) as a file to download', () => {
+    const uploadFile = vi.fn((_file: File) => new Promise<string>(() => undefined));
+    const { container } = render(BodyEditor, { doc: null, uploadFile });
+    const svg = new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' });
+    expect(give(editorIn(container), [svg])).toBe(true);
+    expect(uploadFile).toHaveBeenCalledWith(svg);
+    expect(container.querySelector('.doc-upload')?.getAttribute('aria-label')).toBe(
+      'Uploading the file…',
+    );
   });
 
   it('puts no picture into an editor that was locked while it went up', async () => {
     let finish: (fileId: string) => void = () => undefined;
-    const uploadImage = vi.fn(
+    const uploadFile = vi.fn(
       (_file: File) =>
         new Promise<string>((resolve) => {
           finish = resolve;
@@ -327,10 +329,10 @@ describe('images given to the editor as files', () => {
     const { container, rerender } = render(BodyEditor, {
       doc: doc(paragraph(text('before'))),
       onChange,
-      uploadImage,
+      uploadFile,
     });
     expect(give(editorIn(container), [picture()])).toBe(true);
-    await rerender({ doc: doc(paragraph(text('before'))), onChange, uploadImage, editable: false });
+    await rerender({ doc: doc(paragraph(text('before'))), onChange, uploadFile, editable: false });
     finish('file-1');
     await vi.waitFor(() => {
       expect(container.querySelector('.doc-upload')).toBeNull();
@@ -339,9 +341,9 @@ describe('images given to the editor as files', () => {
   });
 
   it('uploads a pasted picture, holds its place meanwhile, and stores only the identifier', async () => {
-    const previous = setFileUrlResolver((fileId) => `/files/board-1/${fileId}`);
+    const previous = setFileSource({ url: (fileId) => `/files/board-1/${fileId}` });
     let finish: (fileId: string) => void = () => undefined;
-    const uploadImage = vi.fn(
+    const uploadFile = vi.fn(
       (_file: File) =>
         new Promise<string>((resolve) => {
           finish = resolve;
@@ -351,13 +353,13 @@ describe('images given to the editor as files', () => {
     const { container } = render(BodyEditor, {
       doc: doc(paragraph(text('before'))),
       onChange,
-      uploadImage,
+      uploadFile,
     });
     const editor = editorIn(container);
     const file = picture();
-    expect(give(editor, [file, new File(['x'], 'notes.txt', { type: 'text/plain' })])).toBe(true);
-    expect(uploadImage).toHaveBeenCalledTimes(1);
-    expect(uploadImage).toHaveBeenCalledWith(file);
+    expect(give(editor, [file])).toBe(true);
+    expect(uploadFile).toHaveBeenCalledTimes(1);
+    expect(uploadFile).toHaveBeenCalledWith(file);
 
     // A placeholder in the page; nothing about it in the document.
     const placeholder = container.querySelector('.doc-upload');
@@ -382,13 +384,13 @@ describe('images given to the editor as files', () => {
     await vi.waitFor(() => {
       expect(container.querySelector('[role="status"]')?.textContent).toBe('');
     });
-    setFileUrlResolver(previous);
+    setFileSource(previous);
   });
 
   it('says so when an upload fails, and leaves the document as it was', async () => {
     const onChange = vi.fn();
-    const uploadImage = vi.fn((_file: File) => Promise.reject(new Error('too large')));
-    const { container } = render(BodyEditor, { doc: null, onChange, uploadImage });
+    const uploadFile = vi.fn((_file: File) => Promise.reject(new Error('too large')));
+    const { container } = render(BodyEditor, { doc: null, onChange, uploadFile });
     expect(give(editorIn(container), [picture()])).toBe(true);
     await vi.waitFor(() => {
       expect(container.querySelector('[role="status"]')?.textContent).toBe(
@@ -400,9 +402,9 @@ describe('images given to the editor as files', () => {
   });
 
   it('takes no files while read-only', () => {
-    const uploadImage = vi.fn((_file: File) => Promise.resolve('file-1'));
-    const { container } = render(BodyEditor, { doc: null, editable: false, uploadImage });
+    const uploadFile = vi.fn((_file: File) => Promise.resolve('file-1'));
+    const { container } = render(BodyEditor, { doc: null, editable: false, uploadFile });
     expect(give(editorIn(container), [picture()])).toBe(false);
-    expect(uploadImage).not.toHaveBeenCalled();
+    expect(uploadFile).not.toHaveBeenCalled();
   });
 });

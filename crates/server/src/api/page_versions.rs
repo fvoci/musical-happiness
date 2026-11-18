@@ -91,12 +91,12 @@ async fn handle_get_page_body_version(
 /// Go back to a version of a page's body
 ///
 /// Writes the body of the version to the page again, as `restoreCardBodyVersion` does
-/// to a card: those who edit the page together are sent the body as a new document,
-/// the body it replaces is kept as a version first, and the body written is the
-/// page's newest version, by the caller. A page that has that body already is left as
-/// it is. For editors of the wiki (403 for its other members). A number the page has
-/// no version of, or has none of any more, is 404; a version whose body may not be
-/// stored any more, or shows an image whose file the wiki no longer has, is 409.
+/// to a card: those who edit the page together are sent the body as a new document, the
+/// body it replaces is kept as a version first, and the body written is the page's
+/// newest version, by the caller. A page that has that body already is left as it is.
+/// For editors of the wiki (403 for its other members). A number the page has no
+/// version of, or has none of any more, is 404; a version whose body may not be stored
+/// any more, or names a file (an image, a file block) the wiki no longer has, is 409.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/wikis/{wikiId}/pages/{pageId}/body-versions/{version}/restore",

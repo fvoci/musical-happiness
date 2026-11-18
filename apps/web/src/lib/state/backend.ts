@@ -17,6 +17,7 @@
  * No method promises an order: whatever is shown in order is sorted by the client (`order.ts`).
  */
 import type { CardPreview } from '../editor/card-preview.ts';
+import type { FileDetails } from '../editor/files.ts';
 import type { DocNode } from '../editor/schema.ts';
 import type { DisplaySettings } from '../logic/display.ts';
 import type { LanguageSettings } from '../logic/language.ts';
@@ -443,6 +444,8 @@ export interface Backend
   upload(containerId: string, file: File, options?: UploadOptions): Promise<UploadedFile>;
   /** The bytes of a file; `signal` gives the reading up. */
   fileBytes(containerId: string, fileId: string, signal?: AbortSignal): Promise<Blob>;
+  /** The name and size of a file of the board or wiki (404 for none of it). */
+  fileDetails(containerId: string, fileId: string): Promise<FileDetails>;
   /** Where the bytes of a file can be fetched by an `<img>` or a link. */
   fileUrl(containerId: string, fileId: string): string | undefined;
 

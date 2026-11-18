@@ -86,6 +86,7 @@
     unread: m.viewer_unread,
     unreadable: m.viewer_unreadable,
     locked: m.viewer_locked,
+    'too-large': m.viewer_unpacks_too_large,
     slow: m.viewer_slow,
     renderer: m.viewer_failed,
   };

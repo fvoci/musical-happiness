@@ -48,6 +48,7 @@ import { BodyCodeBlock } from './diagram-block.ts';
 import { IMAGE_ATTRIBUTES, LINK_ATTRIBUTES } from './drawing.ts';
 import { EditingPlace } from './editing-place.ts';
 import { findEmojiTrigger } from './emoji-trigger.ts';
+import { FileBlock } from './file-block.ts';
 import { fileUrl } from './files.ts';
 import { BlockMath, InlineMath } from './math-nodes.ts';
 import { Reference, type ReferenceOptions } from './reference.ts';
@@ -323,6 +324,7 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     HorizontalRule,
     HardBreak,
     FileImage,
+    FileBlock,
     Mention.configure(options.mention ?? {}),
     Reference.configure(options.reference ?? {}),
     InlineMath,
