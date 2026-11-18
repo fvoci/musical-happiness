@@ -185,11 +185,12 @@ impl FromStr for TimeZone {
 const UNSET_ZONE: &str = "Factory";
 
 /// Whether `name` is a time zone of the compiled-in database, spelled as it spells it.
-/// The database finds names whatever their case and names an unknown zone as none, so
-/// a name is one only when the zone found has that very name.
+/// The database is the bundled one by name, never the host's, whatever features of
+/// `jiff` another crate turns on. It finds names whatever their case and names an
+/// unknown zone as none, so a name is one only when the zone found has that very name.
 fn is_time_zone_name(name: &str) -> bool {
     name != UNSET_ZONE
-        && jiff::tz::db()
+        && jiff::tz::TimeZoneDatabase::bundled()
             .get(name)
             .is_ok_and(|zone| zone.iana_name() == Some(name))
 }

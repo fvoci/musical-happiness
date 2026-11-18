@@ -15,7 +15,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 
 use crate::app::App;
-use crate::config::{MetricsAddress, MetricsToken};
+use crate::config::{MetricsAddress, MetricsHost, MetricsToken};
 use crate::error::AppError;
 use crate::metrics;
 
@@ -118,22 +118,45 @@ async fn answer_scrape(axum::extract::State(app): axum::extract::State<App>) -> 
     }
 }
 
-/// Opens the metrics listener at `address`.
+/// Opens the metrics listener at `address`. On a server that listens on the loopback
+/// only, a listener that ends up on every interface (a name that resolves to
+/// `0.0.0.0`) is refused.
 ///
 /// # Errors
 ///
 /// Returns an error if the host cannot be resolved, or the address cannot be listened
-/// on: taken, or not this machine's.
-pub(crate) async fn bind(address: &MetricsAddress) -> anyhow::Result<tokio::net::TcpListener> {
-    let MetricsAddress { host, port } = address;
-    let shown = if host.contains(':') {
-        format!("[{host}]:{port}")
-    } else {
-        format!("{host}:{port}")
-    };
-    tokio::net::TcpListener::bind((host.as_str(), *port))
-        .await
-        .with_context(|| format!("listening for metrics scrapes on {shown} (metrics_address)"))
+/// on: taken, or not this machine's; or if it is every interface and `reach` is the
+/// loopback only.
+pub(crate) async fn bind(
+    address: &MetricsAddress,
+    reach: Reach,
+) -> anyhow::Result<tokio::net::TcpListener> {
+    let listener = match &address.host {
+        MetricsHost::Ip(ip) => tokio::net::TcpListener::bind((*ip, address.port)).await,
+        MetricsHost::Name(name) => {
+            tokio::net::TcpListener::bind((name.as_str(), address.port)).await
+        }
+    }
+    .with_context(|| format!("listening for metrics scrapes on {address} (metrics_address)"))?;
+    let bound = listener
+        .local_addr()
+        .context("the metrics listener's address")?;
+    if reach == Reach::LoopbackOnly && bound.ip().to_canonical().is_unspecified() {
+        anyhow::bail!(
+            "metrics_address {address} is every interface, and listen_loopback_only is set: \
+             give an address that is not every interface, such as 127.0.0.1:9092"
+        );
+    }
+    Ok(listener)
+}
+
+/// Whether the server listens on the loopback only (`listen_loopback_only`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Reach {
+    /// The loopback only.
+    LoopbackOnly,
+    /// Wherever its addresses say.
+    Any,
 }
 
 #[cfg(test)]
@@ -165,6 +188,29 @@ mod tests {
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    #[tokio::test]
+    async fn a_listener_on_every_interface_is_refused_on_a_local_only_server() {
+        let every = MetricsAddress {
+            host: MetricsHost::Ip(std::net::Ipv4Addr::UNSPECIFIED.into()),
+            port: 0,
+        };
+        let error = bind(&every, Reach::LoopbackOnly)
+            .await
+            .expect_err("every interface");
+        let error = format!("{error:#}");
+        assert!(error.contains("listen_loopback_only"), "{error}");
+        let listener = bind(&every, Reach::Any).await.expect("every interface");
+        assert!(listener.local_addr().expect("bound").ip().is_unspecified());
+        let loopback = MetricsAddress {
+            host: MetricsHost::Name("localhost".to_owned()),
+            port: 0,
+        };
+        let listener = bind(&loopback, Reach::LoopbackOnly)
+            .await
+            .expect("the loopback");
+        assert!(listener.local_addr().expect("bound").ip().is_loopback());
     }
 
     /// The status of a scrape that sends an `Authorization` header with each value of
