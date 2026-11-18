@@ -194,12 +194,13 @@ export class SheetView {
     const [frozenDown, down] = this.#bandsDown(layout);
     const [frozenAcross, across] = this.#bandsAcross(layout);
     const budget = { cells: CELL_BUDGET };
-    // The rest first: it is most of what the reader sees, and the budget is spent on it first.
+    // The frozen parts first: each is at most half the view, and they are the headings that say
+    // what the rest is; on a sheet too dense for the budget, the rest's far side goes blank first.
     const [corner, frozenRows, frozenColumns, rest] = this.#panes;
-    rest.draw({ ...down, ...across }, zoom, budget);
+    corner.draw({ ...frozenDown, ...frozenAcross }, zoom, budget);
     frozenRows.draw({ ...frozenDown, ...across }, zoom, budget);
     frozenColumns.draw({ ...down, ...frozenAcross }, zoom, budget);
-    corner.draw({ ...frozenDown, ...frozenAcross }, zoom, budget);
+    rest.draw({ ...down, ...across }, zoom, budget);
     const [frozenLetters, letters, frozenNumbers, numbers] = this.#rulers;
     for (const [ruler, band] of [
       [frozenLetters, frozenAcross],

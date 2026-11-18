@@ -78,11 +78,14 @@ async function putFile(page: Page, body: Locator, name: string, bytes: Buffer, t
   return block;
 }
 
-/** Selects the block with an arrow from the line above it. */
+/**
+ * Selects the block with an arrow from the end of the line above it: the arrow right, which the
+ * editor reads from where the caret is (the arrow down measures the page, still settling).
+ */
 async function selectByArrow(page: Page, body: Locator, block: Locator): Promise<void> {
   await body.getByText('Above:').last().click();
   await page.keyboard.press('End');
-  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowRight');
   await expect(block).toHaveClass(/ProseMirror-selectednode/);
 }
 
@@ -192,7 +195,10 @@ test('a block dragged by its name moves, and the viewer does not open', async ({
   await expect(viewer(page)).toHaveCount(0);
 });
 
-test('a file block whose viewer cannot be fetched downloads its file instead', async ({ page }) => {
+test('a file block whose viewer cannot be fetched downloads its file instead', async ({
+  page,
+  browserName,
+}) => {
   await page.route(/\/static\/FileViewer-[0-9a-f]+\.js$/, (route) => route.abort());
   const body = await newPage(page);
   const block = await putFile(page, body, NAME, koreanPdf(1), 'application/pdf');
@@ -200,7 +206,10 @@ test('a file block whose viewer cannot be fetched downloads its file instead', a
     page.waitForEvent('download'),
     block.getByRole('button', { name: `View ${NAME}` }).click(),
   ]);
-  expect(saved.suggestedFilename()).toBe(NAME);
+  // WebKit saves a name's spaces as `_`.
+  expect(saved.suggestedFilename()).toBe(
+    browserName === 'webkit' ? NAME.replaceAll(' ', '_') : NAME,
+  );
   await expect(viewer(page)).toHaveCount(0);
 });
 

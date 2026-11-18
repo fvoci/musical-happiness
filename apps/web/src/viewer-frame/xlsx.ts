@@ -11,7 +11,8 @@
  * number through its format (`xlsx-format.ts`) as the cell comes into view.
  *
  * A page of the viewer is a sheet: the left and right arrows, the viewer's
- * buttons and its tabs go to the others. Sheets the workbook hides are left
+ * buttons and its tabs go to the others; with Shift, the arrows across
+ * scroll the sheet across (`main.ts`). Sheets the workbook hides are left
  * out. Charts, pictures and shapes are not drawn: the viewer says so of a
  * sheet that has them.
  */

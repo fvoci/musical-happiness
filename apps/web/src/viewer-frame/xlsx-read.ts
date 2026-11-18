@@ -113,6 +113,8 @@ export async function readWorkbook(bytes: ArrayBuffer): Promise<Workbook> {
     ceilings: limits,
   };
   const sheets = [];
+  // A part is one sheet: one that more entries name is read for the first (Excel names each once).
+  const taken = new Set<string>();
   for (const entry of entries) {
     if (entry.hidden) continue;
     limits.sheets.add();
@@ -121,7 +123,9 @@ export async function readWorkbook(bytes: ArrayBuffer): Promise<Workbook> {
       sheets.push(drawingSheet(entry.name, context.digitWidth));
       continue;
     }
-    const sheetText = link?.type === 'worksheet' ? await archive.text(link.target) : undefined;
+    if (link?.type !== 'worksheet' || taken.has(link.target)) continue;
+    taken.add(link.target);
+    const sheetText = await archive.text(link.target);
     if (sheetText === undefined) continue;
     sheets.push(readSheet(entry.name, sheetText, context));
   }

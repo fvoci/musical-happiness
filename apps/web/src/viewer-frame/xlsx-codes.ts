@@ -11,6 +11,7 @@
  * parts of a date and a time. What this does not read is kept as a literal,
  * and a code it cannot make sense of is drawn as `General`.
  */
+import { rgbColor } from './xlsx-protocol.ts';
 
 /** A part of a date or a time, and how wide it is drawn. */
 export type DatePart =
@@ -59,15 +60,16 @@ export interface Section {
 /** The longest code read: Excel's own limit. A longer one is drawn as `General`. */
 export const CODE_LENGTH_LIMIT = 255;
 
+/** The colours a section names, as a workbook writes colours (`RRGGBB`). */
 const NAMED_COLORS: Record<string, string> = {
-  black: '#000000',
-  white: '#ffffff',
-  red: '#ff0000',
-  green: '#00ff00',
-  blue: '#0000ff',
-  yellow: '#ffff00',
-  magenta: '#ff00ff',
-  cyan: '#00ffff',
+  black: '000000',
+  white: 'ffffff',
+  red: 'ff0000',
+  green: '00ff00',
+  blue: '0000ff',
+  yellow: 'ffff00',
+  magenta: 'ff00ff',
+  cyan: '00ffff',
 };
 
 /** Language tags of the Windows locale numbers that codes name most (`[$-412]`). */
@@ -95,7 +97,7 @@ function bracket(content: string, section: Section, palette: readonly string[]):
   }
   const lower = content.toLowerCase();
   if (Object.hasOwn(NAMED_COLORS, lower)) {
-    section.color = NAMED_COLORS[lower];
+    section.color = rgbColor(NAMED_COLORS[lower]);
     return undefined;
   }
   const indexed = /^color\s*(\d{1,2})$/i.exec(content);

@@ -145,12 +145,16 @@ describe('the name of a file the viewer shows', () => {
     const [block] = await shown(container);
     editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, 3)));
     const button = block?.querySelector<HTMLButtonElement>('button.doc-file-open');
-    for (const key of ['Enter', ' ', 'Backspace', 'Delete', 'a', 'ArrowDown']) {
+    const pressed = (key: string): boolean => {
       const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
       button?.dispatchEvent(event);
-      // Not taken by the editor, which would have opened it, deleted the block or moved on.
-      expect(event.defaultPrevented, key).toBe(false);
-    }
+      return event.defaultPrevented;
+    };
+    // Enter and Space are left to the button, which they press, and the arrows to the browser:
+    // the editor takes none of them (it would have opened the viewer, or moved on).
+    for (const key of ['Enter', ' ', 'ArrowDown']) expect(pressed(key), key).toBe(false);
+    // A key that edits is held back by the button, so that the browser edits nothing either.
+    for (const key of ['Backspace', 'Delete', 'a', '가']) expect(pressed(key), key).toBe(true);
     button?.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',

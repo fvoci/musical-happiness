@@ -71,6 +71,8 @@
       ? m.viewer_sheet({ page: session.page, pages: session.pages, name: sheet.name })
       : m.viewer_page({ page: session.page, pages: session.pages }),
   );
+  /** What is said of the page turned to: of a sheet with drawings, that they are not shown. */
+  const announced = $derived(sheet?.drawings ? `${where} ${m.viewer_sheet_drawings()}` : where);
 
   closeOnBack(
     () => true,
@@ -228,7 +230,7 @@
 
     <!-- In the page from the start, so that the first page is announced as well as the next. -->
     <p class="sr-only" aria-live="polite" data-testid="file-viewer-announce">
-      {status.name === 'shown' ? where : ''}
+      {status.name === 'shown' ? announced : ''}
     </p>
 
     {#if status.name === 'shown' && session.sheets.length > 0}

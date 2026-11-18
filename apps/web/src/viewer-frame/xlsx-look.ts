@@ -15,6 +15,7 @@ import {
   HORIZONTAL,
   LINES,
   NUMBER,
+  rgbColor,
   STRING,
   VERTICAL,
   type Border,
@@ -26,6 +27,8 @@ import {
 /** CSS pixels per point. */
 export const PX_PER_POINT = 96 / 72;
 const COLOR = /^#[0-9a-f]{6}$/;
+/** A border's colour when it names none: Excel's automatic one. */
+const AUTOMATIC = rgbColor('000000');
 const FALLBACK_FAMILY = '"Noto Sans KR", sans-serif';
 
 /** How each style of border line is drawn: its width in pixels and its CSS style. */
@@ -181,7 +184,7 @@ export class Looks {
       if (width === 0) continue;
       element.style.setProperty(
         `border-${side}`,
-        `${width}px ${kind} ${COLOR.test(color) ? color : '#000000'}`,
+        `${width}px ${kind} ${COLOR.test(color) ? color : AUTOMATIC}`,
       );
       // Over the line between two cells, so that the two cells' borders of one line are one.
       const out = side === 'left' || side === 'top' ? Math.ceil(width / 2) : Math.floor(width / 2);

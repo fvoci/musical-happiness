@@ -116,23 +116,17 @@ body {
 
 /*
   A sheet (xlsx-grid.ts): white as a page is, in either theme, as the
-  workbook's own colours are drawn on white; its row numbers and column
-  letters follow the frame's theme. Sizes that follow the zoom are set on
-  the elements.
+  workbook's own colours are drawn on white, and its grid grey on it; its
+  row numbers and column letters follow the frame's theme, in the system's
+  colours as the pages' edges do. Sizes that follow the zoom are set on the
+  elements.
 */
 :root {
-  --xlsx-ruler-background: #f3f3f3;
-  --xlsx-ruler-text: #555555;
-  --xlsx-ruler-line: #d4d4d4;
-  --xlsx-grid: #e1e1e1;
-  --xlsx-divider: #a6a6a6;
-}
-
-:root.dark {
-  --xlsx-ruler-background: #262626;
-  --xlsx-ruler-text: #c4c4c4;
-  --xlsx-ruler-line: #404040;
-  --xlsx-divider: #8a8a8a;
+  --xlsx-ruler-background: color-mix(in srgb, CanvasText 5%, Canvas);
+  --xlsx-ruler-text: color-mix(in srgb, CanvasText 70%, Canvas);
+  --xlsx-ruler-line: color-mix(in srgb, CanvasText 17%, Canvas);
+  --xlsx-grid: color-mix(in srgb, black 12%, white);
+  --xlsx-divider: color-mix(in srgb, CanvasText 40%, Canvas);
 }
 
 .xlsx-layer {

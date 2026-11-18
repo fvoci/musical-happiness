@@ -183,8 +183,9 @@ export class NumberFormat {
                     : '',
               )
               .join('');
-      // A minus only where some digit is not zero, as Excel draws -0.001 with "0.00".
-      text = minus && /[1-9]/.test(drawn) ? `-${drawn}` : drawn;
+      // A number below zero keeps its minus, at the very front, even drawn as zeros:
+      // Excel draws -0.001 with "0.00" as "-0.00", and with `"Q1 "0.00` as "-Q1 0.00".
+      text = minus ? `-${drawn}` : drawn;
     }
     return section.color ? { text, color: section.color } : { text };
   }

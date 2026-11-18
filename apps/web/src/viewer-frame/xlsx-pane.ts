@@ -7,8 +7,9 @@
  * what the reader sees, not the sheet.
  *
  * However a sheet is made (rows a hair high, merges over merges, a million
- * cells in view), one drawing walks at most `ROW_WALK` rows, makes at most
- * `Budget.cells` cells and merges across the panes, `LINE_BUDGET` lines in
+ * cells in view), one drawing walks at most `ROW_WALK` rows, looks at no
+ * more than `Budget.cells` cells and merges across the panes (drawn or
+ * not: a cell under a merge is looked at too), draws `LINE_BUDGET` lines in
  * each direction and looks at `MERGE_BUDGET` merges; past them the rest of
  * the window stays empty.
  */
@@ -264,13 +265,15 @@ export class Pane {
     if (left >= start) {
       const element = this.#cell(left, row, columns, merges, end, true);
       if (element) drawn.push(element);
+      budget.cells -= 1;
     }
+    // Every cell looked at spends the budget, drawn or not (under a merge, in a hidden column),
+    // so that what a draw walks is bounded as what it makes is.
     for (let at = first; at < end && budget.cells > 0; at += 1) {
       if ((sheet.cellColumns[at] ?? 0) > columns[1]) break;
-      const element = this.#cell(at, row, columns, merges, end, false);
-      if (!element) continue;
-      drawn.push(element);
       budget.cells -= 1;
+      const element = this.#cell(at, row, columns, merges, end, false);
+      if (element) drawn.push(element);
     }
     return drawn;
   }

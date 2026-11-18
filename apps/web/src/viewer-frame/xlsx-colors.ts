@@ -9,6 +9,7 @@
  * (0 is "light 1", 1 "dark 1", 2 "light 2", 3 "dark 2"), then the six
  * accents and the two link colours.
  */
+import { rgbColor } from './xlsx-protocol.ts';
 import { attribute, readXml, type Attributes } from './xlsx-xml.ts';
 
 /** The default palette of `indexed` colours (BIFF8's), 0 to 63; 64 is the text's own colour. */
@@ -110,15 +111,6 @@ const SCHEME_ORDER = [
   'hlink',
   'folHlink',
 ];
-
-const HEX = /^[0-9A-Fa-f]{6}$/;
-
-/** The colour of an `RRGGBB` or `AARRGGBB` value, alpha left aside; '' when it is none. */
-export function rgbColor(value: string | undefined): string {
-  if (value === undefined) return '';
-  const hex = value.length === 8 ? value.slice(2) : value;
-  return HEX.test(hex) ? `#${hex.toLowerCase()}` : '';
-}
 
 /** The theme part's colours, in the order cells name them; the default for any it does not give. */
 export function readTheme(text: string): string[] {

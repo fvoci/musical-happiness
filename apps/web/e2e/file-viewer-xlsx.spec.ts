@@ -51,11 +51,14 @@ function frameRequests(page: Page): string[] {
   const made: string[] = [];
   page.on('request', (request) => {
     const frame = request.frame();
+    const url = new URL(request.url());
+    // What the frame holds in memory (`blob:`, `data:`) is not the network.
+    if (!url.protocol.startsWith('http')) return;
     if (
       frame.url().includes('/static/viewer-frame.html') ||
       request.url().includes('/static/viewer-frame.html')
     ) {
-      made.push(`${request.resourceType()} ${new URL(request.url()).pathname}`);
+      made.push(`${request.resourceType()} ${url.pathname}`);
     }
   });
   return made;
@@ -114,7 +117,10 @@ test.describe('in Korean', () => {
 
     // The next sheet: by the button, announced by its name; its drawings are said not to be drawn.
     await page.getByRole('button', { name: '다음 시트' }).click();
-    await expect(page.getByTestId('file-viewer-announce')).toHaveText('시트 2개 중 2번째: 일정');
+    // Its drawings are said not to be shown, in what is announced as well as under the sheet.
+    await expect(page.getByTestId('file-viewer-announce')).toHaveText(
+      '시트 2개 중 2번째: 일정 이 시트의 차트와 그림은 보이지 않습니다.',
+    );
     const schedule = frame.getByRole('table', { name: XLSX_TEXT.sheets[1] });
     for (const text of [XLSX_TEXT.schedule, ...XLSX_TEXT.meetings, XLSX_TEXT.builtIn]) {
       await expect(schedule.getByRole('cell', { name: text, exact: true })).toHaveCount(1);
@@ -149,6 +155,16 @@ test('a large sheet draws only what is in view, and as far down as it goes', asy
   // A screen's worth: 30 columns by 5,000 rows is 150,000 cells.
   expect(await cells()).toBeLessThan(2_000);
   await picture(page, 'xlsx-large');
+  // From the keyboard, in the frame: Shift with the arrows across scrolls the sheet across, and
+  // turns no sheet.
+  const across = (): Promise<number> => frame.locator('body').evaluate(() => window.scrollX);
+  await frame.getByRole('cell', { name: '행 2', exact: true }).click();
+  const start = await across();
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(across).toBeGreaterThan(start + 39);
+  await page.keyboard.press('Shift+ArrowLeft');
+  await expect.poll(across).toBe(start);
+  await expect(page.getByTestId('file-viewer-announce')).toHaveText('Sheet 1 of 1: 큰 시트');
   await frame.locator('body').evaluate(() => {
     window.scrollTo(0, document.documentElement.scrollHeight);
   });

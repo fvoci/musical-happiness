@@ -12,6 +12,18 @@
  * a string shown in a thousand cells crosses once.
  */
 
+const HEX = /^[0-9A-Fa-f]{6}$/;
+
+/**
+ * A colour as the answer carries it (`#rrggbb`), from one as a workbook
+ * writes it (`RRGGBB` or `AARRGGBB`, alpha left aside); '' when it is none.
+ */
+export function rgbColor(value: string | undefined): string {
+  if (value === undefined) return '';
+  const hex = value.length === 8 ? value.slice(2) : value;
+  return HEX.test(hex) ? `#${hex.toLowerCase()}` : '';
+}
+
 /** What a cell holds. */
 export const NUMBER = 0;
 export const STRING = 1;
@@ -23,6 +35,11 @@ export const BLANK = 4;
 /** The most rows and columns a sheet has, as in Excel. */
 export const MAX_ROWS = 1_048_576;
 export const MAX_COLUMNS = 16_384;
+/**
+ * The widest a column is drawn, in pixels at 100%: Excel's widest column
+ * (255 characters) of a large default font is far wider than any screen.
+ */
+export const MAX_COLUMN_PIXELS = 8_192;
 
 /** How a cell's text lies across it, as `alignment@horizontal` names it; 0 is "general". */
 export const HORIZONTAL = [

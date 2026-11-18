@@ -47,8 +47,17 @@ export class Axis {
     for (const run of sorted) {
       const first = Math.max(run.first, end + 1);
       if (first > run.last) continue;
-      const start = first * this.#size + shift;
-      this.#runs.push({ first, last: run.last, size: run.size, start });
+      const before = this.#runs.at(-1);
+      // Next to a run of the same size it is that run, longer: a filtered sheet's thousands of
+      // hidden rows are one run to step over, not thousands.
+      if (before && before.last + 1 === first && before.size === run.size) before.last = run.last;
+      else
+        this.#runs.push({
+          first,
+          last: run.last,
+          size: run.size,
+          start: first * this.#size + shift,
+        });
       shift += (run.last - first + 1) * (run.size - this.#size);
       end = run.last;
     }

@@ -33,6 +33,7 @@ async function newPage(page: Page): Promise<Locator> {
 
 test('a file chosen through the slash menu is a file block that saves its bytes under its name', async ({
   page,
+  browserName,
 }) => {
   const body = await newPage(page);
   await body.click();
@@ -55,7 +56,10 @@ test('a file chosen through the slash menu is a file block that saves its bytes 
 
   const link = block.getByRole('link', { name: `Download ${NAME}` });
   const [saved] = await Promise.all([page.waitForEvent('download'), link.click()]);
-  expect(saved.suggestedFilename()).toBe(NAME);
+  // WebKit saves a name's spaces as `_`.
+  expect(saved.suggestedFilename()).toBe(
+    browserName === 'webkit' ? NAME.replaceAll(' ', '_') : NAME,
+  );
   expect(await bytesOf(saved)).toBe(PDF);
 
   // Reached by the keyboard: an arrow from the line above selects it, Enter opens it in the viewer.

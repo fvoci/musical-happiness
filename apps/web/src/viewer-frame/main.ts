@@ -64,6 +64,13 @@ function forwardKeys(): void {
   document.addEventListener('keydown', (event) => {
     if (event.ctrlKey || event.metaKey || event.altKey || !keys.has(event.key)) return;
     event.preventDefault();
+    // With Shift, the arrows across scroll the page across, as the arrows down scroll it: a
+    // sheet or a page wider than the view is read sideways so. Without, they turn pages.
+    if (event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      const step = Math.round(Math.max(40, window.innerWidth / 4));
+      window.scrollBy({ left: event.key === 'ArrowLeft' ? -step : step });
+      return;
+    }
     tell({ kind: 'key', key: event.key as ViewerKey });
   });
 }

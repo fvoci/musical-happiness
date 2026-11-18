@@ -242,6 +242,12 @@ function nameOf(
     const again = blocks.find((block) => block.getAttribute(FILE_ID_ATTRIBUTE) === fileId);
     return again?.querySelector<HTMLElement>('button.doc-file-open') ?? null;
   };
+  // Enter and Space press it, and Tab moves on; a key that edits edits nothing from here
+  // (WebKit would apply it where the editor's caret was before the button had the focus).
+  button.addEventListener('keydown', (event) => {
+    if (event.key === 'Backspace' || event.key === 'Delete') event.preventDefault();
+    else if (event.key.length === 1 && event.key !== ' ') event.preventDefault();
+  });
   button.addEventListener('click', () => {
     const block = button.closest<HTMLElement>(FILE_BLOCK_SELECTOR);
     void viewer.open(fileId, details, back).then((opened) => {

@@ -8,10 +8,11 @@
  * to `FORMAT_LIMIT`, and a format code to 255 characters; a style that
  * names an entry that is not there gets the first.
  */
-import { colorOf, DEFAULT_PALETTE, rgbColor, type Palette } from './xlsx-colors.ts';
+import { colorOf, DEFAULT_PALETTE, type Palette } from './xlsx-colors.ts';
 import {
   HORIZONTAL,
   LINES,
+  rgbColor,
   VERTICAL,
   type Border,
   type Color,
@@ -29,6 +30,8 @@ import {
 } from './xlsx-xml.ts';
 
 /** The longest format code kept; a longer one is drawn as `General`. */
+/** A pattern's background when it names none: the sheet's white. */
+const PAPER = rgbColor('ffffff');
 const CODE_LENGTH = 255;
 const FAMILY = /^[\p{L}\p{N} ._-]{1,64}$/u;
 
@@ -256,9 +259,7 @@ export function readStyles(
       } else if (name === 'fill' && reading.fill) {
         const { pattern, fg, bg, gradient } = reading.fill;
         const share = PATTERN_SHARE[pattern];
-        read.fills.push(
-          gradient || (pattern === 'none' ? '' : mix(fg, bg || '#ffffff', share ?? 0.5)),
-        );
+        read.fills.push(gradient || (pattern === 'none' ? '' : mix(fg, bg || PAPER, share ?? 0.5)));
         reading.fill = undefined;
       } else if (name === 'border' && reading.border) {
         read.borders.push(reading.border);
@@ -272,10 +273,12 @@ export function readStyles(
       }
     },
   });
-  read.styles.forEach((style, index) => {
-    style.fill = read.fills[fillIds[index] ?? 0] ?? '';
-  });
   if (read.fonts.length === 0) read.fonts.push(plainFont());
   if (read.borders.length === 0) read.borders.push(noBorder());
+  read.styles.forEach((style, index) => {
+    style.fill = read.fills[fillIds[index] ?? 0] ?? '';
+    if (style.font >= read.fonts.length) style.font = 0;
+    if (style.border >= read.borders.length) style.border = 0;
+  });
   return read;
 }

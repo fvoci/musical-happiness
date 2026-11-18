@@ -17,6 +17,7 @@ import {
   BLANK,
   BOOLEAN,
   ERROR,
+  MAX_COLUMN_PIXELS,
   MAX_COLUMNS,
   MAX_ROWS,
   NUMBER,
@@ -54,7 +55,8 @@ const VALUE_LENGTH = 40_000;
 
 /** Pixels of a column `width` characters wide (ECMA-376 18.3.1.13). */
 export function columnPixels(width: number, digitWidth: number): number {
-  return Math.max(0, Math.trunc(((256 * width + Math.trunc(128 / digitWidth)) / 256) * digitWidth));
+  const pixels = Math.trunc(((256 * width + Math.trunc(128 / digitWidth)) / 256) * digitWidth);
+  return Math.min(MAX_COLUMN_PIXELS, Math.max(0, pixels));
 }
 
 /** A cell being read. */
@@ -92,7 +94,10 @@ class SheetReader {
 
   /** The default width of a column `characters` wide, as Excel rounds it: to whole eighths of 8 pixels. */
   #baseWidth(characters: number): number {
-    return Math.ceil((characters * this.#context.digitWidth + 5) / 8) * 8;
+    return Math.min(
+      MAX_COLUMN_PIXELS,
+      Math.ceil((characters * this.#context.digitWidth + 5) / 8) * 8,
+    );
   }
 
   open(name: string, attributes: Attributes): void {

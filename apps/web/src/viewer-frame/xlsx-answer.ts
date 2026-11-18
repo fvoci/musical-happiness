@@ -5,11 +5,14 @@
  * column, as the panes search them), or not at all. What the frame draws a
  * sheet from is then only what was checked here.
  */
+import { SHEET_LIMIT, SHEET_NAME_LENGTH } from '$lib/file-viewer/protocol.ts';
+
 import {
   BLANK,
   ERROR,
   HORIZONTAL,
   LINES,
+  MAX_COLUMN_PIXELS,
   MAX_COLUMNS,
   MAX_ROWS,
   STRING,
@@ -21,7 +24,6 @@ import {
   type Style,
   type Workbook,
 } from './xlsx-protocol.ts';
-import { SHEET_LIMIT, SHEET_NAME_LENGTH } from './xlsx-xml.ts';
 
 const COLOR = /^(?:#[0-9a-f]{6})?$/;
 const FAMILY = /^[\p{L}\p{N} ._-]{0,64}$/u;
@@ -129,14 +131,14 @@ function isSheet(value: unknown, strings: number, styles: number): value is Shee
     isWhole(value.frozenRows, 0, MAX_ROWS) &&
     isWhole(value.frozenColumns, 0, MAX_COLUMNS) &&
     isNumber(value.defaultRowHeight, 0, 409) &&
-    isNumber(value.defaultColumnWidth, 0, 2_000) &&
+    isNumber(value.defaultColumnWidth, 0, MAX_COLUMN_PIXELS) &&
     runs(
       columns,
       4,
       ([first = 0, last = 0, width = 0, hidden = 0]) =>
         isWhole(first, 0, MAX_COLUMNS - 1) &&
         isWhole(last, first, MAX_COLUMNS - 1) &&
-        (width === -1 || isNumber(width, 0, 2_000)) &&
+        (width === -1 || isNumber(width, 0, MAX_COLUMN_PIXELS)) &&
         isWhole(hidden, 0, 1),
     ) &&
     runs(

@@ -14,6 +14,7 @@ import {
   BLANK,
   BOOLEAN,
   ERROR,
+  MAX_COLUMN_PIXELS,
   NUMBER,
   STRING,
   type Workbook,
@@ -231,6 +232,17 @@ describe('what a cell holds, and where the parts are', () => {
     expect(cellsOf(book, 0).get('A1')).toEqual([NUMBER, 5]);
   });
 
+  it('a part that more sheets name is read once, as the first of them', async () => {
+    const xml = `<sheetData><row r="1">${cell('A1', 1)}</row></sheetData>`;
+    const book = await read(
+      workbook({
+        sheets: [{ name: 'one', xml }],
+        sheetsXml: `<sheet name="one" sheetId="1" r:id="rIdSheet1"/><sheet name="again" sheetId="2" r:id="rIdSheet1"/>`,
+      }),
+    );
+    expect(book.sheets.map((sheet) => sheet.name)).toEqual(['one']);
+  });
+
   it('a lying dimension is not believed', async () => {
     const [sheet] = (await read(lyingDimensionXlsx())).sheets;
     expect(sheet?.cellRows).toHaveLength(1);
@@ -339,5 +351,20 @@ describe("the worker's answer", () => {
     ],
   ])('not with %s', async (_, spoil) => {
     expect(readFromXlsxWorker(spoil(await read(koreanXlsx())))).toBeUndefined();
+  });
+
+  it('takes whatever a workbook Excel writes reads to: the widest column, a large font, a style naming what is not there', async () => {
+    // A default font of 72 points: a column of Excel's widest, 255 characters, is far past a screen.
+    const stylesXml = `<fonts count="1"><font><sz val="72"/><name val="Arial"/></font></fonts><borders count="1"><border/></borders><cellXfs count="2"><xf numFmtId="0" fontId="0" borderId="0"/><xf numFmtId="0" fontId="3" borderId="2"/></cellXfs>`;
+    const xml = `<sheetFormatPr baseColWidth="255" defaultRowHeight="15"/><cols><col min="1" max="1" width="255" customWidth="1"/></cols><sheetData><row r="1">${cell('A1', 1, undefined, 1)}</row></sheetData>`;
+    const book = await read(workbook({ sheets: [{ name: 'wide', xml }], stylesXml }));
+    expect(readFromXlsxWorker({ kind: 'read', workbook: book })).toEqual({
+      kind: 'read',
+      workbook: book,
+    });
+    expect(book.sheets[0]?.columns[2]).toBe(MAX_COLUMN_PIXELS);
+    expect(book.sheets[0]?.defaultColumnWidth).toBe(MAX_COLUMN_PIXELS);
+    // The style that names a font and a border not there gets the first of each.
+    expect([book.styles[1]?.font, book.styles[1]?.border]).toEqual([0, 0]);
   });
 });
