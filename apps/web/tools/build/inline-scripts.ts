@@ -88,3 +88,23 @@ export function cspHashes(): Plugin {
     },
   };
 }
+
+/**
+ * Headers every file under `static/` carries, as the server sends them
+ * (crates/server/src/web.rs).
+ *
+ * - `Access-Control-Allow-Origin: *`: the file viewer's frame has no origin
+ *   of its own, so loading the app's scripts, style sheets and fonts is a
+ *   cross-origin request for it. The files are the public build; nothing
+ *   is sent with them that a stranger could not fetch.
+ * - An HTML document there (the viewer's frame) is sandboxed by a header too,
+ *   so that opened as a page of its own it has no origin either.
+ */
+export function staticHeaders(fileName: string): Record<string, string> {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    ...(path.extname(fileName) === '.html'
+      ? { 'Content-Security-Policy': 'sandbox allow-scripts' }
+      : {}),
+  };
+}

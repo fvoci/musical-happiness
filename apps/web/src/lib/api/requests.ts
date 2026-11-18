@@ -171,8 +171,12 @@ export class ServerRequests implements TrashReads {
   }
 
   /** The bytes at `path` under the workspace (a file). */
-  protected inWorkspaceBytes(path: WorkspacePath, params: Record<string, string>): Promise<Blob> {
-    return this.#http.bytes(underWorkspace(path), this.workspaceOf(params));
+  protected inWorkspaceBytes(
+    path: WorkspacePath,
+    params: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<Blob> {
+    return this.#http.bytes(underWorkspace(path), this.workspaceOf(params), {}, signal);
   }
 
   /** The address of `path` under the workspace. */
@@ -362,10 +366,10 @@ export class ServerRequests implements TrashReads {
     );
   }
 
-  /** The bytes of a file (`getFile`). */
-  fileBytes(containerId: string, fileId: string): Promise<Blob> {
+  /** The bytes of a file (`getFile`), until `signal` gives the reading up. */
+  fileBytes(containerId: string, fileId: string, signal?: AbortSignal): Promise<Blob> {
     const params = { containerId, fileId };
-    return this.inWorkspaceBytes('/containers/{containerId}/files/{fileId}', params);
+    return this.inWorkspaceBytes('/containers/{containerId}/files/{fileId}', params, signal);
   }
 
   /** The name and size of a file (`getFileInfo`). */

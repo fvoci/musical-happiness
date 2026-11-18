@@ -7,7 +7,10 @@
 use std::path::{Path, PathBuf};
 
 use axum::body::Body;
-use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
+use axum::http::header::{
+    ACCESS_CONTROL_ALLOW_ORIGIN, CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE,
+    X_CONTENT_TYPE_OPTIONS,
+};
 use axum::http::{HeaderValue, Request, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use tower::ServiceExt as _;
@@ -18,6 +21,13 @@ const NOT_FOUND_BODY: &str = "404 page not found\n";
 
 /// The placeholder in `index.html` that is replaced with the base URL.
 const BASE_URL_PLACEHOLDER: &str = "{{.BaseURL}}";
+
+/// The policy of every HTML document under `static/`.
+///
+/// The one such document is the web app's file viewer frame. The app frames it with
+/// `sandbox="allow-scripts"`; this sandboxes it the same way when it is opened on its
+/// own, so that it never runs with the app's origin.
+const STATIC_DOCUMENT_POLICY: &str = "sandbox allow-scripts";
 
 /// The web app directory (`webpath`) and how it is served.
 #[derive(Debug, Clone)]
@@ -47,6 +57,12 @@ impl WebRoot {
     /// must be revalidated. A `.zst`, `.br` or `.gz` file next to the requested one is
     /// served instead when the client accepts that encoding (the one it prefers; zstd,
     /// then brotli, then gzip on a tie).
+    ///
+    /// Any origin may read these files: the file viewer's frame has an opaque origin and
+    /// loads the app's scripts, style sheets and fonts across origins, and they are the
+    /// public build, sent without credentials. An HTML document is sandboxed (it is the
+    /// viewer's frame); whether it is one is read from the type the file service gave
+    /// it, not from the requested name, which may be percent-encoded.
     pub async fn serve_static(&self, path: &str, request: Request<Body>) -> Response {
         let Ok(uri) = format!("/{path}").parse::<Uri>() else {
             return not_found();
@@ -67,12 +83,25 @@ impl WebRoot {
             return not_found();
         }
 
+        let file_name = path.rsplit('/').next().unwrap_or(path);
+        let headers = response.headers_mut();
+        headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+        let html = headers
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("text/html"));
+        if html {
+            headers.insert(
+                CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static(STATIC_DOCUMENT_POLICY),
+            );
+        }
+
         let cacheable = matches!(
             response.status(),
             StatusCode::OK | StatusCode::PARTIAL_CONTENT | StatusCode::NOT_MODIFIED
         );
         if cacheable {
-            let file_name = path.rsplit('/').next().unwrap_or(path);
             let policy = if has_content_hash(file_name) {
                 "public, max-age=31536000, immutable"
             } else {

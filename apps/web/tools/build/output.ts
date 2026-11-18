@@ -53,7 +53,7 @@ export function hasContentHash(fileName: string): boolean {
 }
 
 /** Files that are meant to be revalidated on every request, by name. */
-const UNHASHED_ON_PURPOSE = new Set(['THIRD_PARTY_NOTICES.txt']);
+const UNHASHED_ON_PURPOSE = new Set(['THIRD_PARTY_NOTICES.txt', 'viewer-frame.html']);
 
 /** Already compressed formats; compressing them again gains nothing. */
 const COMPRESSIBLE = new Set([

@@ -442,8 +442,8 @@ export interface Backend
    * business.
    */
   upload(containerId: string, file: File, options?: UploadOptions): Promise<UploadedFile>;
-  /** The bytes of a file. */
-  fileBytes(containerId: string, fileId: string): Promise<Blob>;
+  /** The bytes of a file; `signal` gives the reading up. */
+  fileBytes(containerId: string, fileId: string, signal?: AbortSignal): Promise<Blob>;
   /** The name and size of a file of the board or wiki (404 for none of it). */
   fileDetails(containerId: string, fileId: string): Promise<FileDetails>;
   /** Where the bytes of a file can be fetched by an `<img>` or a link. */
