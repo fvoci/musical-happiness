@@ -14,7 +14,7 @@ use fvoci_model::{Block, BlockType, Body, Container, LinkedBlock, is_id};
 use fvoci_store::PublicContainers;
 
 use super::App;
-use super::org_admin::PageAsked;
+use super::list_page::ListPage;
 use crate::error::AppError;
 
 /// The most references one request resolves: each is a question of access of its own.
@@ -104,7 +104,7 @@ impl App {
         user_id: &str,
         workspace_id: &str,
         block_id: &str,
-        asked: PageAsked,
+        asked: ListPage,
     ) -> Result<Option<Vec<LinkedBlock>>, AppError> {
         let told = self
             .resolve_references(user_id, &[block_id.to_owned()])

@@ -87,7 +87,7 @@ describe('the server backend', () => {
     });
     const previews = await serverBackend('').cardPreviews('b');
     vi.unstubAllGlobals();
-    expect(sent).toEqual(['/api/v1/w/w1/boards/b/cards?perPage=0&preview=true']);
+    expect(sent).toEqual(['/api/v1/w/w1/boards/b/cards?page=0&perPage=1000&preview=true']);
     expect([...previews]).toEqual([
       ['c1', { imageFileId: 'f1', text: 'Hello' }],
       ['c2', { imageFileId: '', text: '' }],

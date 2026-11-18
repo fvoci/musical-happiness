@@ -153,12 +153,18 @@ async fn what_names_a_card_or_a_page_is_told_once_and_in_pages() {
         ("?perPage=2", vec![page, first.as_str()]),
         ("?perPage=2&page=1", vec![second.as_str()]),
         ("?perPage=2&page=2", vec![]),
-        ("?perPage=0", vec![page, first.as_str(), second.as_str()]),
+        ("?perPage=1000", vec![page, first.as_str(), second.as_str()]),
     ] {
         let told = naming(user, TEST_WS, target, query).await;
         assert_eq!(listed(&told), expected, "{query}");
     }
-    for query in ["?page=first", "?perPage=many", "?page=-1"] {
+    for query in [
+        "?page=first",
+        "?perPage=many",
+        "?page=-1",
+        "?perPage=0",
+        "?perPage=1001",
+    ] {
         naming(user, TEST_WS, target, query)
             .await
             .check_bad_request();

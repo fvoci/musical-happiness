@@ -4,7 +4,9 @@
 //! every change is announced the way block changes are.
 
 use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, CardPreview, new_id};
-use fvoci_store::{BlockFilter, Paging, Previews};
+use fvoci_store::{BlockFilter, Previews};
+
+use super::list_page::ListPage;
 
 use super::{App, ChangeNotification};
 use crate::auth::now_millis;
@@ -26,27 +28,6 @@ impl From<CardPreviews> for Previews {
             CardPreviews::Without => Self::Without,
             CardPreviews::With => Self::With,
         }
-    }
-}
-
-/// One page of a list as a request asks for it by its `page` and `perPage`: the page,
-/// counted from 0, of pages of `per_page` items, and every item at once for a `per_page`
-/// of 0, whatever the page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ListPage {
-    /// The page, counted from 0.
-    pub page: u32,
-    /// How many items a page has; 0 for all of them.
-    pub per_page: u32,
-}
-
-impl ListPage {
-    /// The page as the store reads it: `None` for every item.
-    pub(super) fn paging(self) -> Option<Paging> {
-        (self.per_page > 0).then_some(Paging {
-            page: self.page,
-            per_page: self.per_page,
-        })
     }
 }
 
@@ -104,7 +85,7 @@ impl App {
         previews: CardPreviews,
     ) -> Result<Vec<Card>, AppError> {
         let mut filter = BlockFilter::container(board_id).with_type(BlockType::Card);
-        filter.paging = page.paging();
+        filter.paging = Some(page.paging());
         let blocks = self
             .store()
             .get_listed_blocks(&filter, previews.into())
@@ -300,29 +281,5 @@ mod tests {
                 "the rest is kept: {field} {value}"
             );
         }
-    }
-
-    #[test]
-    fn a_page_of_no_size_is_every_item_and_any_other_is_one_page() {
-        let all = ListPage {
-            page: 3,
-            per_page: 0,
-        };
-        assert_eq!(
-            all.paging(),
-            None,
-            "0 per page is every item, whatever the page"
-        );
-        let one = ListPage {
-            page: 2,
-            per_page: 10,
-        };
-        assert_eq!(
-            one.paging(),
-            Some(Paging {
-                page: 2,
-                per_page: 10
-            })
-        );
     }
 }

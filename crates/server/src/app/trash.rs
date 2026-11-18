@@ -3,7 +3,7 @@
 use fvoci_model::{DeletedItem, WorkspaceRole};
 
 use super::App;
-use super::cards::ListPage;
+use super::list_page::ListPage;
 use crate::error::AppError;
 
 impl App {
@@ -18,7 +18,7 @@ impl App {
         container_id: &str,
         page: ListPage,
     ) -> Result<Vec<DeletedItem>, AppError> {
-        let paging = page.paging();
+        let paging = Some(page.paging());
         let deleted = self.store().get_deleted_cards(container_id, paging).await?;
         Ok(deleted
             .into_iter()
@@ -47,7 +47,7 @@ impl App {
         role: WorkspaceRole,
         page: ListPage,
     ) -> Result<Vec<DeletedItem>, AppError> {
-        let paging = page.paging();
+        let paging = Some(page.paging());
         let deleted = self
             .store()
             .get_deleted_containers(

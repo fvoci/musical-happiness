@@ -13,7 +13,7 @@ use tokio::io::AsyncWriteExt as _;
 
 use crate::common::TEST_WS;
 use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
-use crate::files::{upload, uploaded_id};
+use crate::files::{key_of, upload, uploaded_id};
 use crate::metrics::{sample, scrape};
 use crate::uploads::s3_server;
 
@@ -34,6 +34,12 @@ pub(crate) async fn uploaded(ts: &TestServer, data: &[u8]) -> (String, String) {
         .await
         .expect("the file is recorded");
     (board.id, info.path)
+}
+
+/// The stored name of a file [`uploaded`] made at `path`: the secret its key ends in,
+/// with the extension of `a.txt`.
+fn stored_name_at(path: &str) -> String {
+    format!("{}.txt", path.rsplit('/').next().unwrap_or_default())
 }
 
 pub(crate) async fn exists(ts: &TestServer, path: &str) -> bool {
@@ -181,8 +187,9 @@ async fn with_s3_doomed_objects_are_removed_and_tried_again() {
 
 /// Writes a file of `board_id` and records it through `owner`, and returns its place.
 async fn recorded_file(ts: &TestServer, owner: &Store, board_id: &str) -> String {
-    let stored_name = format!("{}.txt", new_secret());
-    let path = format!("boards/20261112/{board_id}/{stored_name}");
+    let secret = new_secret();
+    let stored_name = format!("{secret}.txt");
+    let path = key_of(ts, board_id, &secret).await;
     ts.app
         .files()
         .write(&path, &mut &b"recorded"[..])
@@ -533,7 +540,7 @@ async fn the_housekeeping_leaves_a_slow_write_alone(ts: &TestServer) {
     let files = ts
         .app
         .store()
-        .get_file_info(&board_id, path.rsplit('/').next().unwrap_or_default())
+        .get_file_info(&board_id, &stored_name_at(&path))
         .await;
     assert!(files.is_err(), "nothing is recorded: {files:?}");
 }
@@ -570,7 +577,7 @@ async fn with_s3_a_write_is_marked_until_it_is_recorded() {
 async fn a_copied_file_is_marked_until_it_is_recorded() {
     let ts = Setup::native().start().await.init_basic().await;
     let (board_id, path) = uploaded(&ts, b"copied with its card").await;
-    let stored_name = path.rsplit('/').next().unwrap_or_default().to_owned();
+    let stored_name = stored_name_at(&path);
     let attachment = || fvoci_model::Block {
         id: new_id(),
         container_id: board_id.clone(),

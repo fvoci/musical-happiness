@@ -55,7 +55,7 @@ test('a card made in a column is the server’s, with the value of that column',
     .poll(async () => {
       const [made] = (await (
         await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
-          params: { perPage: 0 },
+          params: { perPage: 1000 },
         })
       ).json()) as Schemas['Card'][];
       return made?.hasBody;
@@ -68,7 +68,7 @@ test('a card made in a column is the server’s, with the value of that column',
   // On the server, in that column.
   const cards = (await (
     await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
-      params: { perPage: 0 },
+      params: { perPage: 1000 },
     })
   ).json()) as Schemas['Card'][];
   expect(cards).toHaveLength(1);
@@ -265,7 +265,7 @@ test('a card deleted goes to the server’s trash, and undo brings it back from 
     (
       (await (
         await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
-          params: { perPage: 0 },
+          params: { perPage: 1000 },
         })
       ).json()) as Schemas['Card'][]
     ).map((card) => card.title);

@@ -20,7 +20,6 @@ file 3201 crates/server/tests/api/boards.rs
 file 2621 crates/server/tests/api/sidebar.rs
 file 4052 crates/store/tests/store/blocks.rs
 file 4160 crates/store/tests/store/boards.rs
-function 109 crates/server/src/app/import.rs App::import_archive
 function 322 crates/server/tests/regression/blocks.rs blocks
 function 221 crates/server/tests/regression/permissions.rs request
 function 221 crates/server/tests/regression/trash.rs trash

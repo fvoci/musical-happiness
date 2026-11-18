@@ -95,15 +95,14 @@ async fn null_is_refused_by_cards_where_the_contract_does_not_allow_it() {
     th.teardown().await;
 }
 
-/// `page` and `perPage` are whole numbers from 0, and `perPage` 0 is every item: a
-/// negative one is refused at the parameter, on every list that takes them.
+/// `page` is a whole number from 0, `perPage` one from 1 to 1000 and 50 when left out:
+/// any other is refused at the parameter, both told of when both are wrong.
 #[tokio::test]
-async fn the_pages_of_a_list_are_counted_from_zero() {
+async fn the_pages_of_a_list_are_of_1_to_1000() {
     let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, ContainerType::Open).await;
-    let cards: Vec<Block> = ["a", "b", "c"]
-        .iter()
-        .map(|title| new_block(&board.id, BlockType::Card, title))
+    let cards: Vec<Block> = (0..60)
+        .map(|index| new_block(&board.id, BlockType::Card, &format!("card {index}")))
         .collect();
     insert(&th.client, &board.id, &cards).await;
     let cards_path = format!("{TEST_WS}/boards/{}/cards", board.id);
@@ -119,15 +118,17 @@ async fn the_pages_of_a_list_are_counted_from_zero() {
         }
     };
 
-    assert_eq!(count("perPage=0").await, 3, "0 per page is every card");
-    assert_eq!(count("page=5&perPage=0").await, 3, "whatever the page");
-    assert_eq!(count("page=1&perPage=2").await, 1, "the second page of two");
+    assert_eq!(count("").await, 50, "left out, 50");
+    assert_eq!(count("perPage=1").await, 1, "the least");
+    assert_eq!(count("perPage=1000").await, 60, "the most: every card here");
+    assert_eq!(count("page=1").await, 10, "the second page of 50");
+    assert_eq!(count("page=1&perPage=59").await, 1, "the second page of 59");
     assert_eq!(
-        count("page=9&perPage=2").await,
+        count("page=9&perPage=50").await,
         0,
         "a page past the last is empty"
     );
-    let largest = "page=2147483647&perPage=2147483647";
+    let largest = "page=2147483647&perPage=1000";
     assert_eq!(
         count(largest).await,
         0,
@@ -136,7 +137,13 @@ async fn the_pages_of_a_list_are_counted_from_zero() {
 
     let trash_path = format!("{TEST_WS}/boards/{}/trash/cards", board.id);
     for path in [&cards_path, &trash_path] {
-        for (query, refused) in [("page=-1", "page"), ("perPage=-1", "perPage")] {
+        for (query, refused, detail) in [
+            ("page=-1", "page", "below 0"),
+            ("page=2147483648", "page", "above 2147483647"),
+            ("perPage=0", "perPage", "below 1"),
+            ("perPage=-1", "perPage", "below 1"),
+            ("perPage=1001", "perPage", "above 1000"),
+        ] {
             let response = th.client.get(&format!("{path}?{query}")).await;
             response.check_bad_request();
             assert_eq!(
@@ -144,19 +151,18 @@ async fn the_pages_of_a_list_are_counted_from_zero() {
                 format!("parameter {refused}"),
                 "{path}?{query}"
             );
+            assert!(
+                response.text().contains(detail),
+                "{query}: {}",
+                response.text()
+            );
         }
-        let response = th.client.get(&format!("{path}?page=-1&perPage=-2")).await;
+        let response = th.client.get(&format!("{path}?page=-1&perPage=0")).await;
         response.check_bad_request();
         assert_eq!(
             response.refused_places(),
             ["parameter page", "parameter perPage"],
             "both are told of"
-        );
-        let response = th.client.get(&format!("{path}?page=2147483648")).await;
-        assert_eq!(
-            response.refused_at(),
-            "parameter page",
-            "beyond what a page can be"
         );
     }
 
@@ -211,10 +217,10 @@ async fn the_board_is_no_parent_of_its_blocks() {
     th.teardown().await;
 }
 
-/// The lists of an organization, of a workspace's audit and of a wiki's trash read
-/// `page` and `perPage` as every list does.
+/// Every list answered in pages reads `page` and `perPage` alike: 1 and 1000 are taken,
+/// as is leaving them out; 0 and 1001 are refused at the parameter.
 #[tokio::test]
-async fn every_list_refuses_a_page_below_0_or_beyond_the_largest() {
+async fn every_list_takes_1_to_1000_to_a_page() {
     let th = Setup::native().start().await.init_basic().await;
     let org = crate::org_admin::org_of(&th).await;
     let made = th
@@ -223,20 +229,25 @@ async fn every_list_refuses_a_page_below_0_or_beyond_the_largest() {
         .await;
     made.check_created();
     let wiki = made.value()["id"].as_str().expect("an id").to_owned();
+    let board = create_board_in_store(&th, ContainerType::Open).await;
+    let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
     for path in [
         format!("/org/{org}/members"),
         format!("/org/{org}/audit"),
         format!("{TEST_WS}/audit"),
         format!("{TEST_WS}/wikis/{wiki}/trash/pages"),
         format!("{TEST_WS}/trash/containers"),
+        format!("{TEST_WS}/boards/{}/cards", board.id),
+        format!("{TEST_WS}/boards/{}/trash/cards", board.id),
+        format!("{TEST_WS}/references/to/{}", card.id),
     ] {
-        th.client
-            .get(&format!("{path}?page=0&perPage=0"))
-            .await
-            .check_ok();
+        for query in ["", "?perPage=1", "?perPage=1000", "?page=3&perPage=1000"] {
+            th.client.get(&format!("{path}{query}")).await.check_ok();
+        }
         for (query, refused) in [
             ("page=-1", "page"),
-            ("perPage=-1", "perPage"),
+            ("perPage=0", "perPage"),
+            ("perPage=1001", "perPage"),
             ("perPage=2147483648", "perPage"),
         ] {
             let response = th.client.get(&format!("{path}?{query}")).await;

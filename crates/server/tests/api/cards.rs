@@ -303,7 +303,7 @@ async fn get_cards_fetch_all_cards() {
     let th = Setup::native().start().await.init_basic().await;
     let board = get_cards_fixture(&th).await;
 
-    let cards = cards_of(&th.client, &board.id, "?page=0&perPage=0").await;
+    let cards = cards_of(&th.client, &board.id, "?page=0&perPage=1000").await;
 
     assert_eq!(cards.len(), CARD_COUNT, "all cards and none of the texts");
     th.teardown().await;
@@ -526,7 +526,7 @@ async fn app_create_card_error_scenario() {
             &board.id,
             fvoci_server::app::ListPage {
                 page: 0,
-                per_page: 0,
+                per_page: fvoci_server::app::MAX_PER_PAGE,
             },
             fvoci_server::app::CardPreviews::Without,
         )
@@ -565,7 +565,7 @@ async fn app_get_cards_success_scenario() {
             &board.id,
             fvoci_server::app::ListPage {
                 page: 0,
-                per_page: 0,
+                per_page: fvoci_server::app::MAX_PER_PAGE,
             },
             fvoci_server::app::CardPreviews::Without,
         )
@@ -604,7 +604,7 @@ async fn app_get_cards_error_scenario() {
             &board.id,
             fvoci_server::app::ListPage {
                 page: 0,
-                per_page: 0,
+                per_page: fvoci_server::app::MAX_PER_PAGE,
             },
             fvoci_server::app::CardPreviews::Without,
         )
@@ -1078,8 +1078,8 @@ async fn get_cards_permissions_and_malformed_paging() {
     th.teardown().await;
 }
 
-/// `page` counts from zero and defaults to it, `perPage` defaults to 100, and zero or
-/// less asks for all cards.
+/// `page` counts from zero and defaults to it, `perPage` defaults to 50 and is 1 to
+/// 1000: there is no asking for all cards at once.
 #[tokio::test]
 async fn get_cards_paging() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1103,27 +1103,25 @@ async fn get_cards_paging() {
         .expect("the card blocks are stored");
     let count = async |query: &str| cards_of(&th.client, &board.id, query).await.len();
 
-    assert_eq!(count("").await, 100, "a page has 100 cards by default");
-    assert_eq!(count("?page=1").await, 3, "the rest is on the second page");
-    assert_eq!(count("?page=2").await, 0, "and nothing on the third");
-    assert_eq!(count("?page=&perPage=").await, 100, "empty is absent");
+    assert_eq!(count("").await, 50, "a page has 50 cards by default");
+    assert_eq!(count("?page=2").await, 3, "the rest is on the third page");
+    assert_eq!(count("?page=3").await, 0, "and nothing on the fourth");
+    assert_eq!(count("?page=&perPage=").await, 50, "empty is absent");
     // The page size has one spelling; another is a parameter the server does not know.
-    assert_eq!(count("?per_page=2").await, 100, "no page size");
-    assert_eq!(count("?per_page=x").await, 100, "and nothing to refuse");
+    assert_eq!(count("?per_page=2").await, 50, "no page size");
+    assert_eq!(count("?per_page=x").await, 50, "and nothing to refuse");
     assert_eq!(count("?perPage=2").await, 2, "a smaller page");
     assert_eq!(count("?perPage=%2B2").await, 2, "a sign is fine");
     assert_eq!(count("?page=00&perPage=03").await, 3, "so are zeros");
     assert_eq!(count("?page=51&perPage=2").await, 1, "the last card");
     assert_eq!(count("?page=1000&perPage=2").await, 0, "beyond the end");
-    assert_eq!(
-        count("?perPage=2147483647").await,
-        total,
-        "the largest page"
-    );
-    assert_eq!(count("?perPage=0").await, total, "zero is no limit");
-    assert_eq!(count("?page=1&perPage=0").await, total, "on any page");
+    assert_eq!(count("?perPage=1000").await, total, "the largest page");
     let path = cards_path(&board.id);
     for query in [
+        "?perPage=0",
+        "?page=1&perPage=0",
+        "?perPage=1001",
+        "?perPage=2147483647",
         "?perPage=-1",
         "?page=-1",
         "?page=2147483648",

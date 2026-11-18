@@ -101,7 +101,7 @@ test('a body written in the editor is the server’s, and opens again as it was'
   // The list of cards says there is one, without carrying it.
   const [listed] = (await (
     await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
-      params: { perPage: 0 },
+      params: { perPage: 1000 },
     })
   ).json()) as Schemas['Card'][];
   expect(listed).toMatchObject({ hasBody: true, body: null });

@@ -7,7 +7,7 @@
 import type { Container, ContainerMember } from '../../logic/wire.ts';
 import type { Category, DeletedItem, Paging } from '../backend.ts';
 
-import { CARD_PAGES, pageOf } from './paging.ts';
+import { pageOf } from './paging.ts';
 import { fail } from './refuse.ts';
 import type { World } from './world.ts';
 
@@ -43,7 +43,7 @@ export function deletedCardsOf(
       deletedBy: deleted.deletedBy,
     });
   }
-  return pageOf(items.sort(latestFirst), paging, CARD_PAGES);
+  return pageOf(items.sort(latestFirst), paging);
 }
 
 /**
@@ -72,7 +72,7 @@ export function deletedPagesOf(
   }
   const order = (one: DeletedItem, other: DeletedItem): number =>
     latestFirst(one, other) || (one.id < other.id ? -1 : one.id > other.id ? 1 : 0);
-  return pageOf(items.sort(order), paging, CARD_PAGES);
+  return pageOf(items.sort(order), paging);
 }
 
 /** Whether a member was an admin of the board, which bringing it back takes. */
@@ -98,7 +98,7 @@ export function deletedContainersOf(
       deletedBy,
       kind: container.kind ?? 'board',
     }));
-  return pageOf(items.sort(latestFirst), paging, CARD_PAGES);
+  return pageOf(items.sort(latestFirst), paging);
 }
 
 /** Where everybody had filed the board or wiki, read before it goes. */

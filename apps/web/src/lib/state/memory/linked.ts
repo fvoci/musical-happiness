@@ -10,7 +10,7 @@ import { REFERENCES_AT_ONCE, type LinkedBlock, type References } from '../refere
 import type { Paging } from '../trash-reads.ts';
 
 import { reads } from './container-access.ts';
-import { pageOf, REFERENCE_PAGES } from './paging.ts';
+import { pageOf } from './paging.ts';
 import { fail } from './refuse.ts';
 import type { StoredBlock, World } from './world.ts';
 
@@ -93,7 +93,7 @@ export class MemoryReferences implements References {
     const shown = [...naming.values()]
       .sort((a, b) => a.createAt - b.createAt || a.id.localeCompare(b.id))
       .flatMap((block) => this.#shown(block) ?? []);
-    return pageOf(shown, paging, REFERENCE_PAGES);
+    return pageOf(shown, paging);
   }
 
   async search(workspaceId: string, term: string): Promise<LinkedBlock[]> {

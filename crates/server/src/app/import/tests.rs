@@ -1,3 +1,8 @@
+use std::io::{self, Read};
+
+use super::archive::{
+    CENTRAL_HEADER, SCAN_CHUNK_BYTES, clean_dir, count_central_headers, split_entry_name,
+};
 use super::*;
 
 /// The central headers are counted wherever they are, a chunk's end included, and
@@ -180,7 +185,13 @@ fn the_names_of_files_are_taken_as_an_upload_names_them() {
     ] {
         assert!(file_names_of(&board).is_empty(), "no names: {board}");
     }
-    let by_dir = HashMap::from([("b1".to_owned(), names)]);
+    let by_dir = HashMap::from([(
+        "b1".to_owned(),
+        ArchiveFiles {
+            names,
+            ..ArchiveFiles::default()
+        },
+    )]);
     assert_eq!(name_in(&by_dir, "b1", "7a.pdf"), "회의록.pdf");
     assert_eq!(name_in(&by_dir, "b1", "7b.pdf"), "7b.pdf", "left out");
     assert_eq!(
@@ -188,4 +199,21 @@ fn the_names_of_files_are_taken_as_an_upload_names_them() {
         "7a.pdf",
         "another board's"
     );
+}
+
+#[test]
+fn a_board_line_says_which_files_were_missing() {
+    let board = serde_json::json!({"id": "b1", "missingFiles": ["7a.pdf", 7, null, "7b"]});
+    assert_eq!(
+        missing_files_of(&board),
+        HashSet::from(["7a.pdf".to_owned(), "7b".to_owned()]),
+        "the strings of the list"
+    );
+    for board in [
+        serde_json::json!({"id": "b1"}),
+        serde_json::json!({"id": "b1", "missingFiles": "7a.pdf"}),
+        serde_json::json!({"id": "b1", "missingFiles": {"7a.pdf": true}}),
+    ] {
+        assert!(missing_files_of(&board).is_empty(), "none: {board}");
+    }
 }

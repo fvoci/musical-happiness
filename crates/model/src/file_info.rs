@@ -43,6 +43,55 @@ pub fn is_storage_path(path: &str) -> bool {
             .all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
+/// The key of the file storage the server makes for a file:
+/// `<organization>/<container>/<secret>`, three parts it made itself. The organization
+/// comes first, so that one organization's files are the keys under its identifier,
+/// whichever storage holds them; nothing of the name the file was uploaded with is in
+/// it. The extension a file is asked for with is in its record, not in its key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileKey<'a> {
+    /// The organization of the container.
+    pub org_id: &'a str,
+    /// The board or wiki the file is one of.
+    pub container_id: &'a str,
+    /// A secret of letters, digits, `-` and `_`.
+    pub secret: &'a str,
+}
+
+impl<'a> FileKey<'a> {
+    /// The key `path` is, if it has the shape of one the server makes: two identifiers
+    /// and a secret. Anything else in the storage is none of the server's making,
+    /// whatever names it.
+    #[must_use]
+    pub fn parse(path: &'a str) -> Option<Self> {
+        let mut parts = path.split('/');
+        let (Some(org_id), Some(container_id), Some(secret), None) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        else {
+            return None;
+        };
+        let is_secret = !secret.is_empty()
+            && secret
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_');
+        (crate::is_id(org_id) && crate::is_id(container_id) && is_secret).then_some(Self {
+            org_id,
+            container_id,
+            secret,
+        })
+    }
+}
+
+impl std::fmt::Display for FileKey<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{}/{}/{}",
+            self.org_id, self.container_id, self.secret
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -51,12 +100,7 @@ mod tests {
 
     #[test]
     fn a_place_has_one_spelling() {
-        for path in [
-            "boards/20261112/b/x.png",
-            "b/x.png",
-            "x",
-            "a/.hidden/b.c..d",
-        ] {
+        for path in ["o/b/x", "b/x.png", "x", "a/.hidden/b.c..d"] {
             assert!(is_storage_path(path), "{path}");
         }
         for path in [
@@ -81,7 +125,7 @@ mod tests {
             container_id: "board".to_owned(),
             stored_name: "random.png".to_owned(),
             create_at: 1,
-            path: "boards/20240101/board/random.png".to_owned(),
+            path: "org/board/random".to_owned(),
             name: "picture.png".to_owned(),
             extension: ".png".to_owned(),
             size: 4,
@@ -98,5 +142,36 @@ mod tests {
             }),
             "neither the path, nor the board, nor the stored name"
         );
+    }
+
+    #[test]
+    fn a_key_the_server_makes_reads_back_and_nothing_else_does() {
+        let org = "01890000-0000-7000-8000-00000000000a";
+        let board = "01890000-0000-7000-8000-000000000001";
+        let key = FileKey {
+            org_id: org,
+            container_id: board,
+            secret: "Ab-_9",
+        }
+        .to_string();
+        assert_eq!(key, format!("{org}/{board}/Ab-_9"), "organization first");
+        assert_eq!(
+            FileKey::parse(&key).map(|key| key.org_id),
+            Some(org),
+            "it reads back"
+        );
+        for other in [
+            format!("{org}/{board}"),
+            format!("{org}/{board}/x.png"),
+            format!("{org}/{board}/x/y"),
+            format!("{org}/not-an-id/x"),
+            format!("not-an-id/{board}/x"),
+            format!("{org}/{board}/"),
+            format!("boards/20261112/{board}/x"),
+            format!("{}/{board}/x", org.to_uppercase()),
+            format!(".tmp/writing/{board}"),
+        ] {
+            assert_eq!(FileKey::parse(&other), None, "{other}");
+        }
     }
 }

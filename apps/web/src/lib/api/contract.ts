@@ -510,8 +510,7 @@ export interface paths {
          * The audit log of an organization
          * @description One page of what was done to the organization itself, the newest first: who made a
          *     member an administrator or a member, made, renamed, deleted or brought back a
-         *     workspace, and turned the public links off or on. 50 to a page unless `perPage` says
-         *     otherwise, at most 200.
+         *     workspace, and turned the public links off or on.
          */
         get: operations["getOrgAudit"];
         put?: never;
@@ -531,8 +530,7 @@ export interface paths {
         };
         /**
          * The members of an organization
-         * @description One page of them with their roles, the oldest member first. 50 to a page unless
-         *     `perPage` says otherwise, at most 200.
+         * @description One page of them with their roles, the oldest member first.
          */
         get: operations["getOrgMembers"];
         put?: never;
@@ -1553,8 +1551,7 @@ export interface paths {
          *     organization; and an administrator of the workspace who could not read a board
          *     giving somebody (themselves or another) a role on it. A board's title is there where
          *     the reader sees the board. For whoever works in the workspace (a member who is no
-         *     guest), of any organization. 50 to a page unless `perPage` says otherwise, at most
-         *     200. The records are never changed or removed but with the workspace, when it is
+         *     guest), of any organization. The records are never changed or removed but with the workspace, when it is
          *     removed for good.
          */
         get: operations["getWorkspaceAudit"];
@@ -1833,8 +1830,7 @@ export interface paths {
         /**
          * The cards of a board
          * @description One page of the board's cards, for the board's members. Oldest first; the pages cut
-         *     that order. A `page` or `perPage` that is no whole number is 400. With
-         *     `preview=true` each card has its `preview` (the first image and the beginning of the
+         *     that order. With `preview=true` each card has its `preview` (the first image and the beginning of the
          *     text of its body), which a list without it leaves out.
          */
         get: operations["getCards"];
@@ -1897,8 +1893,7 @@ export interface paths {
          *     title, when it was deleted and by whom; `undeleteBlock` brings one back until the
          *     trash is emptied of it. A card that went with the block it was on (another card, a
          *     view) comes back with that block, and is not listed. For the board's editors. The
-         *     last deleted first; the pages cut that order. A `page` or `perPage` that is no whole
-         *     number is 400.
+         *     last deleted first; the pages cut that order.
          */
         get: operations["getDeletedCards"];
         put?: never;
@@ -2936,8 +2931,7 @@ export interface paths {
          * What names a card or a page
          * @description The cards and pages of this workspace whose body names the block of the path with a
          *     reference, or which have a comment whose body does, on a board or a wiki the user
-         *     reads; the block itself is never among them. Oldest first, 50 to a page unless
-         *     `perPage` says otherwise, at most 200. What names it from where the user does not
+         *     reads; the block itself is never among them. Oldest first. What names it from where the user does not
          *     read is left out and takes no place in a page: the answer does not say how many
          *     there are, nor whether there are any.
          *
@@ -3191,8 +3185,7 @@ export interface paths {
          *     of when they were deleted, or every one of them for an administrator of the
          *     workspace, which is who `undeleteContainer` lets bring them back: each
          *     with its identifier, its title, when it was deleted and by whom. The last deleted
-         *     first; the pages cut that order. A `page` or `perPage` that is no whole number is
-         *     400. For users of the workspace.
+         *     first; the pages cut that order. For users of the workspace.
          *
          *     The wikis in the trash are in the same list, which go there and come back as boards
          *     do (`deleteContainer`, `undeleteContainer`): each entry says its `kind`.
@@ -3739,8 +3732,7 @@ export interface paths {
          *     pages below it went with it; `undeletePage` brings one back with those until the
          *     trash is emptied of it (`trash_retention_days`, as for a board's cards). A page that
          *     went with the page it was below comes back with that page, and is not listed. For
-         *     the wiki's editors. The last deleted first; the pages cut that order. A `page` or
-         *     `perPage` that is no whole number is 400.
+         *     the wiki's editors. The last deleted first; the pages cut that order.
          */
         get: operations["getDeletedPages"];
         put?: never;
@@ -6598,7 +6590,7 @@ export interface operations {
             query?: {
                 /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;
@@ -6635,7 +6627,7 @@ export interface operations {
             query?: {
                 /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;
@@ -7435,7 +7427,7 @@ export interface operations {
                 readToken: string;
                 /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
                 /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
                 preview?: boolean;
@@ -8168,7 +8160,7 @@ export interface operations {
             query?: {
                 /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;
@@ -8730,7 +8722,7 @@ export interface operations {
             query?: {
                 /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
                 /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
                 preview?: boolean;
@@ -8850,7 +8842,7 @@ export interface operations {
             query?: {
                 /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;
@@ -10546,7 +10538,7 @@ export interface operations {
             query?: {
                 /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;
@@ -11000,7 +10992,7 @@ export interface operations {
             query?: {
                 /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;
@@ -11991,7 +11983,7 @@ export interface operations {
             query?: {
                 /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400. */
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
                 perPage?: number;
             };
             header?: never;

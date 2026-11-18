@@ -5418,7 +5418,7 @@
     },
     "/api/v1/org/{orgId}/audit": {
       "get": {
-        "description": "One page of what was done to the organization itself, the newest first: who made a\nmember an administrator or a member, made, renamed, deleted or brought back a\nworkspace, and turned the public links off or on. 50 to a page unless `perPage` says\notherwise, at most 200.",
+        "description": "One page of what was done to the organization itself, the newest first: who made a\nmember an administrator or a member, made, renamed, deleted or brought back a\nworkspace, and turned the public links off or on.",
         "operationId": "getOrgAudit",
         "parameters": [
           {
@@ -5442,13 +5442,14 @@
             }
           },
           {
-            "description": "How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400.",
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
             "in": "query",
             "name": "perPage",
             "required": false,
             "schema": {
               "format": "int32",
-              "minimum": 0,
+              "maximum": 1000,
+              "minimum": 1,
               "type": "integer"
             }
           }
@@ -5486,7 +5487,7 @@
     },
     "/api/v1/org/{orgId}/members": {
       "get": {
-        "description": "One page of them with their roles, the oldest member first. 50 to a page unless\n`perPage` says otherwise, at most 200.",
+        "description": "One page of them with their roles, the oldest member first.",
         "operationId": "getOrgMembers",
         "parameters": [
           {
@@ -5510,13 +5511,14 @@
             }
           },
           {
-            "description": "How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400.",
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
             "in": "query",
             "name": "perPage",
             "required": false,
             "schema": {
               "format": "int32",
-              "minimum": 0,
+              "maximum": 1000,
+              "minimum": 1,
               "type": "integer"
             }
           }
@@ -6682,13 +6684,14 @@
             }
           },
           {
-            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400.",
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
             "in": "query",
             "name": "perPage",
             "required": false,
             "schema": {
               "format": "int32",
-              "minimum": 0,
+              "maximum": 1000,
+              "minimum": 1,
               "type": "integer"
             }
           },
@@ -7713,7 +7716,7 @@
     },
     "/api/v1/w/{workspaceId}/audit": {
       "get": {
-        "description": "One page of what was done in the workspace that its members are to know of, the\nnewest first: an administrator of the organization joining it as its administrator,\nleaving it, or being taken out of it when they stopped administering the\norganization; and an administrator of the workspace who could not read a board\ngiving somebody (themselves or another) a role on it. A board's title is there where\nthe reader sees the board. For whoever works in the workspace (a member who is no\nguest), of any organization. 50 to a page unless `perPage` says otherwise, at most\n200. The records are never changed or removed but with the workspace, when it is\nremoved for good.",
+        "description": "One page of what was done in the workspace that its members are to know of, the\nnewest first: an administrator of the organization joining it as its administrator,\nleaving it, or being taken out of it when they stopped administering the\norganization; and an administrator of the workspace who could not read a board\ngiving somebody (themselves or another) a role on it. A board's title is there where\nthe reader sees the board. For whoever works in the workspace (a member who is no\nguest), of any organization. The records are never changed or removed but with the workspace, when it is\nremoved for good.",
         "operationId": "getWorkspaceAudit",
         "parameters": [
           {
@@ -7737,13 +7740,14 @@
             }
           },
           {
-            "description": "How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400.",
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
             "in": "query",
             "name": "perPage",
             "required": false,
             "schema": {
               "format": "int32",
-              "minimum": 0,
+              "maximum": 1000,
+              "minimum": 1,
               "type": "integer"
             }
           }
@@ -8659,7 +8663,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/cards": {
       "get": {
-        "description": "One page of the board's cards, for the board's members. Oldest first; the pages cut\nthat order. A `page` or `perPage` that is no whole number is 400. With\n`preview=true` each card has its `preview` (the first image and the beginning of the\ntext of its body), which a list without it leaves out.",
+        "description": "One page of the board's cards, for the board's members. Oldest first; the pages cut\nthat order. With `preview=true` each card has its `preview` (the first image and the beginning of the\ntext of its body), which a list without it leaves out.",
         "operationId": "getCards",
         "parameters": [
           {
@@ -8692,13 +8696,14 @@
             }
           },
           {
-            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400.",
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
             "in": "query",
             "name": "perPage",
             "required": false,
             "schema": {
               "format": "int32",
-              "minimum": 0,
+              "maximum": 1000,
+              "minimum": 1,
               "type": "integer"
             }
           },
@@ -8882,7 +8887,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/{boardId}/trash/cards": {
       "get": {
-        "description": "One page of the board's cards that are in the trash, each with its identifier, its\ntitle, when it was deleted and by whom; `undeleteBlock` brings one back until the\ntrash is emptied of it. A card that went with the block it was on (another card, a\nview) comes back with that block, and is not listed. For the board's editors. The\nlast deleted first; the pages cut that order. A `page` or `perPage` that is no whole\nnumber is 400.",
+        "description": "One page of the board's cards that are in the trash, each with its identifier, its\ntitle, when it was deleted and by whom; `undeleteBlock` brings one back until the\ntrash is emptied of it. A card that went with the block it was on (another card, a\nview) comes back with that block, and is not listed. For the board's editors. The\nlast deleted first; the pages cut that order.",
         "operationId": "getDeletedCards",
         "parameters": [
           {
@@ -8915,13 +8920,14 @@
             }
           },
           {
-            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400.",
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
             "in": "query",
             "name": "perPage",
             "required": false,
             "schema": {
               "format": "int32",
-              "minimum": 0,
+              "maximum": 1000,
+              "minimum": 1,
               "type": "integer"
             }
           }
@@ -11544,7 +11550,7 @@
     },
     "/api/v1/w/{workspaceId}/references/to/{blockId}": {
       "get": {
-        "description": "The cards and pages of this workspace whose body names the block of the path with a\nreference, or which have a comment whose body does, on a board or a wiki the user\nreads; the block itself is never among them. Oldest first, 50 to a page unless\n`perPage` says otherwise, at most 200. What names it from where the user does not\nread is left out and takes no place in a page: the answer does not say how many\nthere are, nor whether there are any.\n\n404 unless the block is a card or a page the user reads, as `resolveReferences`\ntells of it: for anything else, as for an identifier of nothing.",
+        "description": "The cards and pages of this workspace whose body names the block of the path with a\nreference, or which have a comment whose body does, on a board or a wiki the user\nreads; the block itself is never among them. Oldest first. What names it from where the user does not\nread is left out and takes no place in a page: the answer does not say how many\nthere are, nor whether there are any.\n\n404 unless the block is a card or a page the user reads, as `resolveReferences`\ntells of it: for anything else, as for an identifier of nothing.",
         "operationId": "getReferencesTo",
         "parameters": [
           {
@@ -11577,13 +11583,14 @@
             }
           },
           {
-            "description": "How many a page has, at most 200. Left out or 0, 50. Below 0 or above 2147483647 is 400.",
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
             "in": "query",
             "name": "perPage",
             "required": false,
             "schema": {
               "format": "int32",
-              "minimum": 0,
+              "maximum": 1000,
+              "minimum": 1,
               "type": "integer"
             }
           }
@@ -12261,7 +12268,7 @@
     },
     "/api/v1/w/{workspaceId}/trash/containers": {
       "get": {
-        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, or every one of them for an administrator of the\nworkspace, which is who `undeleteContainer` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the workspace.\n\nThe wikis in the trash are in the same list, which go there and come back as boards\ndo (`deleteContainer`, `undeleteContainer`): each entry says its `kind`.",
+        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, or every one of them for an administrator of the\nworkspace, which is who `undeleteContainer` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. For users of the workspace.\n\nThe wikis in the trash are in the same list, which go there and come back as boards\ndo (`deleteContainer`, `undeleteContainer`): each entry says its `kind`.",
         "operationId": "getDeletedContainers",
         "parameters": [
           {
@@ -12285,13 +12292,14 @@
             }
           },
           {
-            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400.",
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
             "in": "query",
             "name": "perPage",
             "required": false,
             "schema": {
               "format": "int32",
-              "minimum": 0,
+              "maximum": 1000,
+              "minimum": 1,
               "type": "integer"
             }
           }
@@ -13933,7 +13941,7 @@
     },
     "/api/v1/w/{workspaceId}/wikis/{wikiId}/trash/pages": {
       "get": {
-        "description": "One page of the wiki's pages that are in the trash, each with its identifier, its\ntitle and icon, the page it was below, when it was deleted, by whom, and how many\npages below it went with it; `undeletePage` brings one back with those until the\ntrash is emptied of it (`trash_retention_days`, as for a board's cards). A page that\nwent with the page it was below comes back with that page, and is not listed. For\nthe wiki's editors. The last deleted first; the pages cut that order. A `page` or\n`perPage` that is no whole number is 400.",
+        "description": "One page of the wiki's pages that are in the trash, each with its identifier, its\ntitle and icon, the page it was below, when it was deleted, by whom, and how many\npages below it went with it; `undeletePage` brings one back with those until the\ntrash is emptied of it (`trash_retention_days`, as for a board's cards). A page that\nwent with the page it was below comes back with that page, and is not listed. For\nthe wiki's editors. The last deleted first; the pages cut that order.",
         "operationId": "getDeletedPages",
         "parameters": [
           {
@@ -13966,13 +13974,14 @@
             }
           },
           {
-            "description": "How many a page has. Left out, 100; 0 asks for all of them. Below 0 or above 2147483647 is 400.",
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
             "in": "query",
             "name": "perPage",
             "required": false,
             "schema": {
               "format": "int32",
-              "minimum": 0,
+              "maximum": 1000,
+              "minimum": 1,
               "type": "integer"
             }
           }

@@ -92,7 +92,7 @@ pub use date_value::{
     DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
 };
 pub use deleted_item::DeletedItem;
-pub use file_info::{FileInfo, is_storage_path};
+pub use file_info::{FileInfo, FileKey, is_storage_path};
 pub use id::{is_id, new_id};
 pub use invitation::{
     AcceptInvitation, AcceptedInvitation, GUEST_INVITATION_USES, INVITATION_LIFETIME_MILLIS,

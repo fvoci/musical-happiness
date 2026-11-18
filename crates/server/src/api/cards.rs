@@ -23,13 +23,10 @@ use super::change_notification;
 use super::paging::paging_params;
 use super::{ApiResult, TRUE, created, json_response, query_param};
 use super::{decode_with_document, require_container_permission, require_permission_through};
-use crate::app::{App, CardPreviews, ListPage};
+use crate::app::{App, CardPreviews};
 use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::permissions::ContainerPermission;
-
-/// The number of items a page of a list has in a request without `perPage`.
-const DEFAULT_PER_PAGE: u32 = 100;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -38,13 +35,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_card_body_versions))
         .routes(routes!(handle_get_card_body_version))
         .routes(routes!(handle_restore_card_body_version))
-}
-
-/// Reads the `page` and `perPage` of a list of cards or pages ([`ListPage`]), as
-/// [`paging_params`] reads them.
-pub(super) fn page_params(query: Option<&str>) -> Result<ListPage, AppError> {
-    let (page, per_page) = paging_params(query, DEFAULT_PER_PAGE)?;
-    Ok(ListPage { page, per_page })
 }
 
 /// Returns the card with the given identifier for a handler of `/cards/{cardId}`, if
@@ -142,8 +132,7 @@ async fn handle_create_card(
 /// The cards of a board
 ///
 /// One page of the board's cards, for the board's members. Oldest first; the pages cut
-/// that order. A `page` or `perPage` that is no whole number is 400. With
-/// `preview=true` each card has its `preview` (the first image and the beginning of the
+/// that order. With `preview=true` each card has its `preview` (the first image and the beginning of the
 /// text of its body), which a list without it leaves out.
 #[utoipa::path(
     get,
@@ -179,7 +168,7 @@ pub(super) async fn cards_page(
     board_id: &str,
     query: Option<&str>,
 ) -> Result<Vec<Card>, AppError> {
-    let page = page_params(query)?;
+    let page = paging_params(query)?;
     let previews = if query_param(query, "preview") == TRUE {
         CardPreviews::With
     } else {

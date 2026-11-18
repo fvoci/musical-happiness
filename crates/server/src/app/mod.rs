@@ -22,6 +22,7 @@ mod housekeeping;
 mod import;
 mod invitations;
 mod limits;
+mod list_page;
 mod loose_objects;
 mod mail;
 mod oidc;
@@ -69,7 +70,7 @@ mod workspaces;
 pub use access::{ContainerAccess, DeletedContainerAccess, as_managed};
 pub use audience::{Audience, Former, UnsaidByLink};
 pub use blocks::ChangeNotification;
-pub use cards::{CardPreviews, ListPage};
+pub use cards::CardPreviews;
 pub use category_containers::DEFAULT_CATEGORY_CONTAINERS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
@@ -77,6 +78,7 @@ pub use housekeeping::WorkspacesPurged;
 pub use import::Imported;
 pub use invitations::{Accepting, Admission, Inviting};
 pub use limits::OrgLimits;
+pub use list_page::{DEFAULT_PER_PAGE, ListPage, MAX_PER_PAGE};
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use oidc::{
     BackTo, CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure,
@@ -84,7 +86,6 @@ pub use oidc::{
 };
 pub use oidc_carry::HELD_SIGN_IN_LIFETIME_MILLIS;
 pub use oidc_settings::secret_context;
-pub use org_admin::{DEFAULT_PER_PAGE, MAX_PER_PAGE, PageAsked};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
 pub use references::MAX_REFERENCE_IDS;

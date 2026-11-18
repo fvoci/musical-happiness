@@ -9,7 +9,7 @@
 //! longer than any write takes. Whatever stops in between, the list says what is left
 //! to do.
 
-use fvoci_model::FileInfo;
+use fvoci_model::{FileInfo, FileKey};
 
 use crate::SYSTEM_ORG_ID;
 use crate::Store;
@@ -267,9 +267,8 @@ impl Store {
     /// Dooms objects of the file storage that nothing names, due at once, and returns
     /// how many it listed: one listed already is left as it is. By a handle of an
     /// organization each is the organization's; by one that reaches every organization
-    /// (PostgreSQL), each is the organization's whose board its place names
-    /// (`boards/<day>/<board>/<name>`), live or in the trash, and the system
-    /// organization's when it names none.
+    /// (PostgreSQL), each is the organization's whose key it is ([`FileKey`]), and the
+    /// system organization's when it is no key of an organization there is.
     ///
     /// # Errors
     ///
@@ -299,17 +298,10 @@ impl Store {
                     .push_bind(", ", now)
                     .push_bind(", ", now);
                 if names_org {
-                    let container = OptId(container_of(path).unwrap_or_default());
-                    sql.push_bind(
-                        ", COALESCE((SELECT org_id FROM containers WHERE id = ",
-                        container,
-                    )
-                    .push_bind(
-                        "), (SELECT org_id FROM deleted_containers WHERE id = ",
-                        container,
-                    )
-                    .push_bind("), ", Id(SYSTEM_ORG_ID))
-                    .push(")");
+                    let org = OptId(FileKey::parse(path).map_or("", |key| key.org_id));
+                    sql.push_bind(", COALESCE((SELECT id FROM organizations WHERE id = ", org)
+                        .push_bind("), ", Id(SYSTEM_ORG_ID))
+                        .push(")");
                 }
                 // SQLite reads an upsert after a SELECT only behind a WHERE.
                 sql.push(&format!(" WHERE true ON CONFLICT ({key}) DO NOTHING"));
@@ -408,26 +400,6 @@ pub(crate) async fn doom(
     Ok(())
 }
 
-/// The board a place of the file storage names, if it is one the server made:
-/// `boards/<day>/<board>/<name>`.
-fn container_of(path: &str) -> Option<&str> {
-    let mut parts = path.split('/');
-    match (
-        parts.next(),
-        parts.next(),
-        parts.next(),
-        parts.next(),
-        parts.next(),
-    ) {
-        (Some("boards"), Some(_), Some(container), Some(_), None)
-            if fvoci_model::is_id(container) =>
-        {
-            Some(container)
-        }
-        _ => None,
-    }
-}
-
 /// The organization of the rows a statement returns, where they carry it: the column
 /// to read after the others, on PostgreSQL by a handle that reaches every organization.
 pub(crate) fn org_column(scope: &Scope<'_>) -> Option<&'static str> {
@@ -444,26 +416,4 @@ fn loose_object_from_row(row: &Row) -> Result<LooseObject, StoreError> {
         last_attempt_at: row.int(5)?,
         last_error: row.text(6)?,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_place_the_server_made_names_its_board() {
-        let container = "01890000-0000-7000-8000-000000000001";
-        assert_eq!(
-            container_of(&format!("boards/20261112/{container}/x.png")),
-            Some(container)
-        );
-        for other in [
-            "boards/20261112/x.png",
-            "boards/20261112/not-an-id/x.png",
-            &format!("other/20261112/{container}/x.png"),
-            &format!("boards/20261112/{container}/deeper/x.png"),
-        ] {
-            assert_eq!(container_of(other), None, "{other}");
-        }
-    }
 }

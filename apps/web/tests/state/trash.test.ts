@@ -49,12 +49,14 @@ describe('the cards in the trash, in memory', () => {
     expect(
       (await backend.deletedCards(boardId, { page: 1, perPage: 1 })).map((item) => item.title),
     ).toEqual(['Alpha']);
-    // `perPage` 0 is all of them; below 0 or past the largest is refused, as by the server.
-    expect(await backend.deletedCards(boardId, { page: 3, perPage: 0 })).toHaveLength(2);
+    // Pages of 1 to 1000, as the server cuts them: anything else is refused.
+    expect(await backend.deletedCards(boardId, { page: 0, perPage: 1000 })).toHaveLength(2);
     for (const paging of [
       { page: -1, perPage: 1 },
+      { page: 2_147_483_648, perPage: 1 },
+      { page: 0, perPage: 0 },
       { page: 0, perPage: -1 },
-      { page: 0, perPage: 2_147_483_648 },
+      { page: 0, perPage: 1001 },
     ]) {
       const refused = await rejection(backend.deletedCards(boardId, paging));
       expect(refused.status, JSON.stringify(paging)).toBe(400);

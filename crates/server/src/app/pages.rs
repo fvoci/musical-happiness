@@ -9,7 +9,7 @@ use fvoci_store::{PageCopies, PageRestore, PageWrite, StoreError};
 
 use super::App;
 use super::blocks::{ChangeAction, ChangeNotification, log_notification};
-use super::cards::ListPage;
+use super::list_page::ListPage;
 use crate::error::{AppError, Reason};
 
 impl App {
@@ -217,7 +217,7 @@ impl App {
     ) -> Result<Vec<DeletedPage>, AppError> {
         Ok(self
             .store()
-            .get_deleted_pages(wiki_id, page.paging())
+            .get_deleted_pages(wiki_id, Some(page.paging()))
             .await?)
     }
 
