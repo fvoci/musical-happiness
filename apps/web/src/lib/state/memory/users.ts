@@ -1,4 +1,5 @@
 /** The memory directory distinguishes current members from the authors of readable work. */
+import { isGone } from '../../logic/users.ts';
 import type { User } from '../backend.ts';
 
 import { isOpenWiki } from './container-access.ts';
@@ -17,6 +18,32 @@ export function seedUsers(world: World, users: readonly User[]): void {
 function listed(user: User): User {
   const { isAdmin: _isAdmin, ...rest } = copy(user);
   return rest;
+}
+
+/**
+ * Deletes the account of a user, as the server erases one: it is in the
+ * workspace and on its boards no more, nothing of the person is left, and
+ * what they wrote stays under the identifier.
+ */
+export function eraseUser(world: World, userId: string): void {
+  const user = world.users.get(userId);
+  if (!user) return;
+  world.users.set(userId, {
+    ...user,
+    username: '',
+    displayName: '',
+    email: '',
+    isAdmin: false,
+    deleteAt: world.now(),
+  });
+  world.workspaceMembers.delete(userId);
+  world.settings.delete(userId);
+  for (const [boardId, members] of world.members) {
+    world.members.set(
+      boardId,
+      members.filter((member) => member.userId !== userId),
+    );
+  }
 }
 
 export function usersAmong(world: World): User[] {
@@ -52,8 +79,13 @@ export function usersNamed(world: World, readerId: string, userIds: readonly str
   }
   return (
     scramble([...world.users.values()])
-      // As the server: a closed account is named by nobody, though its work stays.
-      .filter((user) => userIds.includes(user.id) && visible.has(user.id) && user.deleteAt === 0)
+      // As the server: a closed account is named by nobody, though its work stays; one
+      // that was deleted is answered as what is left of it, to whoever asks.
+      .filter(
+        (user) =>
+          userIds.includes(user.id) &&
+          (isGone(user) || (visible.has(user.id) && user.deleteAt === 0)),
+      )
       .map(listed)
   );
 }

@@ -27,6 +27,16 @@ describe('a created by property', () => {
     expect(container).not.toHaveTextContent('Unknown user');
   });
 
+  it('shows an author whose account was deleted as a deleted user', () => {
+    const card = testCard();
+    card.createdBy = 'user-gone';
+    // What is left of the account: its identifier, and no name.
+    const named = [{ id: 'user-gone', username: '', displayName: '' }];
+    const { container } = mount('createdBy', undefined, { card, named });
+    expect(container).toHaveTextContent('Deleted user');
+    expect(container).not.toHaveTextContent('Unknown user');
+  });
+
   it('shows nothing for a card without a creator', () => {
     const card = testCard();
     card.createdBy = '';
