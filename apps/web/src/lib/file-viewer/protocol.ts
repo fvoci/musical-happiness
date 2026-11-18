@@ -3,9 +3,11 @@
  *
  * The frame is a document without an origin of its own (`sandbox` without
  * `allow-same-origin`) and without the network. The app hands it a file's
- * bytes and a few commands; the frame answers with what the app shows around
- * it: how many pages there are, which one is in view, that it failed, and the
- * keys the reader pressed while the frame had the focus. Nothing else crosses.
+ * bytes, the few words the frame says itself (in the app's language), and a
+ * few commands; the frame answers with what the app shows around it: how many
+ * pages there are, which one is in view, that it failed, the keys the reader
+ * pressed while the frame had the focus, and that the reader asked for the
+ * file to download. Nothing else crosses.
  *
  * Each side reads what arrives with the reader below, which accepts exactly
  * these shapes and nothing more: a message with an extra field, a field of
@@ -34,8 +36,26 @@ export const PAGE_LIMIT = 100_000;
 export const ZOOM_MIN = 0.25;
 export const ZOOM_MAX = 4;
 
+/** The most characters each of the frame's words may be. */
+export const WORDS_LIMIT = 200;
+
+/** What the frame says itself, in the app's language: in place of a page it does not draw. */
+export interface FrameWords {
+  /** In place of a page past what the frame takes on. */
+  pageTooLarge: string;
+  /** The button there that saves the file. */
+  download: string;
+}
+
 export type ToFrame =
-  | { kind: 'open'; format: FormatId; bytes: ArrayBuffer; theme: Theme; lang: string }
+  | {
+      kind: 'open';
+      format: FormatId;
+      bytes: ArrayBuffer;
+      theme: Theme;
+      lang: string;
+      words: FrameWords;
+    }
   | { kind: 'page'; page: number }
   | { kind: 'zoom'; zoom: number }
   | { kind: 'theme'; theme: Theme };
@@ -45,7 +65,9 @@ export type FromFrame =
   | { kind: 'shown'; pages: number }
   | { kind: 'page'; page: number }
   | { kind: 'failed'; reason: Failure }
-  | { kind: 'key'; key: ViewerKey };
+  | { kind: 'key'; key: ViewerKey }
+  /** The reader pressed a button in the frame that saves the file. */
+  | { kind: 'download' };
 
 type Fields = Record<string, unknown>;
 
@@ -69,6 +91,18 @@ const isLanguage = (value: unknown): value is string =>
 
 const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T =>
   typeof value === 'string' && (list as readonly string[]).includes(value);
+
+const WORD_KEYS = ['pageTooLarge', 'download'] as const;
+
+const isWord = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && value.length <= WORDS_LIMIT;
+
+function readWords(data: unknown): FrameWords | undefined {
+  const fields = exactly(data, WORD_KEYS);
+  if (!fields || !WORD_KEYS.every((key) => isWord(fields[key]))) return undefined;
+  const { pageTooLarge, download } = fields as Record<(typeof WORD_KEYS)[number], string>;
+  return { pageTooLarge, download };
+}
 
 function kindOf(data: unknown): unknown {
   return typeof data === 'object' && data !== null ? (data as Fields).kind : undefined;
@@ -95,6 +129,8 @@ export function readFromFrame(data: unknown): FromFrame | undefined {
       const key = exactly(data, ['kind', 'key'])?.key;
       return isOneOf(VIEWER_KEYS, key) ? { kind: 'key', key } : undefined;
     }
+    case 'download':
+      return exactly(data, ['kind']) ? { kind: 'download' } : undefined;
     default:
       return undefined;
   }
@@ -104,11 +140,13 @@ export function readFromFrame(data: unknown): FromFrame | undefined {
 export function readToFrame(data: unknown): ToFrame | undefined {
   switch (kindOf(data)) {
     case 'open': {
-      const fields = exactly(data, ['kind', 'format', 'bytes', 'theme', 'lang']);
+      const fields = exactly(data, ['kind', 'format', 'bytes', 'theme', 'lang', 'words']);
       if (!fields || !isFormatId(fields.format) || !isTheme(fields.theme)) return undefined;
       if (!(fields.bytes instanceof ArrayBuffer) || !isLanguage(fields.lang)) return undefined;
+      const words = readWords(fields.words);
+      if (!words) return undefined;
       const { format, bytes, theme, lang } = fields;
-      return { kind: 'open', format, bytes, theme, lang };
+      return { kind: 'open', format, bytes, theme, lang, words };
     }
     case 'page': {
       const page = exactly(data, ['kind', 'page'])?.page;

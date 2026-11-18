@@ -25,6 +25,7 @@ import {
 import {
   compoundFile,
   compoundStreams,
+  denseHwpx,
   HWP_TEXT,
   hwpFileHeader,
   koreanHwp,
@@ -300,21 +301,30 @@ test('pictures that each end with a byte rhwp passes over count all they unpack 
   await ended;
 });
 
-test('a page drawn past what the frame takes on says the file is too large', async ({ page }) => {
+test('a page drawn past what the frame takes on says so in its place, and the others are drawn', async ({
+  page,
+}) => {
   await openCard(page);
   // 30,000 characters on the first page, each drawn apart: past 20,000 elements.
-  const words = '가나다라 마바사아 자차카타 파하 ';
-  const body = words.repeat(Math.ceil(30_000 / words.length)).slice(0, 30_000);
-  const dense = rewriteArchive(koreanHwpx(), (member) =>
-    member.name === 'Contents/section0.xml'
-      ? { ...member, data: Buffer.from(member.data.toString('utf8').replace(HWP_TEXT.body, body)) }
-      : member,
-  );
   const started = nextWorker(page);
-  await view(page, 'dense.hwpx', dense, HWPX_TYPE);
+  await view(page, 'dense.hwpx', denseHwpx(), HWPX_TYPE);
   const { ended } = await started;
-  await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
-  await expect(notice(page)).toContainText("This file's contents are too large to preview.");
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 2');
+  const frame = frameOf(page);
+  const first = frame.locator('.page[data-page="1"]');
+  await expect(first.locator('.page-notice')).toContainText('This page is too large to show.');
+  await expect(first.locator('svg')).toHaveCount(0);
+  await picture(page, 'hwp-page-too-large');
+  const downloading = page.waitForEvent('download');
+  await first.getByRole('button', { name: 'Download' }).click();
+  expect((await downloading).suggestedFilename()).toBe('dense.hwpx');
+  await viewer(page).getByRole('button', { name: 'Next page' }).click();
+  const second = frame.locator('.page[data-page="2"]');
+  await expect(second.locator('.hwp-text')).toContainText(HWP_TEXT.second);
+  await expect(second.locator('svg')).toBeVisible();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await page.keyboard.press('Escape');
   await ended;
 });
 

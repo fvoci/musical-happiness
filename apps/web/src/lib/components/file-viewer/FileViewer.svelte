@@ -52,8 +52,12 @@
       new ViewerSession(file, {
         theme: () => display.resolved.theme,
         lang: getLocale,
+        words: () => ({ pageTooLarge: m.viewer_page_too_large(), download: m.viewer_download() }),
         onKey: (key) => {
           command(key);
+        },
+        onDownload: () => {
+          download();
         },
       }),
   );

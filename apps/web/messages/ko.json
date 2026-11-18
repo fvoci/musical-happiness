@@ -313,6 +313,7 @@
   "viewer_failed": "파일을 보여 줄 수 없습니다.",
   "viewer_slow": "파일을 그리는 데 너무 오래 걸립니다.",
   "viewer_download_instead": "다운로드해서 다른 앱으로 여세요.",
+  "viewer_page_too_large": "이 쪽은 너무 커서 보이지 않습니다.",
   "card_upload_progress": "{name} 업로드 중",
   "card_upload_cancel": "{name} 업로드 취소",
   "card_upload_failed": "업로드되지 않음",

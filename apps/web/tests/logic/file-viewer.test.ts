@@ -12,6 +12,7 @@ import {
   readFromFrame,
   readToFrame,
   VIEWER_KEYS,
+  WORDS_LIMIT,
   ZOOM_MAX,
   ZOOM_MIN,
 } from '$lib/file-viewer/protocol.ts';
@@ -247,6 +248,7 @@ describe('a message from the frame is taken only in one of its shapes', () => {
     for (const key of VIEWER_KEYS) {
       expect(readFromFrame({ kind: 'key', key })).toEqual({ kind: 'key', key });
     }
+    expect(readFromFrame({ kind: 'download' })).toEqual({ kind: 'download' });
   });
 
   it('not with a field more, a field less, or a value out of range', () => {
@@ -266,6 +268,7 @@ describe('a message from the frame is taken only in one of its shapes', () => {
       { kind: 'failed', reason: 'because' },
       { kind: 'key', key: 'Enter' },
       { kind: 'key', key: 'a' },
+      { kind: 'download', name: 'other.exe' },
       { kind: 'open', format: 'pdf', bytes: new ArrayBuffer(1), theme: 'light' },
       { kind: 'navigate', url: 'https://example.com/' },
     ]) {
@@ -287,15 +290,25 @@ describe('a message from the frame is taken only in one of its shapes', () => {
 describe('a message from the app, in the frame', () => {
   it('opens a file of a kind the viewer draws, with its bytes', () => {
     const buffer = new ArrayBuffer(4);
-    const open = { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko' };
+    const words = { pageTooLarge: '이 쪽은 너무 커서 보이지 않습니다.', download: '다운로드' };
+    const open = { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko', words };
     expect(readToFrame(open)).toEqual(open);
     expect(readToFrame({ ...open, lang: 'zh-Hans' })).toEqual({ ...open, lang: 'zh-Hans' });
+    const long = 'x'.repeat(WORDS_LIMIT);
+    const most = { ...open, words: { pageTooLarge: long, download: long } };
+    expect(readToFrame(most)).toEqual(most);
     for (const wrong of [
       { ...open, format: 'html' },
       { ...open, bytes: new Uint8Array(4) },
       { ...open, lang: 'ko"><script>' },
       { ...open, lang: '' },
-      { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark' },
+      { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko' },
+      { ...open, words: { pageTooLarge: words.pageTooLarge } },
+      { ...open, words: { ...words, more: 'x' } },
+      { ...open, words: { ...words, download: '' } },
+      { ...open, words: { ...words, download: 7 } },
+      { ...open, words: { ...words, pageTooLarge: `${long}x` } },
+      { ...open, words: 'Download' },
     ]) {
       expect(readToFrame(wrong), JSON.stringify(wrong)).toBeUndefined();
     }

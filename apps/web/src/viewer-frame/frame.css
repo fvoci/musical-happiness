@@ -87,6 +87,57 @@ body {
   background: transparent;
 }
 
+/*
+  In place of an HWP page too large to draw (hwp-view.ts): a line that says
+  so and a button that saves the file, on the page's white in either theme,
+  near its top (a page is often taller than the frame).
+*/
+.page-notice {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12% 16px 16px;
+  overflow: hidden;
+  color: #3f3f46;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.page-notice p {
+  margin: 0;
+  font-weight: 500;
+}
+
+.page-notice button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  background: white;
+  color: #18181b;
+  font: inherit;
+  cursor: pointer;
+}
+
+.page-notice button:hover {
+  background: #f4f4f5;
+}
+
+.page-notice button:focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .page-notice button {
+    min-height: 44px;
+  }
+}
+
 /* docx-preview's wrapper: its grey and its padding give way to the frame's. */
 .docx-body .docx-wrapper {
   background: transparent;

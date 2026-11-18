@@ -27,7 +27,8 @@ import { repack } from './zip-guard.ts';
  * picture into the page as text, as often as the page shows it; this much is
  * a page with the largest picture a file the viewer takes can hold. Past it,
  * or past `PAGE_ELEMENT_LIMIT`, the page is not handed to the frame, whose
- * thread is the app's, and the file is too large to show.
+ * thread is the app's: the frame says in its place that it is too large to
+ * show, and draws the others.
  */
 export const PAGE_SVG_LIMIT = 80 * 1024 * 1024;
 
