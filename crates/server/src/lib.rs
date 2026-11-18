@@ -59,7 +59,7 @@ use crate::storage::FileBackend;
 use crate::tls::TlsListener;
 
 /// The environment variable that names a path prefix under which everything is served.
-pub const BASE_PATH_ENV: &str = "FVOCI_HTTP_SERVER_BASEPATH";
+pub const BASE_PATH_ENV: &str = "FVOCI_BASE_PATH";
 
 /// How long shutdown waits for requests that are still being answered.
 const CONNECTION_DRAIN_TIMEOUT: Duration = Duration::from_secs(10);

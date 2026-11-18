@@ -38,7 +38,7 @@ async fn ping_returns_metadata_on_success() {
     assert_eq!(metadata["edition"], json!("dev"), "{metadata}");
     assert_eq!(metadata["build_number"], json!(""), "{metadata}");
     let db_type = metadata["db_type"].as_str().unwrap_or_default();
-    assert!(db_type == "sqlite3" || db_type == "postgres", "{metadata}");
+    assert!(db_type == "sqlite" || db_type == "postgres", "{metadata}");
     assert!(
         !metadata["db_version"]
             .as_str()
@@ -390,7 +390,7 @@ async fn startup_refuses_a_malformed_base_path() {
             .err()
             .unwrap_or_else(|| panic!("the base path {base_path:?} must be refused"));
         assert!(
-            error.to_string().contains("FVOCI_HTTP_SERVER_BASEPATH"),
+            error.to_string().contains("FVOCI_BASE_PATH"),
             "{base_path:?}: {error}"
         );
     }

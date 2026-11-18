@@ -74,7 +74,7 @@ impl<'de> serde::de::Visitor<'de> for UnreadKeysVisitor {
 #[derive(Clone, Default, Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
-pub struct AmazonS3Config {
+pub struct S3Config {
     /// The access key; empty to use the environment's credentials.
     pub access_key_id: String,
     /// The secret key.
@@ -100,10 +100,10 @@ pub struct AmazonS3Config {
     pub unread: UnreadKeys,
 }
 
-impl std::fmt::Debug for AmazonS3Config {
+impl std::fmt::Debug for S3Config {
     /// Leaves out the secret key.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AmazonS3Config")
+        f.debug_struct("S3Config")
             .field("access_key_id", &self.access_key_id)
             .field("bucket", &self.bucket)
             .field("key_prefix", &self.key_prefix)
@@ -132,7 +132,7 @@ pub struct Configuration {
     pub server_url: String,
     /// The port to listen on.
     pub port: u16,
-    /// The database kind: `sqlite3` or `postgres`.
+    /// The database kind: `sqlite` or `postgres`.
     pub database_kind: String,
     /// The database connection: the path of an SQLite file, or a PostgreSQL URL.
     pub database_connection: String,
@@ -145,10 +145,10 @@ pub struct Configuration {
     pub serve_https: bool,
     /// The directory holding the web app: `index.html` and `static/`.
     pub web_app_path: String,
-    /// The file backend: `local` or `amazons3`.
+    /// The file backend: `local` or `s3`.
     pub file_storage: String,
-    /// The settings of the `amazons3` file backend.
-    pub file_storage_s3: AmazonS3Config,
+    /// The settings of the `s3` file backend.
+    pub file_storage_s3: S3Config,
     /// The directory of the `local` file backend.
     pub file_storage_path: String,
     /// The largest accepted upload in bytes: 100 MiB unless set. At least 1, and at most
@@ -186,9 +186,6 @@ pub struct Configuration {
     pub show_email_addresses: bool,
     /// Whether user lists include first and last names.
     pub show_full_names: bool,
-    /// The authentication mode. Only `native` is supported. Signing in through an
-    /// organization's `OpenID Connect` provider is the organization's to set, beside it.
-    pub auth_mode: String,
     /// Whether the providers of the organizations may be reached at addresses that are
     /// not public (loopback, private networks): for an installation whose provider is
     /// on its own network. Off, such a provider is neither stored nor signed in
@@ -335,14 +332,14 @@ impl Default for Configuration {
         Self {
             server_url: "http://localhost:8000".to_owned(),
             port: 8000,
-            database_kind: "sqlite3".to_owned(),
+            database_kind: "sqlite".to_owned(),
             database_connection: "./fvoci.db".to_owned(),
             database_connect_attempts: 5,
             server_lock_wait_seconds: 30,
             serve_https: false,
             web_app_path: "./pack".to_owned(),
             file_storage: "local".to_owned(),
-            file_storage_s3: AmazonS3Config::default(),
+            file_storage_s3: S3Config::default(),
             file_storage_path: "./files".to_owned(),
             max_file_bytes: DEFAULT_MAX_FILE_BYTES,
             metrics_address: String::new(),
@@ -359,7 +356,6 @@ impl Default for Configuration {
             name_display: "username".to_owned(),
             show_email_addresses: false,
             show_full_names: false,
-            auth_mode: "native".to_owned(),
             oidc_allow_private_addresses: false,
             oidc_extra_ca_file: String::new(),
             oidc_former_provider_days: 30,
@@ -431,7 +427,6 @@ impl std::fmt::Debug for Configuration {
             .field("name_display", &self.name_display)
             .field("show_email_addresses", &self.show_email_addresses)
             .field("show_full_names", &self.show_full_names)
-            .field("auth_mode", &self.auth_mode)
             .field(
                 "oidc_allow_private_addresses",
                 &self.oidc_allow_private_addresses,
@@ -722,17 +717,10 @@ impl Configuration {
     ///
     /// # Errors
     ///
-    /// Returns an error naming the first setting this server cannot honor: an
-    /// authentication mode other than `native`, a metrics address that is no `host:port`,
-    /// port 0, a limit of zero, a ping period out of its range, or an unknown file
-    /// backend.
+    /// Returns an error naming the first setting this server cannot honor: a metrics
+    /// address that is no `host:port`, port 0, a limit of zero, a ping period out of its
+    /// range, or an unknown file backend.
     pub fn check(&self) -> anyhow::Result<Vec<String>> {
-        if self.auth_mode != "native" {
-            bail!(
-                "auth_mode {:?} is not supported; this server only has native authentication",
-                self.auth_mode
-            );
-        }
         if ![ORG_CREATION_FIRST_USER_ONLY, ORG_CREATION_OPEN].contains(&self.org_creation.as_str())
         {
             bail!(
@@ -743,7 +731,7 @@ impl Configuration {
         }
         // SQLite holds one organization, and nothing would keep several apart. (A
         // database_kind that is none is refused where the database is opened.)
-        if self.takes_several_organizations() && self.database_kind == "sqlite3" {
+        if self.takes_several_organizations() && self.database_kind == "sqlite" {
             bail!(
                 "org_creation is {ORG_CREATION_OPEN:?}, which needs database_kind \"postgres\": \
                  an SQLite database holds one organization"
@@ -786,9 +774,9 @@ impl Configuration {
         self.wiki.check()?;
         self.metrics_listen_address()?;
         self.check_metrics_token()?;
-        if !["local", "amazons3"].contains(&self.file_storage.as_str()) {
+        if !["local", "s3"].contains(&self.file_storage.as_str()) {
             bail!(
-                "file_storage {:?} is not supported; use \"local\" or \"amazons3\"",
+                "file_storage {:?} is not supported; use \"local\" or \"s3\"",
                 self.file_storage
             );
         }

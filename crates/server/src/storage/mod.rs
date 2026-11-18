@@ -96,7 +96,7 @@ impl FileBackend {
     pub fn from_config(config: &Configuration) -> Result<Self, StorageError> {
         let backend = match config.file_storage.as_str() {
             "local" => Self::Local(LocalFiles::new(&config.file_storage_path)),
-            "amazons3" => Self::S3(S3Files::new(&config.file_storage_s3)?),
+            "s3" => Self::S3(S3Files::new(&config.file_storage_s3)?),
             other => {
                 return Err(StorageError::Config(format!(
                     "unknown file_storage {other:?}"

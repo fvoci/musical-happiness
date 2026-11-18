@@ -27,7 +27,7 @@ CloudFront와 Cloudflare의 수치, 정책 이름은 2026-11-10에 각 벤더 �
 | 설정 | 프록시 뒤에서의 의미 |
 | --- | --- |
 | `server_url` | 공개 URL. 예: `https://boards.example.com`. 오리진 주소가 아니라 CDN에 연결한 도메인을 적는다. base path도 이 값에서 정해진다. 서버는 이 값을 `index.html`에 채워 보낸다. |
-| `FVOCI_HTTP_SERVER_BASEPATH` (환경 변수) | 경로 접두사 아래에서 서비스할 때 쓴다. |
+| `FVOCI_BASE_PATH` (환경 변수) | 경로 접두사 아래에서 서비스할 때 쓴다. |
 | `port`, `listen_loopback_only` | 수신 포트. `listen_loopback_only`가 true면 `localhost`에서만 받는다. 같은 호스트의 프록시나 터널 뒤에 둘 때 쓴다. |
 | `serve_https` | TLS는 보통 CDN에서 끝난다. 오리진은 사설망 안에서 HTTP로 두거나 `serve_https`로 HTTPS를 쓴다. `serve_https`를 켰는데 `./cert/cert.pem`이나 `./cert/key.pem`이 없으면 서버는 뜨지 않는다(평문으로 떨어지지 않는다). |
 | `trusted_proxies` | 기본값은 빈 목록. 서버 앞에 있는 프록시의 주소와 주소 범위(`10.0.0.0/8` 같은)를 적는다. 그 주소에서 온 요청만 `X-Forwarded-For`를 믿고, 목록을 오른쪽에서부터 읽어 믿는 프록시가 아닌 첫 주소를 클라이언트로 본다. 요청 로그와 로그인 시도 제한이 같은 주소를 쓴다. |

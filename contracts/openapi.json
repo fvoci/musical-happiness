@@ -3794,7 +3794,7 @@
             "type": "string"
           },
           "db_type": {
-            "description": "The database kind: `sqlite3` or `postgres`.",
+            "description": "The database kind: `sqlite` or `postgres`.",
             "type": "string"
           },
           "db_version": {

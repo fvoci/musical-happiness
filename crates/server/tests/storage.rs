@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use bytes::Bytes;
 use futures_util::TryStreamExt as _;
 use fvoci_model::new_id;
-use fvoci_server::config::AmazonS3Config;
+use fvoci_server::config::S3Config;
 use fvoci_server::storage::{FileBackend, LocalFiles, S3Files, StorageError};
 
 async fn write(backend: &FileBackend, path: &str, content: &[u8]) -> u64 {
@@ -228,9 +228,9 @@ async fn local_backend() {
     std::fs::remove_dir_all(&root).expect("the test directory can be removed");
 }
 
-fn s3_config() -> AmazonS3Config {
+fn s3_config() -> S3Config {
     let var = |name: &str| std::env::var(name).unwrap_or_default();
-    AmazonS3Config {
+    S3Config {
         access_key_id: std::env::var("FVOCI_S3_TEST_ACCESS_KEY")
             .unwrap_or_else(|_| "any".to_owned()),
         secret_access_key: std::env::var("FVOCI_S3_TEST_SECRET_KEY")
@@ -240,7 +240,7 @@ fn s3_config() -> AmazonS3Config {
         region: std::env::var("FVOCI_S3_TEST_REGION").unwrap_or_else(|_| "us-east-1".to_owned()),
         endpoint: var("FVOCI_S3_TEST_ENDPOINT"),
         https: var("FVOCI_S3_TEST_SSL") == "true",
-        ..AmazonS3Config::default()
+        ..S3Config::default()
     }
 }
 
@@ -337,6 +337,6 @@ async fn s3_multipart_upload() {
 
 #[test]
 fn s3_settings_are_checked() {
-    let error = S3Files::new(&AmazonS3Config::default()).expect_err("no bucket");
+    let error = S3Files::new(&S3Config::default()).expect_err("no bucket");
     assert!(matches!(error, StorageError::Config(_)), "got {error:?}");
 }

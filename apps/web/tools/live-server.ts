@@ -133,7 +133,7 @@ const storage = organizations
       }),
       org_creation: 'open',
     }
-  : { database_kind: 'sqlite3', database_connection: path.join(data, 'fvoci.db') };
+  : { database_kind: 'sqlite', database_connection: path.join(data, 'fvoci.db') };
 const origin = `http://localhost:${port}`;
 writeFileSync(
   path.join(data, 'config.json'),

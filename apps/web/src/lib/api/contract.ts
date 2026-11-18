@@ -5544,7 +5544,7 @@ export interface components {
             build_number: string;
             /** @description The commit the server was built from; empty unless set at build time. */
             commit: string;
-            /** @description The database kind: `sqlite3` or `postgres`. */
+            /** @description The database kind: `sqlite` or `postgres`. */
             db_type: string;
             /** @description The database's version string. */
             db_version: string;

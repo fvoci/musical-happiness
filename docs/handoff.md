@@ -249,8 +249,6 @@ cargo xtask docker   # 이미지 둘(서버+웹앱, 검색 서버)을 빌드해 
 4. **(끝났다, tracer-bullet 10)** **응답 압축에 zstd를 더한다.** 결정된 것은 gzip, brotli, zstd 셋이다. 정적 파일은 웹앱의 빌드가 `.zst`를 이미 만든다. 서버는 지금 미리 압축된 brotli와 gzip 파일만 골라 보낸다(`crates/server/src/web.rs`). `.zst`를 골라 보내는 일이 남았다.
 5. **(끝났다, tracer-bullet 11)** **`cargo xtask test`가 스스로 띄운 컨테이너를 끝날 때 멈추게 한다.** 함께 컨테이너 이름에서 옛 워크트리 이름(`hafgufa-`)을 뗀다. 이름의 기본값은 `xtask/src/containers.rs`에 있다.
 
-**후속 후보(이 묶음 밖, 사용자 결정 2026-11-11 05:04 KST).** 설정에 자리만 있고 아직 아무 일도 하지 않는 예약된 키 `auth_mode`다(`docs/configuration.md`의 "예약된 키"). OIDC 로그인의 자리이고 지금은 `native`만 받는다.
-
 **웹앱 쪽에 전할 것.**
 
 - 계약 파일 `contracts/openapi.json`과 `docs/contract-pending.md`. 웹앱과 같은 트리에 있다.

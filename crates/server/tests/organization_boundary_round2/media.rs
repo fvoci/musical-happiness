@@ -5,7 +5,7 @@ use fvoci_model::{
     Block, BlockType, Container, ContainerType, Upload, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_server::app::{App, FileToUpload};
-use fvoci_server::config::{AmazonS3Config, Configuration};
+use fvoci_server::config::{Configuration, S3Config};
 use fvoci_store::{DbType, SharingChange, Tenant};
 use reqwest::{Method, StatusCode};
 use serde_json::json;
@@ -402,16 +402,16 @@ async fn local_files_tokens_uploads_and_housekeeping_stay_in_their_organizations
 }
 
 fn s3(config: &mut Configuration) {
-    "amazons3".clone_into(&mut config.file_storage);
+    "s3".clone_into(&mut config.file_storage);
     config.upload_part_bytes = 5 * 1024 * 1024;
-    config.file_storage_s3 = AmazonS3Config {
+    config.file_storage_s3 = S3Config {
         access_key_id: "any".to_owned(),
         secret_access_key: "any".to_owned(),
         bucket: std::env::var("FVOCI_S3_TEST_BUCKET").expect("the test bucket"),
         endpoint: std::env::var("FVOCI_S3_TEST_ENDPOINT").expect("the test endpoint"),
         key_prefix: "organization-review-round2".to_owned(),
         region: "us-east-1".to_owned(),
-        ..AmazonS3Config::default()
+        ..S3Config::default()
     };
 }
 

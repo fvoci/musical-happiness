@@ -35,7 +35,7 @@ pub(crate) async fn system(s: &mut Session) {
     s.note("ping members", &json!(members));
     let db_type = ping["db_type"].as_str().unwrap_or_default();
     assert!(
-        ["sqlite3", "postgres"].contains(&db_type),
+        ["sqlite", "postgres"].contains(&db_type),
         "ping names the database kind, got {db_type:?}"
     );
     // The database kind is the one thing that differs between the two test runs.

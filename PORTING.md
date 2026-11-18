@@ -130,7 +130,7 @@ D절과 G절부터는 설계 문서(`docs/s6-design.md`)의 "구현 순서"를 �
 **지금.** 서버의 응답은 회귀 테스트의 스냅샷으로 고정돼 있다. 서버를 고치기 전에 태그 `parity-s5` 시점의 응답을 기대값으로 기록했고, 그 뒤로 응답을 바꾼 커밋마다 스냅샷을 함께 바꿨다.
 
 - **자리.** `crates/server/tests/regression/`의 통합 테스트이고 스냅샷은 `golden/`에 있다. 시나리오마다 테스트 하나, 권한 표는 보드 종류(비공개, 공개)마다 테스트 하나다. 테스트마다 서버를 따로 띄운다.
-- **두 DB가 한 스냅샷을 쓴다.** SQLite에서 기록한 스냅샷이 PostgreSQL에서 그대로 통과한다. 그래서 `ping`이 답하는 DB 종류는 `<db>`로 적는다. 값이 `sqlite3`·`postgres` 중 하나인지는 테스트가 따로 확인한다.
+- **두 DB가 한 스냅샷을 쓴다.** SQLite에서 기록한 스냅샷이 PostgreSQL에서 그대로 통과한다. 그래서 `ping`이 답하는 DB 종류는 `<db>`로 적는다. 값이 `sqlite`·`postgres` 중 하나인지는 테스트가 따로 확인한다.
 - **정규화.** 식별자는 처음 나온 순서의 `<id:N>`, 밀리초 시각은 `<ts>`, 비밀 값은 `<secret:N>`으로 바꾼다. 목록은 온 순서대로 기록한다(M절).
 - **갱신 방법은 하나다.** `FVOCI_REGRESSION_UPDATE=1 cargo test -p fvoci-server --test regression`이 스냅샷을 다시 쓴다. 응답을 의도해서 바꾸는 커밋은 바뀐 스냅샷을 함께 담는다. 리뷰어는 그 `git diff`에서 응답이 어떻게 달라졌는지 본다. 절차와 주의는 `docs/handoff.md` 1절에 있다.
 - **조율은 xtask로 한다.** `cargo xtask check`와 `cargo xtask test`다(`xtask/`, 별칭은 `.cargo/config.toml`). 의존성은 이미 쓰던 `anyhow`와 `clap`뿐이다.

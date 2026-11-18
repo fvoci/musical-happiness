@@ -9,7 +9,7 @@ fn empty_object_gives_the_defaults() {
     let config = Configuration::parse("{}", no_env).expect("an empty object is valid");
     assert_eq!(config.server_url, "http://localhost:8000");
     assert_eq!(config.port, 8000);
-    assert_eq!(config.database_kind, "sqlite3");
+    assert_eq!(config.database_kind, "sqlite");
     assert_eq!(config.database_connection, "./fvoci.db");
     assert_eq!(config.web_app_path, "./pack");
     assert_eq!(config.file_storage, "local");
@@ -35,7 +35,6 @@ fn empty_object_gives_the_defaults() {
     assert_eq!(config.max_concurrent_imports, 2);
     assert_eq!(config.server_lock_wait_seconds, 30);
     assert_eq!(config.tmp_dir(), std::path::Path::new("./files/.tmp"));
-    assert_eq!(config.auth_mode, "native");
     assert_eq!(config.name_display, "username");
     assert_eq!(config.admin_socket_path, "/var/tmp/fvoci_local.socket");
     assert_eq!(config.websocket_ping_seconds, 30);
@@ -70,6 +69,7 @@ fn a_port_of_zero_and_s3_settings_that_are_no_object_are_refused() {
 fn keys_are_read_only_as_written_and_the_others_are_named_in_a_warning() {
     let text = r#"{
             "PORT": 8088,
+            "auth_mode": "native",
             "Listen_Loopback_Only": true,
             "serverRoot": "https://hidden.example",
             "dbconfig": "postgres://u:hunter2@h/db",
@@ -89,6 +89,7 @@ fn keys_are_read_only_as_written_and_the_others_are_named_in_a_warning() {
         [
             "Listen_Loopback_Only",
             "PORT",
+            "auth_mode",
             "dbconfig",
             "enablePublicSharedBoards",
             "serverRoot",
@@ -101,7 +102,7 @@ fn keys_are_read_only_as_written_and_the_others_are_named_in_a_warning() {
     assert_eq!(
         warnings[0],
         "the configuration file has keys that no setting reads: \"Listen_Loopback_Only\", \
-         \"PORT\", \"dbconfig\", \"enablePublicSharedBoards\", \"serverRoot\", \
+         \"PORT\", \"auth_mode\", \"dbconfig\", \"enablePublicSharedBoards\", \"serverRoot\", \
          \"file_storage_s3.Bucket\", \"file_storage_s3.accesskeyid\""
     );
     for value in ["hunter2", "s3cr3t", "hidden.example"] {
@@ -323,7 +324,11 @@ fn check_rejects_what_the_server_cannot_honor() {
             .expect_err("the setting is not supported")
             .to_string()
     };
-    assert!(error(r#"{"auth_mode": "other"}"#).contains("auth_mode"));
+    // The values are this server's own: those of the original are no other names of them.
+    assert!(error(r#"{"file_storage": "amazons3"}"#).contains("\"s3\""));
+    parse(r#"{"file_storage": "s3", "file_storage_s3": {"bucket": "b"}}"#)
+        .check()
+        .expect("s3 is a file backend");
     for address in [
         "9092",
         "localhost",
@@ -566,7 +571,7 @@ fn org_creation_is_first_user_only_or_open_and_open_needs_postgresql() {
         ..Configuration::default()
     };
     assert_eq!(Configuration::default().org_creation, "first_user_only");
-    for db_type in ["sqlite3", "postgres"] {
+    for db_type in ["sqlite", "postgres"] {
         with("first_user_only", db_type)
             .check()
             .expect("one organization on either database");
@@ -574,7 +579,7 @@ fn org_creation_is_first_user_only_or_open_and_open_needs_postgresql() {
     with("open", "postgres")
         .check()
         .expect("several organizations on PostgreSQL");
-    let refused = with("open", "sqlite3").check().expect_err("not on SQLite");
+    let refused = with("open", "sqlite").check().expect_err("not on SQLite");
     assert!(refused.to_string().contains("postgres"), "{refused}");
     for unknown in ["", "Open", "everybody"] {
         let refused = with(unknown, "postgres")

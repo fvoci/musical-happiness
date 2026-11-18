@@ -159,7 +159,7 @@ async fn the_calls_of_the_database_are_measured() {
         );
     }
     for line in after.lines().filter(|line| line.starts_with("fvoci_db_")) {
-        let db_named = ["db=\"sqlite3\"", "db=\"postgres\""]
+        let db_named = ["db=\"sqlite\"", "db=\"postgres\""]
             .iter()
             .any(|value| line.contains(value));
         assert!(db_named || !line.contains("db="), "{line}");

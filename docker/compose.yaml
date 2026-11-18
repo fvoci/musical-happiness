@@ -36,7 +36,7 @@
 # password: recreate search and fvoci, above).
 #
 # Profiles: `s3` keeps files in SeaweedFS instead of the volume fvoci-data (set
-# FVOCI_FILE_STORAGE=amazons3 and the S3 lines of .env); `mail` is Mailpit, a mail relay
+# FVOCI_FILE_STORAGE=s3 and the S3 lines of .env); `mail` is Mailpit, a mail relay
 # that keeps what it gets (set FVOCI_SMTP_HOST=mailpit and the mail lines of .env), read
 # with `docker compose exec mailpit wget -qO- localhost:8025/api/v1/messages`.
 #

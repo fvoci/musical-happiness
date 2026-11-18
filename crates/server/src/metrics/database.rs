@@ -19,7 +19,7 @@ impl Database {
     /// The value of the `db` label: the name of the `database_kind` setting.
     fn as_str(self) -> &'static str {
         match self {
-            Self::Sqlite => "sqlite3",
+            Self::Sqlite => "sqlite",
             Self::Postgres => "postgres",
         }
     }
@@ -85,7 +85,7 @@ impl DatabaseMetrics {
                  connection for a read on SQLite) from its start to its end, the wait for \
                  a connection and on SQLite a writer's turn included, and also of the \
                  calls given up (a scrape's or a readiness check's timeout, a shutdown); \
-                 by db (sqlite3, postgres) and access \
+                 by db (sqlite, postgres) and access \
                  (read, write: a transaction that may write, or a call in which a \
                  statement that may write started, also one given up); its count is \
                  the number of calls.",

@@ -1,7 +1,7 @@
 {
     "server_url": "http://localhost:8000",
     "port": 8000,
-    "database_kind": "sqlite3",
+    "database_kind": "sqlite",
     "database_connection": "/data/fvoci.db",
     "serve_https": false,
     "web_app_path": "/opt/fvoci/web",

@@ -19,7 +19,7 @@ struct Cli {
     /// The port number; overrides the config file.
     #[arg(long)]
     port: Option<u16>,
-    /// The database kind (sqlite3 or postgres); overrides `database_kind`.
+    /// The database kind (sqlite or postgres); overrides `database_kind`.
     #[arg(long)]
     database_kind: Option<String>,
     /// The database connection; overrides `database_connection`.

@@ -51,9 +51,9 @@ pub enum BlockType {
     /// A page of a wiki ([`crate::Page`]).
     Page,
     /// Any other type string, kept as sent, such as a content block type of the original
-    /// (`text`, `image`, ...): no block is written with one any more, and a block stored
-    /// with one before (`board`, which the data step of migration 8 kept) is read as it
-    /// is. The empty string means "no type".
+    /// (`text`, `image`, ...): no block is written with one any more, and the data steps
+    /// of migrations 8 and 42 delete those stored before. The empty string means "no
+    /// type".
     Other(String),
 }
 

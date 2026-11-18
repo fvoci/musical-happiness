@@ -17,7 +17,7 @@ use tokio::io::{AsyncRead, AsyncWriteExt as _};
 
 use super::measure::measured;
 use super::{FileStream, ObjectListing, StorageError, StoredObject};
-use crate::config::AmazonS3Config;
+use crate::config::S3Config;
 use crate::metrics::{FilesBackend, FilesOperation, Metrics};
 
 /// Files kept in a bucket of an S3-compatible object store, the `file_storage_s3` setting.
@@ -44,7 +44,7 @@ impl S3Files {
     ///
     /// Returns [`StorageError::Config`] if no bucket is set, or the object store client
     /// cannot be built from the settings.
-    pub fn new(config: &AmazonS3Config) -> Result<Self, StorageError> {
+    pub fn new(config: &S3Config) -> Result<Self, StorageError> {
         if config.bucket.is_empty() {
             return Err(StorageError::Config(
                 "file_storage_s3.bucket is empty".to_owned(),

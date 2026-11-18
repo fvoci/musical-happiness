@@ -11,7 +11,7 @@ use bytes::Bytes;
 use fvoci_model::{ContainerType, new_id};
 use fvoci_server::app::{App, CLOSED_UPLOAD_GRACE_MILLIS, FileToUpload};
 use fvoci_server::auth::now_millis;
-use fvoci_server::config::{AmazonS3Config, Configuration};
+use fvoci_server::config::{Configuration, S3Config};
 use fvoci_store::{Call, DbType, Observer, Store};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::oneshot;
@@ -20,8 +20,8 @@ use crate::common::{Setup, TEST_WORKSPACE_ID};
 
 fn configure(config: &mut Configuration) {
     let var = |key: &str, default: &str| std::env::var(key).unwrap_or_else(|_| default.to_owned());
-    "amazons3".clone_into(&mut config.file_storage);
-    config.file_storage_s3 = AmazonS3Config {
+    "s3".clone_into(&mut config.file_storage);
+    config.file_storage_s3 = S3Config {
         endpoint: var("FVOCI_S3_TEST_ENDPOINT", ""),
         bucket: var("FVOCI_S3_TEST_BUCKET", ""),
         access_key_id: var("FVOCI_S3_TEST_ACCESS_KEY", "any"),
@@ -29,7 +29,7 @@ fn configure(config: &mut Configuration) {
         region: var("FVOCI_S3_TEST_REGION", "us-east-1"),
         https: var("FVOCI_S3_TEST_SSL", "false") == "true",
         key_prefix: format!("file-review/{}", new_id()),
-        ..AmazonS3Config::default()
+        ..S3Config::default()
     };
 }
 

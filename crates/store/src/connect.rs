@@ -17,7 +17,7 @@ use crate::error::StoreError;
 /// The kind of database a store connects to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DbType {
-    /// SQLite, the `sqlite3` setting.
+    /// SQLite, the `sqlite` setting.
     Sqlite,
     /// PostgreSQL, the `postgres` setting.
     Postgres,
@@ -27,7 +27,7 @@ impl DbType {
     /// Returns the name used in the `database_kind` setting.
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Sqlite => "sqlite3",
+            Self::Sqlite => "sqlite",
             Self::Postgres => "postgres",
         }
     }
@@ -38,10 +38,10 @@ impl FromStr for DbType {
 
     fn from_str(name: &str) -> Result<Self, Self::Err> {
         match name {
-            "sqlite3" => Ok(Self::Sqlite),
+            "sqlite" => Ok(Self::Sqlite),
             "postgres" => Ok(Self::Postgres),
             other => Err(StoreError::Config(format!(
-                "unknown database_kind {other:?}; use \"sqlite3\" or \"postgres\""
+                "unknown database_kind {other:?}; use \"sqlite\" or \"postgres\""
             ))),
         }
     }
@@ -187,14 +187,14 @@ mod tests {
 
     #[test]
     fn db_type_names() {
-        assert_eq!("sqlite3".parse::<DbType>().expect("known"), DbType::Sqlite);
+        assert_eq!("sqlite".parse::<DbType>().expect("known"), DbType::Sqlite);
         assert_eq!(
             "postgres".parse::<DbType>().expect("known"),
             DbType::Postgres
         );
-        assert_eq!(DbType::Sqlite.as_str(), "sqlite3");
+        assert_eq!(DbType::Sqlite.as_str(), "sqlite");
         assert_eq!(DbType::Postgres.as_str(), "postgres");
-        for unknown in ["mysql", "sqlite", "Postgres"] {
+        for unknown in ["mysql", "sqlite3", "Postgres"] {
             assert!(
                 config_error(unknown.parse::<DbType>()).contains("unknown database_kind"),
                 "{unknown}"

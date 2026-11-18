@@ -30,7 +30,7 @@
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
-| `server_url` | `FVOCI_SERVER_URL` | 문자열 | `"http://localhost:8000"` | 사용자가 서버에 닿는 주소다. 경로가 있으면 웹앱이 그 경로를 자기 주소의 기준으로 쓴다. 서버가 실제로 그 경로 아래에서 답하게 하는 것은 `FVOCI_HTTP_SERVER_BASEPATH`(아래 "그 밖의 환경 변수")이므로 둘을 같게 준다. 경로를 떼어 넘기는 프록시 뒤라면 그 변수는 비워 둔다. 바꾸는 요청과 WebSocket이 받아들이는 출처(`Origin`)가 이 주소에서 나온다. `https://`로 시작하면 세션 쿠키가 `Secure`가 되고 이름이 `__Host-fvoci_session`이 된다. 출처로 읽을 수 없는 주소면 시작하지 않는다 |
+| `server_url` | `FVOCI_SERVER_URL` | 문자열 | `"http://localhost:8000"` | 사용자가 서버에 닿는 주소다. 경로가 있으면 웹앱이 그 경로를 자기 주소의 기준으로 쓴다. 서버가 실제로 그 경로 아래에서 답하게 하는 것은 `FVOCI_BASE_PATH`(아래 "그 밖의 환경 변수")이므로 둘을 같게 준다. 경로를 떼어 넘기는 프록시 뒤라면 그 변수는 비워 둔다. 바꾸는 요청과 WebSocket이 받아들이는 출처(`Origin`)가 이 주소에서 나온다. `https://`로 시작하면 세션 쿠키가 `Secure`가 되고 이름이 `__Host-fvoci_session`이 된다. 출처로 읽을 수 없는 주소면 시작하지 않는다 |
 | `port` | `FVOCI_PORT` | 정수(1–65535) | `8000` | 들을 포트. 0이면 시작하지 않는다 |
 | `listen_loopback_only` | `FVOCI_LISTEN_LOOPBACK_ONLY` | 참·거짓 | `false` | 참이면 루프백(`localhost`)에서만 듣는다. 거짓이면 모든 인터페이스(IPv6, 안 되면 IPv4)에서 듣는다 |
 | `serve_https` | `FVOCI_SERVE_HTTPS` | 참·거짓 | `false` | 참이면 서버가 직접 HTTPS를 연다. 인증서는 작업 디렉터리의 `./cert/cert.pem`과 `./cert/key.pem`이다 |
@@ -47,22 +47,22 @@
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
-| `database_kind` | `FVOCI_DATABASE_KIND` | 문자열 | `"sqlite3"` | `sqlite3` 또는 `postgres` |
+| `database_kind` | `FVOCI_DATABASE_KIND` | 문자열 | `"sqlite"` | `sqlite` 또는 `postgres` |
 | `database_connection` | `FVOCI_DATABASE_CONNECTION` | 문자열 | `"./fvoci.db"` | 데이터베이스에 닿는 곳. SQLite는 파일의 경로이고(`:memory:`는 서버 하나만의 메모리 DB), 다른 쓰기를 기다리는 시간을 `?busy_timeout_ms=5000`처럼 붙일 수 있다(기본 5초). PostgreSQL은 `postgres://사용자:비밀번호@호스트:포트/DB?sslmode=disable` 꼴의 URL이고, 붙일 수 있는 것은 `sslmode`, `sslrootcert`, `sslcert`, `sslkey`, `application_name`, `search_path`, `connect_timeout`(초)이다. 그 밖의 꼴이나 붙인 것이면 시작하지 않는다. 다른 테이블과 한 DB를 나눠 쓰려면 `search_path`로 이 서버만의 스키마를 준다. 비밀번호가 들어 있을 수 있어 로그에 남기지 않는다 |
 | `database_connect_attempts` | `FVOCI_DATABASE_CONNECT_ATTEMPTS` | 정수(0 이상) | `5` | 시작할 때 DB에 닿으려고 해 보는 횟수. 0이어도 한 번은 해 본다 |
 | `server_lock_wait_seconds` | `FVOCI_SERVER_LOCK_WAIT_SECONDS` | 정수(0 이상) | `30` | 시작할 때 다른 프로세스가 쥔 서버 잠금(위)을 기다리는 시간(초). 지나면 시작을 거절한다. 0이면 기다리지 않는다. 재시작에서 앞선 서버가 내려가는 시간보다 길게 둔다 |
-| `org_creation` | `FVOCI_ORG_CREATION` | 문자열 | `"first_user_only"` | 서버가 조직을 하나만 두는가(`first_user_only`), 여럿을 받는가(`open`). `open`은 `database_kind`가 `sqlite3`이면 시작하지 않는다(SQLite는 조직 하나만 담는다). PostgreSQL에서는 조직의 행을 행 단위 보안 정책이 갈라 둔다. 서버가 붙는 DB 역할이 슈퍼유저이거나 `BYPASSRLS`이면 그 정책이 걸리지 않는다: `open`이면 DB에 아무것도 만들기 전에 시작을 거부하고, `first_user_only`면 경고를 남기고 시작한다. 그 밖의 값은 시작 오류다. 가입(`register`)이 이 값을 따른다: `first_user_only`에서는 첫 사용자만 가입해 조직을 시작하고 그 뒤의 사람은 초대 링크로만 들어온다(403 `invitation_required`). `open`에서는 가입하는 사람마다 새 조직을 시작한다 |
+| `org_creation` | `FVOCI_ORG_CREATION` | 문자열 | `"first_user_only"` | 서버가 조직을 하나만 두는가(`first_user_only`), 여럿을 받는가(`open`). `open`은 `database_kind`가 `sqlite`이면 시작하지 않는다(SQLite는 조직 하나만 담는다). PostgreSQL에서는 조직의 행을 행 단위 보안 정책이 갈라 둔다. 서버가 붙는 DB 역할이 슈퍼유저이거나 `BYPASSRLS`이면 그 정책이 걸리지 않는다: `open`이면 DB에 아무것도 만들기 전에 시작을 거부하고, `first_user_only`면 경고를 남기고 시작한다. 그 밖의 값은 시작 오류다. 가입(`register`)이 이 값을 따른다: `first_user_only`에서는 첫 사용자만 가입해 조직을 시작하고 그 뒤의 사람은 초대 링크로만 들어온다(403 `invitation_required`). `open`에서는 가입하는 사람마다 새 조직을 시작한다 |
 
 ## 키: 파일 저장소
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
-| `file_storage` | `FVOCI_FILE_STORAGE` | 문자열 | `"local"` | `local`(디스크) 또는 `amazons3`(S3와 S3 호환 저장소). 그 밖의 값이면 시작하지 않는다 |
+| `file_storage` | `FVOCI_FILE_STORAGE` | 문자열 | `"local"` | `local`(디스크) 또는 `s3`(S3와 S3 호환 저장소). 그 밖의 값이면 시작하지 않는다 |
 | `file_storage_path` | `FVOCI_FILE_STORAGE_PATH` | 문자열 | `"./files"` | `local`일 때 파일을 두는 디렉터리. 파일은 그 아래 `.tmp/writing`에 다 쓴 뒤 제자리로 옮긴다(같은 파일시스템이라 원자적이다. `tmp_path`와 상관없다). 이 DB의 서버만 쓴다: 관리 소켓의 파일 대조(`removeUnrecorded`)는 서버가 만드는 모양의 자리(`boards/…`)에서 이 DB가 이름하지 않는 파일을 지운다. 준비 상태(`GET /api/v1/ready`)는 5초에 한 번까지 `<file_storage_path>/.fvoci-ready`를 같은 길로 써서 읽고 지워 보고, 디렉터리가 없으면 만든다 |
 | `max_file_bytes` | `FVOCI_MAX_FILE_BYTES` | 정수(1 이상, 바이트) | `104857600` | 올릴 수 있는 파일의 가장 큰 크기(100 MiB). 0이나 음수는 시작 오류다(예전에는 0이 "한도 없음"이었다). `upload_part_bytes` × 10,000(S3 멀티파트의 부분 수 한도)을 넘어도 시작 오류다. 요청 하나로 올리는 파일(`uploadFile`)은 그에 더해 `upload_part_bytes`까지다. 사용자 한 명이 열린 업로드에 걸어 둘 수 있는 크기는 이 한도와 `max_import_bytes` 가운데 큰 것의 두 배다 |
 | `file_storage_s3.access_key_id` | — | 문자열 | `""` | 액세스 키. **비워 두면 S3 클라이언트가 환경에서 자격을 읽는다**(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` 등. 아래 "S3의 예") |
 | `file_storage_s3.secret_access_key` | — | 문자열 | `""` | 비밀 키. `access_key_id`가 있을 때만 쓴다. 로그에 남기지 않는다 |
-| `file_storage_s3.bucket` | `FVOCI_FILE_STORAGE_S3_BUCKET` | 문자열 | `""` | 버킷. `amazons3`이면 비어 있을 수 없다. 자격에는 읽고 쓰고 지우는 것 말고 버킷을 나열하는 권한(`s3:ListBucket`)도 있어야 한다: 없는 파일을 물으면 그것 없이는 403이 오고, 준비 상태(`GET /api/v1/ready`)는 작은 파일(`<key_prefix>/.fvoci-ready`)을 써서 읽고 지워 본다(5초에 한 번까지). 그래서 자격은 그 키에도 쓰고 읽고 지울 수 있어야 한다. 버전 관리가 켜진 버킷에서는 검사마다 그 키에 옛 판과 지움 표시가 쌓이므로, 그 키에 옛 판을 하루 뒤 지우는 수명 주기 규칙(NoncurrentVersionExpiration, ExpiredObjectDeleteMarker)을 건다 |
+| `file_storage_s3.bucket` | `FVOCI_FILE_STORAGE_S3_BUCKET` | 문자열 | `""` | 버킷. `s3`이면 비어 있을 수 없다. 자격에는 읽고 쓰고 지우는 것 말고 버킷을 나열하는 권한(`s3:ListBucket`)도 있어야 한다: 없는 파일을 물으면 그것 없이는 403이 오고, 준비 상태(`GET /api/v1/ready`)는 작은 파일(`<key_prefix>/.fvoci-ready`)을 써서 읽고 지워 본다(5초에 한 번까지). 그래서 자격은 그 키에도 쓰고 읽고 지울 수 있어야 한다. 버전 관리가 켜진 버킷에서는 검사마다 그 키에 옛 판과 지움 표시가 쌓이므로, 그 키에 옛 판을 하루 뒤 지우는 수명 주기 규칙(NoncurrentVersionExpiration, ExpiredObjectDeleteMarker)을 건다 |
 | `file_storage_s3.key_prefix` | `FVOCI_FILE_STORAGE_S3_KEY_PREFIX` | 문자열 | `""` | 모든 객체 키 앞에 붙는 접두어. 앞뒤의 `/`는 떼고 쓴다. 버킷의 이 접두어 아래는 이 DB의 서버만 쓴다(`file_storage_path`의 파일 대조와 같다) |
 | `file_storage_s3.region` | `FVOCI_FILE_STORAGE_S3_REGION` | 문자열 | `""` | 버킷의 리전. 비우면 S3 클라이언트의 기본값이다 |
 | `file_storage_s3.endpoint` | `FVOCI_FILE_STORAGE_S3_ENDPOINT` | 문자열 | `""` | AWS가 아닌 S3 호환 저장소의 호스트(포트 포함, 스킴 없이). 있으면 경로 방식(`호스트/버킷/키`)으로 부른다. 비우면 AWS다 |
@@ -74,7 +74,7 @@
 
 ```json
 {
-  "file_storage": "amazons3",
+  "file_storage": "s3",
   "file_storage_s3": {
     "bucket": "fvoci",
     "endpoint": "minio.internal:9000",
@@ -137,7 +137,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 |---|---|---|---|---|
 | `max_request_bytes` | `FVOCI_MAX_REQUEST_BYTES` | 정수(1 이상, 바이트) | `4194304` | JSON을 받는 API 요청 본문의 가장 큰 크기(4 MiB). 넘으면 413. 파일 올리기(`uploadFile`과 `putUploadPart`)에는 쓰지 않는다. 아카이브 가져오기(`importArchive`)는 업로드를 이름으로만 받는 JSON이라 이것을 따른다. 세션 없는 요청(64 KiB)과 WebSocket 메시지(64 KiB. Binary 프레임은 `collab_update_bytes`에 32바이트를 더한 것이 더 크면 그것까지)의 한도는 설정이 아니다 |
 | `trash_retention_days` | `FVOCI_TRASH_RETENTION_DAYS` | 정수(1 이상) | `30` | 지운 보드와 블록이 휴지통에 남아 되살릴 수 있는 날. 지나면 영구히 지운다. 어느 블록도(휴지통의 것까지) 가리키지 않는 파일도 그렇게 된 지 이만큼 지나면 지운다 |
-| `upload_part_bytes` | `FVOCI_UPLOAD_PART_BYTES` | 정수(5242880–5368709120, 바이트) | `8388608` | 청크로 올릴 때(`createUpload`) 마지막을 뺀 부분 하나의 크기(8 MiB). S3 멀티파트가 받는 부분이 5 MiB에서 5 GiB라서 그 밖이면 시작하지 않는다. 서버 앞의 프록시가 받는 요청 본문보다 작아야 한다(Cloudflare의 Free와 Pro는 100 MB). `file_storage`가 `amazons3`이어도 부분은 `tmp_path`의 파일로 받아 확인한다. 버킷에 보내는 동안만 메모리에 있고, 그 메모리는 이 크기의 8배까지다(기본 64 MiB). 넘으면 다음 부분은 디스크에서 기다린다 |
+| `upload_part_bytes` | `FVOCI_UPLOAD_PART_BYTES` | 정수(5242880–5368709120, 바이트) | `8388608` | 청크로 올릴 때(`createUpload`) 마지막을 뺀 부분 하나의 크기(8 MiB). S3 멀티파트가 받는 부분이 5 MiB에서 5 GiB라서 그 밖이면 시작하지 않는다. 서버 앞의 프록시가 받는 요청 본문보다 작아야 한다(Cloudflare의 Free와 Pro는 100 MB). `file_storage`가 `s3`이어도 부분은 `tmp_path`의 파일로 받아 확인한다. 버킷에 보내는 동안만 메모리에 있고, 그 메모리는 이 크기의 8배까지다(기본 64 MiB). 넘으면 다음 부분은 디스크에서 기다린다 |
 | `max_pending_upload_bytes` | `FVOCI_MAX_PENDING_UPLOAD_BYTES` | 정수(`max_file_bytes`와 `max_import_bytes` 이상, 바이트) | `2147483648` | 서버의 열린 업로드(`createUpload`, `createImportUpload`) 모두가 걸어 둘 수 있는 크기의 합(2 GiB). 넘는 업로드를 열면 429이고 `reason`이 `server_uploads_pending`이다. `max_file_bytes`보다 작으면 가장 큰 파일을 언제나 429로 거절하게 되므로 시작 오류다 |
 | `max_import_bytes` | `FVOCI_MAX_IMPORT_BYTES` | 정수(1 이상, 바이트) | `268435456` | 가져올 수 있는 아카이브의 가장 큰 크기(256 MiB). 아카이브도 청크로 올리므로 `upload_part_bytes` × 10,000을 넘으면 시작 오류이고, `max_pending_upload_bytes`보다 커도 시작 오류다. 풀린 합계는 1 GiB까지다(고정). 메모리 과할당을 막은 기기(`vm.overcommit_memory=2`)에서는 항목 수를 꾸민 아카이브 하나가 서버를 멈출 수 있다(`docs/contract-pending.md` 5절) |
 | `max_concurrent_exports` | `FVOCI_MAX_CONCURRENT_EXPORTS` | 정수(1 이상) | `2` | 서버가 한꺼번에 하는 내보내기(`exportContainerArchive`, `exportWorkspaceArchive`)의 수. 한 사용자는 하나씩이다(설정이 아니다). 내보내기는 아카이브를 다 보낼 때까지(클라이언트가 끊거나 `export_stall_seconds` 동안 아무것도 받지 않을 때까지) 자리를 잡는다. 넘으면 429이고 `reason`이 `server_exports_busy`(사용자의 것이 돌고 있으면 `export_running`)다. 0은 시작 오류다 |
@@ -146,7 +146,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | `max_comment_versions` | `FVOCI_MAX_COMMENT_VERSIONS` | 정수(1 이상) | `50` | 댓글마다 남기는 고치기 전 글(판)의 수. 맨 처음 쓴 글은 늘 남고 그 수에 든다. 넘으면 그 다음으로 오래된 판부터 버린다(`getCommentVersions`). 줄이면 그 뒤에 고쳐지는 댓글부터 줄어든다. 0은 시작 오류다 |
 | `wiki_page_depth` | `FVOCI_WIKI_PAGE_DEPTH` | 정수(1 이상) | `10` | 위키의 페이지가 들어갈 수 있는 깊이(맨 위의 페이지가 1). 더 깊게 만들거나 옮기거나 되살리거나 복제하거나(페이지, 위키 통째) 아카이브에서 가져오면 400이고 `reason`이 `page_too_deep`이다(만들기와 옮기기는 `errors[0].pointer`가 `/parentId`). 조직의 한도로 읽는다(`App::limits`). 0은 시작 오류다 |
 | `wiki_pages` | `FVOCI_WIKI_PAGES` | 정수(1 이상) | `5000` | 위키 하나가 가질 수 있는 페이지의 수(휴지통의 것은 세지 않는다). 넘게 만들거나 되살리거나 복제하거나(페이지, 위키 통째) 아카이브에서 가져오면 400이고 `reason`이 `too_many_pages`, `limit`이 이 값이다. 조직의 한도로 읽는다(`App::limits`). 0은 시작 오류다 |
-| `tmp_path` | `FVOCI_TMP_PATH` | 문자열 | `""` | 서버의 임시 파일을 두는 디렉터리. 청크로 올리는 부분은 `file_storage`가 `amazons3`이어도 여기에 받는다(S3로 보낸 뒤 지운다). 업로드에 필요한 자리는 열린 업로드가 걸어 둔 크기의 합까지다(`max_pending_upload_bytes`). 가져오는 중인 아카이브는 업로드가 끝난 것으로 세어 이 합에 들지 않고, 가져오는 동안 아카이브 하나와 부분 하나, 풀어 낸 파일 항목 하나(`max_file_bytes`까지)의 자리를 차지한다. 동시에 가져오는 수는 `max_concurrent_imports`까지다. 내보내는 아카이브는 쓰고 보내는 동안 자리를 차지하고, 그 크기에는 한도가 없고 수는 `max_concurrent_exports`까지다. 끝나지 않은 업로드의 부분(`uploads/<uploadId>/`), 가져오는 중인 아카이브(`uploads/<uploadId>.importing-…/`)와 내보내는 중인 아카이브(`exports/`. 다 보내거나 그만두면 지운다)를 둔다. 그 아래 `uploads`와 `exports`는 서버의 것이다: 서버가 시작할 때 어느 업로드의 것도 아닌 것과 내보내다 남은 것을 지운다. 한 디렉터리를 두 서버가 함께 쓰지 않는다(`file_storage_path`도 그렇다. 시작할 때 `file_storage_path/.tmp/writing`을 비운다). 이 청소는 서버 잠금을 쥔 뒤에 하므로 같은 DB의 둘째 서버는 하지 못하지만, DB가 다른 두 서버가 한 디렉터리를 쓰는 것은 막지 않는다. 비우면 `file_storage_path` 아래 `.tmp`다. 시스템의 임시 디렉터리는 메모리에 있을 수 있어 쓰지 않는다 |
+| `tmp_path` | `FVOCI_TMP_PATH` | 문자열 | `""` | 서버의 임시 파일을 두는 디렉터리. 청크로 올리는 부분은 `file_storage`가 `s3`이어도 여기에 받는다(S3로 보낸 뒤 지운다). 업로드에 필요한 자리는 열린 업로드가 걸어 둔 크기의 합까지다(`max_pending_upload_bytes`). 가져오는 중인 아카이브는 업로드가 끝난 것으로 세어 이 합에 들지 않고, 가져오는 동안 아카이브 하나와 부분 하나, 풀어 낸 파일 항목 하나(`max_file_bytes`까지)의 자리를 차지한다. 동시에 가져오는 수는 `max_concurrent_imports`까지다. 내보내는 아카이브는 쓰고 보내는 동안 자리를 차지하고, 그 크기에는 한도가 없고 수는 `max_concurrent_exports`까지다. 끝나지 않은 업로드의 부분(`uploads/<uploadId>/`), 가져오는 중인 아카이브(`uploads/<uploadId>.importing-…/`)와 내보내는 중인 아카이브(`exports/`. 다 보내거나 그만두면 지운다)를 둔다. 그 아래 `uploads`와 `exports`는 서버의 것이다: 서버가 시작할 때 어느 업로드의 것도 아닌 것과 내보내다 남은 것을 지운다. 한 디렉터리를 두 서버가 함께 쓰지 않는다(`file_storage_path`도 그렇다. 시작할 때 `file_storage_path/.tmp/writing`을 비운다). 이 청소는 서버 잠금을 쥔 뒤에 하므로 같은 DB의 둘째 서버는 하지 못하지만, DB가 다른 두 서버가 한 디렉터리를 쓰는 것은 막지 않는다. 비우면 `file_storage_path` 아래 `.tmp`다. 시스템의 임시 디렉터리는 메모리에 있을 수 있어 쓰지 않는다 |
 
 ## 키: 본문의 공동 편집
 
@@ -262,14 +262,6 @@ issuer가 바뀌면(바로 바꾸든, 대기 설정을 적용하든) 옛 공급�
 
 공급자로 만든 세션은 그 공급자의 조직과 issuer, 그리고 공급자가 준 subject를 적어 둔다. 공급자를 지우거나 다른 issuer로 바꾸면 그 조직에서 그 issuer로 만든 세션이 모두 끝나고, 계정에서 신원을 끊으면 그 신원(issuer와 subject)으로 만든 그 사람의 세션이 끝난다(끊는 요청을 보낸 세션도 그렇게 만든 것이면 함께). 같은 issuer의 다른 신원으로 만든 세션은 남는다. client ID만 바꾸면 사람의 신원이 바뀌지 않으므로 세션을 끝내지 않는다. 끝난 세션의 WebSocket 연결은 곧바로 닫히고 카드 본문의 방에서도 나간다. 마이그레이션 0028은 공급자가 남은 옛 세션에 issuer를 채우고, 공급자가 없어진 옛 OIDC 세션은 끝낸다. 0029 전에 만든 세션은 subject를 모르므로 그 issuer의 어느 신원을 끊어도 끝난다.
 
-## 키: 예약된 키
-
-**아직 아무 일도 하지 않는다.** 뒤에 쓰기로 정해 둔 키다(사용자 결정, 2026-11-11 05:04 KST). 그때까지는 기본값이 아닌 값을 주면 서버가 시작하지 않는다. 쓰지 않는 기능을 켰다고 믿고 돌지 않게 하려는 것이다.
-
-| 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
-|---|---|---|---|---|
-| `auth_mode` | `FVOCI_AUTH_MODE` | 문자열 | `"native"` | 로그인 방식. `native`(이 서버의 사용자 이름과 비밀번호)만 받는다. OIDC 로그인은 이 키가 아니라 조직마다 두는 공급자다(아래 "키: 조직의 로그인 공급자") |
-
 ## 명령줄 인자
 
 | 인자 | 기본값 | 뜻 |
@@ -280,14 +272,14 @@ issuer가 바뀌면(바로 바꾸든, 대기 설정을 적용하든) 옛 공급�
 | `--database-connection <문자열>` | — | `database_connection`을 바꾼다. 비면 무시한다. 로그에 값을 남기지 않는다 |
 | `--print-openapi` | — | 계약(OpenAPI 문서)을 표준 출력에 쓰고 끝난다. 설정을 읽지 않는다 |
 | `--migrate` | — | 데이터베이스의 스키마를 이 서버의 것으로 올리고(`database_connection`의 역할로, 서버 잠금을 쥔 채) 끝난다. 아무것도 띄우지 않고, 역할이 벽을 지나는지(슈퍼유저) 보지 않는다. 서버가 표의 주인이 아닌 역할로 붙을 때 표의 주인(DB의 관리자)으로 먼저 돌린다(위 "키: 데이터베이스") |
-| `--check-ready` | — | 설정이 말하는 이 기기의 서버(포트, `serve_https`, `FVOCI_HTTP_SERVER_BASEPATH`)에 `GET /api/v1/ready`를 물어(3초까지) 200이면 성공으로, 아니면 실패로 끝난다. 아무것도 열거나 띄우지 않는다. 컨테이너의 상태 검사가 쓴다 |
+| `--check-ready` | — | 설정이 말하는 이 기기의 서버(포트, `serve_https`, `FVOCI_BASE_PATH`)에 `GET /api/v1/ready`를 물어(3초까지) 200이면 성공으로, 아니면 실패로 끝난다. 아무것도 열거나 띄우지 않는다. 컨테이너의 상태 검사가 쓴다 |
 | `--help`, `--version` | — | 도움말과 판 |
 
 ## 그 밖의 환경 변수
 
 | 변수 | 뜻 |
 |---|---|
-| `FVOCI_HTTP_SERVER_BASEPATH` | 웹앱과 API를 놓을 경로. 비거나 `/boards` 같은 절대 경로여야 한다 |
+| `FVOCI_BASE_PATH` | 웹앱과 API를 놓을 경로. 비거나 `/boards` 같은 절대 경로여야 한다 |
 | `FVOCI_LOG_LEVEL` | 로그의 수준과 거르개(`tracing`의 `EnvFilter` 문법, 예: `info`, `fvoci_server=debug`). 기본은 `info` |
 | `FVOCI_LOG_FORMAT` | `json`이면 로그를 줄마다 JSON으로 쓴다. 그 밖에는 사람이 읽는 꼴이다 |
 | `FVOCI_SECRET_KEY` | 서버가 DB에 봉인해 두는 값(조직 공급자의 client secret)의 키. 32바이트를 표준 base64로 쓴 것이다(`openssl rand -base64 32`). AES-256-GCM의 키로 쓴다. 환경 변수로만 받는다: 설정 파일에 `secret_key`가 있으면 시작하지 않는다. 꼴이 틀리면 값을 되풀이하지 않는 오류로 시작하지 않는다. 로그와 `Debug` 출력에 나오지 않는다. 없으면 공급자를 저장할 수 없다(409, `secret-key-required`). 바꾸면 저장된 secret이 열리지 않으므로 공급자마다 secret을 다시 저장한다 |

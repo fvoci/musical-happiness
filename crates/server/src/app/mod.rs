@@ -204,7 +204,7 @@ pub struct ServerMetadata {
     pub commit: String,
     /// The edition of the server.
     pub edition: String,
-    /// The database kind: `sqlite3` or `postgres`.
+    /// The database kind: `sqlite` or `postgres`.
     pub db_type: String,
     /// The database's version string.
     pub db_version: String,
