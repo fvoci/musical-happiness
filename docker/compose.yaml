@@ -3,6 +3,7 @@
 #   cp docker/.env.example docker/.env      # then fill in every secret
 #   docker compose -f docker/compose.yaml up -d --build --wait
 #   docker compose -f docker/compose.yaml --profile s3 --profile mail up -d ...
+#   docker compose -f docker/compose.yaml --profile tunnel up -d --wait
 #
 # Only fvoci is reachable from outside, on FVOCI_BIND:FVOCI_HOST_PORT (127.0.0.1:8080
 # unless .env says otherwise): put the reverse proxy that ends TLS in front of it and
@@ -39,6 +40,22 @@
 # FVOCI_FILE_STORAGE=s3 and the S3 lines of .env); `mail` is Mailpit, a mail relay
 # that keeps what it gets (set FVOCI_SMTP_HOST=mailpit and the mail lines of .env), read
 # with `docker compose exec mailpit wget -qO- localhost:8025/api/v1/messages`.
+#
+# Profile `tunnel` is cloudflared, a Cloudflare Tunnel that dials out to Cloudflare from
+# the network `edge` and brings people's requests to fvoci: nothing of the host need be
+# reachable from outside, and fvoci's port can stay on 127.0.0.1 beside it. Make the
+# tunnel in Cloudflare's dashboard, give its public hostname the service
+# http://fvoci:8000 (a tunnel run by its token takes its routes from there), put the
+# token in FVOCI_TUNNEL_TOKEN (an empty one stops cloudflared, which then asks for "the
+# ID or name of the tunnel"), and set FVOCI_SERVER_URL to https://<that hostname>.
+# cloudflared adds the client's address to X-Forwarded-For, which fvoci believes only
+# from FVOCI_TRUSTED_PROXIES: set that to the range of `edge` once it exists (the
+# network is <project>_edge, fvoci_edge unless the project is named otherwise),
+#   docker network inspect fvoci_edge --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+# and `up -d` again; it stays the same until `down` removes the network. That range holds the network's gateway, through which the host's
+# published port reaches fvoci on some Docker setups (Docker Desktop, rootless): there,
+# keep FVOCI_BIND at 127.0.0.1, or whoever reaches the port picks the address the
+# limits on logins count. Without the profile nothing of it is made or needed.
 #
 # Stopping waits for fvoci to finish its requests and let go of its lock.
 
@@ -241,6 +258,25 @@ services:
     restart: unless-stopped
     networks: [backend]
 
+  cloudflared:
+    profiles: [tunnel]
+    image: cloudflare/cloudflared:2026.10.7
+    # Its metrics stay inside its container; it updates only with this file.
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --metrics
+      - 127.0.0.1:20241
+      - run
+      - --token-file
+      - /run/secrets/tunnel_token
+    depends_on:
+      fvoci:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [edge]
+    secrets: [tunnel_token]
+
 networks:
   edge: {}
   backend:
@@ -271,3 +307,5 @@ secrets:
     environment: FVOCI_S3_SECRET_ACCESS_KEY
   smtp_password:
     environment: FVOCI_SMTP_PASSWORD
+  tunnel_token:
+    environment: FVOCI_TUNNEL_TOKEN

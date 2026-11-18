@@ -28,7 +28,8 @@ pub(crate) struct Name {
 pub(crate) struct Names {
     pub(crate) server: Name,
     pub(crate) search: Name,
-    /// The commit, in full.
+    /// The commit, in full, with `-dirty` for a tree with uncommitted changes: what the
+    /// server reports as its `commit`.
     revision: String,
     /// `sha-<short commit>`, with `-dirty` for a tree with uncommitted changes.
     tag: String,
@@ -76,10 +77,18 @@ impl Names {
         Self {
             server: name("fvoci-server"),
             search: name("fvoci-search"),
-            revision: revision.to_owned(),
+            revision: match tree {
+                Tree::Committed => revision.to_owned(),
+                Tree::Changed => format!("{revision}-dirty"),
+            },
             tag,
             arch: arch.to_owned(),
         }
+    }
+
+    /// What the server built for these names reports as its `commit` in ping.
+    pub(crate) fn revision(&self) -> &str {
+        &self.revision
     }
 }
 
@@ -103,6 +112,30 @@ fn asked(program: &str, arguments: &[&str]) -> Result<String> {
     Ok(answer.output)
 }
 
+/// The build arguments of both images: the commit and its time, which the server reports
+/// in ping and the labels carry, and the tag.
+///
+/// # Errors
+///
+/// Fails if `git` cannot say the commit's time.
+pub(crate) fn build_arguments(root: &Path, names: &Names) -> Result<Vec<String>> {
+    // The commit's time, so that a build of a commit says the same whenever it is made.
+    let created = asked(
+        "git",
+        &["-C", &root.to_string_lossy(), "log", "-1", "--format=%cI"],
+    )?;
+    let given = [
+        format!("FVOCI_BUILD_HASH={}", names.revision),
+        format!("FVOCI_BUILD_DATE={created}"),
+        format!("FVOCI_CREATED={created}"),
+        format!("FVOCI_VERSION={}", names.tag),
+    ];
+    Ok(given
+        .into_iter()
+        .flat_map(|argument| ["--build-arg".to_owned(), argument])
+        .collect())
+}
+
 /// Builds both images for this machine's processor, with the commit and the time in
 /// their labels.
 ///
@@ -110,20 +143,7 @@ fn asked(program: &str, arguments: &[&str]) -> Result<String> {
 ///
 /// Fails if a build fails.
 pub(crate) fn build(root: &Path, names: &Names) -> Result<()> {
-    // The commit's time, so that a build of a commit says the same whenever it is made.
-    let root_text = root.to_string_lossy();
-    let created = asked("git", &["-C", &root_text, "log", "-1", "--format=%cI"])?;
-    let hash = format!("FVOCI_BUILD_HASH={}", names.revision);
-    let created = format!("FVOCI_CREATED={created}");
-    let version = format!("FVOCI_VERSION={}", names.tag);
-    let common = [
-        "--build-arg",
-        &hash,
-        "--build-arg",
-        &created,
-        "--build-arg",
-        &version,
-    ];
+    let common = build_arguments(root, names)?;
     let builds: [(&str, &Name, &[&str]); 2] = [
         (
             "the server's image",
@@ -139,7 +159,7 @@ pub(crate) fn build(root: &Path, names: &Names) -> Result<()> {
     for (what, name, rest) in builds {
         say(&format!("\n==> building {what}, {}", name.local));
         let mut arguments = vec!["build", "--tag", &name.local];
-        arguments.extend(common);
+        arguments.extend(common.iter().map(String::as_str));
         arguments.extend_from_slice(rest);
         steps::run(root, "docker", &arguments, &[("DOCKER_BUILDKIT", "1")])?;
     }
@@ -211,6 +231,12 @@ mod tests {
         assert_eq!(
             dirty.search.local,
             "ghcr.io/fvoci/fvoci-search:sha-0123456789ab-dirty-amd64"
+        );
+        assert_eq!(names.revision(), "0123456789abcdef0123");
+        assert_eq!(
+            dirty.revision(),
+            "0123456789abcdef0123-dirty",
+            "a server built from changes no commit holds does not claim the commit"
         );
     }
 

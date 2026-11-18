@@ -11,6 +11,7 @@ mod account_deletion;
 mod account_erasure;
 mod admin;
 mod admins;
+mod behind_a_tunnel;
 mod blocks;
 mod board_broadcasts;
 mod board_copies;

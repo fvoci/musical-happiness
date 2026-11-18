@@ -170,6 +170,11 @@ pub(super) fn run(trial: &Trial, directory: &Path) -> Result<()> {
     );
     let ping = client.expect("GET", "/api/v1/ping", None)?;
     say(&format!("    the web app answers, and ping: {ping}"));
+    ensure!(
+        ping["commit"] == trial.images.revision() && !text(&ping, "build_date")?.is_empty(),
+        "ping does not name the commit {} and its time: {ping}",
+        trial.images.revision()
+    );
 
     let password = super::hex(&super::random::<16>()?);
     client.expect(
