@@ -33,7 +33,11 @@ async fn ping_returns_metadata_on_success() {
     let response = Client::send(th.client.raw_request(Method::GET, "/api/v1/ping")).await;
 
     let metadata = response.ok_json::<serde_json::Value>();
-    assert_eq!(metadata["version"], json!("8.0.0"), "{metadata}");
+    assert_eq!(
+        metadata["version"],
+        json!(env!("CARGO_PKG_VERSION")),
+        "the server's own version: {metadata}"
+    );
     assert_eq!(metadata["sku"], json!("personal_server"), "{metadata}");
     assert_eq!(metadata["edition"], json!("dev"), "{metadata}");
     assert_eq!(metadata["build_number"], json!(""), "{metadata}");
@@ -46,10 +50,16 @@ async fn ping_returns_metadata_on_success() {
             .is_empty(),
         "the database reports a version: {metadata}"
     );
-    if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        assert_eq!(metadata["os_type"], json!("linux"), "{metadata}");
-        assert_eq!(metadata["os_arch"], json!("amd64"), "{metadata}");
-    }
+    assert_eq!(
+        metadata["os_type"],
+        json!(std::env::consts::OS),
+        "{metadata}"
+    );
+    assert_eq!(
+        metadata["os_arch"],
+        json!(std::env::consts::ARCH),
+        "{metadata}"
+    );
     let mut keys: Vec<&str> = metadata
         .as_object()
         .into_iter()

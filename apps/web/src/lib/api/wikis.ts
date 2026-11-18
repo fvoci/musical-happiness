@@ -54,7 +54,7 @@ export function pageOf(node: Schemas['PageNode'], wikiId: string): WikiPage {
   return {
     id: node.id,
     wikiId,
-    parentId: node.parentId === wikiId ? '' : node.parentId,
+    parentId: node.parentId,
     title: node.title,
     icon: node.icon,
     order: node.order,

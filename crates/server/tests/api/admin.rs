@@ -415,7 +415,7 @@ pub(crate) mod socket {
     async fn the_socket_compares_the_files_with_the_records() {
         const ROUTE: &str = "/api/v1/admin/files/reconcile";
         let (th, socket) = start_with_admin_socket().await;
-        let stray = format!("boards/20261112/{}/stray.txt", new_id());
+        let stray = format!("{}/{}/stray", new_id(), new_id());
         th.app
             .files()
             .write(&stray, &mut &b"nothing names it"[..])

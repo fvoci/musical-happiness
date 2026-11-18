@@ -81,7 +81,11 @@ async fn the_deleted_boards_are_listed_for_their_former_admins() {
         .await
         .ok_json();
     assert_eq!(names_of(&page), [json!("mine")], "the pages cut that order");
-    let every: Vec<Value> = th.client.get(&format!("{trash}?perPage=0")).await.ok_json();
+    let every: Vec<Value> = th
+        .client
+        .get(&format!("{trash}?perPage=1000"))
+        .await
+        .ok_json();
     assert_eq!(names_of(&every), [json!("also mine"), json!("mine")]);
     th.client
         .get(&format!("{trash}?page=x"))

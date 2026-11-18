@@ -1,10 +1,11 @@
 //! The request bodies whose shape differs from what the server answers.
 //!
-//! The server decodes most bodies into the type it also answers with, leniently: a
-//! member that is left out, or `null`, is taken as empty, and members the server sets
-//! itself are read and thrown away. The contract says less and means it: these types
-//! list the members a request is for, and which of them it needs. Nothing is decoded
-//! into them. A member that is optional here may also be sent as `null`.
+//! The server decodes most bodies into the type it also answers with: a member that is
+//! left out is taken as empty, and members the server sets itself are read and thrown
+//! away. The contract says less and means it: these types list the members a request is
+//! for, and which of them it needs. Nothing is decoded into them. A member that is
+//! optional here may be left out; it may be `null` only where its schema says so (a
+//! card's `body`, `regenerate`, a `displayName` or a setting to change).
 
 #![expect(
     dead_code,
@@ -66,30 +67,38 @@ pub(crate) struct NewBoard {
     /// which the blocks of the request say which board they belong to. The server gives
     /// the board another identifier. Where one board is made, a board with an `id` is
     /// refused.
+    #[schema(nullable = false)]
     id: Option<String>,
     /// Whether the board is open or private.
     #[schema(rename = "type")]
     container_type: ContainerType,
     /// The role a user gets who joins the board. Left out, `editor`.
+    #[schema(nullable = false)]
     minimum_role: Option<MinimumRole>,
     /// The board's title.
+    #[schema(nullable = false)]
     title: Option<String>,
     /// The board's description.
+    #[schema(nullable = false)]
     description: Option<String>,
     /// The board's icon, usually one emoji.
+    #[schema(nullable = false)]
     icon: Option<String>,
     /// Whether the description is shown in the interface.
+    #[schema(nullable = false)]
     show_description: Option<bool>,
     /// Whether the board is a template.
+    #[schema(nullable = false)]
     is_template: Option<bool>,
     /// The version of the built-in template the board came from.
+    #[schema(nullable = false)]
     template_version: Option<i64>,
     /// Free-form properties of the board itself.
-    #[schema(value_type = Option<Object>)]
+    #[schema(value_type = Option<Object>, nullable = false)]
     properties: Option<JsonMap>,
     /// The property definitions of the board's cards, in display order. Each needs a
     /// non-empty `id` that no other has.
-    #[schema(value_type = Option<Vec<Object>>)]
+    #[schema(value_type = Option<Vec<Object>>, nullable = false)]
     card_properties: Option<Vec<JsonMap>>,
 }
 
@@ -102,26 +111,30 @@ pub(crate) struct NewBlock {
     /// or in the fields `contentOrder`, `cardOrder` and `defaultTemplateId`) it puts
     /// the new identifier there. Blocks that come under one name get one identifier,
     /// which cannot be stored twice; a block that no other names needs no `id`.
+    #[schema(nullable = false)]
     id: Option<String>,
     /// The board the block belongs to: the board of the path, or, where boards and
     /// blocks are made together, the `id` of one of the request's boards.
     container_id: String,
     /// The block this one is below: a block of the same board, or the name of another
     /// block of the request. Left out for a block directly on its board.
+    #[schema(nullable = false)]
     parent_id: Option<String>,
     /// The block type: `card`, `view`, `comment` or `attachment`. Any other type is
     /// refused (400 naming `type`): a card's content is its body.
     #[schema(rename = "type")]
     block_type: String,
     /// The schema version of the block.
+    #[schema(nullable = false)]
     schema: Option<i64>,
     /// The display title.
+    #[schema(nullable = false)]
     title: Option<String>,
     /// Type-specific data, free-form: serialized, at most 64,000 characters for a card,
     /// a comment or an attachment and 800,000 for a view. The `properties` of a card
     /// among them are values by property identifier: a string, a list of strings, or
     /// `null`.
-    #[schema(value_type = Option<Object>)]
+    #[schema(value_type = Option<Object>, nullable = false)]
     fields: Option<JsonMap>,
     /// Must be 1 or more. The server does not keep it: the block is created when the
     /// server stores it.
@@ -145,15 +158,19 @@ pub(crate) struct NewContainersAndBlocks {
 #[schema(rename_all = "camelCase")]
 pub(crate) struct NewCard {
     /// The board of the path, if it is there at all.
+    #[schema(nullable = false)]
     board_id: Option<String>,
     /// The display title.
+    #[schema(nullable = false)]
     title: Option<String>,
     /// The card's icon; at most one grapheme.
+    #[schema(nullable = false)]
     icon: Option<String>,
     /// Whether the card is a template.
+    #[schema(nullable = false)]
     is_template: Option<bool>,
     /// Property values by property identifier: a string, a list of strings, or `null`.
-    #[schema(value_type = Option<Object>)]
+    #[schema(value_type = Option<Object>, nullable = false)]
     properties: Option<JsonMap>,
     /// The card's body; left out or `null` for none.
     body: Option<Body>,
@@ -170,13 +187,16 @@ pub(crate) struct NewCategory {
     /// The workspace of the path.
     workspace_id: String,
     /// Whether the category is collapsed in the sidebar.
+    #[schema(nullable = false)]
     collapsed: Option<bool>,
     /// The position of the category among the user's categories. It is stored 10
     /// higher: see `createCategory`.
+    #[schema(nullable = false)]
     sort_order: Option<i64>,
     /// Left out, `custom`. A category that is made as `system` can be neither renamed
     /// nor deleted afterwards.
     #[schema(rename = "type")]
+    #[schema(nullable = false)]
     category_type: Option<CategoryType>,
 }
 
@@ -194,6 +214,7 @@ pub(crate) struct CategoryUpdate {
     /// The workspace of the path.
     workspace_id: String,
     /// Whether the category is collapsed in the sidebar. Left out, it is not.
+    #[schema(nullable = false)]
     collapsed: Option<bool>,
 }
 
@@ -206,12 +227,16 @@ pub(crate) struct NewMember {
     user_id: String,
     /// The user administers the board. Only who manages the board's roles may ask for
     /// this.
+    #[schema(nullable = false)]
     scheme_admin: Option<bool>,
     /// The user may edit the board.
+    #[schema(nullable = false)]
     scheme_editor: Option<bool>,
     /// The user may comment on the board's cards.
+    #[schema(nullable = false)]
     scheme_commenter: Option<bool>,
     /// The user may view the board.
+    #[schema(nullable = false)]
     scheme_viewer: Option<bool>,
 }
 
@@ -225,12 +250,16 @@ pub(crate) struct NewMember {
 )]
 pub(crate) struct MemberRoles {
     /// The user administers the board.
+    #[schema(nullable = false)]
     scheme_admin: Option<bool>,
     /// The user may edit the board.
+    #[schema(nullable = false)]
     scheme_editor: Option<bool>,
     /// The user may comment on the board's cards.
+    #[schema(nullable = false)]
     scheme_commenter: Option<bool>,
     /// The user may view the board.
+    #[schema(nullable = false)]
     scheme_viewer: Option<bool>,
 }
 

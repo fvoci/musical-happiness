@@ -78,7 +78,9 @@ pub(super) async fn require_import_access(
 /// stored name, which an import gives the files it stores. A name an upload could not
 /// have (blank, with U+0000, over 255 characters, or of another extension than the
 /// stored name) is passed over and its file keeps the name of its entry, and an archive
-/// without the member is read as before. A wiki is written as a board is, its `kind` `wiki`: its
+/// without the member is read as before. A file a block shows that the board does not
+/// have, its record or its bytes gone, gets no entry: it is listed under `missingFiles`
+/// of the board's line, by stored name. A wiki is written as a board is, its `kind` `wiki`: its
 /// pages as they stand and the comments on them are its blocks (not the pages in its
 /// trash, nor the versions of bodies).
 ///
@@ -201,7 +203,8 @@ async fn handle_export_workspace(
 /// `board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with
 /// the `limit` passed, and nothing of it is stored. The blocks that show files are
 /// pointed at the board's new copies of them, the images and file blocks of bodies
-/// included; a card value that does not fit its property's kind is cleared, as a copy
+/// included. A file the board's line lists under `missingFiles` is not stored, even when
+/// the archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy
 /// does. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the
 /// comments on them with it. What a write would refuse of an archive's boards, wikis
 /// and blocks is 400 before any of them is stored, with the message the write has: a

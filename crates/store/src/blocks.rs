@@ -79,10 +79,6 @@ const LISTED_BODY: usize = 17;
 /// The order of every list of blocks.
 const OLDEST_FIRST: &str = " ORDER BY create_at, id";
 
-/// The type string the original gives to a type name it does not recognize
-/// (`TypeUnknown`, server/model/blocktype.go:17).
-const UNKNOWN_TYPE: &str = "unknown";
-
 /// Which blocks [`Store::get_blocks`] returns. Unset members do not filter.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BlockFilter {
@@ -90,8 +86,7 @@ pub struct BlockFilter {
     pub container_id: Option<String>,
     /// Only blocks with this parent.
     pub parent_id: Option<String>,
-    /// Only blocks of this type. The empty type and the type `unknown` do not filter
-    /// either.
+    /// Only blocks of this type. The empty type does not filter either.
     pub block_type: Option<BlockType>,
     /// Only one page of the result.
     pub paging: Option<Paging>,
@@ -128,6 +123,14 @@ pub struct Paging {
     pub page: u32,
     /// The number of records per page. Zero means all records, whatever the page number.
     pub per_page: u32,
+}
+
+impl Paging {
+    /// How many records come before the page; at most `i64::MAX`, past every record.
+    #[must_use]
+    pub fn offset(self) -> i64 {
+        i64::from(self.page).saturating_mul(i64::from(self.per_page))
+    }
 }
 
 /// Whether a duplicate is an ordinary copy or a template.
@@ -312,9 +315,8 @@ impl Store {
     /// `block` is updated to what was stored: `user_id` as modifier and the current time
     /// as modification time and, for a new block, `user_id` as creator and the current
     /// time as creation time, whatever the caller put there: a block is created when it
-    /// is stored, also one that is imported or copied. A block that names its board as its parent is stored, and
-    /// comes back, without a parent: a block directly on its board has none. An update
-    /// leaves the stored board, creator and creation time alone.
+    /// is stored, also one that is imported or copied. An update leaves the stored board,
+    /// creator and creation time alone.
     ///
     /// # Errors
     ///
@@ -600,28 +602,21 @@ fn filtered_blocks(scope: &Scope<'_>, filter: &BlockFilter, columns: &str) -> Sq
         sql.push_bind(" AND container_id = ", Id(container_id));
     }
     if let Some(parent_id) = &filter.parent_id {
-        // A block directly on its board has no parent, and whoever writes one may name
-        // the board there. Asking for the blocks "on the board" finds them the same way.
-        if filter.container_id.as_deref() == Some(parent_id.as_str()) {
-            sql.push(" AND parent_id IS NULL");
-        } else {
-            sql.push_bind(" AND parent_id = ", Id(parent_id));
-        }
+        sql.push_bind(" AND parent_id = ", Id(parent_id));
     }
-    // The empty type and the type `unknown` do not filter, so the blocks of type
-    // `unknown` cannot be asked for.
+    // The empty type does not filter.
     let block_type = filter
         .block_type
         .as_ref()
         .map(BlockType::as_str)
-        .filter(|name| !name.is_empty() && *name != UNKNOWN_TYPE);
+        .filter(|name| !name.is_empty());
     if let Some(block_type) = block_type {
         sql.push_bind(" AND type = ", block_type);
     }
     sql.push(OLDEST_FIRST);
     // A page size of zero does not limit, and the offset of any page is then zero.
     if let Some(paging) = filter.paging.filter(|paging| paging.per_page > 0) {
-        let offset = i64::from(paging.page) * i64::from(paging.per_page);
+        let offset = paging.offset();
         sql.push_bind(" LIMIT ", i64::from(paging.per_page))
             .push_bind(" OFFSET ", offset);
     }
@@ -710,11 +705,6 @@ async fn insert_block_at(
         source,
     };
     block.validate().map_err(|source| invalid(block, source))?;
-    // A block directly on its board has no parent. Clients of the original name the
-    // board there.
-    if block.parent_id == block.container_id {
-        block.parent_id.clear();
-    }
     // One writer per board at a time, from before anything is read: the parent that is
     // found below is still there when the block is stored.
     let Some(kind) = containers::lock_container_of_kind(scope, &block.container_id).await? else {

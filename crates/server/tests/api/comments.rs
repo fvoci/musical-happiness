@@ -165,10 +165,10 @@ async fn a_comment_is_on_a_card_and_has_nothing_below_it() {
         assert_eq!(response.refused_at(), "/0/parentId");
     }
 
-    // A move, alone, in a batch and with the board.
+    // A move, alone, in a batch and with the board. The board is no parent of anything.
     let path = block_path(board_id, &comment.id);
     for (target, refusal) in [
-        (board_id.as_str(), OFF_A_CARD),
+        (board_id.as_str(), "the parent is not a block of the board"),
         (attachment.id.as_str(), OFF_A_CARD),
     ] {
         let response = th.client.patch(&path, &json!({"parentId": target})).await;

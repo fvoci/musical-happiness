@@ -433,15 +433,15 @@ async fn create_category_creating_invalid_category() {
     let cases = [
         (
             category(TEST_WORKSPACE_ID, &user_id, ""),
-            "category name cannot be empty",
+            "the category has no name",
         ),
         (
             category(TEST_WORKSPACE_ID, "", "Name"),
-            "category user ID cannot be empty",
+            "the category names no user",
         ),
         (
             category("", &user_id, "Name"),
-            "category workspace id ID cannot be empty",
+            "the category names no workspace",
         ),
     ];
 
@@ -545,21 +545,21 @@ async fn update_category_updating_invalid_category() {
                 name: String::new(),
                 ..created.clone()
             },
-            "category name cannot be empty",
+            "the category has no name",
         ),
         (
             Category {
                 user_id: String::new(),
                 ..created.clone()
             },
-            "category user ID cannot be empty",
+            "the category names no user",
         ),
         (
             Category {
                 workspace_id: String::new(),
                 ..created.clone()
             },
-            "category workspace id ID cannot be empty",
+            "the category names no workspace",
         ),
     ];
     for (invalid, message) in cases {
@@ -1656,8 +1656,8 @@ async fn create_category_answers_the_stored_category() {
         "the created category"
     );
 
-    // A blank type and a `null` type are the default type.
-    for blank in [json!("  "), json!(""), Value::Null] {
+    // A blank type is no type, and not the default; `null` is none (`request_forms`).
+    for blank in [json!("  "), json!("")] {
         let response = th
             .client
             .post(
@@ -1665,10 +1665,11 @@ async fn create_category_answers_the_stored_category() {
                 &json!({"name": "Blank type", "userId": user.id, "workspaceId": ROOT_WORKSPACE_ID, "type": blank}),
             )
             .await;
+        response.check_bad_request();
         assert_eq!(
-            response.created_json::<Category>().category_type,
-            CategoryType::Custom,
-            "type {blank} is read as custom"
+            response.refused_at(),
+            "/type",
+            "type {blank} is refused, not read as custom"
         );
     }
 
@@ -1682,7 +1683,7 @@ async fn create_category_refuses_invalid_requests() {
     let user = th.client.me().await;
     let other = th.client2.me().await;
     let path = &format!("{ROOT_WS}/categories");
-    let invalid_type = "category type is invalid. Allowed types: system and custom";
+    let invalid_type = r#"type must be "system" or "custom""#;
     // A category is made for the session's user and nobody else, whatever else the
     // body says.
     for body in [
@@ -1713,22 +1714,22 @@ async fn create_category_refuses_invalid_requests() {
         (
             "a blank name",
             json!({"name": "  ", "userId": user.id, "workspaceId": ROOT_WORKSPACE_ID}),
-            "category name cannot be empty".to_owned(),
+            "the category has no name".to_owned(),
         ),
         (
-            "a `null` name",
+            "a `null` name, no name and no string",
             json!({"name": null, "userId": user.id, "workspaceId": ROOT_WORKSPACE_ID}),
-            "category name cannot be empty".to_owned(),
+            "invalid type: null, expected a string".to_owned(),
         ),
         (
-            "an unknown type",
-            json!({"name": "x", "userId": user.id, "workspaceId": ROOT_WORKSPACE_ID, "type": "bogus"}),
+            "a blank type, which is no type and not the default",
+            json!({"name": "x", "userId": user.id, "workspaceId": ROOT_WORKSPACE_ID, "type": " "}),
             invalid_type.to_owned(),
         ),
         (
-            "a blank name and an unknown type: the name is checked first",
+            "a blank name and an unknown type: both are refused",
             json!({"name": "", "userId": user.id, "workspaceId": ROOT_WORKSPACE_ID, "type": "bogus"}),
-            "category name cannot be empty".to_owned(),
+            "2 members of the request were refused".to_owned(),
         ),
     ];
     for (case, body, message) in cases {
@@ -1738,7 +1739,6 @@ async fn create_category_refuses_invalid_requests() {
     }
 
     // A body that is no JSON object with members of the right types is a bad request.
-    // (The original answers 500.)
     for malformed in [
         "{not json",
         "",
@@ -1883,10 +1883,10 @@ async fn update_category_refuses_invalid_requests() {
             "workspaceId mismatch",
         ),
         (body(json!({"workspaceId": "1"})), "workspaceId mismatch"),
-        (body(json!({"name": ""})), "category name cannot be empty"),
+        (body(json!({"name": ""})), "the category has no name"),
         (
             body(json!({"type": "bogus"})),
-            "category type is invalid. Allowed types: system and custom",
+            r#"type must be "system" or "custom""#,
         ),
     ];
     for (request, message) in bad_requests {

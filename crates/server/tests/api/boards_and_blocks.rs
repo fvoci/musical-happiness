@@ -222,10 +222,7 @@ async fn create_boards_and_blocks_blocks_from_nonexistent_boards() {
 
     let response = th.client.post(PATH, &request).await;
 
-    expect_bad_request(
-        &response,
-        "invalid containerId nonexistent-board-id (no board of the request has that id)",
-    );
+    expect_bad_request(&response, "the block is on no board of the request");
     assert_eq!(response.refused_at(), "/blocks/0/containerId");
     th.teardown().await;
 }
@@ -415,23 +412,23 @@ async fn create_boards_and_blocks_refusals() {
         );
     }
 
-    // Blocks are checked one by one: type, creation time, modification time, board.
+    // Blocks are checked one by one: board, type, creation time, modification time.
     // Each refusal names the member in the one spelling the API has.
     for (block, field, message) in [
         (
             json!({"id": "b1", "containerId": "bd", "createAt": 1, "updateAt": 1}),
             "type",
-            "missing type for block id b1",
+            "the block has no type",
         ),
         (
             json!({"id": "b1", "containerId": "bd", "type": "card", "updateAt": 1}),
             "createAt",
-            "invalid createAt for block id b1",
+            "a new block's createAt is 1 or more",
         ),
         (
             json!({"id": "b1", "containerId": "bd", "type": "card", "createAt": 1}),
             "updateAt",
-            "invalid updateAt for block id b1",
+            "a new block's updateAt is 1 or more",
         ),
     ] {
         let response = th
@@ -531,26 +528,28 @@ async fn create_boards_and_blocks_accepts_a_template() {
     th.teardown().await;
 }
 
-/// A deliberate difference: the original stores boards of any type and minimum role that
-/// come through this route, because only `POST /boards` validates them. The port has no
-/// way to store them and refuses them with the messages of `POST /boards`.
+/// A board of a type or minimum role outside their sets is refused as `POST /boards`
+/// refuses it, at the member of that board, with words that do not repeat the value.
 #[tokio::test]
 async fn create_boards_and_blocks_refuses_unknown_board_types_and_roles() {
     let th = Setup::native().start().await.init_basic().await;
     let block = card_json("bd");
 
-    for (board, message) in [
+    for (board, member, message) in [
         (
             json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "invalid"}),
-            "invalid-board-type",
+            "type",
+            "the type of a board is `O` (open) or `P` (private)",
         ),
         (
             json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID}),
-            "invalid-board-type",
+            "type",
+            "the type of a board is `O` (open) or `P` (private)",
         ),
         (
             json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "O", "minimumRole": "boss"}),
-            "invalid-board-minimum-role",
+            "minimumRole",
+            "the minimum role of a board is `viewer`, `commenter` or `editor`",
         ),
     ] {
         let response = th
@@ -558,6 +557,7 @@ async fn create_boards_and_blocks_refuses_unknown_board_types_and_roles() {
             .post(PATH, &json!({"containers": [board], "blocks": [block]}))
             .await;
         expect_bad_request(&response, message);
+        assert_eq!(response.refused_at(), format!("/containers/0/{member}"));
     }
 
     assert_eq!(
@@ -793,19 +793,27 @@ async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() 
 
     let response = patch(&th.client, &request).await;
 
-    expect_bad_request(&response, "invalid-board-type");
+    expect_bad_request(
+        &response,
+        "the type of a board is `O` (open) or `P` (private)",
+    );
+    assert_eq!(response.refused_at(), "/containerPatches/1/type");
     assert_titles_unchanged(&th, &boards).await;
 
-    // Verified on the original: the boards are checked in order, each for validity and
-    // then for permissions, so with the boards swapped the missing permission comes
-    // first.
+    // The body is checked whole before any board is looked at: a patch refused for its
+    // value is refused also when a board before it may not be changed.
     let swapped = json!({
         "containerIds": [boards.board2.id, boards.board1.id],
         "containerPatches": [{"title": "new title 4"}, {"minimumRole": "boss"}],
         "blockIds": [],
         "blockPatches": [],
     });
-    patch(&th.client, &swapped).await.check_forbidden();
+    let response = patch(&th.client, &swapped).await;
+    expect_bad_request(
+        &response,
+        "the minimum role of a board is `viewer`, `commenter` or `editor`",
+    );
+    assert_eq!(response.refused_at(), "/containerPatches/1/minimumRole");
     let role = json!({
         "containerIds": [boards.board1.id],
         "containerPatches": [{"minimumRole": "boss"}],
@@ -814,7 +822,7 @@ async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() 
     });
     expect_bad_request(
         &patch(&th.client, &role).await,
-        "invalid-board-minimum-role",
+        "the minimum role of a board is `viewer`, `commenter` or `editor`",
     );
 
     th.teardown().await;

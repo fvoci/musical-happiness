@@ -13,13 +13,12 @@ use fvoci_model::{
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::cards::int_query_param;
-use super::contract::params::{CappedPerPage, OrgId, OrgWorkspaceId, Page, UserId};
+use super::contract::params::{OrgId, OrgWorkspaceId, Page, PerPage, UserId};
 use super::contract::tag;
 use super::org::OrgAdmin;
+use super::paging::paging_params;
 use super::{ApiResult, created, decode_object, json_response, no_content};
-use crate::app::{App, DEFAULT_PER_PAGE, PageAsked};
-use crate::error::AppError;
+use crate::app::App;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -38,17 +37,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_join_org_workspace))
         .routes(routes!(handle_leave_org_workspace))
         .routes(routes!(handle_get_org_audit))
-}
-
-/// The page a request asks for with `page` and `perPage`. A `page` or `perPage` that is no whole number is 400.
-pub(super) fn requested_page(query: Option<&str>) -> Result<PageAsked, AppError> {
-    let page = int_query_param(query, "page", 0);
-    let per_page = int_query_param(query, "perPage", i64::from(DEFAULT_PER_PAGE));
-    match (page, per_page) {
-        (Ok(page), Ok(per_page)) => Ok(PageAsked { page, per_page }),
-        (Err(refusal), Ok(_)) | (Ok(_), Err(refusal)) => Err(refusal),
-        (Err(page), Err(per_page)) => Err(page.and(per_page)),
-    }
 }
 
 /// An organization
@@ -94,18 +82,17 @@ async fn handle_patch_organization(org: OrgAdmin, body: Bytes) -> ApiResult {
 
 /// The members of an organization
 ///
-/// One page of them with their roles, the oldest member first. 50 to a page unless
-/// `perPage` says otherwise, at most 200.
+/// One page of them with their roles, the oldest member first.
 #[utoipa::path(
     get,
     path = "/org/{orgId}/members",
     operation_id = "getOrgMembers",
     tag = tag::ORGANIZATION,
-    params(OrgId, Page, CappedPerPage),
+    params(OrgId, Page, PerPage),
     responses((status = 200, description = "The members of the page.", body = Vec<OrgMember>)),
 )]
 async fn handle_get_org_members(org: OrgAdmin, RawQuery(query): RawQuery) -> ApiResult {
-    let paging = requested_page(query.as_deref())?;
+    let paging = paging_params(query.as_deref())?;
     Ok(json_response(&org.app.org_members(paging).await?))
 }
 
@@ -313,17 +300,16 @@ async fn handle_leave_org_workspace(
 ///
 /// One page of what was done to the organization itself, the newest first: who made a
 /// member an administrator or a member, made, renamed, deleted or brought back a
-/// workspace, and turned the public links off or on. 50 to a page unless `perPage` says
-/// otherwise, at most 200.
+/// workspace, and turned the public links off or on.
 #[utoipa::path(
     get,
     path = "/org/{orgId}/audit",
     operation_id = "getOrgAudit",
     tag = tag::ORGANIZATION,
-    params(OrgId, Page, CappedPerPage),
+    params(OrgId, Page, PerPage),
     responses((status = 200, description = "The records of the page.", body = Vec<AuditRecord>)),
 )]
 async fn handle_get_org_audit(org: OrgAdmin, RawQuery(query): RawQuery) -> ApiResult {
-    let paging = requested_page(query.as_deref())?;
+    let paging = paging_params(query.as_deref())?;
     Ok(json_response(&org.app.org_audit(paging).await?))
 }

@@ -34,7 +34,7 @@ mod upload_limits;
 pub mod wiki;
 
 use environment::{ENV_KEYS, EnvKind, env_value};
-pub use scrapes::{MetricsAddress, MetricsToken};
+pub use scrapes::{MetricsAddress, MetricsHost, MetricsToken};
 pub use secret_key::{ENV_ONLY, SECRET_KEY_ENV};
 
 use crate::auth::sealed::SecretKey;

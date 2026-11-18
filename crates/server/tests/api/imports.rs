@@ -128,7 +128,7 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
         let file_id = crate::files::uploaded_id(&response);
         attachments.push(Block {
             id: new_id(),
-            parent_id: board.id.clone(),
+            parent_id: String::new(),
             container_id: board.id.clone(),
             block_type: BlockType::Attachment,
             fields: json!({"fileId": file_id})
@@ -459,7 +459,7 @@ async fn with_s3_an_archive_is_received_on_the_disk() {
     let file_id = crate::files::uploaded_id(&response);
     let attachment = Block {
         id: new_id(),
-        parent_id: board.id.clone(),
+        parent_id: String::new(),
         container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         fields: json!({"fileId": file_id})

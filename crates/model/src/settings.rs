@@ -152,7 +152,8 @@ word_setting! {
 ///
 /// A name is one the time zone database compiled into this build knows, spelled as the
 /// database spells it (names are case-sensitive). Names the database keeps for
-/// compatibility (`Asia/Calcutta`) are names too, and are kept as given.
+/// compatibility (`Asia/Calcutta`) are names too, and are kept as given. `Factory`, the
+/// database's zone for "no time zone was set", is none.
 #[derive(Clone, PartialEq, Eq, Default)]
 pub struct TimeZone(Option<String>);
 
@@ -172,12 +173,26 @@ impl FromStr for TimeZone {
     fn from_str(text: &str) -> Result<Self, ParseSettingError> {
         if text == Self::AUTO {
             Ok(Self(None))
-        } else if text.parse::<chrono_tz::Tz>().is_ok() {
+        } else if is_time_zone_name(text) {
             Ok(Self(Some(text.to_owned())))
         } else {
             Err(ParseSettingError)
         }
     }
+}
+
+/// The database's zone of an installation whose time zone was never set: no place's.
+const UNSET_ZONE: &str = "Factory";
+
+/// Whether `name` is a time zone of the compiled-in database, spelled as it spells it.
+/// The database is the bundled one by name, never the host's, whatever features of
+/// `jiff` another crate turns on. It finds names whatever their case and names an
+/// unknown zone as none, so a name is one only when the zone found has that very name.
+fn is_time_zone_name(name: &str) -> bool {
+    name != UNSET_ZONE
+        && jiff::tz::TimeZoneDatabase::bundled()
+            .get(name)
+            .is_ok_and(|zone| zone.iana_name() == Some(name))
 }
 
 /// The language of the interface: that of the browser, or one by its language tag.
@@ -689,6 +704,56 @@ mod tests {
     fn a_name_the_database_keeps_for_compatibility_is_kept_as_given() {
         let settings = patched(json!({"timeZone": "Asia/Calcutta"}));
         assert_eq!(settings.time_zone.as_str(), "Asia/Calcutta");
+    }
+
+    #[test]
+    fn a_time_zone_is_a_name_of_the_database_as_it_spells_it() {
+        for name in [
+            "Asia/Seoul",
+            "UTC",
+            "Etc/UTC",
+            "Etc/GMT+5",
+            "Etc/GMT-14",
+            "America/Argentina/Buenos_Aires",
+            "America/Ciudad_Juarez",
+            "Europe/Kyiv",
+            "Asia/Calcutta",
+            "Asia/Saigon",
+            "US/Pacific",
+            "GMT0",
+            "EST5EDT",
+        ] {
+            let zone: TimeZone = name.parse().expect("a name of the database");
+            assert_eq!(zone.as_str(), name, "kept as given");
+        }
+        for refused in [
+            "",
+            "asia/seoul",
+            "ASIA/SEOUL",
+            "utc",
+            "Factory",
+            "Etc/Unknown",
+            "Etc/GMT+13",
+            "UTC+09",
+            "+09:00",
+            "Z",
+            " Asia/Seoul",
+            "Asia/Seoul ",
+            "/Asia/Seoul",
+            "Asia//Seoul",
+            "../etc/passwd",
+            "posix/UTC",
+            "right/UTC",
+            "localtime",
+            "posixrules",
+            "zone.tab",
+            "Auto",
+        ] {
+            assert!(
+                refused.parse::<TimeZone>().is_err(),
+                "{refused:?} is no name"
+            );
+        }
     }
 
     #[test]

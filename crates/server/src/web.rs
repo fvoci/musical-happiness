@@ -16,8 +16,8 @@ use axum::response::{IntoResponse, Response};
 use tower::ServiceExt as _;
 use tower_http::services::ServeDir;
 
-/// What the original answers for a path that names nothing.
-const NOT_FOUND_BODY: &str = "404 page not found\n";
+/// The body of the answer to a path that names nothing.
+const NOT_FOUND_BODY: &str = "not found\n";
 
 /// The placeholder in `index.html` that is replaced with the base URL.
 const BASE_URL_PLACEHOLDER: &str = "{{.BaseURL}}";

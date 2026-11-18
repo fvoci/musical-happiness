@@ -373,7 +373,7 @@ async fn what_the_rules_of_a_board_refuse_stores_nothing_and_what_keeps_them_is_
     // Within the rules, the board and the wiki are made.
     let wiki = [
         board_line("w", "wiki", "Archived wiki"),
-        page("a", "w"),
+        page("a", ""),
         page("b", "a"),
         block_line("x", "w", "b", "comment"),
     ];

@@ -6,7 +6,6 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::refusal::{RefusalReason, Refusals};
-use crate::serde_util::null_as_default;
 use crate::settings::{
     CLIENT_STATE_MAX_NAME_LENGTH, ClientStateError, check_client_state_name,
     check_client_state_value,
@@ -97,10 +96,8 @@ impl fmt::Debug for User {
 #[serde(default, rename_all = "camelCase")]
 pub struct UserPreferencesPatch {
     /// Entries to set, by name.
-    #[serde(deserialize_with = "null_as_default")]
     pub updated_fields: BTreeMap<String, String>,
     /// Names of entries to remove.
-    #[serde(deserialize_with = "null_as_default")]
     pub deleted_fields: Vec<String>,
 }
 

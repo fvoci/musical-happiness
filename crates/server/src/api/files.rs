@@ -61,8 +61,8 @@ const MEDIA_CONTENT_TYPES: [&str; 10] = [
     "audio/wav",
 ];
 
-/// What the original answers a request that is no multipart form with.
-pub(super) const NOT_MULTIPART: &str = "request Content-Type isn't multipart/form-data";
+/// The refusal of an upload whose body is no multipart form.
+pub(super) const NOT_MULTIPART: &str = "the body must be a multipart/form-data form";
 
 /// The multipart form field the uploaded file is sent in.
 const UPLOAD_FIELD: &str = "file";

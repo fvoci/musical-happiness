@@ -112,15 +112,20 @@ async fn the_deleted_cards_are_those_that_come_back_by_themselves() {
     let listed: Vec<Value> = th.client.get(&trash).await.ok_json();
     assert_eq!(titles(&listed), [json!("outer"), json!("nested")]);
     for (query, expected) in [
-        ("?perPage=0", vec![json!("outer"), json!("nested")]),
-        ("?page=-1", vec![]),
+        ("?perPage=1000", vec![json!("outer"), json!("nested")]),
         ("?page=0&perPage=1", vec![json!("outer")]),
         ("?page=5&perPage=1", vec![]),
     ] {
         let listed: Vec<Value> = th.client.get(&format!("{trash}{query}")).await.ok_json();
         assert_eq!(titles(&listed), expected, "{query}");
     }
-    for query in ["?page=one", "?perPage=1.5"] {
+    for query in [
+        "?page=one",
+        "?perPage=1.5",
+        "?page=-1",
+        "?perPage=0",
+        "?perPage=1001",
+    ] {
         th.client
             .get(&format!("{trash}{query}"))
             .await

@@ -6,7 +6,6 @@ use crate::allowlist::utf16_len;
 use crate::name::{self, Named};
 use crate::problem::json_pointer;
 use crate::refusal::{Refusal, RefusalReason, Refusals};
-use crate::serde_util::null_as_default;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -139,13 +138,10 @@ impl From<AuthParamError> for Refusal {
 #[serde(default)]
 pub struct LoginRequest {
     /// The user name to log in with.
-    #[serde(deserialize_with = "null_as_default")]
     pub username: String,
     /// The email address to log in with, used when no user has the given name.
-    #[serde(deserialize_with = "null_as_default")]
     pub email: String,
     /// The password.
-    #[serde(deserialize_with = "null_as_default")]
     pub password: String,
 }
 
@@ -164,26 +160,22 @@ impl fmt::Debug for LoginRequest {
 #[serde(default)]
 pub struct RegisterRequest {
     /// The login name.
-    #[serde(deserialize_with = "null_as_default")]
     pub username: String,
     /// The email address.
-    #[serde(deserialize_with = "null_as_default")]
     pub email: String,
     /// The password.
-    #[serde(deserialize_with = "null_as_default")]
     pub password: String,
-    /// The name to be shown by; may be left out, `null` or empty for none. Read as
-    /// `patchMe` reads it.
-    #[serde(rename = "displayName", deserialize_with = "null_as_default")]
+    /// The name to be shown by; may be left out or empty for none, not `null`. Checked
+    /// as `patchMe` checks it: at most 64 UTF-16 code units without control characters.
+    #[serde(rename = "displayName")]
     pub display_name: String,
     /// The name of the organization the account starts, and of that organization's
     /// first workspace. Read as [`organization_name`] reads it.
-    #[serde(rename = "organizationName", deserialize_with = "null_as_default")]
+    #[serde(rename = "organizationName")]
     pub organization_name: String,
     /// The language tag of the screen the request comes from (`ko`, `en-GB`): the
     /// language of the mail that confirms the address, where the server asks for that
     /// (English, Korean); English for any other.
-    #[serde(deserialize_with = "null_as_default")]
     pub language: String,
 }
 
@@ -240,17 +232,14 @@ impl RegisterRequest {
 #[serde(default)]
 pub struct NewAccount {
     /// The login name.
-    #[serde(deserialize_with = "null_as_default")]
     pub username: String,
     /// The email address.
-    #[serde(deserialize_with = "null_as_default")]
     pub email: String,
     /// The password.
-    #[serde(deserialize_with = "null_as_default")]
     pub password: String,
-    /// The name to be shown by; may be left out, `null` or empty for none. Read as
-    /// `patchMe` reads it.
-    #[serde(rename = "displayName", deserialize_with = "null_as_default")]
+    /// The name to be shown by; may be left out or empty for none, not `null`. Checked
+    /// as `patchMe` checks it: at most 64 UTF-16 code units without control characters.
+    #[serde(rename = "displayName")]
     pub display_name: String,
 }
 
@@ -340,10 +329,8 @@ impl fmt::Debug for RegisterRequest {
 #[serde(default, rename_all = "camelCase")]
 pub struct ChangePasswordRequest {
     /// The current password.
-    #[serde(deserialize_with = "null_as_default")]
     pub old_password: String,
     /// The password to change to.
-    #[serde(deserialize_with = "null_as_default")]
     pub new_password: String,
 }
 

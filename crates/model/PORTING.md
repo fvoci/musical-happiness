@@ -65,8 +65,8 @@
 
 ## 의도적 차이
 
-1. **닫힌 집합은 디코딩에서 거절한다.** 원본은 `Board.type`, `minimumRole`, `Category.type`, `subscriberType`에 임의의 문자열을 받아 놓고 `IsValid`에서 400으로 거절한다(`invalid-board-type` 등). 포트는 enum이라 JSON 디코딩이 실패한다. 상태 코드는 같은 400이지만 오류 메시지 문구가 다르다. `Board.type`과 `subscriberType`은 필수 멤버가 됐다(원본은 누락을 빈 문자열로 읽고 `IsValid`에서 거절).
-2. **맵·목록 멤버가 `null`이거나 없으면 빈 값으로 읽고, 빈 값으로 내보낸다.** 블록의 `fields`, 보드의 `properties`·`cardProperties` 등이 해당한다. 원본은 nil로 두어 응답에 `"fields": null`, `"properties": null`, `"cardProperties": null`이 나가고 DB에도 `null`로 저장되며, 그런 블록에 `updatedFields` 패치를 보내면 nil 맵 대입으로 패닉해 500이 된다(오라클에서 확인: `assignment to entry in nil map`). 포트는 `{}`와 `[]`를 내보내고 패치도 정상 적용한다. 원본 웹 클라이언트는 항상 객체와 배열을 보내므로 정상 입력에서는 차이가 없다.
+1. **닫힌 집합은 디코딩에서 거절한다.** 원본은 `Board.type`, `minimumRole`, `Category.type`, `subscriberType`에 임의의 문자열을 받아 놓고 `IsValid`에서 400으로 거절한다. 포트는 enum이라 JSON 디코딩이 실패한다. 상태 코드는 같은 400이지만 오류 메시지 문구가 다르다. `Board.type`과 `subscriberType`은 필수 멤버가 됐다(원본은 누락을 빈 문자열로 읽고 `IsValid`에서 거절).
+2. **맵·목록 멤버가 없으면 빈 값으로 읽고, 빈 값으로 내보낸다. `null`은 400이다.** 블록의 `fields`, 보드의 `properties`·`cardProperties` 등이 해당한다. 원본은 nil로 두어 응답에 `"fields": null`, `"properties": null`, `"cardProperties": null`이 나가고 DB에도 `null`로 저장되며, 그런 블록에 `updatedFields` 패치를 보내면 nil 맵 대입으로 패닉해 500이 된다(오라클에서 확인: `assignment to entry in nil map`). 포트는 `{}`와 `[]`를 내보내고 패치도 정상 적용한다. 원본 웹 클라이언트는 항상 객체와 배열을 보내므로 정상 입력에서는 차이가 없다.
 3. **`generate_block_ids`는 타입이 맞지 않는 필드를 경고 로그 없이 그대로 둔다.** 원본은 경고를 남기고, 중첩 배열 안에 문자열이 아닌 값이 있으면 패닉한다.
 4. **`generate_containers_and_blocks_ids`에서 식별자가 같은 보드가 둘이면** 포트는 첫 보드에 블록을 붙인다. 원본은 같은 블록을 두 번 나열하고 마지막 보드에 붙인다. 정상 입력이 아니다.
 5. **`Block::validate`의 필드 크기는 `serde_json` 직렬화 기준이다.** 원본은 `<`, `>`, `&`를 `<`처럼 6글자로 이스케이프해서 세므로, 그런 문자가 많고 80만 자 한계에 걸친 입력에서만 판정이 갈린다.
@@ -83,11 +83,9 @@
 - **`generate_block_ids`:** `contentOrder`가 배열이 아닌 블록은 그 블록의 `defaultTemplateId`가 참조로 수집되지 않는다(`server/model/blockid.go:33-41`의 `continue`).
 - **`DeleteContainersAndBlocks::validate`는 보드만 요구한다.** 블록 목록은 비어도 된다.
 - **비밀번호 최소 길이 8은 바이트 수다**(`server/model/auth.go:128`).
-- **오류 메시지 문구는 원본 그대로다**(`"Board IDs do not match"`, `"invalid card, ID is missing"` 등. 원본의 팀은 워크스페이스로 바꿔 말한다). 응답의 `detail` 멤버로 나가므로 Rust 관례(소문자, 마침표 없음)에 맞추지 않았다.
 
 ## S3–S5에서 바뀐 것
 
-- **요청 JSON의 `null` 멤버는 빈 값으로 읽는다.** 원본의 디코더는 `null`을 만나면 그 멤버를 영값으로 둔다(오라클 확인: `POST /boards/{id}/blocks`에 `"title": null`을 보내면 200). 요청에서 디코드되는 타입(`Block`, `Container`, `ContainerMember`, `Category`, `Sharing`, `Subscription`, `Card`, 인증 요청 등)의 스칼라·컬렉션 멤버에 `null_as_default`를 붙였다. 테스트 `wire_format::null_members_decode_as_empty_values`.
 - 모델의 닫힌 enum(`ContainerType`, `ContainerRole` 등)은 원본이 저장을 허용하던 잘못된 값을 담지 못한다. 그 결과 생기는 차이는 서버 문서의 의도적 차이 33·55에 적었다.
 
 ## S6에서 바뀐 것

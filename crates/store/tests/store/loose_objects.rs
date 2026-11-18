@@ -444,22 +444,24 @@ async fn another_organizations_write_holds_a_doomed_place() {
 }
 
 /// What a comparison of the storage with the records dooms, by the system's handle, is
-/// the organization's whose board the place names, live or in the trash, and the system
-/// organization's when it names none; once.
+/// the organization's whose key it is, of a board live or in the trash, and the system
+/// organization's when it is no key or the key of no organization there is; once.
 #[tokio::test]
-async fn an_unrecorded_object_is_doomed_as_its_boards_organizations() {
+async fn an_unrecorded_object_is_doomed_as_its_keys_organizations() {
     let test = common::setup().await;
     let (board_id, user_id) = board(&test).await;
     let (trashed_board, _) = board(&test).await;
     test.delete_container(&trashed_board, &user_id)
         .await
         .expect("the board goes to the trash");
-    let ours = format!("boards/20261112/{board_id}/stray.png");
-    let trashed = format!("boards/20261112/{trashed_board}/stray.png");
-    let nobodys = "boards/20261112/stray.png";
+    let org = &test.org_id;
+    let ours = format!("{org}/{board_id}/stray");
+    let trashed = format!("{org}/{trashed_board}/stray");
+    let nobodys = format!("{}/{board_id}/stray", new_id());
+    let no_key = "boards/20261112/stray.png";
     let system = test.system();
-    let paths = [ours.as_str(), trashed.as_str(), nobodys];
-    assert_eq!(system.doom_unrecorded(&paths).await.expect("doomed"), 3);
+    let paths = [ours.as_str(), trashed.as_str(), nobodys.as_str(), no_key];
+    assert_eq!(system.doom_unrecorded(&paths).await.expect("doomed"), 4);
     assert_eq!(
         system.doom_unrecorded(&paths).await.expect("doomed"),
         0,
@@ -472,14 +474,41 @@ async fn an_unrecorded_object_is_doomed_as_its_boards_organizations() {
         assert_eq!(paths_in(&listed, LooseState::Doomed), expected, "ours");
         let system_org = test.for_org(SYSTEM_ORG_ID).expect("an identifier");
         let listed = system_org.loose_objects().await.expect("listed");
+        let mut expected = [nobodys.as_str(), no_key];
+        expected.sort_unstable();
         assert_eq!(
             paths_in(&listed, LooseState::Doomed),
-            [nobodys],
+            expected,
             "the system organization's"
         );
     } else {
-        assert_eq!(listed.len(), 3, "{listed:?}");
+        assert_eq!(listed.len(), 4, "{listed:?}");
     }
+    test.teardown().await;
+}
+
+/// By a handle of an organization, the key of another is refused and nothing of the
+/// batch is doomed; its own keys, and places of no key, are its own.
+#[tokio::test]
+async fn an_organization_dooms_no_key_of_another() {
+    let test = common::setup().await;
+    let (board_id, _) = board(&test).await;
+    let ours = format!("{}/{board_id}/stray", test.org_id);
+    let theirs = format!("{}/{board_id}/stray", new_id());
+    let refused = test
+        .doom_unrecorded(&[ours.as_str(), theirs.as_str()])
+        .await;
+    assert!(
+        matches!(&refused, Err(StoreError::InvalidPath(path)) if *path == theirs),
+        "{refused:?}"
+    );
+    assert_eq!(
+        test.loose_objects().await.expect("listed"),
+        [],
+        "nothing doomed"
+    );
+    let paths = [ours.as_str(), "boards/20261112/stray.png"];
+    assert_eq!(test.doom_unrecorded(&paths).await.expect("doomed"), 2);
     test.teardown().await;
 }
 
