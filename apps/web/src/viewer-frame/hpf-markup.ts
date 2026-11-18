@@ -104,7 +104,7 @@ function bangEnd(xml: string, open: number): number {
 }
 
 /** The attributes quick-xml's iterator gives without an error (the ones `.flatten()` keeps). */
-export function attributesOf(content: string, from: number): [string, string][] {
+function attributesOf(content: string, from: number): [string, string][] {
   const found: [string, string][] = [];
   const keys = new Set<string>();
   const firstSpace = (at: number): number => {
@@ -214,8 +214,9 @@ export function readTags(xml: string, visit: (tag: Tag) => void): void {
     } else if (next === '/') {
       end = tagEnd(xml, start + 1);
       // Blanks after the name are let be; a name of blanks alone is kept as it is.
-      const written = xml.slice(start + 2, end);
-      if (!open.close(xml, written.replace(/[ \r\n\t]+$/, '') || written)) {
+      let nameEnd = end;
+      while (nameEnd > start + 2 && isSpace(xml[nameEnd - 1])) nameEnd -= 1;
+      if (!open.close(xml, xml.slice(start + 2, nameEnd > start + 2 ? nameEnd : end))) {
         throw new UnreadableFile();
       }
     } else {

@@ -89,6 +89,14 @@ describe("an HWPX package's list, read as rhwp reads it", () => {
     expect(performance.now() - started).toBeLessThan(500);
   });
 
+  it('an end tag of many blanks is unreadable, at once', () => {
+    const started = performance.now();
+    expect(() => listed(`<package><a></a${' '.repeat(100_000)}x></package>`)).toThrow(
+      UnreadableFile,
+    );
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it('without a spine, takes every XML part whose address says "section", in order', () => {
     const list = listed(
       contentHpf(

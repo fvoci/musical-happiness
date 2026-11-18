@@ -275,6 +275,31 @@ test('an HWP whose picture unpacks past the limit is stopped in the worker befor
   await ended;
 });
 
+test('pictures that each end with a byte rhwp passes over count all they unpack to', async ({
+  page,
+}) => {
+  await openCard(page);
+  // 13 pictures of 16 MiB, each deflated into one slice of the guard and followed by a byte of
+  // junk: the browser's unpacker drops a slice's output when it fails on the junk, rhwp does not.
+  const picture = Buffer.concat([deflateRawSync(Buffer.alloc(16 * 1024 * 1024)), Buffer.from([7])]);
+  expect(picture.length).toBeLessThan(16 * 1024);
+  const pictures = Array.from({ length: 13 }, (_, at) => ({
+    path: `BinData/BIN${String(at + 100).padStart(4, '0')}.png`,
+    data: picture,
+  }));
+  const started = nextWorker(page);
+  await view(
+    page,
+    'junk.hwp',
+    compoundFile([...compoundStreams(koreanHwp()), ...pictures]),
+    HWP_TYPE,
+  );
+  const { ended } = await started;
+  await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
+  await expect(notice(page)).toContainText("This file's contents are too large to preview.");
+  await ended;
+});
+
 test('a page drawn past what the frame takes on says the file is too large', async ({ page }) => {
   await openCard(page);
   // 30,000 characters on the first page, each drawn apart: past 20,000 elements.

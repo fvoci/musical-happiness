@@ -106,14 +106,14 @@ describe('in the frame, a compound file is checked before rhwp reads it', () => 
       .map((stream) => [stream.path, stream.data.toString('hex')])
       .sort();
 
-  it('an honest one is handed on written anew, with the same streams', async () => {
+  it('an honest one is handed on written anew, with the same streams', () => {
     const honest = koreanHwp();
-    const written = Buffer.from(await checkCompound(buffer(honest)));
+    const written = Buffer.from(checkCompound(buffer(honest)));
     expect(listed(written)).toEqual(listed(honest));
-    await expect(checkCompound(buffer(hwpFile()))).resolves.toBeInstanceOf(ArrayBuffer);
+    expect(checkCompound(buffer(hwpFile()))).toBeInstanceOf(ArrayBuffer);
   });
 
-  it('what rhwp would read by rules of its own is written as it reads it here', async () => {
+  it('what rhwp would read by rules of its own is written as it reads it here', () => {
     // The high half of a version 3 size (which only a lenient reader takes), and an unused
     // entry of a kind that does not exist (which sends rhwp down its lenient reader).
     const honest = koreanHwp();
@@ -127,13 +127,13 @@ describe('in the frame, a compound file is checked before rhwp reads it', () => 
     const at = (index: number): number => (odd.readUInt32LE(48) + 1) * 512 + index * 128;
     odd.writeUInt32LE(1, at(picture) + 124);
     odd[at(unused) + 66] = 3;
-    const written = Buffer.from(await checkCompound(buffer(odd)));
+    const written = Buffer.from(checkCompound(buffer(odd)));
     expect(listed(written)).toEqual(listed(honest));
     const again = compoundFile(bytes(written));
     expect(again?.entries.every((entry) => [0, 1, 2, 5].includes(entry.type))).toBe(true);
   });
 
-  it('a storage that holds a name twice, ignoring case, stops the file', async () => {
+  it('a storage that holds a name twice, ignoring case, stops the file', () => {
     const twice = writeCompound([
       { path: 'FileHeader', data: hwpFileHeader() },
       { path: 'BodyText/Section0', data: Buffer.alloc(100, 1) },
@@ -145,14 +145,26 @@ describe('in the frame, a compound file is checked before rhwp reads it', () => 
     twice.write('s', at + 0, 'utf16le');
     twice.write('0', at + 14, 'utf16le');
     expect(compoundFile(bytes(twice))?.entries[second]?.name).toBe('section0');
-    await expect(checkCompound(buffer(twice))).rejects.toThrow(UnreadableFile);
+    expect(() => checkCompound(buffer(twice))).toThrow(UnreadableFile);
   });
 
-  it('a stream that says more than its chain holds stops the file', async () => {
-    await expect(checkCompound(buffer(hwpFile({ said: 20_000 })))).rejects.toThrow(UnreadableFile);
+  it('thousands of small streams are read in a moment: the mini stream is read once', () => {
+    // Read again for each stream, 4,000 of them took 82 seconds, past the worker's time.
+    const streams: CompoundStream[] = [{ path: 'FileHeader', data: hwpFileHeader() }];
+    for (let index = 0; index < 4000; index += 1) {
+      streams.push({ path: `BinData/B${String(index)}`, data: Buffer.alloc(4095, index & 0xff) });
+    }
+    const many = writeCompound(streams);
+    const started = performance.now();
+    expect(checkCompound(buffer(many), 1 << 30)).toBeInstanceOf(ArrayBuffer);
+    expect(performance.now() - started).toBeLessThan(10_000);
   });
 
-  it('two streams on one chain, or a chain that comes back on itself, stop the file', async () => {
+  it('a stream that says more than its chain holds stops the file', () => {
+    expect(() => checkCompound(buffer(hwpFile({ said: 20_000 })))).toThrow(UnreadableFile);
+  });
+
+  it('two streams on one chain, or a chain that comes back on itself, stop the file', () => {
     const shared = writeCompound([
       { path: 'FileHeader', data: hwpFileHeader() },
       { path: 'BodyText/Section0', data: Buffer.alloc(9000, 2) },
@@ -160,15 +172,15 @@ describe('in the frame, a compound file is checked before rhwp reads it', () => 
     ]);
     const file = compoundFile(bytes(shared));
     expect(file && verifyChains(file)).toBe(false);
-    await expect(checkCompound(buffer(shared))).rejects.toThrow(UnreadableFile);
+    expect(() => checkCompound(buffer(shared))).toThrow(UnreadableFile);
     const cycle = hwpFile({}, 'BodyText/Section0');
-    await expect(checkCompound(buffer(cycle))).rejects.toThrow(UnreadableFile);
+    expect(() => checkCompound(buffer(cycle))).toThrow(UnreadableFile);
   });
 
-  it('a document locked with a password says so', async () => {
+  it('a document locked with a password says so', () => {
     const locked = writeCompound([{ path: 'FileHeader', data: hwpFileHeader(0b11) }]);
-    await expect(checkCompound(buffer(locked))).rejects.toThrow(LockedFile);
-    await expect(checkCompound(buffer(lockedHwp()))).rejects.toThrow(LockedFile);
+    expect(() => checkCompound(buffer(locked))).toThrow(LockedFile);
+    expect(() => checkCompound(buffer(lockedHwp()))).toThrow(LockedFile);
   });
 });
 
@@ -185,32 +197,38 @@ describe('in the frame, what the streams unpack to is held to the limit', () => 
     );
   const zeros = Buffer.alloc(4 << 20);
 
-  it('a picture deflated past it, raw or in zlib, stops the file', async () => {
-    await expect(checkCompound(withPicture(deflateRawSync(zeros)), LIMIT)).rejects.toThrow(
-      TooLargeFile,
-    );
-    await expect(checkCompound(withPicture(deflateSync(zeros)), LIMIT)).rejects.toThrow(
-      TooLargeFile,
-    );
+  it('a picture deflated past it, raw or in zlib, stops the file', () => {
+    expect(() => checkCompound(withPicture(deflateRawSync(zeros)), LIMIT)).toThrow(TooLargeFile);
+    expect(() => checkCompound(withPicture(deflateSync(zeros)), LIMIT)).toThrow(TooLargeFile);
   });
 
-  it('what comes out before a stream fails counts: with a byte after it, or a broken block', async () => {
+  it('what comes out before a stream fails counts: with a byte after it, or a broken block', () => {
     const part = Buffer.alloc(600 << 10);
     const junk = Buffer.concat([deflateRawSync(part), Buffer.from([0x42])]);
     // Blocks that do not end the stream, then one of a kind that does not exist.
     const open = deflateRawSync(part, { finishFlush: constants.Z_SYNC_FLUSH });
     const broken = Buffer.concat([open, Buffer.from([0x07, 0, 0, 0])]);
-    await expect(checkCompound(withPicture(junk), LIMIT)).resolves.toBeInstanceOf(ArrayBuffer);
-    await expect(checkCompound(withPicture(junk, broken), LIMIT)).rejects.toThrow(TooLargeFile);
+    expect(checkCompound(withPicture(junk), LIMIT)).toBeInstanceOf(ArrayBuffer);
+    expect(() => checkCompound(withPicture(junk, broken), LIMIT)).toThrow(TooLargeFile);
   });
 
-  it('a stream that is not deflated counts as it is, and the streams count together', async () => {
+  it('bytes after the last block, as Hancom writes them, take nothing from the count', () => {
+    // A browser's unpacker fails on them, and drops what the slice they were in unpacked to.
+    const after = (size: number): Buffer =>
+      Buffer.concat([deflateRawSync(Buffer.alloc(size)), Buffer.from([0x07, 0x00])]);
+    expect(after(2 << 20).length).toBeLessThan(16 * 1024);
+    expect(() => checkCompound(withPicture(after(2 << 20)), LIMIT)).toThrow(TooLargeFile);
+    expect(checkCompound(withPicture(after(LIMIT - 9000)), LIMIT)).toBeInstanceOf(ArrayBuffer);
+    expect(() => checkCompound(withPicture(after(LIMIT - 8000)), LIMIT)).toThrow(TooLargeFile);
+  });
+
+  it('a stream that is not deflated counts as it is, and the streams count together', () => {
     const stored = Buffer.alloc(600 << 10, 0x89);
-    await expect(checkCompound(withPicture(stored), LIMIT)).resolves.toBeInstanceOf(ArrayBuffer);
-    await expect(checkCompound(withPicture(stored, stored), LIMIT)).rejects.toThrow(TooLargeFile);
-    await expect(
+    expect(checkCompound(withPicture(stored), LIMIT)).toBeInstanceOf(ArrayBuffer);
+    expect(() => checkCompound(withPicture(stored, stored), LIMIT)).toThrow(TooLargeFile);
+    expect(
       checkCompound(withPicture(deflateRawSync(Buffer.alloc(900 << 10))), LIMIT),
-    ).resolves.toBeInstanceOf(ArrayBuffer);
+    ).toBeInstanceOf(ArrayBuffer);
   });
 });
 
@@ -298,20 +316,20 @@ describe('the reader takes a compound file of either version, and a FAT past the
       expect(paths).toContain(path);
   });
 
-  it('version 4 (sectors of 4096 bytes)', async () => {
+  it('version 4 (sectors of 4096 bytes)', () => {
     const again = writeCompound(sample, { version: 4 });
     expect(again.readUInt16LE(26)).toBe(4);
     expect(sniffFormat(again)).toBe('hwp');
-    await expect(checkCompound(buffer(again))).resolves.toBeInstanceOf(ArrayBuffer);
+    expect(checkCompound(buffer(again))).toBeInstanceOf(ArrayBuffer);
     expect(listed(compoundStreams(again))).toEqual(listed(sample));
   });
 
-  it('a FAT longer than the header lists, continued in DIFAT sectors', async () => {
+  it('a FAT longer than the header lists, continued in DIFAT sectors', () => {
     const picture = { path: 'BinData/BIN0009.bmp', data: Buffer.alloc(8 << 20, 9) };
     const large = writeCompound([...sample, picture]);
     expect(large.readUInt32LE(72)).toBeGreaterThan(0);
     expect(sniffFormat(large)).toBe('hwp');
-    await expect(checkCompound(buffer(large))).resolves.toBeInstanceOf(ArrayBuffer);
+    expect(checkCompound(buffer(large))).toBeInstanceOf(ArrayBuffer);
     expect(listed(compoundStreams(large))).toEqual(listed([...sample, picture]));
   });
 });

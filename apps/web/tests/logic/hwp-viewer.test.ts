@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { compoundFile as readCompound } from '$lib/file-viewer/compound-file.ts';
 import { examine, type FormatId } from '$lib/file-viewer/formats.ts';
 import { readFromFrame } from '$lib/file-viewer/protocol.ts';
+import { checkCompound } from '../../src/viewer-frame/compound-guard.ts';
 import { fromHex, HwpReader } from '../../src/viewer-frame/hwp-document.ts';
 import type { FromWorker, HwpFormat } from '../../src/viewer-frame/hwp-messages.ts';
 import { SlowRenderer } from '../../src/viewer-frame/renderer.ts';
@@ -18,6 +19,7 @@ import {
 import {
   compoundFile,
   compoundStreams,
+  denseHwpx,
   HWP_TEXT,
   hwpFileHeader,
   koreanHwp,
@@ -105,6 +107,24 @@ describe("the worker's reader, with rhwp", () => {
     }
   });
 
+  it('draws an HWP of 12 MiB, whose directory rhwp finds through the DIFAT of the file written anew', async () => {
+    const filler = { path: 'BinData/BIN0099.dat', data: Buffer.alloc(12 << 20, 9) };
+    const large = compoundFile([...compoundStreams(koreanHwp()), filler]);
+    // The sectors the header's own list of FAT sectors covers: 109 of 128 numbers each.
+    const listed = 109 * 128;
+    const written = readCompound(new Uint8Array(checkCompound(buffer(large))));
+    expect(written?.difatSectors.length).toBeGreaterThan(0);
+    expect(written?.directorySectors[0]).toBeGreaterThan(listed);
+    expect(written?.entries[0]?.start).toBeGreaterThan(listed);
+    const reader = new HwpReader();
+    const opened = await open(reader, 'hwp', large);
+    expect(opened.kind === 'opened' && opened.pages.length).toBe(2);
+    const first = await reader.answer({ kind: 'page', page: 1 });
+    if (first.kind !== 'page') throw new Error(`page 1: ${JSON.stringify(first)}`);
+    expect(first.svg).toContain('data:image/png;base64,');
+    expect(first.text.map((run) => run.text)).toContain(HWP_TEXT.title);
+  });
+
   it('stops a picture that unpacks past the limit, as written or read leniently by rhwp', async () => {
     const streams = compoundStreams(koreanHwp());
     const bomb = deflateRawSync(Buffer.alloc(4 << 20));
@@ -140,6 +160,16 @@ describe("the worker's reader, with rhwp", () => {
     const reader = new HwpReader({ elements: 5000 });
     expect((await open(reader, 'hwpx', koreanHwpx())).kind).toBe('opened');
     expect((await reader.answer({ kind: 'page', page: 1 })).kind).toBe('page');
+  });
+
+  it('takes a limit given as undefined for the ceiling, not for none', async () => {
+    const reader = new HwpReader({ svg: undefined, elements: undefined, unpacked: undefined });
+    expect((await open(reader, 'hwpx', denseHwpx())).kind).toBe('opened');
+    expect(await reader.answer({ kind: 'page', page: 1 })).toEqual({
+      kind: 'failed',
+      reason: 'too-large',
+    });
+    expect((await reader.answer({ kind: 'page', page: 2 })).kind).toBe('page');
   });
 
   it('says a document locked with a password is locked', async () => {
