@@ -20,30 +20,35 @@ const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
 
 /**
  * The texts of the cells of `sheet` drawn as the frame scrolls across it, from its left to its
- * right and back: how many times each was drawn at once, at most.
+ * right and back: how many times each was drawn at once, at most. All in the frame, at once: a
+ * round trip for each step costs a remote browser seconds.
  */
 async function cellsAcross(sheet: Locator): Promise<Map<string, number>> {
-  const seen = new Map<string, number>();
-  const scroll = (x: number): Promise<number> =>
-    sheet.evaluate(async (_, to) => {
-      window.scrollTo(to, 0);
+  const seen = await sheet.evaluate(async (table) => {
+    const scroll = async (x: number): Promise<number> => {
+      window.scrollTo(x, 0);
       // The sheet is drawn anew on the scroll, before the next frame.
       await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
       return document.documentElement.scrollWidth - window.innerWidth;
-    }, x);
-  const across = await scroll(0);
-  for (let x = 0; ; x = Math.min(across, x + 150)) {
-    await scroll(x);
-    const texts = await sheet
-      .getByRole('cell')
-      .evaluateAll((cells) => cells.map((cell) => cell.textContent.trim()));
-    const here = new Map<string, number>();
-    for (const text of texts) here.set(text, (here.get(text) ?? 0) + 1);
-    for (const [text, count] of here) seen.set(text, Math.max(count, seen.get(text) ?? 0));
-    if (x >= across) break;
-  }
-  await scroll(0);
-  return seen;
+    };
+    const most = new Map<string, number>();
+    const across = await scroll(0);
+    for (let x = 0; ; x = Math.min(across, x + 150)) {
+      await scroll(x);
+      const here = new Map<string, number>();
+      for (const cell of table.querySelectorAll('[role="cell"]')) {
+        // As the role finds them: not in what is hidden from screen readers.
+        if (cell.closest('[aria-hidden="true"]')) continue;
+        const text = cell.textContent.trim();
+        here.set(text, (here.get(text) ?? 0) + 1);
+      }
+      for (const [text, count] of here) most.set(text, Math.max(count, most.get(text) ?? 0));
+      if (x >= across) break;
+    }
+    await scroll(0);
+    return [...most];
+  });
+  return new Map(seen);
 }
 
 /** The requests the viewer's frame makes, from its document on. */
@@ -235,12 +240,28 @@ test('a workbook past a ceiling, and an old Excel file, are offered as downloads
   );
 });
 
+/**
+ * A workbook under every ceiling that takes its worker seconds to read: 900,000 cells of a
+ * number each (13.5 MB of the sheet's markup, under the 30 MB a part may have).
+ */
+const slowXlsx = (): Buffer => manyCellsXlsx(900_000, 9_000, '<c><v>1</v></c>');
+
+/**
+ * Opens the workbook of `row` and gives once its worker is there: by its event, which comes
+ * however short the worker's life (a poll of the workers may look before it and after it).
+ */
+async function openReading(page: Page, row: Locator, name: string): Promise<void> {
+  const started = page.waitForEvent('worker');
+  await row.getByRole('link', { name }).click();
+  await started;
+  // Still reading: the worker is ended by what follows, not by its answer.
+  await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
+}
+
 test('while a large workbook is read, "Close" ends the viewer and its worker', async ({ page }) => {
   await openCard(page);
-  const row = await attach(page, 'cells.xlsx', manyCellsXlsx(900_000, 9_000), XLSX_TYPE);
-  await row.getByRole('link', { name: 'cells.xlsx' }).click();
-  await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
-  await expect.poll(() => page.workers().length).toBeGreaterThan(0);
+  const row = await attach(page, 'cells.xlsx', slowXlsx(), XLSX_TYPE);
+  await openReading(page, row, 'cells.xlsx');
   await page.getByTestId('file-viewer-close').click();
   await expect(viewer(page)).toHaveCount(0, { timeout: 2000 });
   await expect.poll(() => page.workers().length).toBe(0);
@@ -249,10 +270,8 @@ test('while a large workbook is read, "Close" ends the viewer and its worker', a
 test('a workbook read past the time limit is given up, worker and all', async ({ page }) => {
   await page.clock.install();
   await openCard(page);
-  const row = await attach(page, 'slow.xlsx', manyCellsXlsx(900_000, 9_000), XLSX_TYPE);
-  await row.getByRole('link', { name: 'slow.xlsx' }).click();
-  await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
-  await expect.poll(() => page.workers().length).toBeGreaterThan(0);
+  const row = await attach(page, 'slow.xlsx', slowXlsx(), XLSX_TYPE);
+  await openReading(page, row, 'slow.xlsx');
   await page.clock.runFor(31_000);
   await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
   await expect(page.getByTestId('file-viewer-notice')).toContainText(

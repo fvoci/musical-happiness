@@ -9,11 +9,11 @@ import { PLAIN_STYLES, workbook } from './viewer-xlsx.ts';
 
 const repeat = (text: string, times: number): string => text.repeat(times);
 
-/** A sheet of `count` empty cells, `perRow` to a row. */
-export function manyCellsXlsx(count: number, perRow = 10_000): Buffer {
+/** A sheet of `count` cells, `perRow` to a row, each `cell` (by default empty). */
+export function manyCellsXlsx(count: number, perRow = 10_000, cell = '<c/>'): Buffer {
   const rows: string[] = [];
   for (let left = count, row = 1; left > 0; left -= perRow, row += 1) {
-    rows.push(`<row r="${row}">${repeat('<c/>', Math.min(perRow, left))}</row>`);
+    rows.push(`<row r="${row}">${repeat(cell, Math.min(perRow, left))}</row>`);
   }
   return workbook({ sheets: [{ name: 'cells', xml: `<sheetData>${rows.join('')}</sheetData>` }] });
 }
