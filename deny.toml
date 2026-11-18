@@ -24,6 +24,15 @@ ignore = [
     # does, or when an advisory names a vulnerability in smallstr (which gets its own
     # identifier and fails this check again).
     { id = "RUSTSEC-2026-0215", reason = "a notice that smallstr is unmaintained, not a vulnerability; yrs 0.28.1, the newest release, depends on it" },
+    # chrono, chrono-tz and humantime are no longer maintained (notices of 2026-11, no
+    # vulnerability named, every release affected). crates/model reads time zones with
+    # chrono-tz, which brings chrono; object_store (S3 files) brings chrono and humantime.
+    # Remove an entry when the crate is gone from the tree (chrono-tz for jiff, an
+    # object_store release without the other two), or when an advisory names a
+    # vulnerability in it (which gets its own identifier and fails this check again).
+    { id = "RUSTSEC-2026-0543", reason = "a notice that chrono is unmaintained, not a vulnerability; chrono-tz and object_store depend on it" },
+    { id = "RUSTSEC-2026-0555", reason = "a notice that chrono-tz is unmaintained, not a vulnerability; crates/model reads time zones with it until it moves to jiff" },
+    { id = "RUSTSEC-2026-0542", reason = "a notice that humantime is unmaintained, not a vulnerability; object_store 0.14.2, the newest release, depends on it" },
 ]
 
 [licenses]
