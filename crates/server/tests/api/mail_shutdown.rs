@@ -43,6 +43,18 @@ async fn mail_still_queued_when_the_wait_ends_is_counted_as_unsent() {
         )
         .await
         .check_no_content();
+    // A reset takes its place once its account was looked up.
+    let queued = UnsentMail {
+        recovery: 3,
+        invitations: 1,
+    };
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while th.app.unsent_mail() != queued {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("all four are queued: {:?}", th.app.unsent_mail()));
     smtp.attempted(1).await;
 
     assert!(
@@ -51,10 +63,7 @@ async fn mail_still_queued_when_the_wait_ends_is_counted_as_unsent() {
     );
     assert_eq!(
         th.app.unsent_mail(),
-        UnsentMail {
-            recovery: 3,
-            invitations: 1
-        },
+        queued,
         "the one being sent and those waiting for their turn"
     );
 

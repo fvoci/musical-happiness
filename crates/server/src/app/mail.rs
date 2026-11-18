@@ -57,6 +57,7 @@ pub struct UnsentMail {
 
 impl UnsentMail {
     /// Whether no message is waiting.
+    #[must_use]
     pub fn is_empty(self) -> bool {
         self == Self::default()
     }

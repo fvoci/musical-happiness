@@ -63,7 +63,7 @@ pub(super) fn profile(trial: &Trial) -> Result<()> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|port| port["host_ip"].as_str())
+        .map(|port| port["host_ip"].as_str().unwrap_or_default())
         .collect();
     ensure!(
         published == ["127.0.0.1"],

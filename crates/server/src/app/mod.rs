@@ -505,6 +505,19 @@ impl App {
         self.inner.mail.unsent()
     }
 
+    /// Logs how much mail still holds a place in its queue, if any: once the shutdown
+    /// stops waiting for it, it is not sent.
+    pub fn warn_of_unsent_mail(&self) {
+        let unsent = self.unsent_mail();
+        if !unsent.is_empty() {
+            tracing::warn!(
+                recovery = unsent.recovery,
+                invitations = unsent.invitations,
+                "mail still queued at shutdown: it is kept in memory and will not be sent"
+            );
+        }
+    }
+
     /// Waits until all background work has finished, or `timeout` has passed. Returns
     /// `false` on timeout.
     pub async fn finish_background(&self, timeout: std::time::Duration) -> bool {

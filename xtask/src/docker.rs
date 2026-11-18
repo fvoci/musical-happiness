@@ -3,9 +3,9 @@
 //! starts them with `docker/compose.yaml` as an installation would, and tries them from
 //! outside: ping names the commit, sign up, a board, a card, words in its body, and a
 //! search that finds them; a reset link mailed by each provider's settings to a fake
-//! provider, and no start with `email_verification` and no mail. Then it looks at what the installation must not do (secrets
-//! in the images, a database role past the wall, ports open to the host, processes as
-//! root), reads the profile `tunnel` without starting it, and takes everything down
+//! provider, and no start with `email_verification` and no mail. Then it looks at what
+//! the installation must not do (secrets in the images, a database role past the wall,
+//! ports open to the host, processes as root), reads the profile `tunnel` without starting it, and takes everything down
 //! with its volumes, whatever happened. `--push-plan` prints how the images go to GHCR.
 //!
 //! It needs `docker` with compose 2.24 or newer, `curl`, `git` and `tar`. The images are built
@@ -337,8 +337,9 @@ fn try_installation(trial: &Trial, directory: &Path) -> Result<()> {
 fn take_down(trial: &Trial) -> Result<()> {
     use std::os::unix::process::CommandExt as _;
 
-    // It shares fvoci's network, which goes with fvoci.
-    mail::remove_fake(trial);
+    // It shares fvoci's network, which goes with fvoci; what is left of it is said
+    // once the rest is down.
+    let fake_left = mail::remove_fake(trial);
     let status = trial
         .command(&[
             "--profile",
@@ -378,7 +379,7 @@ fn take_down(trial: &Trial) -> Result<()> {
             bail!("the trial left a {}: {}", listing[0], left.output);
         }
     }
-    Ok(())
+    fake_left
 }
 
 /// A port of the loopback interface that nothing listens on now.

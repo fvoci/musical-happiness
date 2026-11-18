@@ -116,10 +116,19 @@ impl Keys {
     /// The lines of the trial's `.env`: mail by Cloudflare to the fake provider, the
     /// other providers' lines empty.
     pub(super) fn env_lines(&self) -> String {
-        let settings = self
-            .settings(Provider::Cloudflare)
-            .into_iter()
-            .map(|(name, value)| format!("{name}={value}\n"));
+        self.env_lines_of(Provider::Cloudflare)
+    }
+
+    /// The mail lines of `.env` for `provider`, written as `.env.example` says: OCI's key
+    /// in double quotes, its line ends as `\n`.
+    fn env_lines_of(&self, provider: Provider) -> String {
+        let settings = self.settings(provider).into_iter().map(|(name, value)| {
+            if value.contains('\n') {
+                format!("{name}=\"{}\"\n", value.replace('\n', "\\n"))
+            } else {
+                format!("{name}={value}\n")
+            }
+        });
         [
             "FVOCI_MAIL_FROM=fvoci@example.com\n".to_owned(),
             format!("FVOCI_MAIL_API_ENDPOINT=http://127.0.0.1:{FAKE_PORT}\n"),
@@ -246,6 +255,8 @@ pub(super) fn providers(trial: &Trial, directory: &Path) -> Result<()> {
         );
         let request = fake.request()?;
         check_request(&trial.mail, provider, &request)?;
+        drop(fake);
+        holds_its_secret_alone(trial, provider)?;
         say(&format!(
             "    {provider:?}: the reset link reached the fake provider with its keys"
         ));
@@ -278,21 +289,37 @@ fn refuses_verification_without_mail(trial: &Trial) -> Result<()> {
     Ok(())
 }
 
-/// Makes fvoci anew with `provider`'s settings, and waits for it to be healthy.
+/// Makes fvoci anew with `provider`'s settings in the trial's `.env`, and waits for it
+/// to be healthy.
 fn recreate_fvoci(trial: &Trial, provider: Provider) -> Result<()> {
-    let mut command = trial.command(&[
-        "up",
-        "--detach",
-        "--no-build",
-        "--no-deps",
-        "--force-recreate",
-        "--wait",
-        "--wait-timeout",
-        super::WAIT_SECONDS,
-        "fvoci",
-    ]);
-    let output = command
-        .envs(trial.mail.settings(provider))
+    let lines = trial.mail.env_lines_of(provider);
+    let names: Vec<&str> = lines
+        .lines()
+        .filter_map(|line| line.split_once('=').map(|(name, _)| name))
+        .collect();
+    let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
+    let mut kept: Vec<&str> = text
+        .lines()
+        .filter(|line| {
+            line.split_once('=')
+                .is_none_or(|(name, _)| !names.contains(&name))
+        })
+        .collect();
+    kept.push(&lines);
+    let kept = kept.join("\n");
+    super::write_private(&trial.env_file, &kept)?;
+    let output = trial
+        .command(&[
+            "up",
+            "--detach",
+            "--no-build",
+            "--no-deps",
+            "--force-recreate",
+            "--wait",
+            "--wait-timeout",
+            super::WAIT_SECONDS,
+            "fvoci",
+        ])
         .output()
         .context("starting docker compose up")?;
     if !output.status.success() {
@@ -305,6 +332,66 @@ fn recreate_fvoci(trial: &Trial, provider: Provider) -> Result<()> {
     }
     Ok(())
 }
+
+/// Where each provider's secret reaches fvoci: the variable naming its file.
+fn secret_file_variable(provider: Provider) -> &'static str {
+    match provider {
+        Provider::Cloudflare => "FVOCI_CLOUDFLARE_API_TOKEN_FILE",
+        Provider::Ses => "FVOCI_SES_SECRET_ACCESS_KEY_FILE",
+        Provider::Oci => "FVOCI_OCI_PRIVATE_KEY_FILE",
+    }
+}
+
+/// Checks that fvoci, made with `provider`'s settings, holds that provider's secret in
+/// the file its variable names, and shows no secret of the trial in its description or
+/// its log: each provider's own container, before the next one replaces it.
+fn holds_its_secret_alone(trial: &Trial, provider: Provider) -> Result<()> {
+    let id = trial.compose(&["ps", "--quiet", "fvoci"])?;
+    ensure!(id.succeeded && !id.output.is_empty(), "no running fvoci");
+    let inspect = capture("docker", &["inspect", &id.output])?;
+    let logs = trial.compose(&["logs", "--no-color", "fvoci"])?;
+    ensure!(
+        inspect.succeeded && logs.succeeded,
+        "fvoci cannot be inspected"
+    );
+    for (place, text) in [
+        ("description", &inspect.output),
+        ("log", &logs.output),
+        ("log", &logs.error),
+    ] {
+        ensure!(
+            !trial
+                .secrets
+                .iter()
+                .any(|secret| text.contains(secret.as_str())),
+            "{provider:?}: a secret is in fvoci's {place}"
+        );
+    }
+    let description: serde_json::Value =
+        serde_json::from_str(&inspect.output).context("docker inspect gave no JSON")?;
+    let variable = format!("{}=", secret_file_variable(provider));
+    let file = description[0]["Config"]["Env"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .find_map(|entry| entry.strip_prefix(&variable))
+        .with_context(|| format!("{provider:?}: fvoci has no {variable}"))?;
+    let held = trial.compose(&["exec", "-T", "fvoci", "cat", file])?;
+    let expected = match provider {
+        Provider::Cloudflare => &trial.mail.cloudflare_token,
+        Provider::Ses => &trial.mail.ses_secret,
+        Provider::Oci => &trial.mail.oci_key,
+    };
+    ensure!(
+        held.succeeded && held.output.trim_end() == expected.trim_end(),
+        "{provider:?}: {variable} does not name a file holding the secret given"
+    );
+    Ok(())
+}
+
+/// The label of the fake provider's container, valued with the trial's project.
+const FAKE_LABEL: &str = "fvoci-smoke-fake";
 
 /// The fake provider's container, removed when this is dropped.
 struct Fake<'a> {
@@ -327,6 +414,7 @@ impl<'a> Fake<'a> {
         };
         let network = format!("container:{}", fvoci.output);
         let port = FAKE_PORT.to_string();
+        let label = format!("{FAKE_LABEL}={}", trial.project);
         let started = capture(
             "docker",
             &[
@@ -337,6 +425,8 @@ impl<'a> Fake<'a> {
                 &fake.name,
                 "--network",
                 &network,
+                "--label",
+                &label,
                 "--user",
                 "65534:65534",
                 "--entrypoint",
@@ -385,7 +475,8 @@ impl<'a> Fake<'a> {
 
 impl Drop for Fake<'_> {
     fn drop(&mut self) {
-        remove_fake(self.trial);
+        // A container that stays is found by the take-down's look for leftovers.
+        let _ = remove_fake(self.trial);
     }
 }
 
@@ -394,8 +485,24 @@ fn fake_name(trial: &Trial) -> String {
 }
 
 /// Removes the fake provider's container, if there is one: before fvoci's own goes.
-pub(super) fn remove_fake(trial: &Trial) {
+///
+/// # Errors
+///
+/// Fails if a container of the trial's fake provider is left.
+pub(super) fn remove_fake(trial: &Trial) -> Result<()> {
     let _ = capture("docker", &["rm", "--force", &fake_name(trial)]);
+    let label = format!("label={FAKE_LABEL}={}", trial.project);
+    let left = capture(
+        "docker",
+        &["container", "ls", "--all", "--quiet", "--filter", &label],
+    )?;
+    ensure!(
+        left.succeeded && left.output.is_empty(),
+        "the fake mail provider's container is left: {} {}",
+        left.output,
+        left.error
+    );
+    Ok(())
 }
 
 /// Checks that `request` is a message to the recipient for `provider`, with its keys.
@@ -442,6 +549,23 @@ mod tests {
         assert_eq!(value("FVOCI_SES_SECRET_ACCESS_KEY"), Some("a-secret-value"));
         assert_eq!(value("FVOCI_CLOUDFLARE_API_TOKEN"), Some(""));
         assert_eq!(value("FVOCI_OCI_PRIVATE_KEY"), Some(""));
+    }
+
+    #[test]
+    fn a_key_of_several_lines_is_one_quoted_line_of_the_env_file() {
+        let keys = Keys {
+            oci_key: "-----BEGIN-----\nAB\n-----END-----\n".to_owned(),
+            ..Keys::for_tests()
+        };
+        let lines = keys.env_lines_of(Provider::Oci);
+        assert!(
+            lines
+                .lines()
+                .any(|line| line
+                    == r#"FVOCI_OCI_PRIVATE_KEY="-----BEGIN-----\nAB\n-----END-----\n""#),
+            "{lines}"
+        );
+        assert!(lines.contains("FVOCI_CLOUDFLARE_API_TOKEN=\n"), "{lines}");
     }
 
     #[test]
