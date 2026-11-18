@@ -24,6 +24,7 @@ import {
   koreanHwpx,
   lockedHwp,
   lockedHwpx,
+  rewriteArchive,
 } from '../support/hwp-files.ts';
 import { zip } from '../support/viewer-files.ts';
 import { rhwpWasmHex } from '../../tools/build/rhwp-wasm.ts';
@@ -43,19 +44,39 @@ const hwpxArchive = (mimetype: Buffer, stored = true): Buffer =>
     { name: 'mimetype', data: mimetype, stored },
     { name: 'Contents/section0.xml', data: Buffer.from('<hs:sec/>') },
   ]);
+const SECTION = { name: 'Contents/section0.xml', data: Buffer.from('<hs:sec/>') };
+const LIST = { name: 'Contents/content.hpf', data: Buffer.from('<opf:package/>') };
 
-describe('HWPX is told apart by its first bytes', () => {
+describe('HWPX is told apart by its parts', () => {
   it('HWPX: a ZIP archive whose stored mimetype is application/hwp+zip', () => {
     expect(sniffFormat(koreanHwpx())).toBe('hwpx');
     expect(sniffFormat(hwpxArchive(MIMETYPE))).toBe('hwpx');
   });
 
-  it('a mimetype that is deflated, another type, or missing is no HWPX', () => {
+  it('a mimetype that is deflated, another type, or missing is no HWPX by itself', () => {
     expect(sniffFormat(hwpxArchive(MIMETYPE, false))).toBeUndefined();
     expect(sniffFormat(hwpxArchive(Buffer.from('application/epub+zip')))).toBeUndefined();
     expect(sniffFormat(hwpxArchive(Buffer.from('application/hwp+zip\n')))).toBeUndefined();
-    const without = zip([{ name: 'Contents/section0.xml', data: Buffer.from('<hs:sec/>') }]);
-    expect(sniffFormat(without)).toBeUndefined();
+    expect(sniffFormat(zip([SECTION]))).toBeUndefined();
+  });
+
+  it('HWPX also: an archive with the list of its parts, whatever its mimetype', () => {
+    // As writers other than Hancom's make them: the mimetype deflated, or left out.
+    const deflated = { name: 'mimetype', data: MIMETYPE, stored: false };
+    expect(sniffFormat(zip([deflated, LIST, SECTION]))).toBe('hwpx');
+    expect(sniffFormat(zip([LIST, SECTION]))).toBe('hwpx');
+    // A Word document that has such a part is still a Word document.
+    const word = { name: 'word/document.xml', data: Buffer.from('<w:document/>') };
+    expect(sniffFormat(zip([word, LIST]))).toBe('docx');
+  });
+
+  it('an HWPX whose writer left the mimetype out is opened as any other', async () => {
+    const without = rewriteArchive(koreanHwpx(), (member) =>
+      member.name === 'mimetype' ? undefined : member,
+    );
+    expect(sniffFormat(without)).toBe('hwpx');
+    const opened = await open(new HwpReader(), 'hwpx', without);
+    expect(opened).toMatchObject({ kind: 'opened' });
   });
 });
 
