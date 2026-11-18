@@ -225,3 +225,22 @@ export function blankPaddedDocx(blanks: number): Buffer {
     { name: 'word/doc.bin', data: Buffer.concat([Buffer.alloc(blanks, 0x20), Buffer.from(body)]) },
   ]);
 }
+
+/**
+ * A Word document of `pages` pages (where Word last broke them) whose header
+ * has `lines` paragraphs: small as a file, but docx-preview draws the header
+ * on every page.
+ */
+export function repeatedHeaderDocx(pages: number, lines: number): Buffer {
+  const page = `<w:p><w:r><w:lastRenderedPageBreak/></w:r>${run('쪽')}</w:p>`;
+  const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${paragraph(DOCX_TEXT.title)}${page.repeat(pages - 1)}<w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/></w:sectPr></w:body></w:document>`;
+  const header = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="${W}" xmlns:r="${R}">${paragraph(DOCX_TEXT.header).repeat(lines)}</w:hdr>`;
+  const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${PACKAGE_RELS}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const documentRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${PACKAGE_RELS}"><Relationship Id="rIdHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/></Relationships>`;
+  return zip([
+    { name: '_rels/.rels', data: Buffer.from(rootRels, 'utf8') },
+    { name: 'word/document.xml', data: Buffer.from(document, 'utf8') },
+    { name: 'word/_rels/document.xml.rels', data: Buffer.from(documentRels, 'utf8') },
+    { name: 'word/header1.xml', data: Buffer.from(header, 'utf8') },
+  ]);
+}

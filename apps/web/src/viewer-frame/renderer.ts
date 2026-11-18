@@ -24,6 +24,9 @@ export class LockedFile extends Error {}
 /** Thrown when the bytes are not a readable file of the kind. */
 export class UnreadableFile extends Error {}
 
+/** Thrown when drawing the file would take more than the frame can do in time. */
+export class TooLargeFile extends Error {}
+
 export type Render = (bytes: ArrayBuffer, place: HTMLElement, report: Report) => Promise<Drawn>;
 
 /** How long after a page is brought into view the scrolling it caused is let be, in milliseconds. */

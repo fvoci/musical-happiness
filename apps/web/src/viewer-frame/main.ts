@@ -19,7 +19,7 @@ import {
   type ViewerKey,
 } from '$lib/file-viewer/protocol.ts';
 
-import { LockedFile, UnreadableFile, type Drawn, type Report } from './renderer.ts';
+import { LockedFile, TooLargeFile, UnreadableFile, type Drawn, type Report } from './renderer.ts';
 import { RENDERERS } from './renderers.ts';
 import { repack } from './zip-guard.ts';
 
@@ -113,7 +113,9 @@ function start(): void {
                   ? 'locked'
                   : error instanceof UnreadableFile
                     ? 'unreadable'
-                    : 'renderer',
+                    : error instanceof TooLargeFile
+                      ? 'too-large'
+                      : 'renderer',
             });
           });
         break;
