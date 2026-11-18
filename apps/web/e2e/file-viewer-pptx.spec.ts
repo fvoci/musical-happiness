@@ -94,11 +94,50 @@ test('a deck in Korean opens in the viewer, and its slides are turned', async ({
   // Zoomed out, several slides are in view at once.
   for (const _ of [1, 2, 3]) await page.keyboard.press('-');
   await expect(zoom).toHaveText('50%');
+  await expect
+    .poll(() =>
+      viewerFrame(page).evaluate(
+        () =>
+          [...document.querySelectorAll('.slide')].filter((box) => {
+            const { top, bottom } = box.getBoundingClientRect();
+            return box.childElementCount > 0 && bottom > 0 && top < innerHeight;
+          }).length,
+      ),
+    )
+    .toBeGreaterThanOrEqual(2);
   await expect(frame.locator('.slide[data-page="2"]')).toContainText(PPTX_TEXT.tableTitle);
   await picture(page, SCREENS, 'pptx-slides');
   await page.keyboard.press('Escape');
   await expect(viewer(page)).toHaveCount(0);
 });
+
+/** The share of the pixels of two pictures of one size that differ by more than `by` in a colour. */
+function pixelsApart(page: Page, one: Buffer, other: Buffer, by: number): Promise<number> {
+  return page.evaluate(
+    async ([first, second, most]) => {
+      const pixels = async (base64: string): Promise<Uint8ClampedArray> => {
+        const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+        const picture = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        const canvas = new OffscreenCanvas(picture.width, picture.height);
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('no canvas');
+        context.drawImage(picture, 0, 0);
+        return context.getImageData(0, 0, picture.width, picture.height).data;
+      };
+      const [a, b] = [await pixels(first), await pixels(second)];
+      if (a.length !== b.length) return 1;
+      let apart = 0;
+      for (let at = 0; at < a.length; at += 4) {
+        const each = [0, 1, 2].map((channel) =>
+          Math.abs((a[at + channel] ?? 0) - (b[at + channel] ?? 0)),
+        );
+        if (Math.max(...each) > most) apart += 1;
+      }
+      return apart / (a.length / 4);
+    },
+    [one.toString('base64'), other.toString('base64'), by] as const,
+  );
+}
 
 test('a deck at the narrowest width, in the dark: the slide fits and keeps its colours', async ({
   page,
@@ -116,8 +155,8 @@ test('a deck at the narrowest width, in the dark: the slide fits and keeps its c
     return {
       dark: document.documentElement.classList.contains('dark'),
       scheme: getComputedStyle(document.documentElement).colorScheme,
-      width: innerWidth,
-      scrolls: (document.scrollingElement?.scrollWidth ?? 0) > innerWidth,
+      width: document.documentElement.clientWidth,
+      scrolls: (document.scrollingElement?.scrollWidth ?? 0) > document.documentElement.clientWidth,
       box: box?.getBoundingClientRect().width ?? 0,
       background: drawn ? getComputedStyle(drawn).backgroundColor : '',
     };
@@ -130,6 +169,30 @@ test('a deck at the narrowest width, in the dark: the slide fits and keeps its c
   expect(seen.box).toBeGreaterThan(seen.width - 40);
   expect(seen.box).toBeLessThanOrEqual(seen.width - 32);
   expect(seen.background).toBe('rgb(255, 255, 255)');
+  // Neither the app nor its frame is wider than the screen.
+  expect(await page.evaluate(() => document.scrollingElement?.scrollWidth)).toBeLessThanOrEqual(
+    390,
+  );
+  const box = await page.getByTestId('file-viewer-frame').boundingBox();
+  expect((box?.x ?? -1) >= 0 && (box?.x ?? 0) + (box?.width ?? 391) <= 390).toBe(true);
+  // The slide looks the same in the light, its edge (blended with what is around it) left out:
+  // nothing of the dark is laid over it.
+  const slide = await frameOf(page).locator('.slide[data-page="1"]').boundingBox();
+  if (!slide) throw new Error('no slide');
+  const inside = {
+    x: slide.x + 2,
+    y: slide.y + 2,
+    width: slide.width - 4,
+    height: slide.height - 4,
+  };
+  const dark = await page.screenshot({ clip: inside, animations: 'disabled' });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(frameOf(page).locator('html')).not.toHaveClass(/\bdark\b/);
+  const light = await page.screenshot({ clip: inside, animations: 'disabled' });
+  // The curved edges of shapes are smoothed a little apart from one drawing to the next
+  // (WebKit: a few dozen pixels); a dark that showed through, even a veil of it, would turn
+  // the slide's white everywhere.
+  expect(await pixelsApart(page, light, dark, 24)).toBeLessThan(0.01);
   // The slides are turned and zoomed within the screen's width.
   for (const name of ['Previous slide', 'Next slide', 'Zoom out', 'Zoom in']) {
     const button = await viewer(page).getByRole('button', { name }).boundingBox();
@@ -233,8 +296,8 @@ async function recordDrawn(page: Page): Promise<void> {
   });
 }
 
-/** Small slides of many text boxes: many in view, each a while to draw. */
-const boxes = (): Buffer => heavyPptx(40, 80, { cx: 3_048_000, cy: 914_400 });
+/** Small slides of many text boxes (`perSlide`): many in view, each a while to draw. */
+const boxes = (perSlide = 80): Buffer => heavyPptx(40, perSlide, { cx: 3_048_000, cy: 914_400 });
 
 test('while slides are drawn, the app answers', async ({ page }) => {
   await openCard(page);
@@ -245,20 +308,22 @@ test('while slides are drawn, the app answers', async ({ page }) => {
   const drawnTimes = (): Promise<number[]> =>
     viewerFrame(page).evaluate(() => (window as unknown as { fvociDrawn: number[] }).fvociDrawn);
   await expect.poll(async () => (await drawnTimes()).length).toBeGreaterThanOrEqual(5);
-  // Slide after slide was put in place, and between each and the next the page's timer ran:
-  // the thread was given back between them, however long each took.
+  // Slide after slide was put in place, and meanwhile the page's timer ran: at least as often
+  // as a slide was put in place (drawn at one go, they would have it run never). The browser
+  // may still run the frame's turn before the page's now and then, so not between every two.
   const drawn = await drawnTimes();
   const ran = await ticks(page);
-  const held = drawn
-    .slice(1)
-    .map((time, index) => [drawn[index] ?? 0, time] as const)
-    .filter(([from, to]) => !ran.some((tick) => tick > from && tick < to));
-  expect(held).toEqual([]);
+  const during = ran.filter((tick) => tick >= (drawn[0] ?? 0) && tick <= (drawn.at(-1) ?? 0));
+  expect(during.length).toBeGreaterThanOrEqual(drawn.length - 1);
+  // Nor did one slide hold the thread long: a bound well past the slowest engine's slide.
+  const longest = Math.max(0, ...during.slice(1).map((tick, index) => tick - (during[index] ?? 0)));
+  expect(longest).toBeLessThan(1_500);
 });
 
 test('while slides are drawn, "Close" closes the viewer', async ({ page }) => {
   await openCard(page);
-  await open(page, 'boxes.pptx', boxes());
+  // Slides that take longer, so that some near the view are still to draw once the viewer shows.
+  await open(page, 'boxes.pptx', boxes(120));
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
   expect((await drawing(page)).waiting).toBeGreaterThan(0);
   await page.getByTestId('file-viewer-close').click();

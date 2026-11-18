@@ -107,6 +107,22 @@ describe('in the frame, an archive is counted and handed on anew', () => {
     expect(parts(await repack(buffer(koreanDocx())))).toEqual(parts(buffer(koreanDocx())));
   });
 
+  it('counting gives the thread back while it reads a part, stored or deflated', async () => {
+    // Blanks are read one by one for the first character that is not one: tens of milliseconds.
+    const blanks = Buffer.alloc(20_000_000, 0x20);
+    for (const stored of [true, false]) {
+      let ran = false;
+      setTimeout(() => {
+        ran = true;
+      }, 0);
+      const counted = await repack(
+        buffer(zip([{ name: 'ppt/media/blank.bin', data: blanks, stored }])),
+      );
+      expect(parts(counted)).toEqual(['ppt/media/blank.bin:20000000']);
+      expect(ran, stored ? 'stored' : 'deflated').toBe(true);
+    }
+  });
+
   it('a part that holds more than its directory says stops the file', async () => {
     const said = 1000;
     const data = Buffer.alloc(1_000_000);

@@ -23,7 +23,8 @@
  *
  * The frame's thread is the app's, and the unpacking resolves as promises
  * that do not let a timer in: it gives the thread back every `BREATH`
- * milliseconds, between parts and between the slices of one.
+ * milliseconds, between parts and between the slices of one, as it reads
+ * them for blanks as well as as it unpacks them.
  */
 import {
   MARKUP_LIMIT_BYTES,
@@ -63,13 +64,33 @@ const BREATH = 16;
 /** Gives the thread back, when it has been held `BREATH` milliseconds since it last was. */
 type Breathe = () => Promise<void>;
 
+/** A task of its own, after those waiting: a message to itself, which no browser delays as it does timers. */
+function nextTask(): Promise<void> {
+  const { port1, port2 } = new MessageChannel();
+  return new Promise((resolve) => {
+    port1.onmessage = () => {
+      port1.close();
+      resolve();
+    };
+    port2.postMessage(null);
+  });
+}
+
 function breather(): Breathe {
   let since = performance.now();
   return async () => {
     if (performance.now() - since < BREATH) return;
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTask();
     since = performance.now();
   };
+}
+
+/** Feeds the sniffer a slice at a time, giving the thread back between slices (it reads blanks one by one). */
+async function sniff(sniffer: MarkupSniffer, bytes: Uint8Array, breathe: Breathe): Promise<void> {
+  for (let at = 0; at < bytes.length && sniffer.verdict === undefined; at += SLICE) {
+    sniffer.feed(bytes.subarray(at, at + SLICE));
+    await breathe();
+  }
 }
 
 /** A part as counted: what goes into the new archive. */
@@ -227,7 +248,7 @@ async function inflate(
       const { done, value } = await reader.read();
       if (done) return size;
       size += value.byteLength;
-      sniffer.feed(value);
+      await sniff(sniffer, value, breathe);
       if (size > most || past(size)) throw new UnreadableFile();
       await breathe();
     }
@@ -255,8 +276,9 @@ async function count(
   let size: number;
   if (entry.method === STORED) {
     size = packed.byteLength;
-    sniffer.feed(packed);
-    if (size > entry.size || past(size)) throw new UnreadableFile();
+    if (size > entry.size) throw new UnreadableFile();
+    await sniff(sniffer, packed, breathe);
+    if (past(size)) throw new UnreadableFile();
   } else if (entry.method === DEFLATED) {
     size = await inflate(packed, entry.size, sniffer, past, breathe);
   } else {

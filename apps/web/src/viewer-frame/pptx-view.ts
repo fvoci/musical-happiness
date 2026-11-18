@@ -125,9 +125,9 @@ export class PptxView implements Drawn {
     return this.#slides.map((slide) => slide.box);
   }
 
-  /** The scale at the zoom: the slide as wide as the frame allows, at most its own size. */
+  /** The scale at the zoom: the slide as wide as the frame allows (its scroll bar left out), at most its own size. */
   #scale(): number {
-    const room = Math.max(1, window.innerWidth - 2 * GUTTER);
+    const room = Math.max(1, document.documentElement.clientWidth - 2 * GUTTER);
     return Math.min(1, room / this.#presentation.width) * this.#zoom;
   }
 
