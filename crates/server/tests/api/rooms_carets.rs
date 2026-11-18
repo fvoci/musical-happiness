@@ -392,10 +392,17 @@ async fn carets_past_the_rate_are_dropped_and_put_nobody_out() {
         .await
         .init_basic()
         .await;
-    // The connection may send ten frames at once and ten more for every second since
-    // it was made.
-    let made = Instant::now();
-    let (_table, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    // As `two_in_a_room`, with the clock read where the first connection's allowance
+    // begins to be spent: it may send ten frames at once and ten more for every
+    // second since. (What it did not send before is not saved past those ten.)
+    let t = table(&th, &paragraphs(&["first"])).await;
+    let user2 = th.client2.me().await.id;
+    give(&th, &t.board_id, &user2, "editor").await;
+    let mut one = Peer::connect(&th.client, 101).await;
+    let mut two = Peer::connect(&th.client2, 102).await;
+    let began = Instant::now();
+    one.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     // The joining was five of the ten; these are sixty more at once.
     for at in 0..60 {
         show(&mut one, at).await;
@@ -403,7 +410,7 @@ async fn carets_past_the_rate_are_dropped_and_put_nobody_out() {
     one.barrier(&th).await;
     // Twenty where the sixty took under a second to send; a loaded machine takes
     // longer, and the rate lets through what it does in that time, no more.
-    let seconds = usize::try_from(made.elapsed().as_secs()).expect("a count of seconds");
+    let seconds = usize::try_from(began.elapsed().as_secs()).expect("a count of seconds");
     let most = 10 * (seconds + 2);
     while two.step(QUIET).await {}
     let told = two.carets.len();

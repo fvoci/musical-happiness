@@ -169,7 +169,7 @@ impl Container {
         let state = self.state()?;
         if state != State::Missing {
             self.check_environment()?;
-            self.say_if_shm_is_smaller()?;
+            self.say_if_shm_is_smaller();
         }
         if state != State::Running {
             // Marked before it is started: a start that fails half-way leaves it to stop.
@@ -244,20 +244,18 @@ impl Container {
 
     /// Says so if a container of this name has less shared memory than this task gives
     /// one it makes: it was made before, and is used as it is, since removing it is
-    /// not this task's to do.
-    fn say_if_shm_is_smaller(&self) -> Result<()> {
+    /// not this task's to do. A size that cannot be read is no reason to stop.
+    fn say_if_shm_is_smaller(&self) {
         let Some(wanted) = self.shm_bytes else {
-            return Ok(());
+            return;
         };
         let format = "{{.HostConfig.ShmSize}}";
-        let inspected = capture("docker", &["inspect", "--format", format, &self.name])?;
-        if !inspected.succeeded {
-            bail!("`docker inspect {}` failed: {}", self.name, inspected.error);
-        }
+        let Ok(inspected) = capture("docker", &["inspect", "--format", format, &self.name]) else {
+            return;
+        };
         if let Some(notice) = smaller_shm(&self.name, wanted, &inspected.output) {
             say(&notice);
         }
-        Ok(())
     }
 
     /// Checks that the container publishes its port where the tests will connect. A

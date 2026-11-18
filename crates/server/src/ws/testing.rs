@@ -132,7 +132,10 @@ pub(super) struct Working(watch::Sender<usize>);
 
 impl Drop for Working {
     fn drop(&mut self) {
-        self.0.send_modify(|connections| *connections -= 1);
+        self.0.send_modify(|connections| {
+            debug_assert!(*connections > 0, "counted once for every `Working`");
+            *connections = connections.saturating_sub(1);
+        });
     }
 }
 
