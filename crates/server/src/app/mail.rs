@@ -46,7 +46,7 @@ const LONGEST_RETRY_WAIT: Duration = Duration::from_mins(15);
 const LONGEST_PATH_WAIT: Duration = Duration::from_mins(15);
 
 /// How many messages are queued and not yet delivered or given up, as
-/// [`Mailer::unsent`] counts them.
+/// [`App::unsent_mail`](super::App::unsent_mail) counts them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UnsentMail {
     /// Password resets and confirmations of a registration, which share a queue.
