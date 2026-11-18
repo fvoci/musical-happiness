@@ -326,7 +326,7 @@ async fn create_test_blocks_for_card(store: &Store, card_id: &str, count: usize)
 /// A second connection to the SQLite database of a test, for what the store has no
 /// operation for.
 async fn sqlite_connection(test: &common::TestStore) -> SqliteConnection {
-    SqliteConnection::connect(&format!("sqlite://{}", test.dbconfig()))
+    SqliteConnection::connect(&format!("sqlite://{}", test.database_connection()))
         .await
         .expect("the test database opens a second time")
 }
@@ -812,7 +812,7 @@ async fn update_at_moves_on_with_every_change() {
     // A time an hour ahead of the clock, as a block written by a clock that ran fast.
     let ahead = existing_block(store, &block_id).await.update_at + 3_600_000;
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("UPDATE blocks SET update_at = {ahead} WHERE id = '{block_id}'"),
     )
     .await;
@@ -866,7 +866,7 @@ async fn a_body_is_stored_with_its_version_and_text() {
     // What the store has no reading for, read through the title.
     let derived = async || {
         common::execute_raw(
-            &test.dbconfig(),
+            &test.database_connection(),
             &format!(
                 "UPDATE blocks SET title = COALESCE(CAST(body_version AS TEXT), '-') || '|' || \
                  COALESCE(body_text, '-') WHERE id = '{block_id}'"
@@ -3223,7 +3223,7 @@ async fn lists_of_blocks_are_ordered_by_creation_time_then_identifier() {
             format!("UPDATE blocks SET create_at = {create_at} WHERE id = '{id}';")
         })
         .collect();
-    common::execute_raw(&test.dbconfig(), &set_times.join("\n")).await;
+    common::execute_raw(&test.database_connection(), &set_times.join("\n")).await;
 
     let listed = async |filter: BlockFilter| -> Vec<String> {
         let blocks = store.get_blocks(&filter).await.expect("the query runs");

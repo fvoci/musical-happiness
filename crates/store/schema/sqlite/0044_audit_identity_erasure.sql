@@ -1,6 +1,6 @@
 -- Who an identity tied by a record is, is taken out of the records about a person
 -- whose account is being erased, and nothing else of a record is ever changed: the
--- same as schema/postgres/0043_audit_identity_erasure.sql, which says what the guard
+-- same as schema/postgres/0044_audit_identity_erasure.sql, which says what the guard
 -- lets through. `IS` compares a NULL as a value.
 DROP TRIGGER audit_log_unchanged;
 CREATE TRIGGER audit_log_unchanged BEFORE UPDATE ON audit_log

@@ -1,5 +1,5 @@
 //! Webhooks: every inserted or changed block is posted, as JSON, to the addresses in the
-//! `webhook_update` setting.
+//! `block_change_webhooks` setting.
 
 use std::time::Duration;
 

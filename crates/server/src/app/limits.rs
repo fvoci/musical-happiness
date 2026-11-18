@@ -16,7 +16,7 @@ use super::App;
 /// How much an organization may use of the server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OrgLimits {
-    /// The largest file an upload takes, in bytes: `maxfilesize`, which the
+    /// The largest file an upload takes, in bytes: `max_file_bytes`, which the
     /// configuration keeps positive and within what `fvoci_model::MAX_UPLOAD_PARTS`
     /// parts hold.
     pub largest_file: i64,
@@ -54,7 +54,7 @@ impl App {
     pub fn limits(&self) -> OrgLimits {
         let config = self.config();
         OrgLimits {
-            largest_file: config.max_file_size,
+            largest_file: config.max_file_bytes,
             largest_import: i64::try_from(config.max_import_bytes).unwrap_or(i64::MAX),
             invitation_mail_per_hour: config.smtp.invitation_mail_per_org_hour,
             former_provider_kept: config.oidc_former_provider_kept(),

@@ -48,7 +48,7 @@ async fn a_global_webhook_receives_each_scoped_background_change_with_its_own_bo
             .expect("the receiver serves");
     });
     let mut config = scene.ts.app.config().clone();
-    config.webhook_update = vec![format!("http://{address}/hook")];
+    config.block_change_webhooks = vec![format!("http://{address}/hook")];
     let a = App::new(
         config,
         scene.ts.app.store().clone(),

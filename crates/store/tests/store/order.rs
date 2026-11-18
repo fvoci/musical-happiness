@@ -23,7 +23,7 @@ use crate::common::{self, TestStore};
 async fn set_create_at(test: &TestStore, table: &str, times: &[(&str, i64)]) {
     for (id, create_at) in times {
         common::execute_raw(
-            &test.dbconfig(),
+            &test.database_connection(),
             &format!("UPDATE {table} SET create_at = {create_at} WHERE id = '{id}'"),
         )
         .await;
@@ -358,7 +358,11 @@ async fn sidebar_ties_fall_back_to_age() {
             .expect("the category is stored");
         categories.push(category.id);
     }
-    common::execute_raw(&test.dbconfig(), "UPDATE categories SET sort_order = 0").await;
+    common::execute_raw(
+        &test.database_connection(),
+        "UPDATE categories SET sort_order = 0",
+    )
+    .await;
     set_create_at(
         &test,
         "categories",
@@ -419,7 +423,7 @@ async fn sidebar_ties_fall_back_to_age() {
     );
 
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!(
             "UPDATE category_containers SET sort_order = -10 WHERE container_id = '{}'",
             boards[2].id
@@ -491,7 +495,7 @@ async fn subscription_ties_fall_back_to_identifiers() {
     subscribe(&cards[1], &users[0]).await;
     subscribe(&cards[0], &users[1]).await;
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         "UPDATE subscriptions SET notified_at = 5, create_at = 5",
     )
     .await;
@@ -599,7 +603,7 @@ async fn the_trash_comes_the_last_deleted_first() {
     ] {
         for (id, deleted_at) in ids.iter().zip([200, 200, 100]) {
             common::execute_raw(
-                &test.dbconfig(),
+                &test.database_connection(),
                 &format!("UPDATE {table} SET deleted_at = {deleted_at} WHERE id = '{id}'"),
             )
             .await;

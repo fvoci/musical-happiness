@@ -12,6 +12,7 @@ mod account_erasure;
 mod block_reads_and_patches;
 mod blocks;
 mod blocks_and_deletion;
+mod board_blocks;
 mod board_kinds;
 mod board_search;
 mod boards;

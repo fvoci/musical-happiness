@@ -109,7 +109,7 @@ impl Outcome {
 pub(crate) struct Browser {
     http: reqwest::Client,
     base_url: String,
-    server_root: String,
+    server_url: String,
 }
 
 /// A sign-in on its way back from the provider: the path of the server it comes back
@@ -132,7 +132,7 @@ impl Browser {
         Self {
             http,
             base_url: ts.base_url.clone(),
-            server_root: ts.app.config().server_root.clone(),
+            server_url: ts.app.config().server_url.clone(),
         }
     }
 
@@ -177,7 +177,7 @@ impl Browser {
         );
         let back = location_of(&authorized);
         let path = back
-            .strip_prefix(self.server_root.trim_end_matches('/'))
+            .strip_prefix(self.server_url.trim_end_matches('/'))
             .unwrap_or_else(|| panic!("{back} is under the server's address"))
             .to_owned();
         assert!(
@@ -210,7 +210,7 @@ impl Browser {
         }
         assert_eq!(
             location,
-            format!("{}/", self.server_root.trim_end_matches('/')),
+            format!("{}/", self.server_url.trim_end_matches('/')),
             "to the web app"
         );
         let token = answer

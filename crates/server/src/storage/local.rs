@@ -12,7 +12,7 @@ use tokio_util::io::ReaderStream;
 use super::{FileStream, ObjectListing, StorageError, StoredObject};
 use crate::metrics::Metrics;
 
-/// Files kept in a directory on the local disk, the `filespath` setting.
+/// Files kept in a directory on the local disk, the `file_storage_path` setting.
 ///
 /// A stored path such as `boards/20240131/7abc.png` is that relative path under the
 /// directory, exactly as the original server lays files out.
@@ -87,7 +87,7 @@ impl LocalFiles {
         match fs::metadata(&self.root).await {
             Ok(metadata) if !metadata.is_dir() => {
                 return Err(StorageError::Config(
-                    "filespath is not a directory".to_owned(),
+                    "file_storage_path is not a directory".to_owned(),
                 ));
             }
             Ok(_) => {}

@@ -42,7 +42,7 @@ impl Visitor {
                 .build()
                 .expect("a client"),
             base_url: ts.base_url.clone(),
-            root: ts.app.config().server_root.trim_end_matches('/').to_owned(),
+            root: ts.app.config().server_url.trim_end_matches('/').to_owned(),
             cookies: Mutex::new(BTreeMap::new()),
         }
     }

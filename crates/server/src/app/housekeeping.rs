@@ -117,8 +117,8 @@ impl App {
                 removed += 1;
             }
         }
-        if self.config().files_driver == "local" {
-            let writing = Path::new(&self.config().files_path).join(WRITING_DIR);
+        if self.config().file_storage == "local" {
+            let writing = Path::new(&self.config().file_storage_path).join(WRITING_DIR);
             for (_, path) in entries(&writing).await {
                 self.require_server_lock()?;
                 if remove_entry(&path).await {

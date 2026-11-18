@@ -1,5 +1,5 @@
-//! The settings of the metrics listener: where it listens (`prometheusaddress`), and the
-//! bearer token a scrape must send (`prometheustoken`).
+//! The settings of the metrics listener: where it listens (`metrics_address`), and the
+//! bearer token a scrape must send (`metrics_token`).
 
 use sha2::{Digest as _, Sha256};
 use subtle::ConstantTimeEq as _;
@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use super::Configuration;
 
 /// The key of the token, as the file and the environment have it.
-const TOKEN_KEY: &str = "prometheustoken";
+const TOKEN_KEY: &str = "metrics_token";
 
 /// The fewest characters a token may have: a guess at it must not be feasible, and
 /// the listener does not limit how often a scrape is refused.
@@ -31,7 +31,7 @@ pub(super) fn check_token_is_text(keys: &Map<String, Value>) -> anyhow::Result<(
     }
 }
 
-/// Where the metrics listener listens: `prometheusaddress` read.
+/// Where the metrics listener listens: `metrics_address` read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetricsAddress {
     /// The host name or address; `None` for every interface.
@@ -65,7 +65,7 @@ impl MetricsAddress {
     }
 }
 
-/// The bearer token a scrape of the metrics must send: `prometheustoken` as its SHA-256
+/// The bearer token a scrape of the metrics must send: `metrics_token` as its SHA-256
 /// digest, compared in constant time. Neither the token nor its digest is written by
 /// `Debug`.
 #[derive(Clone)]
@@ -107,44 +107,44 @@ fn is_bearer_token(token: &str) -> bool {
 }
 
 impl Configuration {
-    /// Where the metrics are served: `prometheusaddress` read as `host:port`, or `None`
+    /// Where the metrics are served: `metrics_address` read as `host:port`, or `None`
     /// if it is empty and no metrics are kept. Without a host it is every interface, or
-    /// `localhost` if `localOnly` is set.
+    /// `localhost` if `listen_loopback_only` is set.
     ///
     /// # Errors
     ///
     /// Returns an error if the address is not empty and no `host:port`: the host a name,
     /// an IPv4 address, an IPv6 address in brackets, or nothing; the port a number up to
     /// 65535.
-    pub fn metrics_address(&self) -> anyhow::Result<Option<MetricsAddress>> {
-        let text = self.prometheus_address.as_str();
+    pub fn metrics_listen_address(&self) -> anyhow::Result<Option<MetricsAddress>> {
+        let text = self.metrics_address.as_str();
         if text.is_empty() {
             return Ok(None);
         }
         let mut address = MetricsAddress::parse(text).ok_or_else(|| {
             anyhow::anyhow!(
-                "prometheusaddress must be empty or host:port, such as 127.0.0.1:9092 or \
-                 :9092 for every interface (the loopback with localOnly), not {text:?}"
+                "metrics_address must be empty or host:port, such as 127.0.0.1:9092 or \
+                 :9092 for every interface (the loopback with listen_loopback_only), not {text:?}"
             )
         })?;
         // A server that listens on the loopback only does so for its metrics too: the
-        // listener has no authentication unless prometheustoken is set.
-        if self.local_only && address.host.is_none() {
+        // listener has no authentication unless metrics_token is set.
+        if self.listen_loopback_only && address.host.is_none() {
             address.host = Some("localhost".to_owned());
         }
         Ok(Some(address))
     }
 
-    /// The token a scrape of the metrics must send; `None` if `prometheustoken` is
-    /// empty and a scrape needs none.
-    pub fn metrics_token(&self) -> Option<MetricsToken> {
-        (!self.prometheus_token.is_empty()).then(|| MetricsToken::new(&self.prometheus_token))
+    /// The token a scrape of the metrics must send; `None` if `metrics_token` is empty
+    /// and a scrape needs none.
+    pub fn metrics_scrape_token(&self) -> Option<MetricsToken> {
+        (!self.metrics_token.is_empty()).then(|| MetricsToken::new(&self.metrics_token))
     }
 
-    /// Checks that `prometheustoken`, if it is set, has at least [`MIN_TOKEN_CHARS`]
+    /// Checks that `metrics_token`, if it is set, has at least [`MIN_TOKEN_CHARS`]
     /// characters and can be sent as a bearer token. The error does not repeat it.
     pub(super) fn check_metrics_token(&self) -> anyhow::Result<()> {
-        let token = self.prometheus_token.as_str();
+        let token = self.metrics_token.as_str();
         if token.is_empty() {
             return Ok(());
         }
@@ -188,10 +188,10 @@ mod tests {
     #[test]
     fn the_token_is_in_no_debug_output() {
         let config = Configuration {
-            prometheus_token: TOKEN.to_owned(),
+            metrics_token: TOKEN.to_owned(),
             ..Configuration::default()
         };
-        let token = config.metrics_token().expect("a token is set");
+        let token = config.metrics_scrape_token().expect("a token is set");
         for shown in [
             format!("{config:?}"),
             format!("{token:?}"),
@@ -202,7 +202,7 @@ mod tests {
         }
         assert_eq!(format!("{token:?}"), "MetricsToken(..)");
         assert!(
-            Configuration::default().metrics_token().is_none(),
+            Configuration::default().metrics_scrape_token().is_none(),
             "empty: none"
         );
     }
@@ -212,15 +212,15 @@ mod tests {
         let long = |text: &str| format!("{}{text}", "x".repeat(MIN_TOKEN_CHARS));
         for refused in ["has space", "tab\there", "ünïcode", "a=b", "quote\"d"].map(long) {
             let config = Configuration {
-                prometheus_token: refused.clone(),
+                metrics_token: refused.clone(),
                 ..Configuration::default()
             };
             let error = format!("{:#}", config.check().expect_err("not a bearer token"));
-            assert!(error.contains("prometheustoken"), "{error}");
+            assert!(error.contains("metrics_token"), "{error}");
             assert!(!error.contains(&refused), "{error}");
         }
         let only_equals = Configuration {
-            prometheus_token: "=".repeat(MIN_TOKEN_CHARS),
+            metrics_token: "=".repeat(MIN_TOKEN_CHARS),
             ..Configuration::default()
         };
         let error = format!(
@@ -229,7 +229,7 @@ mod tests {
                 .check()
                 .expect_err("= only at the end of something")
         );
-        assert!(error.contains("prometheustoken"), "{error}");
+        assert!(error.contains("metrics_token"), "{error}");
         assert!(
             !error.contains("=".repeat(MIN_TOKEN_CHARS).as_str()),
             "{error}"
@@ -241,7 +241,7 @@ mod tests {
             long("A-Z_0.9~+/"),
         ] {
             let config = Configuration {
-                prometheus_token: accepted,
+                metrics_token: accepted,
                 ..Configuration::default()
             };
             config.check().expect("a bearer token");
@@ -252,9 +252,9 @@ mod tests {
     fn a_token_has_at_least_thirty_two_characters_from_the_file_or_the_environment() {
         let short = "a".repeat(MIN_TOKEN_CHARS - 1);
         let enough = "a".repeat(MIN_TOKEN_CHARS);
-        let file = |token: &str| format!(r#"{{"prometheustoken": "{token}"}}"#);
+        let file = |token: &str| format!(r#"{{"metrics_token": "{token}"}}"#);
         let env_with = |token: String| {
-            move |name: &str| (name == "FVOCI_PROMETHEUSTOKEN").then(|| token.clone())
+            move |name: &str| (name == "FVOCI_METRICS_TOKEN").then(|| token.clone())
         };
         let refused = [
             Configuration::parse(&file(&short), |_| None),
@@ -268,7 +268,7 @@ mod tests {
                     .check()
                     .expect_err("31 characters are too few")
             );
-            assert_eq!(error, "prometheustoken must be at least 32 characters");
+            assert_eq!(error, "metrics_token must be at least 32 characters");
             assert!(!error.contains(&short), "{error}");
         }
         let accepted = [
@@ -278,40 +278,38 @@ mod tests {
         for config in accepted {
             let config = config.expect("read");
             config.check().expect("32 characters are enough");
-            assert!(config.metrics_token().is_some());
+            assert!(config.metrics_scrape_token().is_some());
         }
         let empty = Configuration::parse(&file(""), |_| None).expect("read");
         empty.check().expect("no token");
         assert!(
-            empty.metrics_token().is_none(),
+            empty.metrics_scrape_token().is_none(),
             "no token, no authentication"
         );
     }
 
     #[test]
     fn a_token_given_twice_is_refused_without_its_values() {
-        for key in ["prometheustoken", "prometheusToken"] {
-            let text = format!(r#"{{"prometheustoken": "{TOKEN}", "{key}": ""}}"#);
-            let error = format!(
-                "{:#}",
-                Configuration::parse(&text, |_| None).expect_err("given twice")
-            );
-            assert!(
-                error.starts_with("prometheustoken is given more than once"),
-                "{error}"
-            );
-            assert!(!error.contains(TOKEN), "{error}");
-        }
+        let text = format!(r#"{{"metrics_token": "{TOKEN}", "metrics_token": ""}}"#);
+        let error = format!(
+            "{:#}",
+            Configuration::parse(&text, |_| None).expect_err("given twice")
+        );
+        assert!(
+            error.starts_with("metrics_token is given more than once"),
+            "{error}"
+        );
+        assert!(!error.contains(TOKEN), "{error}");
         let error = format!(
             "{:#}",
             Configuration::parse(
-                r#"{"filesS3Config": {"Bucket": "secret-a", "bucket": "secret-b"}}"#,
+                r#"{"file_storage_s3": {"bucket": "secret-a", "bucket": "secret-b"}}"#,
                 |_| None
             )
-            .expect_err("given twice in filess3config")
+            .expect_err("given twice in file_storage_s3")
         );
         assert!(
-            error.starts_with("filess3config.bucket is given more than once"),
+            error.starts_with("file_storage_s3.bucket is given more than once"),
             "{error}"
         );
         assert!(!error.contains("secret-"), "{error}");
@@ -319,11 +317,14 @@ mod tests {
 
     #[test]
     fn an_empty_variable_leaves_the_token_of_the_file() {
-        let env = |name: &str| (name == "FVOCI_PROMETHEUSTOKEN").then(String::new);
+        let env = |name: &str| (name == "FVOCI_METRICS_TOKEN").then(String::new);
         let config =
-            Configuration::parse(r#"{"prometheustoken": "from-the-file"}"#, env).expect("valid");
-        assert_eq!(config.prometheus_token, "from-the-file");
-        assert!(config.metrics_token().is_some(), "a scrape still needs it");
+            Configuration::parse(r#"{"metrics_token": "from-the-file"}"#, env).expect("valid");
+        assert_eq!(config.metrics_token, "from-the-file");
+        assert!(
+            config.metrics_scrape_token().is_some(),
+            "a scrape still needs it"
+        );
     }
 
     #[test]
@@ -331,10 +332,10 @@ mod tests {
         for value in ["98765432109876", "1.5e3", "true"] {
             let error = format!(
                 "{:#}",
-                Configuration::parse(&format!(r#"{{"prometheustoken": {value}}}"#), |_| None)
+                Configuration::parse(&format!(r#"{{"metrics_token": {value}}}"#), |_| None)
                     .expect_err("no string")
             );
-            assert!(error.contains("prometheustoken"), "{error}");
+            assert!(error.contains("metrics_token"), "{error}");
             assert!(!error.contains(value), "{error}");
         }
     }
@@ -342,14 +343,14 @@ mod tests {
     #[test]
     fn a_token_without_an_address_is_a_warning() {
         let config = Configuration {
-            prometheus_token: TOKEN.to_owned(),
+            metrics_token: TOKEN.to_owned(),
             ..Configuration::default()
         };
         let warnings = config.check().expect("valid");
         assert!(
             warnings
                 .iter()
-                .any(|warning| warning.contains("prometheustoken")),
+                .any(|warning| warning.contains("metrics_token")),
             "{warnings:?}"
         );
         assert!(warnings.iter().all(|warning| !warning.contains(TOKEN)));
@@ -357,9 +358,9 @@ mod tests {
 
     #[test]
     fn the_token_is_read_from_the_environment_too() {
-        let env = |name: &str| (name == "FVOCI_PROMETHEUSTOKEN").then(|| TOKEN.to_owned());
+        let env = |name: &str| (name == "FVOCI_METRICS_TOKEN").then(|| TOKEN.to_owned());
         let config =
-            Configuration::parse(r#"{"prometheustoken": "from-the-file"}"#, env).expect("valid");
-        assert_eq!(config.prometheus_token, TOKEN, "the environment wins");
+            Configuration::parse(r#"{"metrics_token": "from-the-file"}"#, env).expect("valid");
+        assert_eq!(config.metrics_token, TOKEN, "the environment wins");
     }
 }

@@ -109,7 +109,7 @@ async fn concurrent_oidc_joins_of_one_account_both_succeed() {
     );
 
     let tasks = if common::db_type() == DbType::Postgres {
-        let mut connection = common::connect_past_the_store(&test.dbconfig()).await;
+        let mut connection = common::connect_past_the_store(&test.database_connection()).await;
         let mut held = connection.begin().await.expect("a test transaction");
         sqlx::query("LOCK TABLE organization_members IN SHARE MODE")
             .execute(&mut *held)

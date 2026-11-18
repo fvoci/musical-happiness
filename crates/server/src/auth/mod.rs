@@ -48,16 +48,16 @@ impl Authenticator {
     ///
     /// # Errors
     ///
-    /// Returns an error if `serverRoot` or one of `allowed_origins` is no `http` or
+    /// Returns an error if `server_url` or one of `allowed_origins` is no `http` or
     /// `https` URL.
     pub fn new(store: Store, config: &Configuration) -> anyhow::Result<Self> {
-        let origins = Origins::new(&config.server_root, &config.allowed_origins)
+        let origins = Origins::new(&config.server_url, &config.allowed_origins)
             .map_err(anyhow::Error::msg)?;
         let idle_millis = config.session_idle_millis();
         Ok(Self {
             store,
             session_idle_millis: idle_millis,
-            public_shared_containers: config.enable_public_shared_boards,
+            public_shared_containers: config.allow_public_links,
             cookie: SessionCookie::new(origins.https(), idle_millis / 1000),
             origins,
         })

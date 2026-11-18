@@ -625,7 +625,11 @@ async fn subscriptions_of_a_subscriber_are_listed_oldest_first() {
     );
 
     // Made at the same time, as far as the store knows: listed by block.
-    common::execute_raw(&test.dbconfig(), "UPDATE subscriptions SET create_at = 1").await;
+    common::execute_raw(
+        &test.database_connection(),
+        "UPDATE subscriptions SET create_at = 1",
+    )
+    .await;
     assert_eq!(
         listed_blocks().await,
         common::sorted_ids(&blocks),

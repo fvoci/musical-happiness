@@ -5,20 +5,9 @@ use std::path::PathBuf;
 
 use anyhow::Context as _;
 use clap::Parser;
-use fvoci_server::config::{Configuration, ENV_PREFIX};
+use fvoci_server::config::Configuration;
 use fvoci_server::{BASE_PATH_ENV, Server, checked_base_path, listen_address};
 use tracing_subscriber::EnvFilter;
-
-/// Settings that are distinctive enough to recognize under a wrong prefix.
-const DISTINCTIVE_SETTINGS: [&str; 7] = [
-    "HTTP_SERVER_BASEPATH",
-    "SERVERROOT",
-    "DBCONFIG",
-    "DBTYPE",
-    "WEBPATH",
-    "FILESPATH",
-    "FILESDRIVER",
-];
 
 /// The fvoci board server.
 #[derive(Debug, Parser)]
@@ -30,12 +19,12 @@ struct Cli {
     /// The port number; overrides the config file.
     #[arg(long)]
     port: Option<u16>,
-    /// Database type (sqlite3 or postgres); overrides the config file.
+    /// The database kind (sqlite or postgres); overrides `database_kind`.
     #[arg(long)]
-    dbtype: Option<String>,
-    /// Database config; overrides the config file.
+    database_kind: Option<String>,
+    /// The database connection; overrides `database_connection`.
     #[arg(long)]
-    dbconfig: Option<String>,
+    database_connection: Option<String>,
     /// Print the contract of the API, an OpenAPI document, and exit. Nothing is
     /// configured, opened or served.
     #[arg(long)]
@@ -46,8 +35,9 @@ struct Cli {
     #[arg(long)]
     check_ready: bool,
     /// Bring the database's schema up to date and exit, holding the lock of the server
-    /// meanwhile: for the role that owns the tables (the configuration's dbconfig),
-    /// when the server connects as one that does not. Nothing is served.
+    /// meanwhile: for the role that owns the tables (the configuration's
+    /// `database_connection`), when the server connects as one that does not. Nothing
+    /// is served.
     #[arg(long, conflicts_with = "check_ready")]
     migrate: bool,
 }
@@ -59,7 +49,7 @@ const READY_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 /// Where the server this configuration describes answers whether it is ready, on this
 /// machine: the port, plain HTTP or TLS, and the base path (as the server checks it).
 fn ready_url(config: &Configuration, base_path: &str) -> String {
-    let scheme = if config.use_ssl { "https" } else { "http" };
+    let scheme = if config.serve_https { "https" } else { "http" };
     format!(
         "{scheme}://localhost:{}{base_path}{}/ready",
         config.port,
@@ -75,7 +65,7 @@ async fn check_ready(config: &Configuration, base_path: &str) -> anyhow::Result<
     let client = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
-        .tls_danger_accept_invalid_certs(config.use_ssl)
+        .tls_danger_accept_invalid_certs(config.serve_https)
         .timeout(READY_CHECK_TIMEOUT)
         .build()
         .context("unable to set up the check")?;
@@ -109,27 +99,6 @@ fn init_logging() {
     }
 }
 
-/// Warns about environment variables that carry one of this server's settings under
-/// another prefix. They have no effect, which is hard to notice otherwise.
-fn warn_about_foreign_prefixes() {
-    for (name, _) in std::env::vars_os() {
-        let Some(name) = name.to_str() else { continue };
-        if name.starts_with(ENV_PREFIX) {
-            continue;
-        }
-        for setting in DISTINCTIVE_SETTINGS {
-            let has_other_prefix = name
-                .strip_suffix(setting)
-                .is_some_and(|prefix| prefix.len() > 1 && prefix.ends_with('_'));
-            if has_other_prefix {
-                tracing::warn!(
-                    "the environment variable {name} is ignored; this server reads {ENV_PREFIX}{setting}"
-                );
-            }
-        }
-    }
-}
-
 fn main() -> anyhow::Result<()> {
     // The worker of editing together is this executable too, started by the server
     // with one argument: it reads no configuration, starts no runtime and logs nothing.
@@ -149,24 +118,32 @@ async fn serve() -> anyhow::Result<()> {
         return print_openapi();
     }
     init_logging();
-    warn_about_foreign_prefixes();
 
     let mut config = Configuration::read(&cli.config).context("unable to read the config file")?;
-    if let Some(db_type) = cli.dbtype.filter(|db_type| !db_type.is_empty()) {
-        tracing::info!(db_type, "DBType from commandline");
-        config.db_type = db_type;
+    if let Some(kind) = cli.database_kind.filter(|kind| !kind.is_empty()) {
+        tracing::info!(kind, "the database kind is given on the command line");
+        config.database_kind = kind;
     }
-    if let Some(db_config) = cli.dbconfig.filter(|db_config| !db_config.is_empty()) {
-        // Not echoed: the connection string may hold a password.
-        tracing::info!("DBConfigString overridden from commandline");
-        config.db_config = db_config;
+    if let Some(connection) = cli
+        .database_connection
+        .filter(|connection| !connection.is_empty())
+    {
+        // Not echoed: the connection may hold a password.
+        tracing::info!("the database connection is given on the command line");
+        config.database_connection = connection;
     }
     if let Some(port) = cli.port.filter(|port| *port > 0) {
-        tracing::info!(port, "Port from commandline");
+        tracing::info!(port, "the port is given on the command line");
         config.port = port;
     }
 
     let base_path = std::env::var(BASE_PATH_ENV).unwrap_or_default();
+    // A server that starts says it with the other warnings of its configuration.
+    if (cli.migrate || cli.check_ready)
+        && let Some(warning) = config.unread_keys_warning()
+    {
+        tracing::warn!("{warning}");
+    }
     if cli.migrate {
         return fvoci_server::app::migrate_database(&config).await;
     }
@@ -176,10 +153,10 @@ async fn serve() -> anyhow::Result<()> {
 
     let address = listen_address(&config);
     let port = config.port;
-    let local_only = config.local_only;
+    let loopback_only = config.listen_loopback_only;
     let server = Server::new(config, &base_path).await?;
 
-    let listener = if local_only {
+    let listener = if loopback_only {
         tokio::net::TcpListener::bind(("localhost", port)).await
     } else {
         // All interfaces, IPv6 and IPv4 where the system maps one onto the other.
@@ -276,7 +253,7 @@ mod tests {
         };
         let tls = Configuration {
             port: 8443,
-            use_ssl: true,
+            serve_https: true,
             ..Configuration::default()
         };
         let base = |raw| checked_base_path(raw).expect("a base path the server takes");

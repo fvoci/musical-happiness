@@ -72,20 +72,20 @@ async fn the_owner_migrates_while_no_server_serves(owner: TableOwner) {
     let database = TestDatabase::create_owned_apart(&directory, owner).await;
     migrate_up_to(
         database.db_type(),
-        database.owner_dbconfig(),
+        database.owner_database_connection(),
         latest_migration() - 1,
     )
     .await;
-    let config = |dbconfig: &str| Configuration {
-        db_type: database.db_type().as_str().to_owned(),
-        db_config: dbconfig.to_owned(),
-        files_path: directory.join("uploads").display().to_string(),
+    let config = |database_connection: &str| Configuration {
+        database_kind: database.db_type().as_str().to_owned(),
+        database_connection: database_connection.to_owned(),
+        file_storage_path: directory.join("uploads").display().to_string(),
         skip_template_init: true,
         server_lock_wait_seconds: 0,
         ..Configuration::default()
     };
 
-    let Err(refused) = Server::new(config(database.dbconfig()), "").await else {
+    let Err(refused) = Server::new(config(database.database_connection()), "").await else {
         panic!("the server started on a schema behind it");
     };
     let refusal = format!("{refused:#}");
@@ -94,26 +94,26 @@ async fn the_owner_migrates_while_no_server_serves(owner: TableOwner) {
         "{owner:?}: {refusal}"
     );
 
-    fvoci_server::app::migrate_database(&config(database.owner_dbconfig()))
+    fvoci_server::app::migrate_database(&config(database.owner_database_connection()))
         .await
         .expect("the owner brings the schema up to date");
-    let server = Server::new(config(database.dbconfig()), "")
+    let server = Server::new(config(database.database_connection()), "")
         .await
         .expect("then the server starts");
 
     // Up to date, a migration leaves the schema alone while the server serves it, as a
     // second `up` of the compose file asks for one.
-    fvoci_server::app::migrate_database(&config(database.owner_dbconfig()))
+    fvoci_server::app::migrate_database(&config(database.owner_database_connection()))
         .await
         .expect("nothing to do while the server serves the database");
     // Behind, it waits for the lock the server holds, and gives up.
     forget_migration(
         database.db_type(),
-        database.owner_dbconfig(),
+        database.owner_database_connection(),
         latest_migration(),
     )
     .await;
-    let busy = fvoci_server::app::migrate_database(&config(database.owner_dbconfig()))
+    let busy = fvoci_server::app::migrate_database(&config(database.owner_database_connection()))
         .await
         .expect_err("no migration while a server serves the database");
     let said = format!("{busy:#}");

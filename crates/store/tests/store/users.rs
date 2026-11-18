@@ -958,7 +958,7 @@ async fn user_preferences_are_per_user_and_ordered() {
 /// rows the statement deleted, or the database's refusal.
 async fn delete_user_row(test: &TestStore, user_id: &str) -> Result<u64, sqlx::Error> {
     common::try_execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("DELETE FROM users WHERE id = '{user_id}'"),
     )
     .await
@@ -1671,7 +1671,7 @@ async fn set_user_admin_keeps_one_administrator() {
         .await
         .expect("no failure");
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("UPDATE users SET delete_at = 1 WHERE id = '{admin_id}'"),
     )
     .await;

@@ -1,10 +1,10 @@
-//! The path the server is served under: `FVOCI_HTTP_SERVER_BASEPATH`.
+//! The path the server is served under: `FVOCI_BASE_PATH`.
 
 use anyhow::bail;
 
 use crate::BASE_PATH_ENV;
 
-/// The path the web app and the API are served under (`FVOCI_HTTP_SERVER_BASEPATH`),
+/// The path the web app and the API are served under (`FVOCI_BASE_PATH`),
 /// as the server uses it: without a final `/`, empty for none.
 ///
 /// # Errors

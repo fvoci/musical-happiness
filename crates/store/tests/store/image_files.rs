@@ -189,7 +189,7 @@ async fn the_collector_skips_a_record_that_a_write_holds() {
     }
 
     // The statement of the write, on a connection of the test's own.
-    let mut writer = common::connect_past_the_store(&test.dbconfig()).await;
+    let mut writer = common::connect_past_the_store(&test.database_connection()).await;
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "BEGIN; SELECT name FROM file_info WHERE container_id = '{board_id}' \
          AND name IN ('7held.png') FOR KEY SHARE"
@@ -246,7 +246,7 @@ async fn the_purge_skips_a_file_whose_mark_a_writer_holds() {
     ))
     .await
     .expect("the committed row needs a mark");
-    let mut writer = common::connect_past_the_store(&test.dbconfig()).await;
+    let mut writer = common::connect_past_the_store(&test.database_connection()).await;
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "BEGIN; SELECT id FROM file_info WHERE id = '{}' FOR NO KEY UPDATE",
         file.id,

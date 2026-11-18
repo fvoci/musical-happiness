@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 41] = [
+const STEPS: [Step; 42] = [
     Step {
         version: 1,
         description: "baseline",
@@ -276,15 +276,21 @@ const STEPS: [Step; 41] = [
     },
     Step {
         version: 42,
-        description: "account deletion",
-        sqlite: include_str!("../schema/sqlite/0042_account_deletion.sql"),
-        postgres: include_str!("../schema/postgres/0042_account_deletion.sql"),
+        description: "board blocks",
+        sqlite: include_str!("../schema/sqlite/0042_board_blocks.sql"),
+        postgres: include_str!("../schema/postgres/0042_board_blocks.sql"),
     },
     Step {
         version: 43,
+        description: "account deletion",
+        sqlite: include_str!("../schema/sqlite/0043_account_deletion.sql"),
+        postgres: include_str!("../schema/postgres/0043_account_deletion.sql"),
+    },
+    Step {
+        version: 44,
         description: "audit identity erasure",
-        sqlite: include_str!("../schema/sqlite/0043_audit_identity_erasure.sql"),
-        postgres: include_str!("../schema/postgres/0043_audit_identity_erasure.sql"),
+        sqlite: include_str!("../schema/sqlite/0044_audit_identity_erasure.sql"),
+        postgres: include_str!("../schema/postgres/0044_audit_identity_erasure.sql"),
     },
 ];
 

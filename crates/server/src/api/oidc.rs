@@ -396,7 +396,7 @@ fn see_other(location: &str) -> Response {
 
 /// The address of the web app, from the server's own address.
 fn app_root(app: &App) -> String {
-    format!("{}/", app.config().server_root.trim_end_matches('/'))
+    format!("{}/", app.config().server_url.trim_end_matches('/'))
 }
 
 /// The page of the organization `org_id` in the web app, where it is an identifier.

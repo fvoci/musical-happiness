@@ -191,7 +191,7 @@ struct ReconcileFilesData {
 /// names at places of the server's making that are older than a day are doomed: the
 /// housekeeping removes them at its next run, asking again whether something holds
 /// them. The others, and a record without its object, are reported and never changed.
-/// The storage (`filespath`, or the bucket under `filess3config.pathprefix`) is taken
+/// The storage (`file_storage_path`, or the bucket under `file_storage_s3.key_prefix`) is taken
 /// to be this database's alone: another server's objects there are named by nothing
 /// here.
 async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResult {

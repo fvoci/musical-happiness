@@ -130,7 +130,7 @@ D절과 G절부터는 설계 문서(`docs/s6-design.md`)의 "구현 순서"를 �
 **지금.** 서버의 응답은 회귀 테스트의 스냅샷으로 고정돼 있다. 서버를 고치기 전에 태그 `parity-s5` 시점의 응답을 기대값으로 기록했고, 그 뒤로 응답을 바꾼 커밋마다 스냅샷을 함께 바꿨다.
 
 - **자리.** `crates/server/tests/regression/`의 통합 테스트이고 스냅샷은 `golden/`에 있다. 시나리오마다 테스트 하나, 권한 표는 보드 종류(비공개, 공개)마다 테스트 하나다. 테스트마다 서버를 따로 띄운다.
-- **두 DB가 한 스냅샷을 쓴다.** SQLite에서 기록한 스냅샷이 PostgreSQL에서 그대로 통과한다. 그래서 `ping`이 답하는 DB 종류는 `<db>`로 적는다. 값이 `sqlite3`·`postgres` 중 하나인지는 테스트가 따로 확인한다.
+- **두 DB가 한 스냅샷을 쓴다.** SQLite에서 기록한 스냅샷이 PostgreSQL에서 그대로 통과한다. 그래서 `ping`이 답하는 DB 종류는 `<db>`로 적는다. 값이 `sqlite`·`postgres` 중 하나인지는 테스트가 따로 확인한다.
 - **정규화.** 식별자는 처음 나온 순서의 `<id:N>`, 밀리초 시각은 `<ts>`, 비밀 값은 `<secret:N>`으로 바꾼다. 목록은 온 순서대로 기록한다(M절).
 - **갱신 방법은 하나다.** `FVOCI_REGRESSION_UPDATE=1 cargo test -p fvoci-server --test regression`이 스냅샷을 다시 쓴다. 응답을 의도해서 바꾸는 커밋은 바뀐 스냅샷을 함께 담는다. 리뷰어는 그 `git diff`에서 응답이 어떻게 달라졌는지 본다. 절차와 주의는 `docs/handoff.md` 1절에 있다.
 - **조율은 xtask로 한다.** `cargo xtask check`와 `cargo xtask test`다(`xtask/`, 별칭은 `.cargo/config.toml`). 의존성은 이미 쓰던 `anyhow`와 `clap`뿐이다.
@@ -168,7 +168,7 @@ D절과 G절부터는 설계 문서(`docs/s6-design.md`)의 "구현 순서"를 �
 | 항목 | 지금의 동작 |
 |---|---|
 | S3 | 관리자가 비밀번호를 재설정하면 그 사용자의 세션을 모두 지우고 WebSocket 연결을 닫는다. 재설정과 겹친 로그인이 옛 비밀번호로 세션을 남기지 못한다(F절, J절) |
-| S4 | `usessl`인데 인증서나 키 파일이 없으면 시작을 거부한다 |
+| S4 | `serve_https`인데 인증서나 키 파일이 없으면 시작을 거부한다 |
 | S12 | 멤버가 보드에서 빠지면 그 보드의 블록에 건 구독을 끝낸다 |
 | S14 | 카드 속성 정의와 값의 모양을 쓰기에서 검증한다. 잘못된 모양은 400이다. 같은 `id`의 정의 둘도 400이다(F절) |
 | S15 | 역할 관리 권한이 없는 추가자는 보드의 최소 역할만 준다. 최소 역할은 모든 보드에 있다(G절의 "최소 역할에서 바뀐 것") |
@@ -458,15 +458,15 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 
 | 지금의 동작 | 왜 | 어디 |
 |---|---|---|
-| **로그인이 세션 쿠키를 설정하고 본문에는 토큰이 없다**(본문은 `{}`). 쿠키는 `HttpOnly; SameSite=Lax; Path=/`이고 `Max-Age`는 한가함 한도다. `serverRoot`가 `https`이면 이름이 `__Host-fvoci_session`이고 `Secure`가 붙는다. `http`이면 `fvoci_session`이다. 각 모드는 자기 이름의 쿠키만 읽는다. 로그아웃은 `Max-Age=0`으로 지운다. `securecookie` 설정은 없다(값이 있으면 시작 오류) | 설계 5.1의 1–3번. 페이지의 스크립트가 토큰을 볼 길이 없다 | `auth::token::SessionCookie`, `api/auth.rs` |
+| **로그인이 세션 쿠키를 설정하고 본문에는 토큰이 없다**(본문은 `{}`). 쿠키는 `HttpOnly; SameSite=Lax; Path=/`이고 `Max-Age`는 한가함 한도다. `server_url`가 `https`이면 이름이 `__Host-fvoci_session`이고 `Secure`가 붙는다. `http`이면 `fvoci_session`이다. 각 모드는 자기 이름의 쿠키만 읽는다. 로그아웃은 `Max-Age=0`으로 지운다. `securecookie` 같은 설정은 없다 | 설계 5.1의 1–3번. 페이지의 스크립트가 토큰을 볼 길이 없다 | `auth::token::SessionCookie`, `api/auth.rs` |
 | **토큰을 받는 길은 둘이다:** `Authorization: Bearer <토큰>`과 세션 쿠키. 둘 다 오면 헤더를 쓴다(헤더의 토큰이 세션이 아니면 쿠키가 유효해도 401). 브라우저가 아닌 클라이언트는 로그인 응답의 `Set-Cookie`에서 토큰을 읽어 헤더로 보낸다. **없앤 길:** 쿼리의 `access_token`(주소가 로그와 기록에 남는다), `token` 스킴, 옛 쿠키 이름 `FVOCIAUTHTOKEN` | 설계 5.1의 3번. 쿼리의 토큰은 설계가 남기기로 한 길에 없다 | `auth::token::{Credential, bearer_token}` |
-| **위조 방지 검사의 범위.** 안전하지 않은 메서드(`GET`·`HEAD`·`OPTIONS` 밖)에만 한다. (1) `Origin`이 있으면 `serverRoot`의 출처이거나 `allowed_origins`의 하나여야 한다. 아니면 403 `foreign_origin`. (2) `Authorization: Bearer`가 없으면 `X-Requested-With: XMLHttpRequest`가 있어야 한다. 아니면 403 `csrf`. `GET`은 헤더 없이 된다(이미지 태그와 링크) | 설계 5.1의 4·7번 | `api::guard_against_forgery`, `auth::token::Origins` |
+| **위조 방지 검사의 범위.** 안전하지 않은 메서드(`GET`·`HEAD`·`OPTIONS` 밖)에만 한다. (1) `Origin`이 있으면 `server_url`의 출처이거나 `allowed_origins`의 하나여야 한다. 아니면 403 `foreign_origin`. (2) `Authorization: Bearer`가 없으면 `X-Requested-With: XMLHttpRequest`가 있어야 한다. 아니면 403 `csrf`. `GET`은 헤더 없이 된다(이미지 태그와 링크) | 설계 5.1의 4·7번 | `api::guard_against_forgery`, `auth::token::Origins` |
 | **설계와 다른 점 둘.** 헤더는 "쿠키로 인증된" 요청이 아니라 "Bearer가 없는" 요청에 요구한다: 세션이 없는 로그인·가입도 포함된다(위조된 로그인은 브라우저를 공격자의 계정에 로그인시킨다). `Origin` 검사는 Bearer로 인증한 요청에도 한다(다른 출처의 페이지가 그 토큰을 보낼 이유가 없다) | 더 엄격한 쪽으로 정했다. 브라우저가 아닌 클라이언트는 `Origin`을 보내지 않아 영향이 없다 | 같은 곳 |
 | **쿠키의 갱신.** 세션의 사용을 기록하는 요청(마지막 기록에서 10분이 지난 첫 요청)의 응답에 쿠키를 `Max-Age`를 채워 다시 준다. 쿠키로 온 요청에만 한다 | 설계 5.1의 1번, 5.4. 브라우저가 쿠키를 잊는 때가 서버가 세션을 끝내는 때와 맞는다 | `api::session::{renew_session_cookie, CookieRenewal}` |
 | **비밀번호를 바꾼 세션은 새 토큰을 받는다.** 응답이 쿠키를 다시 설정하고 옛 토큰은 401이다. 다른 세션이 끝나는 것은 전과 같다. 비밀번호 변경, 다른 세션 삭제, 토큰 교체가 한 트랜잭션이다 | 설계 5.4의 3번 | `Store::change_user_password`, `App::change_password` |
 | **WebSocket은 핸드셰이크에서 인증한다.** `AUTH` 메시지는 없다(와도 모르는 동작으로 무시한다). `Origin`이 있으면 허용된 출처여야 하고 아니면 403 `foreign_origin`. 세션은 쿠키의 것이다. 쿠키가 없거나 세션이 아니면 익명 연결이다(공유 보드의 블록만 읽기 토큰으로 구독한다). `Origin`이 없으면 `Authorization: Bearer`가 있어야 하고(없으면 401) 그 토큰은 세션이어야 한다. Bearer 토큰이 세션이 아니면 출처가 맞아도 401이다 | 설계 5.1의 5번. 브라우저는 아무 페이지나 WebSocket을 열게 두고 쿠키를 싣는다 | `lib.rs`의 `websocket_identity`, `ws::Identity` |
 | **파일 응답의 헤더.** `Content-Security-Policy: sandbox; frame-ancestors 'none'`(전에는 `Frame-ancestors 'none'`만). 모든 응답에 `Referrer-Policy: no-referrer` | 설계 5.1의 7·8번. 올린 SVG·HTML을 문서로 열어도 스크립트와 출처가 없다. 공유 보드의 주소(읽기 토큰)가 다른 사이트로 새지 않는다 | `api/files.rs`, `lib.rs`의 `send_no_referrer` |
-| 설정 `allowed_origins`(목록, 기본 빈 값): `serverRoot`의 출처 말고 더 받을 출처. 개발용이다. `serverRoot`와 이 목록이 `http`·`https` 주소가 아니면 시작 오류다 | 설계 5.1의 5번 | `config.rs` |
+| 설정 `allowed_origins`(목록, 기본 빈 값): `server_url`의 출처 말고 더 받을 출처. 개발용이다. `server_url`와 이 목록이 `http`·`https` 주소가 아니면 시작 오류다 | 설계 5.1의 5번 | `config.rs` |
 
 **마지막 리뷰가 이 영역에서 더 고친 것**(P절): WebSocket 핸드셰이크가 세션의 사용을 기록하지 않는다. `cors`가 아닌 방식의 바꾸는 요청은 `Origin: null`이 되어 거절된다는 것을 계약의 머리말에 적었다.
 
@@ -816,7 +816,7 @@ O절까지의 변경을 네 갈래로 검토했다. 모두 `general-purpose` 하
 - **`X-Forwarded-For`(A1의 Should·Consider).** 글자로 읽히지 않는 바이트가 있으면 헤더 줄 전체를 버리던 것을, 쉼표로 나눈 항목 단위로 읽어 그 항목에서 멈추게 했다. `주소:포트`, `[v6]:포트` 항목을 받는다. `::ffff:` 접두사가 붙은 IPv4 대응 범위(길이 `/104` 같은 것)를 그 IPv4 범위로 읽는다(전에는 어느 주소와도 맞지 않았다). `Forwarded` 헤더는 읽지 않는다고 주석에 적었다.
 - **기다림 설정의 상한(A1의 Should).** 아주 큰 값이 리미터의 잠금 안에서 `Instant` 덧셈을 넘쳐 패닉이 났다. 세 설정(`login_pair_base_delay_seconds`, `login_pair_max_delay_seconds`, `login_account_lock_seconds`)을 10년 이하로 검사하고, 리미터도 같은 값으로 자른다.
 - **리미터가 가득 찼을 때(A1의 Consider).** 아무 십분의 일이 아니라 가장 오래 건드리지 않은 십분의 일을 버린다(설계 5.2의 말대로).
-- **프록시 뒤인데 `trusted_proxies`가 빈 경우(A2의 Should).** `serverRoot`가 https이고 `usessl`이 꺼져 있고 `trusted_proxies`가 비면 시작할 때 경고한다. 모든 클라이언트가 프록시의 주소 하나로 보여 로그인 제한이 모두에게 한꺼번에 걸리기 때문이다.
+- **프록시 뒤인데 `trusted_proxies`가 빈 경우(A2의 Should).** `server_url`가 https이고 `serve_https`이 꺼져 있고 `trusted_proxies`가 비면 시작할 때 경고한다. 모든 클라이언트가 프록시의 주소 하나로 보여 로그인 제한이 모두에게 한꺼번에 걸리기 때문이다.
 - **없는 계정의 해시(A1의 Consider).** 대신 쓸 해시를 만들지 못했을 때 빈 문자열과 견주어 금방 끝나던 것을, 같은 일을 다른 길로 하게 했다. 비밀번호 작업이 끝나지 못한 까닭과 WebSocket이 세션을 읽지 못한 까닭을 로그에 남긴다.
 - **통과만 하던 테스트(A1의 Should).** `a_message_does_not_sign_a_connection_in`이 서버가 메시지를 읽기 전에 알림을 한 번 보내고 끝나서, `AUTH`가 로그인을 시켜도 통과했다. 같은 사용자의 연결이 알림을 받는 것을 옆에서 확인하며 다섯 번 되풀이한다.
 - **한 요청으로 만든 블록의 순서(A3의 Should).** 새 ID를 `HashSet`의 순서로 나눠 줘서, 같은 밀리초에 저장된 블록의 목록 순서가 실행마다 달랐다. 고치며 더 찾은 것: 블록마다 시각을 따로 찍고 부모부터 저장해서, 밀리초가 어디서 넘어가느냐에 따라서도 순서가 달라졌다. 이제 ID는 요청의 순서로 만들고 한 요청의 블록은 시각 하나를 쓴다. 목록(`createAt`, ID 순)이 요청의 순서가 된다. 테스트 `post_blocks_without_identifiers_and_in_the_order_of_the_request`, 모델 테스트 둘, 회귀 단계 넷.
@@ -841,7 +841,7 @@ O절까지의 변경을 네 갈래로 검토했다. 모두 `general-purpose` 하
 | 사용자 조회의 두 번째 시도가 내는 시간 차(A2), 관리자 소켓의 bind와 chmod 사이(A2, 보고도 미확인), 사용자 이름에 `@`를 허용(A2), `email_taken`이 가입 토큰을 가진 사람에게 이메일의 존재를 알림(A2) | 확인하지 못했거나 제품 결정이다. 열린 문제로 넘긴다 |
 | CSP·`frame-ancestors`·HSTS가 없다, 모든 인터페이스에 bind(A2) | 정적 파일을 서버가 주지 않게 되는 웹 트랙과 배포 문서(`docs/fvoci-cdn.md`)의 몫이다 |
 | 세션이 끝난 뒤 WebSocket이 한 시간까지 남는다, 로그인이 바뀌는 쿠키의 옛 세션을 끝내지 않는다(A2) | 앞의 것은 J절에 적은 것과 같다. 뒤의 것은 다음 묶음으로 둔다 |
-| `allowed_origins`에 https가 있고 `serverRoot`가 http면 쿠키가 `Secure`가 아니다(A2) | `serverRoot`가 서버에 닿는 주소라는 전제다. 설정 검사에 넣을 후보다 |
+| `allowed_origins`에 https가 있고 `server_url`가 http면 쿠키가 `Secure`가 아니다(A2) | `server_url`가 서버에 닿는 주소라는 전제다. 설정 검사에 넣을 후보다 |
 | `AsWritten` 스키마도 기본값을 지운다(A3) | 지금 기본값을 일부러 적은 스키마가 없고, 계약의 테스트가 어디에도 기본값이 없음을 고정한다 |
 | 쿼리 매개변수의 이름, 상태, 본문을 주석과 코드에 두 번 적는다(A3) | 응답은 회귀 스냅샷이, 매개변수는 API 테스트가 고정한다. 한 정의로 모으는 일은 요청 스키마를 손으로 쓴 것(O절)과 함께 다음에 본다 |
 | `sorted()`가 지금은 아무것도 바꾸지 않는다(A3) | `serde_json`의 `preserve_order`를 의존성이 켜는 날을 위한 것이라고 주석에 적고 뒀다 |
