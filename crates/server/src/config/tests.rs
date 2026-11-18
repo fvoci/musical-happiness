@@ -280,39 +280,86 @@ fn the_metrics_address_is_host_and_port() {
         .expect("a valid address")
     };
     assert_eq!(address(""), None, "no metrics");
-    let expected = |host: Option<&str>, port| {
+    let ip = |text: &str, port| {
         Some(MetricsAddress {
-            host: host.map(str::to_owned),
+            host: MetricsHost::Ip(text.parse().expect("an address")),
             port,
         })
     };
-    assert_eq!(address(":9092"), expected(None, 9092), "every interface");
-    assert_eq!(address("127.0.0.1:9092"), expected(Some("127.0.0.1"), 9092));
-    assert_eq!(address("[::1]:9092"), expected(Some("::1"), 9092));
-    assert_eq!(
-        address("metrics.internal:0"),
-        expected(Some("metrics.internal"), 0)
-    );
+    let name = |text: &str, port| {
+        Some(MetricsAddress {
+            host: MetricsHost::Name(text.to_owned()),
+            port,
+        })
+    };
+    assert_eq!(address("127.0.0.1:9092"), ip("127.0.0.1", 9092));
+    assert_eq!(address("0.0.0.0:9092"), ip("0.0.0.0", 9092));
+    assert_eq!(address("[::1]:9092"), ip("::1", 9092));
+    assert_eq!(address("[::]:9092"), ip("::", 9092));
+    assert_eq!(address("localhost:65535"), name("localhost", 65535));
+    assert_eq!(address("metrics.internal:0"), name("metrics.internal", 0));
+    assert_eq!(address("fvoci-1:9092"), name("fvoci-1", 9092));
+    assert_eq!(address("1e100.net:9092"), name("1e100.net", 9092));
+    for text in ["127.0.0.1:9092", "[::1]:9092", "localhost:0"] {
+        let read = address(text).expect("metrics are kept");
+        assert_eq!(read.to_string(), text, "written as it is read");
+    }
 }
 
 #[test]
-fn metrics_without_a_host_listen_on_the_loopback_of_a_local_only_server() {
-    let address = |listen_loopback_only: bool| {
-        Configuration {
-            metrics_address: ":9092".to_owned(),
-            listen_loopback_only,
+fn a_metrics_address_that_is_no_host_and_port_says_why() {
+    let why = |text: &str| {
+        let error = Configuration {
+            metrics_address: text.to_owned(),
             ..Configuration::default()
         }
         .metrics_listen_address()
-        .expect("a valid address")
-        .expect("metrics are kept")
+        .expect_err("no host:port")
+        .to_string();
+        assert!(error.starts_with("metrics_address "), "{error}");
+        error
     };
-    assert_eq!(address(false).host, None, "every interface");
-    assert_eq!(
-        address(true).host.as_deref(),
-        Some("localhost"),
-        "the loopback only, as the API"
-    );
+    for (text, reason) in [
+        ("9092", "no port"),
+        (":9092", "no host"),
+        ("host:http", "the port"),
+        ("host:09092", "leading zero"),
+        ("host:70000", "the port"),
+        ("::1:9092", "in brackets"),
+        ("[fe80::1%eth0]:9092", "no zone"),
+        ("[127.0.0.1]:9092", "no IPv6 address"),
+        ("0x0:9092", "no host name"),
+        ("host_name:9092", "no host name"),
+    ] {
+        let error = why(text);
+        assert!(error.contains(reason), "{text}: {error}");
+    }
+}
+
+#[test]
+fn a_metrics_address_of_every_interface_is_refused_on_a_local_only_server() {
+    let config = |address: &str| Configuration {
+        metrics_address: address.to_owned(),
+        listen_loopback_only: true,
+        ..Configuration::default()
+    };
+    for every in ["0.0.0.0:9092", "[::]:9092", "[::ffff:0.0.0.0]:9092"] {
+        let error = format!(
+            "{:#}",
+            config(every).check().expect_err("not the loopback only")
+        );
+        assert!(
+            error.contains("metrics_address") && error.contains("listen_loopback_only"),
+            "{error}"
+        );
+    }
+    for loopback in ["127.0.0.1:9092", "[::1]:9092", "localhost:9092"] {
+        let address = config(loopback)
+            .metrics_listen_address()
+            .expect("a loopback address")
+            .expect("metrics are kept");
+        assert_eq!(address.to_string(), loopback, "listened on as given");
+    }
 }
 
 #[test]
@@ -329,14 +376,39 @@ fn check_rejects_what_the_server_cannot_honor() {
     parse(r#"{"file_storage": "s3", "file_storage_s3": {"bucket": "b"}}"#)
         .check()
         .expect("s3 is a file backend");
+    // Only host:port: no empty host for every interface, no service names, no zones.
     for address in [
         "9092",
         "localhost",
         ":",
+        ":9092",
+        "localhost:",
         "host:port",
+        "host:http",
         "::1:9092",
+        "[::1]9092",
+        "[::1]:",
+        "[127.0.0.1]:9092",
+        "[fe80::1%eth0]:9092",
         "host:70000",
+        "host:09092",
+        "host:+9092",
         "a b:1",
+        "host_name:1",
+        "-host:1",
+        "host-:1",
+        "a..b:1",
+        ".host:1",
+        "999.1.1.1:1",
+        "0x0:9092",
+        "0x0.0x0.0x0.0x0:9092",
+        "0x7f000001:9092",
+        "0x7f.1:9092",
+        "127.1:9092",
+        "1.2.3.0x4:9092",
+        "2130706433:9092",
+        "user@host:1",
+        "host/path:1",
     ] {
         let text = format!(r#"{{"metrics_address": "{address}"}}"#);
         assert!(

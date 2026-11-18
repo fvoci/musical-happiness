@@ -9,21 +9,13 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { screensDir } from '../e2e/screens.ts';
-import { memberLink, person, signedIn, watchErrors, type Person } from './support.ts';
+import { inbox, memberLink, person, signedIn, watchErrors, type Person } from './support.ts';
 
 // The server holds one organization: who registers first starts it, and the
 // account after comes by a link of theirs.
 test.describe.configure({ mode: 'serial' });
 /** Who started the organization, once the first test has. */
 let founder: Person | undefined;
-
-/** What the server's fake SMTP received, from its inbox three ports up. */
-async function inbox(baseURL: string): Promise<{ recipient: string; decoded: string }[]> {
-  const url = new URL(baseURL);
-  url.port = String(Number(url.port) + 3);
-  const response = await fetch(new URL('/messages', url));
-  return (await response.json()) as { recipient: string; decoded: string }[];
-}
 
 /** The screen as it is, wide and at 390 pixels, under `screens/verify/`. */
 async function verifyShot(page: Page, name: string): Promise<void> {

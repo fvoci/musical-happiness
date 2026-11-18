@@ -22,8 +22,8 @@ use crate::metrics::{FilesBackend, FilesOperation, Metrics};
 
 /// Files kept in a bucket of an S3-compatible object store, the `file_storage_s3` setting.
 ///
-/// A stored path such as `boards/20240131/7abc.png` is the object key, after the
-/// configured path prefix.
+/// A stored path such as `<organization>/<board>/<secret>` ([`fvoci_model::FileKey`]) is
+/// the object key, after the configured path prefix: the same key as on the disk.
 #[derive(Debug, Clone)]
 pub struct S3Files {
     store: Arc<dyn ObjectStore>,

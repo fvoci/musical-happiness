@@ -11,6 +11,7 @@
  */
 import { isBackendError, type DeletedItem, type Paging } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
+import { firstOf } from './page-reads.ts';
 import type { WikiStore } from './wiki.svelte.ts';
 import type { Workspace } from './workspace.svelte.ts';
 import { take } from './write.ts';
@@ -74,7 +75,7 @@ export class Trash {
     const length = this.#length;
     this.status = 'loading';
     try {
-      const items = await this.#list({ page: 0, perPage: length });
+      const items = await firstOf(this.#list, length);
       if (reading !== this.#readings) return;
       // One on its way back, or back, is not shown again by a reading that began before.
       this.items = items.filter(

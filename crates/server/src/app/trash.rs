@@ -3,12 +3,12 @@
 use fvoci_model::{DeletedItem, WorkspaceRole};
 
 use super::App;
-use super::cards::CardRange;
+use super::list_page::ListPage;
 use crate::error::AppError;
 
 impl App {
     /// Returns one page of the cards of a board that are in the trash, the last deleted
-    /// first. `page` and `per_page` are read as for the board's cards.
+    /// first.
     ///
     /// # Errors
     ///
@@ -16,14 +16,9 @@ impl App {
     pub async fn deleted_cards(
         &self,
         container_id: &str,
-        page: i64,
-        per_page: i64,
+        page: ListPage,
     ) -> Result<Vec<DeletedItem>, AppError> {
-        let paging = match CardRange::new(page, per_page) {
-            CardRange::All => None,
-            CardRange::Page(paging) => Some(paging),
-            CardRange::Nothing => return Ok(Vec::new()),
-        };
+        let paging = Some(page.paging());
         let deleted = self.store().get_deleted_cards(container_id, paging).await?;
         Ok(deleted
             .into_iter()
@@ -40,8 +35,7 @@ impl App {
     /// Returns one page of the boards of a workspace that are in the trash and that the user
     /// was an admin of when they were deleted, or, for an administrator of the workspace
     /// (`role`), every one: whom `undeleteContainer` lets bring them back. Of the kinds the
-    /// handle reaches ([`App::reaching`]). The last deleted first; `page` and `per_page`
-    /// are read as for cards.
+    /// handle reaches ([`App::reaching`]). The last deleted first.
     ///
     /// # Errors
     ///
@@ -51,14 +45,9 @@ impl App {
         workspace_id: &str,
         user_id: &str,
         role: WorkspaceRole,
-        page: i64,
-        per_page: i64,
+        page: ListPage,
     ) -> Result<Vec<DeletedItem>, AppError> {
-        let paging = match CardRange::new(page, per_page) {
-            CardRange::All => None,
-            CardRange::Page(paging) => Some(paging),
-            CardRange::Nothing => return Ok(Vec::new()),
-        };
+        let paging = Some(page.paging());
         let deleted = self
             .store()
             .get_deleted_containers(

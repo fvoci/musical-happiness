@@ -146,10 +146,10 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "category name cannot be empty",
+      "detail": "the category has no name",
       "errors": [
         {
-          "detail": "category name cannot be empty",
+          "detail": "the category has no name",
           "pointer": "/name",
           "reason": "required"
         }
@@ -209,7 +209,14 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "category type is invalid. Allowed types: system and custom",
+      "detail": "type must be \"system\" or \"custom\"",
+      "errors": [
+        {
+          "detail": "type must be \"system\" or \"custom\"",
+          "pointer": "/type",
+          "reason": "invalid"
+        }
+      ],
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,

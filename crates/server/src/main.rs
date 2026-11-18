@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::Context as _;
 use clap::Parser;
 use fvoci_server::config::Configuration;
-use fvoci_server::{BASE_PATH_ENV, Server, checked_base_path, listen_address};
+use fvoci_server::{BASE_PATH_ENV, Server, checked_base_path};
 use tracing_subscriber::EnvFilter;
 
 /// The fvoci board server.
@@ -151,21 +151,25 @@ async fn serve() -> anyhow::Result<()> {
         return check_ready(&config, checked_base_path(&base_path)?).await;
     }
 
-    let address = listen_address(&config);
     let port = config.port;
     let loopback_only = config.listen_loopback_only;
     let server = Server::new(config, &base_path).await?;
 
     let listener = if loopback_only {
-        tokio::net::TcpListener::bind(("localhost", port)).await
+        tokio::net::TcpListener::bind(("localhost", port))
+            .await
+            .with_context(|| format!("listening on localhost:{port}"))?
     } else {
         // All interfaces, IPv6 and IPv4 where the system maps one onto the other.
         match tokio::net::TcpListener::bind(("::", port)).await {
-            Ok(listener) => Ok(listener),
-            Err(_) => tokio::net::TcpListener::bind(("0.0.0.0", port)).await,
+            Ok(listener) => listener,
+            Err(on_ipv6) => tokio::net::TcpListener::bind(("0.0.0.0", port))
+                .await
+                .with_context(|| {
+                    format!("listening on [::]:{port} ({on_ipv6}) and then on 0.0.0.0:{port}")
+                })?,
         }
-    }
-    .with_context(|| format!("listening on {address}"))?;
+    };
 
     server.serve(listener, shutdown_signal()).await
 }

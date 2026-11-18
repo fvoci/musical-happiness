@@ -13,6 +13,7 @@
  */
 import { tick } from 'svelte';
 
+import { m } from '$lib/i18n/paraglide/messages.js';
 import { buildUrl, normalizeBasePath } from '$lib/logic/urls.ts';
 
 import { examine, VIEW_LIMIT_BYTES, type FormatId } from './formats.ts';
@@ -21,6 +22,7 @@ import {
   ZOOM_MAX,
   ZOOM_MIN,
   type Failure,
+  type SheetSummary,
   type Theme,
   type ToFrame,
   type ViewerKey,
@@ -73,6 +75,8 @@ export class ViewerSession {
   status = $state.raw<Status>({ name: 'reading' });
   pages = $state(0);
   page = $state(1);
+  /** A workbook's sheets, by name: its pages. None for a document of pages. */
+  sheets = $state.raw<readonly SheetSummary[]>([]);
   zoom = $state(1);
   /** The file's bytes once read: what "Download" saves. */
   blob = $state.raw<Blob | undefined>(undefined);
@@ -82,6 +86,7 @@ export class ViewerSession {
   readonly #theme: () => Theme;
   readonly #lang: () => string;
   readonly #onKey: (key: ViewerKey) => void;
+  readonly #onDownload: () => void;
   /** Gives up the reading, and stands for "closed". */
   readonly #abort = new AbortController();
   #bytes: ArrayBuffer | undefined;
@@ -95,6 +100,8 @@ export class ViewerSession {
       /** The app's language, for the document's text. */
       lang: () => string;
       onKey: (key: ViewerKey) => void;
+      /** The reader asked, in the frame, for the file to download. */
+      onDownload: () => void;
       limits?: Limits;
     },
   ) {
@@ -102,6 +109,7 @@ export class ViewerSession {
     this.#theme = options.theme;
     this.#lang = options.lang;
     this.#onKey = options.onKey;
+    this.#onDownload = options.onDownload;
     this.#limits = options.limits ?? LIMITS;
     this.#read().catch(() => {
       // A reader of the bytes that threw rather than answering undefined.
@@ -196,12 +204,22 @@ export class ViewerSession {
         // Handed over, not copied: the app keeps the blob for "Download".
         this.#bytes = undefined;
         const open = { format: status.format, bytes, theme: this.#theme(), lang: this.#lang() };
-        this.#send({ kind: 'open', ...open }, [bytes]);
+        const labels = {
+          chart: m.viewer_chart_not_drawn(),
+          pageTooLarge: m.viewer_page_too_large(),
+          download: m.viewer_download(),
+        };
+        this.#send({ kind: 'open', ...open, labels }, [bytes]);
         this.#wait(this.#limits.draw);
         break;
       }
+      case 'sheets':
+        if (status.name === 'opening') this.sheets = message.sheets;
+        break;
       case 'shown':
         clearTimeout(this.#timer);
+        // Sheets that are not the pages shown are not shown as them.
+        if (this.sheets.length !== message.pages) this.sheets = [];
         this.pages = message.pages;
         this.page = 1;
         this.status = { name: 'shown', format: status.format };
@@ -219,6 +237,10 @@ export class ViewerSession {
         break;
       case 'key':
         this.#onKey(message.key);
+        break;
+      case 'download':
+        // From a button in a page the frame shows, so only once it shows the document.
+        if (status.name === 'shown') this.#onDownload();
         break;
     }
   }

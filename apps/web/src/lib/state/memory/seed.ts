@@ -264,7 +264,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       const block: StoredBlock = {
         id,
         containerId: boardId,
-        parentId: boardId,
+        parentId: '',
         createdBy: author.id,
         modifiedBy: author.id,
         schema: 1,
@@ -314,7 +314,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       world.blocks.set(id, {
         id,
         containerId: boardId,
-        parentId: boardId,
+        parentId: '',
         createdBy: reader.id,
         modifiedBy: reader.id,
         schema: 1,

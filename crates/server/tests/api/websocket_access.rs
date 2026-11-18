@@ -41,29 +41,32 @@ async fn subscribe(
             .await
             .expect("the subscription reaches the registration seam");
     } else {
-        barrier(socket).await;
+        barrier(ts, socket).await;
     }
     pause
 }
 
-async fn barrier(socket: &mut Socket) {
+/// Waits until the server has carried out what `socket` sent before.
+async fn barrier(ts: &TestServer, socket: &mut Socket) {
+    crate::common::carried_out(ts.app.ws(), socket).await;
+}
+
+/// Shows the connection is open: the server answers its Ping.
+async fn still_open(socket: &mut Socket) {
     socket
         .send(Message::Ping(vec![9].into()))
         .await
-        .expect("barrier sent");
+        .expect("the Ping is sent");
     tokio::time::timeout(WAIT, async {
         while let Some(message) = socket.next().await {
-            if matches!(
-                message.expect("a frame before revocation"),
-                Message::Pong(_)
-            ) {
+            if matches!(message.expect("a frame"), Message::Pong(_)) {
                 return;
             }
         }
-        panic!("the socket closed before subscribing");
+        panic!("the connection ended");
     })
     .await
-    .expect("the subscription is registered");
+    .expect("the server answers a Ping");
 }
 
 /// Reads until the server says it stopped what the connection followed
@@ -96,7 +99,7 @@ async fn ended(socket: &mut Socket) -> Value {
             .is_some_and(|reason| !reason.is_empty()),
         "the message explains revocation: {told}"
     );
-    barrier(socket).await;
+    still_open(socket).await;
     told
 }
 
@@ -382,7 +385,7 @@ async fn an_unrelated_revocation_does_not_end_a_validating_subscription() {
     .expect("the seam is installed");
     EndShare::Off.apply(&ts, &unrelated.id).await;
     pause.resume();
-    barrier(&mut socket).await;
+    barrier(&ts, &mut socket).await;
     ts.app
         .ws()
         .broadcast_block_change(TEST_WORKSPACE_ID, &card)
@@ -400,6 +403,39 @@ async fn an_unrelated_revocation_does_not_end_a_validating_subscription() {
         value["block"]["id"], card.id,
         "unrelated revocation preserves the subscription"
     );
+    ts.teardown().await;
+}
+
+/// What the barrier of these tests waits for. A connection reads on while it carries
+/// a command out, so the Pong to a Ping comes while the subscription sent before it
+/// is still held short of its registration; the barrier returns only once the
+/// subscription is registered, and a change told right after it arrives.
+#[tokio::test]
+async fn the_barrier_waits_for_a_subscription_that_a_pong_does_not() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let user = ts.client.me().await.id;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
+    let card = stored_card(&ts, &board.id, &user).await;
+    let mut socket = ts.client.connect_websocket().await;
+    let pause = subscribe(
+        &ts,
+        &mut socket,
+        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": TEST_WORKSPACE_ID}),
+        Moment::Validated,
+    )
+    .await
+    .expect("the seam is installed");
+    // Held: the server answers a Ping all the same, and is told of no change yet.
+    still_open(&mut socket).await;
+    let hub = ts.app.ws();
+    let held = tokio::time::timeout(Duration::from_millis(200), hub.carried_out()).await;
+    assert!(held.is_err(), "the hub waits for the held subscription");
+    pause.resume();
+    barrier(&ts, &mut socket).await;
+    hub.broadcast_block_change(TEST_WORKSPACE_ID, &card).await;
+    updated(&mut socket, "after the barrier").await;
     ts.teardown().await;
 }
 
@@ -782,7 +818,7 @@ async fn a_role_change_asks_another_organizations_workspace_anew() {
     .await;
     // Asked from this organization while the user is still in their workspace.
     ts.app.ws().follow_only_own_workspaces(&user).await;
-    barrier(&mut socket).await;
+    barrier(&ts, &mut socket).await;
     theirs
         .execute_unchecked(&format!(
             "DELETE FROM workspace_members WHERE user_id = '{user}' \
@@ -882,7 +918,7 @@ async fn a_store_that_cannot_be_read_closes_as_retryable() {
     )
     .await;
     let mut asking = ts.client.connect_websocket().await;
-    barrier(&mut asking).await;
+    barrier(&ts, &mut asking).await;
     // Nothing is left cached: the change is checked against the store.
     ts.app
         .store()

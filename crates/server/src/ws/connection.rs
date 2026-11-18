@@ -143,8 +143,18 @@ impl Hub {
         inbound: &mut Inbound<impl Stream<Item = Result<Message, axum::Error>> + Unpin>,
         docs: &mut Seat,
     ) -> Disconnect {
+        // Held from a command that came until nothing read is left to carry out.
+        #[cfg(feature = "test-util")]
+        let mut working = None;
         loop {
-            let text = match inbound.next().await {
+            #[cfg(feature = "test-util")]
+            if inbound.nothing_ahead() {
+                working = None;
+            }
+            let came = inbound.next().await;
+            #[cfg(feature = "test-util")]
+            working.get_or_insert_with(|| self.inner.at_work.begin());
+            let text = match came {
                 Ok(Came::Text(text)) => text,
                 Ok(Came::Binary(frame)) => {
                     inbound.meanwhile(docs.frame(frame)).await;

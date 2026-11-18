@@ -929,6 +929,13 @@ impl From<StoreError> for AppError {
             StoreError::Stale { .. } => {
                 Self::conflict("the block has changed since it was read").context(error)
             }
+            // Another process wrote the document (or a write of this one was stored
+            // though its answer never came): the next try finds what is stored.
+            StoreError::DocumentWritten { .. } => Self::service_unavailable(
+                "what is stored of the document was written since this server read it",
+            )
+            .with_reason(Reason::DocumentUnavailable)
+            .context(error),
             other => Self::from(anyhow::Error::from(other)),
         }
     }

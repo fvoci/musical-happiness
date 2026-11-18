@@ -390,21 +390,8 @@ async fn removing_workspace_membership_stops_websocket_content_from_that_organiz
         ))
         .await
         .expect("subscription sent");
-    // A pong proves the preceding command was consumed before the membership ends.
-    socket
-        .send(Message::Ping(vec![1].into()))
-        .await
-        .expect("barrier ping sent");
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while let Some(message) = socket.next().await {
-            if matches!(message.expect("a websocket message"), Message::Pong(_)) {
-                return;
-            }
-        }
-        panic!("the socket closed before the barrier");
-    })
-    .await
-    .expect("the subscription was processed");
+    // The subscription is registered before the membership ends.
+    common::carried_out(ts.app.ws(), &mut socket).await;
 
     store
         .execute_unchecked(&format!(

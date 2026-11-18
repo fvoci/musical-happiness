@@ -231,6 +231,7 @@ async fn typed(store: &Store, card_id: &str, text: &str, seq: i64, user_id: &str
             .expect("a document is stored");
     }
     let read_at = store.get_block(card_id).await.expect("the card").update_at;
+    let as_read = crate::body_docs::as_read(store, card_id).await;
     store
         .project_body(
             card_id,
@@ -239,6 +240,7 @@ async fn typed(store: &Store, card_id: &str, text: &str, seq: i64, user_id: &str
             seq,
             b"a digest",
             user_id,
+            as_read,
         )
         .await
         .expect("the room's body is written to the card");
@@ -745,6 +747,7 @@ async fn every_way_a_card_is_written_notes_it() {
         .await
         .expect("the card")
         .update_at;
+    let as_read = crate::body_docs::as_read(store, &second.id).await;
     store
         .project_body(
             &second.id,
@@ -753,6 +756,7 @@ async fn every_way_a_card_is_written_notes_it() {
             1,
             b"another digest",
             &user_id,
+            as_read,
         )
         .await
         .expect("the room's body is written to the card");
@@ -762,8 +766,17 @@ async fn every_way_a_card_is_written_notes_it() {
     );
     settle_all(store).await;
     // Written again as it is, for the files it shows alone: nothing a search reads.
+    let as_read = crate::body_docs::as_read(store, &second.id).await;
     store
-        .project_body(&second.id, None, read_at, 2, b"another digest", &user_id)
+        .project_body(
+            &second.id,
+            None,
+            read_at,
+            2,
+            b"another digest",
+            &user_id,
+            as_read,
+        )
         .await
         .expect("the document is marked as written");
     assert_eq!(listed(store).await, []);

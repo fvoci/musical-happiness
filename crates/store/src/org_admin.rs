@@ -800,10 +800,7 @@ pub(crate) fn name_taken(error: StoreError) -> StoreError {
 fn push_page(sql: &mut crate::db::Sql, paging: Paging) {
     if paging.per_page > 0 {
         sql.push_bind(" LIMIT ", i64::from(paging.per_page))
-            .push_bind(
-                " OFFSET ",
-                i64::from(paging.page) * i64::from(paging.per_page),
-            );
+            .push_bind(" OFFSET ", paging.offset());
     }
 }
 

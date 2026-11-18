@@ -140,6 +140,9 @@ struct Inner {
     events: broadcast::Sender<DocEvent>,
     /// The connections that hold the documents together.
     rooms: rooms::Rooms,
+    /// No body is written because it is due ([`Collab::leave_due_writes`]).
+    #[cfg(feature = "test-util")]
+    due_writes_left: std::sync::atomic::AtomicBool,
     /// What the next write of a body waits for, between reading its card and writing it:
     /// for the tests of what is written to the card meanwhile.
     #[cfg(feature = "test-util")]
@@ -203,8 +206,10 @@ pub enum DocChange {
     /// Its body was written whole over HTTP, and the document made again from it.
     /// Editors load it anew.
     Replaced,
-    /// The worker that held it ended, and it was opened again from what was stored.
-    /// What an editor sent and was refused for that is not in it.
+    /// The worker that held it ended, or another process wrote what is stored of it
+    /// (a server that took the lock of the server, or the one that lost it and has
+    /// not noticed yet): it is opened again from what is stored. What an editor sent
+    /// and was refused for that is not in it. Editors load it anew.
     Reopened,
     /// Its card's body was written whole while it was not open (its worker had ended
     /// over it), or it was closed after such a write because it could not be made
@@ -254,6 +259,8 @@ impl Collab {
                 version_time_passed: Mutex::new(Duration::ZERO),
                 events: broadcast::channel(EVENTS).0,
                 rooms: rooms::Rooms::new(settings),
+                #[cfg(feature = "test-util")]
+                due_writes_left: std::sync::atomic::AtomicBool::new(false),
                 #[cfg(feature = "test-util")]
                 projection_pause: Mutex::new(None),
                 #[cfg(feature = "test-util")]
@@ -755,6 +762,18 @@ impl Collab {
             message: format!("{} bytes, before the worker", sent.len()),
         };
         Err(refusals::refused(&refused, &self.inner.limits))
+    }
+
+    /// Has no body written to its card because it is due, from here on: a document is
+    /// written when it is asked to be, and when it is closed. For the tests of a server
+    /// that is killed with updates its cards do not hold, however long the machine
+    /// took to take them.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub fn leave_due_writes(&self) {
+        self.inner
+            .due_writes_left
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Has the next write of a document's body to its card wait, after it read the card

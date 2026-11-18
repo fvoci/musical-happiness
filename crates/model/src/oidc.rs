@@ -6,7 +6,6 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::refusal::{RefusalReason, Refusals};
-use crate::serde_util::null_as_default;
 
 /// The longest client identifier and client secret taken, in bytes.
 pub const OIDC_CLIENT_FIELD_MAX_BYTES: usize = 4096;
@@ -107,10 +106,8 @@ pub struct OidcPendingProvider {
 #[serde(default, rename_all = "camelCase")]
 pub struct OidcProviderSettings {
     /// The issuer: an `https` address without query or fragment.
-    #[serde(deserialize_with = "null_as_default")]
     pub issuer: String,
     /// The client identifier the provider gave this server.
-    #[serde(deserialize_with = "null_as_default")]
     pub client_id: String,
     /// The client secret. Left out, the stored one stays while the issuer and the client
     /// stay the same (none for a new provider), and is required with another issuer or
@@ -246,13 +243,10 @@ pub struct LinkedIdentity {
 #[serde(default, rename_all = "camelCase")]
 pub struct UnlinkRequest {
     /// The issuer of the identity.
-    #[serde(deserialize_with = "null_as_default")]
     pub issuer: String,
     /// Its subject.
-    #[serde(deserialize_with = "null_as_default")]
     pub subject: String,
     /// The account's password.
-    #[serde(deserialize_with = "null_as_default")]
     pub password: String,
 }
 

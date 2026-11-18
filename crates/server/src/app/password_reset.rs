@@ -17,10 +17,13 @@ impl App {
     /// recorded as theirs in each organization of the user
     /// ([`fvoci_store::Store::create_password_reset_by_operator`]).
     ///
+    /// An account that waits to be deleted gets one too: with it its person signs in and
+    /// may take the deletion back.
+    ///
     /// # Errors
     /// Returns not found for an unavailable account, or the storage error.
     pub async fn password_reset_link(&self, username: &str) -> Result<String, AppError> {
-        let user = self.store().get_user_by_username(username).await?;
+        let user = self.store().account_by_username(username).await?;
         self.reset_link_for(&user.id, Asked::ByOperator).await
     }
 
@@ -93,7 +96,9 @@ impl App {
         email: &str,
         requested: Option<Language>,
     ) -> Result<(), AppError> {
-        let user = match self.store().get_user_by_email(email).await {
+        // An account that waits to be deleted is sent one as one in use is: the way back
+        // is signing in, which needs a password its person may have forgotten.
+        let user = match self.store().account_by_email(email).await {
             Ok(user) => user,
             Err(error) if error.is_not_found() => return Ok(()),
             Err(error) => return Err(error.into()),
@@ -165,7 +170,7 @@ impl App {
                 AppError::bad_request("the reset link is invalid or expired").with_field("token")
             })?;
         self.ws().close_user(&user_id);
-        match self.store().get_user_by_id(&user_id).await {
+        match self.store().account_by_id(&user_id).await {
             Ok(user) => self
                 .login_limiter()
                 .forget_account(&[&user.username, &user.email], address),

@@ -1,6 +1,8 @@
 //! The settings of the metrics listener: where it listens (`metrics_address`), and the
 //! bearer token a scrape must send (`metrics_token`).
 
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
 use sha2::{Digest as _, Sha256};
 use subtle::ConstantTimeEq as _;
 
@@ -31,38 +33,106 @@ pub(super) fn check_token_is_text(keys: &Map<String, Value>) -> anyhow::Result<(
     }
 }
 
-/// Where the metrics listener listens: `metrics_address` read.
+/// Where the metrics listener listens: `metrics_address` read. It is written as it is
+/// read, `host:port` with an IPv6 address in brackets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetricsAddress {
-    /// The host name or address; `None` for every interface.
-    pub host: Option<String>,
+    /// The host.
+    pub host: MetricsHost,
     /// The port; zero for any free one.
     pub port: u16,
 }
 
+/// The host of [`MetricsAddress`]: an address, or a name the system resolves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MetricsHost {
+    /// An IPv4 address, or an IPv6 address (in brackets in the setting).
+    Ip(IpAddr),
+    /// A DNS host name, such as `localhost`.
+    Name(String),
+}
+
+/// The longest host name DNS can carry (RFC 1035, 2.3.4).
+const MAX_HOST_NAME_BYTES: usize = 253;
+/// The longest label of a host name (RFC 1035, 2.3.4).
+const MAX_LABEL_BYTES: usize = 63;
+
 impl MetricsAddress {
-    /// Reads `host:port`, `[ipv6]:port` or `:port`; `None` if the text is none of them.
-    fn parse(text: &str) -> Option<Self> {
-        let (host, port) = text.rsplit_once(':')?;
-        if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
-            return None;
-        }
-        let port: u16 = port.parse().ok()?;
+    /// Reads `host:port`: the host a name, an IPv4 address or an IPv6 address in
+    /// brackets, the port a number up to 65535 with no leading zero. The error says
+    /// what of that the text is not.
+    fn parse(text: &str) -> Result<Self, &'static str> {
+        let (host, port) = text
+            .rsplit_once(':')
+            .ok_or("it has no port after a colon")?;
+        let is_number = (1..=5).contains(&port.len())
+            && port.bytes().all(|byte| byte.is_ascii_digit())
+            && (port == "0" || !port.starts_with('0'));
+        let port: u16 = port
+            .parse()
+            .ok()
+            .filter(|_| is_number)
+            .ok_or("the port is no number from 0 to 65535 (without a leading zero)")?;
         let host = if host.is_empty() {
-            None
+            return Err("it has no host (every interface is 0.0.0.0 or [::])");
         } else if let Some(inner) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
-            inner.parse::<std::net::Ipv6Addr>().ok()?;
-            Some(inner.to_owned())
-        } else if host
-            .chars()
-            .any(|c| matches!(c, ':' | '[' | ']' | '/' | '@') || c.is_whitespace())
-        {
-            return None;
+            if inner.contains('%') {
+                return Err("an IPv6 address here has no zone");
+            }
+            MetricsHost::Ip(IpAddr::V6(
+                inner
+                    .parse::<Ipv6Addr>()
+                    .map_err(|_| "what is in brackets is no IPv6 address")?,
+            ))
+        } else if host.contains(':') {
+            return Err("an IPv6 address goes in brackets, such as [::1]:9092");
+        } else if let Ok(address) = host.parse::<Ipv4Addr>() {
+            MetricsHost::Ip(IpAddr::V4(address))
+        } else if is_host_name(host) {
+            MetricsHost::Name(host.to_owned())
         } else {
-            Some(host.to_owned())
+            return Err("the host is no IPv4 address and no host name");
         };
-        Some(Self { host, port })
+        Ok(Self { host, port })
     }
+
+    /// Whether the host is the address of every interface (`0.0.0.0`, `[::]`, and
+    /// `[::ffff:0.0.0.0]`, which is the first).
+    fn is_every_interface(&self) -> bool {
+        matches!(self.host, MetricsHost::Ip(address) if address.to_canonical().is_unspecified())
+    }
+}
+
+impl std::fmt::Display for MetricsAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let port = self.port;
+        match &self.host {
+            MetricsHost::Ip(IpAddr::V6(address)) => write!(f, "[{address}]:{port}"),
+            MetricsHost::Ip(IpAddr::V4(address)) => write!(f, "{address}:{port}"),
+            MetricsHost::Name(name) => write!(f, "{name}:{port}"),
+        }
+    }
+}
+
+/// Whether `host` is a DNS host name: labels of letters, digits and `-` (none at a
+/// label's ends) joined by dots, the last label beginning with a letter (RFC 3696, 2).
+/// A name that ends in a number would be some notation of an IPv4 address the
+/// resolver reads (`0x0`, `0x7f.1`, `127.1`), and only the dotted four are taken.
+fn is_host_name(host: &str) -> bool {
+    let is_label = |label: &str| {
+        (1..=MAX_LABEL_BYTES).contains(&label.len())
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+    };
+    host.len() <= MAX_HOST_NAME_BYTES
+        && host.split('.').all(is_label)
+        && host
+            .rsplit('.')
+            .next()
+            .is_some_and(|last| last.starts_with(|c: char| c.is_ascii_alphabetic()))
 }
 
 /// The bearer token a scrape of the metrics must send: `metrics_token` as its SHA-256
@@ -108,29 +178,31 @@ fn is_bearer_token(token: &str) -> bool {
 
 impl Configuration {
     /// Where the metrics are served: `metrics_address` read as `host:port`, or `None`
-    /// if it is empty and no metrics are kept. Without a host it is every interface, or
-    /// `localhost` if `listen_loopback_only` is set.
+    /// if it is empty and no metrics are kept.
     ///
     /// # Errors
     ///
     /// Returns an error if the address is not empty and no `host:port`: the host a name,
-    /// an IPv4 address, an IPv6 address in brackets, or nothing; the port a number up to
-    /// 65535.
+    /// an IPv4 address or an IPv6 address in brackets, the port a number up to 65535.
+    /// Also if it is every interface (`0.0.0.0`, `[::]`) while `listen_loopback_only`
+    /// is set: the listener has no authentication unless `metrics_token` is set. (A
+    /// name that resolves to every interface is caught where the listener is bound.)
     pub fn metrics_listen_address(&self) -> anyhow::Result<Option<MetricsAddress>> {
         let text = self.metrics_address.as_str();
         if text.is_empty() {
             return Ok(None);
         }
-        let mut address = MetricsAddress::parse(text).ok_or_else(|| {
+        let address = MetricsAddress::parse(text).map_err(|why| {
             anyhow::anyhow!(
-                "metrics_address must be empty or host:port, such as 127.0.0.1:9092 or \
-                 :9092 for every interface (the loopback with listen_loopback_only), not {text:?}"
+                "metrics_address {text:?} is no host:port, such as 127.0.0.1:9092, \
+                 [::1]:9092 or 0.0.0.0:9092 for every interface: {why}"
             )
         })?;
-        // A server that listens on the loopback only does so for its metrics too: the
-        // listener has no authentication unless metrics_token is set.
-        if self.listen_loopback_only && address.host.is_none() {
-            address.host = Some("localhost".to_owned());
+        if self.listen_loopback_only && address.is_every_interface() {
+            anyhow::bail!(
+                "metrics_address {text:?} is every interface, and listen_loopback_only is \
+                 set: give an address that is not every interface, such as 127.0.0.1:9092"
+            );
         }
         Ok(Some(address))
     }

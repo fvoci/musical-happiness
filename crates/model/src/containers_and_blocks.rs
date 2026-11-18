@@ -10,7 +10,6 @@ use crate::block_ids::{UnmatchedRelation, renew_block_ids_told};
 use crate::container::{Container, ContainerPatch};
 use crate::id::new_id;
 use crate::relation::RelationProperties;
-use crate::serde_util::null_as_default;
 
 /// Reasons a boards-and-blocks request is rejected.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -40,10 +39,8 @@ pub enum ContainersAndBlocksError {
 #[serde(default)]
 pub struct ContainersAndBlocks {
     /// The boards.
-    #[serde(deserialize_with = "null_as_default")]
     pub containers: Vec<Container>,
     /// The blocks; each must belong to one of `containers`.
-    #[serde(deserialize_with = "null_as_default")]
     pub blocks: Vec<Block>,
 }
 
@@ -85,10 +82,8 @@ impl ContainersAndBlocks {
 #[serde(default)]
 pub struct DeleteContainersAndBlocks {
     /// The identifiers of the boards.
-    #[serde(deserialize_with = "null_as_default")]
     pub containers: Vec<String>,
     /// The identifiers of the blocks.
-    #[serde(deserialize_with = "null_as_default")]
     pub blocks: Vec<String>,
 }
 
@@ -130,16 +125,16 @@ impl From<&ContainersAndBlocks> for DeleteContainersAndBlocks {
 #[serde(default)]
 pub struct PatchContainersAndBlocks {
     /// The identifiers of the boards to patch.
-    #[serde(rename = "containerIds", deserialize_with = "null_as_default")]
+    #[serde(rename = "containerIds")]
     pub container_ids: Vec<String>,
     /// The board patches, one per board identifier.
-    #[serde(rename = "containerPatches", deserialize_with = "null_as_default")]
+    #[serde(rename = "containerPatches")]
     pub container_patches: Vec<ContainerPatch>,
     /// The identifiers of the blocks to patch.
-    #[serde(rename = "blockIds", deserialize_with = "null_as_default")]
+    #[serde(rename = "blockIds")]
     pub block_ids: Vec<String>,
     /// The block patches, one per block identifier.
-    #[serde(rename = "blockPatches", deserialize_with = "null_as_default")]
+    #[serde(rename = "blockPatches")]
     pub block_patches: Vec<BlockPatch>,
 }
 
@@ -185,8 +180,7 @@ pub fn generate_containers_and_blocks_ids(
 /// that is copied: unlike a request, they may be boards without blocks.
 ///
 /// Blocks come back grouped by board, in the order of `containers`. A block of a board that
-/// is not among `containers` is left out. A block that named its board as its parent comes
-/// back without a parent. A card relation value names the copies of the cards it named
+/// is not among `containers` is left out. A card relation value names the copies of the cards it named
 /// that are among `blocks`, and no other card.
 #[must_use]
 pub fn renew_containers_and_blocks_ids(
@@ -251,12 +245,6 @@ fn renew_ids(
             .unwrap_or_default()
         {
             block.container_id.clone_from(&new_container_id);
-            // A block directly on its board has no parent. Clients used to name the
-            // board there; left as it is, that would be a reference to the board the
-            // copy was made from.
-            if block.parent_id == container.id {
-                block.parent_id.clear();
-            }
             blocks.push(block);
         }
         container.id = new_container_id;

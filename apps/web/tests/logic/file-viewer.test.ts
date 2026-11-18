@@ -8,8 +8,11 @@ import {
   type FormatId,
 } from '$lib/file-viewer/formats.ts';
 import {
+  LABEL_LIMIT,
   PAGE_LIMIT,
   readFromFrame,
+  SHEET_LIMIT,
+  SHEET_NAME_LENGTH,
   readToFrame,
   VIEWER_KEYS,
   ZOOM_MAX,
@@ -20,6 +23,7 @@ import { UnreadableFile } from '../../src/viewer-frame/renderer.ts';
 import { MarkupSniffer, repack } from '../../src/viewer-frame/zip-guard.ts';
 
 import { blankPaddedDocx, koreanDocx, koreanPdf, png, zip } from '../support/viewer-files.ts';
+import { koreanXlsx } from '../support/viewer-xlsx.ts';
 
 const bytes = (buffer: Buffer): Uint8Array =>
   new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -46,9 +50,16 @@ describe('a file is told apart by its first bytes, not by its name', () => {
     expect(sniffFormat(bytes(koreanDocx()))).toBe('docx');
   });
 
+  it('a workbook: a ZIP archive with xl/workbook.xml', () => {
+    expect(sniffFormat(bytes(koreanXlsx()))).toBe('xlsx');
+  });
+
   it('another ZIP archive, a picture, text and nothing are none of them', () => {
+    // An OpenDocument spreadsheet, and parts named nearly as the Office ones are.
     const archive = zip([
-      { name: 'xl/workbook.xml', data: Buffer.from('<workbook/>') },
+      { name: 'mimetype', data: Buffer.from('application/vnd.oasis.opendocument.spreadsheet') },
+      { name: 'content.xml', data: Buffer.from('<office:document-content/>') },
+      { name: 'xl/workbook.xml.bak', data: Buffer.from('x') },
       { name: 'word/document.xml.bak', data: Buffer.from('x') },
     ]);
     expect(sniffFormat(bytes(archive))).toBeUndefined();
@@ -104,6 +115,22 @@ describe('in the frame, an archive is counted and handed on anew', () => {
     const again = await repack(buffer(honest));
     expect(parts(again)).toEqual(parts(buffer(honest)));
     expect(parts(await repack(buffer(koreanDocx())))).toEqual(parts(buffer(koreanDocx())));
+  });
+
+  it('counting gives the thread back while it reads a part, stored or deflated', async () => {
+    // Blanks are read one by one for the first character that is not one: tens of milliseconds.
+    const blanks = Buffer.alloc(20_000_000, 0x20);
+    for (const stored of [true, false]) {
+      let ran = false;
+      setTimeout(() => {
+        ran = true;
+      }, 0);
+      const counted = await repack(
+        buffer(zip([{ name: 'ppt/media/blank.bin', data: blanks, stored }])),
+      );
+      expect(parts(counted)).toEqual(['ppt/media/blank.bin:20000000']);
+      expect(ran, stored ? 'stored' : 'deflated').toBe(true);
+    }
   });
 
   it('a part that holds more than its directory says stops the file', async () => {
@@ -247,6 +274,37 @@ describe('a message from the frame is taken only in one of its shapes', () => {
     for (const key of VIEWER_KEYS) {
       expect(readFromFrame({ kind: 'key', key })).toEqual({ kind: 'key', key });
     }
+    expect(readFromFrame({ kind: 'download' })).toEqual({ kind: 'download' });
+    const sheets = [
+      { name: '매출', drawings: false },
+      { name: '일정', drawings: true },
+    ];
+    expect(readFromFrame({ kind: 'sheets', sheets })).toEqual({ kind: 'sheets', sheets });
+  });
+
+  it("a workbook's sheets: one to a thousand, each named, its name at most 100 long", () => {
+    const sheet = (name: string, drawings: unknown = false) => ({ name, drawings });
+    const most = Array.from({ length: SHEET_LIMIT }, (_, index) => sheet(`Sheet${index + 1}`));
+    expect(readFromFrame({ kind: 'sheets', sheets: most })).toBeDefined();
+    expect(
+      readFromFrame({ kind: 'sheets', sheets: [sheet('가'.repeat(SHEET_NAME_LENGTH))] }),
+    ).toBeDefined();
+    for (const sheets of [
+      [],
+      [...most, sheet('one more')],
+      [sheet('')],
+      [sheet('가'.repeat(SHEET_NAME_LENGTH + 1))],
+      [sheet('a', 'yes')],
+      [{ name: 'a', drawings: false, hidden: true }],
+      [{ name: 'a' }],
+      ['a'],
+      'a',
+    ]) {
+      expect(readFromFrame({ kind: 'sheets', sheets }), JSON.stringify(sheets).slice(0, 80)).toBe(
+        undefined,
+      );
+    }
+    expect(readFromFrame({ kind: 'sheets', sheets: [sheet('a')], pages: 1 })).toBeUndefined();
   });
 
   it('not with a field more, a field less, or a value out of range', () => {
@@ -266,6 +324,7 @@ describe('a message from the frame is taken only in one of its shapes', () => {
       { kind: 'failed', reason: 'because' },
       { kind: 'key', key: 'Enter' },
       { kind: 'key', key: 'a' },
+      { kind: 'download', name: 'other.exe' },
       { kind: 'open', format: 'pdf', bytes: new ArrayBuffer(1), theme: 'light' },
       { kind: 'navigate', url: 'https://example.com/' },
     ]) {
@@ -287,15 +346,33 @@ describe('a message from the frame is taken only in one of its shapes', () => {
 describe('a message from the app, in the frame', () => {
   it('opens a file of a kind the viewer draws, with its bytes', () => {
     const buffer = new ArrayBuffer(4);
-    const open = { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko' };
+    const labels = {
+      chart: '미리 보기에는 차트가 나오지 않습니다',
+      pageTooLarge: '이 쪽은 너무 커서 보이지 않습니다.',
+      download: '다운로드',
+    };
+    const open = { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko', labels };
     expect(readToFrame(open)).toEqual(open);
+    expect(readToFrame({ ...open, format: 'pptx' })).toEqual({ ...open, format: 'pptx' });
     expect(readToFrame({ ...open, lang: 'zh-Hans' })).toEqual({ ...open, lang: 'zh-Hans' });
+    const long = 'x'.repeat(LABEL_LIMIT);
+    const most = { ...open, labels: { chart: long, pageTooLarge: long, download: long } };
+    expect(readToFrame(most)).toEqual(most);
     for (const wrong of [
       { ...open, format: 'html' },
       { ...open, bytes: new Uint8Array(4) },
       { ...open, lang: 'ko"><script>' },
       { ...open, lang: '' },
-      { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark' },
+      { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko' },
+      { ...open, labels: {} },
+      { ...open, labels: { chart: labels.chart } },
+      { ...open, labels: { ...labels, chart: '' } },
+      { ...open, labels: { ...labels, download: '' } },
+      { ...open, labels: { ...labels, download: 7 } },
+      { ...open, labels: { ...labels, chart: 'a'.repeat(LABEL_LIMIT + 1) } },
+      { ...open, labels: { ...labels, pageTooLarge: `${long}x` } },
+      { ...open, labels: { ...labels, page: 'Page' } },
+      { ...open, labels: 'Charts' },
     ]) {
       expect(readToFrame(wrong), JSON.stringify(wrong)).toBeUndefined();
     }

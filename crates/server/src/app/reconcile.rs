@@ -10,10 +10,10 @@
 //! record without its object: what to do with those is not the server's to say.
 
 use futures_util::{StreamExt as _, TryStreamExt as _};
+use fvoci_model::FileKey;
 use serde::Serialize;
 
 use super::App;
-use super::files::is_server_place;
 use super::uploads::UPLOAD_LIFETIME_MILLIS;
 use crate::error::AppError;
 use crate::storage::{StorageError, StoredObject};
@@ -105,7 +105,7 @@ impl App {
             let held = self.store().held_objects(&paths, None).await?;
             let mut doomed = Vec::new();
             for object in page.iter().filter(|object| !held.contains(&object.path)) {
-                if !is_server_place(&object.path) {
+                if FileKey::parse(&object.path).is_none() {
                     report.foreign.note(&object.path);
                     continue;
                 }

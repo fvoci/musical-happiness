@@ -15,10 +15,10 @@ use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::cards::page_params;
 use super::contract::params::Page as PageNumber;
 use super::contract::params::{MemberWorkspaceId, PageId, PerPage, WikiId};
 use super::contract::tag;
+use super::paging::paging_params;
 use super::workspace::{InWiki, InWorkspace};
 use super::{
     ApiResult, created, decode_object, decode_with_document, json_response, no_content,
@@ -431,8 +431,7 @@ async fn handle_delete_page(
 /// pages below it went with it; `undeletePage` brings one back with those until the
 /// trash is emptied of it (`trash_retention_days`, as for a board's cards). A page that
 /// went with the page it was below comes back with that page, and is not listed. For
-/// the wiki's editors. The last deleted first; the pages cut that order. A `page` or
-/// `perPage` that is no whole number is 400.
+/// the wiki's editors. The last deleted first; the pages cut that order.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/wikis/{wikiId}/trash/pages",
@@ -454,10 +453,8 @@ async fn handle_get_deleted_pages(
         "access denied to the trash of the wiki",
     )
     .await?;
-    let (page, per_page) = page_params(query.as_deref())?;
-    Ok(json_response(
-        &ws.app.deleted_pages(&wiki_id, page, per_page).await?,
-    ))
+    let page = paging_params(query.as_deref())?;
+    Ok(json_response(&ws.app.deleted_pages(&wiki_id, page).await?))
 }
 
 /// Bring back a page

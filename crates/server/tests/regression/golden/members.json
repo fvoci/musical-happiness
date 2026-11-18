@@ -489,7 +489,14 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid-board-minimum-role",
+      "detail": "the minimum role of a board is `viewer`, `commenter` or `editor`",
+      "errors": [
+        {
+          "detail": "the minimum role of a board is `viewer`, `commenter` or `editor`",
+          "pointer": "/minimumRole",
+          "reason": "invalid"
+        }
+      ],
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,
@@ -503,7 +510,14 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid-board-minimum-role",
+      "detail": "the minimum role of a board is `viewer`, `commenter` or `editor`",
+      "errors": [
+        {
+          "detail": "the minimum role of a board is `viewer`, `commenter` or `editor`",
+          "pointer": "/minimumRole",
+          "reason": "invalid"
+        }
+      ],
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,
@@ -517,7 +531,14 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid-board-minimum-role",
+      "detail": "the minimum role of a board is `viewer`, `commenter` or `editor`",
+      "errors": [
+        {
+          "detail": "the minimum role of a board is `viewer`, `commenter` or `editor`",
+          "pointer": "/minimumRole",
+          "reason": "invalid"
+        }
+      ],
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,

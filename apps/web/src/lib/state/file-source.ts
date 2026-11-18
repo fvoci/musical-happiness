@@ -1,7 +1,8 @@
 /**
  * The files the bodies on screen name, from the backend: the app hands this
  * to the editor's file source (`editor/files.ts`) for the board or wiki that
- * is shown, which is the only one whose files a body may name.
+ * is shown, which is the only one whose files a body may name. Their bytes
+ * are read to save a file under its name and to view it.
  */
 import type { FileDetails, FileSource } from '../editor/files.ts';
 import type { Backend } from './backend.ts';
@@ -37,13 +38,14 @@ export function fileSourceOf(
         throw error;
       }
     },
-    bytes: async (fileId) => {
+    bytes: async (fileId, signal) => {
       const containerId = shown();
       if (containerId === undefined) throw new Error('no board or wiki is shown');
       try {
-        return await backend.fileBytes(containerId, fileId);
+        return await backend.fileBytes(containerId, fileId, signal);
       } catch (error) {
-        report(error);
+        // Bytes no longer wanted (the viewer closed) are no failure to tell.
+        if (!signal?.aborted) report(error);
         throw error;
       }
     },

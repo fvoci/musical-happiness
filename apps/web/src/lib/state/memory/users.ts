@@ -35,8 +35,9 @@ function listed(user: User): User {
 
 /**
  * Deletes the account of a user, as the server erases one: it is in the
- * workspace and on its boards no more, nothing of the person is left, and
- * what they wrote stays under the identifier.
+ * workspace and on its boards no more, nothing of the person is left (nor
+ * when the account came or went: its times are zero), and what they wrote
+ * stays under the identifier.
  */
 export function eraseUser(world: World, userId: string): void {
   const user = world.users.get(userId);
@@ -48,7 +49,9 @@ export function eraseUser(world: World, userId: string): void {
     name: emptyName(),
     email: '',
     isAdmin: false,
-    deleteAt: world.now(),
+    createAt: 0,
+    updateAt: 0,
+    deleteAt: 0,
   });
   world.workspaceMembers.delete(userId);
   world.settings.delete(userId);
@@ -62,7 +65,7 @@ export function eraseUser(world: World, userId: string): void {
 
 export function usersAmong(world: World): User[] {
   return scramble([...world.users.values()])
-    .filter((user) => world.workspaceMembers.has(user.id) && user.deleteAt === 0)
+    .filter((user) => world.workspaceMembers.has(user.id) && !isGone(user) && user.deleteAt === 0)
     .map(listed);
 }
 

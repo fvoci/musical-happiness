@@ -200,7 +200,7 @@ test('a deleted card is listed for the editors of its board, and comes back to t
   await expect(column(viewerPage, 'To do').locator('[data-card]')).toHaveCount(2);
   const cards = await json<Schemas['Card'][]>(
     await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
-      params: { perPage: 0 },
+      params: { perPage: 1000 },
     }),
   );
   expect(cards.map((card) => card.title).sort()).toEqual(['Keep me', 'Throw me out']);

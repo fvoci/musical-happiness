@@ -6,10 +6,10 @@ use fvoci_model::DeletedItem;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::cards::page_params;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BoardId, Page, PerPage, WorkspaceId};
 use super::contract::tag;
+use super::paging::paging_params;
 use super::workspace::{InWorkspace, TextInContainer};
 use super::{ApiResult, json_response, require_container_permission};
 use crate::app::App;
@@ -27,8 +27,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// title, when it was deleted and by whom; `undeleteBlock` brings one back until the
 /// trash is emptied of it. A card that went with the block it was on (another card, a
 /// view) comes back with that block, and is not listed. For the board's editors. The
-/// last deleted first; the pages cut that order. A `page` or `perPage` that is no whole
-/// number is 400.
+/// last deleted first; the pages cut that order.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/boards/{boardId}/trash/cards",
@@ -51,10 +50,8 @@ async fn handle_get_deleted_cards(
         "access denied to the trash of the board",
     )
     .await?;
-    let (page, per_page) = page_params(query)?;
-    Ok(json_response(
-        &ws.app.deleted_cards(&board_id, page, per_page).await?,
-    ))
+    let page = paging_params(query)?;
+    Ok(json_response(&ws.app.deleted_cards(&board_id, page).await?))
 }
 
 /// The deleted boards of a workspace
@@ -63,8 +60,7 @@ async fn handle_get_deleted_cards(
 /// of when they were deleted, or every one of them for an administrator of the
 /// workspace, which is who `undeleteContainer` lets bring them back: each
 /// with its identifier, its title, when it was deleted and by whom. The last deleted
-/// first; the pages cut that order. A `page` or `perPage` that is no whole number is
-/// 400. For users of the workspace.
+/// first; the pages cut that order. For users of the workspace.
 ///
 /// The wikis in the trash are in the same list, which go there and come back as boards
 /// do (`deleteContainer`, `undeleteContainer`): each entry says its `kind`.
@@ -81,16 +77,10 @@ async fn handle_get_deleted_containers(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    let (page, per_page) = page_params(query.as_deref())?;
+    let page = paging_params(query.as_deref())?;
     Ok(json_response(
         &ws.app
-            .deleted_containers(
-                &ws.workspace_id,
-                &ws.session.user_id,
-                ws.role,
-                page,
-                per_page,
-            )
+            .deleted_containers(&ws.workspace_id, &ws.session.user_id, ws.role, page)
             .await?,
     ))
 }

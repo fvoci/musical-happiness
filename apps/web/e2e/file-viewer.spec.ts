@@ -10,9 +10,8 @@
  * (the phone at 390 pixels).
  */
 import { closeSync, ftruncateSync, openSync, writeSync } from 'node:fs';
-import path from 'node:path';
 
-import { expect, test, type FrameLocator, type Locator, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 import { manyLinksDocx, nestedSuperscriptDocx } from '../tests/support/hostile-docx.ts';
 import {
@@ -25,77 +24,18 @@ import {
   zip,
 } from '../tests/support/viewer-files.ts';
 
-import { boardPath } from './address.ts';
+import {
+  attach,
+  frameOf,
+  frameReaches,
+  openCard,
+  picture,
+  timerLateness,
+  viewer,
+} from './file-viewer.support.ts';
 
-const SCREENS = process.env.FVOCI_SCREENS === '1';
+const SCREENS = 'viewer-p1';
 const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const SCREENS_DIR = path.resolve(import.meta.dirname, '../../../target/viewer-p1');
-
-interface Dev {
-  backend: {
-    workspaces(): Promise<{ id: string }[]>;
-    boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
-    views(boardId: string): Promise<{ id: string; title: string }[]>;
-    cards(boardId: string): Promise<{ id: string; title: string }[]>;
-  };
-}
-
-/** Opens the card everything is tried on, by its address. */
-async function openCard(page: Page): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByTestId('board-page')).toBeVisible();
-  const place = await page.evaluate(async () => {
-    const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const [workspace] = await backend.workspaces();
-    const boards = await backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title.startsWith('Project Tasks'));
-    if (!board) throw new Error('no board of tasks');
-    const views = await backend.views(board.id);
-    const card = (await backend.cards(board.id)).find(
-      (each) => each.title === 'Identify dependencies',
-    );
-    if (!card) throw new Error('no card');
-    const first = [...views].sort((a, b) => a.title.localeCompare(b.title))[0];
-    return { boardId: board.id, viewId: first?.id ?? '', cardId: card.id };
-  });
-  await page.goto(boardPath(place.boardId, place.viewId, place.cardId));
-  await expect(page.getByTestId('card-attachments')).toBeVisible();
-}
-
-async function attach(
-  page: Page,
-  name: string,
-  buffer: Buffer,
-  mimeType: string,
-): Promise<Locator> {
-  await page.getByTestId('attach-input').setInputFiles({ name, mimeType, buffer });
-  const row = page.getByTestId('card-attachments').locator('[data-attachment]', { hasText: name });
-  await expect(row).toBeVisible();
-  return row;
-}
-
-const viewer = (page: Page): Locator => page.getByTestId('file-viewer');
-const frameOf = (page: Page): FrameLocator =>
-  page.frameLocator('[data-testid="file-viewer-frame"]');
-
-async function picture(page: Page, name: string): Promise<void> {
-  if (!SCREENS) return;
-  const project = test.info().project.name;
-  // The phone pictures at the narrowest width the app is drawn for.
-  if (project === 'mobile') await page.setViewportSize({ width: 390, height: 844 });
-  for (const theme of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: theme });
-    // The app has turned (its root's class) and nothing on it is still fading.
-    await page.waitForFunction(
-      (dark) =>
-        document.documentElement.classList.contains('dark') === dark &&
-        document.getAnimations().every((animation) => animation.playState !== 'running'),
-      theme === 'dark',
-    );
-    await page.screenshot({ path: path.join(SCREENS_DIR, `${name}-${project}-${theme}.png`) });
-  }
-  await page.emulateMedia({ colorScheme: null });
-}
 
 test('a PDF opens in the viewer, and its pages are turned with the buttons and the keys', async ({
   page,
@@ -123,7 +63,7 @@ test('a PDF opens in the viewer, and its pages are turned with the buttons and t
   const frame = frameOf(page);
   await expect(frame.locator('.page[data-page="1"] canvas')).toBeVisible();
   await expect(frame.locator('.page[data-page="1"] .textLayer')).toContainText('한국어 견본 1쪽');
-  await picture(page, 'pdf');
+  await picture(page, SCREENS, 'pdf');
 
   await viewer(page).getByRole('button', { name: 'Next page' }).click();
   await expect(counter).toContainText('2 / 3');
@@ -164,27 +104,7 @@ test('the frame reaches neither the network nor the app', async ({ page }) => {
 
   const sandbox = await page.getByTestId('file-viewer-frame').getAttribute('sandbox');
   expect(sandbox).toBe('allow-scripts');
-  const inside = page.frames().find((each) => each.url().endsWith('/static/viewer-frame.html'));
-  if (!inside) throw new Error('no viewer frame');
-  const found = await inside.evaluate(async () => {
-    const attempt = async (action: () => unknown): Promise<string> => {
-      try {
-        const result = await action();
-        return `reached: ${String(result)}`;
-      } catch (error) {
-        return `refused: ${error instanceof Error ? error.name : String(error)}`;
-      }
-    };
-    return {
-      origin: self.origin,
-      // `location.origin` is "null" here; the address is still the app's.
-      fetchApp: await attempt(async () => (await fetch(new URL('/', location.href))).status),
-      fetchStatic: await attempt(async () => (await fetch(location.href)).status),
-      storage: await attempt(() => localStorage.getItem('fvoci:viewer-probe')),
-      cookies: await attempt(() => document.cookie),
-      parent: await attempt(() => window.parent.document.title),
-    };
-  });
+  const found = await frameReaches(page);
   // A message from another window than the frame (here, the page itself) is not taken.
   await page.evaluate(
     () =>
@@ -229,7 +149,7 @@ test('a Word document in Korean shows its header, its table and its picture', as
     .evaluate((element) => getComputedStyle(element).fontFamily);
   expect(family).toContain('Noto Sans KR');
   await expect(frame.locator('html')).toHaveAttribute('lang', 'en');
-  await picture(page, 'docx');
+  await picture(page, SCREENS, 'docx');
 
   // A link of the document goes nowhere: the frame keeps the document, and the viewer its pages.
   const link = pageOne.getByRole('link', { name: DOCX_TEXT.link });
@@ -256,7 +176,7 @@ test('a file of a kind the viewer does not draw is offered as a download', async
   const notice = page.getByTestId('file-viewer-notice');
   await expect(notice).toContainText("This file can't be previewed.");
   await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
-  await picture(page, 'unknown');
+  await picture(page, SCREENS, 'unknown');
 
   const downloading = page.waitForEvent('download');
   await notice.getByRole('button', { name: 'Download' }).click();
@@ -280,7 +200,7 @@ test('a file over the limit is not read, and is offered as a download', async ({
   await expect(viewer(page)).toHaveAttribute('data-status', 'too-large');
   await expect(page.getByTestId('file-viewer-notice')).toContainText('too large to preview');
   await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
-  await picture(page, 'too-large');
+  await picture(page, SCREENS, 'too-large');
 });
 
 test('a Word document that says it unpacks past the limits is not drawn', async ({ page }) => {
@@ -350,16 +270,7 @@ test('while a Word document is drawn, the app answers and "Close" closes the vie
   await row.getByRole('link', { name: 'links.docx' }).click();
   await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
   // The page's timers keep their time: nothing holds its thread.
-  const late = await page.evaluate(
-    () =>
-      new Promise<number>((resolve) => {
-        const start = performance.now();
-        setTimeout(() => {
-          resolve(performance.now() - start - 100);
-        }, 100);
-      }),
-  );
-  expect(late).toBeLessThan(500);
+  expect(await timerLateness(page)).toBeLessThan(500);
   await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
   await page.getByTestId('file-viewer-close').click();
   await expect(viewer(page)).toHaveCount(0, { timeout: 2000 });
