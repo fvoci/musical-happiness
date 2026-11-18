@@ -170,10 +170,10 @@ export function examine(bytes: Uint8Array): Examined {
   const file = compoundFile(bytes);
   // An archive or a compound file is told by what it holds: a part or a stream of one may
   // carry another kind's signature (a PDF's, anywhere in the first kilobyte).
-  const container = entries !== undefined || startsAsCompound(bytes);
+  const holder = entries !== undefined || startsAsCompound(bytes);
   const format = FORMAT_IDS.find((id) => {
     const kind: Kind = FORMATS[id];
-    if ('bytes' in kind) return !container && kind.bytes(bytes);
+    if ('bytes' in kind) return !holder && kind.bytes(bytes);
     if ('parts' in kind) return entries !== undefined && kind.parts({ entries, bytes });
     return file !== undefined && kind.streams(file);
   });
