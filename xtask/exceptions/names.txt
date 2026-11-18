@@ -94,12 +94,8 @@ crates/server/tests/api/templates.rs | Team Retrospective
 crates/server/tests/regression/golden/templates.json | "Team Retrospective"
 crates/server/tests/regression/golden/templates.json | across teams
 
-# The documents that set the port beside the original name the original's files,
-# functions, routes and wire names (crates/server/PORTING.md: the original's team is
-# the workspace); the design record of the sixth step says what was decided about the
-# original's teams, with the routes as they were then.
-PORTING.md
-crates/*/PORTING.md
+# The design record of the sixth step names the routes as they were when it was
+# written.
 docs/s6-design.md
 
 # Workspace groups of people, introduced in 0026: these are teams, never workspaces.

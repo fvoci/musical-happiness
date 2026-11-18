@@ -1,13 +1,11 @@
 /**
- * Fails when a file of the web app contains one of the two names the product
- * was known by before the port, case not mattering, and when it has the name
- * the original gives the workspace where `exceptions.txt` does not let it stay
- * (`workspace.ts`), or that list has an entry nothing needs.
+ * Fails when a file of the web app has the former name of the workspace where
+ * `exceptions.txt` does not let it stay (`workspace.ts`), or that list has an
+ * entry nothing needs.
  *
  *   node tools/names/check.ts
  *
- * Checked are the files git tracks or would track under apps/web. The names
- * are put together here from halves so that this file passes its own check.
+ * Checked are the files git tracks or would track under apps/web.
  *
  * Where git has no list to give (the folder is not in a repository, as in an
  * unpacked archive, or it lies in an ignored folder of another repository),
@@ -22,11 +20,6 @@ import path from 'node:path';
 import { EXCEPTIONS, checkFile, parseExceptions, staleExceptions } from './workspace.ts';
 
 const WEB_ROOT = path.resolve(import.meta.dirname, '../..');
-const NAMES = [
-  ['focal', 'board'],
-  ['matter', 'most'],
-].map((halves) => halves.join(''));
-const pattern = new RegExp(NAMES.join('|'), 'i');
 
 /** The files git tracks or would track; none when git cannot say. */
 function filesOfGit(): string[] {
@@ -100,28 +93,22 @@ const exceptions = [
   ...sharedExceptions,
 ];
 const used = exceptions.map(() => false);
-const hits: string[] = [];
 const workspaceHits: string[] = [];
 for (const file of files) {
-  if (pattern.test(file)) hits.push(`${file}: in the file name`);
   let text = '';
   try {
     text = readFileSync(path.join(WEB_ROOT, file), 'utf8');
   } catch {
     // Not there to read: its name is still checked.
   }
-  text.split('\n').forEach((line, index) => {
-    if (pattern.test(line)) hits.push(`${file}:${index + 1}: ${line.trim().slice(0, 120)}`);
-  });
   if (file !== EXCEPTIONS) workspaceHits.push(...checkFile(file, text, exceptions, used));
 }
 const stale = staleExceptions(exceptions, used);
 
-if (hits.length > 0) console.error(`old product names found:\n  ${hits.join('\n  ')}`);
 if (workspaceHits.length > 0 || stale.length > 0) {
   console.error(
-    `the original's name of the workspace, where ${EXCEPTIONS} does not list it with its reason:\n  ${[...workspaceHits, ...stale].join('\n  ')}`,
+    `the former name of the workspace, where ${EXCEPTIONS} does not list it with its reason:\n  ${[...workspaceHits, ...stale].join('\n  ')}`,
   );
+  process.exit(1);
 }
-if (hits.length > 0 || workspaceHits.length > 0 || stale.length > 0) process.exit(1);
 console.log(`names: ok (${files.length} files, ${exceptions.length} exceptions)`);

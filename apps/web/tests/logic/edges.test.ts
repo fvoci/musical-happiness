@@ -1,8 +1,7 @@
 /**
- * The undo manager beyond the three cases of the original, and the
- * calculations at their edges. Written for the port. Where the behaviour
- * differs from the original on purpose, the case names the entry in
- * PORTING.md (Q9, Q14, Q15).
+ * The undo manager past its plain cases, and the calculations at their
+ * edges. A case that pins a numbered rule names it (Q9, Q14, Q15 in
+ * docs/notes.md).
  */
 import { describe, expect, it } from 'vitest';
 

@@ -1,8 +1,7 @@
 /**
- * The rules of the filter that the original's tests do not reach: text is
- * compared without regard to case, and dates are compared as calendar days
- * in the reader's time zone. Each of these replaced a behaviour of the
- * original that was a defect (Q2, Q5, Q16 in PORTING.md).
+ * The rules of the filter on text and on dates: text is compared without
+ * regard to case, and dates are compared as calendar days in the reader's
+ * time zone (Q2, Q5, Q16 in docs/notes.md).
  */
 import { describe, expect, it } from 'vitest';
 

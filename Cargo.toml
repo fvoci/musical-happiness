@@ -180,3 +180,7 @@ opt-level = 3
 
 [profile.dev.package.blake2]
 opt-level = 3
+
+# The names check of `cargo xtask check` digests the words of every file.
+[profile.dev.package.sha2]
+opt-level = 3

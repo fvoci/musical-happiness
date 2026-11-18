@@ -129,7 +129,7 @@ fn parse(listed: &str) -> Result<Vec<Exception>> {
 }
 
 /// The files git tracks or would track, by their paths from the root.
-fn tracked_files(root: &Path) -> Result<Vec<String>> {
+pub(crate) fn tracked_files(root: &Path) -> Result<Vec<String>> {
     let output = Command::new("git")
         .args(["ls-files", "--cached", "--others", "--exclude-standard"])
         .current_dir(root)
@@ -221,7 +221,7 @@ fn matches_name(pattern: &str, name: &str) -> bool {
 /// link to a folder, as the skills' under `.claude/skills/`, has no text of its own),
 /// a file its bytes read as text whatever their encoding, as the web app's check reads,
 /// and a file deleted from the working tree none, though its name is still checked.
-fn tracked_text(path: &Path) -> std::io::Result<String> {
+pub(crate) fn tracked_text(path: &Path) -> std::io::Result<String> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_symlink() => {
             Ok(std::fs::read_link(path)?.to_string_lossy().into_owned())

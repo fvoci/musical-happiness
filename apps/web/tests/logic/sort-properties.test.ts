@@ -1,7 +1,7 @@
 /**
  * The comparators of sort.ts are orderings, checked on generated cards: the
- * manual order (Q1 in PORTING.md was a comparator that answered "after" both
- * ways round) and the order by any combination of sort options.
+ * manual order (Q1 in docs/notes.md: no comparator answers "after" both ways
+ * round) and the order by any combination of sort options.
  *
  * For every comparator `compare` and all cards a, b, c:
  *
