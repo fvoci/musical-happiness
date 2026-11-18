@@ -38,7 +38,7 @@ const KNOWN: Record<string, FileDetails> = {
 function link(opened = true) {
   return {
     opens: vi.fn((details: FileDetails) => opensInViewer(details.name, details.size)),
-    open: vi.fn((_fileId: string, _details: FileDetails, _from: HTMLElement) =>
+    open: vi.fn((_fileId: string, _details: FileDetails, _back: () => HTMLElement | null) =>
       Promise.resolve(opened),
     ),
   } satisfies FileViewerLink;
@@ -102,7 +102,20 @@ describe('the name of a file the viewer shows', () => {
       'Download 회의록 2026-11.pdf',
     );
     button?.click();
-    expect(viewer.open).toHaveBeenCalledWith('7minutes.pdf', KNOWN['7minutes.pdf'], button);
+    expect(viewer.open).toHaveBeenCalledWith(
+      '7minutes.pdf',
+      KNOWN['7minutes.pdf'],
+      expect.any(Function),
+    );
+    // The focus goes back to the button, or to the one drawn for the file in its place.
+    const back = viewer.open.mock.lastCall?.[2];
+    expect(back?.()).toBe(button);
+    const redrawn = document.createElement('button');
+    redrawn.className = 'doc-file-open';
+    button?.replaceWith(redrawn);
+    expect(back?.()).toBe(redrawn);
+    redrawn.remove();
+    expect(back?.()).toBeNull();
   });
 
   it('opens the viewer by Enter on the selected block in the editor, which stays as it was', async () => {
@@ -119,6 +132,34 @@ describe('the name of a file the viewer shows', () => {
     expect(viewer.open.mock.lastCall?.[0]).toBe('7minutes.pdf');
     // Opened, not downloaded.
     expect(bytes).not.toHaveBeenCalled();
+    expect(editor.getJSON()).toEqual(body);
+    expect(editor.state.selection).toBeInstanceOf(NodeSelection);
+  });
+
+  it("keeps the keys pressed on it from the editor: they are the button's", async () => {
+    const viewer = link();
+    setFileSource(source(viewer));
+    const body = doc(paragraph(text('a')), fileBlock('7minutes.pdf'), paragraph(text('b')));
+    const { container } = render(BodyEditor, { doc: body });
+    const editor = editorIn(container);
+    const [block] = await shown(container);
+    editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, 3)));
+    const button = block?.querySelector<HTMLButtonElement>('button.doc-file-open');
+    for (const key of ['Enter', ' ', 'Backspace', 'Delete', 'a', 'ArrowDown']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      button?.dispatchEvent(event);
+      // Not taken by the editor, which would have opened it, deleted the block or moved on.
+      expect(event.defaultPrevented, key).toBe(false);
+    }
+    button?.dispatchEvent(
+      new InputEvent('beforeinput', {
+        inputType: 'insertText',
+        data: ' ',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(viewer.open).not.toHaveBeenCalled();
     expect(editor.getJSON()).toEqual(body);
     expect(editor.state.selection).toBeInstanceOf(NodeSelection);
   });
@@ -182,21 +223,29 @@ describe('the viewer opened from a file block', () => {
     editor.setAttribute('contenteditable', 'true');
     editor.tabIndex = -1;
     const button = editor.appendChild(document.createElement('button'));
-    expect(await view?.open('7minutes.pdf', details, button)).toBe(true);
+    expect(await view?.open('7minutes.pdf', details, () => button)).toBe(true);
     expect(viewing.file).toMatchObject({ name: '회의록 2026-11.pdf', size: 2048 });
     const signal = new AbortController().signal;
     await viewing.file?.read(signal);
     expect(bytes).toHaveBeenCalledWith('7minutes.pdf', signal);
-    // A second press while it opens opens no second viewer.
-    expect(await view?.open('7minutes.pdf', details, button)).toBe(true);
+    // A press of another file while one is open opens no second viewer, nor this one on it.
+    expect(await view?.open('7plans.pdf', { name: 'plans.pdf', size: 1 }, () => button)).toBe(true);
+    expect(viewing.file?.name).toBe('회의록 2026-11.pdf');
     viewing.close();
     expect(viewing.file).toBeUndefined();
     expect(document.activeElement).toBe(editor);
 
     const shownOnly = document.body.appendChild(document.createElement('button'));
-    await view?.open('7minutes.pdf', details, shownOnly);
+    await view?.open('7minutes.pdf', details, () => shownOnly);
     viewing.close();
     expect(document.activeElement).toBe(shownOnly);
+
+    // Let go of without the focus moving: the screen it was over is gone.
+    button.focus();
+    await view?.open('7minutes.pdf', details, () => shownOnly);
+    viewing.forget();
+    expect(viewing.file).toBeUndefined();
+    expect(document.activeElement).toBe(button);
     editor.remove();
     shownOnly.remove();
   });
@@ -205,7 +254,7 @@ describe('the viewer opened from a file block', () => {
     expect(viewerLinkOf({})).toBeUndefined();
     vi.spyOn(viewerChunk, 'load').mockResolvedValue(true);
     const view = viewerLinkOf({ bytes: () => Promise.reject(new Error('403')) });
-    await view?.open('7minutes.pdf', { name: 'a.pdf', size: 1 }, document.body);
+    await view?.open('7minutes.pdf', { name: 'a.pdf', size: 1 }, () => document.body);
     expect(await viewing.file?.read()).toBeUndefined();
   });
 });

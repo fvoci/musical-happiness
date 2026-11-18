@@ -42,10 +42,11 @@ export interface FileViewerLink {
   /** Whether the viewer is likely to show the file, by its name and size. */
   opens(details: FileDetails): boolean;
   /**
-   * Opens the viewer on the file, pressed at `from`; says whether the viewer
-   * came (it may not, with the connection gone).
+   * Opens the viewer on the file; says whether the viewer came (it may not,
+   * with the connection gone). `back` finds where the focus goes back to when
+   * it closes: the name pressed, or the one drawn in its place meanwhile.
    */
-  open(fileId: string, details: FileDetails, from: HTMLElement): Promise<boolean>;
+  open(fileId: string, details: FileDetails, back: () => HTMLElement | null): Promise<boolean>;
 }
 
 /** Where the files of the body shown come from. */

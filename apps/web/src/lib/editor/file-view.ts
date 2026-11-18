@@ -236,9 +236,15 @@ function nameOf(
   button.setAttribute('aria-label', m.file_block_view({ name }));
   button.setAttribute('title', m.file_block_view({ name }));
   button.textContent = name;
+  const back = (): HTMLElement | null => {
+    if (button.isConnected) return button;
+    const blocks = [...page.querySelectorAll<HTMLElement>(FILE_BLOCK_SELECTOR)];
+    const again = blocks.find((block) => block.getAttribute(FILE_ID_ATTRIBUTE) === fileId);
+    return again?.querySelector<HTMLElement>('button.doc-file-open') ?? null;
+  };
   button.addEventListener('click', () => {
     const block = button.closest<HTMLElement>(FILE_BLOCK_SELECTOR);
-    void viewer.open(fileId, details, button).then((opened) => {
+    void viewer.open(fileId, details, back).then((opened) => {
       if (!opened && block) saveFileOf(block);
     });
   });

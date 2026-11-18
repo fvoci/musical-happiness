@@ -1,10 +1,12 @@
 /**
  * A file block opens the file viewer, on the backend in memory: a PDF put
- * into a wiki's page or a card's body opens when its name is pressed, or
- * with Enter once the block is selected, and closes again; over a card the
- * card stays open. In the editor the block is still selected, dragged and
- * deleted as before; a file the viewer would not show offers its download
- * alone.
+ * into a wiki's page or a card's body opens when its name is pressed (by
+ * the mouse, a finger, or Enter and Space once Tab is on it), or with Enter
+ * once the block is selected, and closes again; over a card the card stays
+ * open. In the editor the block is still selected, dragged and deleted as
+ * before, and the keys pressed on its name edit nothing; a file the viewer
+ * would not show offers its download alone, and so does one whose viewer
+ * cannot be fetched.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -86,6 +88,7 @@ async function selectByArrow(page: Page, body: Locator, block: Locator): Promise
 
 test('a PDF in a page opens in the viewer by its name and by Enter, and the block is deleted as before', async ({
   page,
+  hasTouch,
 }) => {
   const body = await newPage(page);
   const block = await putFile(page, body, NAME, koreanPdf(2), 'application/pdf');
@@ -94,12 +97,34 @@ test('a PDF in a page opens in the viewer by its name and by Enter, and the bloc
   // The download stays a link of its own.
   await expect(block.getByRole('link', { name: `Download ${NAME}` })).toBeVisible();
 
-  await open.click();
+  // Pressed by a finger where the screen is touched, by the mouse elsewhere.
+  if (hasTouch) await open.tap();
+  else await open.click();
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
   await expect(viewer(page).getByRole('heading', { name: NAME })).toBeVisible();
   await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 2');
   await page.getByTestId('file-viewer-close').click();
   await expect(viewer(page)).toHaveCount(0);
+
+  // Reached with Tab from the line above, the name is a button: Enter and Space press it, and
+  // the editor makes nothing of them (no line split, no block typed over).
+  const lines = await body.locator(':scope > *').count();
+  await body.getByText('Above:').last().click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Tab');
+  await expect(open).toBeFocused();
+  for (const key of ['Enter', 'Space']) {
+    await open.focus();
+    await page.keyboard.press(key);
+    await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+    await page.keyboard.press('Escape');
+    await expect(viewer(page)).toHaveCount(0);
+  }
+  await open.focus();
+  await page.keyboard.press('Backspace');
+  await expect(body.locator(':scope > *')).toHaveCount(lines);
+  await expect(block).toHaveCount(1);
+  await expect(body.getByText('Above:').last()).toHaveText('Above:');
 
   // By the keyboard: selected with an arrow, opened with Enter, closed with Escape.
   await selectByArrow(page, body, block);
@@ -147,8 +172,35 @@ test('a block dragged by its name moves, and the viewer does not open', async ({
   await page.keyboard.type('First line');
   const block = await putFile(page, body, NAME, koreanPdf(1), 'application/pdf');
   const open = block.getByRole('button', { name: `View ${NAME}` });
+  // The viewer opens on a press of the name: counted, as a drag is no press.
+  await page.evaluate(() => {
+    const counted = window as unknown as { pressed: number };
+    counted.pressed = 0;
+    document.addEventListener(
+      'click',
+      (event) => {
+        if (event.target instanceof Element && event.target.closest('.doc-file-open')) {
+          counted.pressed += 1;
+        }
+      },
+      true,
+    );
+  });
   await open.dragTo(body.getByText('First line'), { targetPosition: { x: 2, y: 2 } });
   await expect(body.locator('> *').first()).toHaveAttribute('data-file-block', '');
+  expect(await page.evaluate(() => (window as unknown as { pressed: number }).pressed)).toBe(0);
+  await expect(viewer(page)).toHaveCount(0);
+});
+
+test('a file block whose viewer cannot be fetched downloads its file instead', async ({ page }) => {
+  await page.route(/\/static\/FileViewer-[0-9a-f]+\.js$/, (route) => route.abort());
+  const body = await newPage(page);
+  const block = await putFile(page, body, NAME, koreanPdf(1), 'application/pdf');
+  const [saved] = await Promise.all([
+    page.waitForEvent('download'),
+    block.getByRole('button', { name: `View ${NAME}` }).click(),
+  ]);
+  expect(saved.suggestedFilename()).toBe(NAME);
   await expect(viewer(page)).toHaveCount(0);
 });
 

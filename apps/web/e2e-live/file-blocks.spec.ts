@@ -12,9 +12,17 @@
  */
 import path from 'node:path';
 
-import { expect, test, type APIRequestContext, type Download, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Download,
+  type Page,
+  type Response,
+} from '@playwright/test';
 
 import { hideSidebar, sidebar } from '../e2e/shell.support.ts';
+import { humanFileSize } from '../src/lib/logic/file-size.ts';
 import { koreanPdf } from '../tests/support/viewer-files.ts';
 
 import {
@@ -78,15 +86,27 @@ async function download(page: Page): Promise<[string, Buffer]> {
 }
 
 /**
- * Opens the file of the block in `page` in the viewer by its name, sees it shown and closes it;
- * the focus goes back to the name. Gives what the viewer held.
+ * Opens the file of the block in `page` in the viewer by its name, pressed by the mouse or by
+ * Enter once it has the focus, sees it shown and closes it; the focus goes back to the name.
+ * Gives what the viewer held, and the addresses and bodies of what the page was sent meanwhile.
  */
-async function view(page: Page): Promise<string> {
+async function view(page: Page, by: 'mouse' | 'keyboard' = 'mouse'): Promise<string[]> {
+  const sent: Promise<string>[] = [];
+  const onResponse = (response: Response): void => {
+    const type = response.headers()['content-type'] ?? '';
+    const body = /json|text|html|javascript/.test(type) ? response.text().catch(() => '') : '';
+    sent.push(Promise.resolve(body).then((text) => `${response.url()}\n${text}`));
+  };
+  page.on('response', onResponse);
   const name = page
     .getByTestId('page-body')
     .locator('[data-file-block]')
     .getByRole('button', { name: `View ${NAME}` });
-  await name.click();
+  if (by === 'mouse') await name.click();
+  else {
+    await name.focus();
+    await page.keyboard.press('Enter');
+  }
   const viewer = page.getByTestId('file-viewer');
   await expect(viewer).toHaveAttribute('data-status', 'shown');
   await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 1');
@@ -94,7 +114,8 @@ async function view(page: Page): Promise<string> {
   await page.getByTestId('file-viewer-close').click();
   await expect(viewer).toHaveCount(0);
   await expect(name).toBeFocused();
-  return held;
+  page.off('response', onResponse);
+  return [held, ...(await Promise.all(sent))];
 }
 
 test('a PDF put into a page is a file block that others, a copy and the public link download and view', async ({
@@ -168,7 +189,7 @@ test('a PDF put into a page is a file block that others, a copy and the public l
   const [fileId] = fileBlocksIn(await stored(minutes.id));
   const block = page.getByTestId('page-body').locator('[data-file-block]');
   await expect(block).toHaveAttribute('data-state', 'shown');
-  await expect(block).toHaveAttribute('aria-label', `File: ${NAME}, ${PDF.length} B`);
+  await expect(block).toHaveAttribute('aria-label', `File: ${NAME}, ${humanFileSize(PDF.length)}`);
   expect(await download(page)).toEqual([NAME, PDF]);
   // Followed by the browser itself (a press with a modifier), it is an attachment never sniffed.
   const href = (await block.getByRole('link').getAttribute('href')) ?? '';
@@ -228,7 +249,7 @@ test('a PDF put into a page is a file block that others, a copy and the public l
   await openPage(look, at, onlooker);
   await expect(look.getByTestId('page-body').locator('[contenteditable="true"]')).toHaveCount(0);
   expect(await download(look)).toEqual([NAME, PDF]);
-  await view(look);
+  await view(look, 'keyboard');
   await look.context().close();
 
   // A copy of the wiki has a file of its own, with the same bytes, that its block downloads.
@@ -258,8 +279,12 @@ test('a PDF put into a page is a file block that others, a copy and the public l
   await reader.goto(`/shared/${wiki.id}/${minutes.id}?r=${encodeURIComponent(token)}`);
   await expect(reader.getByTestId('page-body').locator('[data-file-block]')).toBeVisible();
   expect(await download(reader)).toEqual([NAME, PDF]);
-  const held = await view(reader);
-  for (const id of people) expect(held).not.toContain(id);
+  // Nobody is named to the reader: not in the viewer, nor in anything sent to show it.
+  const seen = await view(reader);
+  expect(seen.length).toBeGreaterThan(1);
+  for (const id of people) {
+    for (const text of seen) expect(text).not.toContain(id);
+  }
   const elsewhere = await anonymous.request.get(
     `/api/v1/shared/${wiki.id}/files/${copied ?? ''}?readToken=${encodeURIComponent(token)}`,
   );

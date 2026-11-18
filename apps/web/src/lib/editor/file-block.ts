@@ -19,6 +19,18 @@ import { NodeSelection, Plugin } from '@tiptap/pm/state';
 import { FILE_BLOCK_ATTRIBUTE, FILE_ID_ATTRIBUTE } from './drawing.ts';
 import { drawFileBlock, pressFileOf } from './file-view.ts';
 
+/** The events of the keys and of typing, which the name's button keeps from the editor. */
+const BUTTON_KEYS = new Set([
+  'keydown',
+  'keypress',
+  'keyup',
+  'beforeinput',
+  'input',
+  'compositionstart',
+  'compositionupdate',
+  'compositionend',
+]);
+
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     fileBlock: {
@@ -63,9 +75,16 @@ export const FileBlock = Node.create({
       drawFileBlock(dom);
       return {
         dom,
-        // A press of the link is the link's; the editor does not take it as selecting the block.
-        stopEvent: (event) =>
-          event.target instanceof Element && event.target.closest('a.doc-file-download') !== null,
+        // A press of the link is the link's, and the keys pressed on the name's button are the
+        // button's (Enter and Space press it): the editor takes neither as selecting or editing.
+        // A press of the button by a pointer is still the editor's, which selects or drags the block.
+        stopEvent: (event) => {
+          if (!(event.target instanceof Element)) return false;
+          if (event.target.closest('a.doc-file-download')) return true;
+          return (
+            BUTTON_KEYS.has(event.type) && event.target.closest('button.doc-file-open') !== null
+          );
+        },
         // What is drawn into the block is no change of the document.
         ignoreMutation: () => true,
         // Another file is another block, drawn anew.

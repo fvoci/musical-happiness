@@ -84,12 +84,14 @@
    * (the connection dropped), the file is saved instead.
    */
   function onView(event: MouseEvent, attachment: Attachment): void {
-    if (!plainPress(event) || !(event.currentTarget instanceof HTMLElement)) return;
+    if (!plainPress(event)) return;
     event.preventDefault();
-    const { fileId, name, size } = attachment;
-    // Closed, the viewer gives the focus back to the name it was opened from.
+    const { id, fileId, name, size } = attachment;
     const file = { name, size, read: (signal?: AbortSignal) => card.fileBytes(fileId, signal) };
-    void viewing.open(file, event.currentTarget).then((arrived) => {
+    // Closed, the viewer gives the focus back to the name it was opened from.
+    const back = () =>
+      document.querySelector<HTMLElement>(`[data-attachment="${CSS.escape(id)}"] a`);
+    void viewing.open(file, back).then((arrived) => {
       if (!arrived) download(fileId, name);
     });
   }

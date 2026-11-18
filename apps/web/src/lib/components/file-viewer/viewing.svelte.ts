@@ -5,8 +5,9 @@
  * `FileViewerHost.svelte`, which the app's frame mounts once, shows it.
  *
  * When the viewer closes, the focus goes back where the file was opened
- * from; in the editor, to the editor, whose selection is still the block,
- * so that Delete deletes it and the arrows move on from it.
+ * from, or to what was drawn in its place meanwhile; from the editor's
+ * selected block, to the editor, whose selection is still the block, so
+ * that Delete deletes it and the arrows move on from it.
  */
 import type { FileSource, FileViewerLink } from '$lib/editor/files.ts';
 import { opensInViewer } from '$lib/file-viewer/extensions.ts';
@@ -17,29 +18,36 @@ import { viewerChunk } from './chunk.svelte.ts';
 class Viewing {
   /** The file open, if any. */
   file = $state.raw<ViewedFile | undefined>(undefined);
-  #from: HTMLElement | undefined;
+  /** Finds where the focus goes back to. */
+  #back: (() => HTMLElement | null) | undefined;
 
   /**
    * Opens the viewer on a file once it has arrived; says whether it came
    * (the connection may have dropped). A second press while one is open,
    * or on its way, opens no other.
    */
-  async open(file: ViewedFile, from: HTMLElement): Promise<boolean> {
+  async open(file: ViewedFile, back: () => HTMLElement | null): Promise<boolean> {
     const arrived = await viewerChunk.load();
     if (arrived && !this.file) {
-      this.#from = from;
+      this.#back = back;
       this.file = file;
     }
     return arrived;
   }
 
+  /** Closes the viewer, and gives the focus back. */
   close(): void {
-    const from = this.#from;
+    const back = this.#back?.();
+    this.forget();
+    if (!back?.isConnected) return;
+    const editor = back.closest<HTMLElement>('[contenteditable="true"]');
+    (editor ?? back).focus({ preventScroll: true });
+  }
+
+  /** Lets the file go, the focus where it is: the screen it was shown over is gone. */
+  forget(): void {
     this.file = undefined;
-    this.#from = undefined;
-    if (!from?.isConnected) return;
-    const editor = from.closest<HTMLElement>('[contenteditable="true"]');
-    (editor ?? from).focus({ preventScroll: true });
+    this.#back = undefined;
   }
 }
 
@@ -51,7 +59,7 @@ export function viewerLinkOf(source: Pick<FileSource, 'bytes'>): FileViewerLink 
   if (!bytes) return undefined;
   return {
     opens: (details) => opensInViewer(details.name, details.size),
-    open: (fileId, details, from) =>
+    open: (fileId, details, back) =>
       viewing.open(
         {
           name: details.name,
@@ -59,7 +67,7 @@ export function viewerLinkOf(source: Pick<FileSource, 'bytes'>): FileViewerLink 
           // Bytes that cannot be read are the viewer's to tell; the source has reported why.
           read: (signal) => bytes(fileId, signal).catch(() => undefined),
         },
-        from,
+        back,
       ),
   };
 }

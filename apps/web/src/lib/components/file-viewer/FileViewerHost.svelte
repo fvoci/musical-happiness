@@ -9,6 +9,12 @@
   import { viewing } from './viewing.svelte.ts';
 
   const Viewer = $derived(viewerChunk.component);
+
+  // Gone with the screen it is on (the reader signed out): the file open is let go of, and
+  // not shown again over the next.
+  $effect(() => () => {
+    viewing.forget();
+  });
 </script>
 
 {#if Viewer && viewing.file}
