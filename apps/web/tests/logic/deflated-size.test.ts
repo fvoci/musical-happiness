@@ -144,4 +144,35 @@ describe('what a deflated stream unpacks to, counted without unpacking it', () =
     expect(counted).toBeGreaterThan(1 << 20);
     expect(counted).toBeLessThan((1 << 20) + 300);
   });
+
+  it('reads a stream of many blocks of their own codes that unpack to nothing in a moment', () => {
+    // Each block gives 258 lengths (two literals of 1 bit, one distance) in 91 bits, then ends.
+    // 1.6 million of them (18 MB, under the file limit) took a counter that made its tables
+    // anew for each block 33 s, past the worker's time.
+    const bits: number[] = [];
+    const put = (value: number, count: number): void => {
+      for (let bit = 0; bit < count; bit += 1) bits.push((value >> bit) & 1);
+    };
+    const order = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1];
+    for (let block = 0; block < 8; block += 1) {
+      put(0b100, 3);
+      put(0, 10);
+      put(14, 4);
+      for (const symbol of order) put(symbol === 18 || symbol === 1 ? 1 : 0, 3);
+      // Lengths 1, 0 × 138, 0 × 117, 1 and 1 (symbol 1 is "0", 18 is "1"); then the end ("1").
+      for (const [code, extra] of [[0], [1, 127], [1, 106], [0], [0], [1]] as const) {
+        put(code, 1);
+        if (extra !== undefined) put(extra, 7);
+      }
+    }
+    const eight = Buffer.alloc(Math.ceil(bits.length / 8));
+    bits.forEach((bit, at) => {
+      eight[at >> 3] = (eight[at >> 3] ?? 0) | (bit << (at & 7));
+    });
+    const many = Buffer.concat(Array.from({ length: 200_000 }, () => eight));
+    expect(inflateRawSync(many, SYNC).length).toBe(0);
+    const started = performance.now();
+    expect(deflatedSize(many, 0, Infinity)).toBe(0);
+    expect(performance.now() - started).toBeLessThan(10_000);
+  }, 60_000);
 });

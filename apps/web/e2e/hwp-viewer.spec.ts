@@ -280,8 +280,8 @@ test('pictures that each end with a byte rhwp passes over count all they unpack 
   page,
 }) => {
   await openCard(page);
-  // 13 pictures of 16 MiB, each deflated into one slice of the guard and followed by a byte of
-  // junk: the browser's unpacker drops a slice's output when it fails on the junk, rhwp does not.
+  // 13 pictures of 16 MiB, each deflated to less than 16 KiB and followed by a byte of junk: rhwp
+  // passes over the byte, and a browser's unpacker fails on it and drops what it unpacked last.
   const picture = Buffer.concat([deflateRawSync(Buffer.alloc(16 * 1024 * 1024)), Buffer.from([7])]);
   expect(picture.length).toBeLessThan(16 * 1024);
   const pictures = Array.from({ length: 13 }, (_, at) => ({

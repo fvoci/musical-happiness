@@ -1,5 +1,5 @@
 <!--
-  A file shown in the app instead of downloaded: a PDF, a Word document or a
+  A file shown in the app instead of downloaded: a PDF, a Word document, a
   PowerPoint deck (its slides are its pages) or a Hangul (HWP, HWPX) document,
   drawn in a frame that has no origin and no network
   (lib/file-viewer/session.svelte.ts, src/viewer-frame/).
