@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::db::Scope;
 use crate::error::StoreError;
-use crate::file_refs::{self, NewImages};
+use crate::file_refs::{self, NewBodyFiles};
 use crate::search_outbox;
 use crate::{body_docs, body_links, body_versions, comment_versions};
 
@@ -42,8 +42,8 @@ pub(crate) enum Before<'a> {
 }
 
 /// Brings what follows from `block` up to it, as it was just written: the files it
-/// shows ([`file_refs::refresh`], which asks about the images of its body as
-/// `new_images` says), the blocks its body names ([`body_links::refresh`]), and the
+/// shows ([`file_refs::refresh`], which asks about the files of its body as
+/// `new_files` says), the blocks its body names ([`body_links::refresh`]), and the
 /// search server's document of it.
 ///
 /// The search server is told of a block that is searched now if what it holds of it
@@ -53,9 +53,9 @@ pub(crate) async fn refresh(
     scope: &mut Scope<'_>,
     block: &Block,
     before: Before<'_>,
-    new_images: NewImages,
+    new_files: NewBodyFiles,
 ) -> Result<(), StoreError> {
-    file_refs::refresh(scope, block, new_images, Refreshing(())).await?;
+    file_refs::refresh(scope, block, new_files, Refreshing(())).await?;
     body_links::refresh(scope, block, Refreshing(())).await?;
     let told = match before {
         Before::Absent | Before::Unknown => is_searched(block),

@@ -19,11 +19,12 @@ use crate::references_to::{body_naming, card_names};
 use crate::wiki_copies::{body_of, page, titled, titled_id, tree_of, wiki, write};
 
 /// A wiki of "Welcome" with "Getting started" and "Second steps" below it, "Policies"
-/// after it and "Old" in the trash. "Getting started" shows a picture, "Welcome" names
-/// "Getting started" and `outside`, and has a comment.
+/// after it and "Old" in the trash. "Getting started" shows a picture and a file block,
+/// "Welcome" names "Getting started" and `outside`, and has a comment.
 struct Handbook {
     wiki: String,
     file: String,
+    document: String,
 }
 
 async fn handbook(client: &Client, outside: &str) -> Handbook {
@@ -38,7 +39,11 @@ async fn handbook(client: &Client, outside: &str) -> Handbook {
         .await
         .check_no_content();
     let file = uploaded_id(&upload(client, &wiki, "pic.png", b"a picture\n").await);
-    let image = json!({"type": "doc", "content": [{"type": "image", "attrs": {"fileId": file}}]});
+    let document = uploaded_id(&upload(client, &wiki, "minutes.pdf", b"%PDF minutes\n").await);
+    let image = json!({"type": "doc", "content": [
+        {"type": "image", "attrs": {"fileId": file}},
+        {"type": "file", "attrs": {"fileId": document}},
+    ]});
     write(client, &wiki, &b, &image).await;
     write(client, &wiki, &a, &body_naming("see", &[&b, outside])).await;
     client
@@ -48,7 +53,11 @@ async fn handbook(client: &Client, outside: &str) -> Handbook {
         )
         .await
         .check_created();
-    Handbook { wiki, file }
+    Handbook {
+        wiki,
+        file,
+        document,
+    }
 }
 
 /// The wikis of the workspace at `at`.
@@ -58,8 +67,8 @@ async fn wikis_at(client: &Client, at: &str) -> Vec<fvoci_model::Container> {
 
 /// Checks that the wiki `copy` of the workspace at `at` is the handbook again: its tree
 /// without the trash, "Welcome" naming its own "Getting started" and `outside`, the
-/// picture a file of the copy's with the same bytes, the comment, no versions, and the
-/// importer its admin.
+/// picture and the file block files of the copy's with the same bytes, the comment, no
+/// versions, and the importer its admin.
 async fn check_handbook(ts: &TestServer, at: &str, copy: &str, source: &Handbook, outside: &str) {
     let client = &ts.client;
     let source_tree = tree_of(client, TEST_WS, &source.wiki).await;
@@ -81,16 +90,25 @@ async fn check_handbook(ts: &TestServer, at: &str, copy: &str, source: &Handbook
         "its own page, and what is outside"
     );
     let body = body_of(client, at, copy, &b).await;
-    let file = body["content"][0]["attrs"]["fileId"]
-        .as_str()
-        .expect("the copy shows its picture")
-        .to_owned();
-    assert_ne!(file, source.file, "a file of the copy's own");
-    let read = client
-        .get(&format!("{at}/containers/{copy}/files/{file}"))
-        .await;
-    read.check_ok();
-    assert_eq!(read.body, b"a picture\n", "the same bytes");
+    for (index, (kind, original, bytes)) in [
+        ("image", &source.file, &b"a picture\n"[..]),
+        ("file", &source.document, &b"%PDF minutes\n"[..]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(body["content"][index]["type"], json!(kind), "{body}");
+        let file = body["content"][index]["attrs"]["fileId"]
+            .as_str()
+            .expect("the copy names its file")
+            .to_owned();
+        assert_ne!(&file, original, "a file of the copy's own: {kind}");
+        let read = client
+            .get(&format!("{at}/containers/{copy}/files/{file}"))
+            .await;
+        read.check_ok();
+        assert_eq!(read.body, bytes, "the same bytes: {kind}");
+    }
     let comments: Vec<Value> = client
         .get(&format!("{at}/wikis/{copy}/pages/{a}/comments"))
         .await

@@ -309,18 +309,18 @@ describe('comments and attachments', () => {
   it('uploads an image for the body out of the list', async () => {
     const { card, backend } = await openAlpha();
     backend.latency = 5;
-    const uploading = card.uploadImage(new File(['png'], 'a.png', { type: 'image/png' }));
+    const uploading = card.uploadFile(new File(['png'], 'a.png', { type: 'image/png' }));
     expect(card.uploads).toHaveLength(0);
-    expect(card.imagesGoingUp).toBe(true);
+    expect(card.filesGoingUp).toBe(true);
     expect(await uploading).toMatch(/./);
-    expect(card.imagesGoingUp).toBe(false);
+    expect(card.filesGoingUp).toBe(false);
   });
 
   it('gives up an image upload when the card is closed, telling nothing', async () => {
     const { card, backend, workspace } = await openAlpha();
     backend.latency = 5;
     const told = workspace.problems.length;
-    const uploading = card.uploadImage(new File(['png'], 'a.png', { type: 'image/png' }));
+    const uploading = card.uploadFile(new File(['png'], 'a.png', { type: 'image/png' }));
     card.close();
     await expect(uploading).rejects.toThrow();
     expect(workspace.problems).toHaveLength(told);

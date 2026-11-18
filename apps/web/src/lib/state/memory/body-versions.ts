@@ -135,7 +135,8 @@ export function writtenWhole(
 /**
  * The body of a version as it is written to its card again: held to what a
  * body a client sends is held to, and refused as a conflict (409) when it
- * may not be stored any more or shows an image whose file is gone.
+ * may not be stored any more or names a file (of an image or a file block)
+ * that is gone.
  */
 function storable(world: World, containerId: string, body: DocNode | null): DocNode | null {
   try {

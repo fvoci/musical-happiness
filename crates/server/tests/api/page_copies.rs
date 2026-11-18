@@ -37,6 +37,15 @@ fn image_of(body: &Value) -> Option<String> {
 
 #[tokio::test]
 async fn a_page_is_copied_with_those_below_it_its_images_given_files_and_told_of() {
+    copied_with_those_below_it_and_given_files("image").await;
+}
+
+#[tokio::test]
+async fn a_page_is_copied_with_its_file_blocks_given_files() {
+    copied_with_those_below_it_and_given_files("file").await;
+}
+
+async fn copied_with_those_below_it_and_given_files(kind: &str) {
     let ts = Setup::native().start().await.init_basic().await;
     let client = &ts.client;
     let (wiki_id, wiki) = wiki(client).await;
@@ -44,7 +53,7 @@ async fn a_page_is_copied_with_those_below_it_its_images_given_files_and_told_of
     let b = make(client, &wiki, &a.id, "Getting started").await;
     let d = make(client, &wiki, "", "Policies").await;
     let file = uploaded_id(&upload(client, &wiki_id, "pic.png", b"a picture\n").await);
-    let image = json!({"type": "doc", "content": [{"type": "image", "attrs": {"fileId": file}}]});
+    let image = json!({"type": "doc", "content": [{"type": kind, "attrs": {"fileId": file}}]});
     client
         .patch(
             &format!("{wiki}/pages/{}", b.id),
@@ -74,23 +83,23 @@ async fn a_page_is_copied_with_those_below_it_its_images_given_files_and_told_of
         )
         .await
         .created_json();
-    assert_eq!(copy.title, "Welcome (copy)");
+    assert_eq!(copy.title, "Welcome (copy)", "{kind}");
     assert_eq!(copy.icon, "📘", "its icon too");
-    assert_ne!(copy.id, a.id);
+    assert_ne!(copy.id, a.id, "{kind}");
     let tree: Vec<PageNode> = client.get(&format!("{wiki}/pages")).await.ok_json();
     let top: Vec<&str> = tree
         .iter()
         .filter(|page| page.parent_id.is_empty())
         .map(|page| page.title.as_str())
         .collect();
-    assert_eq!(top, ["Welcome", "Welcome (copy)", "Policies"]);
+    assert_eq!(top, ["Welcome", "Welcome (copy)", "Policies"], "{kind}");
     let copied_b = tree
         .iter()
         .find(|page| page.parent_id == copy.id)
         .expect("a copy below the copy");
-    assert_eq!(copied_b.title, "Getting started");
+    assert_eq!(copied_b.title, "Getting started", "{kind}");
     let told = socket.expect("UPDATE_BLOCK", "/block/id", &copy.id).await;
-    assert_eq!(told["block"]["title"], json!("Welcome (copy)"));
+    assert_eq!(told["block"]["title"], json!("Welcome (copy)"), "{kind}");
     socket
         .expect("UPDATE_BLOCK", "/block/id", &copied_b.id)
         .await;
@@ -102,7 +111,12 @@ async fn a_page_is_copied_with_those_below_it_its_images_given_files_and_told_of
         .ok_json();
     let body = serde_json::to_value(&read.body).expect("JSON");
     let copied_file = image_of(&body).expect("the copy shows an image");
-    assert_ne!(copied_file, file);
+    assert_ne!(copied_file, file, "{kind}");
+    assert_eq!(
+        body["content"][0]["type"],
+        json!(kind),
+        "still the same node"
+    );
     client
         .get(&format!(
             "{TEST_WS}/containers/{wiki_id}/files/{copied_file}"
@@ -115,16 +129,16 @@ async fn a_page_is_copied_with_those_below_it_its_images_given_files_and_told_of
         let store = ts.app.store().clone();
         async move { store.body_versions(&id).await.expect("the versions").len() }
     };
-    assert_eq!(kept(copied_b.id.clone()).await, 0);
-    assert_ne!(kept(b.id.clone()).await, 0);
+    assert_eq!(kept(copied_b.id.clone()).await, 0, "{kind}");
+    assert_ne!(kept(b.id.clone()).await, 0, "{kind}");
     // The original keeps its own.
     let original: Page = client
         .get(&format!("{wiki}/pages/{}", b.id))
         .await
         .ok_json();
     let body = serde_json::to_value(&original.body).expect("JSON");
-    assert_eq!(image_of(&body), Some(file));
-    assert_ne!(d.id, copy.id);
+    assert_eq!(image_of(&body), Some(file), "{kind}");
+    assert_ne!(d.id, copy.id, "{kind}");
     ts.teardown().await;
 }
 

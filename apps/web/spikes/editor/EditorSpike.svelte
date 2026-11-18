@@ -17,7 +17,7 @@
   import type { BodyEditorTools } from '$lib/editor/body-editor.ts';
   import BodyEditor from '$lib/editor/BodyEditor.svelte';
   import BodyView from '$lib/editor/BodyView.svelte';
-  import { setFileUrlResolver } from '$lib/editor/files.ts';
+  import { setFileSource } from '$lib/editor/files.ts';
   import { markdownToBlocks } from '$lib/editor/markdown.ts';
   import { emptyDoc, storedSize, validateDoc, type DocNode } from '$lib/editor/schema.ts';
   import { applyTheme, theme } from '$lib/theme.svelte.ts';
@@ -45,7 +45,7 @@
   const bytes = $derived(stored === null ? 0 : storedSize(stored));
 
   // Before anything is drawn: the read-only view asks for addresses as soon as it has a document.
-  setFileUrlResolver(fakeFileUrl);
+  setFileSource({ url: fakeFileUrl });
   // Somebody no longer among the people: a short label, not their long identifier.
   const nameOf = (userId: string): string =>
     USERS.find((user) => user.id === userId)?.name ?? '알 수 없는 사용자';
@@ -67,7 +67,7 @@
   }
 
   /** Stands in for the server: a moment later the file has an identifier. */
-  function uploadImage(file: File): Promise<string> {
+  function uploadFile(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       setTimeout(() => {
         if (file.name.includes('fail')) reject(new Error('made-up failure'));
@@ -210,7 +210,7 @@
         {revision}
         users={USERS}
         resolveUser={nameOf}
-        {uploadImage}
+        {uploadFile}
         placeholder="내용을 입력하세요. @ 로 사람을, : 로 이모지를, $ 로 수식을 넣습니다."
         class="min-h-64 p-4"
         onChange={(next: DocNode | null) => {

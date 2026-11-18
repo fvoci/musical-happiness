@@ -2,7 +2,8 @@
  * The comments on a wiki's page and the versions of its body: the backend in
  * memory keeps the server's rules (`crates/server/src/api/page_comments.rs`,
  * `page_versions.rs`), and the page shown (`PageStore.comments`) follows what
- * somebody else writes.
+ * somebody else writes. A file going up for the body of the page shown is
+ * given up when the page is left, as a card's is when it closes.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -298,5 +299,21 @@ describe('the versions of a page’s body, in memory', () => {
     expect(
       await rejection(viewer.other.wiki.bodyVersions.restore(viewer.wikiId, 'no-such-page', 1)),
     ).toBe(403);
+  });
+});
+
+describe('the body of the page shown', () => {
+  it('gives up a file going up for it when the page is left, telling nothing', async () => {
+    const made = await aPage();
+    const store = new WikiStore(made.workspace, made.wikiId);
+    await store.load();
+    const page = store.showPage(made.pageId);
+    if (!page) throw new Error('no page shown');
+    made.backend.latency = 5;
+    const told = made.workspace.problems.length;
+    const uploading = page.uploadFile(new File(['%PDF'], 'minutes.pdf'));
+    store.showPage(undefined);
+    expect(await rejection(uploading)).toBe(0);
+    expect(made.workspace.problems).toHaveLength(told);
   });
 });

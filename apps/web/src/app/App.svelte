@@ -18,7 +18,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
-  import { setFileUrlResolver } from '$lib/editor/files.ts';
+  import { setFileSource } from '$lib/editor/files.ts';
   import InvitePage from '$lib/features/account/InvitePage.svelte';
   import LinkedSignIns from '$lib/features/account/LinkedSignIns.svelte';
   import SignInPage from '$lib/features/account/SignInPage.svelte';
@@ -41,6 +41,7 @@
   } from '$lib/state/index.ts';
   import { userDisplayName } from '$lib/logic/users.ts';
   import type { ContainerPlace } from '$lib/logic/urls.ts';
+  import { fileSourceOf } from '$lib/state/file-source.ts';
   import { OrgAdmin } from '$lib/state/org-admin.svelte.ts';
   import type { Organizations } from '$lib/state/organization.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -130,11 +131,17 @@
           inviteLink: (token: string) => new URL(router.inviteHref(token), location.origin).href,
         });
       }
-      // The bodies of cards and pages name their images by file; the board or wiki shown has them.
-      setFileUrlResolver((fileId) => {
-        const shownId = router.route.wikiId ?? made.board?.boardId;
-        return shownId ? backend.fileUrl(shownId, fileId) : undefined;
-      });
+      // The bodies of cards and pages name their images and file blocks by file; the board or
+      // wiki shown has them. A file block that cannot be saved says why, as an attachment does.
+      setFileSource(
+        fileSourceOf(
+          backend,
+          () => router.route.wikiId ?? made.board?.boardId,
+          (error) => {
+            made.report('load', error);
+          },
+        ),
+      );
       workspace = made;
       // On the handle of the browser tests and the console too, where there is
       // one (the backend in memory): a test undoes through it.

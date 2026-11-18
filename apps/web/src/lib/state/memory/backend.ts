@@ -13,6 +13,7 @@
  * and `latency`.
  */
 import { cardPreviewOf, type CardPreview } from '../../editor/card-preview.ts';
+import type { FileDetails } from '../../editor/files.ts';
 import type { DocNode } from '../../editor/schema.ts';
 import { readDisplaySettings, type DisplaySettings } from '../../logic/display.ts';
 import { isTimeZone, readRegionalSettings } from '../../logic/regional.ts';
@@ -77,10 +78,11 @@ import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
 import { copiedBlocks, giveCopiesFiles } from './copies.ts';
 import { memberRole, memberFileUrl } from './container-access.ts';
+import { readableFile, storeUpload } from './files.ts';
 import { usersAmong, usersNamed } from './users.ts';
 import { changeDisplayName } from './account.ts';
 import { archiveLines, archiveOf, blockOfLine } from './archive.ts';
-import { checkedBody, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
+import { checkedBody, checkedComment, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, MemoryReferences, renameCopied } from './references.ts';
 import { MemoryContentSearch } from './content-search.ts';
 import { searchBoardsOf } from './search.ts';
@@ -912,7 +914,7 @@ export class MemoryBackend implements Backend {
   async createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment> {
     await this.#enter('createComment');
     this.#block(boardId, cardId, 'card');
-    const checked = checkedBody(this.world, boardId, body);
+    const checked = checkedComment(this.world, boardId, body);
     if (checked === null) fail(400, 'a comment needs a text', { field: 'body' });
     const block = this.#newBlock(boardId, cardId, 'comment');
     block.body = checked;
@@ -930,7 +932,7 @@ export class MemoryBackend implements Backend {
     if (!mayChangeComment(role, block.createdBy === this.userId)) {
       fail(403, "access denied to change other users' comments");
     }
-    const checked = checkedBody(this.world, boardId, write.body);
+    const checked = checkedComment(this.world, boardId, write.body);
     if (checked === null) fail(400, 'a comment needs a text', { field: 'body' });
     if (block.updateAt !== write.readAt) {
       fail(409, 'the comment changed since it was read');
@@ -1038,37 +1040,20 @@ export class MemoryBackend implements Backend {
   async upload(id: string, file: File, options: UploadOptions = {}): Promise<UploadedFile> {
     await this.#enter('upload', options.signal);
     this.#container(id);
-    if (file.size > LIMITS.fileBytes) {
-      fail(413, 'the file is too large', { limit: LIMITS.fileBytes });
-    }
-    // In parts, as the server takes a large file; progress is told after each.
-    const parts = Math.max(1, Math.ceil(file.size / LIMITS.uploadPartBytes));
-    for (let part = 1; part <= parts; part += 1) {
-      await this.#enter('upload', options.signal);
-      options.onProgress?.({
-        sentBytes: Math.min(file.size, part * LIMITS.uploadPartBytes),
-        totalBytes: file.size,
-      });
-    }
-    const stored = {
-      fileId: this.world.newId(),
-      containerId: id,
-      name: file.name,
-      size: file.size,
-      contentType: file.type || 'application/octet-stream',
-      blob: file as Blob,
-    };
-    this.world.files.set(stored.fileId, stored);
-    const { blob: _blob, containerId: _containerId, ...answer } = stored;
-    return answer;
+    return storeUpload(this.world, id, file, options, (signal) => this.#enter('upload', signal));
   }
 
   async fileBytes(id: string, fileId: string): Promise<Blob> {
     await this.#enter('fileBytes');
-    memberRole(this.world, this.userId, id, 'any');
-    const file = this.world.files.get(fileId);
-    if (file?.containerId !== id || !file.blob) fail(404, 'no such file');
-    return file.blob;
+    const { blob } = readableFile(this.world, this.userId, id, fileId);
+    if (!blob) fail(404, 'no such file');
+    return blob;
+  }
+
+  async fileDetails(id: string, fileId: string): Promise<FileDetails> {
+    await this.#enter('fileDetails');
+    const { name, size } = readableFile(this.world, this.userId, id, fileId);
+    return { name, size };
   }
 
   fileUrl(id: string, fileId: string): string | undefined {

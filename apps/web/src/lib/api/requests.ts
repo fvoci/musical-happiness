@@ -2,9 +2,11 @@
  * The requests of the server backend that take nothing but HTTP: making an
  * account, what the login page shows of an organization, signing in
  * through its provider and what is connected to the account, changing the
- * reader's own and reading their workspaces, and reading the trash.
+ * reader's own and reading their workspaces, reading files, and reading the
+ * trash.
  * `ServerBackend` is made of these and the rest (`backend.ts`).
  */
+import type { FileDetails } from '../editor/files.ts';
 import type { Container } from '../logic/wire.ts';
 import type {
   AcceptedInvitation,
@@ -362,6 +364,27 @@ export class ServerRequests implements TrashReads {
     return workspacesOf(
       await this.#http.request<Schemas['UserWorkspace'][]>('/api/v1/users/me/workspaces'),
     );
+  }
+
+  /** The bytes of a file (`getFile`), until `signal` gives the reading up. */
+  fileBytes(containerId: string, fileId: string, signal?: AbortSignal): Promise<Blob> {
+    const params = { containerId, fileId };
+    return this.inWorkspaceBytes('/containers/{containerId}/files/{fileId}', params, signal);
+  }
+
+  /** The name and size of a file (`getFileInfo`). */
+  async fileDetails(containerId: string, fileId: string): Promise<FileDetails> {
+    const params = { containerId, fileId };
+    const info = await this.inWorkspace<Schemas['FileInfo']>(
+      '/containers/{containerId}/files/{fileId}/info',
+      params,
+    );
+    return { name: info.name, size: info.size };
+  }
+
+  /** The file's bytes, from the page's own origin: the session's cookie goes along. */
+  fileUrl(containerId: string, fileId: string): string | undefined {
+    return this.inWorkspaceUrl('/containers/{containerId}/files/{fileId}', { containerId, fileId });
   }
 
   async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {

@@ -25,6 +25,8 @@ use tokio::fs;
 use super::App;
 use super::container_copies::counted_as;
 use super::export::ARCHIVE_VERSION;
+use super::files::{base_name, stored_extension};
+use super::uploads::MAX_UPLOAD_NAME_CHARS;
 use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
 use crate::metrics::ContainerWork;
@@ -168,6 +170,7 @@ impl App {
         let StoredContainers {
             by_dir: stored,
             copies,
+            file_names,
         } = self
             .store_archive_containers(&zip, containers, options, &elsewhere, &mut left_out)
             .await?;
@@ -184,16 +187,9 @@ impl App {
                 tracing::warn!(dir, filename, "skipping orphan image in archive");
                 continue;
             };
-            let saved = match unpack_entry(&zip, index, largest_file, &unpacked_file).await {
-                Ok(()) => match fs::File::open(&unpacked_file).await {
-                    Ok(mut file) => self.save_file(&mut file, &container.id, &filename).await,
-                    Err(error) => Err(AppError::internal(format_args!(
-                        "cannot open an unpacked archive entry: {error}"
-                    ))),
-                },
-                Err(error) => Err(error),
-            };
-            remove_unpacked(&unpacked_file).await;
+            let name = name_in(&file_names, &dir, &filename);
+            let entry = (&zip, index, largest_file, unpacked_file.as_path());
+            let saved = self.save_archive_entry(entry, &container.id, name).await;
             let new_name = saved.map_err(|error| {
                 error.context(format_args!(
                     "cannot import file {filename} for board {dir}"
@@ -202,12 +198,35 @@ impl App {
             file_map.insert((container.id.clone(), filename), new_name);
         }
 
-        self.fix_images_attachments(&stored, &file_map, &copies, &options.modified_by)
+        self.point_at_stored_files(&stored, &file_map, &copies, &options.modified_by)
             .await;
         tracing::debug!(containers_imported = stored.len(), "import archive - done");
         Ok(Imported {
             members_left_out: left_out.len(),
         })
+    }
+
+    /// Unpacks the entry of the archive at its index (`entry`: the archive, the index,
+    /// the limit of its size and where it is unpacked to) and stores it as a file of
+    /// `container_id` called `name`. Gives the new file's stored name; the unpacked copy
+    /// is removed either way.
+    async fn save_archive_entry(
+        &self,
+        (zip, index, limit, unpacked): (&Archive, usize, u64, &Path),
+        container_id: &str,
+        name: &str,
+    ) -> Result<String, AppError> {
+        let saved = match unpack_entry(zip, index, limit, unpacked).await {
+            Ok(()) => match fs::File::open(unpacked).await {
+                Ok(mut file) => self.save_file(&mut file, container_id, name).await,
+                Err(error) => Err(AppError::internal(format_args!(
+                    "cannot open an unpacked archive entry: {error}"
+                ))),
+            },
+            Err(error) => Err(error),
+        };
+        remove_unpacked(unpacked).await;
+        saved
     }
 
     /// Stores the boards of the archive, each its `board.jsonl` at an index under a
@@ -230,6 +249,9 @@ impl App {
         for (index, dir) in containers {
             let jsonl = read_entry(zip, index, MAX_JSONL_BYTES).await?;
             let mut container = parse_board_jsonl(jsonl, options, elsewhere).await?;
+            stored
+                .file_names
+                .insert(dir.clone(), mem::take(&mut container.file_names));
             // Two blocks of an archive that share an identifier are no archive of this
             // server's: the first is the one named.
             for (old, new) in mem::take(&mut container.renamed) {
@@ -262,6 +284,7 @@ impl App {
             containers_and_blocks,
             members,
             renamed: _,
+            file_names: _,
         } = container;
         // Keep only members who are in the workspace: a board takes no others. A guest of
         // the workspace keeps a role no higher than editor. A membership without a role
@@ -343,7 +366,12 @@ struct ParsedContainer {
     members: Vec<ContainerMember>,
     /// The new identifier of each of its blocks that was asked for, by its old one.
     renamed: HashMap<String, String>,
+    /// The names its board lines give its files ([`file_names_of`]).
+    file_names: FileNames,
 }
+
+/// The name of each file of a directory of an archive, by the name of its entry.
+type FileNames = HashMap<String, String>;
 
 impl ParsedContainer {
     /// What its bodies name that is no block of its own: what was a block of its own
@@ -391,6 +419,21 @@ struct StoredContainers {
     /// The new identifier of each block that a body of another board names, by its old
     /// one.
     copies: HashMap<String, String>,
+    /// The names the board lines give the files, by the directory of the archive.
+    file_names: HashMap<String, FileNames>,
+}
+
+/// The name a file of the archive is stored with: the one the board line of its
+/// directory gives it ([`file_names_of`]), or failing that the name of its entry.
+fn name_in<'a>(
+    file_names: &'a HashMap<String, FileNames>,
+    dir: &str,
+    filename: &'a str,
+) -> &'a str {
+    file_names
+        .get(dir)
+        .and_then(|names| names.get(filename))
+        .map_or(filename, String::as_str)
 }
 
 /// Reads and checks one board's `board.jsonl`: its lines, the types of its blocks,
@@ -419,7 +462,7 @@ async fn parse_board_jsonl(
     // worker of the runtime.
     let (workspace_id, modified_by) = (options.workspace_id.clone(), options.modified_by.clone());
     let limits = options.page_limits;
-    let (mut containers_and_blocks, members) = tokio::task::spawn_blocking(move || {
+    let (mut containers_and_blocks, members, file_names) = tokio::task::spawn_blocking(move || {
         let parsed = parse_archive_lines(&jsonl, &workspace_id, &modified_by)?;
         // As the store would refuse them, before the first board is stored: an archive
         // exported before a card's content became its body may hold content blocks,
@@ -472,6 +515,7 @@ async fn parse_board_jsonl(
         containers_and_blocks,
         members,
         renamed,
+        file_names,
     })
 }
 
@@ -515,8 +559,31 @@ fn drop_orphans(containers_and_blocks: &mut ContainersAndBlocks) -> usize {
     before - blocks.len()
 }
 
-/// Parses a board's `board.jsonl` into its boards, blocks and members, with fresh
-/// modification metadata but the identifiers from the archive.
+/// The names a board line gives the files of its directory (`fileNames`, by the names
+/// of their entries), as an upload's name may be: not blank (the part after the last
+/// `/`, which is what a record keeps), without U+0000, at most
+/// [`MAX_UPLOAD_NAME_CHARS`] characters, and with the extension of the entry's name.
+/// Any other is left out, and that file keeps the name of its entry, as before the
+/// names were written.
+fn file_names_of(board: &Value) -> FileNames {
+    let Some(names) = board.get("fileNames").and_then(Value::as_object) else {
+        return FileNames::new();
+    };
+    names
+        .iter()
+        .filter_map(|(entry, name)| {
+            let name = name.as_str()?;
+            let fits = !base_name(name).trim().is_empty()
+                && !name.contains('\0')
+                && name.chars().count() <= MAX_UPLOAD_NAME_CHARS
+                && stored_extension(name) == stored_extension(entry);
+            fits.then(|| (entry.clone(), name.to_owned()))
+        })
+        .collect()
+}
+
+/// Parses a board's `board.jsonl` into its boards, blocks, members and the names of its
+/// files, with fresh modification metadata but the identifiers from the archive.
 ///
 /// # Errors
 ///
@@ -525,11 +592,12 @@ fn parse_archive_lines(
     jsonl: &[u8],
     workspace_id: &str,
     modified_by: &str,
-) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), AppError> {
+) -> Result<(ContainersAndBlocks, Vec<ContainerMember>, FileNames), AppError> {
     let modifier_user = modified_by;
     let now = now_millis();
     let mut containers_and_blocks = ContainersAndBlocks::default();
     let mut container_members: Vec<ContainerMember> = Vec::new();
+    let mut file_names = FileNames::new();
     let mut container_id = String::new();
 
     for (number, raw) in jsonl.split(|&byte| byte == b'\n').enumerate() {
@@ -545,6 +613,7 @@ fn parse_archive_lines(
         })?;
         match archive_line.line_type.as_str() {
             "board" => {
+                file_names.extend(file_names_of(&archive_line.data));
                 let mut container: Container = serde_json::from_value(with_workspace_named(
                     archive_line.data,
                 ))
@@ -589,7 +658,7 @@ fn parse_archive_lines(
             }
         }
     }
-    Ok((containers_and_blocks, container_members))
+    Ok((containers_and_blocks, container_members, file_names))
 }
 
 /// A filter for all of a board's blocks.

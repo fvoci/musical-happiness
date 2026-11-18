@@ -73,9 +73,14 @@ pub(super) async fn require_import_access(
 /// 3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
 /// `block` or `boardMember` per line, in the shapes of this contract, bodies included,
 /// but that a block and a member name their board or wiki `boardId`, not `containerId`)
-/// and the files the blocks show, the images of bodies among them. A wiki is written
-/// as a board is, its `kind` `wiki`: its pages as they stand and the comments on them
-/// are its blocks (not the pages in its trash, nor the versions of bodies).
+/// and the files the blocks show, those of the images and file blocks of bodies among
+/// them. A board's line also carries `fileNames`: the name of each of its files, by
+/// stored name, which an import gives the files it stores. A name an upload could not
+/// have (blank, with U+0000, over 255 characters, or of another extension than the
+/// stored name) is passed over and its file keeps the name of its entry, and an archive
+/// without the member is read as before. A wiki is written as a board is, its `kind` `wiki`: its
+/// pages as they stand and the comments on them are its blocks (not the pages in its
+/// trash, nor the versions of bodies).
 ///
 /// A user runs one export at a time, and the server as many as its setting
 /// `max_concurrent_exports` (2 unless set). Over either it is 429 with the reason
@@ -195,16 +200,17 @@ async fn handle_export_workspace(
 /// 10,000 entries, whose entries unpack to more than 1 GiB together, or with a
 /// `board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with
 /// the `limit` passed, and nothing of it is stored. The blocks that show files are
-/// pointed at the board's new copies of them, the images of bodies included; a card
-/// value that does not fit its property's kind is cleared, as a copy does. A wiki of
-/// the archive (`kind` `wiki`) is made as a wiki, its pages and the comments on them
-/// with it. What a write would refuse of an archive's boards, wikis and blocks is 400
-/// before any of them is stored, with the message the write has: a block of a type of
-/// the other kind (a page on a board, a card on a wiki), a page below anything but a
-/// page of its wiki or below a page the archive does not have, pages that are each
-/// other's parents, a comment on anything but a card or page, a wiki that is a template,
-/// and a wiki deeper or with more pages than the organization's limits allow (400 with
-/// the reason `page_too_deep` or `too_many_pages`).
+/// pointed at the board's new copies of them, the images and file blocks of bodies
+/// included; a card value that does not fit its property's kind is cleared, as a copy
+/// does. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the
+/// comments on them with it. What a write would refuse of an archive's boards, wikis
+/// and blocks is 400 before any of them is stored, with the message the write has: a
+/// block of a type of the other kind (a page on a board, a card on a wiki), a page
+/// below anything but a page of its wiki or below a page the archive does not have,
+/// pages that are each other's parents, a comment on anything but a card or page, a
+/// wiki that is a template, and a wiki deeper or with more pages than the
+/// organization's limits allow (400 with the reason `page_too_deep` or
+/// `too_many_pages`).
 ///
 /// The boards are made one after the other, not all or none: when one of them fails,
 /// those before it stay. The members of a board who are not in the workspace are left

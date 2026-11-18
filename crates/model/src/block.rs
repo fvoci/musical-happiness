@@ -69,6 +69,26 @@ impl BlockType {
         matches!(self, Self::Card | Self::Comment | Self::Page)
     }
 
+    /// Checks that a block of this type may have `body`: only a type that has a body
+    /// ([`BlockType::has_body`]) has one, and a comment's has no file block.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockError::BodyNotAllowed`] for a body of a type without one, and
+    /// [`BlockError::FileBlockInComment`] for a comment's body with a file block.
+    pub fn check_body(&self, body: Option<&Body>) -> Result<(), BlockError> {
+        let Some(body) = body else {
+            return Ok(());
+        };
+        if !self.has_body() {
+            return Err(BlockError::BodyNotAllowed);
+        }
+        if *self == Self::Comment && body.has_file_blocks() {
+            return Err(BlockError::FileBlockInComment);
+        }
+        Ok(())
+    }
+
     /// Returns `true` for the types a comment may be on: a card of a board and a page of
     /// a wiki.
     #[must_use]
@@ -234,10 +254,13 @@ pub enum BlockError {
     /// A block that is no card, comment or page has a body.
     #[error("only a card, a comment or a page has a body")]
     BodyNotAllowed,
-    /// An image of the body that the write makes the block show newly names no file
-    /// that the block's board has when the write is stored.
-    #[error("an image of the body shows no file of the board")]
-    ImageWithoutFile,
+    /// An image or a file block of the body that the write makes the block show newly
+    /// names no file that the block's board or wiki has when the write is stored.
+    #[error("an image or a file block of the body names no file of its board or wiki")]
+    BodyFileNotOfContainer,
+    /// A comment's body has a file block: files go in the body of a card or a page.
+    #[error("a comment's body has no file block")]
+    FileBlockInComment,
     /// The title holds U+0000, which PostgreSQL cannot store in text.
     #[error("the title holds the character U+0000")]
     NulInTitle,
@@ -421,8 +444,10 @@ impl Block {
     /// serialized fields exceed their size limits (the latter by type), the title holds
     /// U+0000, the fields hold `properties` that are not well-formed card property
     /// values, or the block is a card whose `icon` or `isTemplate` is of another kind
-    /// (a string and a boolean, or `null`). `properties` among a block's fields always means card
-    /// property values, whatever the block's type.
+    /// (a string and a boolean, or `null`), a block of a type without a body has one
+    /// ([`BlockError::BodyNotAllowed`]), or a comment's body has a file block
+    /// ([`BlockError::FileBlockInComment`]). `properties` among a block's fields always
+    /// means card property values, whatever the block's type.
     pub fn validate(&self) -> Result<(), BlockError> {
         if self.container_id.is_empty() {
             return Err(BlockError::EmptyContainerId);
@@ -460,10 +485,7 @@ impl Block {
             _ => return Err(BlockError::FieldsSizeLimitExceeded),
         }
         validate_block_properties(&self.fields)?;
-        if self.body.is_some() && !self.block_type.has_body() {
-            return Err(BlockError::BodyNotAllowed);
-        }
-        Ok(())
+        self.block_type.check_body(self.body.as_ref())
     }
 
     /// Removes the fields that a block can no longer be stored with but that one stored
@@ -522,9 +544,10 @@ impl Block {
     }
 
     /// The stored names of the files the block shows, each once: the file of an
-    /// attachment block (`fileId`, or failing that `attachmentId`), and the images of the
-    /// body. The store's migration of file references (`0003_file_refs.sql`) put down
-    /// the same rule in SQL, with the image blocks of then.
+    /// attachment block (`fileId`, or failing that `attachmentId`), and the images and
+    /// file blocks of the body. The store's migration of file references
+    /// (`0003_file_refs.sql`) put down the same rule in SQL, with the image blocks of
+    /// then.
     #[must_use]
     pub fn shown_files(&self) -> Vec<String> {
         if self.block_type == BlockType::Attachment {

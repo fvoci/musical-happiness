@@ -345,15 +345,15 @@ async fn handle_move_page(
 /// Duplicate a page
 ///
 /// Copies the page with every page below it, within its wiki, for editors of the wiki:
-/// the copy goes right after the page among its siblings, titled `title` if given
-/// (the page's own title otherwise; a client names it in its reader's language), and
-/// the pages below it are copied below it as they are, with their titles, icons,
-/// places and bodies, what is typed in them now included. The images in the bodies get
-/// files of their own, as a card's duplicate's do. The versions of the bodies and the
-/// comments are not copied. The tree is held to the organization's limits: 400 with the
-/// reason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies would be
-/// deeper, or the wiki larger, than they let it be; 400 at `/title` for a title longer
-/// than 16383 characters. Nothing is changed then.
+/// the copy goes right after the page among its siblings, titled `title` if given (the
+/// page's own title otherwise; a client names it in its reader's language), and the
+/// pages below it are copied below it as they are, with their titles, icons, places and
+/// bodies, what is typed in them now included. The images and file blocks in the bodies
+/// get files of their own, as a card's duplicate's do. The versions of the bodies and
+/// the comments are not copied. The tree is held to the organization's limits: 400 with
+/// the reason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies
+/// would be deeper, or the wiki larger, than they let it be; 400 at `/title` for a
+/// title longer than 16383 characters. Nothing is changed then.
 ///
 /// The wiki's members are told with `UPDATE_BLOCK` of each copy, a page before those
 /// below it, and of each page of the parent numbered anew to leave the copy room.

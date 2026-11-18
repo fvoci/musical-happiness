@@ -29,7 +29,7 @@ use crate::containers;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
-use crate::file_refs::NewImages;
+use crate::file_refs::NewBodyFiles;
 use crate::loose_objects;
 use crate::members;
 use crate::org_admin;
@@ -641,7 +641,7 @@ pub(crate) async fn take_blocks_out_of_trash(
     // A statement per block: each is checked on its own, so a parent goes first. What
     // they show, the trash kept for them.
     for index in parents_first(&restored) {
-        blocks::insert_block_row(scope, &restored[index], NewImages::Unchecked).await?;
+        blocks::insert_block_row(scope, &restored[index], NewBodyFiles::Unchecked).await?;
     }
     let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(deletion_id));

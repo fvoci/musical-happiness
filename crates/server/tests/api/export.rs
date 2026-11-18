@@ -526,10 +526,33 @@ async fn archives_of_the_former_formats_are_refused() {
 }
 
 /// An archive carries the files that the images of bodies show, and an import points
-/// the bodies at the board's new files. An image block without a file, which an export
-/// used to answer with 500, is exported as it is.
+/// the bodies at the board's new files, under the names they were uploaded with. An
+/// image block without a file, which an export used to answer with 500, is exported as
+/// it is.
 #[tokio::test]
 async fn an_archive_carries_the_images_of_bodies() {
+    an_archive_carries_the_files_of_bodies("image").await;
+}
+
+#[tokio::test]
+async fn an_archive_carries_the_files_of_file_blocks() {
+    an_archive_carries_the_files_of_bodies("file").await;
+}
+
+/// The first line of the board's `board.jsonl` in an archive: the board's own.
+fn board_line(mut archive: zip::ZipArchive<Cursor<Vec<u8>>>, board_id: &str) -> serde_json::Value {
+    let mut lines = String::new();
+    std::io::Read::read_to_string(
+        &mut archive
+            .by_name(&format!("{board_id}/board.jsonl"))
+            .expect("the board's lines"),
+        &mut lines,
+    )
+    .expect("text");
+    serde_json::from_str(lines.lines().next().expect("a first line")).expect("JSON")
+}
+
+async fn an_archive_carries_the_files_of_bodies(kind: &str) {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
         .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
@@ -538,7 +561,7 @@ async fn an_archive_carries_the_images_of_bodies() {
         &crate::files::upload(&ts.client, &board.id, "picture.png", b"png").await,
     );
     let body = serde_json::json!({"type": "doc", "content": [
-        {"type": "image", "attrs": {"fileId": file_id}},
+        {"type": kind, "attrs": {"fileId": file_id}},
     ]});
     ts.client
         .post(
@@ -572,6 +595,12 @@ async fn an_archive_carries_the_images_of_bodies() {
         "the body's image is in the archive: {:?}",
         archive.file_names().collect::<Vec<_>>()
     );
+    // The board's line names the file as it was uploaded; the original reads past it.
+    assert_eq!(
+        board_line(archive, &board.id)["data"]["fileNames"],
+        serde_json::json!({ file_id.as_str(): "picture.png" }),
+        "the board's line names its file"
+    );
 
     import(&ts.client, TEST_WORKSPACE_ID, &exported.body)
         .await
@@ -594,6 +623,11 @@ async fn an_archive_carries_the_images_of_bodies() {
         .expect("the image names a file")
         .to_owned();
     assert_ne!(new_file, file_id, "a file of the new board");
+    assert_eq!(
+        blocks[0]["body"]["content"][0]["type"],
+        serde_json::json!(kind),
+        "still the same node"
+    );
     let file = ts
         .client
         .get(&format!(
@@ -607,6 +641,16 @@ async fn an_archive_carries_the_images_of_bodies() {
         b"png",
         "with the content of the old one"
     );
+    // Under the name it was uploaded with, which a file block shows, not its stored name.
+    let info: serde_json::Value = ts
+        .client
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{new_file}/info",
+            imported.id
+        ))
+        .await
+        .ok_json();
+    assert_eq!(info["name"], serde_json::json!("picture.png"), "{info}");
     ts.teardown().await;
 }
 
@@ -823,7 +867,7 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
 
 /// A workspace's archive of two boards: the first is fine, the second has a card and the
 /// given blocks below it.
-fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> {
+pub(crate) fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> {
     let board = |id: &str| {
         serde_json::json!({"type": "board", "data": {
             "id": id, "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": id, "createAt": 1,

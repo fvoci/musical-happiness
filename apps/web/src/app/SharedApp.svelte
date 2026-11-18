@@ -11,10 +11,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
-  import { setFileUrlResolver } from '$lib/editor/files.ts';
+  import { setFileSource } from '$lib/editor/files.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { ContainerKind } from '$lib/logic/wire.ts';
+  import { fileSourceOf } from '$lib/state/file-source.ts';
   import { isBackendError, Workspace, type Backend } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
@@ -60,9 +61,18 @@
         if (left) return;
         const read = started.backend;
         place = started.place;
-        made = new Workspace({ backend: read, locale: currentLocale });
-        // The bodies name their images by file: the link's board or wiki has them.
-        setFileUrlResolver((fileId) => read.fileUrl(containerId, fileId));
+        const shown = new Workspace({ backend: read, locale: currentLocale });
+        made = shown;
+        // The bodies name their images and file blocks by file: the link's board or wiki has them.
+        setFileSource(
+          fileSourceOf(
+            read,
+            () => containerId,
+            (error) => {
+              shown.report('load', error);
+            },
+          ),
+        );
         workspace = made;
         backend = read;
         await made.load(place);

@@ -143,7 +143,7 @@ describe('what the read-only view is made of', () => {
     });
   });
 
-  it('adds, for the component, the framework, the style sheets, what draws a reference, and the two libraries that draw formulas and diagrams', () => {
+  it('adds, for the component, the framework, the style sheets, what draws a reference and a file block, and the two libraries that draw formulas and diagrams', () => {
     expect(graphOf('src/lib/editor/BodyView.svelte')).toEqual({
       files: [
         'src/lib/editor/BodyView.svelte',
@@ -152,6 +152,7 @@ describe('what the read-only view is made of', () => {
         'src/lib/editor/drawing.ts',
         'src/lib/editor/editor.css',
         'src/lib/editor/embeds.ts',
+        'src/lib/editor/file-view.ts',
         'src/lib/editor/files.ts',
         'src/lib/editor/katex.css',
         'src/lib/editor/math.ts',
@@ -159,6 +160,8 @@ describe('what the read-only view is made of', () => {
         'src/lib/editor/render.ts',
         'src/lib/editor/safe-svg.ts',
         'src/lib/editor/schema.ts',
+        'src/lib/logic/file-size.ts',
+        'src/lib/save.ts',
       ],
       packages: [
         '$lib/i18n/paraglide/messages.js',
