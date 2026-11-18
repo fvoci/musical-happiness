@@ -93,6 +93,7 @@ mod password_reset;
 mod paths;
 mod people;
 mod people_authors;
+mod person_names;
 mod presence;
 mod properties;
 mod public_link_readers;

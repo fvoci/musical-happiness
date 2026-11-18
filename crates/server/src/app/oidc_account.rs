@@ -3,7 +3,7 @@
 //! what a sign-in knows of the account it ends in, with the address the provider
 //! vouches for. The sign-in is in `oidc.rs`.
 
-use fvoci_model::{Session, User, display_name, is_email_valid, new_id};
+use fvoci_model::{PersonName, Session, User, is_email_valid, new_id};
 use fvoci_store::{Applied, Identity, OidcAccount, StoreError, StoredProvider, Taken};
 
 use super::App;
@@ -48,11 +48,11 @@ impl App {
             let mut user = User {
                 id: new_id(),
                 username,
-                display_name: claims
-                    .name
-                    .as_deref()
-                    .and_then(|name| display_name(name).ok())
-                    .unwrap_or_default(),
+                name: PersonName::from_provider(
+                    claims.name.as_deref(),
+                    claims.given_name.as_deref(),
+                    claims.family_name.as_deref(),
+                ),
                 ..User::default()
             };
             let account = OidcAccount::New {
@@ -152,6 +152,8 @@ mod tests {
             email: None,
             email_verified: None,
             name: None,
+            given_name: None,
+            family_name: None,
             preferred_username: preferred.map(str::to_owned),
         }
     }

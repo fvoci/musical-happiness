@@ -29,7 +29,7 @@ fn registration(username: &str, browser: &str, expires_at: i64) -> Signup {
         id: new_id(),
         username: username.to_owned(),
         email: format!("{username}@example.test"),
-        display_name: String::new(),
+        custom_name: String::new(),
         password_hash: "hash".to_owned(),
         language: String::new(),
         start: SignupStart::Organization("Ours".to_owned()),

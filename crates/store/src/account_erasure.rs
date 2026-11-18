@@ -381,7 +381,9 @@ impl Store {
                 }
                 let mut sql = scope.sql(
                     "UPDATE users SET username = '', email = '', display_name = '', \
-                     password_hash = '', delete_after = 0, is_admin = ",
+                     custom_name = '', first_name = '', last_name = '', \
+                     latin_first_name = '', latin_last_name = '', title = '', \
+                     credentials = '', password_hash = '', delete_after = 0, is_admin = ",
                 );
                 sql.bind(false)
                     .push_bind(", erased_at = ", now)

@@ -3,8 +3,8 @@
 //! has nobody else goes with it, and an erasing that was cut off is taken up again.
 
 use fvoci_model::{
-    AuditAction, Block, BlockType, Category, Container, ContainerType, FileInfo, OrgRole, Session,
-    User, WorkspaceRole, new_id,
+    AuditAction, Block, BlockType, Category, Container, ContainerType, Credential, FileInfo,
+    NameShown, OrgRole, PersonName, Session, Title, User, WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditPlace, DbType, DeletionAsking, ErasedFrom, Erasing, ErasureEnd, ErasureStart, Identity,
@@ -30,8 +30,14 @@ const WAIT: i64 = 30 * 24 * 60 * 60 * 1000;
 
 /// What is the person's of the account [`person`] makes: none of it is anywhere once
 /// the account is erased.
-const OF_THE_PERSON: [&str; 9] = [
+const OF_THE_PERSON: [&str; 15] = [
     "leaver-shelf",
+    "Leaver-First",
+    "Leaver-Last",
+    "Leaver-Latin-First",
+    "Leaver-Latin-Last",
+    "kr_patent_attorney",
+    "kr_korean_medicine_doctor",
     "nder-leaver-mail@example.com",
     "leaver-name",
     "leaver-mail@example.com",
@@ -91,7 +97,19 @@ async fn person(store: &Store) -> String {
         // A capital that is no ASCII letter: the databases fold such a letter each in
         // its own way, and the address is found as it is written all the same.
         email: "Ünder-leaver-mail@example.com".to_owned(),
-        display_name: "Leaver Shown".to_owned(),
+        name: PersonName {
+            first_name: "Leaver-First".to_owned(),
+            last_name: "Leaver-Last".to_owned(),
+            latin_first_name: "Leaver-Latin-First".to_owned(),
+            latin_last_name: "Leaver-Latin-Last".to_owned(),
+            custom_name: "Leaver Shown".to_owned(),
+            name_shown: NameShown::LatinName,
+            title: Some(Title::Prof),
+            credentials: vec![
+                Credential::KrPatentAttorney,
+                Credential::KrKoreanMedicineDoctor,
+            ],
+        },
         password_hash: "leaver-password-hash".to_owned(),
         ..User::default()
     };

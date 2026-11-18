@@ -320,7 +320,7 @@
 | 6절 카드 상세 질문 3 | 날짜 값만, 카드를 쓸 때 바뀌는 값을 검사한다(2절): 날짜 속성에는 날짜 값이나 `null`, 다른 속성이나 정의 없는 속성에는 날짜 값이 아닌 것. 종류를 바꿔도 값은 그대로 두고, 그 값을 다시 쓸 때 새 규칙으로 본다 |
 | 6절 카드 상세 질문 4 | **결정됨.** `reorderCardProperties`(`PUT /boards/{boardId}/property-order`)가 속성 ID 전부를 새 순서로 받는다 |
 | 6절 카드 상세 질문 6 | 댓글만 달 수 있는 사람은 파일을 올리지 못한다(보드 편집자부터) |
-| H2 | **결정됨.** `User.displayName`(가입 때나 `patchMe`로). 사용자 검색은 두 이름에서 찾는다 |
+| H2 | **결정됨.** `User.displayName`은 서버가 이름의 칸(성·이름, 영문 이름, 직접 쓴 이름)과 고른 것(`nameShown`)으로 짓는다(`contracts/name-vectors.json`, 칸은 `patchMe`로). 사용자 검색은 로그인 이름과 이름의 칸에서 찾는다 |
 | H3 | **결정됨.** `getDeletedCards`(보드의 편집자부터)와 `getDeletedContainers`(관리자였던 보드만). 되살리기는 `undeleteBlock`·`undeleteContainer` |
 | H5 | **결정됨(11:05 KST).** 웹앱이 "참여" 단계를 두고 서버의 `joinContainer`는 그대로다 |
 | G5 | 남이 본문을 고치면 블록 전체(본문까지)가 온다(`contracts/websocket.md` 5절). 지금대로 둔다, 그 계획에서 다시 본다 |

@@ -5,6 +5,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::person_name::PersonName;
 use crate::refusal::{RefusalReason, Refusals};
 use crate::serde_util::null_as_default;
 use crate::settings::{
@@ -23,21 +24,18 @@ pub struct User {
     pub id: String,
     /// The login name.
     pub username: String,
-    /// The name the user chose to be shown by; empty for none, and then the login name
-    /// is shown. At most 64 UTF-16 code units, not unique.
+    /// The name the user is shown by, by the rule of [`PersonName::shown`]: empty when
+    /// that is the login name, which is shown then. Kept with the account and made anew
+    /// whenever its name changes; what a request says of it is not taken over. At most
+    /// 129 UTF-16 code units (a name's two parts and a space), not unique.
     pub display_name: String,
+    /// The parts of the user's name, which of them the user is shown by, and their
+    /// title and credentials. Whoever sees the user's name sees these.
+    #[serde(flatten)]
+    pub name: PersonName,
     /// The email address.
     #[serde(skip)]
     pub email: String,
-    /// The nickname. Nothing stores one; not part of the JSON form.
-    #[serde(skip)]
-    pub nickname: String,
-    /// The first name. Nothing stores one; not part of the JSON form.
-    #[serde(skip)]
-    pub first_name: String,
-    /// The last name. Nothing stores one; not part of the JSON form.
-    #[serde(skip)]
-    pub last_name: String,
     /// The hash of the password, as a PHC string.
     #[serde(skip)]
     pub password_hash: String,
@@ -72,9 +70,7 @@ impl fmt::Debug for User {
             .field("username", &self.username)
             .field("display_name", &self.display_name)
             .field("email", &self.email)
-            .field("nickname", &self.nickname)
-            .field("first_name", &self.first_name)
-            .field("last_name", &self.last_name)
+            .field("name", &self.name)
             .field("create_at", &self.create_at)
             .field("update_at", &self.update_at)
             .field("delete_at", &self.delete_at)

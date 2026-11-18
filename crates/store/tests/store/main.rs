@@ -46,6 +46,7 @@ mod page_moves;
 mod page_trash;
 mod pages;
 mod password_reset;
+mod person_names;
 mod registration;
 mod restored_boards;
 mod search_outbox;

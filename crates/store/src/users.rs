@@ -14,12 +14,16 @@ use crate::audit::AuditActor;
 use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::password_reset;
+use crate::person_names;
 use crate::sessions;
 use crate::{directory, members};
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
-const USER_COLUMNS: &str =
-    "id, username, email, password_hash, create_at, update_at, delete_at, is_admin, display_name";
+const USER_COLUMNS: &str = concat!(
+    "id, username, email, password_hash, create_at, update_at, delete_at, is_admin, \
+     display_name, ",
+    person_names::name_columns!()
+);
 
 /// What a user is to the instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,9 +109,8 @@ impl Store {
 
     /// Returns the user with the given identifier, unless deleted.
     ///
-    /// Only the members a standalone server stores are filled in: the nickname, the
-    /// names, the roles and the permissions are empty, and the user is neither a bot
-    /// nor a guest.
+    /// Only the members a standalone server stores are filled in: the roles and the
+    /// permissions are empty, and the user is neither a bot nor a guest.
     ///
     /// # Errors
     ///
@@ -408,31 +411,6 @@ impl Store {
         .await
     }
 
-    /// Sets the name the user is shown by; empty for none. Returns the user as stored
-    /// now. Whether the name is one a user may have is the caller's to check.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::NotFound`] if there is no such user, and
-    /// [`StoreError::Database`] if the statement fails.
-    pub async fn set_display_name(
-        &self,
-        user_id: &str,
-        display_name: &str,
-    ) -> Result<User, StoreError> {
-        self.transaction(async |scope| {
-            let mut sql = scope.sql("UPDATE users SET display_name = ");
-            sql.bind(display_name)
-                .push_bind(", update_at = ", now_millis())
-                .push_bind(" WHERE delete_at = 0 AND id = ", Id(user_id));
-            if scope.execute(sql).await? == 0 {
-                return Err(user_not_found());
-            }
-            get_user_by_id(scope, user_id).await
-        })
-        .await
-    }
-
     /// Sets and removes entries of the bag of client state of a user and returns the
     /// bag as it is afterwards, by name.
     ///
@@ -561,8 +539,8 @@ pub(crate) async fn found_users_by_ids(
 }
 
 /// The ten oldest users among those `narrow` keeps, oldest first, whose login name or
-/// display name contains `search_query`, ignoring case; the ten oldest of them for an
-/// empty query.
+/// name (`PersonName::contains`) contains `search_query`, ignoring case; the ten oldest
+/// of them for an empty query.
 ///
 /// Compared here rather than in SQL, so that both databases fold every letter the same
 /// way and `%` and `_` are characters like any other. (The original's `LIKE` ignores
@@ -585,13 +563,17 @@ pub(crate) async fn search_users(
     }
     // The names only, matched here; then the users that matched, read whole.
     let wanted = search_query.to_lowercase();
-    let mut sql = scope.sql("SELECT id, username, display_name FROM users WHERE delete_at = 0");
+    let mut sql = scope.sql(concat!(
+        "SELECT id, username, ",
+        person_names::name_columns!(),
+        " FROM users WHERE delete_at = 0"
+    ));
     narrow(&mut sql, scope);
     sql.push(OLDEST_FIRST);
     let mut matched = Vec::with_capacity(SEARCH_LIMIT);
     for row in scope.fetch_all(sql).await? {
         let found = row.text(1)?.to_lowercase().contains(&wanted)
-            || row.text(2)?.to_lowercase().contains(&wanted);
+            || person_names::name_from_row(&row, 2)?.contains(&wanted);
         if found {
             matched.push(row.id(0)?);
             if matched.len() == SEARCH_LIMIT {
@@ -630,6 +612,7 @@ fn user_from_row(row: &Row) -> Result<User, StoreError> {
         delete_at: row.int(6)?,
         is_admin: row.bool(7)?,
         display_name: row.text(8)?,
+        name: person_names::name_from_row(row, 9)?,
         ..User::default()
     })
 }
@@ -733,8 +716,9 @@ pub(crate) async fn get_user_by_id(
     find_user(scope, Lookup::Id(user_id)).await
 }
 
-/// Inserts the row of a user as it is; a name or an address that is taken is a
-/// conflict.
+/// Inserts the row of a user as it is, shown by the name its parts make
+/// (`PersonName::shown`) whatever its `display_name` says; a name or an address that is
+/// taken is a conflict.
 pub(crate) async fn insert_user_row(scope: &mut Scope<'_>, user: &User) -> Result<(), StoreError> {
     let mut sql = scope.sql(&format!("INSERT INTO users ({USER_COLUMNS}) VALUES ("));
     sql.bind(Id(&user.id))
@@ -745,8 +729,9 @@ pub(crate) async fn insert_user_row(scope: &mut Scope<'_>, user: &User) -> Resul
         .push_bind(", ", user.update_at)
         .push_bind(", ", user.delete_at)
         .push_bind(", ", user.is_admin)
-        .push_bind(", ", &user.display_name)
-        .push(")");
+        .push_bind(", ", user.name.shown());
+    person_names::push_name_values(&mut sql, &user.name);
+    sql.push(")");
     match scope.execute(sql).await {
         Ok(_) => Ok(()),
         Err(StoreError::Database(error)) => Err(unique_violation(error)),
@@ -808,7 +793,7 @@ async fn stored_settings(scope: &mut Scope<'_>, user_id: &str) -> Result<UserSet
 /// # Errors
 ///
 /// Returns [`StoreError::UserNotFound`] if there is no such user.
-async fn lock_user(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
+pub(crate) async fn lock_user(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
     let mut sql = scope.sql("SELECT id FROM users WHERE delete_at = 0 AND id = ");
     sql.bind(Id(user_id));
     if scope.dialect() == Dialect::Postgres {

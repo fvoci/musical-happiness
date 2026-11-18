@@ -261,10 +261,18 @@
     "content_type": "application/json",
     "body": {
       "createAt": "<ts>",
+      "credentials": [],
+      "customName": "",
       "deleteAt": 0,
       "displayName": "",
+      "firstName": "",
       "id": "<id:1>",
       "isAdmin": false,
+      "lastName": "",
+      "latinFirstName": "",
+      "latinLastName": "",
+      "nameShown": "name",
+      "title": null,
       "updateAt": "<ts>",
       "username": "limits-alice"
     }

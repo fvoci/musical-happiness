@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    Block, BlockType, Container, ContainerMember, ContainerType, OrgRole, User, UserWorkspace,
-    Workspace, WorkspaceRole, new_id,
+    Block, BlockType, Container, ContainerMember, ContainerType, Credential, OrgRole, PersonName,
+    Title, User, UserWorkspace, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, SharingChange, Store, Tenant};
@@ -41,7 +41,15 @@ async fn other_organization(ts: &TestServer) -> (Store, Workspace, User, Contain
         id: new_id(),
         username: "confidential.other.owner".to_owned(),
         email: "other.owner@example.com".to_owned(),
-        display_name: "Other organization's owner".to_owned(),
+        name: PersonName {
+            first_name: "Confidential-First".to_owned(),
+            last_name: "Confidential-Last".to_owned(),
+            latin_first_name: "Confidential-Latin".to_owned(),
+            custom_name: "Other organization's owner".to_owned(),
+            title: Some(Title::Prof),
+            credentials: vec![Credential::Phd],
+            ..PersonName::default()
+        },
         ..User::default()
     };
     store
@@ -231,11 +239,22 @@ async fn a_workspace_user_search_and_profile_lookup_do_not_expose_another_organi
         .init_basic()
         .await;
     let (_, _, owner, _) = other_organization(&ts).await;
-    let found: Vec<User> = ts
-        .client2
-        .get(&format!("{ROOT_WS}/users?search=confidential.other"))
-        .await
-        .ok_json();
+    let mut found: Vec<User> = Vec::new();
+    // By the login name, and by every part of the name.
+    for query in [
+        "confidential.other",
+        "Confidential-First",
+        "confidential-last",
+        "Confidential-Latin",
+        "owner",
+    ] {
+        let mut answer: Vec<User> = ts
+            .client2
+            .get(&format!("{ROOT_WS}/users?search={query}"))
+            .await
+            .ok_json();
+        found.append(&mut answer);
+    }
     let profile = ts
         .client2
         .get(&format!("{ROOT_WS}/users/{}", owner.id))

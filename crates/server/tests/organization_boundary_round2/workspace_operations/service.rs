@@ -111,7 +111,7 @@ async fn account(case: &mut Case) {
     case.run(
         "patchMe",
         &[],
-        json!({"displayName": format!("{} display", case.label)}),
+        json!({"customName": format!("{} display", case.label)}),
     )
     .await;
     let user = case.user.clone();

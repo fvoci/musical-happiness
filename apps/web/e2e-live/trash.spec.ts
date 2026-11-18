@@ -50,7 +50,7 @@ test('a deleted board is listed for who was its admin, and comes back to its pla
   const api = await signedIn(base, owner);
   const helperApi = await signedIn(base, helper);
   // A row names who deleted it as people are named everywhere.
-  await api.patch('/api/v1/users/me', { data: { displayName: 'Kay Keeper' } });
+  await api.patch('/api/v1/users/me', { data: { customName: 'Kay Keeper' } });
   const alpha = await makeBoard(api, { title: 'Alpha' });
   const beta = await makeBoard(api, {
     title: 'Beta',

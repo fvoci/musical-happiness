@@ -12,8 +12,8 @@
 )]
 
 use fvoci_model::{
-    Body, CardOpen, CategoryType, ContainerType, Density, HourCycle, JsonMap, MinimumRole, Theme,
-    WeekStart,
+    Body, CardOpen, CategoryType, ContainerType, Credential, Density, HourCycle, JsonMap,
+    MinimumRole, NameShown, Theme, Title, WeekStart,
 };
 use utoipa::ToSchema;
 
@@ -268,13 +268,29 @@ pub(crate) struct AdminChange {
     is_admin: bool,
 }
 
-/// What a user changes of their account. A member that is left out stays as it is.
+/// What a user changes of their name. A member that is left out stays as it is.
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]
 pub(crate) struct AccountChange {
-    /// The name to be shown by: at most 64 UTF-16 code units without control
-    /// characters. Empty or `null` for none, and the login name is shown.
-    display_name: Option<String>,
+    /// The given name, in the letters the person writes it in: at most 64 UTF-16 code
+    /// units without control characters. Empty or `null` for none.
+    first_name: Option<String>,
+    /// The family name, in the letters the person writes it in; as `firstName`.
+    last_name: Option<String>,
+    /// The given name in Latin letters; as `firstName`.
+    latin_first_name: Option<String>,
+    /// The family name in Latin letters; as `firstName`.
+    latin_last_name: Option<String>,
+    /// The name the person wrote to be shown by; as `firstName`.
+    custom_name: Option<String>,
+    /// Which name the person is shown by.
+    name_shown: Option<NameShown>,
+    /// The title written before the name; `null` for none.
+    title: Option<Title>,
+    /// The degrees and qualifications written after the name: at most three, each once,
+    /// in the order they are written. `null` or empty for none.
+    #[schema(max_items = 3)]
+    credentials: Option<Vec<Credential>>,
 }
 
 /// The settings to change. A member that is left out stays as it is; one that is `null`
