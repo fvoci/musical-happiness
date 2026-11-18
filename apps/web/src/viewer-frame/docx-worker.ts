@@ -1,40 +1,31 @@
 /**
  * The Word worker: docx-preview reads and draws a Word document here, off
  * the frame's main thread, so that the viewer's time limit and its "Close"
- * hold while it works. The frame ends the worker when it has answered, and
+ * hold while it works. The frame ends the worker once it has answered, and
  * the viewer throws the whole frame away (and the worker with it) when the
  * time is up or the viewer closes.
  *
- * A worker has no `document` and no `DOMParser`; this puts the worker's own
- * on the global object (`worker-html.ts`, `worker-xml.ts`), counting every
- * node against ceilings, and keeps the pictures as blobs for the frame. Like
- * pdf.js's worker, it is built into the frame's chunk and started from a
- * `blob:` (`?worker&inline`).
+ * A worker has no `document` and no `DOMParser`: `worker-scope.ts` puts
+ * the worker's own on the global object, with their ceilings. Like pdf.js's
+ * worker, this is built into the frame's chunk and started from a `blob:`
+ * (`?worker&inline`).
  */
 import { draw } from './docx-draw.ts';
-import type { ToDocxWorker } from './docx-protocol.ts';
-import { Budget, documentFor, Node } from './worker-html.ts';
-import { domParserFor, NodeCount } from './worker-xml.ts';
+import type { FromDocxWorker, ToDocxWorker } from './docx-protocol.ts';
+import { install } from './worker-scope.ts';
 
-const scope = globalThis as unknown as Record<string, unknown> & {
+const scope = globalThis as unknown as {
+  onmessage: ((event: MessageEvent<ToDocxWorker>) => void) | null;
   postMessage(message: unknown): void;
 };
 
-scope.onmessage = (event: MessageEvent<ToDocxWorker>) => {
+scope.onmessage = (event) => {
   const { bytes, token } = event.data;
-  const budget = new Budget();
-  const images: [string, Blob][] = [];
-  scope.document = documentFor(budget);
-  scope.Node = Node;
-  scope.DOMParser = domParserFor(new NodeCount());
-  // Only shapes ask for a frame, to measure themselves: there is no layout here.
-  scope.requestAnimationFrame = () => 0;
-  URL.createObjectURL = (blob: Blob | MediaSource) => {
-    const key = `${token}-${images.length}`;
-    if (blob instanceof Blob) images.push([key, blob]);
-    return key;
-  };
-  void draw(bytes, budget, () => images).then((answer) => {
-    scope.postMessage(answer);
-  });
+  const { drawing } = install(token);
+  void draw(bytes, drawing)
+    // Anything not caught where it is drawn: the renderer's failure, at once rather than at the time limit.
+    .catch((): FromDocxWorker => ({ kind: 'failed', reason: 'renderer' }))
+    .then((answer) => {
+      scope.postMessage(answer);
+    });
 };

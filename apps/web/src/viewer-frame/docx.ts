@@ -8,20 +8,22 @@
  * links to on the network stays undrawn.
  *
  * docx-preview reads and draws the document in a worker (`docx-worker.ts`),
- * on a DOM of its own, and hands back HTML of a bounded length; here it is
- * put into the page in one step. So the frame's main thread stays free while
- * the document is read and drawn: the viewer's time limit and its "Close"
- * hold (they throw the frame away, and the worker with it). The archive the
- * worker gets is the one the frame wrote of only the parts it counted
- * (`zip-guard.ts`), and the worker refuses a document that would draw past
- * its ceilings ("too large").
-
+ * on a DOM of its own with ceilings, and hands back the steps that build
+ * what it drew; here they are built a slice at a time (`docx-build.ts`). So
+ * the frame's main thread, which the app shares, stays free while the
+ * document is read and drawn, and is given back between slices while it is
+ * built: the viewer's time limit and its "Close" hold (they throw the frame
+ * away, and the worker with it). The archive the worker gets is the one the
+ * frame wrote of only the parts it counted (`zip-guard.ts`); a document that
+ * would draw past the worker's ceilings is refused as too large.
+ *
  * A document names its fonts ("맑은 고딕", "Calibri") and most readers have
  * few of them. Every font a document names is followed by the app's own, so
  * that Korean text falls back to Noto Sans KR rather than to whatever the
  * browser picks.
  */
-import { OPTIONS } from './docx-draw.ts';
+import { BrokenSteps, build, measureShapes } from './docx-build.ts';
+import { OPTIONS } from './docx-options.ts';
 import { readFromDocxWorker, type FromDocxWorker, type ToDocxWorker } from './docx-protocol.ts';
 import DocxWorker from './docx-worker.ts?worker&inline';
 import {
@@ -108,12 +110,14 @@ async function drawInWorker(bytes: ArrayBuffer, token: string): Promise<FromDocx
   const worker = new DocxWorker();
   try {
     return await new Promise<FromDocxWorker>((resolve) => {
+      const failed = (): void => {
+        resolve({ kind: 'failed', reason: 'renderer' });
+      };
       worker.onmessage = (event: MessageEvent) => {
         resolve(readFromDocxWorker(event.data) ?? { kind: 'failed', reason: 'renderer' });
       };
-      worker.onerror = () => {
-        resolve({ kind: 'failed', reason: 'renderer' });
-      };
+      worker.onerror = failed;
+      worker.onmessageerror = failed;
       const message: ToDocxWorker = { bytes, token };
       worker.postMessage(message, [bytes]);
     });
@@ -121,27 +125,6 @@ async function drawInWorker(bytes: ArrayBuffer, token: string): Promise<FromDocx
     // Done with this file: whatever the worker still holds goes.
     worker.terminate();
   }
-}
-
-/**
- * In development the worker is not built into the chunk: the document is
- * drawn here, with the page's own DOM, and without the worker's ceilings.
- */
-async function drawHere(bytes: ArrayBuffer): Promise<FromDocxWorker> {
-  const { parseAsync, renderDocument } = await import('docx-preview');
-  const nodes = await renderDocument(await parseAsync(bytes, OPTIONS), OPTIONS);
-  const isStyle = (node: Node): boolean => node.nodeName === 'STYLE';
-  const html = (from: Node[]): string => {
-    const holder = document.createElement('div');
-    holder.append(...from);
-    return holder.innerHTML;
-  };
-  return {
-    kind: 'drawn',
-    styles: html(nodes.filter(isStyle)),
-    body: html(nodes.filter((node) => !isStyle(node))),
-    images: [],
-  };
 }
 
 /** A token no document can know: what the keys of its pictures start with. */
@@ -156,22 +139,50 @@ const FAILURES = {
   renderer: () => new Error('the Word worker failed'),
 };
 
-export const render: Render = async (bytes, place, report) => {
+/**
+ * In development the worker is not built into the chunk: the document is
+ * drawn here, with the page's own DOM, and without the worker's ceilings.
+ */
+async function drawHere(bytes: ArrayBuffer, styles: HTMLElement, body: HTMLElement): Promise<void> {
+  const { parseAsync, renderDocument } = await import('docx-preview');
+  try {
+    const nodes = await renderDocument(await parseAsync(bytes, OPTIONS), OPTIONS);
+    for (const node of nodes) (node.nodeName === 'STYLE' ? styles : body).append(node);
+  } catch {
+    throw new UnreadableFile();
+  }
+}
+
+/** Builds what the worker drew into the two holders, with the pictures' addresses made here. */
+async function drawnByWorker(
+  bytes: ArrayBuffer,
+  styles: HTMLElement,
+  body: HTMLElement,
+): Promise<void> {
   const token = newToken();
-  const answer = import.meta.env.DEV
-    ? await drawHere(bytes).catch((): FromDocxWorker => ({ kind: 'failed', reason: 'unreadable' }))
-    : await drawInWorker(bytes, token);
+  const answer = await drawInWorker(bytes, token);
   if (answer.kind === 'failed') throw FAILURES[answer.reason]();
-  // The pictures' addresses are made here, so that they last as long as the frame.
+  // The addresses are made here, so that they last as long as the frame.
   const addresses = new Map(answer.images.map(([key, blob]) => [key, URL.createObjectURL(blob)]));
   const keys = new RegExp(`${token}-\\d+`, 'g');
-  const fill = (html: string): string => html.replace(keys, (key) => addresses.get(key) ?? '');
+  const fill = (value: string): string =>
+    value.includes(token) ? value.replace(keys, (key) => addresses.get(key) ?? '') : value;
+  try {
+    await build(answer.styles, styles, fill);
+    await build(answer.body, body, fill);
+  } catch (error) {
+    throw error instanceof BrokenSteps ? new Error('the Word worker answered out of shape') : error;
+  }
+}
+
+export const render: Render = async (bytes, place, report) => {
   const styles = document.createElement('div');
   const body = document.createElement('div');
   body.className = 'docx-body';
-  styles.innerHTML = fill(answer.styles);
-  body.innerHTML = fill(answer.body);
+  await (import.meta.env.DEV ? drawHere : drawnByWorker)(bytes, styles, body);
+  // Into the page once, built: laid out once.
   place.replaceChildren(styles, body);
+  measureShapes(body);
   fallBack(styles, body);
   const view = new DocxView(body, report);
   report.shown(Math.max(1, view.pages.length));

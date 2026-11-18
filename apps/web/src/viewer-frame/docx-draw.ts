@@ -1,38 +1,26 @@
 /**
  * Draws a Word document with docx-preview into the worker's own DOM
- * (`worker-xml.ts`, `worker-html.ts`) and hands back HTML: what the Word
- * worker (`docx-worker.ts`) does with a file.
+ * (`worker-xml.ts`, `worker-html.ts`) and hands back the steps that build
+ * what was drawn: what the Word worker (`docx-worker.ts`) does with a file.
  *
  * docx-preview reads `document`, `Node`, `DOMParser` and `URL.createObjectURL`
- * from the global object; the worker puts its own there before this runs.
- * Pictures come back as blobs, each named in the HTML by a key that starts
- * with the frame's token: the frame makes their addresses (an address made
- * in the worker would end with it).
+ * from the global object; the worker puts its own there before this runs
+ * (`worker-scope.ts`). Before drawing, the style sheets docx-preview would
+ * write are reckoned (`docx-styles.ts`): they are text, not nodes, and no
+ * node count sees them. Pictures come back as blobs, each named in the steps
+ * by a key that starts with the frame's token, one key for each picture
+ * however often it is shown: the frame makes their addresses (an address
+ * made in the worker would end with it).
  */
-import { parseAsync, renderDocument, type Options } from 'docx-preview';
+import { parseAsync, renderDocument } from 'docx-preview';
+
+import { OPTIONS } from './docx-options.ts';
 
 import type { DocxFailure, FromDocxWorker } from './docx-protocol.ts';
-import { Element, HTML_LENGTH_LIMIT, serialize, type Budget, type Node } from './worker-html.ts';
+import { STYLE_TEXT_LIMIT, styleText } from './docx-styles.ts';
+import { Element, flatten, STEPS_TEXT_LIMIT, type Budget, type Node } from './worker-html.ts';
+import type { Drawing } from './worker-scope.ts';
 import { TooMuch } from './worker-xml.ts';
-
-export const OPTIONS = {
-  className: 'docx',
-  inWrapper: true,
-  breakPages: true,
-  // Pages break where Word last laid the document out, as well as where it says so:
-  // otherwise a document without manual breaks is one long page.
-  ignoreLastRenderedPageBreak: false,
-  // Fonts are read as bytes the library changes in place, so they cannot be unpacked once
-  // for all; the app's fonts stand in for them.
-  ignoreFonts: true,
-  // Its pattern for the declaration takes time that grows with the square of a line.
-  trimXmlDeclaration: false,
-  renderAltChunks: false,
-  renderComments: false,
-  renderChanges: false,
-  useBase64URL: false,
-  experimental: false,
-} satisfies Partial<Options>;
 
 /** What docx-preview's package is to this: how it finds a part, and unpacks one. */
 interface Package {
@@ -78,6 +66,22 @@ function unpackOnce(pack: Package): void {
   };
 }
 
+/**
+ * Makes the document give one address to a picture however often it is
+ * shown: docx-preview asks for an address at each place.
+ */
+function addressOncePerPart(document: object): void {
+  const holder = document as { blobToURL?: unknown };
+  if (typeof holder.blobToURL !== 'function') return;
+  const original = (holder.blobToURL as (blob: unknown, path?: string) => unknown).bind(document);
+  const made = new Map<string, unknown>();
+  holder.blobToURL = (blob: unknown, path?: string) => {
+    if (typeof path !== 'string') return original(blob, path);
+    if (!made.has(path)) made.set(path, original(blob, path));
+    return made.get(path);
+  };
+}
+
 /** Why drawing stopped, from what was thrown: too much, or a file the library could not read. */
 function failure(error: unknown, budget: Budget): FromDocxWorker {
   // A string or a call stack past the engine's limits is a document too large too.
@@ -86,11 +90,10 @@ function failure(error: unknown, budget: Budget): FromDocxWorker {
   return { kind: 'failed', reason };
 }
 
-/** Draws the file and serializes what was drawn: the style sheets apart from the pages. */
+/** Draws the file and flattens what was drawn: the style sheets apart from the pages. */
 export async function draw(
   bytes: ArrayBuffer,
-  budget: Budget,
-  images: () => [string, Blob][],
+  { budget, images }: Drawing,
 ): Promise<FromDocxWorker> {
   let parsed: unknown;
   try {
@@ -101,19 +104,24 @@ export async function draw(
   const pack = packageOf(parsed);
   // A version of the library that keeps its package otherwise fails here (as the renderer's
   // failure) rather than draws without the guard.
-  if (!pack) return { kind: 'failed', reason: 'renderer' };
+  if (!pack || typeof parsed !== 'object' || parsed === null) {
+    return { kind: 'failed', reason: 'renderer' };
+  }
   unpackOnce(pack);
+  addressOncePerPart(parsed);
+  if (styleText(parsed) > STYLE_TEXT_LIMIT) return { kind: 'failed', reason: 'too-large' };
   try {
     const nodes = (await renderDocument(parsed, OPTIONS)) as unknown as Node[];
     // A ceiling passed where the library caught what was thrown.
     if (budget.passed) throw new TooMuch('elements');
     const isStyle = (node: Node): boolean => node instanceof Element && node.tagName === 'style';
-    const styles = serialize(nodes.filter(isStyle));
-    const body = serialize(
+    const room = { left: STEPS_TEXT_LIMIT };
+    const styles = flatten(nodes.filter(isStyle), room);
+    const body = flatten(
       nodes.filter((node) => !isStyle(node)),
-      HTML_LENGTH_LIMIT - styles.length,
+      room,
     );
-    return { kind: 'drawn', styles, body, images: images() };
+    return { kind: 'drawn', styles, body, images };
   } catch (error) {
     return failure(error, budget);
   }

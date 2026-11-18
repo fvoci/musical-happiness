@@ -9,17 +9,19 @@
  *
  * Every node made counts toward one ceiling for the whole file, so that
  * parsing cannot hold more than a long document needs; past it the parser
- * throws `TooMuch`. A numbering part is checked too before docx-preview
- * expands it (each of its lists times the levels of the list it uses).
+ * throws `TooMuch`. Every part is also checked, whatever its root is called,
+ * for what docx-preview's reading of numberings would make of it (each list
+ * times the levels of the list it uses, and the style sheet text it writes
+ * for them) before docx-preview makes it.
  */
 import { SaxesParser, type SaxesTagNS } from 'saxes';
 
 /** The most XML nodes a document's parts may have together: several times a long report's. */
-export const XML_NODE_LIMIT = 3_000_000;
-/** The most list levels docx-preview's expansion of a numbering part may make. */
-export const NUMBERING_LIMIT = 100_000;
-
-const WORDML = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+export const XML_NODE_LIMIT = 2_000_000;
+/** The most list levels docx-preview's reading of a numbering part may make: many times a long report's. */
+export const NUMBERING_LIMIT = 20_000;
+/** The most style sheet text docx-preview may write for numberings, in characters: hundreds of times a long report's. */
+export const NUMBERING_TEXT_LIMIT = 8_000_000;
 
 /** Thrown when a document would make more than the worker takes on. */
 export class TooMuch extends Error {}
@@ -30,6 +32,9 @@ class ItemList<T> extends Array<T> {
     return this[index] ?? null;
   }
 }
+
+/** What an element without children or attributes has: one list for all of them. */
+const NONE: ItemList<never> = Object.freeze(new ItemList<never>());
 
 export class XmlAttr {
   readonly name: string;
@@ -61,27 +66,32 @@ export class XmlText {
 
 export class XmlElement {
   readonly nodeType = 1;
-  readonly childNodes = new ItemList<XmlElement | XmlText>();
-  readonly attributes = new ItemList<XmlAttr>();
   readonly nodeName: string;
   readonly localName: string;
   readonly namespaceURI: string | null;
   readonly parent: XmlElement | undefined;
-  /** The namespaces this element declares, by prefix ('' for the default). */
-  readonly #declared: Record<string, string>;
+  childNodes: ItemList<XmlElement | XmlText> = NONE;
+  attributes: ItemList<XmlAttr> = NONE;
+  /** The namespaces this element declares, by prefix ('' for the default); none, mostly. */
+  readonly #declared: Record<string, string> | undefined;
 
   constructor(
     nodeName: string,
     localName: string,
     namespaceURI: string | null,
     parent: XmlElement | undefined,
-    declared: Record<string, string>,
+    declared: Record<string, string> | undefined,
   ) {
     this.nodeName = nodeName;
     this.localName = localName;
     this.namespaceURI = namespaceURI;
     this.parent = parent;
     this.#declared = declared;
+  }
+
+  add(child: XmlElement | XmlText): void {
+    if (this.childNodes === NONE) this.childNodes = new ItemList();
+    this.childNodes.push(child);
   }
 
   get firstChild(): XmlElement | XmlText | null {
@@ -104,7 +114,7 @@ export class XmlElement {
   }
 
   lookupNamespaceURI(prefix: string | null): string | null {
-    const uri = this.#declared[prefix ?? ''];
+    const uri = this.#declared?.[prefix ?? ''];
     if (uri !== undefined) return uri === '' ? null : uri;
     return this.parent?.lookupNamespaceURI(prefix) ?? null;
   }
@@ -134,35 +144,77 @@ export class NodeCount {
   }
 }
 
-/** How many list levels docx-preview would make of a numbering part. */
-export function numberingSize(root: XmlElement): number {
-  const levels = new Map<string, number>();
-  const used: string[] = [];
-  for (const child of root.childNodes) {
-    if (!(child instanceof XmlElement)) continue;
-    if (child.localName === 'abstractNum') {
-      const id = child.attributes.find((each) => each.localName === 'abstractNumId')?.value ?? '';
-      const count = child.childNodes.filter(
-        (node) => node instanceof XmlElement && node.localName === 'lvl',
-      ).length;
-      levels.set(id, (levels.get(id) ?? 0) + count);
-    } else if (child.localName === 'num') {
-      const reference = child.childNodes.find(
-        (node): node is XmlElement =>
-          node instanceof XmlElement && node.localName === 'abstractNumId',
-      );
-      used.push(reference?.attributes.find((each) => each.localName === 'val')?.value ?? '');
-    }
+const childrenNamed = (element: XmlElement, name: string): XmlElement[] =>
+  element.childNodes.filter(
+    (node): node is XmlElement => node instanceof XmlElement && node.localName === name,
+  );
+const attribute = (element: XmlElement | undefined, name: string): string =>
+  element?.attributes.find((each) => each.localName === name)?.value ?? '';
+
+/** What the attributes of an element and all within it come to, as CSS might hold them: names, values. */
+function attributeText(root: XmlElement): number {
+  let length = 0;
+  const stack: XmlElement[] = [root];
+  while (stack.length > 0) {
+    const element = stack.pop();
+    if (!element) continue;
+    for (const each of element.attributes) length += each.localName.length + each.value.length + 4;
+    for (const child of element.childNodes) if (child instanceof XmlElement) stack.push(child);
   }
-  return used.reduce((sum, id) => sum + (levels.get(id) ?? 0), 0);
+  return length;
+}
+
+/** A list's levels, summed: how many, their rules' text but for the numbering's id, and their "%n" (each grows by the id). */
+interface ListText {
+  levels: number;
+  text: number;
+  counters: number;
+}
+
+/**
+ * What docx-preview's reading of numberings would make of a part with this
+ * root, as it reads (by local names only): how many list levels, and about
+ * how much style sheet text it writes for them, at most. Each level of each
+ * numbering gets a few rules whose selectors carry the numbering's id, the
+ * level's text with each "%n" made a `counter(…)` that names the id again,
+ * and the level's properties and picture bullet spread in.
+ */
+export function numberingSize(root: XmlElement): { levels: number; text: number } {
+  const bullet = Math.max(0, ...childrenNamed(root, 'numPicBullet').map(attributeText));
+  const lists = new Map<string, ListText>();
+  for (const list of childrenNamed(root, 'abstractNum')) {
+    const id = attribute(list, 'abstractNumId');
+    const sum = lists.get(id) ?? { levels: 0, text: 0, counters: 0 };
+    for (const level of childrenNamed(list, 'lvl')) {
+      const text = attribute(childrenNamed(level, 'lvlText')[0], 'val');
+      sum.levels += 1;
+      sum.text += 100 + text.length + 2 * attributeText(level) + bullet;
+      sum.counters += (text.match(/%/g) ?? []).length;
+    }
+    lists.set(id, sum);
+  }
+  let levels = 0;
+  let text = 0;
+  for (const num of childrenNamed(root, 'num')) {
+    const id = attribute(num, 'numId').length;
+    const list = lists.get(attribute(childrenNamed(num, 'abstractNumId')[0], 'val'));
+    if (!list) continue;
+    levels += list.levels;
+    // The selectors (five at most) and the counter names carry the id.
+    text += list.text + list.levels * 5 * (id + 30) + list.counters * (id + 40);
+  }
+  return { levels, text };
 }
 
 function element(tag: SaxesTagNS, parent: XmlElement | undefined): XmlElement {
-  const made = new XmlElement(tag.name, tag.local, tag.uri || null, parent, tag.ns);
-  for (const attribute of Object.values(tag.attributes)) {
-    made.attributes.push(
-      new XmlAttr(attribute.name, attribute.local, attribute.uri || null, attribute.value),
-    );
+  const declared = Object.keys(tag.ns).length > 0 ? tag.ns : undefined;
+  const made = new XmlElement(tag.name, tag.local, tag.uri || null, parent, declared);
+  const attributes = Object.values(tag.attributes);
+  if (attributes.length > 0) {
+    made.attributes = new ItemList();
+    for (const each of attributes) {
+      made.attributes.push(new XmlAttr(each.name, each.local, each.uri || null, each.value));
+    }
   }
   return made;
 }
@@ -176,28 +228,31 @@ export function parseXml(text: string, count: NodeCount): XmlDocument {
     const parent = open.at(-1);
     const made = element(tag, parent);
     count.add(1 + made.attributes.length);
-    if (parent) parent.childNodes.push(made);
+    if (parent) parent.add(made);
     else root = made;
     open.push(made);
   });
   parser.on('closetag', () => {
     open.pop();
   });
-  const text$ = (data: string): void => {
+  const addText = (data: string): void => {
     const parent = open.at(-1);
     if (!parent) return;
     count.add();
-    parent.childNodes.push(new XmlText(data));
+    parent.add(new XmlText(data));
   };
-  parser.on('text', text$);
-  parser.on('cdata', text$);
+  parser.on('text', addText);
+  parser.on('cdata', addText);
   parser.on('error', (error) => {
     throw error;
   });
   parser.write(text).close();
   const parsed = root as XmlElement | null;
-  if (parsed?.localName === 'numbering' && parsed.namespaceURI === WORDML) {
-    if (numberingSize(parsed) > NUMBERING_LIMIT) throw new TooMuch('list levels');
+  if (parsed) {
+    const numbering = numberingSize(parsed);
+    if (numbering.levels > NUMBERING_LIMIT || numbering.text > NUMBERING_TEXT_LIMIT) {
+      throw new TooMuch('list levels');
+    }
   }
   return new XmlDocument(parsed);
 }

@@ -1,41 +1,48 @@
 /**
- * The Word worker's globals (`src/viewer-frame/docx-worker.ts`), put on
- * Node's global object for a test and taken off again: the same DOM, the
- * same ceilings, pictures kept by key.
+ * Draws a Word file as the Word worker does (`src/viewer-frame/docx-worker.ts`):
+ * its globals (`worker-scope.ts`) put on Node's or jsdom's global object for
+ * the drawing, then taken off. And a reading of the steps it answers with,
+ * for the tests to look into.
  */
 import { draw } from '../../src/viewer-frame/docx-draw.ts';
-import type { FromDocxWorker } from '../../src/viewer-frame/docx-protocol.ts';
-import { Budget, documentFor, Node } from '../../src/viewer-frame/worker-html.ts';
-import { domParserFor, NodeCount } from '../../src/viewer-frame/worker-xml.ts';
+import {
+  CLOSE,
+  OPEN,
+  TEXT,
+  type FromDocxWorker,
+  type Step,
+} from '../../src/viewer-frame/docx-protocol.ts';
+import { install } from '../../src/viewer-frame/worker-scope.ts';
 
 /** Draws a Word file as the worker does, with `token` before each picture's key. */
 export async function drawAsWorker(file: Buffer, token = 'TOKEN'): Promise<FromDocxWorker> {
-  const names = ['document', 'Node', 'DOMParser', 'requestAnimationFrame'] as const;
-  // As they were, accessors included (jsdom's `document` has only a getter).
-  const before = names.map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
-  const put = (name: string, value: unknown): void => {
-    Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
-  };
-  const createObjectURL = URL.createObjectURL.bind(URL);
-  const budget = new Budget();
-  const images: [string, Blob][] = [];
-  put('document', documentFor(budget));
-  put('Node', Node);
-  put('DOMParser', domParserFor(new NodeCount()));
-  put('requestAnimationFrame', () => 0);
-  URL.createObjectURL = (blob: Blob | MediaSource) => {
-    const key = `${token}-${images.length}`;
-    if (blob instanceof Blob) images.push([key, blob]);
-    return key;
-  };
+  const { drawing, restore } = install(token);
   try {
-    return await draw(Uint8Array.from(file).buffer, budget, () => images);
+    return await draw(Uint8Array.from(file).buffer, drawing);
   } finally {
-    names.forEach((name, at) => {
-      const descriptor = before[at];
-      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-      else Reflect.deleteProperty(globalThis, name);
-    });
-    URL.createObjectURL = createObjectURL;
+    restore();
   }
+}
+
+/** The steps as markup, for tests to search: `<tag name="value">`, text as it is, `</tag>`. */
+export function stepsAsMarkup(steps: readonly Step[]): string {
+  const parts: string[] = [];
+  const open: string[] = [];
+  for (let at = 0; at < steps.length;) {
+    const kind = steps[at++];
+    if (kind === TEXT) parts.push(String(steps[at++]));
+    else if (kind === CLOSE) parts.push(`</${open.pop() ?? ''}>`);
+    else if (kind === OPEN) {
+      const tag = String(steps[at++]);
+      at += 1;
+      const count = Number(steps[at++]);
+      let attributes = '';
+      for (let each = 0; each < count; each += 1) {
+        attributes += ` ${String(steps[at++])}="${String(steps[at++])}"`;
+      }
+      parts.push(`<${tag}${attributes}>`);
+      open.push(tag);
+    }
+  }
+  return parts.join('');
 }
