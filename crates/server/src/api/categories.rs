@@ -2,7 +2,9 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{Category, CategoryContainers, CategoryType, WorkspaceRole};
+use fvoci_model::{
+    Category, CategoryContainers, CategoryError, CategoryType, RefusalReason, WorkspaceRole,
+};
 use fvoci_store::ContainerVisibility;
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
@@ -41,47 +43,58 @@ type ContainerPlace = (String, String, String);
 /// A category as a request body carries it.
 struct CategoryRequest {
     category: Category,
-    /// Whether the body's `type` is one a category can have. Reported late, see
-    /// [`CategoryRequest::into_category`].
+    /// Whether the body's `type`, if it has one, is one a category can have. Reported
+    /// with the category's other refusals, see [`CategoryRequest::into_category`].
     type_is_valid: bool,
 }
 
 impl CategoryRequest {
-    /// Decodes a category: a member that is missing leaves the default, and so does a
-    /// blank `type`. A body that is no JSON object, `null` included, or whose members
-    /// have the wrong types (`null` among them) is a bad request.
+    /// Decodes a category: a member that is missing leaves the default. A `type` that
+    /// is no type of a category, blank included, is refused by
+    /// [`CategoryRequest::into_category`]. A body that is no JSON object, `null`
+    /// included, or whose members have the wrong types (`null` among them) is a bad
+    /// request.
     fn decode(body: &[u8]) -> Result<Self, AppError> {
         let mut members = json_object(decode_json(body)?)?;
-        let unknown_type_is_blank = match members.get("type") {
-            Some(Value::String(text)) if !is_category_type(text) => Some(text.trim().is_empty()),
-            _ => None,
+        let type_is_valid = match members.get("type") {
+            Some(Value::String(text)) => is_category_type(text),
+            _ => true,
         };
-        if unknown_type_is_blank.is_some() {
+        if !type_is_valid {
             members.remove("type");
         }
         let category =
             serde_json::from_value(Value::Object(members)).map_err(AppError::bad_request)?;
         Ok(Self {
             category,
-            type_is_valid: unknown_type_is_blank.unwrap_or(true),
+            type_is_valid,
         })
     }
 
-    /// The category, if its type is valid. If not, the answer is the bad request the
-    /// original gives: it checks the type after the identifier, the name, the user and
-    /// the workspace, so a category with one of those blank is refused for that.
+    /// The category, if its type is valid. If not, the bad request names every member
+    /// that is refused: the type, and whichever of the identifier, the name, the user
+    /// and the workspace is blank.
     fn into_category(self) -> Result<Category, AppError> {
         let mut category = self.category;
         if self.type_is_valid {
             return Ok(category);
         }
         category.hydrate(now_millis());
-        category.validate()?;
-        Err(AppError::bad_request(format_args!(
-            "category type is invalid. Allowed types: {} and {}",
-            CategoryType::System.as_str(),
-            CategoryType::Custom.as_str(),
-        )))
+        let mut refused = category
+            .validate()
+            .err()
+            .map(CategoryError::into_refusals)
+            .unwrap_or_default();
+        refused.refuse(
+            "type",
+            RefusalReason::Invalid,
+            format!(
+                "type must be {:?} or {:?}",
+                CategoryType::System.as_str(),
+                CategoryType::Custom.as_str(),
+            ),
+        );
+        Err(refused.into())
     }
 }
 

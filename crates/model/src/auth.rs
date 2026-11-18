@@ -165,8 +165,8 @@ pub struct RegisterRequest {
     pub email: String,
     /// The password.
     pub password: String,
-    /// The name to be shown by; may be left out or empty for none. Read as
-    /// `patchMe` reads it.
+    /// The name to be shown by; may be left out or empty for none, not `null`. Checked
+    /// as `patchMe` checks it: at most 64 UTF-16 code units without control characters.
     #[serde(rename = "displayName")]
     pub display_name: String,
     /// The name of the organization the account starts, and of that organization's
@@ -237,8 +237,8 @@ pub struct NewAccount {
     pub email: String,
     /// The password.
     pub password: String,
-    /// The name to be shown by; may be left out or empty for none. Read as
-    /// `patchMe` reads it.
+    /// The name to be shown by; may be left out or empty for none, not `null`. Checked
+    /// as `patchMe` checks it: at most 64 UTF-16 code units without control characters.
     #[serde(rename = "displayName")]
     pub display_name: String,
 }

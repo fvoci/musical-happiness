@@ -106,13 +106,13 @@ impl Category {
     /// that is blank.
     pub fn validate(&self) -> Result<(), CategoryError> {
         let required = [
-            (&self.id, "id", "category ID cannot be empty"),
-            (&self.name, "name", "category name cannot be empty"),
-            (&self.user_id, "userId", "category user ID cannot be empty"),
+            (&self.id, "id", "the category has no id"),
+            (&self.name, "name", "the category has no name"),
+            (&self.user_id, "userId", "the category names no user"),
             (
                 &self.workspace_id,
                 "workspaceId",
-                "category workspace id ID cannot be empty",
+                "the category names no workspace",
             ),
         ];
         let mut refused = Refusals::new();

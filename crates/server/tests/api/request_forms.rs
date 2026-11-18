@@ -318,8 +318,8 @@ async fn the_board_is_no_parent_in_a_batch_or_with_new_boards() {
     th.teardown().await;
 }
 
-/// A category's `type` and `name` are strings: `null` is neither, and refused where a
-/// blank `type` is the default.
+/// A category's `type` and `name` are strings: `null` is neither, and refused as a blank
+/// `type` is.
 #[tokio::test]
 async fn null_is_refused_by_categories() {
     let th = Setup::one_user().start().await;
@@ -339,7 +339,7 @@ async fn null_is_refused_by_categories() {
     }
     let body =
         json!({"name": "Blank", "userId": user.id, "workspaceId": TEST_WORKSPACE_ID, "type": ""});
-    th.client.post(&path, &body).await.check_created();
+    th.client.post(&path, &body).await.check_bad_request();
 
     th.teardown().await;
 }

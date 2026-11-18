@@ -432,7 +432,7 @@ fn category_hydrate_and_validate() {
     };
     assert_eq!(
         category.validate().expect_err("no id yet").to_string(),
-        "category ID cannot be empty"
+        "the category has no id"
     );
 
     category.hydrate(77);
@@ -452,7 +452,7 @@ fn category_hydrate_and_validate() {
     };
     assert_eq!(
         blank_name.validate().expect_err("blank name").to_string(),
-        "category name cannot be empty"
+        "the category has no name"
     );
     let no_user = Category {
         user_id: String::new(),
@@ -460,7 +460,7 @@ fn category_hydrate_and_validate() {
     };
     assert_eq!(
         no_user.validate().expect_err("no user").to_string(),
-        "category user ID cannot be empty"
+        "the category names no user"
     );
     let no_workspace = Category {
         workspace_id: String::new(),
@@ -471,7 +471,7 @@ fn category_hydrate_and_validate() {
             .validate()
             .expect_err("no workspace")
             .to_string(),
-        "category workspace id ID cannot be empty"
+        "the category names no workspace"
     );
 }
 

@@ -73,7 +73,7 @@ async fn handle_password_reset_link(
 /// The body of a request to set a password.
 #[derive(Deserialize)]
 struct AdminSetPasswordData {
-    /// Absent and `null` read as empty, as the original's decoder reads them.
+    /// Optional: absent and `null` are no password, which is refused as an empty one.
     #[serde(default)]
     password: Option<String>,
 }
@@ -99,7 +99,7 @@ async fn handle_admin_set_password(
 ) -> ApiResult {
     let user_id = app.operator_user_id(&username).await;
     let result = async {
-        // A body of `null` decodes to nothing, as in the original.
+        // A body of `null` names no password, and is refused below as an empty one.
         let data: Option<AdminSetPasswordData> = decode_json(&body)?;
         let password = data.and_then(|data| data.password).unwrap_or_default();
         fvoci_model::check_new_password(&password)?;

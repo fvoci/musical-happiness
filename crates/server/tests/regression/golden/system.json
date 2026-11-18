@@ -188,13 +188,13 @@
     "request": "GET /static as anonymous",
     "status": 404,
     "content_type": "text/plain",
-    "body": "404 page not found\n"
+    "body": "not found\n"
   },
   {
     "name": "missing static file",
     "request": "GET /static/nope.js as anonymous",
     "status": 404,
     "content_type": "text/plain",
-    "body": "404 page not found\n"
+    "body": "not found\n"
   }
 ]

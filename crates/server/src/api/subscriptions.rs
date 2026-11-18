@@ -64,13 +64,11 @@ impl SubscriptionRequest {
         serde_json::from_value(Value::Object(members)).map_err(AppError::bad_request)
     }
 
-    /// Validates in the original's order (server/model/subscription.go `IsValid`):
-    /// block identifier, block type, subscriber identifier, subscriber type.
+    /// Validates every member and refuses all that are wrong at once: block identifier,
+    /// block type, subscriber identifier, subscriber type.
     fn into_subscription(self) -> Result<Subscription, AppError> {
         let subscriber_type = match self.subscriber_type.as_str() {
             "user" => Some(SubscriberType::User),
-            // The original also takes `channel`, for the channels of its host
-            // application. There are none here.
             _ => None,
         };
         let subscription = Subscription {
