@@ -314,27 +314,30 @@ describe('the versions of a body, in memory', () => {
     expect(lines(stored.blocks.get(cardId)?.body)).toEqual(['second', 'typed']);
   });
 
-  it('does not restore a version that shows a file that is gone (of an image or a file block)', async () => {
-    const { world: stored, BOARD, backend, cardId } = world();
-    stored.files.set('f1', {
-      fileId: 'f1',
-      containerId: BOARD,
-      name: 'p.png',
-      size: 1,
-      contentType: '',
-    });
-    const pictured = {
-      type: 'doc',
-      content: [{ type: 'image', attrs: { fileId: 'f1' } }],
-    };
-    let readAt = stored.blocks.get(cardId)?.updateAt ?? 0;
-    await backend.writeCardBody(BOARD, cardId, { body: pictured, readAt });
-    readAt = stored.blocks.get(cardId)?.updateAt ?? 0;
-    await backend.writeCardBody(BOARD, cardId, { body: text('third'), readAt });
-    stored.files.delete('f1');
-    expect((await rejection(backend.bodyVersions.restore(BOARD, cardId, 2))).status).toBe(409);
-    expect(lines(stored.blocks.get(cardId)?.body)).toEqual(['third']);
-  });
+  it.each(['image', 'file'])(
+    'does not restore a version whose %s shows a file that is gone',
+    async (kind) => {
+      const { world: stored, BOARD, backend, cardId } = world();
+      stored.files.set('f1', {
+        fileId: 'f1',
+        containerId: BOARD,
+        name: 'p.png',
+        size: 1,
+        contentType: '',
+      });
+      const pictured = {
+        type: 'doc',
+        content: [{ type: kind, attrs: { fileId: 'f1' } }],
+      };
+      let readAt = stored.blocks.get(cardId)?.updateAt ?? 0;
+      await backend.writeCardBody(BOARD, cardId, { body: pictured, readAt });
+      readAt = stored.blocks.get(cardId)?.updateAt ?? 0;
+      await backend.writeCardBody(BOARD, cardId, { body: text('third'), readAt });
+      stored.files.delete('f1');
+      expect((await rejection(backend.bodyVersions.restore(BOARD, cardId, 2))).status).toBe(409);
+      expect(lines(stored.blocks.get(cardId)?.body)).toEqual(['third']);
+    },
+  );
 });
 
 describe('the versions of a body, from the server', () => {

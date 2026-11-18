@@ -152,14 +152,14 @@ fn the_names_of_files_are_taken_as_an_upload_names_them() {
     let board = serde_json::json!({"id": "b1", "fileNames": {
         "7a.pdf": "회의록.pdf",
         "7b.pdf": "renamed.exe",
-        "7c.pdf": "  ",
+        "7c": "  ",
         "7d.pdf": "nul\u{0}.pdf",
         "7e.pdf": format!("{}.pdf", "x".repeat(MAX_UPLOAD_NAME_CHARS)),
         "7f.pdf": 3,
         "7g.pdf": longest,
         "7h.jpg": "Photo.JPEG",
         "7i.pdf": "../../minutes.pdf",
-        "7j.pdf": "dir/  ",
+        "7j": "dir/  ",
     }});
     let names = file_names_of(&board);
     let taken = |entry: &str, name: &str| (entry.to_owned(), name.to_owned());

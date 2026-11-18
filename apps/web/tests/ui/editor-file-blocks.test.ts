@@ -315,7 +315,7 @@ describe('a file block', () => {
         tell = resolve;
       });
       const details = vi.fn(() => told.then(answer));
-      const bytes = (): Promise<Blob> => Promise.resolve(new Blob(['%PDF']));
+      const bytes = vi.fn((): Promise<Blob> => Promise.resolve(new Blob(['%PDF'])));
       setFileSource({ url: (fileId) => `/files/wiki-1/${fileId}`, details, bytes });
       const saved = vi.spyOn(HTMLAnchorElement.prototype, 'click');
       vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:minutes');
@@ -331,11 +331,14 @@ describe('a file block', () => {
       block?.querySelector<HTMLAnchorElement>('a.doc-file-download')?.click();
       await aTurn();
       // The bytes are there; the name is waited for.
+      expect(bytes).toHaveBeenCalledTimes(1);
       expect(savedAs()).toEqual([]);
       tell();
       await vi.waitFor(() => {
         expect(savedAs()).toEqual([name]);
       });
+      // The press waited for the block's own request of the record, and asked no other.
+      expect(details).toHaveBeenCalledTimes(1);
       unmount();
       vi.restoreAllMocks();
     }

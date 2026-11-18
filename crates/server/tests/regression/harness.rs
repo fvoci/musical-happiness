@@ -9,7 +9,8 @@
 //! * secrets (43 characters of URL-safe base64: stored file names, tokens) become
 //!   `<secret:N>`, numbered the same way, so that a file name is recognized where it
 //!   comes up again, also in the name of a member (an archive's `fileNames`, by stored
-//!   name); identifiers in names of members stay as they are;
+//!   name; members whose names hold new ones are numbered in the order of what they
+//!   hold); identifiers in names of members stay as they are;
 //! * millisecond timestamps become `<ts>`;
 //! * the seconds to wait of a 429 (`retryAfter`, `Retry-After`) become `<seconds>`;
 //! * values of members named like secrets (`token`) become `<secret>`, and
@@ -762,6 +763,30 @@ impl Placeholders {
         })
     }
 
+    /// Where a member comes as the secrets of its object are numbered: by its name, a
+    /// secret in it spelled by its number or, while it has none, `<secret>` (a stored name
+    /// new to the recording differs from run to run), and then, for a name with such a
+    /// secret, by its value normalized on its own. A name without secrets keeps its place.
+    fn order_of(&self, name: &str, member: &Value) -> (String, String) {
+        let mut holds_new = false;
+        let spelled = replace_run_specifics(name, |found| match found {
+            Found::Id(identifier) => identifier.to_owned(),
+            Found::Secret(secret) => self.secrets.get(secret).map_or_else(
+                || {
+                    holds_new = true;
+                    "<secret>".to_owned()
+                },
+                |number| format!("<secret:{number}>"),
+            ),
+        });
+        let alone = if holds_new {
+            Placeholders::default().value(member, name).to_string()
+        } else {
+            String::new()
+        };
+        (spelled, alone)
+    }
+
     fn secret(&mut self, secret: &str) -> String {
         let next = self.secrets.len() + 1;
         let number = *self.secrets.entry(secret.to_owned()).or_insert(next);
@@ -788,10 +813,13 @@ impl Placeholders {
     fn value(&mut self, value: &Value, key: &str) -> Value {
         match value {
             Value::Object(members) => {
-                let mut sorted: Vec<(&String, &Value)> = members.iter().collect();
-                sorted.sort_by(|a, b| a.0.cmp(b.0));
+                let mut sorted: Vec<((String, String), &String, &Value)> = members
+                    .iter()
+                    .map(|(name, member)| (self.order_of(name, member), name, member))
+                    .collect();
+                sorted.sort_by(|a, b| a.0.cmp(&b.0));
                 let mut normalized = Map::new();
-                for (name, member) in sorted {
+                for (_, name, member) in sorted {
                     let key = self.key(name);
                     normalized.insert(key, self.value(member, name));
                 }
@@ -894,106 +922,4 @@ fn canonical_header_name(name: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const FIRST: &str = "01890a5d-ac96-774b-bcce-b302099a8057";
-    const SECOND: &str = "01890a5d-ac96-774b-bcce-b302099a8058";
-    const SECRET: &str = "qM4nYvE7m0kXc1D_8sWb-3uZtLrA9hGfJ2oPiK5xN6Q";
-
-    #[test]
-    fn identifiers_are_numbered_in_order_of_first_appearance() {
-        let mut placeholders = Placeholders::default();
-        let text = format!("{FIRST} not found, see {SECOND} and {FIRST}");
-        assert_eq!(
-            placeholders.text(&text),
-            "<id:1> not found, see <id:2> and <id:1>",
-            "input {text:?}"
-        );
-    }
-
-    #[test]
-    fn secrets_are_numbered_apart_from_identifiers() {
-        assert_eq!(SECRET.len(), SECRET_LENGTH, "the sample is a secret");
-        let mut placeholders = Placeholders::default();
-        let text = format!("/files/teams/{FIRST}/{SECOND}/{SECRET}.png and {SECRET}.png");
-        assert_eq!(
-            placeholders.text(&text),
-            "/files/teams/<id:1>/<id:2>/<secret:1>.png and <secret:1>.png",
-            "input {text:?}"
-        );
-    }
-
-    /// A stored file name as the name of a member (an archive's `fileNames`) is the
-    /// same secret as where it is a value; an identifier as a name stays as it is.
-    #[test]
-    fn a_secret_in_the_name_of_a_member_is_replaced_and_an_identifier_kept() {
-        let mut placeholders = Placeholders::default();
-        let recorded = json!({
-            "fileId": format!("{SECRET}.png"),
-            "fileNames": {format!("{SECRET}.png"): "pixel.png"},
-            "properties": {FIRST: "a value"},
-        });
-        assert_eq!(
-            placeholders.value(&recorded, ""),
-            json!({
-                "fileId": "<secret:1>.png",
-                "fileNames": {"<secret:1>.png": "pixel.png"},
-                "properties": {FIRST: "a value"},
-            }),
-            "input {recorded}"
-        );
-    }
-
-    #[test]
-    fn only_whole_runs_are_identifiers_or_secrets() {
-        let unchanged = |text: &str| {
-            assert_eq!(
-                Placeholders::default().text(text),
-                text,
-                "{text:?} holds nothing that differs between runs"
-            );
-        };
-        // Other spellings of a UUID, the nil UUID, and an identifier inside a longer run.
-        unchanged("01890A5D-AC96-774B-BCCE-B302099A8057");
-        unchanged("01890a5dac96774bbcceb302099a8057");
-        unchanged("00000000-0000-0000-0000-000000000000");
-        unchanged("x01890a5d-ac96-774b-bcce-b302099a8057");
-        unchanged("01890a5d-ac96-774b-bcce-b302099a8057-more");
-        // As long as a secret, but a word: one letter case only.
-        unchanged("a_setting_with_a_very_long_snake_case_name_x");
-        unchanged("unknown-board");
-        assert_eq!(
-            Placeholders::default().text(&format!("block ID={FIRST}.")),
-            "block ID=<id:1>.",
-            "an identifier ends at a character outside the run"
-        );
-    }
-
-    #[test]
-    fn lists_keep_their_order() {
-        let mut placeholders = Placeholders::default();
-        let value = json!([
-            {"id": SECOND, "title": "b", "updateAt": 1_700_000_000_001_i64},
-            {"id": FIRST, "title": "a", "token": "x"},
-        ]);
-        assert_eq!(
-            placeholders.value(&value, ""),
-            json!([
-                {"id": "<id:1>", "title": "b", "updateAt": "<ts>"},
-                {"id": "<id:2>", "title": "a", "token": "<secret>"},
-            ]),
-            "as they came, numbered in that order"
-        );
-    }
-
-    #[test]
-    fn header_names_are_spelled_one_way() {
-        assert_eq!(
-            canonical_header_name("x-content-type-options"),
-            "X-Content-Type-Options",
-            "each part is capitalized"
-        );
-        assert_eq!(canonical_header_name("ETag"), "Etag", "the rest is lowered");
-    }
-}
+mod tests;
