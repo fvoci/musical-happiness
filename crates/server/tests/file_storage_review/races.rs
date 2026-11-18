@@ -23,7 +23,7 @@ async fn an_overlapping_worker_without_the_lock_of_the_server_does_not_run() {
 
     // The second process: its own pool, and no lock of the server.
     let config = ts.app.config().clone();
-    let independent = Store::connect(ts.app.store().db_type(), &config.db_config)
+    let independent = Store::connect(ts.app.store().db_type(), &config.database_connection)
         .await
         .expect("an independent worker's pool");
     let second = App::new(config, independent.clone(), ts.app.files().clone())

@@ -171,13 +171,13 @@ async fn a_cancelled_statement_that_started_writing_is_observed_as_a_write() {
     let store = common::setup().await;
     let recorder = Recorder::default();
     assert!(store.observe(Box::new(recorder.clone())), "the observer");
-    let dbconfig = store.dbconfig();
+    let database_connection = store.database_connection();
     let session_id = new_id();
     let delete = || tokio::time::timeout(Duration::from_secs(1), store.delete_session(&session_id));
     let given_up = match common::db_type() {
         DbType::Sqlite => {
             let mut holder = SqliteConnectOptions::new()
-                .filename(&dbconfig)
+                .filename(&database_connection)
                 .connect()
                 .await
                 .expect("a connection of the test's own");
@@ -191,7 +191,7 @@ async fn a_cancelled_statement_that_started_writing_is_observed_as_a_write() {
             given_up
         }
         DbType::Postgres => {
-            let mut holder = common::connect_past_the_store(&dbconfig).await;
+            let mut holder = common::connect_past_the_store(&database_connection).await;
             let mut lock = holder
                 .begin()
                 .await

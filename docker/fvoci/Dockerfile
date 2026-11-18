@@ -5,13 +5,13 @@
 #
 #   docker build -f docker/fvoci/Dockerfile -t fvoci-server \
 #       --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD) .
-#   docker run --init -p 127.0.0.1:8080:8000 -e FVOCI_SERVERROOT=http://localhost:8080 \
+#   docker run --init -p 127.0.0.1:8080:8000 -e FVOCI_SERVER_URL=http://localhost:8080 \
 #       -v fvoci-data:/data fvoci-server
 #
 # Alone it serves SQLite under /data. Settings are FVOCI_* variables or a file mounted
 # over /opt/fvoci/config.json; --init lets a stop end a server that is still starting.
 # With the argument --migrate it brings a database's schema up to date as the role of
-# FVOCI_DBCONFIG, the owner of the tables, and exits. docker/compose.yaml runs it with
+# FVOCI_DATABASE_CONNECTION, the owner of the tables, and exits. docker/compose.yaml runs it with
 # PostgreSQL and the search server; `cargo xtask docker` builds both images, starts
 # that and tries it, and `cargo xtask docker --push-plan` prints how they go to GHCR.
 #
@@ -24,8 +24,8 @@
 # Secrets are never build arguments or layers. At run time docker/fvoci/entrypoint.sh
 # reads the files of Docker secrets into the variables the server reads.
 #
-# Metrics are off. To serve them, set FVOCI_PROMETHEUSADDRESS=:9092, publish that port to
-# the monitoring network only, and give FVOCI_PROMETHEUSTOKEN_FILE (a file of at least
+# Metrics are off. To serve them, set FVOCI_METRICS_ADDRESS=:9092, publish that port to
+# the monitoring network only, and give FVOCI_METRICS_TOKEN_FILE (a file of at least
 # 32 characters, such as `openssl rand -hex 32`): the listener is plain HTTP.
 
 ARG RUST_VERSION=1

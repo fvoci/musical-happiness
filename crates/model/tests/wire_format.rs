@@ -70,7 +70,7 @@ fn block_decodes_missing_and_null_members_as_empty() {
 
 #[test]
 fn block_type_keeps_unknown_strings_and_parses_strictly() {
-    for name in ["board", "card", "view", "comment", "attachment"] {
+    for name in ["card", "view", "comment", "attachment", "page"] {
         let block_type = BlockType::from(name);
         assert!(
             !matches!(block_type, BlockType::Other(_)),
@@ -82,8 +82,13 @@ fn block_type_keeps_unknown_strings_and_parses_strictly() {
 
     // Decoding is exact: a different case is some other type, kept as sent.
     assert_eq!(BlockType::from("Card"), BlockType::Other("Card".to_owned()));
-    // The content block types of the original are no types of this server.
+    // The content block types of the original, and its board block, are no types of
+    // this server.
     assert_eq!(BlockType::from("text"), BlockType::Other("text".to_owned()));
+    assert_eq!(
+        BlockType::from("board"),
+        BlockType::Other("board".to_owned())
+    );
     assert_eq!(to_json(&BlockType::from("list-item")), json!("list-item"));
     assert_eq!(
         serde_json::from_value::<BlockType>(json!("h1")).expect("decodes"),
@@ -582,16 +587,16 @@ fn subscription_json_members() {
 fn config_error_and_request_json_members() {
     assert_eq!(
         to_json(&ClientConfig {
-            max_file_size: 7,
-            max_import_size: 9,
-            enable_public_shared_boards: true,
-            teammate_name_display: "username".to_owned(),
+            max_file_bytes: 7,
+            max_import_bytes: 9,
+            allow_public_links: true,
+            name_display: "username".to_owned(),
             ..ClientConfig::default()
         }),
         json!({
-            "enablePublicSharedBoards": true,
-            "teammateNameDisplay": "username", "featureFlags": {}, "maxFileSize": 7,
-            "maxImportSize": 9, "searchEnabled": false
+            "allowPublicLinks": true,
+            "nameDisplay": "username", "featureFlags": {}, "maxFileBytes": 7,
+            "maxImportBytes": 9, "searchEnabled": false
         })
     );
 

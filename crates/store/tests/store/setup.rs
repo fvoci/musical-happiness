@@ -23,7 +23,7 @@ async fn connect_creates_the_schema_once_and_reopens_it() {
     assert!(!version.is_empty(), "the version string is not empty");
 
     // A second store on the same database finds the schema and leaves it alone.
-    let again = Store::connect(common::db_type(), &test.dbconfig())
+    let again = Store::connect(common::db_type(), &test.database_connection())
         .await
         .expect("an existing schema at the current version is accepted");
     again.close().await;
@@ -34,9 +34,9 @@ async fn connect_creates_the_schema_once_and_reopens_it() {
 /// Connects to a database that holds what `prepare` put there and returns the refusal.
 async fn refusal_of_a_database_with(prepare: &str) -> String {
     let database = common::empty_database().await;
-    common::execute_raw(&common::raw_dbconfig(&database), prepare).await;
+    common::execute_raw(&common::raw_connection(&database), prepare).await;
 
-    let error = Store::connect(database.db_type(), database.dbconfig())
+    let error = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect_err("the database is not this server's to open");
     assert!(matches!(error, StoreError::Schema(_)), "got {error:?}");
@@ -60,7 +60,7 @@ async fn a_database_migrated_by_a_newer_server_is_refused() {
     test.store.close().await;
     // What a later version of this server leaves behind: a migration this one lacks.
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         "INSERT INTO _sqlx_migrations \
          (version, description, success, checksum, execution_time) \
          SELECT 9999, 'from the future', success, checksum, execution_time \
@@ -68,7 +68,7 @@ async fn a_database_migrated_by_a_newer_server_is_refused() {
     )
     .await;
 
-    let error = Store::connect(common::db_type(), &test.dbconfig())
+    let error = Store::connect(common::db_type(), &test.database_connection())
         .await
         .expect_err("a database with a migration this server does not know is refused");
     assert!(
@@ -84,12 +84,12 @@ async fn a_changed_migration_history_is_refused() {
     let test = common::setup().await;
     test.store.close().await;
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         "UPDATE _sqlx_migrations SET checksum = checksum || checksum WHERE version = 1",
     )
     .await;
 
-    let error = Store::connect(common::db_type(), &test.dbconfig())
+    let error = Store::connect(common::db_type(), &test.database_connection())
         .await
         .expect_err("a database whose applied migration differs is refused");
     assert!(
@@ -105,7 +105,7 @@ async fn the_tables_carry_no_prefix() {
     let test = common::setup().await;
     // A statement that names the tables plainly runs, on either database.
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         "SELECT (SELECT COUNT(*) FROM blocks) + (SELECT COUNT(*) FROM containers) \
          + (SELECT COUNT(*) FROM users) + (SELECT COUNT(*) FROM sessions)",
     )
@@ -115,13 +115,10 @@ async fn the_tables_carry_no_prefix() {
 
 #[tokio::test]
 async fn in_memory_sqlite_databases_are_private_to_their_store() {
-    let first = Store::connect(
-        DbType::Sqlite,
-        "file::memory:?cache=shared&_busy_timeout=5000",
-    )
-    .await
-    .expect("an in-memory database");
-    let second = Store::connect(DbType::Sqlite, "file::memory:?cache=shared")
+    let first = Store::connect(DbType::Sqlite, ":memory:?busy_timeout_ms=5000")
+        .await
+        .expect("an in-memory database");
+    let second = Store::connect(DbType::Sqlite, ":memory:")
         .await
         .expect("another in-memory database");
 
@@ -307,7 +304,7 @@ async fn set_column(
     id: &str,
 ) -> Result<u64, sqlx::Error> {
     common::try_execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!("UPDATE {table} SET {column} = '{value}' WHERE id = '{id}'"),
     )
     .await
@@ -364,11 +361,11 @@ async fn the_schema_refuses_a_board_type_that_is_none() {
             new_id()
         )
     };
-    let error = common::try_execute_raw(&test.dbconfig(), &new_board("X"))
+    let error = common::try_execute_raw(&test.database_connection(), &new_board("X"))
         .await
         .expect_err("a new board of a type that is none is refused");
     assert!(is_check_violation(&error), "got {error:?}");
-    let stored = common::try_execute_raw(&test.dbconfig(), &new_board("P"))
+    let stored = common::try_execute_raw(&test.database_connection(), &new_board("P"))
         .await
         .expect("a new board of a type that is one is stored");
     assert_eq!(stored, 1, "the one row");
@@ -440,11 +437,11 @@ async fn the_schema_refuses_a_category_type_that_is_none() {
             new_id()
         )
     };
-    let error = common::try_execute_raw(&test.dbconfig(), &new_category("odd"))
+    let error = common::try_execute_raw(&test.database_connection(), &new_category("odd"))
         .await
         .expect_err("a new category of a type that is none is refused");
     assert!(is_check_violation(&error), "got {error:?}");
-    let stored = common::try_execute_raw(&test.dbconfig(), &new_category("system"))
+    let stored = common::try_execute_raw(&test.database_connection(), &new_category("system"))
         .await
         .expect("a new category of a type that is one is stored");
     assert_eq!(stored, 1, "the one row");
@@ -583,7 +580,7 @@ async fn blocks_stored_before_the_body_migration_have_no_body() {
         "ALTER TABLE blocks DROP COLUMN body_tasks_done",
         "DELETE FROM _sqlx_migrations WHERE version = 2",
     ] {
-        common::execute_raw(&test.dbconfig(), statement).await;
+        common::execute_raw(&test.database_connection(), statement).await;
     }
 
     let store = test.reconnect().await;
@@ -663,7 +660,7 @@ fn blocks_showing(board_id: &str) -> [Block; 5] {
 /// board, and the values of cards and the filters of views among the blocks: a date in
 /// the previous shape, one that cannot be read, and their look-alikes in a text
 /// property.
-async fn store_previous_shapes(dbconfig: &str, blocks: &[Block]) {
+async fn store_previous_shapes(database_connection: &str, blocks: &[Block]) {
     let definitions = r#"[{"id": "due", "type": "date"}, {"id": "bad", "type": "date"}, {"id": "note", "type": "text"}]"#;
     let card_fields = r#"{"properties": {"due": "{\"from\":1772679600000}", "note": "{\"from\":1}", "bad": "x"}}"#;
     let view_fields = r#"{"filter": {"operation": "and", "filters": [{"propertyId": "due", "condition": "is", "values": ["1772679600000"]}, {"operation": "or", "filters": [{"propertyId": "note", "condition": "is", "values": ["1"]}]}]}}"#;
@@ -683,7 +680,7 @@ async fn store_previous_shapes(dbconfig: &str, blocks: &[Block]) {
         ));
     }
     for statement in &statements {
-        common::execute_raw(dbconfig, statement).await;
+        common::execute_raw(database_connection, statement).await;
     }
 }
 
@@ -715,7 +712,7 @@ async fn the_date_value_step_rewrites_what_was_stored_before() {
     ];
     common::insert_blocks(&test, &mut blocks, &user_id).await;
     test.store.close().await;
-    store_previous_shapes(&test.dbconfig(), &blocks).await;
+    store_previous_shapes(&test.database_connection(), &blocks).await;
     let store = test.reconnect().await;
     for in_trash in [&blocks[2], &blocks[3]] {
         store
@@ -729,7 +726,7 @@ async fn the_date_value_step_rewrites_what_was_stored_before() {
         .expect("a board goes to the trash");
     store.close().await;
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         "INSERT INTO data_steps (name) VALUES ('date_values')",
     )
     .await;
@@ -771,7 +768,7 @@ async fn the_date_value_step_rewrites_what_was_stored_before() {
     // Done once: the step's row is gone, and the server starts without it.
     let store = test.reconnect().await;
     store.close().await;
-    let left = common::try_execute_raw(&test.dbconfig(), "DELETE FROM data_steps")
+    let left = common::try_execute_raw(&test.database_connection(), "DELETE FROM data_steps")
         .await
         .expect("the table is there");
     assert_eq!(left, 0, "no step is left");
@@ -785,7 +782,7 @@ async fn rename_column(test: &common::TestStore, from: &str, to: &str, tables: &
         .iter()
         .map(|table| format!("ALTER TABLE {table} RENAME COLUMN {from} TO {to};"))
         .collect();
-    common::execute_raw(&test.dbconfig(), &statements.join(" ")).await;
+    common::execute_raw(&test.database_connection(), &statements.join(" ")).await;
 }
 
 /// The migration of file references puts down what the blocks show, live and in the
@@ -831,7 +828,7 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
         "ALTER TABLE file_info DROP COLUMN unreferenced_at",
         "DELETE FROM _sqlx_migrations WHERE version = 3",
     ] {
-        common::execute_raw(&test.dbconfig(), statement).await;
+        common::execute_raw(&test.database_connection(), statement).await;
     }
     // The migration ran before there was a wall between organizations, and reads rows
     // as their owner did then: the policies of the tables it reads are not forced on
@@ -839,7 +836,7 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
     if common::db_type() == DbType::Postgres {
         for table in ["blocks", "deleted_blocks", "file_info"] {
             common::execute_raw(
-                &test.dbconfig(),
+                &test.database_connection(),
                 &format!("ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY"),
             )
             .await;
@@ -858,7 +855,7 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
     // migration 14 supplies before exercising today's organization-aware collector.
     if common::db_type() == DbType::Postgres {
         common::execute_raw(
-            &test.dbconfig(),
+            &test.database_connection(),
             &format!(
                 "ALTER TABLE file_refs ADD COLUMN org_id UUID NOT NULL DEFAULT '{}'",
                 test.org_id
@@ -896,7 +893,7 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
 }
 
 /// Stores a record of a file of the board for each name.
-async fn save_files(store: &Store, board_id: &str, names: &[&str]) {
+pub(crate) async fn save_files(store: &Store, board_id: &str, names: &[&str]) {
     for name in names {
         let file = fvoci_model::FileInfo {
             id: new_id(),
@@ -957,12 +954,15 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         },
     ];
     common::insert_blocks(&test, &mut below, &user_id).await;
-    test.delete_block(&blocks[6].id, &user_id)
-        .await
-        .expect("the heading goes to the trash");
+    // The block below the text goes to the trash on its own, below a block that goes.
+    for trashed in [&below[0].id, &blocks[6].id] {
+        test.delete_block(trashed, &user_id)
+            .await
+            .expect("the block goes to the trash");
+    }
     test.store.close().await;
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         &format!(
             "UPDATE blocks SET type = 'image' WHERE id = '{}'",
             blocks[4].id
@@ -970,7 +970,7 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
     )
     .await;
     common::execute_raw(
-        &test.dbconfig(),
+        &test.database_connection(),
         "INSERT INTO data_steps (name) VALUES ('content_blocks')",
     )
     .await;
@@ -1004,10 +1004,13 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         "the image's file, not the attachment's"
     );
     store.close().await;
-    let left = common::try_execute_raw(&test.dbconfig(), "DELETE FROM deleted_blocks")
+    let left = common::try_execute_raw(&test.database_connection(), "DELETE FROM deleted_blocks")
         .await
         .expect("the trash is there");
-    assert_eq!(left, 0, "the heading and the block below it left the trash");
+    assert_eq!(
+        left, 0,
+        "the heading and the blocks below the two left the trash"
+    );
 
     test.teardown().await;
 }

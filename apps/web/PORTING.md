@@ -166,14 +166,14 @@ Tiptap은 편집기 스파이크에서 넣었다(`docs/spike-editor.md`).
 
 ## 빌드 산출물
 
-`dist/index.html` + `dist/static/`이다. 서버의 `webpath`를 `dist`로 두면 바로 서빙된다.
+`dist/index.html` + `dist/static/`이다. 서버의 `web_app_path`를 `dist`로 두면 바로 서빙된다.
 
 - **파일명의 해시는 16자리 16진수다.** 서버(`crates/server/src/web.rs`의 `has_content_hash`)는 이름을 `-`, `.`, `_`로 나눈 조각 가운데 "8자 이상의 16진수이고 숫자가 하나 이상"인 것이 있어야 내용 해시로 보고 `immutable`을 붙인다. Vite의 기본 해시는 base64 계열이라 이 조건에 안 맞는다. `hashCharacters: 'hex'`로 바꾸고, `static/` 아래에 조건을 못 맞춘 파일이 있으면 빌드가 실패하게 했다(`tools/build/output.ts`).
 - **base path를 빌드에 넣지 않는다.** `index.html`은 `{{.BaseURL}}/static/…`으로, 스크립트와 스타일시트끼리는 상대 경로로 참조한다(`experimental.renderBuiltUrl`). `/boards` 아래의 깊은 주소에서 파일이 모두 풀리는 것을 확인했다.
 - **사전 압축.** `static/` 아래의 텍스트 파일마다 `.br`(brotli 11), `.zst`(zstd, 2026-11-10에 더함. `docs/build-notes.md`)와 `.gz`(gzip 9)를 만든다. woff2는 이미 압축돼 있어 뺀다. `index.html`은 서버가 요청마다 치환해 보내므로 압축하지 않는다.
 - **고지.** `static/THIRD_PARTY_NOTICES.txt`. 이름에 해시가 없어 서버가 `no-cache`로 보낸다(의도).
 
-서버 쪽에서 빌드한 실제 Rust 서버에 `webpath`를 이 `dist`로 주고 확인한 것(2026-11-10 17:24 KST, 서버는 읽기만 했다): `{{.BaseURL}}` 치환, 해시 파일의 `Cache-Control: public, max-age=31536000, immutable`, `Accept-Encoding`에 따른 `br`·`gzip`·무압축 응답과 `Vary`, 고지 파일의 `no-cache`, woff2의 `font/woff2`. `FVOCI_E2E_URL`로 그 서버를 대상으로 한 Playwright 6건도 통과했다.
+서버 쪽에서 빌드한 실제 Rust 서버에 `web_app_path`를 이 `dist`로 주고 확인한 것(2026-11-10 17:24 KST, 서버는 읽기만 했다): `{{.BaseURL}}` 치환, 해시 파일의 `Cache-Control: public, max-age=31536000, immutable`, `Accept-Encoding`에 따른 `br`·`gzip`·무압축 응답과 `Vary`, 고지 파일의 `no-cache`, woff2의 `font/woff2`. `FVOCI_E2E_URL`로 그 서버를 대상으로 한 Playwright 6건도 통과했다.
 
 글꼴 규칙 CSS의 크기(2026-11-10 17:33 KST, 바이트. 한국어의 것은 그 뒤 파일이 셋이 되어 압축 전 151,944바이트가 됐다):
 

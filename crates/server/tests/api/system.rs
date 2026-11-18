@@ -38,7 +38,7 @@ async fn ping_returns_metadata_on_success() {
     assert_eq!(metadata["edition"], json!("dev"), "{metadata}");
     assert_eq!(metadata["build_number"], json!(""), "{metadata}");
     let db_type = metadata["db_type"].as_str().unwrap_or_default();
-    assert!(db_type == "sqlite3" || db_type == "postgres", "{metadata}");
+    assert!(db_type == "sqlite" || db_type == "postgres", "{metadata}");
     assert!(
         !metadata["db_version"]
             .as_str()
@@ -81,11 +81,11 @@ async fn ping_returns_metadata_on_success() {
 async fn get_client_config() {
     let th = Setup::local_mode()
         .configure(|config| {
-            config.teammate_name_display = "username".to_owned();
+            config.name_display = "username".to_owned();
             config
                 .feature_flags
                 .insert("newBoardsEditor".to_owned(), "true".to_owned());
-            config.max_file_size = 1234;
+            config.max_file_bytes = 1234;
         })
         .start()
         .await;
@@ -96,11 +96,11 @@ async fn get_client_config() {
     assert_eq!(
         response.ok_json::<serde_json::Value>(),
         json!({
-            "enablePublicSharedBoards": true,
-            "teammateNameDisplay": "username",
+            "allowPublicLinks": true,
+            "nameDisplay": "username",
             "featureFlags": {"newBoardsEditor": "true"},
-            "maxFileSize": 1234,
-            "maxImportSize": 268_435_456,
+            "maxFileBytes": 1234,
+            "maxImportBytes": 268_435_456,
             "searchEnabled": true,
         }),
         "the client configuration"
@@ -337,7 +337,7 @@ async fn an_answer_without_a_result_has_no_body_and_no_content_type() {
 async fn base_path_prefixes_every_route() {
     let th = Setup::native()
         .base_path(&format!("{ROOT_WS}/boards"))
-        .configure(|config| config.server_root = "https://example.com/boards".to_owned())
+        .configure(|config| config.server_url = "https://example.com/boards".to_owned())
         .start()
         .await
         .init_basic()
@@ -390,7 +390,7 @@ async fn startup_refuses_a_malformed_base_path() {
             .err()
             .unwrap_or_else(|| panic!("the base path {base_path:?} must be refused"));
         assert!(
-            error.to_string().contains("FVOCI_HTTP_SERVER_BASEPATH"),
+            error.to_string().contains("FVOCI_BASE_PATH"),
             "{base_path:?}: {error}"
         );
     }
@@ -497,7 +497,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
 #[tokio::test]
 async fn static_file_names_are_decoded_once() {
     let th = Setup::native().start().await;
-    let directory = std::path::Path::new(&th.app.config().web_path).join("static");
+    let directory = std::path::Path::new(&th.app.config().web_app_path).join("static");
     std::fs::write(directory.join("with space.js"), "spaced").expect("a file is written");
     std::fs::write(directory.join("100%.txt"), "percent").expect("a file is written");
 

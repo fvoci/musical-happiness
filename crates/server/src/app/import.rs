@@ -3,8 +3,8 @@
 //! Ports `server/app/import.go`. An import generates fresh identifiers for everything,
 //! fixes up references, stores the files, points the blocks at them and adds the
 //! importing user as an admin. A wiki is made as a wiki, its pages held to the rules of
-//! their tree before anything is stored (`places`). The formats of the original (the
-//! line-based version 1 and the ZIP of version 2) are refused (`docs/s6-design.md` 3.10).
+//! their tree before anything is stored (`places`). An archive of another version is
+//! refused (`docs/s6-design.md` 3.10).
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -94,7 +94,7 @@ impl App {
     /// Returns a bad request if the file is not a ZIP, has no `version.json` or one of
     /// another version, or holds what does not fit together; a 413 for an archive of
     /// more than 10,000 entries, whose entries unpack to more than 1 GiB together, or
-    /// with a `board.jsonl` of more than 64 MiB or a file larger than `maxfilesize`; and
+    /// with a `board.jsonl` of more than 64 MiB or a file larger than `max_file_bytes`; and
     /// the store's error if a board cannot be stored.
     pub(crate) async fn import_archive(
         &self,
@@ -724,23 +724,12 @@ async fn open_archive(path: &Path) -> Result<Archive, AppError> {
             len,
             position: 0,
         };
-        let mut start = [0; 12];
-        let read = file.read(&mut start).unwrap_or(0);
-        if start
-            .get(..read)
-            .is_some_and(|start| start.starts_with(br#"{"version":1"#))
-        {
-            return Err(AppError::bad_request(format_args!(
-                "an archive of version 1 is not read; this server reads version {ARCHIVE_VERSION}"
-            )));
-        }
         // Counted before the directory is read, as reading it holds every entry in memory.
         // Every entry the reader keeps begins with the central header's signature, so it
         // keeps at most as many entries as signatures, whatever the end records say. The
         // capacity it reserves first follows the declared count, which the crate bounds
         // only by the file's length (about a 47th of it, as entries): that reservation is
         // not bounded here (`docs/contract-pending.md` 5).
-        file.position = 0;
         let headers = count_central_headers(&mut file, MAX_ENTRIES).map_err(|error| {
             AppError::internal(format_args!("cannot read the archive: {error}"))
         })?;

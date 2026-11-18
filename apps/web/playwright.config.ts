@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
  * End-to-end tests.
  *
  * `FVOCI_E2E_URL` is the address of a running server that serves this build
- * (its `webpath` set to `dist/`). Without it the tests start tools/preview.ts,
+ * (its `web_app_path` set to `dist/`). Without it the tests start tools/preview.ts,
  * which serves `dist/` with the server's rules but has no API: enough for the
  * tests of the static shell, and only for those.
  *

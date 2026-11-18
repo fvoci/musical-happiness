@@ -127,7 +127,7 @@ async fn migration_keeps_existing_people_subjects_and_times() {
     fvoci_store::testing::migrate_to_before_audit_actors(&database).await;
     let (org, record, actor, subject) = (new_id(), new_id(), new_id(), new_id());
     common::execute_raw(
-        &common::raw_dbconfig(&database),
+        &common::raw_connection(&database),
         &format!(
             "INSERT INTO organizations (id, name, settings, create_at, update_at) \
          VALUES ('{org}', 'Org', '{{}}', 1, 1); \
@@ -136,7 +136,7 @@ async fn migration_keeps_existing_people_subjects_and_times() {
         ),
     )
     .await;
-    let store = fvoci_store::Store::connect(database.db_type(), database.dbconfig())
+    let store = fvoci_store::Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("migrated");
     let records = store

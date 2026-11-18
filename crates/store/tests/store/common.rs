@@ -37,7 +37,7 @@ pub(crate) fn db_type() -> DbType {
 pub(crate) async fn setup() -> TestStore {
     let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("store-tests");
     let database = TestDatabase::create(&directory).await;
-    let store = Store::connect(database.db_type(), database.dbconfig())
+    let store = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("a store connects to a fresh database");
     let (org_id, workspace_id) = organization(&store, "").await;
@@ -72,20 +72,20 @@ pub(crate) async fn empty_database() -> TestDatabase {
 
 /// What reaches a test database through a connection of the test's own: the path of the
 /// SQLite file, or the PostgreSQL URL with the test's schema.
-pub(crate) fn raw_dbconfig(database: &TestDatabase) -> String {
+pub(crate) fn raw_connection(database: &TestDatabase) -> String {
     match database.sqlite_path() {
         Some(path) => path.display().to_string(),
-        None => database.dbconfig().to_owned(),
+        None => database.database_connection().to_owned(),
     }
 }
 
 /// A PostgreSQL connection of the test's own to its database, past the store and past
 /// the wall between organizations: it reaches the rows of all, and a row it stores
 /// without saying whose it is goes to the oldest organization, the one of the test.
-pub(crate) async fn connect_past_the_store(dbconfig: &str) -> PgConnection {
-    let (url, schema) = dbconfig
+pub(crate) async fn connect_past_the_store(database_connection: &str) -> PgConnection {
+    let (url, schema) = database_connection
         .rsplit_once("search_path=")
-        .expect("the test dbconfig names its schema");
+        .expect("the test database connection names its schema");
     let mut conn = PgConnection::connect(url.trim_end_matches(['?', '&']))
         .await
         .expect("the test PostgreSQL server accepts connections");
@@ -115,12 +115,12 @@ pub(crate) async fn connect_past_the_store(dbconfig: &str) -> PgConnection {
 }
 
 /// Runs statements on a connection of its own, past the store.
-pub(crate) async fn execute_raw(dbconfig: &str, sql: &str) {
+pub(crate) async fn execute_raw(database_connection: &str, sql: &str) {
     let sql = sqlx::AssertSqlSafe(sql.to_owned());
     match db_type() {
         DbType::Sqlite => {
             let options = SqliteConnectOptions::new()
-                .filename(dbconfig)
+                .filename(database_connection)
                 .create_if_missing(true);
             let mut conn = options
                 .connect()
@@ -133,7 +133,7 @@ pub(crate) async fn execute_raw(dbconfig: &str, sql: &str) {
             conn.close().await.expect("the connection closes");
         }
         DbType::Postgres => {
-            let mut conn = connect_past_the_store(dbconfig).await;
+            let mut conn = connect_past_the_store(database_connection).await;
             sqlx::raw_sql(sql)
                 .execute(&mut conn)
                 .await
@@ -146,15 +146,15 @@ pub(crate) async fn execute_raw(dbconfig: &str, sql: &str) {
 impl TestStore {
     /// What reaches this test's database again: the path of the SQLite file, or the
     /// PostgreSQL URL with the test's schema.
-    pub(crate) fn dbconfig(&self) -> String {
-        raw_dbconfig(&self.database)
+    pub(crate) fn database_connection(&self) -> String {
+        raw_connection(&self.database)
     }
 
     /// A second store on this test's database, as the first is: connected anew (and so
     /// migrating what the test put back to an older state) and reaching the rows of the
     /// test's organization.
     pub(crate) async fn reconnect(&self) -> Store {
-        Store::connect(db_type(), &self.dbconfig())
+        Store::connect(db_type(), &self.database_connection())
             .await
             .expect("the store connects to the database again")
             .for_org(&self.org_id)
@@ -311,14 +311,17 @@ pub(crate) fn refused_over_a_foreign_key(error: &fvoci_store::StoreError) -> boo
 /// Runs statements on a connection of its own, past the store, as [`execute_raw`] does,
 /// and returns the database's answer where `execute_raw` expects success: how many rows
 /// the statements changed, or the refusal.
-pub(crate) async fn try_execute_raw(dbconfig: &str, sql: &str) -> Result<u64, sqlx::Error> {
+pub(crate) async fn try_execute_raw(
+    database_connection: &str,
+    sql: &str,
+) -> Result<u64, sqlx::Error> {
     let sql = sqlx::AssertSqlSafe(sql.to_owned());
     match db_type() {
         DbType::Sqlite => {
             // Foreign keys are enforced per connection on SQLite: this one asks for
             // them, as the store's connections do.
             let options = SqliteConnectOptions::new()
-                .filename(dbconfig)
+                .filename(database_connection)
                 .foreign_keys(true);
             let mut conn = options
                 .connect()
@@ -329,7 +332,7 @@ pub(crate) async fn try_execute_raw(dbconfig: &str, sql: &str) -> Result<u64, sq
             result.map(|done| done.rows_affected())
         }
         DbType::Postgres => {
-            let mut conn = connect_past_the_store(dbconfig).await;
+            let mut conn = connect_past_the_store(database_connection).await;
             let result = sqlx::raw_sql(sql).execute(&mut conn).await;
             conn.close().await.expect("the connection closes");
             result.map(|done| done.rows_affected())

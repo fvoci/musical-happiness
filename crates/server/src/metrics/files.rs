@@ -1,4 +1,4 @@
-//! The metrics of the file storage (`filesdriver`): how long each operation on the local
+//! The metrics of the file storage (`file_storage`): how long each operation on the local
 //! disk or the object store took, and how many failed, by operation.
 
 use std::time::Duration;

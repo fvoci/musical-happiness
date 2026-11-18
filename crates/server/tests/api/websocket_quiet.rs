@@ -129,7 +129,10 @@ async fn a_connection_that_sends_nothing_is_closed_and_goes_from_its_room() {
 #[tokio::test]
 async fn a_pong_to_the_servers_ping_keeps_a_connection() {
     let th = Setup::native()
-        .configure(|config| config.websocket_ping_seconds = 1)
+        .configure(|config| {
+            config.websocket_ping_seconds = 1;
+            config.skip_websocket_pings = false;
+        })
         .start()
         .await
         .init_basic()

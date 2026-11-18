@@ -318,7 +318,7 @@ async fn a_webhook_is_posted_what_a_body_names_by_identifier_alone() {
     });
     let th = Setup::native()
         .configure(|config| {
-            config.webhook_update = WEBHOOK_URL.get().into_iter().cloned().collect();
+            config.block_change_webhooks = WEBHOOK_URL.get().into_iter().cloned().collect();
         })
         .start()
         .await
