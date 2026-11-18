@@ -133,7 +133,7 @@ export class BlankStyles {
       if (place.covered(column)) continue;
       const style = own >= 0 ? own : this.column(column);
       const last = runs.at(-1);
-      if (last && last[2] === style && this.#joins(style) && place.next(last[1]) === column) {
+      if (last?.[2] === style && this.#joins(style) && place.next(last[1]) === column) {
         last[1] = column;
       } else runs.push([column, column, style]);
     }
