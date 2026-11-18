@@ -480,8 +480,10 @@ fn describe_editing_together(reason: Reason) -> &'static str {
              that holds the documents ended or did not answer in time, which drops what was \
              under way, or did so again and again with this document, which is closed for \
              a while; or a write of the card's whole body came while what its editors typed \
-             could not be written to the card first, and was not done. The document is as \
-             it was stored before. Try again later."
+             could not be written to the card first, and was not done; or another process \
+             wrote the stored document since this one read it (a server that lost the lock \
+             of its database and has not gone down yet), and this one leaves it alone. The \
+             document is as it was stored before. Try again later."
         }
         other => describe_rooms(other),
     }

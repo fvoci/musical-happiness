@@ -14,7 +14,7 @@ use crate::Store;
 use crate::block_derived::{self, Before};
 use crate::blocks;
 use crate::body_versions::{self, BodyBefore, BodyWrite};
-use crate::db::{Id, OptId, Param, Row, Scope, now_millis};
+use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewBodyFiles};
 
@@ -42,6 +42,47 @@ pub struct StoredDoc {
     /// Who is put down as having written the body since the block's newest version
     /// ([`Store::append_body_updates`]): none once a version holds what they wrote.
     pub unkept_editors: Vec<String>,
+}
+
+/// The numbers of a stored document as whoever writes it read them, or left them
+/// with its own last write. Every write of the document, of its log, and of its body
+/// to its block names them ([`Store::append_body_updates`],
+/// [`Store::fold_body_doc`], [`Store::remake_body_doc`], [`Store::project_body`]),
+/// and is refused once another writer changed any of them
+/// ([`StoreError::DocumentWritten`]): what was logged, folded, written to the block
+/// or made again since is the other's, and is not written over or logged after
+/// unseen. The other writer is a server that took the lock of the server while the
+/// one before had not noticed yet that it lost it.
+///
+/// Each of those writes changes at least one of the numbers, and none of them ever
+/// goes back: a writer whose numbers are the stored ones holds the document as it is
+/// stored, however it read it ([`Store::get_body_doc`] reads the document and its
+/// log one after the other). The one write that changes none is a fold up to where
+/// the state already is, which stores a state repaired as the document was opened:
+/// a repair only deletes, and is the same whoever makes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocAsRead {
+    /// [`StoredDoc::epoch`] as it was read.
+    pub epoch: i64,
+    /// [`StoredDoc::state_seq`] as it was read.
+    pub state_seq: i64,
+    /// [`StoredDoc::log_end`] as it was read.
+    pub log_end: i64,
+    /// [`StoredDoc::projected_seq`] as it was read.
+    pub projected_seq: i64,
+}
+
+impl StoredDoc {
+    /// The numbers of the document as it is read here, for a write of it.
+    #[must_use]
+    pub fn as_read(&self) -> DocAsRead {
+        DocAsRead {
+            epoch: self.epoch,
+            state_seq: self.state_seq,
+            log_end: self.log_end,
+            projected_seq: self.projected_seq,
+        }
+    }
 }
 
 /// An update a document took.
@@ -171,14 +212,20 @@ impl Store {
     /// again changes nothing. With [`BodyBefore::Keep`] the body the block holds is
     /// kept as a version first, by those put down before.
     ///
+    /// Only the document as it was read (`as_read`) logs them: one that was written
+    /// since holds what the writer of these never took, and nothing of this call is
+    /// written.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if the block, or its document, is not there,
-    /// and [`StoreError::InvalidBlock`] if its board has no file one of them names.
+    /// [`StoreError::DocumentWritten`] if the document is not as it was read, and
+    /// [`StoreError::InvalidBlock`] if its board has no file one of them names.
     pub async fn append_body_updates(
         &self,
         block_id: &str,
         updates: &[(&[u8], &str)],
+        as_read: DocAsRead,
         files: &[String],
         new_editors: &[&str],
         body_before: BodyBefore,
@@ -193,19 +240,22 @@ impl Store {
             body_versions::note_editors(scope, block_id, new_editors).await?;
             let now = now_millis();
             let mut seqs = Vec::with_capacity(updates.len());
+            // The first holds the row to what was read; the row is this transaction's
+            // from then on, and each one after is numbered after the one before.
+            let mut log_end = as_read.log_end;
             for (bytes, written_by) in updates {
                 let mut sql = scope.sql("UPDATE body_docs SET log_end = log_end + 1");
                 if !written_by.is_empty() {
                     sql.push_bind(", last_writer = ", OptId(written_by));
                 }
-                sql.push_bind(", update_at = ", now)
-                    .push_bind(" WHERE block_id = ", Id(block_id))
-                    .push(" RETURNING log_end");
-                let seq = scope
-                    .fetch_optional(sql)
-                    .await?
-                    .ok_or_else(|| no_doc(block_id))?
-                    .int(0)?;
+                sql.push_bind(", update_at = ", now);
+                where_as_read(&mut sql, block_id, DocAsRead { log_end, ..as_read });
+                sql.push(" RETURNING log_end");
+                let Some(row) = scope.fetch_optional(sql).await? else {
+                    return Err(not_as_read(scope, block_id).await);
+                };
+                let seq = row.int(0)?;
+                log_end = seq;
                 let mut sql = scope.sql(
                     "INSERT INTO body_updates (block_id, seq, bytes, written_by, written_at) \
                      VALUES (",
@@ -225,25 +275,33 @@ impl Store {
     }
 
     /// Folds the updates up to `through_seq` into a block's document: `state` is the
-    /// document with them, and they are removed from the log.
+    /// document with them, and they are removed from the log. Only the document as it
+    /// was read (`as_read`) is folded: one that was written since is left as it is.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if the block has no document.
+    /// Returns [`StoreError::NotFound`] if the block has no document, and
+    /// [`StoreError::DocumentWritten`] if the document is not as it was read.
     pub async fn fold_body_doc(
         &self,
         block_id: &str,
         state: &[u8],
         through_seq: i64,
+        as_read: DocAsRead,
     ) -> Result<(), StoreError> {
+        debug_assert!(
+            through_seq >= as_read.state_seq,
+            "a fold through {through_seq} of a state that holds {} already",
+            as_read.state_seq
+        );
         self.transaction(async |scope| {
             let mut sql = scope.sql("UPDATE body_docs SET state = ");
             sql.bind(Param::Bytes(state.to_vec()))
                 .push_bind(", state_seq = ", through_seq)
-                .push_bind(", update_at = ", now_millis())
-                .push_bind(" WHERE block_id = ", Id(block_id));
+                .push_bind(", update_at = ", now_millis());
+            where_as_read(&mut sql, block_id, as_read);
             if scope.execute(sql).await? == 0 {
-                return Err(no_doc(block_id));
+                return Err(not_as_read(scope, block_id).await);
             }
             let mut sql = scope.sql("DELETE FROM body_updates WHERE block_id = ");
             sql.bind(Id(block_id))
@@ -256,30 +314,35 @@ impl Store {
 
     /// Replaces a block's document with one made again from the body the block holds,
     /// whose digest is `body_digest`: the log is emptied, the numbers of updates go on
-    /// after the last one, and its epoch, which this gives, is one more.
+    /// after the last one, and its epoch, which this gives, is one more. Only the
+    /// document as it was read (`as_read`) is replaced: the log of one that was
+    /// written since may hold what its reader never saw, and stays.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if the block has no document.
+    /// Returns [`StoreError::NotFound`] if the block has no document, and
+    /// [`StoreError::DocumentWritten`] if the document is not as it was read.
     pub async fn remake_body_doc(
         &self,
         block_id: &str,
         state: &[u8],
         body_digest: &[u8],
+        as_read: DocAsRead,
     ) -> Result<i64, StoreError> {
         self.transaction(async |scope| {
             let mut sql = scope.sql("UPDATE body_docs SET state = ");
             sql.bind(Param::Bytes(state.to_vec()))
                 .push(", state_seq = log_end, projected_seq = log_end, epoch = epoch + 1")
                 .push_bind(", body_digest = ", Param::Bytes(body_digest.to_vec()))
-                .push_bind(", update_at = ", now_millis())
-                .push_bind(" WHERE block_id = ", Id(block_id))
-                .push(" RETURNING epoch");
-            let epoch = scope
-                .fetch_optional(sql)
-                .await?
-                .ok_or_else(|| no_doc(block_id))?
-                .int(0)?;
+                .push_bind(", update_at = ", now_millis());
+            where_as_read(&mut sql, block_id, as_read);
+            sql.push(" RETURNING epoch");
+            let Some(row) = scope.fetch_optional(sql).await? else {
+                return Err(not_as_read(scope, block_id).await);
+            };
+            let epoch = row.int(0)?;
+            // The row is held from the update above: nothing is logged between it and
+            // this, and the log is the one that was read.
             let mut sql = scope.sql("DELETE FROM body_updates WHERE block_id = ");
             sql.bind(Id(block_id));
             scope.execute(sql).await?;
@@ -298,11 +361,20 @@ impl Store {
     /// the read, and the import's own writing of bodies, which keeps `update_at`, are
     /// not seen; neither writes a block whose document is open.)
     ///
+    /// Only the body of the document as it was read (`as_read`) is written: the block
+    /// is left as it is if the document was written since, also by one whose body is
+    /// the block's already and changed nothing of the block.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if the block, or its document, is not there,
-    /// [`StoreError::Stale`] if the block changed since `read_at`, and the errors of a
-    /// patch of the block.
+    /// [`StoreError::Stale`] if the block changed since `read_at`,
+    /// [`StoreError::DocumentWritten`] if the document is not as it was read, and the
+    /// errors of a patch of the block.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one write of a body: what is written, by whom, and what was read of the block and of the document"
+    )]
     pub async fn project_body(
         &self,
         block_id: &str,
@@ -311,7 +383,13 @@ impl Store {
         through_seq: i64,
         body_digest: &[u8],
         user_id: &str,
+        as_read: DocAsRead,
     ) -> Result<(), StoreError> {
+        debug_assert!(
+            through_seq >= as_read.projected_seq,
+            "a body as of {through_seq} for a block that holds the one of {} already",
+            as_read.projected_seq
+        );
         self.transaction(async |scope| {
             match body {
                 // The block holds the body; what it shows is put down again all the
@@ -338,12 +416,15 @@ impl Store {
                     blocks::patch_block(scope, block_id, &patch, user_id, projected).await?;
                 }
             }
+            // The document's row last, as an update takes it; a document that is not
+            // as it was read fails the transaction, and the write of the block with it.
             let mut sql = scope.sql("UPDATE body_docs SET projected_seq = ");
             sql.bind(through_seq)
-                .push_bind(", body_digest = ", Param::Bytes(body_digest.to_vec()))
-                .push_bind(" WHERE block_id = ", Id(block_id))
-                .push_bind(" AND projected_seq <= ", through_seq);
-            scope.execute(sql).await?;
+                .push_bind(", body_digest = ", Param::Bytes(body_digest.to_vec()));
+            where_as_read(&mut sql, block_id, as_read);
+            if scope.execute(sql).await? == 0 {
+                return Err(not_as_read(scope, block_id).await);
+            }
             Ok(())
         })
         .await
@@ -502,6 +583,31 @@ fn logged_update(row: &Row) -> Result<LoggedUpdate, StoreError> {
 
 fn no_doc(block_id: &str) -> StoreError {
     StoreError::not_found(format_args!("the document of block ID={block_id}"))
+}
+
+/// Ends a statement that writes a block's document with the condition every such
+/// write has: the document of the block, with its numbers as they were read. The
+/// check and the write are one statement, so nothing is written in between.
+fn where_as_read(sql: &mut Sql, block_id: &str, as_read: DocAsRead) {
+    sql.push_bind(" WHERE block_id = ", Id(block_id))
+        .push_bind(" AND epoch = ", as_read.epoch)
+        .push_bind(" AND state_seq = ", as_read.state_seq)
+        .push_bind(" AND log_end = ", as_read.log_end)
+        .push_bind(" AND projected_seq = ", as_read.projected_seq);
+}
+
+/// Why a write of a block's document as it was read wrote nothing: the block has no
+/// document, or the document is not as it was read any more.
+async fn not_as_read(scope: &mut Scope<'_>, block_id: &str) -> StoreError {
+    let mut sql = scope.sql("SELECT 1 FROM body_docs WHERE block_id = ");
+    sql.bind(Id(block_id));
+    match scope.fetch_optional(sql).await {
+        Ok(Some(_)) => StoreError::DocumentWritten {
+            block_id: block_id.to_owned(),
+        },
+        Ok(None) => no_doc(block_id),
+        Err(error) => error,
+    }
 }
 
 /// Removes the documents whose blocks are gone for good: neither there nor in the

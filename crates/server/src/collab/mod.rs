@@ -203,8 +203,10 @@ pub enum DocChange {
     /// Its body was written whole over HTTP, and the document made again from it.
     /// Editors load it anew.
     Replaced,
-    /// The worker that held it ended, and it was opened again from what was stored.
-    /// What an editor sent and was refused for that is not in it.
+    /// The worker that held it ended, or another process wrote what is stored of it
+    /// (a server that took the lock of the server, or the one that lost it and has
+    /// not noticed yet): it is opened again from what is stored. What an editor sent
+    /// and was refused for that is not in it. Editors load it anew.
     Reopened,
     /// Its card's body was written whole while it was not open (its worker had ended
     /// over it), or it was closed after such a write because it could not be made

@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use crate::common::TEST_WS;
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TestServer};
 
-fn paragraphs(texts: &[&str]) -> Value {
+pub(crate) fn paragraphs(texts: &[&str]) -> Value {
     let content: Vec<Value> = texts
         .iter()
         .map(|text| json!({"type": "paragraph", "content": [{"type": "text", "text": text}]}))

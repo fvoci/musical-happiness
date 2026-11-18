@@ -423,11 +423,13 @@ async fn an_unreadable_log_gives_way_to_the_card() {
     let collab = e.app.collab();
     collab.open(&e.app, &e.card_id).await.expect("opened");
     collab.abandon().await;
+    let as_read = crate::collab_written_past::stored(&e).await.as_read();
     e.app
         .store()
         .append_body_updates(
             &e.card_id,
             &[(b"\xff\xff no update", e.user1.as_str())],
+            as_read,
             &[],
             &[],
             fvoci_store::BodyBefore::Leave,

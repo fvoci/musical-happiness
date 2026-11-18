@@ -27,6 +27,7 @@ mod collab_folds;
 mod collab_images;
 mod collab_upkeep;
 mod collab_whole;
+mod collab_written_past;
 mod comments;
 mod compression;
 mod content_blocks;

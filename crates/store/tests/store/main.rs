@@ -15,6 +15,7 @@ mod board_kinds;
 mod board_search;
 mod boards;
 mod boards_and_blocks;
+mod body_docs;
 mod body_links;
 mod body_versions;
 mod builtin_templates;

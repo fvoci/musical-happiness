@@ -836,10 +836,12 @@ async fn card_with_body(store: &Store, board_id: &str, user_id: &str) -> String 
         .create_body_doc(&card.id, b"a state", b"a digest")
         .await
         .expect("a document is stored");
+    let as_read = crate::body_docs::as_read(store, &card.id).await;
     store
         .append_body_updates(
             &card.id,
             &[(b"an update", user_id)],
+            as_read,
             &[],
             &[user_id],
             fvoci_store::BodyBefore::Leave,
