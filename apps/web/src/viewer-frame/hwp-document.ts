@@ -13,6 +13,7 @@
  */
 import init, { HwpDocument } from '@rhwp/core';
 
+import { UNPACKED_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
 import { PAGE_LIMIT } from '$lib/file-viewer/protocol.ts';
 
 import { checkCompound } from './compound-guard.ts';
@@ -20,6 +21,14 @@ import { checkHwpxPackage } from './hwpx-package.ts';
 import type { FromWorker, PageSize, TextRun, ToWorker } from './hwp-messages.ts';
 import { LockedFile, UnreadableFile } from './renderer.ts';
 import { repack } from './zip-guard.ts';
+
+/**
+ * The most text a page's drawing (SVG) may be, in characters. rhwp writes each
+ * picture into the page as text, as often as the page shows it; this much is
+ * a page with the largest picture a file the viewer takes can hold, and past
+ * it the page is not handed to the frame, whose thread is the app's.
+ */
+export const PAGE_SVG_LIMIT = 80 * 1024 * 1024;
 
 /** What rhwp says of a file it cannot read, and of one locked with a password (0.8.7). */
 const INVALID_FILE = '유효하지 않은 파일';
@@ -42,6 +51,7 @@ export function fromHex(text: string): Uint8Array<ArrayBuffer> {
 
 /** Why rhwp did not open a file, from what it says. */
 function openFailure(error: unknown): Error {
+  if (error instanceof WebAssembly.RuntimeError) return error;
   const said = error instanceof Error ? error.message : String(error);
   if (said.includes(NEEDS_PASSWORD)) return new LockedFile();
   return said.startsWith(INVALID_FILE) ? new UnreadableFile() : new Error(said);
@@ -77,8 +87,11 @@ function textOf(document: HwpDocument, index: number): TextRun[] {
 }
 
 /** The file as rhwp may read it, once checked as its kind is. */
-async function checked(message: Extract<ToWorker, { kind: 'open' }>): Promise<ArrayBuffer> {
-  if (message.format === 'hwp') return checkCompound(message.bytes);
+async function checked(
+  message: Extract<ToWorker, { kind: 'open' }>,
+  unpackLimit: number,
+): Promise<ArrayBuffer> {
+  if (message.format === 'hwp') return await checkCompound(message.bytes, unpackLimit);
   const archive = await repack(message.bytes);
   await checkHwpxPackage(archive);
   return archive;
@@ -87,10 +100,24 @@ async function checked(message: Extract<ToWorker, { kind: 'open' }>): Promise<Ar
 /** The worker's document: opened once, then drawn a page at a time. */
 export class HwpReader {
   #document: HwpDocument | undefined;
+  readonly #pageLimit: number;
+  readonly #unpackLimit: number;
+
+  /**
+   * `pageLimit`: the most text a page's drawing may be (`PAGE_SVG_LIMIT`);
+   * `unpackLimit`: what an HWP's streams may unpack to (`UNPACKED_LIMIT_BYTES`).
+   */
+  constructor({
+    pageLimit = PAGE_SVG_LIMIT,
+    unpackLimit = UNPACKED_LIMIT_BYTES,
+  }: { pageLimit?: number; unpackLimit?: number } = {}) {
+    this.#pageLimit = pageLimit;
+    this.#unpackLimit = unpackLimit;
+  }
 
   async open(message: Extract<ToWorker, { kind: 'open' }>): Promise<FromWorker> {
     if (this.#document) throw new Error('a document is open already');
-    const file = await checked(message);
+    const file = await checked(message, this.#unpackLimit);
     await init({ module_or_path: fromHex(message.wasm) });
     let document: HwpDocument;
     try {
@@ -112,14 +139,22 @@ export class HwpReader {
       throw new Error('no such page');
     }
     const index = number - 1;
-    return { kind: 'page', svg: document.renderPageSvg(index), text: textOf(document, index) };
+    const svg = document.renderPageSvg(index);
+    if (svg.length > this.#pageLimit) throw new Error('the page is too large to draw');
+    return { kind: 'page', svg, text: textOf(document, index) };
   }
 
-  /** The answer to a message: what was asked, or why it could not be done. */
+  /**
+   * The answer to a message: what was asked, or why it could not be done.
+   * Rejects when rhwp trapped (`WebAssembly.RuntimeError`, as when it runs out
+   * of the memory it may have): it is left as it was mid-way, and nothing more
+   * can be asked of it.
+   */
   async answer(message: ToWorker): Promise<FromWorker> {
     try {
       return message.kind === 'open' ? await this.open(message) : this.page(message.page);
     } catch (error) {
+      if (error instanceof WebAssembly.RuntimeError) throw error;
       return { kind: 'failed', reason: failureOf(error) };
     }
   }

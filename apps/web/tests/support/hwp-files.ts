@@ -6,9 +6,6 @@
  * that can tell the lies the viewer must catch. Every file is ours, so the
  * tests carry no third-party content.
  */
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 
 import { HwpDocument, initSync } from '@rhwp/core';
@@ -21,6 +18,8 @@ import {
   type CompoundEntry,
 } from '../../src/lib/file-viewer/compound-file.ts';
 import { zipEntries } from '../../src/lib/file-viewer/zip-directory.ts';
+
+import { rhwpWasmHex } from '../../tools/build/rhwp-wasm.ts';
 
 import { png, zip, type ZipMember } from './viewer-files.ts';
 
@@ -38,11 +37,14 @@ export const HWP_PASSWORD = '비밀1234';
 
 let ready = false;
 
+/**
+ * Starts rhwp from the WebAssembly the build hands the frame, its memory held
+ * to the same limit: rhwp's loader keeps the first instance it is given, so the
+ * worker's reader, tried in the same module context, runs on this one.
+ */
 function startRhwp(): void {
   if (ready) return;
-  const require = createRequire(import.meta.url);
-  const folder = path.dirname(require.resolve('@rhwp/core'));
-  initSync({ module: readFileSync(path.join(folder, 'rhwp_bg.wasm')) });
+  initSync({ module: Buffer.from(rhwpWasmHex(), 'hex') });
   ready = true;
 }
 

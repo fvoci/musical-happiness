@@ -1,7 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import path from 'node:path';
-
 import { describe, expect, it } from 'vitest';
 
 import { MARKUP_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
@@ -16,6 +12,7 @@ import { UnreadableFile } from '../../src/viewer-frame/renderer.ts';
 
 import { koreanHwpx, rewriteArchive } from '../support/hwp-files.ts';
 import { zip, type ZipMember } from '../support/viewer-files.ts';
+import { rhwpWasmHex } from '../../tools/build/rhwp-wasm.ts';
 
 const buffer = (data: Buffer): ArrayBuffer => Uint8Array.from(data).buffer;
 
@@ -131,10 +128,8 @@ describe('in the worker, what rhwp parses of an HWPX as XML is held to the limit
   });
 });
 
-/** rhwp's WebAssembly, as the frame hands it to the worker. */
-const WASM = readFileSync(
-  path.join(path.dirname(createRequire(import.meta.url).resolve('@rhwp/core')), 'rhwp_bg.wasm'),
-).toString('hex');
+/** rhwp's WebAssembly, as the build hands it to the frame. */
+const WASM = rhwpWasmHex();
 
 describe("the worker's reader holds an HWPX to the limits before rhwp reads it", () => {
   const open = (data: Buffer) =>

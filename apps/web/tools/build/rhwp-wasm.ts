@@ -12,6 +12,11 @@
  * compressors see repeat (Brotli: 3.3 MB against 4.2 MB for Base64 and
  * 3.1 MB for the WebAssembly itself, rhwp 0.8.7).
  *
+ * Its memory is given a maximum (`RHWP_MEMORY_LIMIT_BYTES`, wasm-memory.ts):
+ * past it rhwp traps, and the worker it runs in is stopped, rather than a
+ * file growing it until the tab's process runs out. A page with the largest
+ * picture a file the viewer takes can hold needs about 650 MB (rhwp 0.8.7).
+ *
  * The package's own loader would fetch the file from beside itself when it is
  * given nothing to load (`new URL('rhwp_bg.wasm', import.meta.url)`), and
  * that address alone makes the build copy the 12 MB file into the output. The
@@ -24,16 +29,29 @@ import path from 'node:path';
 
 import type { Plugin } from 'vite';
 
+import { withMemoryLimit } from './wasm-memory.ts';
+
 const ID = 'virtual:rhwp-wasm';
 const RESOLVED = `\0${ID}`;
 
 /** The loader's fallback to an address beside it, in `rhwp.js`. */
 const DEFAULT_ADDRESS = "module_or_path = new URL('rhwp_bg.wasm', import.meta.url);";
 
+/** The most memory rhwp's WebAssembly may take, in bytes. */
+export const RHWP_MEMORY_LIMIT_BYTES = 1024 * 1024 * 1024;
+
 /** The folder of the installed `@rhwp/core`. */
 export function rhwpDirectory(): string {
   const require = createRequire(import.meta.url);
   return realpathSync(path.dirname(require.resolve('@rhwp/core')));
+}
+
+/** The file of rhwp's WebAssembly, as the package has it. */
+export const rhwpWasmFile = (): string => path.join(rhwpDirectory(), 'rhwp_bg.wasm');
+
+/** rhwp's WebAssembly as the frame gets it: its memory held to the limit, as hexadecimal text. */
+export function rhwpWasmHex(limit = RHWP_MEMORY_LIMIT_BYTES): string {
+  return Buffer.from(withMemoryLimit(readFileSync(rhwpWasmFile()), limit)).toString('hex');
 }
 
 export function rhwpWasm(): Plugin {
@@ -44,10 +62,9 @@ export function rhwpWasm(): Plugin {
     },
     load(id) {
       if (id !== RESOLVED) return undefined;
-      const file = path.join(rhwpDirectory(), 'rhwp_bg.wasm');
-      this.addWatchFile(file);
+      this.addWatchFile(rhwpWasmFile());
       return {
-        code: `export default ${JSON.stringify(readFileSync(file).toString('hex'))};`,
+        code: `export default ${JSON.stringify(rhwpWasmHex())};`,
         moduleSideEffects: false,
       };
     },

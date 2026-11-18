@@ -68,7 +68,8 @@ export interface CompoundFile {
 
 const decoder = new TextDecoder('utf-16le');
 
-function hasSignature(bytes: Uint8Array): boolean {
+/** Whether the bytes start as a compound file does, whatever follows. */
+export function startsAsCompound(bytes: Uint8Array): boolean {
   return bytes.length >= HEADER_SIZE && SIGNATURE.every((byte, index) => bytes[index] === byte);
 }
 
@@ -101,7 +102,7 @@ function gather(
   sectors: readonly number[],
   size: number,
   length: number,
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(Math.min(length, sectors.length * size));
   return fill(out, sectors, size, (sector) => {
     const from = sectorStart(sector, size);
@@ -111,11 +112,11 @@ function gather(
 
 /** Fills `out` with the sectors' bytes one after another, as far as it takes them. */
 function fill(
-  out: Uint8Array,
+  out: Uint8Array<ArrayBuffer>,
   sectors: readonly number[],
   size: number,
   bytesOf: (sector: number) => Uint8Array,
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
   const needed = Math.min(sectors.length, Math.ceil(out.length / size));
   for (let index = 0; index < needed; index += 1) {
     const at = index * size;
@@ -188,7 +189,7 @@ function readEntries(directory: Uint8Array, major: number): CompoundEntry[] | un
 
 /** The file's structure, or undefined when the bytes are no compound file this reads. */
 export function compoundFile(bytes: Uint8Array): CompoundFile | undefined {
-  if (!hasSignature(bytes)) return undefined;
+  if (!startsAsCompound(bytes)) return undefined;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const major = view.getUint16(26, true);
   const shift = view.getUint16(30, true);
@@ -203,7 +204,10 @@ export function compoundFile(bytes: Uint8Array): CompoundFile | undefined {
   const { fat: fatSectors, difat: difatSectors } = tables;
   const fat = readTable(view, fatSectors, sectorSize).slice(0, total);
   const directorySectors = chain(fat, view.getUint32(48, true));
-  if (!directorySectors) return undefined;
+  // Counted before it is read: a directory past the limit is not read at all.
+  if (!directorySectors || directorySectors.length * (sectorSize / ENTRY_SIZE) > ENTRY_LIMIT) {
+    return undefined;
+  }
   const directory = gather(bytes, directorySectors, sectorSize, Infinity);
   const entries = readEntries(directory, major);
   if (entries?.[0]?.type !== ROOT) return undefined;
@@ -268,7 +272,7 @@ export function readStream(
   file: CompoundFile,
   entry: CompoundEntry,
   most: number,
-): Uint8Array | undefined {
+): Uint8Array<ArrayBuffer> | undefined {
   const length = Math.min(entry.size, most);
   const sectors = streamChain(file, entry);
   if (!sectors) return undefined;

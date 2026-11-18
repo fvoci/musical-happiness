@@ -28,6 +28,7 @@ import {
   koreanHwp,
   koreanHwpx,
   lockedHwpx,
+  rewriteArchive,
 } from '../tests/support/hwp-files.ts';
 
 import { boardPath } from './address.ts';
@@ -253,6 +254,27 @@ test('the frame and the worker the renderer runs in reach no network', async ({ 
   expect(await page.evaluate(attempt, open)).toBe('reached: 200');
   expect(await inside.evaluate(attempt, open)).toMatch(/^refused/);
   expect(await worker.evaluate(attempt, open)).toMatch(/^refused/);
+});
+
+test('a page past the memory the renderer may take: it fails, and its worker is stopped', async ({
+  page,
+}) => {
+  await openCard(page);
+  // A picture of 190 MiB (within what a file may unpack to, deflated to little), which rhwp
+  // writes into the page whole: more than the 1 GiB it may take.
+  const picture = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.alloc(190 << 20, 7),
+  ]);
+  const heavy = rewriteArchive(koreanHwpx(), (member) =>
+    member.name === 'BinData/image1.png' ? { ...member, data: picture, stored: false } : member,
+  );
+  const started = nextWorker(page);
+  await view(page, 'heavy.hwpx', heavy, HWPX_TYPE);
+  const { ended } = await started;
+  await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
+  await expect(notice(page)).toContainText('The file could not be shown.');
+  await ended;
 });
 
 test('a document locked with a password says so', async ({ page }) => {

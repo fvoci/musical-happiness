@@ -1,9 +1,8 @@
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import path from 'node:path';
+import { deflateRawSync } from 'node:zlib';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { compoundFile as readCompound } from '$lib/file-viewer/compound-file.ts';
 import { examine, type FormatId } from '$lib/file-viewer/formats.ts';
 import { readFromFrame } from '$lib/file-viewer/protocol.ts';
 import { fromHex, HwpReader } from '../../src/viewer-frame/hwp-document.ts';
@@ -27,6 +26,7 @@ import {
   lockedHwpx,
 } from '../support/hwp-files.ts';
 import { zip } from '../support/viewer-files.ts';
+import { rhwpWasmHex } from '../../tools/build/rhwp-wasm.ts';
 
 const bytes = (buffer: Buffer): Uint8Array =>
   new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -59,10 +59,8 @@ describe('HWPX is told apart by its first bytes', () => {
   });
 });
 
-/** rhwp's WebAssembly, as the frame hands it to the worker. */
-const WASM = readFileSync(
-  path.join(path.dirname(createRequire(import.meta.url).resolve('@rhwp/core')), 'rhwp_bg.wasm'),
-).toString('hex');
+/** rhwp's WebAssembly, as the build hands it to the frame. */
+const WASM = rhwpWasmHex();
 
 const open = (reader: HwpReader, format: HwpFormat, data: Buffer): Promise<FromWorker> =>
   reader.answer({ kind: 'open', format, bytes: buffer(data), wasm: WASM });
@@ -105,6 +103,38 @@ describe("the worker's reader, with rhwp", () => {
       const opened = await open(new HwpReader(), 'hwp', again);
       expect(opened.kind === 'opened' && opened.pages.length).toBe(2);
     }
+  });
+
+  it('stops a picture that unpacks past the limit, as written or read leniently by rhwp', async () => {
+    const streams = compoundStreams(koreanHwp());
+    const bomb = deflateRawSync(Buffer.alloc(4 << 20));
+    const bombed = streams.map((stream) =>
+      stream.path.startsWith('BinData/') ? { ...stream, data: bomb } : stream,
+    );
+    expect(bombed).not.toEqual(streams);
+    const strict = compoundFile(bombed);
+    // An unused entry of the directory with a kind that does not exist: rhwp's compound file
+    // reader refuses it, and rhwp reads the file leniently, pictures unpacked whole.
+    const lenient = Buffer.from(strict);
+    const directory = (strict.readUInt32LE(48) + 1) * 512;
+    const unused = readCompound(bytes(strict))?.entries.findIndex((entry) => entry.type === 0);
+    if (unused === undefined || unused < 0) throw new Error('no unused entry');
+    lenient[directory + unused * 128 + 66] = 3;
+    for (const file of [strict, lenient]) {
+      expect(await open(new HwpReader({ unpackLimit: 1 << 20 }), 'hwp', file)).toEqual({
+        kind: 'failed',
+        reason: 'unreadable',
+      });
+    }
+  });
+
+  it('does not hand on a page drawn past the most text a page may be', async () => {
+    const reader = new HwpReader({ pageLimit: 1000 });
+    expect((await open(reader, 'hwpx', koreanHwpx())).kind).toBe('opened');
+    expect(await reader.answer({ kind: 'page', page: 1 })).toEqual({
+      kind: 'failed',
+      reason: 'renderer',
+    });
   });
 
   it('says a document locked with a password is locked', async () => {
