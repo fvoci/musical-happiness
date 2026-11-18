@@ -3,10 +3,11 @@
  * into a wiki's page or a card's body opens when its name is pressed (by
  * the mouse, a finger, or Enter and Space once Tab is on it), or with Enter
  * once the block is selected, and closes again; over a card the card stays
- * open. A deck and a Hangul document (HWPX, HWP) open from theirs too. In the editor the block is still selected, dragged and deleted as
- * before, and the keys pressed on its name edit nothing; a file the viewer
- * would not show offers its download alone, and so does one whose viewer
- * cannot be fetched.
+ * open. A deck and a Hangul document (HWPX, HWP) open from theirs too. In
+ * the editor the block is still selected, dragged and deleted as before,
+ * and the keys pressed on its name edit nothing; a file the viewer would
+ * not show offers its download alone, and so does one whose viewer cannot
+ * be fetched.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 

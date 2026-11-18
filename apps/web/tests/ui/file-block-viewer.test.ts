@@ -383,6 +383,9 @@ describe('the files the viewer is likely to show', () => {
   it.each([
     ['a.pdf', 1, true],
     ['보고서.DOCX', 1, true],
+    ['표.xlsx', 1, true],
+    ['a.XLSM', 1, true],
+    ['a.xls', 1, false],
     ['발표.pptx', 1, true],
     ['a.ppt', 1, false],
     ['기안.hwp', 1, true],
