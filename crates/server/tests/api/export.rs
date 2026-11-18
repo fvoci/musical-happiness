@@ -919,7 +919,7 @@ async fn an_archive_with_a_refused_board_stores_nothing() {
         "updateAt": 1, "fields": {"note": "x".repeat(70_000)},
     }});
     for (block, says) in [
-        (older_type, "\"text\""),
+        (older_type, "a block is a `card`"),
         (oversized, "block fields size limit exceeded"),
     ] {
         let before = boards_of(&ts).await.len();
