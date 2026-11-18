@@ -22,6 +22,7 @@ import {
   ZOOM_MAX,
   ZOOM_MIN,
   type Failure,
+  type SheetSummary,
   type Theme,
   type ToFrame,
   type ViewerKey,
@@ -74,6 +75,8 @@ export class ViewerSession {
   status = $state.raw<Status>({ name: 'reading' });
   pages = $state(0);
   page = $state(1);
+  /** A workbook's sheets, by name: its pages. None for a document of pages. */
+  sheets = $state.raw<readonly SheetSummary[]>([]);
   zoom = $state(1);
   /** The file's bytes once read: what "Download" saves. */
   blob = $state.raw<Blob | undefined>(undefined);
@@ -210,8 +213,13 @@ export class ViewerSession {
         this.#wait(this.#limits.draw);
         break;
       }
+      case 'sheets':
+        if (status.name === 'opening') this.sheets = message.sheets;
+        break;
       case 'shown':
         clearTimeout(this.#timer);
+        // Sheets that are not the pages shown are not shown as them.
+        if (this.sheets.length !== message.pages) this.sheets = [];
         this.pages = message.pages;
         this.page = 1;
         this.status = { name: 'shown', format: status.format };

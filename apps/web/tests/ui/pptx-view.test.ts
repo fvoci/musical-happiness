@@ -68,6 +68,7 @@ function view(pixels: number[]): { view: PptxView; drawn: () => number[] } {
     presentation,
     place,
     {
+      sheets: () => undefined,
       shown: () => undefined,
       page: () => undefined,
       failed: () => undefined,

@@ -1,10 +1,12 @@
 /**
  * The renderer of each kind of file, fetched the first time a file of that
  * kind is opened. Each is a chunk of its own with its library, so opening a
- * PDF fetches neither the Word nor the PowerPoint renderer.
+ * PDF fetches none of the other renderers.
  *
- * Adding a kind: its line in `FORMATS` of `$lib/file-viewer/formats.ts`, a module
- * here that exports `render`, and its line in this table.
+ * Adding a kind: its line in `FORMATS` of `$lib/file-viewer/formats.ts` and
+ * its extensions in `$lib/file-viewer/extensions.ts`, a module here that
+ * makes its `Render`, its line in this table, and its line in
+ * `CHECKED_IN_WORKER` if its worker checks the file itself.
  */
 import type { FormatId } from '$lib/file-viewer/formats.ts';
 
@@ -13,6 +15,7 @@ import type { Render } from './renderer.ts';
 export const RENDERERS: Record<FormatId, () => Promise<Render>> = {
   pdf: async () => (await import('./pdf.ts')).render,
   docx: async () => (await import('./docx.ts')).render,
+  xlsx: async () => (await import('./xlsx.ts')).render,
   pptx: async () => (await import('./pptx.ts')).render,
   hwpx: async () => (await import('./hwp.ts')).renderer('hwpx'),
   hwp: async () => (await import('./hwp.ts')).renderer('hwp'),
