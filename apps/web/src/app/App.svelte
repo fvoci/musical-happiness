@@ -151,8 +151,7 @@
       // one (the backend in memory): a test undoes through it.
       const dev = (window as unknown as { fvociDev?: object }).fvociDev;
       if (dev) Object.assign(dev, { workspace: made });
-      await made.load(router.route.workspaceId);
-      followLanguage(made);
+      await made.load(router.route.workspaceId, followsLanguage);
     });
     return () => {
       workspace?.close();
@@ -162,17 +161,16 @@
   /**
    * The page in the language of the account, once its settings are read:
    * another device may have chosen it. A page that loads again for it says
-   * so; nothing else is to be done on this one.
+   * so, and the workspace reads nothing more on this one: what is under way
+   * when a page goes is cut off, and Safari tells each such request as an error.
    */
-  function followLanguage(loaded: Workspace): boolean {
-    return loaded.status === 'ready' && followAccountLanguage(loaded.settings.language);
+  function followsLanguage(settings: { language: string }): boolean {
+    return followAccountLanguage(settings.language);
   }
 
   /** Reads the workspace again after a failure, and follows its language as the first load does. */
   async function retryLoad(): Promise<void> {
-    if (!workspace) return;
-    await workspace.load(router.route.workspaceId);
-    followLanguage(workspace);
+    await workspace?.load(router.route.workspaceId, followsLanguage);
   }
 
   /**
@@ -371,7 +369,9 @@
       }
       // Signed in on no page of the app (`/login` after a refused provider sign-in): the first.
       if (router.route.unknown) router.go({}, { replace: true });
-      await workspace?.load(router.route.workspaceId);
+      // A new account is in the language of the page it was made on, and is shown its board first.
+      const isNew = login === registered?.username || login === registered?.email;
+      await workspace?.load(router.route.workspaceId, isNew ? undefined : followsLanguage);
       // Signed in, yet the next request is not: the browser did not keep the
       // session (a cookie for https on a page over http, or cookies blocked).
       if (workspace?.status === 'signedOut') {
@@ -381,10 +381,9 @@
         });
       }
       // A new account starts on its own copy of the welcome board, made once.
-      const made = registered;
-      if (made && workspace?.status === 'ready') {
+      if (registered && workspace?.status === 'ready') {
         registered = undefined;
-        if (login === made.username || login === made.email) {
+        if (isNew) {
           const signedIn = workspace;
           const where = signedIn.info?.id;
           const welcome = await whileHere(signedIn, () => signedIn.onboard());
@@ -395,7 +394,7 @@
         }
       }
       // Last: the page may load again in the account's language.
-      if (workspace) followLanguage(workspace);
+      if (workspace?.status === 'ready') followsLanguage(workspace.settings);
     }}
     onRegister={async (registration: Registration) => {
       const made = (await account?.register(registration, currentLocale())) ?? 'made';

@@ -191,6 +191,8 @@ test('in another browser the link asks for the password the registration was mad
   await expect(registrant).toHaveURL(/\/w\/[^/]+/);
   expect(new URL(registrant.url()).hash).toBe('');
   const me = await registrant.request.get('/api/v1/users/me');
+  // What came back when it is not the account, for the run that fails here.
+  expect(me.status()).toBe(200);
   expect(((await me.json()) as { username: string }).username).toBe(who.username);
   await other.close();
 
