@@ -8,11 +8,27 @@
  * row crosses a styled column with a style of their own, so the row's
  * standing over the column's matters only for files other programs wrote.
  *
- * Only the cells in view are looked at (`xlsx-pane.ts`), and only those
- * whose style paints something (a fill or a border): a style of font alone
- * shows nothing on an empty cell.
+ * Only the cells in view are looked at (`xlsx-pane.ts`), after the cells
+ * written in view are drawn, and only those whose style paints something (a
+ * fill or a border): a style of font alone shows nothing on an empty cell.
+ * Neighbours of one fill without borders are drawn as one run.
  */
 import type { Sheet } from './xlsx-protocol.ts';
+
+/** A run of empty cells of a row: its first and last column, and its style. */
+export type BlankRun = [number, number, number];
+
+/** Where a row's empty cells may not be drawn, and what drawing them may spend. */
+export interface BlankPlace {
+  /** The cell is written in the sheet; asked of the columns in order. */
+  written: (column: number) => boolean;
+  /** A merge covers the cell. */
+  covered: (column: number) => boolean;
+  /** The next column of some width after `column`. */
+  next: (column: number) => number;
+  /** Each empty cell looked at spends one. */
+  budget: { cells: number };
+}
 
 /** A run of columns of one style. */
 interface Run {
@@ -25,13 +41,18 @@ export class BlankStyles {
   readonly #rows: Uint32Array;
   readonly #runs: Run[] = [];
   readonly #paints: (style: number) => boolean;
+  readonly #joins: (style: number) => boolean;
   /** Some column has a style that paints: the columns of a row without one are looked at. */
   readonly columnsPaint: boolean;
 
-  /** `paints` says whether a style paints anything on an empty cell. */
-  constructor(sheet: Sheet, paints: (style: number) => boolean) {
+  /**
+   * `paints` says whether a style paints anything on an empty cell, `joins`
+   * whether neighbours of it may be drawn as one (no border between them).
+   */
+  constructor(sheet: Sheet, paints: (style: number) => boolean, joins: (style: number) => boolean) {
     this.#rows = sheet.rowStyles;
     this.#paints = paints;
+    this.#joins = joins;
     const runs: Run[] = [];
     const given = sheet.columnStyles;
     for (let at = 0; at + 2 < given.length; at += 3) {
@@ -88,5 +109,34 @@ export class BlankStyles {
   at(row: number, column: number): number {
     const own = this.row(row);
     return own >= 0 ? own : this.column(column);
+  }
+
+  /**
+   * The runs of empty cells of row `row` that its style, or else their
+   * columns' (`painting`, those of `inView` whose style paints), paints;
+   * `inView` are the columns in view of some width, in order.
+   */
+  runs(
+    row: number,
+    inView: readonly number[],
+    painting: readonly number[],
+    place: BlankPlace,
+  ): BlankRun[] {
+    const own = this.row(row);
+    if (own >= 0 ? !this.paints(own) : !this.columnsPaint) return [];
+    const runs: BlankRun[] = [];
+    for (const column of own >= 0 ? inView : painting) {
+      if (place.budget.cells <= 0) break;
+      // A written cell was looked at, and spent for, with the written cells.
+      if (place.written(column)) continue;
+      place.budget.cells -= 1;
+      if (place.covered(column)) continue;
+      const style = own >= 0 ? own : this.column(column);
+      const last = runs.at(-1);
+      if (last && last[2] === style && this.#joins(style) && place.next(last[1]) === column) {
+        last[1] = column;
+      } else runs.push([column, column, style]);
+    }
+    return runs;
   }
 }

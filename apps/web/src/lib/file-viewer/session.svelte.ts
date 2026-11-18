@@ -229,7 +229,8 @@ export class ViewerSession {
         if (status.name === 'opening') this.sheets = message.sheets;
         break;
       case 'hidden':
-        if (status.name === 'opening') this.#hidden = message.pages;
+        // Of a deck only: another document's pages are turned one by one.
+        if (status.name === 'opening' && status.format === 'pptx') this.#hidden = message.pages;
         break;
       case 'shown':
         clearTimeout(this.#timer);
@@ -250,6 +251,8 @@ export class ViewerSession {
         });
         break;
       case 'page':
+        // A slide left out is not the reader's (a message sent before they were left out).
+        if (this.slides && !this.slides.shows(message.page, this.showHidden)) break;
         this.page = Math.min(message.page, this.pages);
         break;
       case 'failed':
@@ -293,11 +296,10 @@ export class ViewerSession {
   toggleHidden(): void {
     const slides = this.slides;
     if (this.status.name !== 'shown' || !slides || slides.allHidden) return;
-    // The frame is told the slide the reader was on, and finds the same landing.
-    const from = this.page;
     this.showHidden = !this.showHidden;
-    this.page = slides.landing(from, this.showHidden);
-    this.#send({ kind: 'hidden', shown: this.showHidden, page: from });
+    // Where the reader lands, until the frame tells the slide it keeps in view.
+    this.page = slides.landing(this.page, this.showHidden);
+    this.#send({ kind: 'hidden', shown: this.showHidden });
   }
 
   /** Zooms one step in (1) or out (-1), or back to 1 (0). */

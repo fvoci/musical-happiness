@@ -165,19 +165,24 @@ describe('rows and columns of a style of their own', () => {
 
   it('show on the cells not written: a cell over its row, a row over its column', async () => {
     const view = await drawn(rowColumnXlsx());
-    // Row 2 is red across, column C too; B2, written, is of its own style (none).
+    // Row 2 is red across, column C too; B2, written, is of its own style (none): two runs of
+    // red, one each side of it.
     const second = blanks(view, 2);
-    expect(second.length).toBeGreaterThan(5);
+    expect(second).toHaveLength(2);
     expect(fills(second)).toEqual([RED]);
+    expect(second.map((each) => each.getAttribute('aria-colspan'))).toEqual([null, null]);
     const written = view.element.querySelectorAll<HTMLElement>(
       '[role="row"][aria-rowindex="2"] [role="cell"]',
     );
     expect([...written].map((each) => [each.textContent, each.style.backgroundColor])).toEqual([
       ['7', ''],
     ]);
-    // A row of no style of its own: only column C, blue.
+    // A row of no style of its own: only column C, blue; a row of nothing to read.
     expect(fills(blanks(view, 3))).toEqual([BLUE]);
     expect(blanks(view, 3)).toHaveLength(1);
+    const rowOf = (row: number) => view.element.querySelector(`[aria-rowindex="${row}"]`);
+    expect(rowOf(3)?.getAttribute('aria-hidden')).toBe('true');
+    expect(rowOf(2)?.hasAttribute('aria-hidden')).toBe(false);
     // Row 4 is bold alone: it stands over column C, and paints nothing.
     expect(blanks(view, 4)).toHaveLength(0);
     // Row 6 names a style without customFormat, which Excel does not take.
@@ -190,7 +195,7 @@ describe('rows and columns of a style of their own', () => {
     // A merge of no cell written takes its first cell's column's style.
     const merged = view.element.querySelector<HTMLElement>('.xlsx-merged');
     expect(merged?.style.backgroundColor).toBe(BLUE);
-    // Row 12 is bordered: each of its empty cells has the edges.
+    // Row 12 is bordered: each of its empty cells is drawn alone, with the edges.
     const bordered = blanks(view, 12);
     expect(bordered.length).toBeGreaterThan(5);
     expect(bordered.every((each) => each.querySelector('.xlsx-edges'))).toBe(true);
@@ -199,13 +204,26 @@ describe('rows and columns of a style of their own', () => {
   });
 
   it('a styled column across the whole sheet spends the budget like any cell', async () => {
-    // Every column filled, 1-pixel columns and rows: far more empty cells in view than the budget.
-    const xml = `<sheetFormatPr defaultRowHeight="0.75"/><cols><col min="1" max="16384" width="0.1" style="1" customWidth="1"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>`;
+    // Every column bordered (each cell drawn alone), 1-pixel columns and rows: far more empty
+    // cells in view than the budget.
+    const xml = `<sheetFormatPr defaultRowHeight="0.75"/><cols><col min="1" max="16384" width="0.1" style="4" customWidth="1"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>`;
     const view = await drawn(
-      workbook({ sheets: [{ name: 'filled', xml }], stylesXml: ROW_COLUMN_STYLES }),
+      workbook({ sheets: [{ name: 'bordered', xml }], stylesXml: ROW_COLUMN_STYLES }),
     );
     const drawnBlanks = view.element.querySelectorAll('.xlsx-cell[aria-hidden="true"]').length;
     expect(drawnBlanks).toBeLessThanOrEqual(CELL_BUDGET);
     expect(drawnBlanks).toBeGreaterThan(CELL_BUDGET / 2);
+  });
+
+  it('the written cells are drawn before any empty one: a styled sheet loses no value', async () => {
+    // As dense as the sheet above that fills the budget with values, every column bordered.
+    const xml = `<sheetFormatPr defaultRowHeight="0.75"/><cols><col min="1" max="16384" width="0.1" style="4" customWidth="1"/></cols><sheetData>${rowsOf(70, 100)}</sheetData>`;
+    const view = await drawn(
+      workbook({ sheets: [{ name: 'dense', xml }], stylesXml: ROW_COLUMN_STYLES }),
+    );
+    // Every value in view, though the empty cells around them are more than the budget.
+    expect(view.element.querySelectorAll('[role="cell"]')).toHaveLength(70 * 100);
+    const empty = view.element.querySelectorAll('.xlsx-cell[aria-hidden="true"]').length;
+    expect(empty).toBe(CELL_BUDGET - 70 * 100);
   });
 });

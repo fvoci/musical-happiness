@@ -77,11 +77,11 @@ export type ToFrame =
   | { kind: 'zoom'; zoom: number }
   | { kind: 'theme'; theme: Theme }
   /**
-   * Show a deck's hidden slides in place, or leave them out: `page` is the
-   * slide the reader was on, kept where it is in the view (or, when it is
-   * left out, the slide the reader lands on in its place).
+   * Show a deck's hidden slides in place, or leave them out. The frame keeps
+   * the slide in view where it is (or, when it is left out, puts the slide
+   * the reader lands on in its place) and tells the page it is on.
    */
-  | { kind: 'hidden'; shown: boolean; page: number };
+  | { kind: 'hidden'; shown: boolean };
 
 export type FromFrame =
   | { kind: 'ready' }
@@ -229,9 +229,8 @@ export function readToFrame(data: unknown): ToFrame | undefined {
       return isTheme(theme) ? { kind: 'theme', theme } : undefined;
     }
     case 'hidden': {
-      const fields = exactly(data, ['kind', 'shown', 'page']);
-      if (!fields || typeof fields.shown !== 'boolean' || !isPage(fields.page)) return undefined;
-      return { kind: 'hidden', shown: fields.shown, page: fields.page };
+      const shown = exactly(data, ['kind', 'shown'])?.shown;
+      return typeof shown === 'boolean' ? { kind: 'hidden', shown } : undefined;
     }
     default:
       return undefined;

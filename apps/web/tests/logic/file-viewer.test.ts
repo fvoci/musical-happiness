@@ -417,17 +417,12 @@ describe('a message from the app, in the frame', () => {
     expect(readToFrame({ kind: 'theme', theme: 'dim' })).toBeUndefined();
   });
 
-  it("shows a deck's hidden slides or leaves them out, with the slide the reader is on", () => {
-    expect(readToFrame({ kind: 'hidden', shown: true, page: 3 })).toEqual({
-      kind: 'hidden',
-      shown: true,
-      page: 3,
-    });
+  it("shows a deck's hidden slides or leaves them out", () => {
+    expect(readToFrame({ kind: 'hidden', shown: true })).toEqual({ kind: 'hidden', shown: true });
     for (const wrong of [
-      { kind: 'hidden', shown: 'yes', page: 3 },
-      { kind: 'hidden', shown: false, page: 0 },
-      { kind: 'hidden', shown: false },
-      { kind: 'hidden', shown: false, page: 1, pages: [1] },
+      { kind: 'hidden', shown: 'yes' },
+      { kind: 'hidden', shown: false, page: 3 },
+      { kind: 'hidden' },
     ]) {
       expect(readToFrame(wrong), JSON.stringify(wrong)).toBeUndefined();
     }

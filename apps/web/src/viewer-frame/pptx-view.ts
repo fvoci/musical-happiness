@@ -329,12 +329,13 @@ export class PptxView implements Drawn {
   }
 
   /**
-   * The slide the reader is on (`page`) stays where it is in the view; when
-   * it is left out, the slide the reader lands on (`SlideOrder.landing`)
-   * takes its place.
+   * The slide in view (as the frame follows it, not as the app last heard)
+   * stays where it is in the view; when it is left out, the slide the reader
+   * lands on (`SlideOrder.landing`) takes its place. Either is told.
    */
-  showHidden(shown: boolean, page: number): void {
+  showHidden(shown: boolean): void {
     if (shown === this.#expanded) return;
+    const page = this.#follower.current || this.#order.first(this.#expanded);
     const from = this.#slides[page - 1];
     const to = this.#slides[this.#order.landing(page, shown) - 1];
     const before = from && !from.box.hidden ? from.box.getBoundingClientRect().top : undefined;

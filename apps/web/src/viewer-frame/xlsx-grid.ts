@@ -124,7 +124,11 @@ export class SheetView {
     const { rows, columns } = axesOf(sheet);
     this.#rows = rows;
     this.#columns = columns;
-    const blanks = new BlankStyles(sheet, (style) => looks.paints(style));
+    const blanks = new BlankStyles(
+      sheet,
+      (style) => looks.paints(style),
+      (style) => !looks.bordered(style),
+    );
     const pane = (): Pane => new Pane(sheet, looks, rows, columns, blanks);
     this.#panes = [pane(), pane(), pane(), pane()];
     this.#rulers = [

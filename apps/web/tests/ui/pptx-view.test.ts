@@ -172,7 +172,7 @@ describe('slides hidden from a show', () => {
 
   it('come back in place, marked in words, and go again with their drawing', async () => {
     const { view: shown, drawn, told } = view([1, 1, 1, 1], [2, 3]);
-    shown.showHidden(true, 1);
+    shown.showHidden(true);
     expect(numbers(shown.boxes)).toEqual([1, 2, 3, 4]);
     const marked = shown.boxes.filter((box) => box.classList.contains('slide-hidden'));
     expect(numbers(marked)).toEqual([2, 3]);
@@ -184,9 +184,36 @@ describe('slides hidden from a show', () => {
     // The mark stays over the slide drawn.
     expect(shown.boxes[2]?.lastElementChild?.textContent).toBe('숨김');
     // Left out while on hidden slide 3: the reader lands on 4, the next a show gives.
-    shown.showHidden(false, 3);
+    shown.goTo(3);
+    shown.showHidden(false);
     expect(numbers(shown.boxes)).toEqual([1, 4]);
     expect(drawn()).toEqual([]);
+    expect(told.at(-1)).toBe(4);
+  });
+
+  it('come and go with the slide in view kept where it is in the view', () => {
+    // Laid out as the frame would: each slide laid out 600 pixels below the one before.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const column = [...(this.parentElement?.children ?? [])].filter(
+        (box) => !(box as HTMLElement).hidden,
+      );
+      const top = this.hidden ? 0 : column.indexOf(this) * 600;
+      return { top, bottom: top + 540, left: 0, right: 100, width: 100, height: 540 } as DOMRect;
+    });
+    const scrolled = vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    const { view: shown, told } = view([1, 1, 1, 1, 1], [2, 3]);
+    // On slide 4, second of the slides laid out (1, 4, 5): 600 down.
+    shown.goTo(4);
+    shown.showHidden(true);
+    // Now fourth (1, 2, 3, 4, 5): 1,800 down. The view moves by the difference.
+    expect(scrolled).toHaveBeenLastCalledWith({ top: 1_200, behavior: 'instant' });
+    expect(told.at(-1)).toBe(4);
+    // On hidden slide 3 (1,200 down), left out: slide 4 (then 600 down) takes its place.
+    shown.goTo(3);
+    shown.showHidden(false);
+    expect(scrolled).toHaveBeenLastCalledWith({ top: -600, behavior: 'instant' });
     expect(told.at(-1)).toBe(4);
   });
 

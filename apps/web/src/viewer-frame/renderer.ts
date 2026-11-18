@@ -25,8 +25,8 @@ export interface Drawn {
   goTo(page: number): void;
   /** Draws at this zoom, 1 being the document's own size. */
   zoom(zoom: number): void;
-  /** Shows a deck's hidden slides in place, or leaves them out, keeping `page` where it is in view. */
-  showHidden?(shown: boolean, page: number): void;
+  /** Shows a deck's hidden slides in place, or leaves them out, keeping the reader's place. */
+  showHidden?(shown: boolean): void;
 }
 
 /** Thrown when the file is a kind the renderer reads, but locked with a password. */
@@ -88,10 +88,16 @@ export class PageFollower {
     this.#measure();
   }
 
-  /** Takes `page` (from 1) as the page in view: it was just brought to the top. */
+  /** The page in view, as last told; 0 before any. */
+  get current(): number {
+    return this.#current;
+  }
+
+  /** Takes `page` (from 1) as the page in view, and tells it even when it was: it was just brought to the top. */
   pin(page: number): void {
     this.#pinnedAt = performance.now();
-    this.#tell(page);
+    this.#current = page;
+    this.#report.page(page);
   }
 
   #measure(): void {

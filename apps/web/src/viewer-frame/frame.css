@@ -9,8 +9,6 @@
 :root {
   --page-shadow: 0 1px 3px color-mix(in srgb, CanvasText 25%, transparent);
   --slide-hidden-edge: color-mix(in srgb, CanvasText 55%, transparent);
-  --slide-mark-background: CanvasText;
-  --slide-mark-text: Canvas;
   color-scheme: light;
   font-family: 'Noto Sans KR', sans-serif;
 }
@@ -53,7 +51,9 @@ body {
 
 /*
   A slide hidden from a show, when the hidden slides are shown: faded, its
-  edge dashed, and a word over its corner (not its colour alone).
+  edge dashed, and a word over its upper right corner (not its colour
+  alone): in sight where the slide starts, off a title set to the left. Dark on the slide in either theme: a slide
+  keeps its own colours.
 */
 .slide-hidden {
   outline: 2px dashed var(--slide-hidden-edge);
@@ -67,12 +67,12 @@ body {
 .slide-mark {
   position: absolute;
   top: 8px;
-  left: 8px;
+  right: 8px;
   z-index: 1;
   padding: 2px 8px;
   border-radius: 4px;
-  background: var(--slide-mark-background);
-  color: var(--slide-mark-text);
+  background: #1f1f1f;
+  color: white;
   font:
     600 13px/1.4 'Noto Sans KR',
     sans-serif;

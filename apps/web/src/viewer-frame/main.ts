@@ -155,7 +155,7 @@ function start(): void {
         setTheme(message.theme);
         break;
       case 'hidden':
-        drawn?.showHidden?.(message.shown, message.page);
+        drawn?.showHidden?.(message.shown);
         break;
     }
   });

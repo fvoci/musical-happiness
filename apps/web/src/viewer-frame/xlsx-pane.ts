@@ -70,6 +70,13 @@ export function lowerBound(
   return from;
 }
 
+/** Whether a merged range of `merges` covers the cell. */
+const covers = (merges: readonly Range[], row: number, column: number): boolean =>
+  merges.some(
+    ([top, left, bottom, right]) =>
+      row >= top && row <= bottom && column >= left && column <= right,
+  );
+
 /** Puts `elements` in `parent` in this order, before whatever else it holds. */
 function order(parent: HTMLElement, elements: readonly HTMLElement[]): void {
   let cursor = parent.firstElementChild;
@@ -240,7 +247,7 @@ export class Pane {
       const at = rows.find((row) => row >= host) ?? host;
       hosted.set(at, [...(hosted.get(at) ?? []), range]);
     }
-    const rowElements: HTMLElement[] = [];
+    const cells = new Map<number, HTMLElement[]>();
     for (const row of rows) {
       if (budget.cells <= 0) break;
       const inRow = this.#rowCells(row, columns, merges, budget);
@@ -249,8 +256,23 @@ export class Pane {
         inRow.push(this.#merge(range, row));
         budget.cells -= 1;
       }
+      cells.set(row, inRow);
+    }
+    // The empty cells of styled rows and columns with what the written ones left of the budget.
+    const blanks = new Map<number, HTMLElement[]>();
+    for (const row of rows) {
+      if (budget.cells <= 0) break;
+      blanks.set(row, this.#blankCells(row, columns, merges, budget));
+    }
+    const rowElements: HTMLElement[] = [];
+    for (const row of rows) {
+      const read = cells.get(row) ?? [];
+      const inRow = [...read, ...(blanks.get(row) ?? [])];
       if (inRow.length === 0) continue;
       const element = this.#row(row);
+      // A row of nothing but empty styled cells holds nothing to read.
+      if (read.length === 0) element.setAttribute('aria-hidden', 'true');
+      else element.removeAttribute('aria-hidden');
       order(element, inRow);
       rowElements.push(element);
     }
@@ -285,68 +307,47 @@ export class Pane {
       const element = this.#cell(at, row, columns, merges, end, false);
       if (element) drawn.push(element);
     }
-    drawn.push(...this.#blankCells(row, columns, merges, [start, end], budget));
     return drawn;
   }
 
-  /** The columns in view of some width, in order, at most `CELL_BUDGET` of them. */
-  #columnsInView([first, last]: [number, number]): number[] {
-    if (this.#inView) return this.#inView;
-    const found: number[] = [];
-    for (
-      let column = first;
-      column <= last && found.length < CELL_BUDGET;
-      column = this.#columns.next(column)
-    ) {
-      if (this.#columns.size(column) > 0) found.push(column);
-    }
-    this.#inView = found;
-    return found;
-  }
-
-  /**
-   * The cells of a row in view not written in it (the row's are its cells
-   * from `written[0]` to before `written[1]`) whose row's or column's style
-   * paints, made or kept. Each looked at spends the budget.
-   */
+  /** The empty cells of a row in view that its or their column's style paints, in runs, made or kept. */
   #blankCells(
     row: number,
     columns: [number, number],
     merges: readonly Range[],
-    [start, end]: [number, number],
     budget: Budget,
   ): HTMLElement[] {
-    const blanks = this.#blanks;
-    const own = blanks.row(row);
-    if (own >= 0 ? !blanks.paints(own) : !blanks.columnsPaint) return [];
-    const inView = this.#columnsInView(columns);
-    this.#painting ??= inView.filter((column) => blanks.paints(blanks.column(column)));
     const sheet = this.#sheet;
-    const made: HTMLElement[] = [];
-    let written = start;
-    for (const column of own >= 0 ? inView : this.#painting) {
-      if (budget.cells <= 0) break;
-      budget.cells -= 1;
-      while (written < end && (sheet.cellColumns[written] ?? 0) < column) written += 1;
-      if (written < end && sheet.cellColumns[written] === column) continue;
-      const covered = merges.some(
-        ([top, left, bottom, right]) =>
-          row >= top && row <= bottom && column >= left && column <= right,
-      );
-      if (covered) continue;
-      const element = this.#take(`b${row}:${column}`, () => {
-        const blank = this.#make(-1, column, row, row);
+    const blanks = this.#blanks;
+    if (blanks.row(row) < 0 && !blanks.columnsPaint) return [];
+    // The columns in view of some width, found once a drawing.
+    const inView = (this.#inView ??= this.#columns.sized(columns[0], columns[1], CELL_BUDGET));
+    this.#painting ??= inView.filter((column) => blanks.paints(blanks.column(column)));
+    const start = lowerBound(sheet.cellRows, row);
+    const end = lowerBound(sheet.cellRows, row + 1, start);
+    // From the first written cell in view: the columns are asked of in order.
+    let at = lowerBound(sheet.cellColumns, columns[0], start, end);
+    const runs = blanks.runs(row, inView, this.#painting, {
+      written: (column) => {
+        while (at < end && (sheet.cellColumns[at] ?? 0) < column) at += 1;
+        return at < end && sheet.cellColumns[at] === column;
+      },
+      covered: (column) => covers(merges, row, column),
+      next: (column) => this.#columns.next(column),
+      budget,
+    });
+    return runs.map(([first, last, style]) => {
+      const element = this.#take(`b${row}:${first}:${last}:${style}`, () => {
+        const blank = this.#make(-1, first, row, row, last);
         // Not a cell to read: it holds nothing.
-        blank.removeAttribute('role');
-        blank.removeAttribute('aria-colindex');
+        for (const name of ['role', 'aria-colindex', 'aria-colspan']) blank.removeAttribute(name);
         blank.setAttribute('aria-hidden', 'true');
-        this.#looks.paint(blank, this.#looks.style(own >= 0 ? own : blanks.column(column)));
+        this.#looks.paint(blank, this.#looks.style(style));
         return blank;
       });
-      element.style.left = `${this.#columns.start(column) * this.#zoom - this.#x}px`;
-      made.push(element);
-    }
-    return made;
+      element.style.left = `${this.#columns.start(first) * this.#zoom - this.#x}px`;
+      return element;
+    });
   }
 
   #row(row: number): HTMLElement {
@@ -373,11 +374,7 @@ export class Pane {
     const sheet = this.#sheet;
     const column = sheet.cellColumns[index] ?? 0;
     if (this.#columns.size(column) === 0) return undefined;
-    const covered = merges.some(
-      ([top, left, bottom, right]) =>
-        row >= top && row <= bottom && column >= left && column <= right,
-    );
-    if (covered) return undefined;
+    if (covers(merges, row, column)) return undefined;
     const shown = this.#looks.shown(sheet, index);
     const style = this.#looks.style(sheet.styles[index] ?? 0);
     const spills =
