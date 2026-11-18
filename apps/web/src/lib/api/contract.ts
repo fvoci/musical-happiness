@@ -4560,7 +4560,10 @@ export interface components {
         };
         /** @description A request to delete the account of the session. */
         DeleteAccountRequest: {
-            /** @description The account's password; left out, or empty, by an account that has none. */
+            /**
+             * @description The account's password; left out, or empty, by an account that has none. Not
+             *     `null`, as no member that is not optional is.
+             */
             password?: string;
             /** @description The account's login name, typed out: that the person means this account. */
             username: string;
