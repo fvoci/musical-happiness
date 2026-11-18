@@ -84,6 +84,32 @@
 # let go of its lock. Mail is kept in memory: what is still waiting then (a reset link,
 # an invitation, a confirmation of a sign-up) is not sent, and fvoci's last lines count
 # it.
+#
+# Backups and updates: the scripts beside this file take the project (-p; fvoci, or
+# COMPOSE_PROJECT_NAME), the compose files (-f, repeated for an override; this one
+# unless named) and the .env (--env-file; the one beside the first file).
+#   docker/backup.sh [--dir ~/fvoci-backups] [--keep-days 14]
+#     while fvoci runs or not: the database (pg_dump -Fc), the files of the volume (not
+#     S3's: the bucket is yours to back up, and it says so), copies of the .env and
+#     the compose files, in a folder <project>-<UTC time> that only its owner reads
+#     (700, files 600); then removes that project's backups older than the days given
+#     (0 keeps them all). The .env's copy holds every secret.
+#   docker/restore.sh <backup folder>
+#     into new volumes only (docker compose down, then remove the project's volumes
+#     postgres-data and fvoci-data): a database with a table or a volume with a file is
+#     refused, nothing changed. Then `up` (migrate brings an older backup's schema up),
+#     the search index made anew and the files compared with the records, on the admin
+#     socket. It needs the backup's FVOCI_SECRET_KEY in the .env.
+#   docker/update.sh [--no-pull] [--commit <sha>]
+#     once the new docker/ is in place and FVOCI_IMAGE in .env names the new image:
+#     checks the files and the .env first (a line the new version needs is named, and
+#     nothing is stopped), backs up, pulls (--no-pull: the images are here), stops
+#     fvoci, `up`, and checks it is ready and runs the commit expected (--commit, or the
+#     image's label; unknown, not a failure, for an image built without it). It says
+#     how long fvoci was down, the schema's version before and after, the rows of users
+#     and blocks, and the log's ERROR and WARN lines. There are no migrations down:
+#     when it fails after the stop it says what is left, and going back from a schema
+#     that moved is restore.sh of the backup it made, with the image that ran before.
 
 name: fvoci
 

@@ -5,14 +5,17 @@
 //! search that finds them; a reset link mailed by each provider's settings to a fake
 //! provider, and no start with `email_verification` and no mail. Then it looks at what
 //! the installation must not do (secrets in the images, a database role past the wall,
-//! ports open to the host, processes as root), reads the profile `tunnel` without starting it, and takes everything down
-//! with its volumes, whatever happened. `--push-plan` prints how the images go to GHCR.
+//! ports open to the host, processes as root), reads the profile `tunnel` without
+//! starting it, backs up, restores into new volumes and updates with the scripts of
+//! `docker/`, and takes everything down with its volumes, whatever happened.
+//! `--push-plan` prints how the images go to GHCR.
 //!
 //! It needs `docker` with compose 2.24 or newer, `curl`, `git` and `tar`. The images are built
 //! natively, for the processor of the machine; the other one is built on a machine of
 //! that kind. The images stay, to be pushed (`--push-plan`); `docker image rm` removes
 //! them.
 
+mod backup;
 mod checks;
 mod freshness;
 mod images;
@@ -98,6 +101,27 @@ impl Trial {
             .arg("--file")
             .arg(self.root.join("docker/compose.yaml"))
             .args(arguments);
+        self.scrub(&mut command);
+        command
+    }
+
+    /// One of the scripts of `docker/` (`backup.sh`, ...) on the trial's project, files
+    /// and `.env`, as an operator runs it, with nothing of the caller's environment that
+    /// would override them.
+    fn script(&self, name: &str, arguments: &[&str]) -> Command {
+        let mut command = Command::new(self.root.join("docker").join(name));
+        command
+            .args(["--project-name", &self.project, "--env-file"])
+            .arg(&self.env_file)
+            .arg("--file")
+            .arg(self.root.join("docker/compose.yaml"))
+            .args(arguments);
+        self.scrub(&mut command);
+        command
+    }
+
+    /// Takes out of `command`'s environment what would win over the trial's file.
+    fn scrub(&self, command: &mut Command) {
         for name in self
             .env_names
             .iter()
@@ -116,7 +140,6 @@ impl Trial {
                 command.env_remove(&name);
             }
         }
-        command
     }
 
     /// Runs `docker compose` on the trial's project, and returns what it wrote.
@@ -172,6 +195,11 @@ impl Drop for Teardown<'_> {
 /// Removes the trial's files: its secrets and the session of a server that is gone.
 fn remove_files(trial: &Trial, directory: &Path) -> Result<()> {
     let _ = fs::remove_file(directory.join("cookies.txt"));
+    let backups = backup::folder(directory);
+    if backups.exists() {
+        fs::remove_dir_all(&backups)
+            .with_context(|| format!("removing the trial's backups, {}", backups.display()))?;
+    }
     match fs::remove_file(&trial.env_file) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
             Err(error).context("removing the file of the trial's secrets")
@@ -321,6 +349,10 @@ fn try_installation(trial: &Trial, directory: &Path) -> Result<()> {
             }),
             steps::Step::new("the profile tunnel, and nothing of it without", || {
                 tunnel::profile(trial)
+            }),
+            // Last: it takes the volumes away and makes the installation anew.
+            steps::Step::new("back up, take the volumes away, restore, update", || {
+                backup::round_trip(trial, directory)
             }),
         ],
     );
