@@ -11,13 +11,16 @@ import { inflateRawSync } from 'node:zlib';
 import { HwpDocument, initSync } from '@rhwp/core';
 
 import {
+  chain,
   childrenOf,
   COMPOUND_TYPES,
   compoundFile as readCompound,
   readStream,
   type CompoundEntry,
+  type CompoundFile,
 } from '../../src/lib/file-viewer/compound-file.ts';
 import { zipEntries } from '../../src/lib/file-viewer/zip-directory.ts';
+import { writeCompound } from '../../src/viewer-frame/compound-writer.ts';
 
 import { rhwpWasmHex } from '../../tools/build/rhwp-wasm.ts';
 
@@ -128,16 +131,6 @@ export function lockedHwpx(): Buffer {
   return Buffer.from(koreanDocument().exportHwpxWithPassword(HWP_PASSWORD));
 }
 
-const MINI_SECTOR = 64;
-const MINI_CUTOFF = 4096;
-const END = 0xfffffffe;
-const FREE = 0xffffffff;
-const FAT_SECTOR = 0xfffffffd;
-const DIFAT_SECTOR = 0xfffffffc;
-/** The FAT sectors the header lists; DIFAT sectors list the rest. */
-const HEADER_FAT_SECTORS = 109;
-const NONE = 0xffffffff;
-
 /** A stream of a compound file, and the lies the file can tell about it. */
 export interface CompoundStream {
   /** Its path, with "/" between storages: `BodyText/Section0`. */
@@ -149,100 +142,6 @@ export interface CompoundStream {
   sharesWith?: string;
 }
 
-interface Node {
-  name: string;
-  type: 1 | 2 | 5;
-  children: Map<string, Node>;
-  stream?: CompoundStream;
-  id: number;
-  start: number;
-  size: number;
-  child: number;
-  right: number;
-}
-
-/** Names in the order the format sorts siblings: shorter first, then by upper case. */
-function compare(a: string, b: string): number {
-  if (a.length !== b.length) return a.length - b.length;
-  const [upperA, upperB] = [a.toUpperCase(), b.toUpperCase()];
-  return upperA < upperB ? -1 : upperA > upperB ? 1 : 0;
-}
-
-function tree(streams: readonly CompoundStream[]): Node[] {
-  const node = (name: string, type: Node['type']): Node => ({
-    name,
-    type,
-    children: new Map(),
-    id: 0,
-    start: END,
-    size: 0,
-    child: NONE,
-    right: NONE,
-  });
-  const root = node('Root Entry', 5);
-  for (const stream of streams) {
-    const parts = stream.path.split('/');
-    let at = root;
-    parts.forEach((part, index) => {
-      const leaf = index === parts.length - 1;
-      const next = at.children.get(part) ?? node(part, leaf ? 2 : 1);
-      if (leaf) next.stream = stream;
-      at.children.set(part, next);
-      at = next;
-    });
-  }
-  const nodes: Node[] = [];
-  const visit = (each: Node): void => {
-    each.id = nodes.length;
-    nodes.push(each);
-    const children = [...each.children.values()].sort((a, b) => compare(a.name, b.name));
-    children.forEach(visit);
-    // A right-leaning chain of siblings in order: a valid (if unbalanced) tree.
-    each.child = children[0]?.id ?? NONE;
-    children.forEach((child, index) => {
-      child.right = children[index + 1]?.id ?? NONE;
-    });
-  };
-  visit(root);
-  return nodes;
-}
-
-/** Sectors of `size` holding `data`, and their chain in `table`; the first sector, or END. */
-function place(sectors: Buffer[], table: number[], data: Buffer, size: number): number {
-  const count = Math.ceil(data.length / size);
-  if (count === 0) return END;
-  const first = sectors.length;
-  for (let index = 0; index < count; index += 1) {
-    const sector = Buffer.alloc(size);
-    data.copy(sector, 0, index * size, (index + 1) * size);
-    sectors.push(sector);
-    table.push(index === count - 1 ? END : first + index + 1);
-  }
-  return first;
-}
-
-/** The directory, in whole sectors of `size`; the entries past the nodes unused. */
-function directory(nodes: readonly Node[], size: number): Buffer {
-  const perSector = size / 128;
-  const out = Buffer.alloc(Math.ceil(nodes.length / perSector) * perSector * 128);
-  for (let index = 0; index < out.length / 128; index += 1) {
-    const at = index * 128;
-    const each = nodes[index];
-    out.writeUInt32LE(NONE, at + 68);
-    out.writeUInt32LE(each?.right ?? NONE, at + 72);
-    out.writeUInt32LE(each?.child ?? NONE, at + 76);
-    if (!each) continue;
-    const name = Buffer.from(`${each.name}\0`, 'utf16le');
-    name.copy(out, at);
-    out.writeUInt16LE(name.length, at + 64);
-    out[at + 66] = each.type;
-    out[at + 67] = 1;
-    out.writeUInt32LE(each.type === 1 ? 0 : each.start, at + 116);
-    out.writeUInt32LE(each.size, at + 120);
-  }
-  return out;
-}
-
 export interface CompoundOptions {
   /** Makes the chain of the stream at this path come back to its first sector. */
   cycle?: string;
@@ -250,111 +149,55 @@ export interface CompoundOptions {
   version?: 3 | 4;
 }
 
-/** How many FAT and DIFAT sectors a file of `used` other sectors takes. */
-function tableCounts(used: number, size: number): { fats: number; difats: number } {
-  const perSector = size / 4;
-  let [fats, difats] = [0, 0];
-  for (;;) {
-    const neededFats = Math.ceil((used + fats + difats) / perSector);
-    const neededDifats = Math.ceil(Math.max(0, neededFats - HEADER_FAT_SECTORS) / (perSector - 1));
-    if (neededFats === fats && neededDifats === difats) return { fats, difats };
-    [fats, difats] = [neededFats, neededDifats];
+/** The index of the entry at `path` in the directory of `file`. */
+function entryIndex(file: CompoundFile, path: string): number {
+  let at: CompoundEntry | undefined = file.entries[0];
+  for (const name of path.split('/')) {
+    at = at && childrenOf(file, at).find((entry) => entry.name === name);
   }
+  const index = at ? file.entries.indexOf(at) : -1;
+  if (index < 0) throw new Error(`no entry ${path}`);
+  return index;
 }
 
-/** The FAT's sectors and the DIFAT's, which list the FAT sectors past the header's 109. */
-function tableSectors(
-  fat: number[],
-  size: number,
-  first: number,
-  counts: { fats: number; difats: number },
-): Buffer[] {
-  const perSector = size / 4;
-  const difatStart = first + counts.fats;
-  for (let index = 0; index < counts.fats; index += 1) fat.push(FAT_SECTOR);
-  for (let index = 0; index < counts.difats; index += 1) fat.push(DIFAT_SECTOR);
-  const fatBytes = Buffer.alloc(counts.fats * size, 0xff);
-  fat.forEach((next, index) => fatBytes.writeUInt32LE(next, index * 4));
-  const out: Buffer[] = [];
-  for (let index = 0; index < counts.fats; index += 1) {
-    out.push(fatBytes.subarray(index * size, (index + 1) * size));
-  }
-  for (let index = 0; index < counts.difats; index += 1) {
-    const sector = Buffer.alloc(size, 0xff);
-    for (let slot = 0; slot < perSector - 1; slot += 1) {
-      const fatIndex = HEADER_FAT_SECTORS + index * (perSector - 1) + slot;
-      if (fatIndex < counts.fats) sector.writeUInt32LE(first + fatIndex, slot * 4);
-    }
-    const last = index === counts.difats - 1;
-    sector.writeUInt32LE(last ? END : difatStart + index + 1, (perSector - 1) * 4);
-    out.push(sector);
-  }
-  return out;
+/** Where entry `index` of the directory lies in the file. */
+function entryAt(file: CompoundFile, index: number): number {
+  const perSector = file.sectorSize / 128;
+  const sector = file.directorySectors[Math.floor(index / perSector)] ?? 0;
+  return (sector + 1) * file.sectorSize + (index % perSector) * 128;
 }
 
 /**
- * A compound file of the streams: those under 4096 bytes in the mini stream,
- * the others in sectors of their own, with DIFAT sectors when the FAT takes
- * more than the header lists.
+ * A compound file of the streams, as the frame writes one
+ * (src/viewer-frame/compound-writer.ts), then made to tell the lies asked of
+ * it: a size of a stream's own, a chain it shares, a chain that comes back.
  */
 export function compoundFile(
   streams: readonly CompoundStream[],
   { cycle, version = 3 }: CompoundOptions = {},
 ): Buffer {
-  const size = version === 3 ? 512 : 4096;
-  const nodes = tree(streams);
-  const leaves = nodes.filter((each) => each.stream);
-  const sectors: Buffer[] = [];
-  const fat: number[] = [];
-  const miniParts: Buffer[] = [];
-  const miniFat: number[] = [];
-  for (const leaf of leaves) {
-    const { stream } = leaf;
-    if (!stream) continue;
-    leaf.size = stream.said ?? stream.data.length;
-    if (leaf.size < MINI_CUTOFF) {
-      leaf.start = place(miniParts, miniFat, stream.data, MINI_SECTOR);
-    } else {
-      leaf.start = place(sectors, fat, stream.data, size);
-      if (cycle === stream.path) fat[fat.length - 1] = leaf.start;
+  const parts = streams.map(({ path, data }) => ({ names: path.split('/'), data }));
+  const out = Buffer.from(writeCompound(parts, version));
+  const file = readCompound(new Uint8Array(out.buffer, out.byteOffset, out.byteLength));
+  if (!file) throw new Error('the writer wrote no compound file');
+  for (const { path, said, sharesWith } of streams) {
+    const at = entryAt(file, entryIndex(file, path));
+    if (said !== undefined) out.writeUInt32LE(said, at + 120);
+    if (sharesWith !== undefined) {
+      const shared = file.entries[entryIndex(file, sharesWith)];
+      out.writeUInt32LE(shared?.start ?? 0, at + 116);
     }
   }
-  for (const leaf of leaves) {
-    const shared = leaves.find((each) => each.stream?.path === leaf.stream?.sharesWith);
-    if (shared) leaf.start = shared.start;
+  if (cycle !== undefined) {
+    const entry = file.entries[entryIndex(file, cycle)];
+    const sectors = entry ? chain(file.fat, entry.start) : undefined;
+    const last = sectors?.at(-1);
+    if (!entry || last === undefined) throw new Error(`no chain for ${cycle}`);
+    const perSector = file.sectorSize / 4;
+    const fatSector = file.fatSectors[Math.floor(last / perSector)] ?? 0;
+    out.writeUInt32LE(entry.start, (fatSector + 1) * file.sectorSize + (last % perSector) * 4);
   }
-  const [root] = nodes;
-  if (!root) throw new Error('no root entry');
-  const miniStream = Buffer.concat(miniParts);
-  root.start = place(sectors, fat, miniStream, size);
-  root.size = miniStream.length;
-  const miniFatBytes = Buffer.alloc(miniFat.length * 4);
-  miniFat.forEach((next, index) => miniFatBytes.writeUInt32LE(next, index * 4));
-  const miniFatStart = place(sectors, fat, miniFatBytes, size);
-  const directoryBytes = directory(nodes, size);
-  const directoryStart = place(sectors, fat, directoryBytes, size);
-  const counts = tableCounts(sectors.length, size);
-  const fatStart = sectors.length;
-  sectors.push(...tableSectors(fat, size, fatStart, counts));
-  const header = Buffer.alloc(size);
-  Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]).copy(header);
-  header.writeUInt16LE(0x3e, 24);
-  header.writeUInt16LE(version, 26);
-  header.writeUInt16LE(0xfffe, 28);
-  header.writeUInt16LE(version === 3 ? 9 : 12, 30);
-  header.writeUInt16LE(6, 32);
-  header.writeUInt32LE(version === 3 ? 0 : directoryBytes.length / size, 40);
-  header.writeUInt32LE(counts.fats, 44);
-  header.writeUInt32LE(directoryStart, 48);
-  header.writeUInt32LE(MINI_CUTOFF, 56);
-  header.writeUInt32LE(miniFatStart, 60);
-  header.writeUInt32LE(Math.ceil(miniFatBytes.length / size), 64);
-  header.writeUInt32LE(counts.difats > 0 ? fatStart + counts.fats : END, 68);
-  header.writeUInt32LE(counts.difats, 72);
-  for (let index = 0; index < HEADER_FAT_SECTORS; index += 1) {
-    header.writeUInt32LE(index < counts.fats ? fatStart + index : FREE, 76 + index * 4);
-  }
-  return Buffer.concat([header, ...sectors]);
+  return out;
 }
 
 /** Every stream of a compound file with its path, read with the viewer's own reader. */

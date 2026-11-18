@@ -58,15 +58,34 @@ describe("an HWPX package's list, read as rhwp reads it", () => {
     expect(masterPagesOf(list)).toEqual(['Contents/masterpage0.xml']);
   });
 
-  it('reads entities and quoted ">", and leaves comments out', () => {
+  it('takes values as written, a quoted ">", and leaves comments out', () => {
+    // rhwp does not read entities in a value: "s&#48;" names no item "s0".
     const list = listed(
       `<package><manifest><item id="s&#48;" href='Contents/section0.xml' title="a > b" media-type="application/xml"/>` +
-        `<!-- <itemref idref="s0"/> --></manifest><spine><itemref note=">" idref="s&#x30;"/></spine></package>`,
+        `<!-- <itemref idref="s0"/> --></manifest><spine><itemref note=">" idref="s&#48;"/></spine></package>`,
     );
     expect(list.items).toEqual([
-      { id: 's0', href: 'Contents/section0.xml', mediaType: 'application/xml' },
+      { id: 's&#48;', href: 'Contents/section0.xml', mediaType: 'application/xml' },
     ]);
-    expect(list.spine).toEqual(['s0']);
+    expect(list.spine).toEqual(['s&#48;']);
+    expect(sectionsOf(list)).toEqual(['Contents/section0.xml']);
+  });
+
+  it('an element by its local name, after the last ":", whatever comes before', () => {
+    const list = listed(
+      `<package><가:item id="s0" href="Contents/section0.xml" media-type="application/xml"/>` +
+        `<a:b:itemref idref="s0"/><x:itemref idref="s0"/><itemrefs idref="s0"/></package>`,
+    );
+    expect(list.items.map((item) => item.id)).toEqual(['s0']);
+    expect(list.spine).toEqual(['s0', 's0']);
+  });
+
+  it('markup that does not end is unreadable, at once', () => {
+    const unclosed = `<package>${'<item x'.repeat(40_000)}`;
+    const started = performance.now();
+    expect(() => listed(unclosed)).toThrow(UnreadableFile);
+    expect(() => listed('<package><!-- open')).toThrow(UnreadableFile);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 
   it('without a spine, takes every XML part whose address says "section", in order', () => {
@@ -107,6 +126,14 @@ describe('in the worker, what rhwp parses of an HWPX as XML is held to the limit
       { name: 'BinData/image1.png', data: Buffer.alloc(MARKUP_LIMIT_BYTES + 1) },
     ]);
     await expect(checkHwpxPackage(buffer(picture))).resolves.toBeUndefined();
+  });
+
+  it('a part named with an entity in its address is the part of those very characters', async () => {
+    // rhwp opens "BinData/section&amp;1.bin" as written: the part holds XML it parses.
+    const name = 'BinData/section&amp;1.bin';
+    const hidden = Buffer.concat([Buffer.from('x'), xml(MARKUP_LIMIT_BYTES)]);
+    const archive = hwpx(contentHpf([['s1', name]], ['s1']), [{ name, data: hidden }]);
+    await expect(checkHwpxPackage(buffer(archive))).rejects.toBeInstanceOf(TooLargeFile);
   });
 
   it('master pages count once for each section', async () => {

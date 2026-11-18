@@ -5,7 +5,8 @@
  * which hwp-page.ts copies into the box; a page that scrolls far away gives
  * its picture back. A worker stopped after the document was shown (too slow
  * over a page, or failed on its own) is reported, as no page can be drawn
- * any more.
+ * any more; so is a page past what the frame takes on, as the file is then
+ * too large to show.
  */
 import type { FromWorker, PageSize, TextRun, ToWorker } from './hwp-messages.ts';
 import { pagePicture, pageText } from './hwp-page.ts';
@@ -161,7 +162,14 @@ export class HwpView implements Drawn {
   }
 
   #draw(page: Page): void {
-    page.draw(this.#client).catch(() => {
+    page.draw(this.#client).catch((error: unknown) => {
+      // A page past what the frame takes on: the file is too large to show, and nothing more is
+      // asked of the worker (asked again, it would draw the page again).
+      if (error instanceof TooLargeFile) {
+        this.#client.close();
+        this.#report.failed('too-large');
+        return;
+      }
       // A page that cannot be drawn, or was given up as it left the view, stays blank. But a
       // worker that was stopped (too slow, or failed on its own) draws no page any more.
       const stopped = this.#client.closed;

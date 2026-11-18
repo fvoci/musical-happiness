@@ -169,18 +169,35 @@ function measure(text: string, size: number): number | undefined {
   return measuring.measureText(text).width || undefined;
 }
 
+/** A gap between two runs of a line, past which a space parts them, in ems. */
+const GAP = 0.2;
+
+/**
+ * The runs that hold text, each followed by a space where a gap parts it from
+ * the next on its line (the cells of a table), the run stretched over the
+ * gap: copied text keeps its words apart.
+ */
+function spaced(runs: readonly TextRun[]): TextRun[] {
+  const kept = runs.filter((run) => run.text.trim() !== '');
+  return kept.map((run, index) => {
+    const next = kept[index + 1];
+    if (next?.y !== run.y || /\s$/.test(run.text)) return run;
+    const gap = next.x - (run.x + run.width);
+    return gap > run.size * GAP ? { ...run, text: `${run.text} `, width: next.x - run.x } : run;
+  });
+}
+
 /**
  * The page's text, laid out at the page's own size: a run per line, where
  * the picture draws it, each stretched to the width the picture gives it.
  * The runs follow one another as the document has them, a line break
- * between two lines.
+ * between two lines, a space where a gap parts two runs of a line.
  */
 export function pageText(runs: readonly TextRun[], document: Document): HTMLElement {
   const layer = document.createElement('div');
   layer.className = 'hwp-text';
   let line: number | undefined;
-  for (const run of runs) {
-    if (run.text.trim() === '') continue;
+  for (const run of spaced(runs)) {
     if (line !== undefined) layer.append(document.createElement(run.y === line ? 'wbr' : 'br'));
     line = run.y;
     const span = document.createElement('span');

@@ -121,20 +121,25 @@ describe("the worker's reader, with rhwp", () => {
     if (unused === undefined || unused < 0) throw new Error('no unused entry');
     lenient[directory + unused * 128 + 66] = 3;
     for (const file of [strict, lenient]) {
-      expect(await open(new HwpReader({ unpackLimit: 1 << 20 }), 'hwp', file)).toEqual({
+      expect(await open(new HwpReader({ unpacked: 1 << 20 }), 'hwp', file)).toEqual({
         kind: 'failed',
         reason: 'too-large',
       });
     }
   });
 
-  it('does not hand on a page drawn past the most text a page may be', async () => {
-    const reader = new HwpReader({ pageLimit: 1000 });
+  it('does not hand on a page past the most text or elements a page may be', async () => {
+    for (const limits of [{ svg: 1000 }, { elements: 50 }]) {
+      const reader = new HwpReader(limits);
+      expect((await open(reader, 'hwpx', koreanHwpx())).kind).toBe('opened');
+      expect(await reader.answer({ kind: 'page', page: 1 })).toEqual({
+        kind: 'failed',
+        reason: 'too-large',
+      });
+    }
+    const reader = new HwpReader({ elements: 5000 });
     expect((await open(reader, 'hwpx', koreanHwpx())).kind).toBe('opened');
-    expect(await reader.answer({ kind: 'page', page: 1 })).toEqual({
-      kind: 'failed',
-      reason: 'renderer',
-    });
+    expect((await reader.answer({ kind: 'page', page: 1 })).kind).toBe('page');
   });
 
   it('says a document locked with a password is locked', async () => {

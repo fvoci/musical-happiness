@@ -2,7 +2,10 @@
  * What the frame does with a compound file (HWP) before its renderer reads
  * it, in the renderer's worker: checks that each stream has the sectors it
  * says and that no sector is read as two streams, reads its `FileHeader` for
- * a password, and holds what its streams unpack to, together, to the limit.
+ * a password, holds what its streams unpack to, together, to the limit, and
+ * writes the file anew of the streams it counted (compound-writer.ts). rhwp
+ * reads a file it would refuse (and then read leniently, by rules of its
+ * own) otherwise than this does; the file it gets is one it takes as written.
  *
  * The streams of an HWP document are deflated inside (the records of its
  * text, its pictures). rhwp (0.8.7) unpacks them itself: the text (DocInfo,
@@ -15,15 +18,18 @@
  * taken it, and the memory it took stays.
  */
 import {
+  childrenOf,
   COMPOUND_TYPES,
   compoundFile,
   readStream,
   rootStream,
   verifyChains,
+  type CompoundEntry,
   type CompoundFile,
 } from '$lib/file-viewer/compound-file.ts';
 import { HWP_SIGNATURE, UNPACKED_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
 
+import { writeCompound, type CompoundPart } from './compound-writer.ts';
 import { LockedFile, TooLargeFile, UnreadableFile } from './renderer.ts';
 
 /** The signature (32 bytes), the version (4) and the properties (4) of `FileHeader`. */
@@ -32,6 +38,12 @@ const HEAD_SIZE = 40;
 const PASSWORD = 1 << 1;
 /** How rhwp unpacks a stream, in the order it tries. */
 const DEFLATES = ['deflate-raw', 'deflate'] as const;
+/**
+ * How much of a stream is handed to the unpacker at a time: it unpacks what
+ * it is given ahead of what is read, and a slice of deflated bytes unpacks
+ * to about a thousand times its size at most.
+ */
+const SLICE = 16 * 1024;
 
 const ascii = new TextDecoder('ascii');
 
@@ -41,7 +53,17 @@ async function inflated(
   format: (typeof DEFLATES)[number],
   room: number,
 ): Promise<{ size: number; whole: boolean }> {
-  const reader = new Blob([data]).stream().pipeThrough(new DecompressionStream(format)).getReader();
+  let at = 0;
+  const slices = new ReadableStream<Uint8Array<ArrayBuffer>>({
+    pull(controller) {
+      if (at >= data.length) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(data.slice(at, (at += SLICE)));
+    },
+  });
+  const reader = slices.pipeThrough(new DecompressionStream(format)).getReader();
   let size = 0;
   try {
     for (;;) {
@@ -68,21 +90,55 @@ async function unpackedSize(data: Uint8Array<ArrayBuffer>, room: number): Promis
   return most;
 }
 
-/** Throws `TooLargeFile` when the streams unpack to more than `limit` together. */
-async function holdUnpacked(file: CompoundFile, limit: number): Promise<void> {
+/**
+ * The streams of the directory's tree, each with the names on its way from
+ * the root; undefined when an entry is reached twice or a storage holds a
+ * name twice (the format compares names ignoring case).
+ */
+function streamsOf(file: CompoundFile): { names: string[]; entry: CompoundEntry }[] | undefined {
+  const [root] = file.entries;
+  if (!root) return undefined;
+  const found: { names: string[]; entry: CompoundEntry }[] = [];
+  const seen = new Set<CompoundEntry>([root]);
+  const pending = [{ storage: root, names: [] as string[] }];
+  for (let next = pending.pop(); next; next = pending.pop()) {
+    const taken = new Set<string>();
+    for (const entry of childrenOf(file, next.storage)) {
+      const name = entry.name.toUpperCase();
+      if (seen.has(entry) || taken.has(name)) return undefined;
+      seen.add(entry);
+      taken.add(name);
+      const names = [...next.names, entry.name];
+      if (entry.type === COMPOUND_TYPES.STREAM) found.push({ names, entry });
+      if (entry.type === COMPOUND_TYPES.STORAGE) pending.push({ storage: entry, names });
+    }
+  }
+  return found;
+}
+
+/**
+ * The streams, read and counted as they unpack; throws `TooLargeFile` when
+ * they unpack to more than `limit` together.
+ */
+async function counted(file: CompoundFile, limit: number): Promise<CompoundPart[]> {
+  const streams = streamsOf(file);
+  if (!streams) throw new UnreadableFile();
+  const parts: CompoundPart[] = [];
   let total = 0;
-  for (const entry of file.entries) {
-    if (entry.type !== COMPOUND_TYPES.STREAM) continue;
+  for (const { names, entry } of streams) {
     const data = readStream(file, entry, entry.size);
     if (!data) throw new UnreadableFile();
     total += await unpackedSize(data, limit - total);
     if (total > limit) throw new TooLargeFile();
+    parts.push({ names, data });
   }
+  return parts;
 }
 
 /**
- * The file as it came, once checked; rejects with `UnreadableFile`,
- * `LockedFile` or `TooLargeFile` otherwise. `limit` is what the streams may unpack to.
+ * The file written anew of its streams, once checked; rejects with
+ * `UnreadableFile`, `LockedFile` or `TooLargeFile` otherwise. `limit` is what
+ * the streams may unpack to.
  */
 export async function checkCompound(
   buffer: ArrayBuffer,
@@ -98,6 +154,11 @@ export async function checkCompound(
   }
   const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
   if (view.getUint32(36, true) & PASSWORD) throw new LockedFile();
-  await holdUnpacked(file, limit);
-  return buffer;
+  const parts = await counted(file, limit);
+  try {
+    return writeCompound(parts).buffer;
+  } catch {
+    // A name the format cannot hold, or one a storage holds twice.
+    throw new UnreadableFile();
+  }
 }

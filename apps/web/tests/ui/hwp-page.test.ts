@@ -122,7 +122,8 @@ describe("the page's text, over its picture", () => {
       document,
     );
     const spans = [...layer.querySelectorAll('span')];
-    expect(spans.map((span) => span.textContent)).toEqual(['분기 회의록', '항목', '담당']);
+    // Two cells of a table, a gap apart: a space after the first, which spans the gap.
+    expect(spans.map((span) => span.textContent)).toEqual(['분기 회의록', '항목 ', '담당']);
     expect(spans[0]?.style.left).toBe('113px');
     expect(spans[0]?.style.top).toBe('132px');
     expect(spans[0]?.style.fontSize).toBe('13px');
@@ -133,6 +134,15 @@ describe("the page's text, over its picture", () => {
       'wbr',
       'span',
     ]);
+  });
+
+  it('no space between runs that touch, or after one that ends with a space', () => {
+    const layer = pageText(
+      [run('11', 100, 50), run('월', 150, 50), run('20 ', 200, 50), run('일', 300, 50)],
+      document,
+    );
+    const spans = [...layer.querySelectorAll('span')];
+    expect(spans.map((span) => span.textContent)).toEqual(['11', '월', '20 ', '일']);
   });
 
   it('leaves out runs of blanks', () => {

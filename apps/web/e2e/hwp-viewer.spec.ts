@@ -275,6 +275,24 @@ test('an HWP whose picture unpacks past the limit is stopped in the worker befor
   await ended;
 });
 
+test('a page drawn past what the frame takes on says the file is too large', async ({ page }) => {
+  await openCard(page);
+  // 30,000 characters on the first page, each drawn apart: past 20,000 elements.
+  const words = '가나다라 마바사아 자차카타 파하 ';
+  const body = words.repeat(Math.ceil(30_000 / words.length)).slice(0, 30_000);
+  const dense = rewriteArchive(koreanHwpx(), (member) =>
+    member.name === 'Contents/section0.xml'
+      ? { ...member, data: Buffer.from(member.data.toString('utf8').replace(HWP_TEXT.body, body)) }
+      : member,
+  );
+  const started = nextWorker(page);
+  await view(page, 'dense.hwpx', dense, HWPX_TYPE);
+  const { ended } = await started;
+  await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
+  await expect(notice(page)).toContainText("This file's contents are too large to preview.");
+  await ended;
+});
+
 test('a page past the memory the renderer may take: it fails, and its worker is stopped', async ({
   page,
 }) => {

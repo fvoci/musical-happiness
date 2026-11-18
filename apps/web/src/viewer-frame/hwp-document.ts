@@ -25,10 +25,29 @@ import { repack } from './zip-guard.ts';
 /**
  * The most text a page's drawing (SVG) may be, in characters. rhwp writes each
  * picture into the page as text, as often as the page shows it; this much is
- * a page with the largest picture a file the viewer takes can hold, and past
- * it the page is not handed to the frame, whose thread is the app's.
+ * a page with the largest picture a file the viewer takes can hold. Past it,
+ * or past `PAGE_ELEMENT_LIMIT`, the page is not handed to the frame, whose
+ * thread is the app's, and the file is too large to show.
  */
 export const PAGE_SVG_LIMIT = 80 * 1024 * 1024;
+
+/**
+ * The most elements a page's drawing and runs of text may be, together. rhwp
+ * draws each character apart, and the frame's thread copies and lays out
+ * each; a page this full takes it about a second, and a page of a document
+ * written in small print about a third of it.
+ */
+export const PAGE_ELEMENT_LIMIT = 20_000;
+
+/** How many elements an SVG's text opens: each `<` followed by a letter. */
+function elementsIn(svg: string): number {
+  let count = 0;
+  for (let at = svg.indexOf('<'); at >= 0; at = svg.indexOf('<', at + 1)) {
+    const next = svg.charCodeAt(at + 1) | 0x20;
+    if (next >= 0x61 && next <= 0x7a) count += 1;
+  }
+  return count;
+}
 
 /** What rhwp says of a file it cannot read, and of one locked with a password (0.8.7). */
 const INVALID_FILE = '유효하지 않은 파일';
@@ -97,27 +116,33 @@ async function checked(
   return archive;
 }
 
+/** What the reader holds a file and its pages to; the constants above unless given. */
+export interface ReaderLimits {
+  /** The most text a page's drawing may be (`PAGE_SVG_LIMIT`). */
+  svg?: number;
+  /** The most elements a page's drawing and text may be (`PAGE_ELEMENT_LIMIT`). */
+  elements?: number;
+  /** What an HWP's streams may unpack to (`UNPACKED_LIMIT_BYTES`). */
+  unpacked?: number;
+}
+
 /** The worker's document: opened once, then drawn a page at a time. */
 export class HwpReader {
   #document: HwpDocument | undefined;
-  readonly #pageLimit: number;
-  readonly #unpackLimit: number;
+  readonly #limits: Required<ReaderLimits>;
 
-  /**
-   * `pageLimit`: the most text a page's drawing may be (`PAGE_SVG_LIMIT`);
-   * `unpackLimit`: what an HWP's streams may unpack to (`UNPACKED_LIMIT_BYTES`).
-   */
-  constructor({
-    pageLimit = PAGE_SVG_LIMIT,
-    unpackLimit = UNPACKED_LIMIT_BYTES,
-  }: { pageLimit?: number; unpackLimit?: number } = {}) {
-    this.#pageLimit = pageLimit;
-    this.#unpackLimit = unpackLimit;
+  constructor(limits: ReaderLimits = {}) {
+    this.#limits = {
+      svg: PAGE_SVG_LIMIT,
+      elements: PAGE_ELEMENT_LIMIT,
+      unpacked: UNPACKED_LIMIT_BYTES,
+      ...limits,
+    };
   }
 
   async open(message: Extract<ToWorker, { kind: 'open' }>): Promise<FromWorker> {
     if (this.#document) throw new Error('a document is open already');
-    const file = await checked(message, this.#unpackLimit);
+    const file = await checked(message, this.#limits.unpacked);
     await init({ module_or_path: fromHex(message.wasm) });
     let document: HwpDocument;
     try {
@@ -140,8 +165,10 @@ export class HwpReader {
     }
     const index = number - 1;
     const svg = document.renderPageSvg(index);
-    if (svg.length > this.#pageLimit) throw new Error('the page is too large to draw');
-    return { kind: 'page', svg, text: textOf(document, index) };
+    if (svg.length > this.#limits.svg) throw new TooLargeFile();
+    const text = textOf(document, index);
+    if (elementsIn(svg) + text.length > this.#limits.elements) throw new TooLargeFile();
+    return { kind: 'page', svg, text };
   }
 
   /**

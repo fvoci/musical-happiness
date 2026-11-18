@@ -87,6 +87,32 @@ describe('the pages of an HWP document, once shown', () => {
     expect(told.failed).toHaveBeenCalledWith('slow');
   });
 
+  it('a page past what the frame takes on: the file is too large, and the worker is stopped', async () => {
+    const worker = new FakeWorker();
+    const client = new WorkerClient(worker, 1000);
+    const told = report();
+    const place = document.createElement('main');
+    new HwpView(
+      client,
+      [
+        { width: 800, height: 1100 },
+        { width: 800, height: 1100 },
+      ],
+      place,
+      told,
+    );
+    const second = place.querySelector('[data-page="2"]');
+    if (!second) throw new Error('no box for page 2');
+    observers[0]?.callback(
+      [{ target: second, isIntersecting: true } as unknown as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    );
+    worker.answer({ kind: 'failed', reason: 'too-large' });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(told.failed).toHaveBeenCalledWith('too-large');
+    expect(worker.terminated).toBe(true);
+  });
+
   it('a page that left the view before it was drawn is not reported', async () => {
     const worker = new FakeWorker();
     const client = new WorkerClient(worker, 1000);

@@ -100,10 +100,52 @@ describe('the app answers "too large" from what the streams say, before anything
 });
 
 describe('in the frame, a compound file is checked before rhwp reads it', () => {
-  it('an honest one is handed on as it came', async () => {
-    const honest = buffer(koreanHwp());
-    await expect(checkCompound(honest)).resolves.toBe(honest);
+  /** The streams of a file, each path with its bytes, in order of path. */
+  const listed = (data: Buffer): string[][] =>
+    compoundStreams(data)
+      .map((stream) => [stream.path, stream.data.toString('hex')])
+      .sort();
+
+  it('an honest one is handed on written anew, with the same streams', async () => {
+    const honest = koreanHwp();
+    const written = Buffer.from(await checkCompound(buffer(honest)));
+    expect(listed(written)).toEqual(listed(honest));
     await expect(checkCompound(buffer(hwpFile()))).resolves.toBeInstanceOf(ArrayBuffer);
+  });
+
+  it('what rhwp would read by rules of its own is written as it reads it here', async () => {
+    // The high half of a version 3 size (which only a lenient reader takes), and an unused
+    // entry of a kind that does not exist (which sends rhwp down its lenient reader).
+    const honest = koreanHwp();
+    const odd = Buffer.from(honest);
+    const file = compoundFile(bytes(odd));
+    const picture = file?.entries.findIndex((entry) => entry.name.startsWith('BIN'));
+    const unused = file?.entries.findIndex((entry) => entry.type === 0);
+    if (!file || picture === undefined || picture < 0 || unused === undefined || unused < 0) {
+      throw new Error('no picture or no unused entry');
+    }
+    const at = (index: number): number => (odd.readUInt32LE(48) + 1) * 512 + index * 128;
+    odd.writeUInt32LE(1, at(picture) + 124);
+    odd[at(unused) + 66] = 3;
+    const written = Buffer.from(await checkCompound(buffer(odd)));
+    expect(listed(written)).toEqual(listed(honest));
+    const again = compoundFile(bytes(written));
+    expect(again?.entries.every((entry) => [0, 1, 2, 5].includes(entry.type))).toBe(true);
+  });
+
+  it('a storage that holds a name twice, ignoring case, stops the file', async () => {
+    const twice = writeCompound([
+      { path: 'FileHeader', data: hwpFileHeader() },
+      { path: 'BodyText/Section0', data: Buffer.alloc(100, 1) },
+      { path: 'BodyText/Section1', data: Buffer.alloc(100, 2) },
+    ]);
+    const file = compoundFile(bytes(twice));
+    const second = file?.entries.findIndex((entry) => entry.name === 'Section1') ?? -1;
+    const at = (twice.readUInt32LE(48) + 1) * 512 + second * 128;
+    twice.write('s', at + 0, 'utf16le');
+    twice.write('0', at + 14, 'utf16le');
+    expect(compoundFile(bytes(twice))?.entries[second]?.name).toBe('section0');
+    await expect(checkCompound(buffer(twice))).rejects.toThrow(UnreadableFile);
   });
 
   it('a stream that says more than its chain holds stops the file', async () => {
