@@ -273,7 +273,8 @@ impl Store {
         // The instance's organization as it is now, whose administrators are the
         // instance's; asked again in the transaction, after the instance's row is held:
         // were it another by then, nothing is followed into this one. (It cannot be
-        // another today: no organization is deleted, and a new one is the youngest.)
+        // another today: the oldest organization goes with no account, the only way
+        // one goes, and a new one is the youngest.)
         let store = match self.instance_organization().await? {
             Some(org_id) => self.for_org(&org_id)?,
             None => self.scoped(crate::Tenant::Unset),
@@ -702,11 +703,13 @@ async fn find_account(scope: &mut Scope<'_>, lookup: Lookup<'_>) -> Result<User,
         .ok_or_else(user_not_found)
 }
 
-/// Whether an account in use, or one that waits to be deleted, has the address `email`
-/// as its own, in any letter case.
+/// Whether an account in use, one that waits to be deleted, or one that is being
+/// erased (its row has the address until the erasing ends) has the address `email` as
+/// its own, in any letter case.
 pub(crate) async fn has_address(scope: &mut Scope<'_>, email: &str) -> Result<bool, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT 1 FROM users WHERE (delete_at = 0 OR ({WAITS})) AND "
+        "SELECT 1 FROM users \
+         WHERE (delete_at = 0 OR ({WAITS}) OR (erase_started_at > 0 AND erased_at = 0)) AND "
     ));
     Lookup::Email(email).push_condition(&mut sql);
     Ok(scope.fetch_optional(sql).await?.is_some())

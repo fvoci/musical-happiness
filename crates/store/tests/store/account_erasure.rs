@@ -32,7 +32,7 @@ const WAIT: i64 = 30 * 24 * 60 * 60 * 1000;
 /// the account is erased.
 const OF_THE_PERSON: [&str; 9] = [
     "leaver-shelf",
-    "nder-leaver@example.com",
+    "nder-leaver-mail@example.com",
     "leaver-name",
     "leaver-mail@example.com",
     "Leaver Shown",
@@ -88,7 +88,9 @@ async fn person(store: &Store) -> String {
     let mut user = User {
         id: new_id(),
         username: "leaver-name".to_owned(),
-        email: "leaver-mail@example.com".to_owned(),
+        // A capital that is no ASCII letter: the databases fold such a letter each in
+        // its own way, and the address is found as it is written all the same.
+        email: "Ünder-leaver-mail@example.com".to_owned(),
         display_name: "Leaver Shown".to_owned(),
         password_hash: "leaver-password-hash".to_owned(),
         ..User::default()
@@ -102,14 +104,14 @@ async fn person(store: &Store) -> String {
         .add_identity(&user.id, identity, "leaver-at-the-provider@example.com")
         .await
         .expect("tied");
-    // An address with a capital that is no ASCII letter: the databases fold such a
-    // letter each in its own way, and the address is found as it is written all the same.
+    // An address a provider gave that is somebody else's: the provider's word is
+    // checked by nobody, and what was mailed there is not the account's.
     let other = Identity {
         issuer: "https://other.example",
         subject: "leaver-subject",
     };
     store
-        .add_identity(&user.id, other, "Ünder-leaver@example.com")
+        .add_identity(&user.id, other, "somebody-else@example.com")
         .await
         .expect("tied");
     let session = Session {
@@ -434,13 +436,13 @@ async fn leave_traces(test: &TestStore, founder: &str, leaver: &str, board: &str
     // identity is.
     let provider_id = new_id();
     for statement in [
-        "UPDATE invitations SET recipient = 'Leaver-Mail@example.com' \
+        "UPDATE invitations SET recipient = 'Ünder-Leaver-Mail@example.com' \
          WHERE token_hash = 'mailed, unused'"
             .to_owned(),
-        "UPDATE invitations SET recipient = 'leaver-at-the-provider@example.com', uses = 1 \
+        "UPDATE invitations SET recipient = 'Ünder-leaver-mail@example.com', uses = 1 \
          WHERE token_hash = 'mailed, used'"
             .to_owned(),
-        "UPDATE invitations SET recipient = 'Ünder-leaver@example.com' \
+        "UPDATE invitations SET recipient = 'somebody-else@example.com' \
          WHERE token_hash = 'mailed to the other address'"
             .to_owned(),
         format!(
@@ -453,7 +455,7 @@ async fn leave_traces(test: &TestStore, founder: &str, leaver: &str, board: &str
             "INSERT INTO oidc_held_sign_ins (held_hash, org_id, provider_id, revision, issuer, \
              subject, email, email_unverified, name, preferred_username, create_at, expires_at) \
              VALUES ('held', '{org}', '{provider_id}', 1, 'https://provider.example', \
-             'somebody at the provider', 'LEAVER-MAIL@example.com', false, 'Leaver Shown', \
+             'somebody at the provider', 'Ünder-LEAVER-MAIL@example.com', false, 'Leaver Shown', \
              'leaver-name', {T0}, {later})",
             org = test.org_id,
             later = T0 + WAIT
@@ -565,10 +567,21 @@ async fn check_what_stays(test: &TestStore, leaver: &str, board: &str, card: &st
         [
             "a copy that was used",
             "made like, the copy used",
+            "mailed to the other address",
             "mailed, used",
             "the leaver's used link"
         ],
-        "the links that were used stay"
+        "the links that were used stay, and the one mailed to an address a provider gave"
+    );
+    assert_eq!(
+        test.texts_unchecked(
+            "SELECT recipient FROM invitations \
+             WHERE token_hash = 'mailed to the other address'"
+        )
+        .await
+        .expect("read"),
+        ["somebody-else@example.com"],
+        "which may be somebody else's: it keeps its address"
     );
 }
 
@@ -648,7 +661,7 @@ async fn an_erased_account_leaves_its_identifier_and_nothing_of_the_person() {
     let mut again = User {
         id: new_id(),
         username: "leaver-name".to_owned(),
-        email: "leaver-mail@example.com".to_owned(),
+        email: "Ünder-leaver-mail@example.com".to_owned(),
         ..User::default()
     };
     test.create_user(&mut again)
@@ -1043,6 +1056,12 @@ async fn an_erasing_that_was_cut_off_is_taken_up_and_ends() {
             .expect("begun"),
         ErasureStart::Begun
     );
+    assert!(
+        test.is_address_held("Ünder-LEAVER-mail@example.com")
+            .await
+            .expect("asked"),
+        "the address is the account's until the erasing ends"
+    );
     // Cut off here: the account has its places still, and is not ended.
     assert_eq!(
         test.finish_account_erasure(&leaver, T0 + 1)
@@ -1082,6 +1101,13 @@ async fn an_erasing_that_was_cut_off_is_taken_up_and_ends() {
             .expect("asked"),
         ErasureEnd::ErasedBefore,
         "ended once"
+    );
+    assert!(
+        !test
+            .is_address_held("Ünder-LEAVER-mail@example.com")
+            .await
+            .expect("asked"),
+        "and the address is nobody's"
     );
     assert_eq!(
         test.accounts_to_erase(T0 + 5).await.expect("listed"),
@@ -1759,6 +1785,55 @@ async fn an_erased_account_is_answered_by_its_identifier_to_whoever_asks() {
             "what is left of the erased account, and nobody in use"
         );
         assert_eq!(found[0].username, "", "no name");
+    }
+    test.teardown().await;
+}
+
+/// The guard of the audit log names every column but `identity`, the one that may be
+/// set to nothing: a column added to the table later is to be named in it too, or it
+/// could be changed with `identity`.
+#[tokio::test]
+async fn the_audit_logs_guard_names_every_column_of_the_table() {
+    let test = common::setup().await;
+    let mut names: Vec<String> = columns(&test.system())
+        .await
+        .into_iter()
+        .filter(|column| column.table == "audit_log")
+        .map(|column| column.name)
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "action",
+            "actor_id",
+            "actor_kind",
+            "create_at",
+            "detail",
+            "id",
+            "identity",
+            "org_id",
+            "subject_id",
+            "target_id",
+            "workspace_id"
+        ],
+        "a new column of the audit log is added to the guard of migration 44 as well"
+    );
+    for dialect in ["sqlite", "postgres"] {
+        let guard = std::fs::read_to_string(format!(
+            "{}/schema/{dialect}/0044_audit_identity_erasure.sql",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect("the migration");
+        for name in names.iter().filter(|name| *name != "identity") {
+            // As a whole word: `OLD.id` is not found in `OLD.identity`.
+            let old_value = format!("OLD.{name}");
+            let compared = guard.match_indices(&old_value).any(|(at, _)| {
+                !guard[at + old_value.len()..]
+                    .starts_with(|next: char| next.is_ascii_alphanumeric() || next == '_')
+            });
+            assert!(compared, "{dialect}: the guard compares {name}");
+        }
     }
     test.teardown().await;
 }

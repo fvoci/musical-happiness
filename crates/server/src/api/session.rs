@@ -41,7 +41,9 @@ impl FromRequestParts<App> for OptionalSession {
 ///
 /// # Errors
 ///
-/// Returns the store's error if the session cannot be looked up.
+/// Returns the 401 of a session whose account waits to be deleted (reason
+/// `account_deletion_pending`), and the store's error if the session cannot be looked
+/// up.
 pub(super) async fn optional_session_of(
     app: &App,
     headers: &HeaderMap,
@@ -49,6 +51,9 @@ pub(super) async fn optional_session_of(
 ) -> Result<Option<Session>, AppError> {
     match session_of(app, headers, extensions).await {
         Ok(session) => Ok(Some(session)),
+        // The session of an account that waits to be deleted is not "no session": it
+        // opens nothing but the way back, here as everywhere.
+        Err(error) if error.reason() == Some(Reason::AccountDeletionPending) => Err(error),
         // No session is an answer the route can work with. A store that failed is not
         // "no session": answered as one, it would make clients throw a valid session
         // away.

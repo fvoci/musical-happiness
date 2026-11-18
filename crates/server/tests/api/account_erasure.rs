@@ -213,3 +213,44 @@ async fn the_housekeeping_erases_an_account_whose_wait_ran_out() {
     );
     th.teardown().await;
 }
+
+/// Somebody who forgot their password while their account waits is helped by the
+/// operator, who sets one on the administration socket: with it they sign in, and take
+/// the deletion back. (A reset by mail is not sent to an account out of use.)
+#[tokio::test]
+async fn the_operator_sets_the_password_of_an_account_that_waits() {
+    let (th, socket) = with_socket().await;
+    th.client2
+        .post(
+            DELETION,
+            &json!({"username": USER2_USERNAME, "password": PASSWORD}),
+        )
+        .await
+        .check_ok();
+
+    let another = "Another-password-1";
+    socket_request(
+        &socket,
+        "POST",
+        &format!("/api/v1/admin/users/{USER2_USERNAME}/password"),
+        &json!({ "password": another }).to_string(),
+    )
+    .await
+    .check_no_content();
+
+    let mut old = th.anonymous();
+    old.login(USER2_USERNAME, PASSWORD)
+        .await
+        .check_unauthorized();
+    let back = th.login(USER2_USERNAME, another).await;
+    let waiting: Value = back.get(DELETION).await.ok_json();
+    assert!(
+        waiting["deleteAfter"].as_i64().is_some(),
+        "it waits still: {waiting}"
+    );
+    back.delete(DELETION)
+        .await
+        .check_status(StatusCode::NO_CONTENT);
+    back.get("/users/me").await.check_ok();
+    th.teardown().await;
+}

@@ -1,6 +1,7 @@
 <!--
   What signing in to an account that waits to be deleted shows: that it is to
-  be deleted, in how many days and on which day, what goes with it, and the
+  be deleted, in how many days and on which day, what goes with it, what holds
+  it back if it became the only administrator of something meanwhile, and the
   one thing its session opens, taking the deletion back. Taken back, the
   account is as it was, and the page starts again in it. Signing out leaves
   the account waiting.
@@ -105,6 +106,22 @@
             ? m.account_leaving_text_one({ day })
             : m.account_leaving_due()}
       </p>
+      {#if standing.lastInstanceAdmin || standing.soleAdminOf.length > 0}
+        <!-- Since it asked, the account became the only administrator of something: it is not erased. -->
+        <div class="grid gap-1 text-sm" data-testid="account-leaving-held">
+          <p class="text-destructive">{m.account_leaving_held()}</p>
+          <ul>
+            {#if standing.lastInstanceAdmin}
+              <li class="font-medium">{m.account_leaving_held_server()}</li>
+            {/if}
+            {#each standing.soleAdminOf as organization (organization.id)}
+              <li class="font-medium">
+                {organization.name || m.account_delete_organization_unnamed()}
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
       {#if standing.organizations.length > 0}
         <div class="grid gap-1 text-sm" data-testid="account-leaving-organizations">
           <p>{m.account_leaving_organizations()}</p>

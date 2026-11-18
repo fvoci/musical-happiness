@@ -153,6 +153,30 @@ describe('the session of an account that waits to be deleted', () => {
     expect(workspace.problems).toEqual([]);
   });
 
+  it('is read again once the account waits no more: the workspace opens, and listens', async () => {
+    // Taken back in another tab: the waiting screen has the workspace read again.
+    const { backend } = made();
+    const watch = vi.spyOn(backend, 'watchSelf');
+    backend.failNext('me', refusal('account_deletion_pending'));
+    const workspace = new Workspace({ backend, locale: () => 'en' });
+    await workspace.load();
+    expect(workspace.status).toBe('leaving');
+    expect(watch).not.toHaveBeenCalled();
+
+    await workspace.load();
+    expect(workspace.status).toBe('ready');
+    expect(workspace.me).toBeDefined();
+    expect(watch).toHaveBeenCalledTimes(1);
+
+    // Erased meanwhile: the session is over, and the sign-in is shown.
+    const erased = new Workspace({ backend, locale: () => 'en' });
+    backend.failNext('me', refusal('account_deletion_pending'));
+    await erased.load();
+    backend.failNext('me', refusal(undefined));
+    await erased.load();
+    expect(erased.status).toBe('signedOut');
+  });
+
   it('is told apart from one that is over, also while working', async () => {
     const { backend } = made();
     const workspace = new Workspace({ backend, locale: () => 'en' });

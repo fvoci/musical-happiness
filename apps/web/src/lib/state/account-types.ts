@@ -109,9 +109,12 @@ export interface AccountDeletion {
   proof: 'password' | 'sign_in';
   /** The reader is the only administrator of the server: the account is not deleted. */
   lastInstanceAdmin: boolean;
-  /** Organizations with other people that have no other administrator: nor then. */
+  /**
+   * Organizations that stay and have no other administrator (those with other
+   * people, and the server's own first one): nor then.
+   */
   soleAdminOf: { id: string; name: string }[];
-  /** Organizations that have nobody else: they are deleted with the account. */
+  /** The other organizations that have nobody else: they are deleted with the account. */
   organizations: LeavingOrganization[];
   /** When the deletion was asked for and when it is due, once it was. */
   requestedAt?: number;

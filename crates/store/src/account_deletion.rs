@@ -8,7 +8,8 @@
 //!
 //! An account does not go while something would be left without anybody to run it:
 //! the instance without an administrator, or an organization that has other people in
-//! it without one. An organization that has nobody but the account goes with it. Who
+//! it without one. An organization that has nobody but the account goes with it, but
+//! the instance's own, which stays whoever is in it, and its only administrator. Who
 //! administers what is asked and the account is put out of use in one transaction,
 //! under the instance's row and then the rows of the organizations the account
 //! administers, as every change of who administers what holds them: of two
@@ -170,6 +171,17 @@ impl Store {
                     delete_after,
                 }))
             })
+            .await
+    }
+
+    /// Whether the address is an account's own that no new account may take: one in
+    /// use, one that waits to be deleted, or one being erased, in any letter case.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn is_address_held(&self, email: &str) -> Result<bool, StoreError> {
+        self.with_conn(async |scope| users::has_address(scope, email).await)
             .await
     }
 

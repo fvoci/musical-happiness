@@ -720,10 +720,11 @@ impl App {
         // same person, who is to sign in to it and link the provider to it, not to have
         // two accounts. What a provider gave for another account is no account's
         // address, and stands in nobody's way. An account that waits to be deleted has
-        // its address still: its person signs in to it, and takes the asking back.
-        match self.store().account_by_email(email).await {
-            Ok(_) => return Err(Reason::OidcEmailTaken.into()),
-            Err(error) if error.is_not_found() => {}
+        // its address still: its person signs in to it, and takes the asking back. So
+        // has one that is being erased, until that ends.
+        match self.store().is_address_held(email).await {
+            Ok(true) => return Err(Reason::OidcEmailTaken.into()),
+            Ok(false) => {}
             Err(error) => return Err(logged(&error, "looking up an email address")),
         }
         self.make_account(claims, identity, email, stored, ending, session, digest)

@@ -303,6 +303,29 @@ describe('the account that waits', () => {
     expect(onCancel).toHaveBeenCalledTimes(2);
   });
 
+  it('says what holds the deletion back, when the account became the only administrator meanwhile', async () => {
+    render(AccountLeaving, {
+      props: {
+        read: () =>
+          Promise.resolve({
+            ...waiting,
+            lastInstanceAdmin: true,
+            soleAdminOf: [{ id: 'a', name: 'Acme' }],
+            organizations: [],
+          }),
+        onCancel: vi.fn(() => Promise.resolve()),
+        onStale: vi.fn(),
+        onSignOut: vi.fn(),
+        locale: 'en',
+      },
+    });
+    const held = await screen.findByTestId('account-leaving-held');
+    expect(held).toHaveTextContent('It is not deleted while you are the only administrator');
+    expect(held).toHaveTextContent('This server');
+    expect(held).toHaveTextContent('Acme');
+    expect(screen.queryByTestId('account-leaving-organizations')).toBeNull();
+  });
+
   it('says one day as one day', async () => {
     render(AccountLeaving, {
       props: {

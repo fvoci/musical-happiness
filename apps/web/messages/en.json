@@ -198,6 +198,8 @@
   "account_leaving_text": "It is deleted in {days} days, on {day}. Until then you can cancel the deletion; nothing else is open.",
   "account_leaving_text_one": "It is deleted in 1 day, on {day}. Until then you can cancel the deletion; nothing else is open.",
   "account_leaving_due": "Its waiting time is over: it is deleted shortly. You can still cancel the deletion.",
+  "account_leaving_held": "It is not deleted while you are the only administrator of what stays. Cancel the deletion, make somebody else an administrator, and ask again:",
+  "account_leaving_held_server": "This server",
   "account_leaving_organizations": "Deleted with it, with everything in them:",
   "account_leaving_cancel": "Cancel the deletion",
   "account_leaving_cancel_failed": "The deletion could not be cancelled. Try again.",

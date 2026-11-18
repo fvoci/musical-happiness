@@ -117,6 +117,25 @@ async fn a_member_asks_to_delete_the_account_and_takes_it_back_by_signing_in() {
     check_waits(&back.get("/users/me").await);
     check_waits(&back.get(&format!("{ROOT_WS}/boards")).await);
     check_waits(&ask(&back, USER2_USERNAME, PASSWORD).await);
+    // Nor what is also open to whoever has no session: the account is let in nowhere,
+    // and no other account is made from its session.
+    check_waits(
+        &back
+            .post("/invitations/accept", &json!({"token": "no-such-link"}))
+            .await,
+    );
+    check_waits(
+        &back
+            .post(
+                "/invitations/accept",
+                &json!({"token": "no-such-link", "account": {
+                    "username": "newcomer",
+                    "email": "newcomer@example.com",
+                    "password": PASSWORD,
+                }}),
+            )
+            .await,
+    );
     let waiting: Value = back.get(DELETION).await.ok_json();
     assert_eq!(waiting["deleteAfter"], json!(delete_after), "{waiting}");
     assert_eq!(

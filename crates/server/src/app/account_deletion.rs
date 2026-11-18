@@ -75,8 +75,9 @@ impl App {
     /// `sso_required`, naming it) if an organization that would go with the account
     /// is one the session does not open; a 409 if the
     /// account is the instance's only administrator (reason `last_admin`), or the only
-    /// administrator of an organization that has other people (reason
-    /// `last_org_admin`, naming the organization), or was changed meanwhile.
+    /// administrator of an organization that stays, one that has other people or the
+    /// instance's own (reason `last_org_admin`, naming the organization), or was
+    /// changed meanwhile.
     pub async fn request_account_deletion(
         &self,
         session: &Session,

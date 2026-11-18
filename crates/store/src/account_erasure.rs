@@ -83,15 +83,16 @@ pub struct ErasedFrom {
     /// What went with the organization, if it went: `None` for one that stays.
     pub removed: Option<Purged>,
     /// Whether the organization was to go and stays, in use again, because somebody
-    /// came into it after it was put out of use: it has no administrator then, which
-    /// the server's operator is to be told.
+    /// came into it after it was put out of use: it has no administrator then, and
+    /// neither the provider's settings nor the links it had (they went when it was put
+    /// out of use), which the server's operator is to be told.
     pub kept_for_newcomer: bool,
     /// The workspaces in use the account was the only administrator of: an
     /// administrator of the organization is to step in.
-    pub without_administrator: Vec<String>,
+    pub workspaces_without_administrator: Vec<String>,
     /// The boards the account was the only admin of that passed to nobody, for their
     /// workspace has no other administrator on their own account.
-    pub without_admin: Vec<String>,
+    pub boards_without_admin: Vec<String>,
 }
 
 /// What became of ending the erasing of an account.
@@ -304,9 +305,11 @@ impl Store {
                     continue;
                 };
                 erased.handed_over.extend(left.handed_over);
-                erased.without_admin.extend(left.without_admin);
+                erased.boards_without_admin.extend(left.without_admin);
                 if left.without_administrator {
-                    erased.without_administrator.push(workspace_id.clone());
+                    erased
+                        .workspaces_without_administrator
+                        .push(workspace_id.clone());
                 }
                 erased.left.push(workspace_id);
             }
@@ -317,8 +320,8 @@ impl Store {
     }
 
     /// Ends the erasing of an account at `now`: removes its identities, its sessions,
-    /// its settings and credentials, the links mailed to its
-    /// addresses that nobody used (and the address from those that were), and who it is
+    /// its settings and credentials, the links mailed to its own
+    /// address that nobody used (and the address from those that were), and who it is
     /// from the records of the audit log about it, in every organization; and leaves of
     /// its row the identifier, with no name, address or password. Not while the account
     /// still has a place in an organization, and not for an account whose erasing did
@@ -752,14 +755,13 @@ async fn has_a_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, Store
     Ok(false)
 }
 
-/// The addresses of the account: its own, and those its providers gave. None for an
-/// account that is not there, or has none left.
+/// The address of the account that is its own (`users.email`), as a list: none for an
+/// account that is not there, or has none left. What a provider gave for an identity of
+/// the account is the provider's word, checked by nobody: it may be somebody else's
+/// address, and nothing mailed to it is touched. The identities go with their rows.
 async fn addresses_of(scope: &mut Scope<'_>, user_id: &str) -> Result<Vec<String>, StoreError> {
     let mut sql = scope.sql("SELECT email FROM users WHERE id = ");
-    sql.bind(Id(user_id)).push_bind(
-        " UNION SELECT email FROM user_identities WHERE user_id = ",
-        Id(user_id),
-    );
+    sql.bind(Id(user_id));
     let mut addresses = Vec::new();
     for row in scope.fetch_all(sql).await? {
         let address = row.text(0)?;

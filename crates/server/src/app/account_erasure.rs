@@ -11,7 +11,7 @@ use crate::error::AppError;
 
 /// What became of erasing an account.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Erasure {
+pub(crate) enum Erasure {
     /// It is erased: nothing of the person is kept, and what they wrote stays.
     Erased,
     /// There is no such account, or it was erased before.
@@ -19,7 +19,7 @@ pub enum Erasure {
     /// Its wait has not run out.
     Waits,
     /// It is the instance's only administrator, or the only one of an organization
-    /// that has other people: nothing changed.
+    /// that stays (one that has other people, or the instance's own): nothing changed.
     Refused(DeletionStanding),
     /// Its erasing began and did not end: the account still has a place somewhere.
     /// The housekeeping takes it up again.
@@ -40,7 +40,7 @@ impl App {
     ///
     /// Returns the store's error if a step fails: what was done stays done, and the
     /// next call goes on from there.
-    pub async fn erase_account(
+    pub(crate) async fn erase_account(
         &self,
         user_id: &str,
         erasing: Erasing,
@@ -102,9 +102,10 @@ impl App {
     /// Returns a 404 if no account has the name (one that was erased has none), with
     /// the identifier `None`; the 409 of a refused asking (`account_deletion::refused`)
     /// for the instance's only administrator and the only administrator of an
-    /// organization that has other people; a 409 if the erasing did not end, which
-    /// the housekeeping takes up; and the store's error.
-    pub async fn erase_account_as_operator(
+    /// organization that stays (one that has other people, or the instance's own); a
+    /// 409 if the erasing did not end, which the housekeeping takes up; and the
+    /// store's error.
+    pub(crate) async fn erase_account_as_operator(
         &self,
         username: &str,
     ) -> (Option<String>, Result<(), AppError>) {
@@ -137,11 +138,12 @@ impl App {
                 org_id,
                 user_id,
                 "an organization that was to go with the account of its only person has \
-                 somebody else in it, and stays, without an administrator: make somebody \
-                 its administrator"
+                 somebody else in it, and stays, without an administrator, without its \
+                 single sign-on settings and with its invitation links revoked: make \
+                 somebody its administrator, who sets them up again"
             );
         }
-        for workspace_id in &erased.without_administrator {
+        for workspace_id in &erased.workspaces_without_administrator {
             tracing::warn!(
                 org_id,
                 workspace_id,
@@ -150,7 +152,7 @@ impl App {
                  one. An administrator of the organization can join it and name one"
             );
         }
-        for container_id in &erased.without_admin {
+        for container_id in &erased.boards_without_admin {
             tracing::warn!(
                 org_id,
                 container_id,
@@ -199,7 +201,7 @@ impl App {
     }
 
     /// Erases every account whose wait ran out, and takes up the erasings that were
-    /// cut off, each as [`App::erase_account`] does. An account that is not erased
+    /// cut off, each as `App::erase_account` does. An account that is not erased
     /// because something would be left without an administrator is logged for the
     /// operator and asked again at the next run; so is one that failed.
     pub async fn erase_due_accounts(&self) {
