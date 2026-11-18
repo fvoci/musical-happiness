@@ -12,9 +12,12 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { manyCellsXlsx, manyMergesXlsx } from '../tests/support/hostile-xlsx.ts';
 import { koreanXlsx, largeXlsx, XLSX_TEXT } from '../tests/support/viewer-xlsx.ts';
 
+import { attach, frameOf, openCard, picture, viewer } from './file-viewer.support.ts';
 import { openApp } from './shell.support.ts';
-import { attach, frameOf, openCard, picture, viewer } from './viewer.support.ts';
 import { nameThePage, newWiki, pageBody } from './wiki.support.ts';
+
+/** Where the pictures go with `FVOCI_SCREENS=1`: `target/viewer-p2/`. */
+const SCREENS = 'viewer-p2';
 
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -110,7 +113,7 @@ test.describe('in Korean', () => {
       '5',
     );
     await expect(page.getByTestId('file-viewer-drawings')).toHaveCount(0);
-    await picture(page, 'xlsx-korean');
+    await picture(page, SCREENS, 'xlsx-korean');
 
     // The frozen rows stay as the sheet scrolls under them.
     const header = sheet.getByRole('cell', { name: XLSX_TEXT.headers[0], exact: true });
@@ -135,7 +138,7 @@ test.describe('in Korean', () => {
     await expect(page.getByTestId('file-viewer-drawings')).toHaveText(
       '이 시트의 차트와 그림은 보이지 않습니다.',
     );
-    await picture(page, 'xlsx-schedule');
+    await picture(page, SCREENS, 'xlsx-schedule');
     // With Shift, the arrows across turn no sheet from the viewer's buttons either (the sheet
     // turned by a key is drawn before the next command reaches the page).
     await page.getByRole('button', { name: '이전 시트' }).focus();
@@ -164,7 +167,7 @@ test('a large sheet draws only what is in view, and as far down as it goes', asy
   const cells = (): Promise<number> => frame.locator('.xlsx-cell').count();
   // A screen's worth: 30 columns by 5,000 rows is 150,000 cells.
   expect(await cells()).toBeLessThan(2_000);
-  await picture(page, 'xlsx-large');
+  await picture(page, SCREENS, 'xlsx-large');
   // From the keyboard, in the frame: Shift with the arrows across scrolls the sheet across, and
   // turns no sheet.
   const across = (): Promise<number> => frame.locator('body').evaluate(() => window.scrollX);

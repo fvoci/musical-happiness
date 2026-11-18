@@ -3,19 +3,24 @@
  * into a wiki's page or a card's body opens when its name is pressed (by
  * the mouse, a finger, or Enter and Space once Tab is on it), or with Enter
  * once the block is selected, and closes again; over a card the card stays
- * open. In the editor the block is still selected, dragged and deleted as
+ * open. A deck and a Hangul document (HWPX, HWP) open from theirs too. In the editor the block is still selected, dragged and deleted as
  * before, and the keys pressed on its name edit nothing; a file the viewer
  * would not show offers its download alone, and so does one whose viewer
  * cannot be fetched.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { HWP_TEXT, koreanHwp, koreanHwpx } from '../tests/support/hwp-files.ts';
 import { koreanPdf } from '../tests/support/viewer-files.ts';
+import { koreanPptx, PPTX_TEXT } from '../tests/support/viewer-pptx.ts';
 
 import { boardPath } from './address.ts';
+import { picture } from './file-viewer.support.ts';
 import { openApp } from './shell.support.ts';
-import { picture } from './viewer.support.ts';
 import { nameThePage, newWiki, pageBody } from './wiki.support.ts';
+
+/** Where the pictures go with `FVOCI_SCREENS=1`: `target/viewer-p2/`. */
+const SCREENS = 'viewer-p2';
 
 const NAME = '회의록 2026-11.pdf';
 
@@ -116,7 +121,7 @@ test('a PDF in a page opens in the viewer by its name and by Enter, and the bloc
   await expect(open).toHaveText(NAME);
   // The download stays a link of its own.
   await expect(block.getByRole('link', { name: `Download ${NAME}` })).toBeVisible();
-  await picture(page, 'file-block');
+  await picture(page, SCREENS, 'file-block');
 
   // Pressed by a finger where the screen is touched, by the mouse elsewhere.
   if (hasTouch) await open.tap();
@@ -124,7 +129,7 @@ test('a PDF in a page opens in the viewer by its name and by Enter, and the bloc
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
   await expect(viewer(page).getByRole('heading', { name: NAME })).toBeVisible();
   await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 2');
-  await picture(page, 'pdf-file-block');
+  await picture(page, SCREENS, 'pdf-file-block');
   await page.getByTestId('file-viewer-close').click();
   await expect(viewer(page)).toHaveCount(0);
 
@@ -216,6 +221,48 @@ test('a PDF in a card opens over the card, which stays open when the viewer clos
   await expect(body.locator('[data-file-block]')).toHaveCount(0);
   await expect(card).toBeVisible();
 });
+
+/** The other kinds a file block opens, each with what its first page is called and shows. */
+const OTHERS = [
+  {
+    name: '분기 보고.pptx',
+    bytes: koreanPptx,
+    type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    first: 'Slide 1 of 3',
+    page: '.slide[data-page="1"]',
+    text: PPTX_TEXT.title,
+  },
+  {
+    name: '회의록.hwpx',
+    bytes: koreanHwpx,
+    type: 'application/hwp+zip',
+    first: 'Page 1 of 2',
+    page: '.page[data-page="1"] .hwp-text',
+    text: HWP_TEXT.title,
+  },
+  {
+    name: '회의록.hwp',
+    bytes: koreanHwp,
+    type: 'application/x-hwp',
+    first: 'Page 1 of 2',
+    page: '.page[data-page="1"] .hwp-text',
+    text: HWP_TEXT.title,
+  },
+];
+
+for (const other of OTHERS) {
+  test(`${other.name} in a page opens in the viewer by its name`, async ({ page }) => {
+    const body = await newPage(page);
+    const block = await putFile(page, body, other.name, other.bytes(), other.type);
+    await block.getByRole('button', { name: `View ${other.name}` }).click();
+    await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+    await expect(page.getByTestId('file-viewer-announce')).toHaveText(other.first);
+    const frame = page.frameLocator('[data-testid="file-viewer-frame"]');
+    await expect(frame.locator(other.page)).toContainText(other.text);
+    await page.keyboard.press('Escape');
+    await expect(viewer(page)).toHaveCount(0);
+  });
+}
 
 test('a block dragged by its name moves, and the viewer does not open', async ({ page }) => {
   const body = await newPage(page);
