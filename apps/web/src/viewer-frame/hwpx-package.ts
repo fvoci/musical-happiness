@@ -18,14 +18,15 @@
  * `BinData/`, and the master pages count once more for every section after
  * the first. Together they are held to `MARKUP_LIMIT_BYTES`.
  *
- * The package is read as rhwp's reader reads it: elements by their local
- * name (`item`, `itemref`, whatever comes before the last `:`), attributes by
- * their exact name (`id`, `href`, `media-type`, `idref`) with their values as
- * written, comments and character data left out.
+ * The package is read as rhwp's reader reads it (hpf-markup.ts): elements by
+ * their local name (`item`, `itemref`, whatever comes before the last `:`),
+ * attributes by their exact name (`id`, `href`, `media-type`, `idref`) with
+ * their values as written, and markup ended where that reader ends it.
  */
 import { MARKUP_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
 import { zipEntries, type ZipEntry } from '$lib/file-viewer/zip-directory.ts';
 
+import { tagsOf } from './hpf-markup.ts';
 import { TooLargeFile, UnreadableFile } from './renderer.ts';
 
 const PACKAGE = 'Contents/content.hpf';
@@ -45,94 +46,25 @@ interface Listed {
   spine: string[];
 }
 
-/** Where `mark` ends after `from`; throws `UnreadableFile` when it does not come. */
-function past(xml: string, mark: string, from: number): number {
-  const at = xml.indexOf(mark, from);
-  if (at < 0) throw new UnreadableFile();
-  return at + mark.length;
-}
-
-const isSpace = (char: string | undefined): boolean =>
-  char === ' ' || char === '\t' || char === '\n' || char === '\r';
-
 /**
- * The tag that starts after `<` at `from`: its local name (after its last
- * `:`), its attributes as written (the first of a name twice), and where it
- * ends. Throws `UnreadableFile` when it does not end.
- */
-function readTag(
-  xml: string,
-  from: number,
-): { name: string; attributes: Map<string, string>; end: number } {
-  let at = from;
-  while (at < xml.length && !isSpace(xml[at]) && xml[at] !== '/' && xml[at] !== '>') at += 1;
-  const qualified = xml.slice(from, at);
-  const attributes = new Map<string, string>();
-  for (;;) {
-    while (isSpace(xml[at])) at += 1;
-    if (at >= xml.length) throw new UnreadableFile();
-    if (xml[at] === '>') break;
-    if (xml.startsWith('/>', at)) {
-      at += 1;
-      break;
-    }
-    const start = at;
-    while (at < xml.length && !isSpace(xml[at]) && !'=>/'.includes(xml[at] ?? '')) at += 1;
-    const name = xml.slice(start, Math.max(at, start + 1));
-    at = Math.max(at, start + 1);
-    while (isSpace(xml[at])) at += 1;
-    if (xml[at] !== '=') continue;
-    at += 1;
-    while (isSpace(xml[at])) at += 1;
-    const quote = xml[at];
-    if (quote !== '"' && quote !== "'") continue;
-    const end = xml.indexOf(quote, at + 1);
-    if (end < 0) throw new UnreadableFile();
-    if (!attributes.has(name)) attributes.set(name, xml.slice(at + 1, end));
-    at = end + 1;
-  }
-  return { name: qualified.slice(qualified.lastIndexOf(':') + 1), attributes, end: at + 1 };
-}
-
-/**
- * Where markup at `open` that is no element ends (a comment, character data,
- * an instruction, a declaration, an end tag); undefined for an element.
- */
-function skipped(xml: string, open: number): number | undefined {
-  if (xml.startsWith('<!--', open)) return past(xml, '-->', open + 4);
-  if (xml.startsWith('<![CDATA[', open)) return past(xml, ']]>', open + 9);
-  if (xml.startsWith('<?', open)) return past(xml, '?>', open + 2);
-  if (xml.startsWith('<!', open) || xml.startsWith('</', open)) return past(xml, '>', open + 2);
-  return undefined;
-}
-
-/**
- * The items and the spine of `content.hpf`'s text, read in one pass as rhwp's
- * reader (quick_xml) reads it: the elements by their local name, attribute
- * values as written (entities left as they are, as rhwp leaves them), and
- * comments, character data, declarations and instructions passed over.
- * Markup that does not end makes the file unreadable, as it does for rhwp.
+ * The items and the spine of `content.hpf`'s text, from its elements as rhwp's
+ * reader gives them (hpf-markup.ts): by their local name, after the last `:`,
+ * with the attributes it takes, their values as written (rhwp leaves entities
+ * as they are). Markup it stops at makes the file unreadable, as it does rhwp.
  */
 export function listed(xml: string): Listed {
   const items: Item[] = [];
   const spine: string[] = [];
-  let open = xml.indexOf('<');
-  while (open >= 0) {
-    let end = skipped(xml, open);
-    if (end === undefined) {
-      const tag = readTag(xml, open + 1);
-      end = tag.end;
-      const found = tag.attributes;
-      if (tag.name === 'itemref') {
-        const idref = found.get('idref');
-        if (idref !== undefined) spine.push(idref);
-      } else if (tag.name === 'item') {
-        const id = found.get('id') ?? '';
-        const href = found.get('href') ?? '';
-        if (id && href) items.push({ id, href, mediaType: found.get('media-type') ?? '' });
-      }
+  for (const { name, attributes } of tagsOf(xml)) {
+    const local = name.slice(name.lastIndexOf(':') + 1);
+    if (local === 'itemref') {
+      for (const [key, value] of attributes) if (key === 'idref') spine.push(value);
+    } else if (local === 'item') {
+      const found = new Map(attributes);
+      const id = found.get('id') ?? '';
+      const href = found.get('href') ?? '';
+      if (id && href) items.push({ id, href, mediaType: found.get('media-type') ?? '' });
     }
-    open = xml.indexOf('<', end);
   }
   return { items, spine };
 }

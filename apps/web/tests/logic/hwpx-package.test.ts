@@ -1,3 +1,4 @@
+import { HwpDocument } from '@rhwp/core';
 import { describe, expect, it } from 'vitest';
 
 import { MARKUP_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
@@ -189,5 +190,63 @@ describe("the worker's reader holds an HWPX to the limits before rhwp reads it",
       return { ...member, data: Buffer.from(text.replace(ref, ref + ref)) };
     });
     expect(await open(twice)).toEqual({ kind: 'failed', reason: 'unreadable' });
+  });
+});
+
+describe('what the check reads of the spine is what rhwp reads', () => {
+  const REF = '<opf:itemref idref="section0"/>';
+  const QUOTED_REF = "<opf:itemref idref='section0'/>";
+  /**
+   * Markup put after the sample's own reference to its section, and how many
+   * pages rhwp opens it with: 2 when it reads the section once, 4 when it
+   * reads it twice, or none when it refuses the file.
+   */
+  const cases: [string, string, 2 | 4 | 'refused'][] = [
+    ['nothing', '', 2],
+    ['a quote that is not after "="', `<x a'="'>${REF}</x>`, 4],
+    [
+      'a ">" inside a quoted value',
+      `<x a="><opf:itemref idref='section0'/><y b="></y></x>`,
+      'refused',
+    ],
+    ['an end tag that holds a quote', `<x></x a=">">${REF}`, 'refused'],
+    ['a comment begun in a quoted entity', `<!DOCTYPE p [ <!ENTITY e '>  <!-- '> ]>${REF} -->`, 4],
+    ['a reference in a quoted entity', `<!DOCTYPE p [ <!ENTITY e "${QUOTED_REF}"> ]>`, 2],
+    ['a doctype in small letters', `<!doctype p '>'>${REF}`, 4],
+    ['character data', `<![CDATA[${REF}]]>`, 2],
+    ['an instruction', `<?note ${REF}?>`, 2],
+    ['an instruction of nothing', `<??>${REF}`, 4],
+    ['a comment with "--" inside', `<!-- a -- b -->${REF}`, 4],
+    ['a name with no value first', '<opf:itemref x idref="section0"/>', 4],
+    ['an unquoted value, then the name again', '<opf:itemref idref=section0 idref="section0"/>', 2],
+    ['no blank between two attributes', '<opf:itemref a="x"idref="section0"/>', 4],
+    ['blanks around "="', '<opf:itemref idref = "section0"/>', 4],
+    ['a slash before the attributes', '<opf:itemref/ idref="section0">', 'refused'],
+    ['a reference in the text', `&amp;${REF}`, 4],
+    ['an "&" that is no reference', `& ${REF}`, 'refused'],
+  ];
+
+  it.each(cases)('%s', async (_, markup, pages) => {
+    const file = rewriteArchive(koreanHwpx(), (member) => {
+      if (member.name !== 'Contents/content.hpf') return member;
+      const text = member.data.toString('utf8');
+      const ref = /<opf:itemref idref="section0"[^>]*\/>/.exec(text)?.[0] ?? '';
+      expect(ref).not.toBe('');
+      return { ...member, data: Buffer.from(text.replace(ref, ref + markup)) };
+    });
+    let opened: number | 'refused';
+    try {
+      const document = new HwpDocument(new Uint8Array(file));
+      opened = document.pageCount();
+      document.free();
+    } catch {
+      opened = 'refused';
+    }
+    expect(opened).toBe(pages);
+    const checked = await checkHwpxPackage(buffer(file)).then(
+      () => 'passes',
+      (error: unknown) => (error instanceof UnreadableFile ? 'unreadable' : String(error)),
+    );
+    expect(checked).toBe(pages === 2 ? 'passes' : 'unreadable');
   });
 });
