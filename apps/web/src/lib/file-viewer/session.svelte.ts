@@ -13,6 +13,7 @@
  */
 import { tick } from 'svelte';
 
+import { m } from '$lib/i18n/paraglide/messages.js';
 import { buildUrl, normalizeBasePath } from '$lib/logic/urls.ts';
 
 import { examine, VIEW_LIMIT_BYTES, type FormatId } from './formats.ts';
@@ -21,7 +22,6 @@ import {
   ZOOM_MAX,
   ZOOM_MIN,
   type Failure,
-  type FrameWords,
   type Theme,
   type ToFrame,
   type ViewerKey,
@@ -82,7 +82,6 @@ export class ViewerSession {
   readonly #limits: Limits;
   readonly #theme: () => Theme;
   readonly #lang: () => string;
-  readonly #words: () => FrameWords;
   readonly #onKey: (key: ViewerKey) => void;
   readonly #onDownload: () => void;
   /** Gives up the reading, and stands for "closed". */
@@ -97,8 +96,6 @@ export class ViewerSession {
       theme: () => Theme;
       /** The app's language, for the document's text. */
       lang: () => string;
-      /** What the frame says itself, in that language. */
-      words: () => FrameWords;
       onKey: (key: ViewerKey) => void;
       /** The reader asked, in the frame, for the file to download. */
       onDownload: () => void;
@@ -108,7 +105,6 @@ export class ViewerSession {
     this.file = file;
     this.#theme = options.theme;
     this.#lang = options.lang;
-    this.#words = options.words;
     this.#onKey = options.onKey;
     this.#onDownload = options.onDownload;
     this.#limits = options.limits ?? LIMITS;
@@ -204,8 +200,13 @@ export class ViewerSession {
         if (status.name !== 'opening' || !bytes) return;
         // Handed over, not copied: the app keeps the blob for "Download".
         this.#bytes = undefined;
-        const [theme, lang, words] = [this.#theme(), this.#lang(), this.#words()];
-        this.#send({ kind: 'open', format: status.format, bytes, theme, lang, words }, [bytes]);
+        const open = { format: status.format, bytes, theme: this.#theme(), lang: this.#lang() };
+        const labels = {
+          chart: m.viewer_chart_not_drawn(),
+          pageTooLarge: m.viewer_page_too_large(),
+          download: m.viewer_download(),
+        };
+        this.#send({ kind: 'open', ...open, labels }, [bytes]);
         this.#wait(this.#limits.draw);
         break;
       }

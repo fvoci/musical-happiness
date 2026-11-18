@@ -118,6 +118,7 @@ const hwp: Kind = {
 const FORMATS = {
   pdf: { bytes: isPdf },
   docx: officePackage('word/document.xml'),
+  pptx: officePackage('ppt/presentation.xml'),
   hwpx,
   hwp,
 } as const satisfies Record<string, Kind>;

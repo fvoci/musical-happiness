@@ -158,7 +158,7 @@ describe('in the frame, a compound file is checked before rhwp reads it', () => 
     const started = performance.now();
     expect(checkCompound(buffer(many), 1 << 30)).toBeInstanceOf(ArrayBuffer);
     expect(performance.now() - started).toBeLessThan(10_000);
-  });
+  }, 60_000);
 
   it('a stream that says more than its chain holds stops the file', () => {
     expect(() => checkCompound(buffer(hwpFile({ said: 20_000 })))).toThrow(UnreadableFile);

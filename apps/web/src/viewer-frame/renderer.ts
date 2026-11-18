@@ -2,7 +2,7 @@
  * What a renderer is to the frame: something that draws a file's bytes into
  * a place and then follows the viewer's commands.
  */
-import type { Failure, FrameWords } from '$lib/file-viewer/protocol.ts';
+import type { Failure, Labels } from '$lib/file-viewer/protocol.ts';
 
 /** What a renderer tells the viewer around it. */
 export interface Report {
@@ -35,12 +35,12 @@ export class TooLargeFile extends Error {}
 /** Thrown when the renderer took longer than the frame gives it, and was stopped. */
 export class SlowRenderer extends Error {}
 
+/** Draws a file into `place`; `labels` are the words it may show of its own, in the app's language. */
 export type Render = (
   bytes: ArrayBuffer,
   place: HTMLElement,
   report: Report,
-  /** What the frame says itself, in the app's language. */
-  words: FrameWords,
+  labels: Labels,
 ) => Promise<Drawn>;
 
 /** How long after a page is brought into view the scrolling it caused is let be, in milliseconds. */

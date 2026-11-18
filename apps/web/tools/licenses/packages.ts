@@ -51,7 +51,11 @@ export function statedLicense(name: string, licenseText: string): string | undef
 }
 
 export function readPackageLicense(name: string, from?: string): PackageLicense {
-  const directory = packageDirectory(name, from);
+  return readPackageLicenseAt(packageDirectory(name, from));
+}
+
+/** The licence of the package installed in `directory`. */
+export function readPackageLicenseAt(directory: string): PackageLicense {
   const manifest = JSON.parse(readFileSync(path.join(directory, 'package.json'), 'utf8')) as {
     name: string;
     version: string;

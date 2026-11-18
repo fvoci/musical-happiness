@@ -39,6 +39,11 @@ body {
   flex: none;
 }
 
+/* A slide is drawn at its own size and scaled to its box (pptx-view.ts). */
+.slide {
+  overflow: hidden;
+}
+
 .page canvas {
   display: block;
   width: 100%;
@@ -101,7 +106,7 @@ body {
   gap: 12px;
   padding: 12% 16px 16px;
   overflow: hidden;
-  color: #3f3f46;
+  color: color-mix(in srgb, black 75%, white);
   font-size: 14px;
   line-height: 1.5;
   text-align: center;
@@ -115,16 +120,16 @@ body {
 .page-notice button {
   min-height: 36px;
   padding: 0 12px;
-  border: 1px solid #d4d4d8;
+  border: 1px solid color-mix(in srgb, black 17%, white);
   border-radius: 6px;
   background: white;
-  color: #18181b;
+  color: black;
   font: inherit;
   cursor: pointer;
 }
 
 .page-notice button:hover {
-  background: #f4f4f5;
+  background: color-mix(in srgb, black 4%, white);
 }
 
 .page-notice button:focus-visible {

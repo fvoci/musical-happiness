@@ -121,7 +121,7 @@ function start(): void {
             // An archive's renderer gets it anew, of only the parts counted here (or in its worker).
             const here = isPackaged(message.format) && !CHECKED_IN_WORKER.has(message.format);
             const bytes = here ? await repack(message.bytes) : message.bytes;
-            return render(bytes, place, report, message.words);
+            return render(bytes, place, report, message.labels);
           })
           .then((result) => {
             drawn = result;

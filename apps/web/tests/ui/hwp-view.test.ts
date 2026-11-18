@@ -51,7 +51,11 @@ const report = () =>
     download: vi.fn<Report['download']>(),
   }) satisfies Report;
 
-const WORDS = { pageTooLarge: 'This page is too large to show.', download: 'Download' };
+const LABELS = {
+  chart: 'Charts are not shown in the preview',
+  pageTooLarge: 'This page is too large to show.',
+  download: 'Download',
+};
 const SIZES = [
   { width: 800, height: 1100 },
   { width: 800, height: 1100 },
@@ -82,7 +86,7 @@ describe('the pages of an HWP document, once shown', () => {
     const client = new WorkerClient(worker, 1000);
     const told = report();
     const place = document.createElement('main');
-    new HwpView(client, SIZES, place, told, WORDS);
+    new HwpView(client, SIZES, place, told, LABELS);
     sight(place.querySelector('[data-page="2"]'), true);
     expect(worker.sent).toEqual([{ kind: 'page', page: 2 }]);
     await vi.advanceTimersByTimeAsync(1000);
@@ -95,12 +99,12 @@ describe('the pages of an HWP document, once shown', () => {
     const client = new WorkerClient(worker, 1000);
     const told = report();
     const place = document.createElement('main');
-    new HwpView(client, SIZES, place, told, WORDS);
+    new HwpView(client, SIZES, place, told, LABELS);
     const [first, second] = [...place.querySelectorAll('.page')];
     sight(second, true);
     worker.answer({ kind: 'failed', reason: 'too-large' });
     await vi.advanceTimersByTimeAsync(10);
-    expect(second?.querySelector('.page-notice p')?.textContent).toBe(WORDS.pageTooLarge);
+    expect(second?.querySelector('.page-notice p')?.textContent).toBe(LABELS.pageTooLarge);
     expect(told.failed).not.toHaveBeenCalled();
     expect(worker.terminated).toBe(false);
     second?.querySelector('button')?.click();
@@ -125,7 +129,7 @@ describe('the pages of an HWP document, once shown', () => {
     const client = new WorkerClient(worker, 1000);
     const told = report();
     const place = document.createElement('main');
-    new HwpView(client, SIZES, place, told, WORDS);
+    new HwpView(client, SIZES, place, told, LABELS);
     const [first, second] = [...place.querySelectorAll('.page')];
     sight(first, true);
     sight(second, true);
@@ -147,7 +151,7 @@ describe('the renderer of HWP documents', () => {
       wasm: async () => '00',
       limit: 30_000,
     });
-    const opening = render(new ArrayBuffer(4), document.createElement('main'), report(), WORDS);
+    const opening = render(new ArrayBuffer(4), document.createElement('main'), report(), LABELS);
     await vi.waitFor(() => {
       expect(worker.sent).toHaveLength(1);
     });
@@ -162,7 +166,7 @@ describe('the renderer of HWP documents', () => {
     const render = renderer('hwp', { worker: () => worker, wasm: async () => '00', limit: 30_000 });
     const told = report();
     const place = document.createElement('main');
-    const opening = render(new ArrayBuffer(4), place, told, WORDS);
+    const opening = render(new ArrayBuffer(4), place, told, LABELS);
     await vi.waitFor(() => {
       expect(worker.sent).toHaveLength(1);
     });

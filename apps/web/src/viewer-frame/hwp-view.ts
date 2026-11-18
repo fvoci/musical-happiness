@@ -8,7 +8,7 @@
  * any more. A page past what the frame takes on (hwp-document.ts) says so in
  * its place, with a button that saves the file, and the others are drawn.
  */
-import type { FrameWords } from '$lib/file-viewer/protocol.ts';
+import type { Labels } from '$lib/file-viewer/protocol.ts';
 
 import type { FromWorker, PageSize, TextRun, ToWorker } from './hwp-messages.ts';
 import { pagePicture, pageText } from './hwp-page.ts';
@@ -57,14 +57,14 @@ export async function ask(
 }
 
 /** What a page shows when it is past what the frame takes on: a line that says so, and a button. */
-function tooLargeNotice(words: FrameWords, download: () => void): HTMLElement {
+function tooLargeNotice(labels: Labels, download: () => void): HTMLElement {
   const notice = document.createElement('div');
   notice.className = 'page-notice';
   const said = document.createElement('p');
-  said.textContent = words.pageTooLarge;
+  said.textContent = labels.pageTooLarge;
   const button = document.createElement('button');
   button.type = 'button';
-  button.textContent = words.download;
+  button.textContent = labels.download;
   button.addEventListener('click', download);
   notice.append(said, button);
   return notice;
@@ -150,13 +150,13 @@ export class HwpView implements Drawn {
     sizes: readonly PageSize[],
     place: HTMLElement,
     report: Report,
-    words: FrameWords,
+    labels: Labels,
   ) {
     this.#client = client;
     this.#report = report;
     this.#column.className = 'pages';
     const notice = (): HTMLElement =>
-      tooLargeNotice(words, () => {
+      tooLargeNotice(labels, () => {
         report.download();
       });
     this.#pages = sizes.map((size, index) => new Page(index + 1, size, notice));

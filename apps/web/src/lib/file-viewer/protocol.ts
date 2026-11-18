@@ -3,11 +3,11 @@
  *
  * The frame is a document without an origin of its own (`sandbox` without
  * `allow-same-origin`) and without the network. The app hands it a file's
- * bytes, the few words the frame says itself (in the app's language), and a
- * few commands; the frame answers with what the app shows around it: how many
- * pages there are, which one is in view, that it failed, the keys the reader
- * pressed while the frame had the focus, and that the reader asked for the
- * file to download. Nothing else crosses.
+ * bytes, the few words of its own it may show (`Labels`) and a few commands;
+ * the frame answers with what the app shows around it: how many pages there
+ * are, which one is in view, that it failed, the keys the reader pressed
+ * while the frame had the focus, and that the reader asked for the file to
+ * download. Nothing else crosses.
  *
  * Each side reads what arrives with the reader below, which accepts exactly
  * these shapes and nothing more: a message with an extra field, a field of
@@ -36,16 +36,21 @@ export const PAGE_LIMIT = 100_000;
 export const ZOOM_MIN = 0.25;
 export const ZOOM_MAX = 4;
 
-/** The most characters each of the frame's words may be. */
-export const WORDS_LIMIT = 200;
-
-/** What the frame says itself, in the app's language: in place of a page it does not draw. */
-export interface FrameWords {
-  /** In place of a page past what the frame takes on. */
+/**
+ * The words the frame may show of its own, in the app's language: the frame
+ * loads none of the app's messages.
+ */
+export interface Labels {
+  /** In the box of a chart that is not drawn (a PowerPoint deck's). */
+  chart: string;
+  /** In place of a page past what the frame takes on (an HWP document's). */
   pageTooLarge: string;
   /** The button there that saves the file. */
   download: string;
 }
+
+/** The longest a label may be. */
+export const LABEL_LIMIT = 200;
 
 export type ToFrame =
   | {
@@ -54,7 +59,7 @@ export type ToFrame =
       bytes: ArrayBuffer;
       theme: Theme;
       lang: string;
-      words: FrameWords;
+      labels: Labels;
     }
   | { kind: 'page'; page: number }
   | { kind: 'zoom'; zoom: number }
@@ -89,20 +94,20 @@ const isTheme = (value: unknown): value is Theme => value === 'light' || value =
 const isLanguage = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8}){0,3}$/.test(value);
 
+const isLabel = (value: unknown): value is string =>
+  typeof value === 'string' && value !== '' && value.length <= LABEL_LIMIT;
+
+const LABEL_KEYS = ['chart', 'pageTooLarge', 'download'] as const;
+
+function readLabels(data: unknown): Labels | undefined {
+  const fields = exactly(data, LABEL_KEYS);
+  if (!fields || !LABEL_KEYS.every((key) => isLabel(fields[key]))) return undefined;
+  const { chart, pageTooLarge, download } = fields as Record<(typeof LABEL_KEYS)[number], string>;
+  return { chart, pageTooLarge, download };
+}
+
 const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T =>
   typeof value === 'string' && (list as readonly string[]).includes(value);
-
-const WORD_KEYS = ['pageTooLarge', 'download'] as const;
-
-const isWord = (value: unknown): value is string =>
-  typeof value === 'string' && value.length > 0 && value.length <= WORDS_LIMIT;
-
-function readWords(data: unknown): FrameWords | undefined {
-  const fields = exactly(data, WORD_KEYS);
-  if (!fields || !WORD_KEYS.every((key) => isWord(fields[key]))) return undefined;
-  const { pageTooLarge, download } = fields as Record<(typeof WORD_KEYS)[number], string>;
-  return { pageTooLarge, download };
-}
 
 function kindOf(data: unknown): unknown {
   return typeof data === 'object' && data !== null ? (data as Fields).kind : undefined;
@@ -140,13 +145,13 @@ export function readFromFrame(data: unknown): FromFrame | undefined {
 export function readToFrame(data: unknown): ToFrame | undefined {
   switch (kindOf(data)) {
     case 'open': {
-      const fields = exactly(data, ['kind', 'format', 'bytes', 'theme', 'lang', 'words']);
+      const fields = exactly(data, ['kind', 'format', 'bytes', 'theme', 'lang', 'labels']);
       if (!fields || !isFormatId(fields.format) || !isTheme(fields.theme)) return undefined;
       if (!(fields.bytes instanceof ArrayBuffer) || !isLanguage(fields.lang)) return undefined;
-      const words = readWords(fields.words);
-      if (!words) return undefined;
+      const labels = readLabels(fields.labels);
+      if (!labels) return undefined;
       const { format, bytes, theme, lang } = fields;
-      return { kind: 'open', format, bytes, theme, lang, words };
+      return { kind: 'open', format, bytes, theme, lang, labels };
     }
     case 'page': {
       const page = exactly(data, ['kind', 'page'])?.page;

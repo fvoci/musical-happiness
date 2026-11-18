@@ -8,11 +8,11 @@ import {
   type FormatId,
 } from '$lib/file-viewer/formats.ts';
 import {
+  LABEL_LIMIT,
   PAGE_LIMIT,
   readFromFrame,
   readToFrame,
   VIEWER_KEYS,
-  WORDS_LIMIT,
   ZOOM_MAX,
   ZOOM_MIN,
 } from '$lib/file-viewer/protocol.ts';
@@ -105,6 +105,22 @@ describe('in the frame, an archive is counted and handed on anew', () => {
     const again = await repack(buffer(honest));
     expect(parts(again)).toEqual(parts(buffer(honest)));
     expect(parts(await repack(buffer(koreanDocx())))).toEqual(parts(buffer(koreanDocx())));
+  });
+
+  it('counting gives the thread back while it reads a part, stored or deflated', async () => {
+    // Blanks are read one by one for the first character that is not one: tens of milliseconds.
+    const blanks = Buffer.alloc(20_000_000, 0x20);
+    for (const stored of [true, false]) {
+      let ran = false;
+      setTimeout(() => {
+        ran = true;
+      }, 0);
+      const counted = await repack(
+        buffer(zip([{ name: 'ppt/media/blank.bin', data: blanks, stored }])),
+      );
+      expect(parts(counted)).toEqual(['ppt/media/blank.bin:20000000']);
+      expect(ran, stored ? 'stored' : 'deflated').toBe(true);
+    }
   });
 
   it('a part that holds more than its directory says stops the file', async () => {
@@ -290,12 +306,17 @@ describe('a message from the frame is taken only in one of its shapes', () => {
 describe('a message from the app, in the frame', () => {
   it('opens a file of a kind the viewer draws, with its bytes', () => {
     const buffer = new ArrayBuffer(4);
-    const words = { pageTooLarge: '이 쪽은 너무 커서 보이지 않습니다.', download: '다운로드' };
-    const open = { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko', words };
+    const labels = {
+      chart: '미리 보기에는 차트가 나오지 않습니다',
+      pageTooLarge: '이 쪽은 너무 커서 보이지 않습니다.',
+      download: '다운로드',
+    };
+    const open = { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko', labels };
     expect(readToFrame(open)).toEqual(open);
+    expect(readToFrame({ ...open, format: 'pptx' })).toEqual({ ...open, format: 'pptx' });
     expect(readToFrame({ ...open, lang: 'zh-Hans' })).toEqual({ ...open, lang: 'zh-Hans' });
-    const long = 'x'.repeat(WORDS_LIMIT);
-    const most = { ...open, words: { pageTooLarge: long, download: long } };
+    const long = 'x'.repeat(LABEL_LIMIT);
+    const most = { ...open, labels: { chart: long, pageTooLarge: long, download: long } };
     expect(readToFrame(most)).toEqual(most);
     for (const wrong of [
       { ...open, format: 'html' },
@@ -303,12 +324,15 @@ describe('a message from the app, in the frame', () => {
       { ...open, lang: 'ko"><script>' },
       { ...open, lang: '' },
       { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko' },
-      { ...open, words: { pageTooLarge: words.pageTooLarge } },
-      { ...open, words: { ...words, more: 'x' } },
-      { ...open, words: { ...words, download: '' } },
-      { ...open, words: { ...words, download: 7 } },
-      { ...open, words: { ...words, pageTooLarge: `${long}x` } },
-      { ...open, words: 'Download' },
+      { ...open, labels: {} },
+      { ...open, labels: { chart: labels.chart } },
+      { ...open, labels: { ...labels, chart: '' } },
+      { ...open, labels: { ...labels, download: '' } },
+      { ...open, labels: { ...labels, download: 7 } },
+      { ...open, labels: { ...labels, chart: 'a'.repeat(LABEL_LIMIT + 1) } },
+      { ...open, labels: { ...labels, pageTooLarge: `${long}x` } },
+      { ...open, labels: { ...labels, page: 'Page' } },
+      { ...open, labels: 'Charts' },
     ]) {
       expect(readToFrame(wrong), JSON.stringify(wrong)).toBeUndefined();
     }
