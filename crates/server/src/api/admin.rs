@@ -44,6 +44,10 @@ pub(super) fn routes() -> Router<App> {
             post(handle_verify_email),
         )
         .route(
+            &format!("{}/admin/users/{{username}}/erase", super::PREFIX),
+            post(handle_admin_erase_account),
+        )
+        .route(
             &format!("{}/admin/files/reconcile", super::PREFIX),
             post(handle_reconcile_files),
         )
@@ -136,6 +140,25 @@ async fn handle_admin_make_admin(
     record_operator(Command::MakeAdmin(user_id.as_deref()), result)
 }
 
+/// Erases a user's account at once, whether its person asked for that or not: it goes
+/// from every organization, workspace and board, nothing of the person is kept, and
+/// what it wrote stays under an identifier that names nobody; an organization that has
+/// nobody else goes with it. 204; 404 if no account has the name; 409 for the
+/// instance's only administrator (reason `last_admin`) and for the only administrator
+/// of an organization that has other people, or of the instance's own first
+/// organization (reason `last_org_admin`, with `orgId`).
+/// As every command it is in the log, by the account's identifier.
+async fn handle_admin_erase_account(
+    State(app): State<App>,
+    Path(username): Path<String>,
+) -> ApiResult {
+    let (user_id, erased) = app.erase_account_as_operator(&username).await;
+    record_operator(
+        Command::EraseAccount(user_id.as_deref()),
+        erased.map(|()| no_content()),
+    )
+}
+
 /// Releases an organization from taking no password (`ssoRequired` of its provider):
 /// the way back in when nobody gets in through the provider, which an administrator
 /// of the organization could then not switch off either. The provider stays as it is
@@ -217,6 +240,8 @@ enum Command<'a> {
     MakeAdmin(Option<&'a str>),
     /// Confirming the address of a registration: the account it became, if it did.
     VerifyEmail(Option<&'a str>),
+    /// Erasing a user's account: the user, as above.
+    EraseAccount(Option<&'a str>),
     /// Releasing an organization from taking no password: the organization, by
     /// identifier where the path held one.
     ReleaseSso(Option<&'a str>),
@@ -233,6 +258,7 @@ impl<'a> Command<'a> {
             Self::ResetPassword(_) => "reset_password",
             Self::MakeAdmin(_) => "make_admin",
             Self::VerifyEmail(_) => "verify_email",
+            Self::EraseAccount(_) => "erase_account",
             Self::ReleaseSso(_) => "release_sso",
             Self::ReconcileFiles => "reconcile_files",
             Self::ReindexSearch => "reindex_search",
@@ -244,7 +270,8 @@ impl<'a> Command<'a> {
         match self {
             Self::ResetPassword(user_id)
             | Self::MakeAdmin(user_id)
-            | Self::VerifyEmail(user_id) => (user_id.unwrap_or_default(), ""),
+            | Self::VerifyEmail(user_id)
+            | Self::EraseAccount(user_id) => (user_id.unwrap_or_default(), ""),
             Self::ReleaseSso(org_id) => ("", org_id.unwrap_or_default()),
             Self::ReconcileFiles | Self::ReindexSearch => ("", ""),
         }

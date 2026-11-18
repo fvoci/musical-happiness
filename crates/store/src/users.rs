@@ -117,6 +117,30 @@ impl Store {
             .await
     }
 
+    /// The identifier of the account with the login name, in any letter case, whatever
+    /// its state: in use, out of use, waiting to be deleted or being erased. `None` if
+    /// there is none: an account that was erased has no name. For the server's
+    /// operator, who erases an account by its name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn account_id_by_username(
+        &self,
+        username: &str,
+    ) -> Result<Option<String>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT id FROM users WHERE erased_at = 0 AND ");
+            Lookup::Username(username).push_condition(&mut sql);
+            scope
+                .fetch_optional(sql)
+                .await?
+                .map(|row| row.id(0))
+                .transpose()
+        })
+        .await
+    }
+
     /// Returns the users with the given identifiers, oldest first.
     ///
     /// # Errors
@@ -507,6 +531,14 @@ pub(crate) async fn users_by_ids(
 /// The users with the given identifiers among those `narrow` keeps, oldest first, each
 /// once: an identifier of nobody it keeps finds nothing, as one of nobody at all.
 ///
+/// An account that waits to be deleted is among them as it is, with its name: until it
+/// is erased it is a member of what it was, and wrote what it wrote. One that was
+/// erased is found whatever `narrow` keeps, as the row it left: its identifier and no
+/// name, by which whoever reads what it wrote, or a mention of it, is told that the
+/// account is gone (`delete_at` is when it was asked to be, or marked). Nothing of a
+/// person is in that row to keep from anybody. Looked up by name ([`search_users`])
+/// neither is found.
+///
 /// # Errors
 ///
 /// Returns [`StoreError::Database`] if the query fails.
@@ -518,12 +550,12 @@ pub(crate) async fn found_users_by_ids(
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let mut sql = select_users(scope);
+    let mut sql = scope.sql(&format!("SELECT {USER_COLUMNS} FROM users WHERE id IN ("));
+    sql.bind_list(user_ids.iter().map(|id| Id(id))).push(
+        ") AND (erased_at > 0 OR ((delete_at = 0 OR delete_after > 0 OR erase_started_at > 0)",
+    );
     narrow(&mut sql, scope);
-    sql.push(" AND id IN (")
-        .bind_list(user_ids.iter().map(|id| Id(id)))
-        .push(")")
-        .push(OLDEST_FIRST);
+    sql.push("))").push(OLDEST_FIRST);
     fetch_users(scope, sql).await
 }
 

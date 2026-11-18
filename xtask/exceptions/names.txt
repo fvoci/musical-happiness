@@ -126,6 +126,10 @@ crates/store/src/lib.rs | mod container_team
 crates/store/src/lib.rs | mod teams
 crates/store/src/workspace_membership.rs | container_team_membership::remove_workspace_teams
 crates/store/src/org_admin.rs | container_team_membership::remove_workspace_teams
+crates/store/src/account_erasure.rs | container_team_membership::remove_workspace_teams
+crates/store/tests/store/account_erasure.rs | create_team(
+crates/store/tests/store/account_erasure.rs | add_team_member(
+crates/store/tests/store/account_erasure.rs | a team of the workspace
 crates/server/src/app/teams.rs
 crates/server/src/app/mod.rs | teams
 crates/server/src/api/teams.rs

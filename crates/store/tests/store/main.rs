@@ -8,6 +8,7 @@
 //! one test needs are described in `fvoci_store::testing`.
 
 mod account_deletion;
+mod account_erasure;
 mod block_reads_and_patches;
 mod blocks;
 mod blocks_and_deletion;

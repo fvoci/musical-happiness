@@ -891,7 +891,9 @@ fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
 
 /// The instance's own organization as `scope` reaches the organizations: the oldest
 /// non-system one in use ([`Store::instance_organization`]).
-async fn oldest_organization(scope: &mut Scope<'_>) -> Result<Option<String>, StoreError> {
+pub(crate) async fn oldest_organization(
+    scope: &mut Scope<'_>,
+) -> Result<Option<String>, StoreError> {
     let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
     sql.bind(false)
         .push_bind(" AND delete_at = ", 0_i64)

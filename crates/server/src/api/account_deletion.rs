@@ -64,6 +64,14 @@ async fn handle_get_account_deletion(State(app): State<App>, account: AccountSes
 /// shown as one, and what it wrote stays; the links of invitations it made let nobody
 /// in, and it may wait past the thirty days until it is erased.
 ///
+/// Erased, the account is gone from every organization, workspace, board and wiki; a
+/// board it alone administered passes to an administrator of its workspace; nothing of
+/// the person is kept, and what it wrote stays under its identifier, which
+/// `getWorkspaceUsersById` answers with no name: the writer is a deleted user. An
+/// organization that has nobody else goes with it, but the server's own first one,
+/// whose only administrator stays as the only one of an organization with other
+/// people does.
+///
 /// `username` is the account's login name, in any letter case: another is 400 naming
 /// `/username`. An account with a password (`proof` is `password`) sends it: a wrong
 /// one is 400 with the reason `invalid_credentials`, naming `/password`, and too many
@@ -77,7 +85,8 @@ async fn handle_get_account_deletion(State(app): State<App>, account: AccountSes
 /// asked of any session.
 ///
 /// The server's only administrator stays (409, reason `last_admin`), and so does the
-/// only administrator of an organization that has other people in it (409, reason
+/// only administrator of an organization that stays when the account goes: one that
+/// has other people in it, or the server's own first organization (409, reason
 /// `last_org_admin`, `orgId` naming the first such organization): make somebody else
 /// an administrator first.
 #[utoipa::path(

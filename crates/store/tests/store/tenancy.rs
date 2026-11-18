@@ -885,9 +885,10 @@ fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 9] = [
+    const ALLOWED: [&str; 10] = [
         "store/src/lib.rs",
         "store/src/account_deletion.rs",
+        "store/src/account_erasure.rs",
         "store/src/directory.rs",
         "store/src/directory/sign_in.rs",
         "store/src/operator_records.rs",
@@ -941,12 +942,15 @@ fn the_systems_reach_is_asked_for_in_few_places() {
 /// The files of the server that say whose rows a handle reaches: the way into a
 /// workspace, the templates (as the system organization), the start (the one
 /// organization of the routes that name no workspace), the housekeeping, the
-/// application's own `scoped`, and the documents of bodies edited together, which the
+/// application's own `scoped`, the erasing of an account (each organization the store
+/// says it has something in), and the documents of bodies edited together, which the
 /// server writes to their cards as the organization of each when it starts and stops. All of them are the logic's; no handler names one. A handler that named an organization by what a request
 /// says, past the extractor, would open the wall from the inside.
 #[test]
 fn the_server_names_an_organization_for_a_handle_in_few_places() {
-    const ALLOWED: [&str; 5] = [
+    const NAMING: &str = ".scoped( for_org( Tenant::org( Tenant::Org( .in_organization(";
+    const ALLOWED: [&str; 6] = [
+        "app/account_erasure.rs",
         "app/housekeeping.rs",
         "app/mod.rs",
         "app/templates.rs",
@@ -965,11 +969,7 @@ fn the_server_names_an_organization_for_a_handle_in_few_places() {
         let names = text
             .lines()
             .filter(|line| !line.trim_start().starts_with("//"))
-            .any(|line| {
-                [".scoped(", "for_org(", "Tenant::org(", "Tenant::Org("]
-                    .iter()
-                    .any(|naming| line.contains(naming))
-            });
+            .any(|line| NAMING.split(' ').any(|naming| line.contains(naming)));
         if names {
             naming.push(
                 file.strip_prefix(&server)

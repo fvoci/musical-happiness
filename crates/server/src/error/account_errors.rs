@@ -15,8 +15,8 @@ impl AppError {
     }
 
     /// The 409 of an account that is not deleted while it is the only administrator
-    /// of the organization `org_id`, which has other people in it. The answer names
-    /// the organization.
+    /// of the organization `org_id`, which stays when it goes: one that has other
+    /// people in it, or the instance's own. The answer names the organization.
     pub fn last_org_admin(org_id: &str) -> Self {
         let mut error = Self::new(
             ErrorKind::Conflict,

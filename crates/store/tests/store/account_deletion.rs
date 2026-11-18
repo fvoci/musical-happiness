@@ -216,8 +216,9 @@ async fn the_instances_last_administrator_stays_also_alone_in_an_organization() 
         .expect("read");
 
     assert!(standing.last_instance_admin);
-    assert_eq!(standing.sole_admin_of, [], "nobody else is there");
-    assert_eq!(names(&standing.alone_in), [test.org_id.as_str()]);
+    // The instance's own organization goes with no account, whoever is in it.
+    assert_eq!(names(&standing.sole_admin_of), [test.org_id.as_str()]);
+    assert_eq!(standing.alone_in, [], "it is not one that goes");
     assert_eq!(
         ask(&test, &founder).await,
         DeletionAsking::Refused(standing)

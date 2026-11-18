@@ -91,7 +91,7 @@
             "type": "boolean"
           },
           "organizations": {
-            "description": "The organizations that have nobody but the account, which go with it, and\neverything in them.",
+            "description": "The organizations that have nobody but the account, which go with it, and\neverything in them. The server's own first organization is never one.",
             "items": {
               "$ref": "#/components/schemas/LeavingOrganization"
             },
@@ -107,7 +107,7 @@
             "type": "integer"
           },
           "soleAdminOf": {
-            "description": "The organizations the account is the only administrator of that have other\npeople in them: somebody else is made an administrator of each before the\naccount can be deleted.",
+            "description": "The organizations the account is the only administrator of that stay when it\ngoes: those that have other people in them, and the server's own first\norganization, which goes with no account. Somebody else is made an\nadministrator of each before the account can be deleted.",
             "items": {
               "$ref": "#/components/schemas/OrganizationName"
             },
@@ -7458,7 +7458,7 @@
         ]
       },
       "post": {
-        "description": "Puts the account of the session out of use, to be erased after thirty days\n(`graceDays` of `getAccountDeletion`): every session of it ends, this one too, and\nits cookie is cleared. Until it is erased, whoever signs in to the account gets a\nsession that opens nothing (every operation is 401 with the reason\n`account_deletion_pending`) but `getAccountDeletion`, `cancelAccountDeletion` and\n`logout`. While it waits, the account stays a member of what it is a member of,\nshown as one, and what it wrote stays; the links of invitations it made let nobody\nin, and it may wait past the thirty days until it is erased.\n\n`username` is the account's login name, in any letter case: another is 400 naming\n`/username`. An account with a password (`proof` is `password`) sends it: a wrong\none is 400 with the reason `invalid_credentials`, naming `/password`, and too many\nare 429, as for `changePassword`. An account without one (`proof` is `sign_in`)\nasks from a session made through a provider no more than five minutes ago:\notherwise 403 with the reason `sign_in_again`.\n\nAn organization that would go with the account and that takes only sessions made\nthrough its provider is asked of such a session: any other is 401 with the reason\n`sso_required` and its `orgId`. Leaving an organization is the account's own, and\nasked of any session.\n\nThe server's only administrator stays (409, reason `last_admin`), and so does the\nonly administrator of an organization that has other people in it (409, reason\n`last_org_admin`, `orgId` naming the first such organization): make somebody else\nan administrator first.",
+        "description": "Puts the account of the session out of use, to be erased after thirty days\n(`graceDays` of `getAccountDeletion`): every session of it ends, this one too, and\nits cookie is cleared. Until it is erased, whoever signs in to the account gets a\nsession that opens nothing (every operation is 401 with the reason\n`account_deletion_pending`) but `getAccountDeletion`, `cancelAccountDeletion` and\n`logout`. While it waits, the account stays a member of what it is a member of,\nshown as one, and what it wrote stays; the links of invitations it made let nobody\nin, and it may wait past the thirty days until it is erased.\n\nErased, the account is gone from every organization, workspace, board and wiki; a\nboard it alone administered passes to an administrator of its workspace; nothing of\nthe person is kept, and what it wrote stays under its identifier, which\n`getWorkspaceUsersById` answers with no name: the writer is a deleted user. An\norganization that has nobody else goes with it, but the server's own first one,\nwhose only administrator stays as the only one of an organization with other\npeople does.\n\n`username` is the account's login name, in any letter case: another is 400 naming\n`/username`. An account with a password (`proof` is `password`) sends it: a wrong\none is 400 with the reason `invalid_credentials`, naming `/password`, and too many\nare 429, as for `changePassword`. An account without one (`proof` is `sign_in`)\nasks from a session made through a provider no more than five minutes ago:\notherwise 403 with the reason `sign_in_again`.\n\nAn organization that would go with the account and that takes only sessions made\nthrough its provider is asked of such a session: any other is 401 with the reason\n`sso_required` and its `orgId`. Leaving an organization is the account's own, and\nasked of any session.\n\nThe server's only administrator stays (409, reason `last_admin`), and so does the\nonly administrator of an organization that stays when the account goes: one that\nhas other people in it, or the server's own first organization (409, reason\n`last_org_admin`, `orgId` naming the first such organization): make somebody else\nan administrator first.",
         "operationId": "requestAccountDeletion",
         "requestBody": {
           "content": {
@@ -12966,7 +12966,7 @@
         ]
       },
       "post": {
-        "description": "The users with the identifiers of the body that the user sees in the workspace, each\nonce; the body names at least one and at most 200: an empty list, or a longer one,\nis 400. An identifier of\nsomebody the user does not see finds nothing, as one of nobody: the answer does not\ntell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or\nlast changed a card, block or comment of a board of the workspace they read, also\nafter leaving the workspace. Oldest account first, not in the order of the request.",
+        "description": "The users with the identifiers of the body that the user sees in the workspace, each\nonce; the body names at least one and at most 200: an empty list, or a longer one,\nis 400. An identifier of\nsomebody the user does not see finds nothing, as one of nobody: the answer does not\ntell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or\nlast changed a card, block or comment of a board of the workspace they read, also\nafter leaving the workspace. Oldest account first, not in the order of the request.\n\nAn account that was deleted is answered to whoever asks by its identifier, seen\nbefore or not, as what is left of it: the identifier and an empty `username`,\n`email` and `displayName`. The empty `username` is what tells it: a page shows a\ndeleted user where it wrote or is mentioned. (`deleteAt` is not zero for it, nor\nfor a writer whose account waits to be deleted, who is answered as they are, with\ntheir name.)",
         "operationId": "getWorkspaceUsersById",
         "parameters": [
           {

@@ -1284,6 +1284,14 @@ export interface paths {
          *     shown as one, and what it wrote stays; the links of invitations it made let nobody
          *     in, and it may wait past the thirty days until it is erased.
          *
+         *     Erased, the account is gone from every organization, workspace, board and wiki; a
+         *     board it alone administered passes to an administrator of its workspace; nothing of
+         *     the person is kept, and what it wrote stays under its identifier, which
+         *     `getWorkspaceUsersById` answers with no name: the writer is a deleted user. An
+         *     organization that has nobody else goes with it, but the server's own first one,
+         *     whose only administrator stays as the only one of an organization with other
+         *     people does.
+         *
          *     `username` is the account's login name, in any letter case: another is 400 naming
          *     `/username`. An account with a password (`proof` is `password`) sends it: a wrong
          *     one is 400 with the reason `invalid_credentials`, naming `/password`, and too many
@@ -1297,7 +1305,8 @@ export interface paths {
          *     asked of any session.
          *
          *     The server's only administrator stays (409, reason `last_admin`), and so does the
-         *     only administrator of an organization that has other people in it (409, reason
+         *     only administrator of an organization that stays when the account goes: one that
+         *     has other people in it, or the server's own first organization (409, reason
          *     `last_org_admin`, `orgId` naming the first such organization): make somebody else
          *     an administrator first.
          */
@@ -3379,6 +3388,13 @@ export interface paths {
          *     tell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or
          *     last changed a card, block or comment of a board of the workspace they read, also
          *     after leaving the workspace. Oldest account first, not in the order of the request.
+         *
+         *     An account that was deleted is answered to whoever asks by its identifier, seen
+         *     before or not, as what is left of it: the identifier and an empty `username`,
+         *     `email` and `displayName`. The empty `username` is what tells it: a page shows a
+         *     deleted user where it wrote or is mentioned. (`deleteAt` is not zero for it, nor
+         *     for a writer whose account waits to be deleted, who is answered as they are, with
+         *     their name.)
          */
         post: operations["getWorkspaceUsersById"];
         delete?: never;
@@ -3874,7 +3890,7 @@ export interface components {
             lastInstanceAdmin: boolean;
             /**
              * @description The organizations that have nobody but the account, which go with it, and
-             *     everything in them.
+             *     everything in them. The server's own first organization is never one.
              */
             organizations: components["schemas"]["LeavingOrganization"][];
             /** @description How the request shows that it is the person's. */
@@ -3886,9 +3902,10 @@ export interface components {
              */
             requestedAt?: number;
             /**
-             * @description The organizations the account is the only administrator of that have other
-             *     people in them: somebody else is made an administrator of each before the
-             *     account can be deleted.
+             * @description The organizations the account is the only administrator of that stay when it
+             *     goes: those that have other people in them, and the server's own first
+             *     organization, which goes with no account. Somebody else is made an
+             *     administrator of each before the account can be deleted.
              */
             soleAdminOf: components["schemas"]["OrganizationName"][];
         };

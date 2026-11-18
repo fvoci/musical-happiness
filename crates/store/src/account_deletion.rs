@@ -25,16 +25,20 @@ use fvoci_model::{
 
 use crate::db::{Id, Scope, Sql};
 use crate::error::StoreError;
-use crate::{Store, container_kinds, link_locks, password_reset, sessions, users};
+use crate::{Store, container_kinds, directory, link_locks, password_reset, sessions, users};
 
 /// What stands in the way of deleting an account, and what goes with it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DeletionStanding {
     /// Whether the account is the only administrator of the instance in use.
     pub last_instance_admin: bool,
-    /// The organizations in use it is the only administrator of that have other people.
+    /// The organizations in use it is the only administrator of that stay when it
+    /// goes: those that have other people, and the instance's own, which never goes
+    /// with an account (the organization after it would be the instance's then, and
+    /// its administrators the instance's).
     pub sole_admin_of: Vec<OrganizationName>,
-    /// The organizations in use that have nobody but the account.
+    /// The organizations in use that have nobody but the account, the instance's own
+    /// excepted: they go with it.
     pub alone_in: Vec<OrganizationName>,
 }
 
@@ -232,7 +236,7 @@ impl Store {
 
 /// Whether the rows that decide are held to the end of the transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Held {
+pub(crate) enum Held {
     Yes,
     No,
 }
@@ -242,7 +246,7 @@ enum Held {
 /// account administers, in the order of their identifiers, several of them under the
 /// turn of `link_locks`: the caller holds the instance's row already
 /// (`users::lock_instance`), which nothing takes after the turn.
-async fn standing(
+pub(crate) async fn standing(
     scope: &mut Scope<'_>,
     user_id: &str,
     held: Held,
@@ -274,6 +278,7 @@ async fn standing(
     if held == Held::Yes && administered.len() > 1 {
         link_locks::take_turn(scope).await?;
     }
+    let the_instances = directory::oldest_organization(scope).await?;
     for organization in administered {
         if held == Held::Yes {
             link_locks::hold_organization(scope, &organization.id).await?;
@@ -281,7 +286,9 @@ async fn standing(
         if has_another_admin(scope, &organization.id, user_id).await? {
             continue;
         }
-        if has_other_people(scope, &organization.id, user_id).await? {
+        if the_instances.as_deref() == Some(organization.id.as_str())
+            || has_other_people(scope, &organization.id, user_id).await?
+        {
             standing.sole_admin_of.push(organization);
         } else {
             standing.alone_in.push(organization);
@@ -325,7 +332,7 @@ async fn has_another_admin(
 /// Whether anybody but the user is in the organization: a member of it, or a member or
 /// a guest of one of its workspaces, in use or in the trash, whatever their account's
 /// state.
-async fn has_other_people(
+pub(crate) async fn has_other_people(
     scope: &mut Scope<'_>,
     org_id: &str,
     user_id: &str,

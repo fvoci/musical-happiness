@@ -7,6 +7,7 @@
 //! The schema is this server's own: a list of migrations applied by sqlx's migrator.
 
 mod account_deletion;
+mod account_erasure;
 mod accounts;
 mod audit;
 mod block_derived;
@@ -84,6 +85,7 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 pub use account_deletion::{DeletionAsking, DeletionStanding};
+pub use account_erasure::{ErasedFrom, Erasing, ErasureEnd, ErasureStart, HandedOver};
 pub use accounts::Founding;
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};

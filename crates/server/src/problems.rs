@@ -414,10 +414,11 @@ fn describe_organization(reason: Reason) -> Option<&'static str> {
         Reason::LastOrgAdmin => {
             "Status 409. The change would leave the organization without an administrator. \
              Make somebody else one first. From `requestAccountDeletion`: the account is \
-             the only administrator of an organization that has other people in it, and \
-             `orgId` names that organization, the first by identifier if there are \
-             several (`getAccountDeletion` lists them all). An organization that has \
-             nobody else does not stand in the way: it goes with the account."
+             the only administrator of an organization that has other people in it, or \
+             of the server's own first organization, and `orgId` names that organization, \
+             the first by identifier if there are several (`getAccountDeletion` lists \
+             them all). Another organization that has nobody else does not stand in the \
+             way: it goes with the account."
         }
         Reason::PublicLinksOff => {
             "Status 403. The organization has turned its public links off: no board of it is \

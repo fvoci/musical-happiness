@@ -5,6 +5,7 @@
 
 mod access;
 mod account_deletion;
+mod account_erasure;
 mod audience;
 mod auth;
 mod blocks;
@@ -68,6 +69,7 @@ mod workspace_members;
 mod workspaces;
 
 pub use access::{ContainerAccess, DeletedContainerAccess, as_managed};
+pub use account_erasure::Erasure;
 pub use audience::{Audience, Former, UnsaidByLink};
 pub use blocks::ChangeNotification;
 pub use cards::CardPreviews;

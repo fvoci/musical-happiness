@@ -138,12 +138,13 @@ pub struct AccountDeletion {
     /// Whether the account is the server's only administrator, who stays: the server
     /// keeps one.
     pub last_instance_admin: bool,
-    /// The organizations the account is the only administrator of that have other
-    /// people in them: somebody else is made an administrator of each before the
-    /// account can be deleted.
+    /// The organizations the account is the only administrator of that stay when it
+    /// goes: those that have other people in them, and the server's own first
+    /// organization, which goes with no account. Somebody else is made an
+    /// administrator of each before the account can be deleted.
     pub sole_admin_of: Vec<OrganizationName>,
     /// The organizations that have nobody but the account, which go with it, and
-    /// everything in them.
+    /// everything in them. The server's own first organization is never one.
     pub organizations: Vec<LeavingOrganization>,
 }
 

@@ -414,6 +414,31 @@ async fn an_organization_behind_the_wall_does_not_go_by_a_password() {
         .start()
         .await;
     let org_id = org_of(&ts).await;
+    // The instance's own organization, its oldest, goes with no account: its only
+    // administrator is held back as the only one of an organization with other
+    // people is, alone in it or not.
+    let own: Value = ts.client.get(DELETION).await.ok_json();
+    assert_eq!(own["organizations"], json!([]), "{own}");
+    assert_eq!(
+        own["soleAdminOf"],
+        json!([{"id": org_id, "name": ORG_NAME}]),
+        "{own}"
+    );
+    if ts.app.store().db_type() != fvoci_store::DbType::Postgres {
+        // SQLite holds that one organization only.
+        ts.teardown().await;
+        fake.stop();
+        return;
+    }
+    // With an older organization on the server, this one is an organization like any
+    // other, and has nobody but the account.
+    crate::workspaces::another_organization(&ts).await;
+    ts.app
+        .store()
+        .system()
+        .execute_unchecked("UPDATE organizations SET create_at = 1 WHERE name = 'another'")
+        .await
+        .expect("the other organization is the older");
     set_provider(&ts, &org_id, &fake).await;
     let through_provider = admin_through_provider(&ts, &fake, &org_id).await;
     let open: Value = ts.client.get(DELETION).await.ok_json();
