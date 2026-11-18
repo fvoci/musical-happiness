@@ -153,6 +153,9 @@
   function onkeydown(event: KeyboardEvent): void {
     // Escape is the dialog's own; keys typed into a control are the control's.
     if (event.key === 'Escape' || event.ctrlKey || event.metaKey || event.altKey) return;
+    // With Shift, the arrows across are the frame's, which scrolls across with them where it has
+    // the focus: they turn no page from the viewer's buttons either.
+    if (event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) return;
     if (command(event.key)) event.preventDefault();
   }
 </script>

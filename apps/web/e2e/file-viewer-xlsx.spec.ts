@@ -136,6 +136,11 @@ test.describe('in Korean', () => {
       '이 시트의 차트와 그림은 보이지 않습니다.',
     );
     await picture(page, 'xlsx-schedule');
+    // With Shift, the arrows across turn no sheet from the viewer's buttons either (the sheet
+    // turned by a key is drawn before the next command reaches the page).
+    await page.getByRole('button', { name: '이전 시트' }).focus();
+    await page.keyboard.press('Shift+ArrowLeft');
+    await expect(page.getByTestId('file-viewer-page')).toContainText('2 / 2');
 
     // And back by its tab.
     await tabs.first().click();

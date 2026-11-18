@@ -145,8 +145,8 @@ describe('the name of a file the viewer shows', () => {
     const [block] = await shown(container);
     editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, 3)));
     const button = block?.querySelector<HTMLButtonElement>('button.doc-file-open');
-    const pressed = (key: string): boolean => {
-      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    const pressed = (key: string, held: KeyboardEventInit = {}): boolean => {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...held });
       button?.dispatchEvent(event);
       return event.defaultPrevented;
     };
@@ -155,6 +155,12 @@ describe('the name of a file the viewer shows', () => {
     for (const key of ['Enter', ' ', 'ArrowDown']) expect(pressed(key), key).toBe(false);
     // A key that edits is held back by the button, so that the browser edits nothing either.
     for (const key of ['Backspace', 'Delete', 'a', '가']) expect(pressed(key), key).toBe(true);
+    // The browser's shortcuts are its own (find, print), but not those it edits by; AltGr types.
+    for (const held of [{ ctrlKey: true }, { metaKey: true }]) {
+      for (const key of ['f', 'p']) expect(pressed(key, held), key).toBe(false);
+      for (const key of ['v', 'X', 'z', 'b']) expect(pressed(key, held), key).toBe(true);
+    }
+    expect(pressed('@', { ctrlKey: true, altKey: true })).toBe(true);
     button?.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',

@@ -37,116 +37,58 @@ const SVG = 'http://www.w3.org/2000/svg';
 
 type Kind = 'document' | 'sheet' | 'slides' | 'archive' | 'image' | 'audio' | 'other';
 
-const KINDS: Record<string, Kind> = {
-  pdf: 'document',
-  hwp: 'document',
-  hwpx: 'document',
-  doc: 'document',
-  docx: 'document',
-  odt: 'document',
-  rtf: 'document',
-  txt: 'document',
-  md: 'document',
-  xls: 'sheet',
-  xlsx: 'sheet',
-  ods: 'sheet',
-  csv: 'sheet',
-  ppt: 'slides',
-  pptx: 'slides',
-  odp: 'slides',
-  key: 'slides',
-  zip: 'archive',
-  '7z': 'archive',
-  rar: 'archive',
-  tar: 'archive',
-  gz: 'archive',
-  png: 'image',
-  jpg: 'image',
-  jpeg: 'image',
-  gif: 'image',
-  webp: 'image',
-  avif: 'image',
-  svg: 'image',
-  heic: 'image',
-  mp3: 'audio',
-  wav: 'audio',
-  m4a: 'audio',
-  ogg: 'audio',
-  flac: 'audio',
+/** The extensions of the files of each kind but `other`. */
+const EXTENSIONS: Record<Exclude<Kind, 'other'>, string> = {
+  document: 'pdf hwp hwpx doc docx odt rtf txt md',
+  sheet: 'xls xlsx ods csv',
+  slides: 'ppt pptx odp key',
+  archive: 'zip 7z rar tar gz',
+  image: 'png jpg jpeg gif webp avif svg heic',
+  audio: 'mp3 wav m4a ogg flac',
 };
+
+const KINDS = new Map(
+  Object.entries(EXTENSIONS).flatMap(([kind, names]) =>
+    names.split(' ').map((name) => [name, kind as Kind] as const),
+  ),
+);
 
 const SHEET =
   'M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z';
 const FOLD = 'M14 2v5a1 1 0 0 0 1 1h5';
 
-/** The outlines of the icons (Lucide's, ISC), each a list of SVG elements. */
-const ICONS: Record<Kind | 'download', [string, Record<string, string>][]> = {
-  other: [
-    ['path', { d: SHEET }],
-    ['path', { d: FOLD }],
-  ],
-  document: [
-    ['path', { d: SHEET }],
-    ['path', { d: FOLD }],
-    ['path', { d: 'M10 9H8' }],
-    ['path', { d: 'M16 13H8' }],
-    ['path', { d: 'M16 17H8' }],
-  ],
-  sheet: [
-    ['path', { d: SHEET }],
-    ['path', { d: FOLD }],
-    ['path', { d: 'M8 13h2' }],
-    ['path', { d: 'M14 13h2' }],
-    ['path', { d: 'M8 17h2' }],
-    ['path', { d: 'M14 17h2' }],
-  ],
-  slides: [
-    ['path', { d: 'M2 3h20' }],
-    ['path', { d: 'M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3' }],
-    ['path', { d: 'm7 21 5-5 5 5' }],
-  ],
+/**
+ * The outlines of the icons (Lucide's, ISC), each a list of SVG elements:
+ * a path by its outline, or a circle of radius 2 by its centre (`x y`).
+ */
+const ICONS: Record<Kind | 'download', string[]> = {
+  other: [SHEET, FOLD],
+  document: [SHEET, FOLD, 'M10 9H8', 'M16 13H8', 'M16 17H8'],
+  sheet: [SHEET, FOLD, 'M8 13h2', 'M14 13h2', 'M8 17h2', 'M14 17h2'],
+  slides: ['M2 3h20', 'M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3', 'm7 21 5-5 5 5'],
   archive: [
-    [
-      'path',
-      {
-        d: 'M13.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v11.5',
-      },
-    ],
-    ['path', { d: FOLD }],
-    ['path', { d: 'M8 12v-1' }],
-    ['path', { d: 'M8 18v-2' }],
-    ['path', { d: 'M8 7V6' }],
-    ['circle', { cx: '8', cy: '20', r: '2' }],
+    'M13.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v11.5',
+    FOLD,
+    'M8 12v-1',
+    'M8 18v-2',
+    'M8 7V6',
+    '8 20',
   ],
-  image: [
-    ['path', { d: SHEET }],
-    ['path', { d: FOLD }],
-    ['circle', { cx: '10', cy: '12', r: '2' }],
-    ['path', { d: 'm20 17-1.296-1.296a2.41 2.41 0 0 0-3.408 0L9 22' }],
-  ],
+  image: [SHEET, FOLD, '10 12', 'm20 17-1.296-1.296a2.41 2.41 0 0 0-3.408 0L9 22'],
   audio: [
-    [
-      'path',
-      {
-        d: 'M11.65 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v10.35',
-      },
-    ],
-    ['path', { d: FOLD }],
-    ['path', { d: 'M8 20v-7l3 1.474' }],
-    ['circle', { cx: '6', cy: '20', r: '2' }],
+    'M11.65 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v10.35',
+    FOLD,
+    'M8 20v-7l3 1.474',
+    '6 20',
   ],
-  download: [
-    ['path', { d: 'M12 15V3' }],
-    ['path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }],
-    ['path', { d: 'm7 10 5 5 5-5' }],
-  ],
+  download: ['M12 15V3', 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'm7 10 5 5 5-5'],
 };
 
 /** The kind of a file by the extension of its name (or of its identifier, which keeps it). */
 export function kindOf(name: string): Kind {
   const dot = name.lastIndexOf('.');
   const extension = dot < 0 ? '' : name.slice(dot + 1).toLowerCase();
-  return Object.hasOwn(KINDS, extension) ? (KINDS[extension] ?? 'other') : 'other';
+  return KINDS.get(extension) ?? 'other';
 }
 
 function icon(page: Document, kind: Kind | 'download', name: string): SVGSVGElement {
@@ -163,9 +105,15 @@ function icon(page: Document, kind: Kind | 'download', name: string): SVGSVGElem
     focusable: 'false',
   };
   for (const [key, value] of Object.entries(attributes)) svg.setAttribute(key, value);
-  for (const [tag, shape] of ICONS[kind]) {
-    const part = page.createElementNS(SVG, tag);
-    for (const [key, value] of Object.entries(shape)) part.setAttribute(key, value);
+  for (const shape of ICONS[kind]) {
+    const [x, y] = shape.split(' ');
+    const circle = /^[\d.]+ [\d.]+$/.test(shape);
+    const part = page.createElementNS(SVG, circle ? 'circle' : 'path');
+    if (circle) {
+      part.setAttribute('cx', x ?? '');
+      part.setAttribute('cy', y ?? '');
+      part.setAttribute('r', '2');
+    } else part.setAttribute('d', shape);
     svg.append(part);
   }
   return svg;
@@ -233,8 +181,10 @@ function nameOf(
   const button = page.createElement('button');
   button.setAttribute('type', 'button');
   button.setAttribute('class', 'doc-file-name doc-file-open');
-  button.setAttribute('aria-label', m.file_block_view({ name }));
-  button.setAttribute('title', m.file_block_view({ name }));
+  // Said as the viewer is opened from a card's attachment: "View …".
+  const label = m.card_attachment_view({ name });
+  button.setAttribute('aria-label', label);
+  button.setAttribute('title', label);
   button.textContent = name;
   const back = (): HTMLElement | null => {
     if (button.isConnected) return button;
@@ -244,9 +194,19 @@ function nameOf(
   };
   // Enter and Space press it, and Tab moves on; a key that edits edits nothing from here
   // (WebKit would apply it where the editor's caret was before the button had the focus).
+  // A shortcut of the browser's (find, print) is still the browser's, but not one a browser
+  // edits by (bold, italic, underline, paste, cut, undo, redo); AltGr's characters (Ctrl with
+  // Alt) are typed.
   button.addEventListener('keydown', (event) => {
-    if (event.key === 'Backspace' || event.key === 'Delete') event.preventDefault();
-    else if (event.key.length === 1 && event.key !== ' ') event.preventDefault();
+    const shortcut = (event.ctrlKey || event.metaKey) && !event.altKey;
+    const typed = event.key.length === 1 && event.key !== ' ';
+    if (
+      event.key === 'Backspace' ||
+      event.key === 'Delete' ||
+      (typed && (!shortcut || 'biuvxyz'.includes(event.key.toLowerCase())))
+    ) {
+      event.preventDefault();
+    }
   });
   button.addEventListener('click', () => {
     const block = button.closest<HTMLElement>(FILE_BLOCK_SELECTOR);

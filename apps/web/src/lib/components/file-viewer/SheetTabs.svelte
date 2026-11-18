@@ -47,7 +47,7 @@
         'max-w-48 shrink-0 truncate rounded-md px-3 text-sm whitespace-nowrap roomy:min-h-touch',
         active
           ? 'bg-accent font-medium text-accent-foreground'
-          : 'text-muted-foreground hover:bg-accent/60',
+          : 'text-muted-foreground hover:bg-muted hover:text-foreground',
       ]}
       aria-current={active ? 'true' : undefined}
       title={sheet.name}

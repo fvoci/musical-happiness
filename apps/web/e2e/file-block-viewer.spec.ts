@@ -124,7 +124,10 @@ test('a PDF in a page opens in the viewer by its name and by Enter, and the bloc
     await expect(viewer(page)).toHaveCount(0);
   }
   await open.focus();
-  await page.keyboard.press('Backspace');
+  // Nor the browser's shortcuts that edit (WebKit would apply them where the caret was).
+  for (const key of ['Backspace', 'ControlOrMeta+X', 'ControlOrMeta+V', 'ControlOrMeta+B']) {
+    await page.keyboard.press(key);
+  }
   await expect(body.locator(':scope > *')).toHaveCount(lines);
   await expect(block).toHaveCount(1);
   await expect(body.getByText('Above:').last()).toHaveText('Above:');
