@@ -70,6 +70,7 @@
   "account_name_credentials": "Degrees and qualifications",
   "account_name_credentials_hint": "Up to three, written in the order you add them.",
   "account_name_credentials_add": "Add a degree or qualification",
+  "account_name_credentials_add_button": "Add",
   "account_name_credentials_full": "Three are listed: remove one to add another.",
   "account_name_credential_remove": "Remove {credential}",
   "account_name_refused": "This cannot be saved.",

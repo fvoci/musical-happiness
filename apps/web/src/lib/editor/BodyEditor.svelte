@@ -159,7 +159,9 @@
     search: (query) => {
       const wanted = query.toLowerCase();
       return users
-        .filter((user) => user.name.toLowerCase().includes(wanted))
+        .filter((user) =>
+          [user.name, ...(user.also ?? [])].some((name) => name.toLowerCase().includes(wanted)),
+        )
         .slice(0, 8)
         .map((user) => ({ value: user.id, label: user.name }));
     },

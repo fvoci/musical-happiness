@@ -123,11 +123,8 @@ async fn the_operator_erases_an_account_and_what_it_wrote_stays_under_no_name() 
     );
     assert_eq!(
         gone[0].name,
-        PersonName {
-            name_shown: gone[0].name.name_shown,
-            ..PersonName::default()
-        },
-        "nothing of the name"
+        PersonName::default(),
+        "nothing of the name, not even which of it was shown"
     );
     assert!(gone[0].delete_at > 0, "and that it is gone");
     // Among the people of the workspace, and in a search, they are not.

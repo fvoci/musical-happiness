@@ -113,7 +113,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/NameShown",
-                "description": "Which name the person is shown by."
+                "description": "Which name the person is shown by; `null` leaves it as it is."
               },
               {
                 "type": "null"

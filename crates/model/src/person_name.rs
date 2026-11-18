@@ -322,7 +322,9 @@ impl PersonName {
     }
 
     /// The parts of a name from what a provider says of the person when their account
-    /// is made: each kept only if it is one a person may give, else left empty.
+    /// is made: each kept only if it is one a person may give, else left empty. Shown
+    /// by the given and family name when both came through, else by the provider's
+    /// whole name, so that half a name is not what others see.
     #[must_use]
     pub fn from_provider(
         name: Option<&str>,
@@ -330,10 +332,18 @@ impl PersonName {
         family_name: Option<&str>,
     ) -> Self {
         let read = |raw: Option<&str>| raw.and_then(|raw| display_name(raw).ok());
+        let first_name = read(given_name).unwrap_or_default();
+        let last_name = read(family_name).unwrap_or_default();
+        let name_shown = if first_name.is_empty() || last_name.is_empty() {
+            NameShown::CustomName
+        } else {
+            NameShown::Name
+        };
         Self {
-            first_name: read(given_name).unwrap_or_default(),
-            last_name: read(family_name).unwrap_or_default(),
+            first_name,
+            last_name,
             custom_name: read(name).unwrap_or_default(),
+            name_shown,
             ..Self::default()
         }
     }
@@ -378,7 +388,7 @@ const EAST_ASIAN: [std::ops::RangeInclusive<char>; 14] = [
     '\u{F900}'..='\u{FAFF}',
     '\u{FF66}'..='\u{FF9F}',
     '\u{FFA0}'..='\u{FFDC}',
-    '\u{20000}'..='\u{3134F}',
+    '\u{20000}'..='\u{323AF}',
 ];
 
 fn is_east_asian_char(c: char) -> bool {
@@ -421,21 +431,23 @@ impl PersonNameChange {
         let mut refused = Refusals::new();
         for (name, value) in members {
             let part = match name.as_str() {
-                "firstName" => Some(&mut change.first_name),
-                "lastName" => Some(&mut change.last_name),
-                "latinFirstName" => Some(&mut change.latin_first_name),
-                "latinLastName" => Some(&mut change.latin_last_name),
-                "customName" => Some(&mut change.custom_name),
+                "firstName" => Some(("firstName", &mut change.first_name)),
+                "lastName" => Some(("lastName", &mut change.last_name)),
+                "latinFirstName" => Some(("latinFirstName", &mut change.latin_first_name)),
+                "latinLastName" => Some(("latinLastName", &mut change.latin_last_name)),
+                "customName" => Some(("customName", &mut change.custom_name)),
                 _ => None,
             };
-            if let Some(part) = part {
-                match name_part(name, value) {
+            if let Some((field, part)) = part {
+                match name_part(field, value) {
                     Ok(read) => *part = Some(read),
                     Err(error) => refused.push(error.into()),
                 }
                 continue;
             }
             match name.as_str() {
+                // Always one of the list: `null` leaves the choice as it is.
+                "nameShown" if value.is_null() => {}
                 "nameShown" => change.name_shown = read_code(&mut refused, name, value),
                 "title" if value.is_null() => change.title = Some(None),
                 "title" => change.title = read_code(&mut refused, name, value).map(Some),
@@ -457,21 +469,9 @@ impl PersonNameChange {
     }
 }
 
-/// The names of the members that are parts of a name, as they are spelled on the wire.
-const NAME_PARTS: [&str; 5] = [
-    "firstName",
-    "lastName",
-    "latinFirstName",
-    "latinLastName",
-    "customName",
-];
-
-/// Reads a part of a name: a string as [`display_name`] reads one, or `null` for none.
-fn name_part(member: &str, value: &serde_json::Value) -> Result<String, AuthParamError> {
-    let field = NAME_PARTS
-        .into_iter()
-        .find(|part| *part == member)
-        .unwrap_or("customName");
+/// Reads the part of a name in the member `field`: a string as [`display_name`] reads
+/// one, or `null` for none.
+fn name_part(field: &'static str, value: &serde_json::Value) -> Result<String, AuthParamError> {
     let raw = match value {
         serde_json::Value::Null => return Ok(String::new()),
         serde_json::Value::String(raw) => raw,
@@ -707,5 +707,44 @@ mod tests {
             assert!(name.contains(wanted), "{wanted}");
         }
         assert!(!name.contains("lee"));
+    }
+
+    #[test]
+    fn a_null_choice_leaves_it_and_a_filler_is_no_name() {
+        let members: JsonMap =
+            serde_json::from_value(serde_json::json!({ "nameShown": null })).expect("an object");
+        let change = PersonNameChange::from_members(&members).expect("taken");
+        assert!(change.is_empty(), "null leaves the choice as it is");
+
+        // The Hangul fillers are letters that show nothing: refused like U+200B.
+        for filler in ['\u{115F}', '\u{1160}', '\u{3164}', '\u{FFA0}'] {
+            let members: JsonMap =
+                serde_json::from_value(serde_json::json!({ "firstName": filler.to_string() }))
+                    .expect("an object");
+            let refused = PersonNameChange::from_members(&members).expect_err("refused");
+            let pointers: Vec<&str> = refused.iter().map(|r| r.pointer.as_str()).collect();
+            assert_eq!(pointers, ["/firstName"], "U+{:04X}", u32::from(filler));
+        }
+    }
+
+    #[test]
+    fn a_provider_shows_its_whole_name_unless_both_parts_came() {
+        let both = PersonName::from_provider(Some("Ana Lima"), Some("Ana"), Some("Lima"));
+        assert_eq!(
+            (both.name_shown, both.shown().as_str()),
+            (NameShown::Name, "Ana Lima")
+        );
+        let half = PersonName::from_provider(Some("Ana Lima"), Some("Ana"), None);
+        assert_eq!(
+            (
+                half.name_shown,
+                half.first_name.as_str(),
+                half.shown().as_str()
+            ),
+            (NameShown::CustomName, "Ana", "Ana Lima")
+        );
+        let refused = PersonName::from_provider(None, Some("Ana"), Some("Li\u{202E}ma"));
+        assert_eq!(refused.name_shown, NameShown::CustomName);
+        assert_eq!(refused.shown(), "", "nothing whole to show: the login name");
     }
 }

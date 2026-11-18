@@ -292,8 +292,19 @@ test('name: its parts, the one shown, a title and credentials, saved with one bu
   );
   await form.getByRole('combobox', { name: 'Title' }).selectOption({ label: 'Dr.' });
   const add = form.getByRole('combobox', { name: 'Add a degree or qualification' });
-  for (const label of ['PhD', 'MD', 'MBA']) await add.selectOption({ label });
+  const press = form.getByRole('button', { name: 'Add', exact: true });
+  // Choosing alone adds nothing: the arrow keys may go through the list.
+  await add.selectOption({ label: 'PhD' });
+  await expect(form.getByTestId('credentials')).toHaveCount(0);
+  await press.click();
+  await expect(add).toBeFocused();
+  for (const label of ['MD', 'MBA']) {
+    await add.selectOption({ label });
+    await press.click();
+  }
   await expect(add).toBeDisabled();
+  // The third turns the list off: focus goes to the last one listed, not to the page.
+  await expect(form.getByRole('button', { name: 'Remove MBA' })).toBeFocused();
   await expect(form.getByTestId('credentials').getByRole('listitem')).toHaveText([
     /PhD/,
     /MD/,
@@ -301,6 +312,7 @@ test('name: its parts, the one shown, a title and credentials, saved with one bu
   ]);
   await form.getByRole('button', { name: 'Remove MD' }).click();
   await expect(add).toBeEnabled();
+  await expect(form.getByRole('button', { name: 'Remove MBA' })).toBeFocused();
   await save.click();
   await expect(form.getByText('Saved.')).toBeVisible();
   await expect(custom).toHaveValue('Hana Kim');
@@ -345,7 +357,10 @@ test('pictures of the name in the settings', async ({ page }, testInfo) => {
       await part('Family name in Latin letters').fill('Kim');
       await form.getByRole('combobox', { name: 'Title' }).selectOption({ label: 'Dr.' });
       const add = form.getByRole('combobox', { name: 'Add a degree or qualification' });
-      for (const label of ['PhD', 'MBA']) await add.selectOption({ label });
+      for (const label of ['PhD', 'MBA']) {
+        await add.selectOption({ label });
+        await form.getByRole('button', { name: 'Add', exact: true }).click();
+      }
       await form.getByTestId('name-shown-name').scrollIntoViewIfNeeded();
       await page.evaluate(() => document.fonts.ready);
       await page.screenshot({

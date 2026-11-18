@@ -276,6 +276,18 @@
         "nameShown": "name"
       },
       "shown": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    },
+    {
+      "note": "Han of CJK extension H counts as Han",
+      "name": {
+        "firstName": "영환",
+        "lastName": "𱍐",
+        "latinFirstName": "",
+        "latinLastName": "",
+        "customName": "",
+        "nameShown": "name"
+      },
+      "shown": "𱍐영환"
     }
   ]
 }

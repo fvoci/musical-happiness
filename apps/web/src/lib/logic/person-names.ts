@@ -90,7 +90,7 @@ function trimmed(part: string): string {
 }
 
 /** The blocks of Hangul, Han and Kana, as the server has them. */
-const EAST_ASIAN = /[ᄀ-ᇿ々-〇぀-ゟ゠-ヿ㄰-㆏ㇰ-ㇿ㐀-䶿一-鿿ꥠ-꥿가-퟿豈-﫿ｦ-ﾟﾠ-ￜ\u{20000}-\u{3134f}]/u;
+const EAST_ASIAN = /[ᄀ-ᇿ々-〇぀-ゟ゠-ヿ㄰-㆏ㇰ-ㇿ㐀-䶿一-鿿ꥠ-꥿가-퟿豈-﫿ｦ-ﾟﾠ-ￜ\u{20000}-\u{323af}]/u;
 const LETTER = /\p{Alphabetic}/u;
 
 /** Whether a part has a letter of Hangul, Han or Kana and no letter of another script. */
@@ -146,16 +146,21 @@ export function shownName(name: PersonName): string {
 }
 
 /**
- * Whether `wanted`, in small letters, is in the name as the server searches
- * it: as written or in Latin letters, either way round, or the name the
- * person wrote to be shown by.
+ * The names a person is found by, as the server searches them: as written or
+ * in Latin letters, either way round, and the name the person wrote to be
+ * shown by. Empty ones left out.
  */
-export function nameContains(name: PersonName, wanted: string): boolean {
+export function searchedNames(name: PersonName): string[] {
   return [
     fullName(name),
     latinName(name),
     joined(trimmed(name.latinLastName), trimmed(name.latinFirstName)),
     joined(trimmed(name.lastName), trimmed(name.firstName)),
     name.customName,
-  ].some((part) => part.toLowerCase().includes(wanted));
+  ].filter((found) => found !== '');
+}
+
+/** Whether `wanted`, in small letters, is in one of the names a person is found by. */
+export function nameContains(name: PersonName, wanted: string): boolean {
+  return searchedNames(name).some((found) => found.toLowerCase().includes(wanted));
 }

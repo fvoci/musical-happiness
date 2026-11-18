@@ -103,6 +103,7 @@ test('a display name is given where the account is made, changed in the settings
   await name
     .getByRole('combobox', { name: 'Add a degree or qualification' })
     .selectOption({ label: 'PhD' });
+  await name.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(name.getByTestId('name-preview')).toHaveText(
     'Others see you as Augusta Ada Lovelace.',
   );

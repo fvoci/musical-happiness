@@ -82,7 +82,8 @@
           problems = { ...problems, [member]: problemOf(entry.reason) };
         }
       }
-      if (refused.length === 0) workspace.report('save', error);
+      // A refusal of no member of the form (an older server's) is the page's to tell.
+      if (Object.keys(problems).length === 0) workspace.report('save', error);
     } finally {
       working = false;
     }
@@ -153,6 +154,11 @@
         </span>
       </label>
     {/each}
+    {#if problems.nameShown}
+      <p class="text-sm text-destructive" role="alert" data-testid="problem-nameShown">
+        {problems.nameShown}
+      </p>
+    {/if}
   </fieldset>
 
   <div class="grid gap-1.5">
@@ -163,6 +169,7 @@
       disabled={working}
       value={draft.title ?? ''}
       aria-invalid={problems.title ? 'true' : undefined}
+      aria-describedby={problems.title ? `${uid}-title-problem` : undefined}
       data-testid="name-title"
       onchange={(event) => {
         const code = event.currentTarget.value;
@@ -175,6 +182,16 @@
         <option value={title}>{TITLE_LABELS[title]()}</option>
       {/each}
     </select>
+    {#if problems.title}
+      <p
+        id="{uid}-title-problem"
+        class="text-sm text-destructive"
+        role="alert"
+        data-testid="problem-title"
+      >
+        {problems.title}
+      </p>
+    {/if}
   </div>
 
   <CredentialPicker
@@ -193,8 +210,10 @@
     >
       {m.account_display_name_save()}
     </Button>
-    <p class="min-w-0 text-xs text-muted-foreground" aria-live="polite" data-testid="name-preview">
-      {saved ? m.account_display_name_saved() : m.account_name_preview({ name: preview })}
+    <!-- Said once it is saved; the preview changes with every key and is read where it is. -->
+    <p class="min-w-0 text-xs text-muted-foreground" data-testid="name-preview">
+      {#if !saved}{m.account_name_preview({ name: preview })}{/if}
+      <span aria-live="polite">{saved ? m.account_display_name_saved() : ''}</span>
     </p>
   </div>
 </form>

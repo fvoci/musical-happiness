@@ -13,6 +13,7 @@ import {
   emptyName,
   nameContains,
   NAME_SHOWN,
+  searchedNames,
   shownName,
   TITLES,
   type PersonName,
@@ -55,6 +56,9 @@ describe('the name a person is shown by', () => {
       expect(nameContains(kim, wanted), wanted).toBe(true);
     }
     expect(nameContains(kim, 'lee')).toBe(false);
+    // What a mention is found by besides the name shown: none of them empty.
+    expect(searchedNames({ ...emptyName(), latinFirstName: 'Ada' })).toEqual(['Ada', 'Ada']);
+    expect(searchedNames(emptyName())).toEqual([]);
   });
 });
 

@@ -30,7 +30,7 @@ const WAIT: i64 = 30 * 24 * 60 * 60 * 1000;
 
 /// What is the person's of the account [`person`] makes: none of it is anywhere once
 /// the account is erased.
-const OF_THE_PERSON: [&str; 15] = [
+const OF_THE_PERSON: [&str; 16] = [
     "leaver-shelf",
     "Leaver-First",
     "Leaver-Last",
@@ -38,6 +38,8 @@ const OF_THE_PERSON: [&str; 15] = [
     "Leaver-Latin-Last",
     "kr_patent_attorney",
     "kr_korean_medicine_doctor",
+    // The choice of the name shown; erased to the one every new account has.
+    "latin_name",
     "nder-leaver-mail@example.com",
     "leaver-name",
     "leaver-mail@example.com",

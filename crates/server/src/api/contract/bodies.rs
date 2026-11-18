@@ -283,7 +283,7 @@ pub(crate) struct AccountChange {
     latin_last_name: Option<String>,
     /// The name the person wrote to be shown by; as `firstName`.
     custom_name: Option<String>,
-    /// Which name the person is shown by.
+    /// Which name the person is shown by; `null` leaves it as it is.
     name_shown: Option<NameShown>,
     /// The title written before the name; `null` for none.
     title: Option<Title>,

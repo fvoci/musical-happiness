@@ -95,12 +95,21 @@ describe('the name, in memory', () => {
       [{ credentials: ['phd', 'phd'] }, '/credentials/1'],
       [{ credentials: ['phd', 'md', 'mba', 'ms'] }, '/credentials'],
       [{ nameShown: 'nickname' as 'name' }, '/nameShown'],
+      // A Hangul filler is a letter that shows nothing: refused like U+200B.
+      [{ firstName: '\u3164' }, '/firstName'],
     ];
     for (const [patch, pointer] of refusals) {
       const refused = await rejection(backend.patchMe(patch));
       expect(refused.status).toBe(400);
       expect(refused.refusalAt(pointer), pointer).toBeDefined();
     }
+  });
+
+  it('leaves a member that is undefined, and a choice of null, as they are', async () => {
+    const { backend } = setup();
+    await backend.patchMe({ firstName: 'Ada', nameShown: 'name' });
+    const kept = await backend.patchMe({ firstName: undefined, nameShown: null as never });
+    expect([kept.name?.firstName, kept.name?.nameShown]).toEqual(['Ada', 'name']);
   });
 
   it('finds a person by the parts of their name', async () => {

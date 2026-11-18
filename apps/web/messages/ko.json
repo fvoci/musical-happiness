@@ -70,6 +70,7 @@
   "account_name_credentials": "학위·자격",
   "account_name_credentials_hint": "셋까지, 더한 순서대로 붙습니다.",
   "account_name_credentials_add": "학위·자격 더하기",
+  "account_name_credentials_add_button": "더하기",
   "account_name_credentials_full": "셋을 골랐습니다. 하나를 빼야 더할 수 있습니다.",
   "account_name_credential_remove": "{credential} 빼기",
   "account_name_refused": "저장할 수 없습니다.",
