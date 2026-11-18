@@ -11,6 +11,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
+  import FileViewerHost from '$lib/components/file-viewer/FileViewerHost.svelte';
+  import { viewerLinkOf } from '$lib/components/file-viewer/viewing.svelte.ts';
   import { setFileSource } from '$lib/editor/files.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -63,16 +65,16 @@
         place = started.place;
         const shown = new Workspace({ backend: read, locale: currentLocale });
         made = shown;
-        // The bodies name their images and file blocks by file: the link's board or wiki has them.
-        setFileSource(
-          fileSourceOf(
-            read,
-            () => containerId,
-            (error) => {
-              shown.report('load', error);
-            },
-          ),
+        // The bodies name their images and file blocks by file: the link's board or wiki has them,
+        // which the viewer shows the reader as it shows them to its members.
+        const files = fileSourceOf(
+          read,
+          () => containerId,
+          (error) => {
+            shown.report('load', error);
+          },
         );
+        setFileSource({ ...files, view: viewerLinkOf(files) });
         workspace = made;
         backend = read;
         await made.load(place);
@@ -153,6 +155,7 @@
     {/if}
   </main>
 </div>
+<FileViewerHost />
 {#if workspace}
   <Problems {workspace} />
 {/if}

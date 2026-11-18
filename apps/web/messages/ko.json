@@ -424,6 +424,7 @@
   "file_block_label_unsized": "파일: {name}",
   "file_block_missing": "없는 파일",
   "file_block_download": "{name} 내려받기",
+  "file_block_view": "{name} 보기",
   "editor_formula_refused": "본문을 지금 고칠 수 없어 수식에 쓴 것을 넣지 않았습니다.",
   "editor_formula_gone": "수식이 들어갈 줄이 지워지거나 바뀌어 수식에 쓴 것을 넣지 않았습니다.",
   "gallery_cards": "카드",

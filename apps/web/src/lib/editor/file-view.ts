@@ -3,7 +3,9 @@
  * an icon for its kind, its name and size, and a link that saves it under
  * its name. The document holds the file's identifier alone, so the rest is
  * put into the block's element here, from what the file source
- * (`files.ts`) knows of the file.
+ * (`files.ts`) knows of the file. The name of a file the viewer shows is a
+ * button that opens it there, where the app has a viewer (`fileViewer`);
+ * pressed down, it is still the block's, which it selects and drags.
  *
  * A block is in one of three states (`data-state`): `pending` while its
  * file's record is being asked, `shown` with the name and size, and
@@ -18,7 +20,14 @@ import { humanFileSize } from '$lib/logic/file-size.ts';
 import { saveBlob } from '$lib/save.ts';
 
 import { FILE_BLOCK_ATTRIBUTE, FILE_ID_ATTRIBUTE } from './drawing.ts';
-import { fileBytes, fileDetails, fileUrl, forgetFile, type FileDetails } from './files.ts';
+import {
+  fileBytes,
+  fileDetails,
+  fileUrl,
+  fileViewer,
+  forgetFile,
+  type FileDetails,
+} from './files.ts';
 
 /** The places of file blocks, in the editor and in a body that is shown. */
 export const FILE_BLOCK_SELECTOR = `div[${FILE_BLOCK_ATTRIBUTE}]`;
@@ -208,6 +217,34 @@ function onPress(event: MouseEvent, link: HTMLAnchorElement, fileId: string, nam
     });
 }
 
+/**
+ * The name of a shown file: a button that opens the viewer on it when the
+ * viewer shows its kind, its text otherwise. A viewer that does not come
+ * (the connection gone) leaves the file to its download.
+ */
+function nameOf(
+  page: Document,
+  fileId: string,
+  details: FileDetails | null | undefined,
+  name: string,
+): HTMLElement {
+  const viewer = fileViewer();
+  if (!details || !viewer?.opens(details)) return span(page, 'doc-file-name', name);
+  const button = page.createElement('button');
+  button.setAttribute('type', 'button');
+  button.setAttribute('class', 'doc-file-name doc-file-open');
+  button.setAttribute('aria-label', m.file_block_view({ name }));
+  button.setAttribute('title', m.file_block_view({ name }));
+  button.textContent = name;
+  button.addEventListener('click', () => {
+    const block = button.closest<HTMLElement>(FILE_BLOCK_SELECTOR);
+    void viewer.open(fileId, details, button).then((opened) => {
+      if (!opened && block) saveFileOf(block);
+    });
+  });
+  return button;
+}
+
 /** Draws the block as its file is known now: `undefined` while that is being asked. */
 function draw(element: HTMLElement, fileId: string, details: FileDetails | null | undefined): void {
   const page = element.ownerDocument;
@@ -222,7 +259,7 @@ function draw(element: HTMLElement, fileId: string, details: FileDetails | null 
   );
   const parts: Element[] = [
     icon(page, missing ? 'other' : kindOf(details?.name ?? fileId), 'doc-file-icon'),
-    span(page, 'doc-file-name', name),
+    nameOf(page, fileId, details, name),
   ];
   if (size !== '') parts.push(span(page, 'doc-file-size', size));
   const href = missing ? undefined : fileUrl(fileId);
@@ -274,4 +311,15 @@ export function saveFileOf(element: HTMLElement): boolean {
   const link = element.querySelector<HTMLAnchorElement>('a.doc-file-download');
   link?.click();
   return link !== null;
+}
+
+/**
+ * Presses a drawn block as Enter does: opens its file in the viewer where
+ * its name opens it, saves it otherwise; nothing for a missing file.
+ */
+export function pressFileOf(element: HTMLElement): boolean {
+  const open = element.querySelector<HTMLButtonElement>('button.doc-file-open');
+  if (!open) return saveFileOf(element);
+  open.click();
+  return true;
 }

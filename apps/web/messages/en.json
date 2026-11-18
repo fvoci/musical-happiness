@@ -424,6 +424,7 @@
   "file_block_label_unsized": "File: {name}",
   "file_block_missing": "Missing file",
   "file_block_download": "Download {name}",
+  "file_block_view": "View {name}",
   "editor_formula_refused": "What you wrote in the formula was not kept: the description cannot be changed now.",
   "editor_formula_gone": "What you wrote in the formula was not kept: its line was removed or changed.",
   "gallery_cards": "Cards",

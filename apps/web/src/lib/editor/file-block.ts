@@ -9,13 +9,15 @@
  *
  * In the editor the block is drawn as where a body is only shown
  * (file-view.ts). It is reached with the arrow keys, which select it, and
- * Enter then saves its file; a press of its link does the same.
+ * Enter then opens its file in the viewer, as a press of its name does,
+ * when the viewer shows it, and saves it otherwise, as a press of its link
+ * does. A press of the name is still the block's to select and drag.
  */
 import { mergeAttributes, Node } from '@tiptap/core';
 import { NodeSelection, Plugin } from '@tiptap/pm/state';
 
 import { FILE_BLOCK_ATTRIBUTE, FILE_ID_ATTRIBUTE } from './drawing.ts';
-import { drawFileBlock, saveFileOf } from './file-view.ts';
+import { drawFileBlock, pressFileOf } from './file-view.ts';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -90,7 +92,7 @@ export const FileBlock = Node.create({
                 return false;
               }
               const dom = view.nodeDOM(selection.from);
-              if (dom instanceof HTMLElement) saveFileOf(dom);
+              if (dom instanceof HTMLElement) pressFileOf(dom);
               // Taken either way: Enter never replaces the selected block.
               event.preventDefault();
               return true;

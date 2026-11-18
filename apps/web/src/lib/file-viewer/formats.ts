@@ -14,14 +14,14 @@
  * counts them and hands its renderer a new archive of only what it counted
  * (src/viewer-frame/zip-guard.ts).
  *
- * Adding a kind: its line in `FORMATS` here and a renderer in the frame
- * (`src/viewer-frame/renderers.ts`, whose table is typed by `FormatId` and
- * so asks for it).
+ * Adding a kind: its line in `FORMATS` here, its extensions in
+ * `extensions.ts` and a renderer in the frame (`src/viewer-frame/renderers.ts`);
+ * both tables are typed by `FormatId` and so ask for them.
  */
 import { zipEntries, type ZipEntry } from './zip-directory.ts';
 
-/** The largest file the viewer opens; a larger one is only offered as a download. */
-export const VIEW_LIMIT_BYTES = 50 * 1024 * 1024;
+/** The largest file the viewer opens, kept where the first screen reads it (`extensions.ts`). */
+export { VIEW_LIMIT_BYTES } from './extensions.ts';
 
 /** The most an archive's parts may unpack to, together. */
 export const UNPACKED_LIMIT_BYTES = 200 * 1024 * 1024;
