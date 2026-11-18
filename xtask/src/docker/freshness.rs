@@ -7,21 +7,23 @@
 //!
 //! The probe unpacks the checkout's commit with one line changed (a mark in the
 //! server's version), dates every file in 2001, builds the build stage from that with
-//! the checkout's Dockerfile, and looks for the mark in the executable. It proves
-//! something only when the cache holds a build of the same arguments (the commit and
-//! its time are variables the server reads at build time, and cargo builds anew when
-//! one changes): [`super::run`] runs it after the image's build, which leaves that.
-//! Each run unpacks into a directory of its own: Docker sends again only the files of a
-//! context whose time or size changed since the same directory was last sent, and the
-//! probe's files keep both.
+//! the checkout's Dockerfile, and looks for the mark in the executable. It builds with
+//! a cargo cache of its own and the same build arguments every time, so that what its
+//! cache holds is always its previous run's build, of another mark and newer than 2001:
+//! only the files' times can then make cargo build anew (the server reads the commit
+//! and its time at build time, and cargo builds anew when they change). The first run
+//! on a machine fills that cache and proves nothing. Each run unpacks into a directory
+//! of its own: Docker sends again only the files of a context whose time or size
+//! changed since the same directory was last sent, and the probe's files keep both.
+//! The layers of each run stay in Docker's build cache until `docker builder prune`.
 
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context as _, Result, bail, ensure};
 
-use super::images::{self, Names};
 use crate::steps::{self, capture, say};
 
 /// The file that is changed, and the start of the line in it that gets the mark.
@@ -35,9 +37,20 @@ const BUILD_FILES: [&str; 2] = [
     "docker/fvoci/Dockerfile.dockerignore",
 ];
 
-/// The time every file of the probe's source is given, as `touch -d` reads it: long
-/// before any build cache this probe can meet.
-const OLD_TIME: &str = "@1000000000";
+/// The build arguments of every probe: its own cargo cache, and a commit and time that
+/// do not change from one run to the next.
+const BUILD_ARGUMENTS: [&str; 6] = [
+    "--build-arg",
+    "FVOCI_CARGO_TARGET_CACHE=fvoci-cargo-target-probe",
+    "--build-arg",
+    "FVOCI_BUILD_HASH=probe",
+    "--build-arg",
+    "FVOCI_BUILD_DATE=probe",
+];
+
+/// The time every file of the probe's source is given, in seconds after 1970: in 2001,
+/// before any build this probe can meet.
+const OLD_SECONDS: u64 = 1_000_000_000;
 
 /// Builds the build stage from a marked source older than the cache, and checks that its
 /// executable is that source's. The probe's image and files are removed afterwards.
@@ -45,15 +58,16 @@ const OLD_TIME: &str = "@1000000000";
 /// # Errors
 ///
 /// Fails if the executable lacks the mark, or a step of the probe fails.
-pub(super) fn probe(root: &Path, names: &Names) -> Result<()> {
+pub(super) fn probe(root: &Path) -> Result<()> {
     say("\n==> building from a source older than the build cache");
     let parent = root.join("target/docker-smoke");
     remove_earlier(&parent)?;
     let mark = format!("fresh-{}", super::hex(&super::random::<8>()?));
     let directory = parent.join(&mark);
     let tag = format!("fvoci-fresh-probe:{}", super::checkout_key(root));
-    let outcome = build_and_look(root, names, &directory, &tag, &mark);
-    let removed_image = capture("docker", &["image", "rm", "--force", &tag])?;
+    let outcome = build_and_look(root, &directory, &tag, &mark);
+    // Cleaning up is tried in full whatever happened, and says nothing over the outcome.
+    let removed_image = capture("docker", &["image", "rm", "--force", &tag]);
     let removed_files = match fs::remove_dir_all(&directory) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
             Err(error).with_context(|| format!("removing {}", directory.display()))
@@ -61,6 +75,7 @@ pub(super) fn probe(root: &Path, names: &Names) -> Result<()> {
         _ => Ok(()),
     };
     outcome?;
+    let removed_image = removed_image?;
     ensure!(
         removed_image.succeeded,
         "removing the probe's image {tag}: {}",
@@ -87,13 +102,7 @@ fn remove_earlier(parent: &Path) -> Result<()> {
     Ok(())
 }
 
-fn build_and_look(
-    root: &Path,
-    names: &Names,
-    directory: &Path,
-    tag: &str,
-    mark: &str,
-) -> Result<()> {
+fn build_and_look(root: &Path, directory: &Path, tag: &str, mark: &str) -> Result<()> {
     fs::create_dir_all(directory).with_context(|| format!("creating {}", directory.display()))?;
     unpack_commit(root, directory)?;
     for file in BUILD_FILES {
@@ -101,9 +110,11 @@ fn build_and_look(
             .with_context(|| format!("copying {file}"))?;
     }
     put_mark(&directory.join(MARKED_FILE), mark)?;
-    make_old(directory)?;
+    date_tree(
+        directory,
+        SystemTime::UNIX_EPOCH + Duration::from_secs(OLD_SECONDS),
+    )?;
 
-    let build_arguments = images::build_arguments(root, names)?;
     let mut arguments = vec![
         "build",
         "--target",
@@ -113,9 +124,7 @@ fn build_and_look(
         "--tag",
         tag,
     ];
-    // The same arguments as the image's: a changed one would make cargo build anew
-    // whatever the files' times say.
-    arguments.extend(build_arguments.iter().map(String::as_str));
+    arguments.extend(BUILD_ARGUMENTS);
     arguments.push(".");
     steps::run(directory, "docker", &arguments, &[("DOCKER_BUILDKIT", "1")])?;
 
@@ -185,16 +194,21 @@ fn put_mark(file: &Path, mark: &str) -> Result<()> {
     fs::write(file, marked).with_context(|| format!("writing {}", file.display()))
 }
 
-/// Gives every file and directory under `directory` the time [`OLD_TIME`].
-fn make_old(directory: &Path) -> Result<()> {
-    let status = Command::new("find")
-        .arg(directory)
-        .args(["-exec", "touch", "-c", "-h", "-d", OLD_TIME, "{}", "+"])
-        .status()
-        .context("starting find")?;
-    ensure!(
-        status.success(),
-        "dating the probe's source ended with {status}"
-    );
-    Ok(())
+/// Gives `path` and every file and directory under it the time `time`; links are left
+/// as they are.
+fn date_tree(path: &Path, time: SystemTime) -> Result<()> {
+    let kind = fs::symlink_metadata(path)
+        .with_context(|| format!("reading {}", path.display()))?
+        .file_type();
+    if kind.is_symlink() {
+        return Ok(());
+    }
+    if kind.is_dir() {
+        for entry in fs::read_dir(path).with_context(|| format!("reading {}", path.display()))? {
+            date_tree(&entry?.path(), time)?;
+        }
+    }
+    fs::File::open(path)
+        .and_then(|file| file.set_times(fs::FileTimes::new().set_accessed(time).set_modified(time)))
+        .with_context(|| format!("dating {}", path.display()))
 }

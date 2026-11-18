@@ -7,7 +7,7 @@
 //! root), reads the profile `tunnel` without starting it, and takes everything down
 //! with its volumes, whatever happened. `--push-plan` prints how the images go to GHCR.
 //!
-//! It needs `docker` with compose 2.24 or newer, `curl` and `git`. The images are built
+//! It needs `docker` with compose 2.24 or newer, `curl`, `git` and `tar`. The images are built
 //! natively, for the processor of the machine; the other one is built on a machine of
 //! that kind. The images stay, to be pushed (`--push-plan`); `docker image rm` removes
 //! them.
@@ -186,7 +186,7 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     check_compose()?;
     let names = images::Names::of_checkout(root)?;
     images::build(root, &names)?;
-    freshness::probe(root, &names)?;
+    freshness::probe(root)?;
     let built = started.elapsed();
 
     let directory = root.join("target/docker-smoke");

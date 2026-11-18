@@ -2,6 +2,8 @@
 #
 #   cp docker/.env.example docker/.env      # then fill in every secret
 #   docker compose -f docker/compose.yaml up -d --build --wait
+#   (an image built so does not know its commit: ping's commit is empty; build it as
+#   docker/fvoci/Dockerfile says, or with `cargo xtask docker`, to have it)
 #   docker compose -f docker/compose.yaml --profile s3 --profile mail up -d ...
 #   docker compose -f docker/compose.yaml --profile tunnel up -d --wait
 #
@@ -52,10 +54,13 @@
 # from FVOCI_TRUSTED_PROXIES: set that to the range of `edge` once it exists (the
 # network is <project>_edge, fvoci_edge unless the project is named otherwise),
 #   docker network inspect fvoci_edge --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
-# and `up -d` again; it stays the same until `down` removes the network. That range holds the network's gateway, through which the host's
-# published port reaches fvoci on some Docker setups (Docker Desktop, rootless): there,
-# keep FVOCI_BIND at 127.0.0.1, or whoever reaches the port picks the address the
-# limits on logins count. Without the profile nothing of it is made or needed.
+# and `up -d` again; it stays the same until `down` removes the network. The range
+# holds the network's gateway, which is where every connection to the published port
+# comes from (Docker's proxy for the port): with it trusted, whatever reaches that port
+# chooses the address the limits on sign-up, login and reset count. So let nothing
+# reach the port but the host itself (FVOCI_BIND=127.0.0.1) or a reverse proxy that
+# adds the client's address to X-Forwarded-For. Without the profile nothing of it is
+# made or needed.
 #
 # Stopping waits for fvoci to finish its requests and let go of its lock.
 

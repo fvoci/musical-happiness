@@ -12,28 +12,30 @@ use serde_json::{Value, json};
 use crate::common::{ApiResponse, Client, PASSWORD, Setup, TestServer};
 use crate::fake_smtp::FakeSmtp;
 
-/// The headers of one request: what `X-Forwarded-For` and `CF-Connecting-IP` say.
-#[derive(Debug, Clone, Copy)]
+/// The headers of one request: what `X-Forwarded-For` and `CF-Connecting-IP` say, if
+/// they are sent.
+#[derive(Debug, Clone, Copy, Default)]
 struct Headers<'a> {
-    forwarded_for: &'a str,
-    connecting_ip: &'a str,
+    forwarded_for: Option<&'a str>,
+    connecting_ip: Option<&'a str>,
 }
 
 /// A person's request as the tunnel brings it.
 fn of(address: &str) -> Headers<'_> {
     Headers {
-        forwarded_for: address,
-        connecting_ip: address,
+        forwarded_for: Some(address),
+        connecting_ip: Some(address),
     }
 }
 
 async fn post(th: &TestServer, path: &str, body: &Value, headers: Headers<'_>) -> ApiResponse {
-    let request = th
-        .anonymous()
-        .request(Method::POST, path)
-        .header("X-Forwarded-For", headers.forwarded_for)
-        .header("CF-Connecting-IP", headers.connecting_ip)
-        .json(body);
+    let mut request = th.anonymous().request(Method::POST, path).json(body);
+    if let Some(forwarded_for) = headers.forwarded_for {
+        request = request.header("X-Forwarded-For", forwarded_for);
+    }
+    if let Some(connecting_ip) = headers.connecting_ip {
+        request = request.header("CF-Connecting-IP", connecting_ip);
+    }
     Client::send(request).await
 }
 
@@ -94,13 +96,15 @@ async fn behind_a_trusted_tunnel_each_person_has_their_own_limits() {
         .await
         .check_status(StatusCode::TOO_MANY_REQUESTS);
 
-    // The server holds one organization (SQLite): the second person signs in to the
-    // first one's account, which their own address's count allows twice.
-    for _ in 0..2 {
-        post(&th, LOGIN, &login("alice"), of(bob))
-            .await
-            .check_no_content();
-    }
+    // The second person's sign-up is not held up by the first one's count: it reaches
+    // the server's own answer (it holds one organization, an SQLite database's), and a
+    // login after it gets through.
+    post(&th, REGISTER, &registration("bob"), of(bob))
+        .await
+        .check_status(StatusCode::FORBIDDEN);
+    post(&th, LOGIN, &login("alice"), of(bob))
+        .await
+        .check_no_content();
 
     // What a person writes at the left of X-Forwarded-For stays there: the tunnel adds
     // the address it saw at the right. CF-Connecting-IP is not read at all. The address
@@ -109,12 +113,12 @@ async fn behind_a_trusted_tunnel_each_person_has_their_own_limits() {
     let forged = format!("{claimed}, {alice}");
     for headers in [
         Headers {
-            forwarded_for: &forged,
-            connecting_ip: claimed,
+            forwarded_for: Some(&forged),
+            connecting_ip: Some(claimed),
         },
         Headers {
-            forwarded_for: alice,
-            connecting_ip: claimed,
+            forwarded_for: Some(alice),
+            connecting_ip: Some(claimed),
         },
     ] {
         post(&th, LOGIN, &login("alice"), headers)
@@ -124,6 +128,22 @@ async fn behind_a_trusted_tunnel_each_person_has_their_own_limits() {
     post(&th, LOGIN, &login("alice"), of(claimed))
         .await
         .check_no_content();
+
+    // Without X-Forwarded-For a request is the tunnel's own, and CF-Connecting-IP does
+    // not stand in for it: once the tunnel's address has used its attempts, a request
+    // naming a fresh address there waits too.
+    for _ in 0..2 {
+        post(&th, LOGIN, &login("alice"), Headers::default())
+            .await
+            .check_no_content();
+    }
+    let only_cloudflare = Headers {
+        forwarded_for: None,
+        connecting_ip: Some("192.0.2.88"),
+    };
+    post(&th, LOGIN, &login("alice"), only_cloudflare)
+        .await
+        .check_status(StatusCode::TOO_MANY_REQUESTS);
 
     // A reset has a count of its own, by the same address.
     for _ in 0..2 {

@@ -1,7 +1,8 @@
 //! The profile `tunnel` of `docker/compose.yaml`, as compose reads it: with a token it
 //! is cloudflared on the network `edge` holding the token as a secret, and without the
-//! profile none of it is there. Nothing is started: a tunnel dials Cloudflare, which a
-//! trial must not do, so this looks at `docker compose config` only.
+//! profile none of it is there. A tunnel dials Cloudflare, which a trial must not do:
+//! cloudflared is run once with a token that is no token, which it reads from its
+//! secret's file and refuses before it dials anything.
 
 use anyhow::{Context as _, Result, ensure};
 use serde_json::Value;
@@ -62,7 +63,38 @@ pub(super) fn profile(trial: &Trial) -> Result<()> {
         without["services"].get(SERVICE).is_none() && without["secrets"].get(SECRET).is_none(),
         "without the profile, compose still has cloudflared or its secret"
     );
+    refuses_a_fake_token(trial, &token)?;
     say("    with the profile: cloudflared on edge with its secret; without: nothing of it");
+    Ok(())
+}
+
+/// What cloudflared says of a token it cannot read as one.
+const INVALID_TOKEN: &str = "Provided Tunnel token is not valid";
+
+/// Runs the profile's cloudflared once with `token`: it must read the secret's file (an
+/// unreadable or empty one says something else) and refuse what it holds.
+fn refuses_a_fake_token(trial: &Trial, token: &str) -> Result<()> {
+    let arguments = ["--profile", "tunnel", "run", "--rm", "--no-deps", SERVICE];
+    let output = trial
+        .command(&arguments)
+        .env("FVOCI_TUNNEL_TOKEN", token)
+        .output()
+        .context("starting docker compose run")?;
+    let said = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    ensure!(
+        !said.contains(token),
+        "cloudflared shows the token it was given"
+    );
+    ensure!(
+        !output.status.success() && said.contains(INVALID_TOKEN),
+        "cloudflared did not read and refuse the fake token from its secret ({}): {}",
+        output.status,
+        said.trim()
+    );
     Ok(())
 }
 

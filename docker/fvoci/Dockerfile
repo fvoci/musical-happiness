@@ -6,6 +6,7 @@
 #   docker build -f docker/fvoci/Dockerfile -t fvoci-server \
 #       --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD) \
 #       --build-arg FVOCI_BUILD_DATE=$(git log -1 --format=%cI) .
+#   (without the two, ping's commit and build_date are empty)
 #   docker run --init -p 127.0.0.1:8080:8000 -e FVOCI_SERVER_URL=http://localhost:8080 \
 #       -v fvoci-data:/data fvoci-server
 #
@@ -61,6 +62,9 @@ ARG TARGETARCH
 ARG FVOCI_BUILD_HASH=
 ARG FVOCI_BUILD_DATE=
 ENV FVOCI_BUILD_HASH=${FVOCI_BUILD_HASH} FVOCI_BUILD_DATE=${FVOCI_BUILD_DATE}
+# The cache of cargo's target directory, shared by every build of the machine; the
+# probe of `cargo xtask docker` builds with one of its own.
+ARG FVOCI_CARGO_TARGET_CACHE=fvoci-cargo-target
 WORKDIR /src
 COPY Cargo.toml Cargo.lock clippy.toml ./
 COPY crates ./crates
@@ -69,14 +73,15 @@ COPY xtask ./xtask
 # cargo takes a source for unchanged when it is older than what the cache built from it,
 # and a copied file keeps the time it had in the context: a checkout or an archive older
 # than the cache's last build (another commit's, another worktree's) would get that
-# build's executable. Every source is made as new as this build first, so the
-# workspace's crates are always compiled from what was copied; the dependencies stay
-# cached. Docker's cache of this step goes by the contents it was sent, but it sends a
-# file again only when its time or size changed since the same context directory was
-# last sent: do not rewrite a context in place keeping its files' times.
+# build's executable. Every source is dated in 2100 first, later than anything cargo
+# can have written whatever the builder's clock says, so the workspace's crates are
+# always compiled from what was copied; the dependencies stay cached. Docker's cache of
+# this step goes by the contents it was sent, but it sends a file again only when its
+# time or size changed since the same context directory was last sent: do not rewrite a
+# context in place keeping its files' times.
 RUN --mount=type=cache,id=fvoci-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=fvoci-cargo-target-${TARGETARCH},target=/src/target,sharing=locked \
-    find Cargo.toml Cargo.lock clippy.toml crates xtask -exec touch -c {} + \
+    --mount=type=cache,id=${FVOCI_CARGO_TARGET_CACHE}-${TARGETARCH},target=/src/target,sharing=locked \
+    find Cargo.toml Cargo.lock clippy.toml crates xtask -exec touch -c -d @4102444800 {} + \
     && cargo build --release --locked -p fvoci-server \
     && cp target/release/fvoci-server /fvoci-server
 

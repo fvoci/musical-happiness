@@ -31,6 +31,9 @@ pub(crate) struct Names {
     /// The commit, in full, with `-dirty` for a tree with uncommitted changes: what the
     /// server reports as its `commit`.
     revision: String,
+    /// The commit's time (`%cI`), what the server reports as its `build_date`: a build of
+    /// one commit says the same whenever it is made.
+    created: String,
     /// `sha-<short commit>`, with `-dirty` for a tree with uncommitted changes.
     tag: String,
     /// The processor, as Docker names it: `arm64`, `amd64`.
@@ -51,17 +54,23 @@ impl Names {
         } else {
             Tree::Changed
         };
+        let created = asked("git", &["-C", &root, "log", "-1", "--format=%cI"])?;
         let arch = asked("docker", &["version", "--format", "{{.Server.Arch}}"])?;
-        Ok(Self::new(&revision, tree, &arch))
+        Ok(Self::new(&revision, &created, tree, &arch))
     }
 
     /// Names of a commit that is no checkout's, for the tests.
     #[cfg(test)]
     pub(crate) fn for_tests() -> Self {
-        Self::new("0123456789abcdef", Tree::Committed, "arm64")
+        Self::new(
+            "0123456789abcdef",
+            "2026-11-19T03:00:00+09:00",
+            Tree::Committed,
+            "arm64",
+        )
     }
 
-    fn new(revision: &str, tree: Tree, arch: &str) -> Self {
+    fn new(revision: &str, created: &str, tree: Tree, arch: &str) -> Self {
         let short = revision.get(..12).unwrap_or(revision);
         let tag = match tree {
             Tree::Committed => format!("sha-{short}"),
@@ -81,6 +90,7 @@ impl Names {
                 Tree::Committed => revision.to_owned(),
                 Tree::Changed => format!("{revision}-dirty"),
             },
+            created: created.to_owned(),
             tag,
             arch: arch.to_owned(),
         }
@@ -89,6 +99,11 @@ impl Names {
     /// What the server built for these names reports as its `commit` in ping.
     pub(crate) fn revision(&self) -> &str {
         &self.revision
+    }
+
+    /// What the server built for these names reports as its `build_date` in ping.
+    pub(crate) fn created(&self) -> &str {
+        &self.created
     }
 }
 
@@ -114,26 +129,17 @@ fn asked(program: &str, arguments: &[&str]) -> Result<String> {
 
 /// The build arguments of both images: the commit and its time, which the server reports
 /// in ping and the labels carry, and the tag.
-///
-/// # Errors
-///
-/// Fails if `git` cannot say the commit's time.
-pub(crate) fn build_arguments(root: &Path, names: &Names) -> Result<Vec<String>> {
-    // The commit's time, so that a build of a commit says the same whenever it is made.
-    let created = asked(
-        "git",
-        &["-C", &root.to_string_lossy(), "log", "-1", "--format=%cI"],
-    )?;
+fn build_arguments(names: &Names) -> Vec<String> {
     let given = [
         format!("FVOCI_BUILD_HASH={}", names.revision),
-        format!("FVOCI_BUILD_DATE={created}"),
-        format!("FVOCI_CREATED={created}"),
+        format!("FVOCI_BUILD_DATE={}", names.created),
+        format!("FVOCI_CREATED={}", names.created),
         format!("FVOCI_VERSION={}", names.tag),
     ];
-    Ok(given
+    given
         .into_iter()
         .flat_map(|argument| ["--build-arg".to_owned(), argument])
-        .collect())
+        .collect()
 }
 
 /// Builds both images for this machine's processor, with the commit and the time in
@@ -143,7 +149,7 @@ pub(crate) fn build_arguments(root: &Path, names: &Names) -> Result<Vec<String>>
 ///
 /// Fails if a build fails.
 pub(crate) fn build(root: &Path, names: &Names) -> Result<()> {
-    let common = build_arguments(root, names)?;
+    let common = build_arguments(names);
     let builds: [(&str, &Name, &[&str]); 2] = [
         (
             "the server's image",
@@ -221,13 +227,13 @@ mod tests {
 
     #[test]
     fn the_tags_name_the_commit_and_the_processor() {
-        let names = Names::new("0123456789abcdef0123", Tree::Committed, "arm64");
+        let names = Names::new("0123456789abcdef0123", "", Tree::Committed, "arm64");
         assert_eq!(
             names.server.local,
             "ghcr.io/fvoci/fvoci-server:sha-0123456789ab-arm64"
         );
         assert_eq!(names.search.repository, "ghcr.io/fvoci/fvoci-search");
-        let dirty = Names::new("0123456789abcdef0123", Tree::Changed, "amd64");
+        let dirty = Names::new("0123456789abcdef0123", "", Tree::Changed, "amd64");
         assert_eq!(
             dirty.search.local,
             "ghcr.io/fvoci/fvoci-search:sha-0123456789ab-dirty-amd64"
@@ -242,7 +248,12 @@ mod tests {
 
     #[test]
     fn the_plan_pushes_this_machines_images_and_lists_both_processors() {
-        let plan = push_plan(&Names::new("0123456789abcdef", Tree::Committed, "arm64"));
+        let plan = push_plan(&Names::new(
+            "0123456789abcdef",
+            "",
+            Tree::Committed,
+            "arm64",
+        ));
         assert!(plan.contains("docker push ghcr.io/fvoci/fvoci-server:sha-0123456789ab-arm64"));
         assert!(plan.contains(
             "imagetools create --tag ghcr.io/fvoci/fvoci-search:sha-0123456789ab \
