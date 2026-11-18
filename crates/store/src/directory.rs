@@ -798,6 +798,7 @@ impl Store {
                 );
                 sql.bind(token_hash);
                 invitations::push_live_but_for(&mut sql, now, replacing);
+                invitations::push_maker_in_use(&mut sql);
                 sql.push(IN_USE)
                     .push(&scope.same_organization(&[("i", "t")]));
                 match scope.fetch_optional(sql).await? {

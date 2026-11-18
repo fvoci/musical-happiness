@@ -875,7 +875,8 @@ fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
 
 /// The files that may ask for the system's reach, by which a handle reaches the rows of
 /// every organization: the store itself, the directory, the records of the server's
-/// operator in each organization of a person, the changes of the data after a
+/// operator in each organization of a person, the deleting of a person's account (whose
+/// memberships are of several organizations), the changes of the data after a
 /// migration, and the one function of the server that its housekeeping works through;
 /// and the revisions of the cached checks, which name it to tell what its writes move.
 /// Asked by the handle or by the setting of a transaction alike. Anywhere else, a
@@ -884,8 +885,9 @@ fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 8] = [
+    const ALLOWED: [&str; 9] = [
         "store/src/lib.rs",
+        "store/src/account_deletion.rs",
         "store/src/directory.rs",
         "store/src/directory/sign_in.rs",
         "store/src/operator_records.rs",

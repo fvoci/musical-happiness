@@ -4,6 +4,7 @@
 //! this directory by area, mirroring the original's `server/app` package.
 
 mod access;
+mod account_deletion;
 mod audience;
 mod auth;
 mod blocks;

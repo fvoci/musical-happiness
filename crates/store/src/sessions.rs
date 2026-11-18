@@ -20,7 +20,8 @@ impl Store {
     /// Stores a new session under the digest of its token, provided the password hash of
     /// its user is still `seen_password_hash`: the hash the password was checked
     /// against. Returns whether the session was stored. Its `last_used_at` is stored as
-    /// its `created_at`.
+    /// its `created_at`. One of an account that waits to be deleted is stored too: it
+    /// opens the way back and nothing else ([`Store::leaving_session`]).
     ///
     /// Checking a password takes a while. If the password is set anew in that time, the
     /// reset ends the user's sessions, and a session opened with the old password must
@@ -40,7 +41,10 @@ impl Store {
         seen_password_hash: &str,
     ) -> Result<bool, StoreError> {
         self.transaction(async |scope| {
-            if !hold_unchanged_user(scope, &session.user_id, seen_password_hash).await? {
+            if hold_unchanged_account(scope, &session.user_id, seen_password_hash)
+                .await?
+                .is_none()
+            {
                 return Ok(false);
             }
             insert_session(scope, session, token_digest).await?;
@@ -293,24 +297,61 @@ pub(crate) async fn end_sessions_of_identity(
     Ok(())
 }
 
-/// Holds the row of a user who is not deleted and whose password hash is still
-/// `seen_password_hash`, till the end of the transaction; false for anybody else. A
-/// reset of the password waits for this, or this for it. On SQLite a transaction that
-/// writes holds the whole database.
-pub(crate) async fn hold_unchanged_user(
+/// What the account somebody signs in to is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SignedInto {
+    /// In use: the session opens what is the account's.
+    InUse,
+    /// Waiting to be deleted: the session opens the way back and nothing else.
+    Waiting,
+}
+
+/// Holds the row of an account somebody can sign in to (one in use, or one that waits
+/// to be deleted) whose password hash is still `seen_password_hash`, till the end of
+/// the transaction, and says which of the two it is; `None` for anybody else. A reset
+/// of the password waits for this, or this for it. On SQLite a transaction that writes
+/// holds the whole database.
+pub(crate) async fn hold_unchanged_account(
     scope: &mut Scope<'_>,
     user_id: &str,
     seen_password_hash: &str,
-) -> Result<bool, StoreError> {
-    let mut sql = scope.sql("SELECT password_hash FROM users WHERE delete_at = 0 AND id = ");
+) -> Result<Option<SignedInto>, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT password_hash, delete_at FROM users WHERE (delete_at = 0 OR ({})) AND id = ",
+        crate::users::WAITS
+    ));
     sql.bind(Id(user_id));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR SHARE");
     }
-    Ok(match scope.fetch_optional(sql).await? {
-        Some(row) => row.text(0)? == seen_password_hash,
-        None => false,
-    })
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Ok(None);
+    };
+    if row.text(0)? != seen_password_hash {
+        return Ok(None);
+    }
+    Ok(Some(if row.int(1)? == 0 {
+        SignedInto::InUse
+    } else {
+        SignedInto::Waiting
+    }))
+}
+
+/// The session stored under the token digest, whatever its state and its account's.
+pub(crate) async fn session_by_digest(
+    scope: &mut Scope<'_>,
+    token_digest: &str,
+) -> Result<Option<Session>, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT {SESSION_COLUMNS} FROM sessions WHERE token_hash = "
+    ));
+    sql.bind(token_digest);
+    scope
+        .fetch_optional(sql)
+        .await?
+        .as_ref()
+        .map(session_from_row)
+        .transpose()
 }
 
 /// Stores a session under the digest of its token.

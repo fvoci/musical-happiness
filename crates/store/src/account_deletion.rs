@@ -1,0 +1,349 @@
+//! An account its person asks to delete: the asking, the wait, and taking it back.
+//!
+//! From the asking the account is out of use, as a deactivated one is (`delete_at`),
+//! and waits until `delete_after`: its sessions are ended, and one made by signing in
+//! meanwhile opens nothing but the way back ([`Store::leaving_session`],
+//! [`Store::cancel_account_deletion`]). Its memberships and what it wrote stay as
+//! they are until it is erased (`account_erasure.rs`).
+//!
+//! An account does not go while something would be left without anybody to run it:
+//! the instance without an administrator, or an organization that has other people in
+//! it without one. An organization that has nobody but the account goes with it. Who
+//! administers what is asked and the account is put out of use in one transaction,
+//! under the instance's row and then the rows of the organizations the account
+//! administers, as every change of who administers what holds them: of two
+//! administrators who ask at once, one is refused. Who comes into an organization is
+//! not held off by that: what was read here is read again when the erasing begins.
+//!
+//! The account's organizations are read with the system's reach: a person's
+//! memberships are of several, and the wall hides the others from any one of them.
+//! Nothing here writes a row of an organization.
+
+use fvoci_model::{
+    ContainerKind, Leaving, LeavingOrganization, OrgRole, OrganizationName, Session,
+};
+
+use crate::db::{Id, Scope, Sql};
+use crate::error::StoreError;
+use crate::{Store, container_kinds, link_locks, password_reset, sessions, users};
+
+/// What stands in the way of deleting an account, and what goes with it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DeletionStanding {
+    /// Whether the account is the only administrator of the instance in use.
+    pub last_instance_admin: bool,
+    /// The organizations in use it is the only administrator of that have other people.
+    pub sole_admin_of: Vec<OrganizationName>,
+    /// The organizations in use that have nobody but the account.
+    pub alone_in: Vec<OrganizationName>,
+}
+
+impl DeletionStanding {
+    /// Whether nothing stands in the way.
+    #[must_use]
+    pub fn is_open(&self) -> bool {
+        !self.last_instance_admin && self.sole_admin_of.is_empty()
+    }
+}
+
+/// What became of a request to delete an account.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeletionAsking {
+    /// The account is out of use and waits: its sessions are ended.
+    Asked(Leaving),
+    /// Something would be left without anybody to run it: nothing changed.
+    Refused(DeletionStanding),
+    /// The account is not in use, or its password was set anew since it was checked:
+    /// nothing changed.
+    Changed,
+}
+
+impl Store {
+    /// What stands in the way of deleting the account, and which organizations would
+    /// go with it, as things are now; the request decides anew.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a query fails.
+    pub async fn account_deletion_standing(
+        &self,
+        user_id: &str,
+    ) -> Result<DeletionStanding, StoreError> {
+        self.system()
+            .with_conn(async |scope| standing(scope, user_id, Held::No).await)
+            .await
+    }
+
+    /// How much is in the handle's organization, which goes with its only member: the
+    /// boards and the wikis of its workspaces in use (templates not counted), and the
+    /// files they hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoOrganization`] if the handle names none, and
+    /// [`StoreError::Database`] if a query fails.
+    pub async fn leaving_organization(
+        &self,
+        organization: OrganizationName,
+    ) -> Result<LeavingOrganization, StoreError> {
+        self.with_conn(async |scope| {
+            let (mut boards, mut wikis) = (0, 0);
+            let mut sql = scope.sql(
+                "SELECT c.kind, CAST(COUNT(*) AS BIGINT) FROM containers AS c \
+                 JOIN workspaces AS w ON w.id = c.workspace_id \
+                 WHERE w.delete_at = 0 AND w.org_id = ",
+            );
+            sql.bind(scope.org()?)
+                .push_bind(" AND c.is_template = ", false)
+                .push(&scope.same_organization(&[("c", "w")]))
+                .push(" GROUP BY c.kind");
+            for row in scope.fetch_all(sql).await? {
+                match container_kinds::kind_from_text(&row.text(0)?)? {
+                    ContainerKind::Board => boards = row.int(1)?,
+                    ContainerKind::Wiki => wikis = row.int(1)?,
+                }
+            }
+            let mut sql = scope.sql(
+                "SELECT CAST(COUNT(*) AS BIGINT) FROM file_info AS f \
+                 JOIN containers AS c ON c.id = f.container_id \
+                 JOIN workspaces AS w ON w.id = c.workspace_id \
+                 WHERE w.delete_at = 0 AND w.org_id = ",
+            );
+            sql.bind(scope.org()?)
+                .push_bind(" AND c.is_template = ", false)
+                .push(&scope.same_organization(&[("f", "c"), ("c", "w")]));
+            let files = match scope.fetch_optional(sql).await? {
+                Some(row) => row.int(0)?,
+                None => 0,
+            };
+            Ok(LeavingOrganization {
+                id: organization.id,
+                name: organization.name,
+                boards: Some(boards),
+                wikis: Some(wikis),
+                files: Some(files),
+            })
+        })
+        .await
+    }
+
+    /// Puts the account out of use at `now`, to be erased after `delete_after`, and
+    /// ends its sessions and the credentials to set its password anew: provided nothing
+    /// stands in the way ([`DeletionStanding`]), the account is in use, and its
+    /// password hash is still `seen_password_hash`, the one its password was checked
+    /// against (empty for an account that has none). All of it happens or none.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn request_account_deletion(
+        &self,
+        user_id: &str,
+        seen_password_hash: &str,
+        now: i64,
+        delete_after: i64,
+    ) -> Result<DeletionAsking, StoreError> {
+        self.system()
+            .transaction(async |scope| {
+                users::lock_instance(scope).await?;
+                let standing = standing(scope, user_id, Held::Yes).await?;
+                if !standing.is_open() {
+                    return Ok(DeletionAsking::Refused(standing));
+                }
+                let mut sql = scope.sql("UPDATE users SET delete_at = ");
+                sql.bind(now)
+                    .push_bind(", delete_after = ", delete_after)
+                    .push_bind(", update_at = ", now)
+                    .push_bind(" WHERE delete_at = 0 AND id = ", Id(user_id))
+                    .push_bind(" AND password_hash = ", seen_password_hash);
+                if scope.execute(sql).await? == 0 {
+                    return Ok(DeletionAsking::Changed);
+                }
+                sessions::delete_sessions_of_user(scope, user_id).await?;
+                password_reset::delete_password_resets_of_user(scope, user_id).await?;
+                Ok(DeletionAsking::Asked(Leaving {
+                    requested_at: now,
+                    delete_after,
+                }))
+            })
+            .await
+    }
+
+    /// Takes back the asking to delete the account: it is in use again, as it was, with
+    /// its memberships and what it wrote. Says whether it was taken back: not for an
+    /// account that does not wait, and not once its erasing began.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn cancel_account_deletion(
+        &self,
+        user_id: &str,
+        now: i64,
+    ) -> Result<bool, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql =
+                scope.sql("UPDATE users SET delete_at = 0, delete_after = 0, update_at = ");
+            sql.bind(now)
+                .push_bind(" WHERE id = ", Id(user_id))
+                .push(" AND ")
+                .push(users::WAITS);
+            Ok(scope.execute(sql).await? > 0)
+        })
+        .await
+    }
+
+    /// The session with the token digest, if it is one of an account that waits to be
+    /// deleted, and until when the account waits: valid at `now` as
+    /// [`Store::get_session`] has it, but for its account being out of use. Such a
+    /// session opens the way back and nothing else.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn leaving_session(
+        &self,
+        token_digest: &str,
+        now: i64,
+        idle_since: i64,
+    ) -> Result<Option<(Session, Leaving)>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(
+                "SELECT u.delete_at, u.delete_after FROM sessions AS s \
+                 JOIN users AS u ON u.id = s.user_id WHERE s.token_hash = ",
+            );
+            sql.bind(token_digest)
+                .push_bind(" AND s.expires_at > ", now)
+                .push_bind(" AND s.last_used_at > ", idle_since)
+                .push(" AND u.delete_after > 0 AND u.erase_started_at = 0");
+            let Some(row) = scope.fetch_optional(sql).await? else {
+                return Ok(None);
+            };
+            let leaving = Leaving {
+                requested_at: row.int(0)?,
+                delete_after: row.int(1)?,
+            };
+            let session = sessions::session_by_digest(scope, token_digest).await?;
+            Ok(session.map(|session| (session, leaving)))
+        })
+        .await
+    }
+}
+
+/// Whether the rows that decide are held to the end of the transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Held {
+    Yes,
+    No,
+}
+
+/// What stands in the way of deleting the account `user_id`, read through a scope that
+/// reaches every organization. `Held::Yes` holds the row of each organization the
+/// account administers, in the order of their identifiers, several of them under the
+/// turn of `link_locks`: the caller holds the instance's row already
+/// (`users::lock_instance`), which nothing takes after the turn.
+async fn standing(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    held: Held,
+) -> Result<DeletionStanding, StoreError> {
+    let mut standing = DeletionStanding {
+        last_instance_admin: is_last_instance_admin(scope, user_id).await?,
+        ..DeletionStanding::default()
+    };
+    let mut sql = scope.sql(
+        "SELECT o.id, o.name FROM organization_members AS m \
+         JOIN organizations AS o ON o.id = m.org_id WHERE m.user_id = ",
+    );
+    sql.bind(Id(user_id))
+        .push_bind(" AND m.role = ", OrgRole::Admin.as_str())
+        .push(" AND o.delete_at = 0 AND o.is_system = false ORDER BY o.id");
+    let administered: Vec<OrganizationName> = scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| {
+            Ok(OrganizationName {
+                id: row.id(0)?,
+                name: row.text(1)?,
+            })
+        })
+        .collect::<Result<_, StoreError>>()?;
+    // The rows of several organizations are held under the turn, as every
+    // transaction that spans organizations holds them (`link_locks`).
+    if held == Held::Yes && administered.len() > 1 {
+        link_locks::take_turn(scope).await?;
+    }
+    for organization in administered {
+        if held == Held::Yes {
+            link_locks::hold_organization(scope, &organization.id).await?;
+        }
+        if has_another_admin(scope, &organization.id, user_id).await? {
+            continue;
+        }
+        if has_other_people(scope, &organization.id, user_id).await? {
+            standing.sole_admin_of.push(organization);
+        } else {
+            standing.alone_in.push(organization);
+        }
+    }
+    Ok(standing)
+}
+
+/// Whether the account administers the instance and no other account in use does.
+async fn is_last_instance_admin(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT 1 FROM users WHERE is_admin = ");
+    sql.bind(true).push_bind(" AND id = ", Id(user_id));
+    if scope.fetch_optional(sql).await?.is_none() {
+        return Ok(false);
+    }
+    let mut sql = scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
+    sql.bind(true)
+        .push_bind(" AND id <> ", Id(user_id))
+        .push(" LIMIT 1");
+    Ok(scope.fetch_optional(sql).await?.is_none())
+}
+
+/// Whether the organization has an administrator besides the user whose account is in
+/// use: one that waits to be deleted is none.
+async fn has_another_admin(
+    scope: &mut Scope<'_>,
+    org_id: &str,
+    user_id: &str,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql(
+        "SELECT 1 FROM organization_members AS om JOIN users AS u ON u.id = om.user_id \
+         WHERE u.delete_at = 0 AND om.org_id = ",
+    );
+    sql.bind(Id(org_id))
+        .push_bind(" AND om.role = ", OrgRole::Admin.as_str())
+        .push_bind(" AND om.user_id <> ", Id(user_id))
+        .push(" LIMIT 1");
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
+/// Whether anybody but the user is in the organization: a member of it, or a member or
+/// a guest of one of its workspaces, in use or in the trash, whatever their account's
+/// state.
+async fn has_other_people(
+    scope: &mut Scope<'_>,
+    org_id: &str,
+    user_id: &str,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT 1 FROM organization_members WHERE org_id = ");
+    sql.bind(Id(org_id))
+        .push_bind(" AND user_id <> ", Id(user_id))
+        .push(" LIMIT 1");
+    if scope.fetch_optional(sql).await?.is_some() {
+        return Ok(true);
+    }
+    let mut sql: Sql = scope.sql(
+        "SELECT 1 FROM workspace_members AS wm JOIN workspaces AS w ON w.id = wm.workspace_id \
+         WHERE w.org_id = ",
+    );
+    sql.bind(Id(org_id))
+        .push_bind(" AND wm.user_id <> ", Id(user_id))
+        .push(&scope.same_organization(&[("wm", "w")]))
+        .push(" LIMIT 1");
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}

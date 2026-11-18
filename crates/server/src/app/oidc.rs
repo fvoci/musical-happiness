@@ -719,8 +719,9 @@ impl App {
         // An account whose own address this is, one with a password: most likely the
         // same person, who is to sign in to it and link the provider to it, not to have
         // two accounts. What a provider gave for another account is no account's
-        // address, and stands in nobody's way.
-        match self.store().get_user_by_email(email).await {
+        // address, and stands in nobody's way. An account that waits to be deleted has
+        // its address still: its person signs in to it, and takes the asking back.
+        match self.store().account_by_email(email).await {
             Ok(_) => return Err(Reason::OidcEmailTaken.into()),
             Err(error) if error.is_not_found() => {}
             Err(error) => return Err(logged(&error, "looking up an email address")),

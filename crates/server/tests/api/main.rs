@@ -7,6 +7,7 @@
 mod block_types;
 mod common;
 
+mod account_deletion;
 mod admin;
 mod admins;
 mod blocks;

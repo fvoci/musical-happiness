@@ -703,14 +703,26 @@ async fn forget_container_roles(
 }
 
 /// Starts the query for the live links of the scope's organization at `now`, as
-/// [`push_live_but_for`] counts them; conditions follow with `AND`.
+/// [`push_live_but_for`] counts them, of makers whose account is in use
+/// ([`push_maker_in_use`]); conditions follow with `AND`.
 fn select_live(scope: &Scope<'_>, now: i64, replacing: Option<&str>) -> Result<Sql, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT {COLUMNS_OF_I} FROM invitations AS i WHERE i.org_id = "
     ));
     sql.bind(scope.org()?);
     push_live_but_for(&mut sql, now, replacing);
+    push_maker_in_use(&mut sql);
     Ok(sql)
+}
+
+/// Pushes the condition that the account of who made the link `i` is in use: a link
+/// lets nobody in while its maker's account waits to be deleted, and does again once
+/// the asking is taken back.
+pub(crate) fn push_maker_in_use(sql: &mut Sql) {
+    sql.push(
+        " AND EXISTS (SELECT 1 FROM users AS maker WHERE maker.id = i.created_by \
+         AND maker.delete_at = 0)",
+    );
 }
 
 /// The query for the links of the scope's organization that are listed at `now`: the

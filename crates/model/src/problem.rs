@@ -60,7 +60,8 @@ pub struct Problem {
     #[schema(nullable = false)]
     pub request_id: Option<String>,
     /// The organization whose provider the session must be made through, with the
-    /// reason `sso_required`: what the sign-in is started for.
+    /// reason `sso_required`: what the sign-in is started for. With the reason
+    /// `last_org_admin`, the organization that would be left without an administrator.
     #[serde(rename = "orgId", skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
     pub org_id: Option<String>,

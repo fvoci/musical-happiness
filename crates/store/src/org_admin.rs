@@ -106,7 +106,9 @@ impl Store {
         .await
     }
 
-    /// One page of the members of the handle's organization, the oldest member first.
+    /// One page of the members of the handle's organization, the oldest member first:
+    /// those whose account is in use, and those whose account waits to be deleted, who
+    /// are members until it is erased.
     ///
     /// # Errors
     ///
@@ -116,7 +118,8 @@ impl Store {
             let mut sql = scope.sql(
                 "SELECT om.user_id, u.username, u.display_name, om.role \
                  FROM organization_members AS om JOIN users AS u ON u.id = om.user_id \
-                 WHERE u.delete_at = 0 AND om.org_id = ",
+                 WHERE (u.delete_at = 0 OR (u.delete_after > 0 AND u.erase_started_at = 0)) \
+                 AND om.org_id = ",
             );
             sql.bind(scope.org()?)
                 .push(" ORDER BY om.create_at, om.user_id");
