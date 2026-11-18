@@ -105,6 +105,26 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/containers/{containerId}/files/{fileId}/info",
         "getFileInfo",
     ),
+    (
+        "GET",
+        "/containers/{containerId}/files/{fileId}/versions",
+        "getFileVersions",
+    ),
+    (
+        "POST",
+        "/containers/{containerId}/files/{fileId}/versions",
+        "addFileVersion",
+    ),
+    (
+        "GET",
+        "/containers/{containerId}/files/{fileId}/versions/{version}",
+        "getFileVersion",
+    ),
+    (
+        "POST",
+        "/containers/{containerId}/files/{fileId}/versions/{version}/restore",
+        "restoreFileVersion",
+    ),
     ("POST", "/containers/{containerId}/join", "joinContainer"),
     ("POST", "/containers/{containerId}/leave", "leaveContainer"),
     ("POST", "/containers/{containerId}/members", "addMember"),
@@ -327,6 +347,10 @@ const REACHED_BY_ITEM: &[&str] = &[
     "uploadFile",
     "getFile",
     "getFileInfo",
+    "getFileVersions",
+    "addFileVersion",
+    "getFileVersion",
+    "restoreFileVersion",
     "joinContainer",
     "leaveContainer",
     "addMember",
@@ -1540,7 +1564,7 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
     }
     ts.teardown().await;
     assert_eq!(
-        count, 49,
+        count, 53,
         "the operations that moved or came after under the workspace, and the two that went"
     );
     assert!(violations.is_empty(), "{}", violations.join("\n"));

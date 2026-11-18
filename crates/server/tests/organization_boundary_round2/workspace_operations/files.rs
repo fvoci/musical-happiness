@@ -34,6 +34,7 @@ pub(super) async fn exercise(case: &mut Case, board: &str) {
         payload.len(),
         "file metadata matches its contents"
     );
+    versions(case, board, &file, &payload).await;
     let payload = format!("{} private multipart file", case.label).into_bytes();
     let upload = case
         .run(
@@ -76,6 +77,35 @@ pub(super) async fn exercise(case: &mut Case, board: &str) {
     case.run("deleteUpload", &[("uploadId", &abandoned)], json!({}))
         .await;
     archives(case, board).await;
+}
+
+/// The versions of the file: another upload becomes its second, the first is read and
+/// gone back to, so the file is what it was.
+async fn versions(case: &mut Case, board: &str, file: &str, first: &[u8]) {
+    let at = &[("boardId", board)];
+    let file_at = &[("boardId", board), ("fileId", file)];
+    case.present("getFileVersions", file_at, "\"version\":1")
+        .await;
+    let request = case.request("uploadFile", at).multipart(Form::new().part(
+        "file",
+        Part::bytes(format!("{} private version", case.label).into_bytes()).file_name("next.txt"),
+    ));
+    let next = case.send("uploadFile", request).await.value();
+    let next = case.remember(&next, "fileId");
+    case.run(
+        "addFileVersion",
+        file_at,
+        json!({"baseVersion": 1, "fileId": next}),
+    )
+    .await;
+    let first_at = &[("boardId", board), ("fileId", file), ("version", "1")];
+    let kept = case.run("getFileVersion", first_at, json!({})).await;
+    assert_eq!(
+        kept.body, first,
+        "an older version remains in its organization"
+    );
+    case.run("restoreFileVersion", first_at, json!({"baseVersion": 2}))
+        .await;
 }
 
 async fn part(case: &mut Case, upload: &str, bytes: &[u8]) {

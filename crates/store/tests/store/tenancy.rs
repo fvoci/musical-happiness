@@ -409,7 +409,7 @@ async fn every_table_is_no_organizations_or_behind_the_wall() {
     test.teardown().await;
 }
 
-/// Stores, through `store`, an upload with a part and an object being written.
+/// Stores, through `store`, an upload with a part, an object being written and a file's version.
 async fn in_the_files(store: &Store, user_id: &str, board_id: &str, username: &str) {
     let upload = Upload {
         id: new_id(),
@@ -441,6 +441,8 @@ async fn in_the_files(store: &Store, user_id: &str, board_id: &str, username: &s
         .mark_writing(&format!("boards/{username}/being-written"), i64::MAX)
         .await
         .expect("an object is being written");
+    let added = store.add_file_version(board_id, "7first.png", 1, "7second.png", user_id);
+    added.await.expect("a second version of a file");
 }
 
 /// Makes the user an administrator of the workspace: a role is recorded as given by a
