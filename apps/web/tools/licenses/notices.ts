@@ -27,6 +27,7 @@ import type { Plugin } from 'vite';
 
 import exceptions from './exceptions.json' with { type: 'json' };
 import { katexFontLicense } from './katex-fonts.ts';
+import { withPackageNotices } from './package-notices.ts';
 import { readPackageLicense, statedLicense, type PackageLicense } from './packages.ts';
 import { pdfjsDataLicenses } from './pdfjs-data.ts';
 import { prebuiltLicenses } from './prebuilt.ts';
@@ -153,7 +154,7 @@ export function thirdPartyNotices(): Plugin {
         this.emitFile({
           type: 'asset',
           fileName: NOTICES_FILE,
-          source: renderNotices([...byName.values()], fonts),
+          source: renderNotices([...byName.values()].map(withPackageNotices), fonts),
         });
         this.info(`notices: ${byName.size} packages, ${fonts.length} fonts`);
       },

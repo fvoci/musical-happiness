@@ -13,6 +13,7 @@
  */
 import { tick } from 'svelte';
 
+import { m } from '$lib/i18n/paraglide/messages.js';
 import { buildUrl, normalizeBasePath } from '$lib/logic/urls.ts';
 
 import { examine, VIEW_LIMIT_BYTES, type FormatId } from './formats.ts';
@@ -196,7 +197,8 @@ export class ViewerSession {
         // Handed over, not copied: the app keeps the blob for "Download".
         this.#bytes = undefined;
         const open = { format: status.format, bytes, theme: this.#theme(), lang: this.#lang() };
-        this.#send({ kind: 'open', ...open }, [bytes]);
+        const labels = { chart: m.viewer_chart_not_drawn() };
+        this.#send({ kind: 'open', ...open, labels }, [bytes]);
         this.#wait(this.#limits.draw);
         break;
       }

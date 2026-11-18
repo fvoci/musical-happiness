@@ -8,6 +8,7 @@ import {
   type FormatId,
 } from '$lib/file-viewer/formats.ts';
 import {
+  LABEL_LIMIT,
   PAGE_LIMIT,
   readFromFrame,
   readToFrame,
@@ -287,15 +288,22 @@ describe('a message from the frame is taken only in one of its shapes', () => {
 describe('a message from the app, in the frame', () => {
   it('opens a file of a kind the viewer draws, with its bytes', () => {
     const buffer = new ArrayBuffer(4);
-    const open = { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko' };
+    const labels = { chart: '미리 보기에는 차트가 나오지 않습니다' };
+    const open = { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko', labels };
     expect(readToFrame(open)).toEqual(open);
+    expect(readToFrame({ ...open, format: 'pptx' })).toEqual({ ...open, format: 'pptx' });
     expect(readToFrame({ ...open, lang: 'zh-Hans' })).toEqual({ ...open, lang: 'zh-Hans' });
     for (const wrong of [
       { ...open, format: 'html' },
       { ...open, bytes: new Uint8Array(4) },
       { ...open, lang: 'ko"><script>' },
       { ...open, lang: '' },
-      { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark' },
+      { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko' },
+      { ...open, labels: {} },
+      { ...open, labels: { chart: '' } },
+      { ...open, labels: { chart: 'a'.repeat(LABEL_LIMIT + 1) } },
+      { ...open, labels: { ...labels, page: 'Page' } },
+      { ...open, labels: 'Charts' },
     ]) {
       expect(readToFrame(wrong), JSON.stringify(wrong)).toBeUndefined();
     }

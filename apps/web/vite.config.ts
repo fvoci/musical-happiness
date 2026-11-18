@@ -8,6 +8,7 @@ import { defineConfig } from 'vitest/config';
 import { cspHashes } from './tools/build/inline-scripts.ts';
 import { checkHashedNames, precompress } from './tools/build/output.ts';
 import { pdfjsData } from './tools/build/pdfjs-data.ts';
+import { pptxRenderer } from './tools/build/pptx-renderer.ts';
 import { thirdPartyNotices } from './tools/licenses/notices.ts';
 
 /**
@@ -42,6 +43,7 @@ export default defineConfig(({ command }) => ({
     svelte(),
     svelteTesting(),
     pdfjsData(),
+    pptxRenderer(),
     thirdPartyNotices(),
     checkHashedNames(),
     precompress(),
@@ -57,6 +59,13 @@ export default defineConfig(({ command }) => ({
       {
         find: /^elkjs(\/.*)?$/,
         replacement: path.resolve(import.meta.dirname, 'src/lib/editor/no-elk.ts'),
+      },
+      // The file viewer's PowerPoint renderer draws charts with echarts; the
+      // viewer shows a box in their place, and this stub takes the library's
+      // (see the file and tools/build/pptx-renderer.ts).
+      {
+        find: /^echarts(\/.*)?$/,
+        replacement: path.resolve(import.meta.dirname, 'src/viewer-frame/no-echarts.ts'),
       },
     ],
   },

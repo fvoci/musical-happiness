@@ -39,6 +39,11 @@ body {
   flex: none;
 }
 
+/* A slide is drawn at its own size and scaled to its box (pptx-view.ts). */
+.slide {
+  overflow: hidden;
+}
+
 .page canvas {
   display: block;
   width: 100%;
