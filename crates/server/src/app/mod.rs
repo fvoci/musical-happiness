@@ -24,6 +24,7 @@ mod housekeeping;
 mod import;
 mod invitations;
 mod limits;
+mod list_page;
 mod loose_objects;
 mod mail;
 mod oidc;
@@ -80,6 +81,7 @@ pub use housekeeping::WorkspacesPurged;
 pub use import::Imported;
 pub use invitations::{Accepting, Admission, Inviting};
 pub use limits::OrgLimits;
+pub use list_page::{DEFAULT_PER_PAGE, ListPage, MAX_PER_PAGE};
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use oidc::{
     BackTo, CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure,
@@ -87,7 +89,6 @@ pub use oidc::{
 };
 pub use oidc_carry::HELD_SIGN_IN_LIFETIME_MILLIS;
 pub use oidc_settings::secret_context;
-pub use org_admin::{DEFAULT_PER_PAGE, MAX_PER_PAGE, PageAsked};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
 pub use references::MAX_REFERENCE_IDS;
@@ -123,9 +124,6 @@ use crate::storage::FileBackend;
 use crate::web::WebRoot;
 use crate::webhook::Webhook;
 use crate::ws::Hub;
-
-/// The version reported by `ping`. The original's web app compares it with its own.
-pub const SERVER_VERSION: &str = "8.0.0";
 
 /// The shared state of the server. Cloning is cheap; every clone is the same server.
 ///
@@ -197,7 +195,7 @@ struct Inner {
 /// What `ping` reports about the server.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct ServerMetadata {
-    /// The server version.
+    /// The version of the server, the one the contract's `info.version` gives too.
     pub version: String,
     /// The build number; empty unless set at build time.
     pub build_number: String,
@@ -211,9 +209,10 @@ pub struct ServerMetadata {
     pub db_type: String,
     /// The database's version string.
     pub db_version: String,
-    /// The operating system the server runs on.
+    /// The operating system the server runs on, as Rust names it (`linux`, `macos`,
+    /// `windows`).
     pub os_type: String,
-    /// The CPU architecture the server runs on.
+    /// The CPU architecture the server runs on, as Rust names it (`x86_64`, `aarch64`).
     pub os_arch: String,
     /// The kind of deployment: always `personal_server`.
     pub sku: String,
@@ -635,7 +634,7 @@ impl App {
             }
         };
         ServerMetadata {
-            version: SERVER_VERSION.to_owned(),
+            version: env!("CARGO_PKG_VERSION").to_owned(),
             build_number: option_env!("FVOCI_BUILD_NUMBER")
                 .unwrap_or_default()
                 .to_owned(),
@@ -648,27 +647,9 @@ impl App {
             edition: option_env!("FVOCI_EDITION").unwrap_or("dev").to_owned(),
             db_type: self.store().db_type().as_str().to_owned(),
             db_version,
-            os_type: go_os_name().to_owned(),
-            os_arch: go_arch_name().to_owned(),
+            os_type: std::env::consts::OS.to_owned(),
+            os_arch: std::env::consts::ARCH.to_owned(),
             sku: "personal_server".to_owned(),
         }
-    }
-}
-
-/// The operating system name as the original reports it.
-fn go_os_name() -> &'static str {
-    match std::env::consts::OS {
-        "macos" => "darwin",
-        other => other,
-    }
-}
-
-/// The architecture name as the original reports it.
-fn go_arch_name() -> &'static str {
-    match std::env::consts::ARCH {
-        "x86_64" => "amd64",
-        "aarch64" => "arm64",
-        "x86" => "386",
-        other => other,
     }
 }

@@ -287,7 +287,7 @@ async fn create_card_invalid_card() {
     check_error(
         &response,
         StatusCode::BAD_REQUEST,
-        "invalid card, Icon can have only one grapheme",
+        "an icon is at most one grapheme",
     );
     assert_eq!(
         cards_of(&th.client, &board.id, "").await,
@@ -303,7 +303,7 @@ async fn get_cards_fetch_all_cards() {
     let th = Setup::native().start().await.init_basic().await;
     let board = get_cards_fixture(&th).await;
 
-    let cards = cards_of(&th.client, &board.id, "?page=0&perPage=-1").await;
+    let cards = cards_of(&th.client, &board.id, "?page=0&perPage=1000").await;
 
     assert_eq!(cards.len(), CARD_COUNT, "all cards and none of the texts");
     th.teardown().await;
@@ -412,7 +412,7 @@ async fn patch_card_invalid_card_patch() {
     check_error(
         &response,
         StatusCode::BAD_REQUEST,
-        "invalid card, Icon can have only one grapheme",
+        "an icon is at most one grapheme",
     );
     let unchanged: Card = th.client.get(&card_path(&card.id)).await.ok_json();
     assert_eq!(&unchanged, card, "the card is as it was");
@@ -522,7 +522,14 @@ async fn app_create_card_error_scenario() {
 
     let cards = th
         .app
-        .cards_for_board(&board.id, 0, 0, fvoci_server::app::CardPreviews::Without)
+        .cards_for_board(
+            &board.id,
+            fvoci_server::app::ListPage {
+                page: 0,
+                per_page: fvoci_server::app::MAX_PER_PAGE,
+            },
+            fvoci_server::app::CardPreviews::Without,
+        )
         .await
         .expect("the cards are read");
     assert_eq!(cards, [], "nothing was created");
@@ -540,7 +547,7 @@ async fn app_get_cards_success_scenario() {
         .map(|number| Block {
             schema: 1,
             title: format!("card {number}"),
-            ..new_block(&board.id, &board.id, BlockType::Card)
+            ..new_block(&board.id, "", BlockType::Card)
         })
         .collect();
     th.app
@@ -554,7 +561,14 @@ async fn app_get_cards_success_scenario() {
 
     let cards = th
         .app
-        .cards_for_board(&board.id, 0, 0, fvoci_server::app::CardPreviews::Without)
+        .cards_for_board(
+            &board.id,
+            fvoci_server::app::ListPage {
+                page: 0,
+                per_page: fvoci_server::app::MAX_PER_PAGE,
+            },
+            fvoci_server::app::CardPreviews::Without,
+        )
         .await
         .expect("the cards are read");
 
@@ -586,7 +600,14 @@ async fn app_get_cards_error_scenario() {
 
     let cards = th
         .app
-        .cards_for_board(&board.id, 0, 0, fvoci_server::app::CardPreviews::Without)
+        .cards_for_board(
+            &board.id,
+            fvoci_server::app::ListPage {
+                page: 0,
+                per_page: fvoci_server::app::MAX_PER_PAGE,
+            },
+            fvoci_server::app::CardPreviews::Without,
+        )
         .await
         .expect("the cards are read");
     assert!(cards.is_empty(), "nothing was stored: {cards:?}");
@@ -702,7 +723,7 @@ async fn app_get_card_success_scenario() {
     let block = Block {
         title: "test card".to_owned(),
         fields: serde_json::from_value(fields).expect("the fields are a JSON object"),
-        ..new_block(&board.id, &board.id, BlockType::Card)
+        ..new_block(&board.id, "", BlockType::Card)
     };
     let block = insert_block(&th.client, &block).await;
 
@@ -854,7 +875,7 @@ async fn create_card_answer_and_stored_block() {
     th.teardown().await;
 }
 
-/// A card need not say anything about itself; `null` members count as left out.
+/// A card need not say anything about itself.
 #[tokio::test]
 async fn create_card_without_members() {
     let th = Setup::native().start().await.init_basic().await;
@@ -863,35 +884,30 @@ async fn create_card_without_members() {
         .await;
     let me = th.client.me().await;
 
-    for body in [
-        json!({}),
-        json!({"title": null, "contentOrder": null, "properties": null, "icon": null}),
-    ] {
-        let response = th.client.post(&cards_path(&board.id), &body).await;
-        let card: Card = response.created_json();
-        assert_eq!(
-            response.value(),
-            json!({
-                "id": card.id,
-                "boardId": board.id,
-                "createdBy": me.id,
-                "modifiedBy": me.id,
-                "title": "",
-                "icon": "",
-                "isTemplate": false,
-                "properties": {},
-                "body": null,
-                "hasBody": false,
-                "tasksTotal": 0,
-                "tasksDone": 0,
-                "lastCommentAt": 0,
-                "createAt": card.create_at,
-                "updateAt": card.update_at,
-                "deleteAt": 0,
-            }),
-            "an empty card for {body}"
-        );
-    }
+    let response = th.client.post(&cards_path(&board.id), &json!({})).await;
+    let card: Card = response.created_json();
+    assert_eq!(
+        response.value(),
+        json!({
+            "id": card.id,
+            "boardId": board.id,
+            "createdBy": me.id,
+            "modifiedBy": me.id,
+            "title": "",
+            "icon": "",
+            "isTemplate": false,
+            "properties": {},
+            "body": null,
+            "hasBody": false,
+            "tasksTotal": 0,
+            "tasksDone": 0,
+            "lastCommentAt": 0,
+            "createAt": card.create_at,
+            "updateAt": card.update_at,
+            "deleteAt": 0,
+        }),
+        "an empty card"
+    );
 
     th.teardown().await;
 }
@@ -953,13 +969,17 @@ async fn create_card_refusals() {
             .client
             .post(&path, &json!({"boardId": other_board}))
             .await;
-        check_error(&response, StatusCode::BAD_REQUEST, "Board IDs do not match");
+        check_error(
+            &response,
+            StatusCode::BAD_REQUEST,
+            "the card names another board than the path",
+        );
     }
     let response = th.client.post(&path, &bad_icon).await;
     check_error(
         &response,
         StatusCode::BAD_REQUEST,
-        "invalid card, Icon can have only one grapheme",
+        "an icon is at most one grapheme",
     );
 
     // The store's limits are the client's mistake too.
@@ -1058,8 +1078,8 @@ async fn get_cards_permissions_and_malformed_paging() {
     th.teardown().await;
 }
 
-/// `page` counts from zero and defaults to it, `perPage` defaults to 100, and zero or
-/// less asks for all cards.
+/// `page` counts from zero and defaults to it, `perPage` defaults to 50 and is 1 to
+/// 1000: there is no asking for all cards at once.
 #[tokio::test]
 async fn get_cards_paging() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1070,7 +1090,7 @@ async fn get_cards_paging() {
     let mut blocks: Vec<Block> = (0..total)
         .map(|number| Block {
             title: number.to_string(),
-            ..new_block(&board.id, &board.id, BlockType::Card)
+            ..new_block(&board.id, "", BlockType::Card)
         })
         .collect();
     th.app
@@ -1083,39 +1103,33 @@ async fn get_cards_paging() {
         .expect("the card blocks are stored");
     let count = async |query: &str| cards_of(&th.client, &board.id, query).await.len();
 
-    assert_eq!(count("").await, 100, "a page has 100 cards by default");
-    assert_eq!(count("?page=1").await, 3, "the rest is on the second page");
-    assert_eq!(count("?page=2").await, 0, "and nothing on the third");
-    assert_eq!(count("?page=&perPage=").await, 100, "empty is absent");
+    assert_eq!(count("").await, 50, "a page has 50 cards by default");
+    assert_eq!(count("?page=2").await, 3, "the rest is on the third page");
+    assert_eq!(count("?page=3").await, 0, "and nothing on the fourth");
+    assert_eq!(count("?page=&perPage=").await, 50, "empty is absent");
     // The page size has one spelling; another is a parameter the server does not know.
-    assert_eq!(count("?per_page=2").await, 100, "no page size");
-    assert_eq!(count("?per_page=x").await, 100, "and nothing to refuse");
+    assert_eq!(count("?per_page=2").await, 50, "no page size");
+    assert_eq!(count("?per_page=x").await, 50, "and nothing to refuse");
     assert_eq!(count("?perPage=2").await, 2, "a smaller page");
     assert_eq!(count("?perPage=%2B2").await, 2, "a sign is fine");
     assert_eq!(count("?page=00&perPage=03").await, 3, "so are zeros");
     assert_eq!(count("?page=51&perPage=2").await, 1, "the last card");
     assert_eq!(count("?page=1000&perPage=2").await, 0, "beyond the end");
-    assert_eq!(count("?perPage=1000000000000").await, total, "a huge page");
-    assert_eq!(count("?perPage=0").await, total, "zero is no limit");
-    assert_eq!(count("?perPage=-1").await, total, "nor is less than zero");
-    assert_eq!(
-        count("?page=0&perPage=-5").await,
-        total,
-        "on the first page"
-    );
-    assert_eq!(count("?page=-1").await, 0, "no page before the first");
-    assert_eq!(count("?page=-1&perPage=2").await, 0, "whatever its size");
-    // The original's SQLite fails these two with a server error, an offset without a
-    // limit being no valid query there; here a page size of zero or less is all cards
-    // on any page.
-    assert_eq!(count("?page=1&perPage=0").await, total, "all cards");
-    assert_eq!(count("?page=-1&perPage=-1").await, total, "all cards");
-    // The original's offset wraps around here and lands on the first page.
-    assert_eq!(
-        count("?page=4611686018427387904&perPage=4").await,
-        0,
-        "a page beyond any card"
-    );
+    assert_eq!(count("?perPage=1000").await, total, "the largest page");
+    let path = cards_path(&board.id);
+    for query in [
+        "?perPage=0",
+        "?page=1&perPage=0",
+        "?perPage=1001",
+        "?perPage=2147483647",
+        "?perPage=-1",
+        "?page=-1",
+        "?page=2147483648",
+        "?perPage=1000000000000",
+    ] {
+        let response = th.client.get(&format!("{path}{query}")).await;
+        response.check_bad_request();
+    }
 
     // Pages do not overlap and leave nothing out.
     let mut titles = BTreeSet::new();
@@ -1604,11 +1618,9 @@ async fn patch_card_changes() {
     for body in [
         json!({}),
         json!({"updatedProperties": {}}),
-        json!({"updatedProperties": null}),
         json!({"title": null, "contentOrder": null, "icon": null}),
         json!({"isTemplate": false, "deleteAt": 5, "boardId": "x"}),
         json!({"deletedProperties": ["none"]}),
-        json!({"deletedProperties": null}),
     ] {
         let patched = send(&th.client, &path, body.clone()).await;
         let expected = Card {

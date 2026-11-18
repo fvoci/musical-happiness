@@ -187,19 +187,23 @@ async fn the_parent_of_a_page_is_a_page_of_its_wiki() {
     let top = page(&test, &wiki, "", None).await;
     let elsewhere = page(&test, &other, "", None).await;
 
-    // Below a page of the wiki, as deep as it goes; the wiki named as the parent is the top.
+    // Below a page of the wiki, as deep as it goes.
     let child = page(&test, &wiki, &top, None).await;
     let grandchild = page(&test, &wiki, &child, None).await;
-    let named_top = page(&test, &wiki, &wiki.id, None).await;
-    assert_eq!(below(&test, &wiki, "").await, [top.clone(), named_top]);
+    assert_eq!(below(&test, &wiki, "").await, std::slice::from_ref(&top));
     assert_eq!(
         below(&test, &wiki, &top).await,
         std::slice::from_ref(&child)
     );
     assert_eq!(below(&test, &wiki, &child).await, [grandchild]);
 
-    // A page of another wiki, the other wiki itself and nothing are no parent.
-    for parent in [elsewhere.as_str(), other.id.as_str(), &new_id()] {
+    // A page of another wiki, the other wiki, the wiki itself and nothing are no parent.
+    for parent in [
+        elsewhere.as_str(),
+        other.id.as_str(),
+        wiki.id.as_str(),
+        &new_id(),
+    ] {
         let new = NewPage {
             parent_id: parent.to_owned(),
             ..NewPage::default()

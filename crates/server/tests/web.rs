@@ -256,11 +256,7 @@ async fn what_is_not_a_file_under_static_is_not_found() {
             response.headers().get(CACHE_CONTROL).is_none(),
             "a 404 carries no cache policy"
         );
-        assert_eq!(
-            body_text(response).await,
-            "404 page not found\n",
-            "path {path:?}"
-        );
+        assert_eq!(body_text(response).await, "not found\n", "path {path:?}");
     }
 
     let nested = fixture.get("sub/nested.css", &[]).await;

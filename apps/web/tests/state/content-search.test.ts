@@ -22,7 +22,7 @@ function block(id: string, boardId: string, title: string, updateAt = NOW): Bloc
     id,
     type: 'card',
     containerId: boardId,
-    parentId: boardId,
+    parentId: '',
     createdBy: 'reader',
     modifiedBy: 'reader',
     schema: 1,

@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use crate::auth::NewAccount;
 use crate::container::{ContainerKind, ContainerRole};
 use crate::organization::WorkspaceRole;
-use crate::serde_util::null_as_default;
 
 /// How long a link lets somebody in after it was made: seven days, in milliseconds.
 pub const INVITATION_LIFETIME_MILLIS: i64 = 7 * 24 * 60 * 60 * 1000;
@@ -99,7 +98,6 @@ pub struct NewInvitation {
 #[serde(default)]
 pub struct InvitationToken {
     /// The token of the link.
-    #[serde(deserialize_with = "null_as_default")]
     pub token: String,
 }
 
@@ -132,7 +130,6 @@ pub struct InvitationPreview {
 #[serde(default)]
 pub struct AcceptInvitation {
     /// The token of the link.
-    #[serde(deserialize_with = "null_as_default")]
     pub token: String,
     /// The account to make and let in, for a request without a session. A request with
     /// a session lets in the account of the session, and names none.
@@ -140,7 +137,6 @@ pub struct AcceptInvitation {
     /// The language tag of the screen the request comes from (`ko`, `en-GB`): the
     /// language of the mail that confirms a new account's address, where the server asks
     /// for that (English, Korean); English for any other.
-    #[serde(deserialize_with = "null_as_default")]
     pub language: String,
 }
 

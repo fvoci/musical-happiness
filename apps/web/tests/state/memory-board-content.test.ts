@@ -39,7 +39,7 @@ function inviteOnlyBoard(): MemoryBackend {
     id,
     type,
     containerId: 'b',
-    parentId: 'b',
+    parentId: '',
     createdBy: 'someone-else',
     modifiedBy: 'someone-else',
     schema: 1,

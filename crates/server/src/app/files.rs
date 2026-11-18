@@ -1,16 +1,18 @@
 //! Files attached to boards: storing uploads, finding them again and copying them when
 //! cards are duplicated.
 //!
-//! A file is one board's. It is stored under a name the server makes up, a secret with
-//! the upload's extension, and its record names the board, the stored name and the place
-//! in the file storage. A file is given out, copied and exported only through the board
+//! A file is one board's. It is stored at a key the server makes up
+//! ([`FileKey`]: the organization, the board, a secret), is asked for by a stored name,
+//! the secret with the upload's extension, and its record names the board, the stored
+//! name and the key. A file is given out, copied and exported only through the board
 //! of its record: whoever may read one board cannot fetch another board's file by
 //! knowing its name. A file without a record is given out through no board.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockPatchBatch, Body, Container, FileInfo, JsonMap, new_id,
+    Block, BlockError, BlockPatch, BlockPatchBatch, Body, Container, FileInfo, FileKey, JsonMap,
+    new_id,
 };
 use serde_json::Value;
 use tokio::io::AsyncRead;
@@ -25,16 +27,13 @@ use crate::storage::StorageError;
 /// What a request misses that asks for a file that is not there.
 pub(crate) const FILE: &str = "file";
 
-/// The directory uploads are stored under.
-const UPLOADS_ROOT: &str = "boards";
-
 /// Where a new file of a board goes in the file storage, and what its record says of
 /// its name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FilePlace {
-    /// The place in the file storage.
+    /// The key in the file storage.
     pub(crate) path: String,
-    /// The name blocks refer to the file by: the last part of `path`.
+    /// The name blocks refer to the file by: the secret of the key, with `extension`.
     stored_name: String,
     /// The name the client gave, without directories.
     name: String,
@@ -43,30 +42,31 @@ pub(crate) struct FilePlace {
 }
 
 impl FilePlace {
-    /// A new place for a file of `container_id` that the client calls `filename`: a secret
-    /// with the lower-cased extension of `filename` (`.jpeg` becomes `.jpg`), under the
-    /// day's directory. Nothing of the client's name ends up in the path.
-    pub(crate) fn new(container_id: &str, filename: &str) -> Self {
-        let name = base_name(filename);
-        let extension = stored_extension(name);
-        let stored_name = new_stored_name(&extension);
-        Self {
-            path: destination_path(container_id, &stored_name),
-            stored_name,
-            name: name.to_owned(),
-            extension,
-        }
+    /// A new place for a file of `container_id`, of the organization `org_id`, that the
+    /// client calls `filename`: a key of a new secret, and the stored name of that secret
+    /// with the lower-cased extension of `filename` (`.jpeg` becomes `.jpg`). Nothing of
+    /// the client's name ends up in the key.
+    pub(crate) fn new(org_id: &str, container_id: &str, filename: &str) -> Self {
+        let secret = new_secret();
+        let key = FileKey {
+            org_id,
+            container_id,
+            secret: &secret,
+        };
+        Self::at(&key.to_string(), filename)
     }
 
     /// The place chosen with [`FilePlace::new`] at `path`, for the file the client calls
     /// `filename`.
     pub(crate) fn at(path: &str, filename: &str) -> Self {
         let name = base_name(filename);
+        let extension = stored_extension(name);
+        let secret = path.rsplit('/').next().unwrap_or(path);
         Self {
             path: path.to_owned(),
-            stored_name: path.rsplit('/').next().unwrap_or(path).to_owned(),
+            stored_name: format!("{secret}{extension}"),
             name: name.to_owned(),
-            extension: stored_extension(name),
+            extension,
         }
     }
 }
@@ -95,7 +95,7 @@ impl App {
         container_id: &str,
         filename: &str,
     ) -> Result<String, AppError> {
-        let place = FilePlace::new(container_id, filename);
+        let place = self.new_file_place(container_id, filename).await?;
         self.mark_writing(&place.path).await?;
         let write = self.files().write(&place.path, reader);
         let size = match tokio::time::timeout(WRITE_TIMEOUT, write).await {
@@ -132,6 +132,36 @@ impl App {
                 Err(error.into())
             }
         }
+    }
+
+    /// A new place for a file of `container_id` that the client calls `filename`
+    /// ([`FilePlace::new`]), under the organization of the board's record.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error if the handle reaches no such board, and the store's
+    /// error if the lookup fails.
+    pub(crate) async fn new_file_place(
+        &self,
+        container_id: &str,
+        filename: &str,
+    ) -> Result<FilePlace, AppError> {
+        let org_id = self.org_of_container(container_id).await?;
+        Ok(FilePlace::new(&org_id, container_id, filename))
+    }
+
+    /// The organization of a board, which the keys of its files begin with.
+    async fn org_of_container(&self, container_id: &str) -> Result<String, AppError> {
+        self.store()
+            .org_of_container(container_id)
+            .await
+            .map_err(|error| {
+                if error.is_not_found() {
+                    AppError::not_found("board")
+                } else {
+                    error.into()
+                }
+            })
     }
 
     /// Records the file of `size` bytes stored at `place` as a file of `container_id`, and
@@ -388,6 +418,8 @@ impl App {
 
         let mut new_file_names = HashMap::new();
         let mut destination: Option<Container> = None;
+        // The organization of the board copies went to last, by its identifier.
+        let mut destination_org: Option<(String, String)> = None;
         for (block, file_id) in blocks
             .iter()
             .flat_map(|block| block.shown_files().into_iter().map(move |id| (block, id)))
@@ -432,72 +464,76 @@ impl App {
                 continue;
             };
 
-            let stored_name = new_stored_name(&source.extension);
-            let copy = FileInfo {
-                id: new_id(),
-                container_id: destination_container.id.clone(),
-                stored_name: stored_name.clone(),
-                path: destination_path(&destination_container.id, &stored_name),
-                create_at: now_millis(),
-                ..source.clone()
+            let org_id = match &destination_org {
+                Some((container, org)) if *container == destination_container.id => org.clone(),
+                _ => {
+                    let org = self.org_of_container(&destination_container.id).await?;
+                    destination_org = Some((destination_container.id.clone(), org.clone()));
+                    org
+                }
             };
-            // The mark, the bytes, then the record that says where they are and takes
-            // the mark away. A file that could not be copied gets no record and no
-            // name: the block that pointed at it ends up naming no file, not a file
-            // that is not there.
-            if let Err(error) = self.mark_writing(&copy.path).await {
-                tracing::error!(%error, "CopyCardFiles could not mark a copy");
-                continue;
-            }
-            let copied = self.files().copy(&source.path, &copy.path);
-            if let Err(error) = tokio::time::timeout(WRITE_TIMEOUT, copied)
+            if let Some(stored_name) = self
+                .copy_file(&source, &org_id, &destination_container.id)
                 .await
-                .unwrap_or_else(|_| Err(StorageError::Io(std::io::ErrorKind::TimedOut.into())))
             {
-                tracing::error!(
-                    %error,
-                    source_path = source.path,
-                    destination_path = copy.path,
-                    "CopyCardFiles failed to copy file"
-                );
-                self.give_up_writing(&copy.path, Written::Unsettled).await;
-                continue;
+                new_file_names.insert(file_id, stored_name);
             }
-            if let Err(error) = self.record_written(&copy).await {
-                tracing::error!(%error, "CopyCardFiles could not record a copy");
-                continue;
-            }
-            new_file_names.insert(file_id, stored_name);
         }
         Ok(new_file_names)
     }
-}
 
-/// Whether a place of the file storage has the shape of one the server makes
-/// ([`FilePlace::new`]): `boards/<YYYYMMDD>/<board>/<stored name>`, the stored name a
-/// secret of letters, digits, `-` and `_`, with a plain extension or none. Anything
-/// else in the storage is none of the server's making, whatever names it.
-pub(crate) fn is_server_place(path: &str) -> bool {
-    let mut parts = path.split('/');
-    let (Some(root), Some(day), Some(container), Some(name), None) = (
-        parts.next(),
-        parts.next(),
-        parts.next(),
-        parts.next(),
-        parts.next(),
-    ) else {
-        return false;
-    };
-    let (secret, extension) = name.split_once('.').unwrap_or((name, ""));
-    root == UPLOADS_ROOT
-        && day.len() == 8
-        && day.bytes().all(|byte| byte.is_ascii_digit())
-        && fvoci_model::is_id(container)
-        && !secret.is_empty()
-        && secret
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-        && extension.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    /// Copies the file of the record `source` to a new key of `container_id`, of the
+    /// organization `org_id`, and records the copy; returns its stored name, which keeps
+    /// the extension of its source's record.
+    ///
+    /// The mark, the bytes, then the record that says where they are and takes the mark
+    /// away. A file that could not be copied gets no record and no name (`None`, the
+    /// failure logged): the block that pointed at it ends up naming no file, not a file
+    /// that is not there.
+    async fn copy_file(
+        &self,
+        source: &FileInfo,
+        org_id: &str,
+        container_id: &str,
+    ) -> Option<String> {
+        let secret = new_secret();
+        let key = FileKey {
+            org_id,
+            container_id,
+            secret: &secret,
+        };
+        let copy = FileInfo {
+            id: new_id(),
+            container_id: container_id.to_owned(),
+            stored_name: format!("{secret}{}", source.extension),
+            path: key.to_string(),
+            create_at: now_millis(),
+            ..source.clone()
+        };
+        if let Err(error) = self.mark_writing(&copy.path).await {
+            tracing::error!(%error, "CopyCardFiles could not mark a copy");
+            return None;
+        }
+        let copied = self.files().copy(&source.path, &copy.path);
+        if let Err(error) = tokio::time::timeout(WRITE_TIMEOUT, copied)
+            .await
+            .unwrap_or_else(|_| Err(StorageError::Io(std::io::ErrorKind::TimedOut.into())))
+        {
+            tracing::error!(
+                %error,
+                source_path = source.path,
+                destination_path = copy.path,
+                "CopyCardFiles failed to copy file"
+            );
+            self.give_up_writing(&copy.path, Written::Unsettled).await;
+            return None;
+        }
+        if let Err(error) = self.record_written(&copy).await {
+            tracing::error!(%error, "CopyCardFiles could not record a copy");
+            return None;
+        }
+        Some(copy.stored_name)
+    }
 }
 
 /// The record of a file of `container_id` of `size` bytes stored at `place`, made now.
@@ -551,46 +587,8 @@ pub(crate) fn stored_extension(name: &str) -> String {
 /// The longest extension, dot included, that a stored name takes over from an upload.
 const MAX_EXTENSION_LENGTH: usize = 17;
 
-/// A new stored name: a secret, so that the name cannot be guessed, and the extension.
-fn new_stored_name(extension: &str) -> String {
-    format!("{}{extension}", new_secret())
-}
-
-/// Where a board's file is stored: `boards/YYYYMMDD/<board id>/<stored name>`, with the
-/// date of the upload in UTC.
-fn destination_path(container_id: &str, stored_name: &str) -> String {
-    format!(
-        "{}/{container_id}/{stored_name}",
-        base_file_path(now_millis())
-    )
-}
-
-/// `boards/YYYYMMDD` for the UTC day of `now_millis`.
-fn base_file_path(now_millis: i64) -> String {
-    let (year, month, day) = civil_from_millis(now_millis);
-    format!("{UPLOADS_ROOT}/{year:04}{month:02}{day:02}")
-}
-
 fn size_to_i64(size: u64) -> i64 {
     i64::try_from(size).unwrap_or(i64::MAX)
-}
-
-/// The year, month and day (UTC) of a time in milliseconds since the Unix epoch.
-///
-/// Howard Hinnant's `civil_from_days` algorithm.
-pub(in crate::app) fn civil_from_millis(millis: i64) -> (i64, u32, u32) {
-    let days = millis.div_euclid(86_400_000);
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let year = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = u32::try_from(doy - (153 * mp + 2) / 5 + 1).unwrap_or(1);
-    let month = u32::try_from(if mp < 10 { mp + 3 } else { mp - 9 }).unwrap_or(1);
-    let year = if month <= 2 { year + 1 } else { year };
-    (year, month, day)
 }
 
 /// Returns a storage error as a not-found when it is one, so callers can tell a missing
@@ -610,17 +608,6 @@ impl From<StorageError> for AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn civil_from_millis_matches_known_dates() {
-        assert_eq!(civil_from_millis(0), (1970, 1, 1), "the Unix epoch");
-        // 2026-11-10T05:15:39Z, a time observed on the oracle.
-        assert_eq!(
-            civil_from_millis(1_794_287_739_000),
-            (2026, 11, 10),
-            "a date in the files directory"
-        );
-    }
 
     #[test]
     fn stored_extension_takes_the_last_dot_lower_cased() {
@@ -645,24 +632,36 @@ mod tests {
     }
 
     #[test]
-    fn a_place_the_server_makes_has_its_shape() {
-        let place = FilePlace::new("01890000-0000-7000-8000-000000000001", "a.PNG");
-        assert!(is_server_place(&place.path), "{}", place.path);
-        let plain = FilePlace::new("01890000-0000-7000-8000-000000000001", "noext");
-        assert!(is_server_place(&plain.path), "{}", plain.path);
-        for other in [
-            "boards/20261112/x.png",
-            "boards/2026111/01890000-0000-7000-8000-000000000001/x.png",
-            "boards/20261112/not-an-id/x.png",
-            "b/boards/20261112/01890000-0000-7000-8000-000000000001/x.png",
-            "boards/20261112/01890000-0000-7000-8000-000000000001/x%y.png",
-            "boards/20261112/01890000-0000-7000-8000-000000000001/.png",
-            "boards/20261112/01890000-0000-7000-8000-000000000001/a.b.png",
-            "tmp/uploads/abc/1.xyz",
-            "data/users/x",
-        ] {
-            assert!(!is_server_place(other), "{other}");
-        }
+    fn a_new_place_is_a_key_of_its_organization_and_board() {
+        let org = "01890000-0000-7000-8000-00000000000a";
+        let board = "01890000-0000-7000-8000-000000000001";
+        let place = FilePlace::new(org, board, "../My Photo.JPEG");
+        let key = FileKey::parse(&place.path).expect("a key of the server's making");
+        assert_eq!(
+            (key.org_id, key.container_id),
+            (org, board),
+            "{}",
+            place.path
+        );
+        assert!(!place.path.contains("Photo"), "no name in {}", place.path);
+        assert!(!place.path.contains('.'), "no extension in {}", place.path);
+        assert_eq!(place.stored_name, format!("{}.jpg", key.secret));
+        assert_eq!(place.name, "My Photo.JPEG");
+        assert_eq!(
+            FilePlace::at(&place.path, "../My Photo.JPEG"),
+            place,
+            "read back"
+        );
+        let plain = FilePlace::new(org, board, "noext");
+        assert_eq!(
+            plain.stored_name,
+            plain.path.rsplit('/').next().unwrap_or_default()
+        );
+        assert_ne!(
+            FilePlace::new(org, board, "noext").path,
+            plain.path,
+            "a new secret"
+        );
     }
 
     #[test]
@@ -677,29 +676,6 @@ mod tests {
             base_name(r"c:\dir\x.png"),
             r"c:\dir\x.png",
             "backslashes stay"
-        );
-    }
-
-    #[test]
-    fn a_file_is_stored_under_its_board_and_a_name_that_is_a_secret() {
-        // 2026-11-10T05:15:39Z.
-        let now = 1_794_287_739_000;
-        assert_eq!(
-            base_file_path(now),
-            "boards/20261110",
-            "an upload goes to the directory of its day"
-        );
-
-        let name = new_stored_name(".png");
-        let (stem, extension) = name.split_at(crate::auth::secret::SECRET_LENGTH);
-        assert_eq!(extension, ".png", "the extension follows the secret");
-        assert!(!fvoci_model::is_id(stem), "the name is no identifier");
-        assert_ne!(name, new_stored_name(".png"), "and differs every time");
-
-        let path = destination_path("the-board", &name);
-        assert!(
-            path.starts_with("boards/") && path.ends_with(&format!("/the-board/{name}")),
-            "the path names the board: {path}"
         );
     }
 }

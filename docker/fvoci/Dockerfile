@@ -26,9 +26,9 @@
 # Secrets are never build arguments or layers. At run time docker/fvoci/entrypoint.sh
 # reads the files of Docker secrets into the variables the server reads.
 #
-# Metrics are off. To serve them, set FVOCI_METRICS_ADDRESS=:9092, publish that port to
-# the monitoring network only, and give FVOCI_METRICS_TOKEN_FILE (a file of at least
-# 32 characters, such as `openssl rand -hex 32`): the listener is plain HTTP.
+# Metrics are off. To serve them, set FVOCI_METRICS_ADDRESS=0.0.0.0:9092, publish that
+# port to the monitoring network only, and give FVOCI_METRICS_TOKEN_FILE (a file of at
+# least 32 characters, such as `openssl rand -hex 32`): the listener is plain HTTP.
 
 ARG RUST_VERSION=1
 ARG NODE_VERSION=24

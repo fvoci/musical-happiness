@@ -3,9 +3,12 @@
 //! The handlers read their parameters themselves; these types only say, in a handler's
 //! `params(...)`, which ones it reads.
 
-use utoipa::openapi::Required;
 use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn};
+use utoipa::openapi::schema::{KnownFormat, ObjectBuilder, Schema, SchemaFormat, Type};
+use utoipa::openapi::{RefOr, Required};
 use utoipa::{IntoParams, PartialSchema};
+
+use crate::app::MAX_PER_PAGE;
 
 /// Defines a type that stands for one parameter.
 macro_rules! parameter {
@@ -28,6 +31,20 @@ macro_rules! parameter {
             }
         }
     };
+}
+
+/// The schema of `perPage`: a whole number from 1 to [`MAX_PER_PAGE`].
+struct PerPageCount;
+
+impl PartialSchema for PerPageCount {
+    fn schema() -> RefOr<Schema> {
+        ObjectBuilder::new()
+            .schema_type(Type::Integer)
+            .format(Some(SchemaFormat::KnownFormat(KnownFormat::Int32)))
+            .minimum(Some(1))
+            .maximum(Some(MAX_PER_PAGE))
+            .into()
+    }
 }
 
 // -- in the path -----------------------------------------------------------------------
@@ -76,11 +93,10 @@ parameter!(ToWorkspace: Query "toWorkspace", String, False, "The workspace the c
 parameter!(SourceBoardId: Query "sourceBoardId", String, False, "The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies.");
 parameter!(AllBlocks: Query "all", String, False, "Any value that is not empty asks for every block of the board, and the other parameters are not looked at.");
 parameter!(OneBlockId: Query "blockId", String, False, "Asks for the one block with this identifier, in a list of one. 404 if the board has no such block.");
-parameter!(ParentId: Query "parentId", String, False, "Narrows the list to the blocks with this parent. With the identifier of the board, to the blocks directly on the board.");
-parameter!(BlockTypeFilter: Query "type", String, False, "Narrows the list to the blocks of this type. The word `unknown` narrows nothing.");
-parameter!(Page: Query "page", i64, False, "The page, counted from 0. Left out, the first one.");
-parameter!(PerPage: Query "perPage", i64, False, "How many a page has. Left out, 100. Zero or less asks for all of them.");
-parameter!(CappedPerPage: Query "perPage", i64, False, "How many a page has, at most 200. Left out, or zero or less, 50.");
+parameter!(ParentId: Query "parentId", String, False, "Narrows the list to the blocks below the block of this identifier.");
+parameter!(BlockTypeFilter: Query "type", String, False, "Narrows the list to the blocks of this type, written as the blocks have it.");
+parameter!(Page: Query "page", u32, False, "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.");
+parameter!(PerPage: Query "perPage", PerPageCount, False, "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.");
 parameter!(SearchTerm: Query "q", String, False, "What to look for. Without it nothing is found.");
 parameter!(TitleTerm: Query "q", String, False, "The words to look for in titles, at most 200 characters. Without it, what was changed last is found.");
 parameter!(SearchField: Query "field", String, False, "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.");

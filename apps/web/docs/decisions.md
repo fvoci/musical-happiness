@@ -1345,7 +1345,7 @@
   - 실패하면 알리지 않는다(401만 로그인 화면으로). 서버는 읽는 사람이 못 보는 사람을 없는 사람처럼 빼고 답하고, 같은 식별자는 한 번 준다. 빈 목록은 묻지 않는다(서버는 400).
   - 메모리 구현도 서버처럼 모르는 사람을 빼고 답한다.
   - 바꾸려면: `state/backend.ts`의 `usersById`, `workspace.svelte.ts`의 `learnUsers`와 `load`, `board.svelte.ts`의 `load`와 `#apply`.
-- **연결 10.** 보드의 카드는 한 번에 다 읽는다(`getCards`의 `perPage` 0). 카드 상세는 `getCard`이고 본문을 싣는다. 본문은 방에서 쓴다(`contracts/websocket.md` 6절, `api/live-rooms.ts`, `logic/doc-room.ts`). 방에 든 동안 `UPDATE_BLOCK`이 가져온 본문은 다시 읽지 않는다(방의 것이 이긴다).
+- **연결 10.** 보드의 카드는 다 읽는다(`getCards`를 1000장씩 쪽을 넘겨, `state/page-reads.ts`. 쪽 사이에 앞 쪽의 카드가 지워지면 뒤의 한 장을 건너뛸 수 있다: 1000장을 넘는 보드에서만이고, 다시 읽으면 보인다). 카드 상세는 `getCard`이고 본문을 싣는다. 본문은 방에서 쓴다(`contracts/websocket.md` 6절, `api/live-rooms.ts`, `logic/doc-room.ts`). 방에 든 동안 `UPDATE_BLOCK`이 가져온 본문은 다시 읽지 않는다(방의 것이 이긴다).
   - 왜: 화면의 저장소가 보드의 카드를 모두 들고 거르고 묶는다. 쪽을 나눠 읽으면 그 가정이 깨진다.
   - 카드 하나를 읽는 라우트(`GET /cards/{cardId}`)는 읽을 수 있는 어느 보드의 카드든 준다. 다른 보드의 카드면 404로 바꾼다(메모리 구현과 같다): 주소에 남의 보드의 카드가 있어도 이 보드에 섞이지 않게.
   - 바꾸려면: `lib/api/backend.ts`의 `cards`, `card`.

@@ -7,9 +7,9 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::ReferenceIds;
-use super::contract::params::{BlockId, CappedPerPage, MemberWorkspaceId, Page, TitleTerm};
+use super::contract::params::{BlockId, MemberWorkspaceId, Page, PerPage, TitleTerm};
 use super::contract::tag;
-use super::org_admin::requested_page;
+use super::paging::paging_params;
 use super::workspace::InContainer;
 use super::{ApiResult, decode_json, json_response, query_param};
 use crate::app::App;
@@ -54,8 +54,7 @@ async fn handle_resolve_references(InContainer(ws): InContainer, body: Bytes) ->
 ///
 /// The cards and pages of this workspace whose body names the block of the path with a
 /// reference, or which have a comment whose body does, on a board or a wiki the user
-/// reads; the block itself is never among them. Oldest first, 50 to a page unless
-/// `perPage` says otherwise, at most 200. What names it from where the user does not
+/// reads; the block itself is never among them. Oldest first. What names it from where the user does not
 /// read is left out and takes no place in a page: the answer does not say how many
 /// there are, nor whether there are any.
 ///
@@ -66,7 +65,7 @@ async fn handle_resolve_references(InContainer(ws): InContainer, body: Bytes) ->
     path = "/w/{workspaceId}/references/to/{blockId}",
     operation_id = "getReferencesTo",
     tag = tag::REFERENCES,
-    params(MemberWorkspaceId, BlockId, Page, CappedPerPage),
+    params(MemberWorkspaceId, BlockId, Page, PerPage),
     responses((status = 200, description = "What names it, of the page.", body = Vec<LinkedBlock>)),
 )]
 async fn handle_get_references_to(
@@ -74,7 +73,7 @@ async fn handle_get_references_to(
     Path((_, block_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
-    let asked = requested_page(query.as_deref())?;
+    let asked = paging_params(query.as_deref())?;
     // What has not the form of an identifier names nothing, and is answered so.
     let naming = if is_id(&block_id) {
         ws.app

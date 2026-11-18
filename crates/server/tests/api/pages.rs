@@ -203,8 +203,8 @@ async fn a_page_goes_where_the_request_says_and_takes_what_is_below_it_along() {
     let d = make(client, &pages, json!({"title": "d"})).await;
     make(client, &pages, json!({"title": "a", "after": ""})).await;
     make(client, &pages, json!({"title": "c", "after": b.id})).await;
-    // The wiki named as the parent is the top of the wiki.
-    make(client, &pages, json!({"title": "e", "parentId": wiki_id})).await;
+    // An empty parent is the top of the wiki.
+    make(client, &pages, json!({"title": "e", "parentId": ""})).await;
     assert_eq!(
         titles_below(client, &pages, "").await,
         ["a", "b", "c", "d", "e"]
@@ -220,8 +220,9 @@ async fn a_page_goes_where_the_request_says_and_takes_what_is_below_it_along() {
     assert_eq!(titles_below(client, &pages, &b.id).await, ["b1", "b2"]);
     assert_eq!(titles_below(client, &pages, &b2.id).await, ["b2x"]);
 
-    // A parent that is no page of the wiki, and a page to go after that is no sibling.
-    for parent in [elsewhere.id.as_str(), UNKNOWN_ID] {
+    // A parent that is no page of the wiki (the wiki itself is none), and a page to go
+    // after that is no sibling.
+    for parent in [elsewhere.id.as_str(), UNKNOWN_ID, wiki_id.as_str()] {
         let refused = client.post(&pages, &json!({"parentId": parent})).await;
         check_refused_at(&refused, "/parentId");
     }

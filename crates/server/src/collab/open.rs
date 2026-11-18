@@ -154,7 +154,10 @@ impl Collab {
         if let Err(failed) = opened {
             self.close_number(worker, open.generation, number).await;
             let for_good = refused_for_good(&failed);
-            if matches!(failed, Opening::Died) || (unwritten && !for_good) {
+            // What another process wrote since is that process's: not made again here.
+            if matches!(failed, Opening::Died | Opening::WrittenSince(_))
+                || (unwritten && !for_good)
+            {
                 return Err(failed);
             }
             if unwritten {
@@ -242,7 +245,7 @@ impl Collab {
         // the log after it stay the document's.
         if let Some(repaired) = repaired {
             app.store()
-                .fold_body_doc(card_id, &repaired, state_seq)
+                .fold_body_doc(card_id, &repaired, state_seq, open.as_read())
                 .await?;
         }
         for update in updates {

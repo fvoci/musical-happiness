@@ -502,10 +502,10 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "missing type for block id x1",
+      "detail": "the block has no type",
       "errors": [
         {
-          "detail": "missing type for block id x1",
+          "detail": "the block has no type",
           "pointer": "/0/type",
           "reason": "invalid"
         }
@@ -523,10 +523,10 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid createAt for block id x1",
+      "detail": "a new block's createAt is 1 or more",
       "errors": [
         {
-          "detail": "invalid createAt for block id x1",
+          "detail": "a new block's createAt is 1 or more",
           "pointer": "/0/createAt",
           "reason": "invalid"
         }
@@ -544,10 +544,10 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid updateAt for block id x1",
+      "detail": "a new block's updateAt is 1 or more",
       "errors": [
         {
-          "detail": "invalid updateAt for block id x1",
+          "detail": "a new block's updateAt is 1 or more",
           "pointer": "/0/updateAt",
           "reason": "invalid"
         }
@@ -565,10 +565,10 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid containerId for block id x1",
+      "detail": "the block is on another board than the path",
       "errors": [
         {
-          "detail": "invalid containerId for block id x1",
+          "detail": "the block is on another board than the path",
           "pointer": "/0/containerId",
           "reason": "invalid"
         }

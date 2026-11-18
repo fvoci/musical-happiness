@@ -767,9 +767,23 @@ async fn attempts_the_login_limits_refuse_are_counted_by_limit() {
 }
 
 #[tokio::test]
-async fn a_local_only_server_serves_metrics_without_a_host_on_its_loopback() {
+async fn a_local_only_server_does_not_start_with_metrics_on_every_interface() {
+    for every in ["0.0.0.0:0", "[::]:0"] {
+        let error = Setup::native()
+            .metrics_at(every)
+            .configure(|config| config.listen_loopback_only = true)
+            .try_start()
+            .await
+            .err()
+            .expect("the server does not start");
+        let error = format!("{error:#}");
+        assert!(
+            error.contains("metrics_address") && error.contains("listen_loopback_only"),
+            "{every}: {error}"
+        );
+    }
     let server = Setup::native()
-        .metrics_at(":0")
+        .metrics_at("localhost:0")
         .configure(|config| config.listen_loopback_only = true)
         .start()
         .await;

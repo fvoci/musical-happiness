@@ -5,7 +5,14 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid-board-type",
+      "detail": "the type of a board is `O` (open) or `P` (private)",
+      "errors": [
+        {
+          "detail": "the type of a board is `O` (open) or `P` (private)",
+          "pointer": "/type",
+          "reason": "invalid"
+        }
+      ],
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,
@@ -19,7 +26,14 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid-board-type",
+      "detail": "the type of a board is `O` (open) or `P` (private)",
+      "errors": [
+        {
+          "detail": "the type of a board is `O` (open) or `P` (private)",
+          "pointer": "/type",
+          "reason": "invalid"
+        }
+      ],
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,
@@ -472,7 +486,14 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "invalid-board-type",
+      "detail": "the type of a board is `O` (open) or `P` (private)",
+      "errors": [
+        {
+          "detail": "the type of a board is `O` (open) or `P` (private)",
+          "pointer": "/type",
+          "reason": "invalid"
+        }
+      ],
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,

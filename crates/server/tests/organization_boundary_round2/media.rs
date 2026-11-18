@@ -58,6 +58,8 @@ async fn attachment(app: &App, user: &str, board: &str, name: &str) {
 pub(super) struct Scene {
     pub(super) ts: super::common::TestServer,
     pub(super) b_app: App,
+    /// The second organization, of `b_app`.
+    b_org: String,
     pub(super) user: String,
     pub(super) a: Container,
     pub(super) b: Container,
@@ -126,6 +128,7 @@ impl Scene {
         Self {
             ts,
             b_app,
+            b_org: org,
             user,
             a,
             b,
@@ -197,6 +200,46 @@ impl Scene {
         attachment(b_app, user, &b.id, &name_b).await;
         (name_a, name_b)
     }
+    /// The key of each organization's file begins with that organization and its board,
+    /// and its object is there, whichever storage holds it.
+    async fn check_keys(&self, name_a: &str, name_b: &str) {
+        let Self {
+            ts, b_app, a, b, ..
+        } = self;
+        let org_a = ts
+            .app
+            .store()
+            .org_of_container(&a.id)
+            .await
+            .expect("A's organization");
+        assert_ne!(org_a, self.b_org, "two organizations");
+        for (app, org, board, name) in [
+            (&ts.app, org_a.as_str(), &a.id, name_a),
+            (b_app, self.b_org.as_str(), &b.id, name_b),
+        ] {
+            let info = app
+                .store()
+                .get_file_info(board, name)
+                .await
+                .expect("the file's record");
+            assert!(
+                info.path.starts_with(&format!("{org}/{board}/")),
+                "{} begins with its organization and board",
+                info.path
+            );
+            assert!(
+                !info.path.contains('.'),
+                "no extension in the key {}",
+                info.path
+            );
+            assert!(
+                app.files().exists(&info.path).await.expect("looked up"),
+                "the object is at {}",
+                info.path
+            );
+        }
+    }
+
     async fn check_tokens(&self, name_a: &str, name_b: &str) {
         let Self {
             ts,
@@ -391,6 +434,7 @@ async fn files_and_cleanup(configure: Option<fn(&mut Configuration)>) {
     }
     let scene = Scene::new(configure).await;
     let (name_a, name_b) = scene.receive_files().await;
+    scene.check_keys(&name_a, &name_b).await;
     scene.check_tokens(&name_a, &name_b).await;
     scene.cleanup(&name_a, &name_b).await;
     scene.ts.teardown().await;

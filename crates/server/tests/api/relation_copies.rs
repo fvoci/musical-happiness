@@ -51,7 +51,7 @@ async fn named_board(th: &TestServer) -> Named {
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &json!([{
-                "id": "v", "containerId": board.id, "parentId": board.id, "type": "view",
+                "id": "v", "containerId": board.id, "type": "view",
                 "title": "Gantt", "schema": 1, "createAt": 1, "updateAt": 1,
                 "fields": {"viewType": "gantt", "dependencyPropertyId": RELATION},
             }]),
@@ -284,7 +284,7 @@ async fn a_relation_value_of_a_block_that_is_no_card_does_not_stop_a_copy() {
         .post(
             &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &json!([{
-                "id": "v", "containerId": board.id, "parentId": board.id, "type": "view",
+                "id": "v", "containerId": board.id, "type": "view",
                 "title": "Odd", "schema": 1, "createAt": 1, "updateAt": 1,
                 "fields": {"properties": {RELATION: [cards["A"], new_id()]}},
             }]),

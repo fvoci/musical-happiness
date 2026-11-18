@@ -180,9 +180,12 @@ describe('the pages of a wiki in memory', () => {
     const after = await rejection(made.backend.wiki.createPage(made.wiki.id, { after: child.id }));
     expect(after.status).toBe(400);
     expect(after.errors[0]?.pointer).toBe('/after');
-    // The wiki itself as the parent is the top of it.
-    const atTop = await made.backend.wiki.createPage(made.wiki.id, { parentId: made.wiki.id });
-    expect(atTop.parentId).toBe('');
+    // The wiki itself is no page, and no parent.
+    const wiki = await rejection(
+      made.backend.wiki.createPage(made.wiki.id, { parentId: made.wiki.id }),
+    );
+    expect(wiki.status).toBe(400);
+    expect(wiki.errors[0]?.pointer).toBe('/parentId');
   });
 
   it('are given the places the server gives, by the server’s own examples', () => {

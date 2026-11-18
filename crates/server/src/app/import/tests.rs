@@ -1,3 +1,8 @@
+use std::io::{self, Read};
+
+use super::archive::{
+    CENTRAL_HEADER, SCAN_CHUNK_BYTES, clean_dir, count_central_headers, split_entry_name,
+};
 use super::*;
 
 /// The central headers are counted wherever they are, a chunk's end included, and
@@ -80,7 +85,7 @@ fn ids_after_dropping(blocks: Vec<Block>) -> (Vec<String>, usize) {
 fn blocks_that_nothing_leads_to_are_dropped_with_what_is_below_them() {
     let (kept, dropped) = ids_after_dropping(vec![
         block("text", "card"),
-        block("card", "board"),
+        block("card", ""),
         block("view", ""),
         block("lost", "gone"),
         block("below-lost", "lost"),
@@ -108,7 +113,7 @@ fn a_long_chain_of_orphans_is_dropped_in_one_walk() {
     let length = 200_000;
     let mut blocks = vec![block("0", "missing")];
     blocks.extend((1..length).map(|index| block(&index.to_string(), &(index - 1).to_string())));
-    blocks.push(block("card", "board"));
+    blocks.push(block("card", ""));
 
     let started = std::time::Instant::now();
     let (kept, dropped) = ids_after_dropping(blocks);
@@ -180,7 +185,13 @@ fn the_names_of_files_are_taken_as_an_upload_names_them() {
     ] {
         assert!(file_names_of(&board).is_empty(), "no names: {board}");
     }
-    let by_dir = HashMap::from([("b1".to_owned(), names)]);
+    let by_dir = HashMap::from([(
+        "b1".to_owned(),
+        ArchiveFiles {
+            names,
+            ..ArchiveFiles::default()
+        },
+    )]);
     assert_eq!(name_in(&by_dir, "b1", "7a.pdf"), "회의록.pdf");
     assert_eq!(name_in(&by_dir, "b1", "7b.pdf"), "7b.pdf", "left out");
     assert_eq!(
@@ -188,4 +199,21 @@ fn the_names_of_files_are_taken_as_an_upload_names_them() {
         "7a.pdf",
         "another board's"
     );
+}
+
+#[test]
+fn a_board_line_says_which_files_were_missing() {
+    let board = serde_json::json!({"id": "b1", "missingFiles": ["7a.pdf", 7, null, "7b"]});
+    assert_eq!(
+        missing_files_of(&board),
+        HashSet::from(["7a.pdf".to_owned(), "7b".to_owned()]),
+        "the strings of the list"
+    );
+    for board in [
+        serde_json::json!({"id": "b1"}),
+        serde_json::json!({"id": "b1", "missingFiles": "7a.pdf"}),
+        serde_json::json!({"id": "b1", "missingFiles": {"7a.pdf": true}}),
+    ] {
+        assert!(missing_files_of(&board).is_empty(), "none: {board}");
+    }
 }

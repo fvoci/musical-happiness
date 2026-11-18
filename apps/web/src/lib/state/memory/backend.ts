@@ -353,7 +353,7 @@ export class MemoryBackend implements Backend {
     this.world.containers.set(board.id, board);
     this.world.members.set(board.id, [memberOf(board.id, this.userId, 'admin')]);
     this.#fileAsNew(this.userId, board);
-    const view = this.#newBlock(board.id, board.id, 'view');
+    const view = this.#newBlock(board.id, '', 'view');
     view.title = firstView.title;
     view.fields = copy(firstView.fields);
     this.world.blocks.set(view.id, view);
@@ -505,7 +505,7 @@ export class MemoryBackend implements Backend {
         ...made,
         id: renamed(block.id),
         containerId: board.id,
-        parentId: made.parentId === source.id ? board.id : renamed(made.parentId),
+        parentId: renamed(made.parentId),
         createAt: now,
         updateAt: now,
       });
@@ -816,7 +816,7 @@ export class MemoryBackend implements Backend {
   async createView(boardId: string, draft: ViewDraft): Promise<BoardView> {
     await this.#enter('createView');
     this.#container(boardId, 'board');
-    const block = this.#newBlock(boardId, boardId, 'view');
+    const block = this.#newBlock(boardId, '', 'view');
     block.title = draft.title;
     block.fields = copy(draft.fields);
     this.world.blocks.set(block.id, block);
@@ -860,7 +860,7 @@ export class MemoryBackend implements Backend {
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
     await this.#enter('createCard');
     const board = this.#container(boardId, 'board');
-    const block = this.#newBlock(boardId, boardId, 'card');
+    const block = this.#newBlock(boardId, '', 'card');
     block.title = draft.title ?? '';
     block.fields = {
       icon: draft.icon ?? '',
@@ -1015,8 +1015,8 @@ export class MemoryBackend implements Backend {
     else if (!mayRemoveComments(this.#memberRole(boardId), this.userId, deleted))
       fail(403, "access denied to undelete other users' comments");
     const parent = top?.parentId;
-    // A block comes back only under a living parent (or the board itself).
-    if (parent !== boardId && parent !== undefined && !this.world.blocks.has(parent)) {
+    // A block comes back only under a living parent, or with none.
+    if (parent && !this.world.blocks.has(parent)) {
       fail(404, 'the parent of the block is gone');
     }
     this.#container(boardId);

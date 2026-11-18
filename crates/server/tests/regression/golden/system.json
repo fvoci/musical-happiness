@@ -42,7 +42,7 @@
     "request": "(observation)",
     "status": 0,
     "body": [
-      "8.0.0",
+      "<version>",
       "personal_server",
       "<db>"
     ]
@@ -188,13 +188,13 @@
     "request": "GET /static as anonymous",
     "status": 404,
     "content_type": "text/plain",
-    "body": "404 page not found\n"
+    "body": "not found\n"
   },
   {
     "name": "missing static file",
     "request": "GET /static/nope.js as anonymous",
     "status": 404,
     "content_type": "text/plain",
-    "body": "404 page not found\n"
+    "body": "not found\n"
   }
 ]

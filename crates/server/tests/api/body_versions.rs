@@ -243,7 +243,7 @@ async fn a_room_left_by_those_who_typed_keeps_it_whoever_stays() {
     typist.write_acked("a third").await;
     other.settle().await;
     other.leave().await;
-    other.barrier().await;
+    other.barrier(&th).await;
     // The room takes this after the leaving: one who typed is still in it.
     typist.write_acked("a fourth").await;
     assert_eq!(versions(&th.client, &t.card_id).await.len(), 2);
@@ -276,14 +276,14 @@ async fn one_who_typed_and_came_back_holds_the_version_until_they_leave() {
     second.write_acked("two").await;
     first.settle().await;
     first.leave().await;
-    first.barrier().await;
+    first.barrier(&th).await;
     assert_eq!(versions(&th.client, &t.card_id).await.len(), 1);
 
     let mut back = Peer::connect(&th.client, 103).await;
     back.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     second.settle().await;
     second.leave().await;
-    second.barrier().await;
+    second.barrier(&th).await;
     assert_eq!(
         versions(&th.client, &t.card_id).await.len(),
         1,

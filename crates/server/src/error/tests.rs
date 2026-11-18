@@ -167,7 +167,7 @@ fn card_errors_are_the_clients_or_the_servers() {
         "a card for another board"
     );
     assert_eq!(
-        AppError::from(CardError::Invalid("Icon can have only one grapheme")).kind(),
+        AppError::from(CardError::Invalid("an icon is at most one grapheme")).kind(),
         ErrorKind::BadRequest,
         "an invalid card"
     );

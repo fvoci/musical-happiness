@@ -80,14 +80,11 @@ async fn a_page_moves_where_it_is_asked_and_what_is_wrong_is_named() {
         below(client, &pages, "").await,
         [a.as_str(), d.as_str(), b.as_str()]
     );
-    move_to(
-        client,
-        &pages,
-        &b,
-        &json!({"parentId": wiki_id, "after": a}),
-    )
-    .await
-    .check_ok();
+    let refused = move_to(client, &pages, &b, &json!({"parentId": wiki_id})).await;
+    check_refused(&refused, Some("/parentId"), None);
+    move_to(client, &pages, &b, &json!({"parentId": "", "after": a}))
+        .await
+        .check_ok();
     assert_eq!(
         below(client, &pages, "").await,
         [a.as_str(), b.as_str(), d.as_str()]

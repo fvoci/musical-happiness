@@ -1,9 +1,10 @@
 /**
  * The organization's administration on the server (`/org/{orgId}/…`) and the
  * audit log of a workspace (`/w/{workspaceId}/audit`). The members are read
- * whole; a record list is its newest page of the most the server gives (200).
+ * whole, page after page; a record list is its newest {@link RECENT_RECORDS}.
  */
 import { isBackendError, ssoOrgOf } from '../state/backend.ts';
+import { allPages } from '../state/page-reads.ts';
 import type {
   AuditRecord,
   Organization,
@@ -18,8 +19,8 @@ import type { Schemas } from './convert.ts';
 import type { Http } from './http.ts';
 import type { OidcProvider, OidcSettings } from '../state/oidc.ts';
 
-/** The most one page of the server holds. */
-const PAGE = { page: 0, perPage: 200 };
+/** How many of the newest audit records a screen shows: one page of that many. */
+const RECENT_RECORDS = { page: 0, perPage: 200 };
 
 export class ServerOrganizations implements Organizations {
   readonly #http: Http;
@@ -107,17 +108,14 @@ export class ServerOrganizations implements Organizations {
   }
 
   /** Every member, a page after another until one is not full. */
-  async members(orgId: string): Promise<OrgMember[]> {
-    const members: OrgMember[] = [];
-    for (let page = 0; ; page += 1) {
-      const one = await this.#http.request<Schemas['OrgMember'][]>(
+  members(orgId: string): Promise<OrgMember[]> {
+    return allPages((paging) =>
+      this.#http.request<Schemas['OrgMember'][]>(
         '/api/v1/org/{orgId}/members',
         { orgId },
-        { query: { page, perPage: PAGE.perPage } },
-      );
-      members.push(...one);
-      if (one.length < PAGE.perPage) return members;
-    }
+        { query: { ...paging } },
+      ),
+    );
   }
 
   async setRole(orgId: string, userId: string, role: OrgRole): Promise<void> {
@@ -177,7 +175,7 @@ export class ServerOrganizations implements Organizations {
     return this.#http.request<Schemas['AuditRecord'][]>(
       '/api/v1/org/{orgId}/audit',
       { orgId },
-      { query: PAGE },
+      { query: RECENT_RECORDS },
     );
   }
 
@@ -185,7 +183,7 @@ export class ServerOrganizations implements Organizations {
     return this.#http.request<Schemas['AuditRecord'][]>(
       '/api/v1/w/{workspaceId}/audit',
       { workspaceId },
-      { query: PAGE },
+      { query: RECENT_RECORDS },
     );
   }
 

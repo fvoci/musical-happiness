@@ -210,7 +210,7 @@ img.ProseMirror-separator {
 /*
  * A file block: its kind's icon, its name, its size and the button that saves
  * it, on one line however narrow the page (file-view.ts). The name gives way
- * first and ends in an ellipsis; the button keeps a finger's room where things
+ * first and ends in an ellipsis; the buttons keep a finger's room where things
  * are pressed with one.
  */
 .doc-body [data-file-block] {
@@ -247,6 +247,20 @@ img.ProseMirror-separator {
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
+/*
+ * The name of a file the viewer shows opens it there: a button that reads as
+ * the name (the base styles take a button's own look away), as tall as the
+ * block, so as easy to press as the download.
+ */
+.doc-body .doc-file-open {
+  align-self: stretch;
+  border-radius: var(--radius-sm);
+  text-align: start;
+  cursor: pointer;
+}
+.doc-body .doc-file-open:hover {
+  text-decoration: underline;
+}
 .doc-body [data-file-block][data-state='missing'] .doc-file-name {
   color: var(--muted-foreground);
   font-style: italic;
@@ -265,7 +279,7 @@ img.ProseMirror-separator {
   background: var(--accent);
   color: var(--accent-foreground);
 }
-.doc-body .doc-file-download:focus-visible {
+.doc-body :is(.doc-file-download, .doc-file-open):focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }

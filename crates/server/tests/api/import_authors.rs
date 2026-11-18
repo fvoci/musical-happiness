@@ -31,7 +31,7 @@ fn archive(lines: &[Value]) -> Vec<u8> {
 
 fn block(id: &str, kind: &str, created_by: &str, modified_by: &str) -> Value {
     json!({"type": "block", "data": {
-        "id": id, "boardId": "board", "parentId": "board", "type": kind, "title": id,
+        "id": id, "boardId": "board", "type": kind, "title": id,
         "createdBy": created_by, "modifiedBy": modified_by, "createAt": 1, "updateAt": 1,
     }})
 }

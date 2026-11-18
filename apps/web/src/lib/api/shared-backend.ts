@@ -26,6 +26,7 @@ import {
 } from '../state/backend.ts';
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { FileDetails } from '../editor/files.ts';
+import { allPages } from '../state/page-reads.ts';
 import type { LinkedBlock } from '../state/references.ts';
 import type { Wikis } from '../state/wiki-types.ts';
 import type { Container } from '../logic/wire.ts';
@@ -218,16 +219,16 @@ export class SharedBackend implements Backend {
 
   async cards(boardId: string): Promise<CardSummary[]> {
     this.#only(boardId);
-    const cards = await this.#read<Schemas['Card'][]>('/cards', {}, { perPage: 0 });
+    const cards = await allPages((paging) =>
+      this.#read<Schemas['Card'][]>('/cards', {}, { ...paging }),
+    );
     return cards.map(cardOf);
   }
 
   async cardPreviews(boardId: string): Promise<Map<string, CardPreview>> {
     this.#only(boardId);
-    const cards = await this.#read<Schemas['Card'][]>(
-      '/cards',
-      {},
-      { perPage: 0, preview: 'true' },
+    const cards = await allPages((paging) =>
+      this.#read<Schemas['Card'][]>('/cards', {}, { ...paging, preview: 'true' }),
     );
     return previewsOf(cards);
   }

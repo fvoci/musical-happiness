@@ -45,8 +45,8 @@ impl App {
     /// the given type, in no particular order.
     ///
     /// The type is compared as the stored string: [`BlockType::Other`] finds the blocks
-    /// of a type the server does not know. The empty type and the type `unknown` do not
-    /// filter. An empty board identifier finds nothing.
+    /// of a type the server does not know. The empty type does not filter. An empty
+    /// board identifier finds nothing.
     ///
     /// # Errors
     ///

@@ -267,7 +267,7 @@ describe('changing a card on the server', () => {
   const CARD = {
     ...BLOCK,
     id: 'c1',
-    parentId: 'b',
+    parentId: '',
     title: 'Card',
     icon: '',
     isTemplate: false,
@@ -487,7 +487,7 @@ describe('changing a view on the server', () => {
       {
         ...BLOCK,
         id: 'v',
-        parentId: 'b',
+        parentId: '',
         type: 'view',
         title: 'Board',
         fields: { cardOrder: ['c2', 'c1'] },
@@ -508,7 +508,7 @@ describe('changing a view on the server', () => {
   const VIEW = {
     ...BLOCK,
     id: 'v',
-    parentId: 'b',
+    parentId: '',
     type: 'view',
     title: 'Board',
     fields: { cardOrder: ['c1', 'c2'] },

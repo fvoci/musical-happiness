@@ -5,9 +5,10 @@
 //! or a member as the contract has them (`contracts/openapi.json`), bodies included; the
 //! files are those the blocks show, those of the images and file blocks of bodies among them
 //! (`docs/s6-design.md` 3.10). A board's line also carries `fileNames`: the name each of
-//! its files was uploaded with, by its stored name, which a file block shows. The
-//! original reads the board alone; an import gives the files it stores those names. The
-//! container is the original's (`server/app/export.go`); version 2 was its own.
+//! its files was uploaded with, by its stored name, which a file block shows; and
+//! `missingFiles`: the stored names of the files the blocks show that were not there to
+//! be written, which have no entry. An import gives the files it stores those names, and
+//! stores none of the missing ones.
 
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufWriter, Write as _};
@@ -39,6 +40,9 @@ struct ArchivedContainer<'a> {
     container: &'a Container,
     #[serde(rename = "fileNames", skip_serializing_if = "BTreeMap::is_empty")]
     file_names: BTreeMap<String, String>,
+    /// The stored names of the files the blocks show that the export did not find.
+    #[serde(rename = "missingFiles", skip_serializing_if = "Vec::is_empty")]
+    missing_files: Vec<String>,
 }
 
 /// The directory of the temporary directory exports are written in.
@@ -85,7 +89,7 @@ impl App {
     /// (`docs/s6-design.md` 4.3) and returns it open.
     ///
     /// Each board is written with its blocks and members; a file a block shows is added
-    /// if it exists and left as an empty entry if it is missing, as the original does.
+    /// if it exists, and named in the board's `missingFiles` if it does not.
     /// The file stays in its directory while it is sent and is removed with the
     /// [`ExportedArchive`] (sent, given up, or the client gone); what a stopped server
     /// leaves is removed when it starts again.
@@ -161,20 +165,17 @@ impl App {
         writer.finish().await
     }
 
-    /// Writes one board's directory: its `board.jsonl` and its files.
+    /// Writes one board's directory: its files, then its `board.jsonl`, which names the
+    /// files that were not there to be written.
     async fn write_container(
         &self,
         writer: &mut ArchiveWriter,
         container: &Container,
         workspace_id: &str,
     ) -> Result<(), AppError> {
-        writer
-            .start_entry(&format!("{}/board.jsonl", container.id))
-            .await?;
         let blocks = self.blocks_for_container(&container.id).await?;
-        // Two blocks may name the same file. The original then writes two entries of the
-        // same name; this archive writer refuses a second entry of a name, and an
-        // importer keeps one file per name anyway, so each file is written once.
+        // Two blocks may name the same file: it is written once, as an entry of an
+        // archive has a name of its own.
         let mut files = Vec::new();
         let mut seen = HashSet::new();
         for block in &blocks {
@@ -187,11 +188,32 @@ impl App {
                 }
             }
         }
-        let file_names = self.file_names(&container.id, &files).await?;
+        let mut written = Vec::new();
+        let mut missing_files = Vec::new();
+        for filename in files {
+            if self.write_file(writer, &container.id, &filename).await? {
+                written.push(filename);
+            } else {
+                missing_files.push(filename);
+            }
+        }
+        if !missing_files.is_empty() {
+            tracing::warn!(
+                workspace_id,
+                container_id = container.id,
+                missing = ?missing_files,
+                "files the blocks show are missing from the export"
+            );
+        }
+        let file_names = self.file_names(&container.id, &written).await?;
         let board = ArchivedContainer {
             container,
             file_names,
+            missing_files,
         };
+        writer
+            .start_entry(&format!("{}/board.jsonl", container.id))
+            .await?;
         writer.write_line("board", &board).await?;
         for block in &blocks {
             writer.write_line("block", block).await?;
@@ -199,11 +221,6 @@ impl App {
 
         for member in self.present_members_for_container(&container.id).await? {
             writer.write_line("boardMember", &member).await?;
-        }
-
-        for filename in &files {
-            self.write_file(writer, &container.id, workspace_id, filename)
-                .await?;
         }
         Ok(())
     }
@@ -224,33 +241,30 @@ impl App {
         Ok(names)
     }
 
-    /// Writes a board file as its own archive entry; a missing file leaves an empty
-    /// entry, as the original does.
+    /// Writes a board file as its own archive entry, and returns whether it did: a file
+    /// without a record or without its object gets no entry.
     async fn write_file(
         &self,
         writer: &mut ArchiveWriter,
         container_id: &str,
-        workspace_id: &str,
         filename: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<bool, AppError> {
+        let mut stream = match self.open_stored_file(container_id, filename).await {
+            Ok(Some(stream)) => stream,
+            // Gone between the lookup and the read, as when it is collected meanwhile.
+            Ok(None) => return Ok(false),
+            Err(error) if error.is_not_found() => return Ok(false),
+            Err(error) => return Err(error),
+        };
         writer
             .start_entry(&format!("{container_id}/{filename}"))
             .await?;
-        let Some(mut stream) = self.open_stored_file(container_id, filename).await? else {
-            tracing::error!(
-                filename,
-                workspace_id,
-                container_id,
-                "image file missing for export"
-            );
-            return Ok(());
-        };
         while let Some(chunk) = stream.next().await {
             let chunk = chunk
                 .map_err(|error| AppError::internal(format_args!("cannot read file: {error}")))?;
             writer.write(&chunk).await?;
         }
-        Ok(())
+        Ok(true)
     }
 }
 

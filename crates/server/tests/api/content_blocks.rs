@@ -34,7 +34,7 @@ async fn moving_a_content_block_is_no_route() {
         .insert_blocks(
             &board.id,
             &[
-                block(&card, &board.id, BlockType::Card),
+                block(&card, "", BlockType::Card),
                 block(&first, &card, BlockType::Attachment),
                 block(&second, &card, BlockType::Attachment),
             ],

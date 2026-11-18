@@ -15,7 +15,7 @@ export interface DeletedItem {
   below?: number;
 }
 
-/** A page of a list: `page` counts from 0, and a `perPage` of zero or less is all of it. */
+/** A page of a list: `page` counts from 0, `perPage` from 1 to 1000 (`page-reads.ts`). */
 export interface Paging {
   page: number;
   perPage: number;

@@ -11,6 +11,7 @@ use fvoci_server::config::Configuration;
 
 use crate::common::TEST_WS;
 use crate::common::{Setup, TestServer};
+use crate::files::key_of;
 use crate::loose_objects::{all_listed, exists, remove_doomed, uploaded};
 
 /// Compares the storage with the records at `now`.
@@ -36,14 +37,14 @@ async fn the_comparison_reports_and_dooms_only_when_asked(ts: &TestServer) {
         .check_no_content();
     let (_, missing) = uploaded(ts, b"its object goes").await;
     ts.app.files().delete(&missing).await.expect("removed");
-    let writing = format!("boards/20261112/{board_id}/being-written.txt");
+    let writing = key_of(ts, &board_id, "being-written").await;
     ts.app
         .store()
         .mark_writing(&writing, i64::MAX)
         .await
         .expect("marked");
-    let stray = format!("boards/20261112/{board_id}/stray.txt");
-    let uploading = format!("boards/20261112/{board_id}/uploading.txt");
+    let stray = key_of(ts, &board_id, "stray").await;
+    let uploading = key_of(ts, &board_id, "uploading").await;
     ts.app
         .store()
         .create_upload(&Upload {

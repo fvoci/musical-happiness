@@ -10,6 +10,11 @@ use serde_json::{Value, json};
 
 const STATE_BYTES: u64 = 8 * 1024 * 1024;
 
+/// The worker these tests start: the server's worker with the requests of the tests
+/// (`Request::Stall`), which the server's executable has only when it was last built
+/// for the tests.
+const TEST_WORKER: &str = env!("CARGO_BIN_EXE_fvoci-test-worker");
+
 fn limits(documents: u64) -> Limits {
     Limits {
         update_bytes: 64 * 1024,
@@ -22,7 +27,7 @@ fn limits(documents: u64) -> Limits {
 
 fn worker(timeout: Duration, documents: u64) -> Worker {
     Worker::new(WorkerSettings {
-        command: WorkerCommand::of_executable(env!("CARGO_BIN_EXE_fvoci-server").into()),
+        command: WorkerCommand::of_executable(TEST_WORKER.into()),
         limits: limits(documents),
         timeout,
         memory_bytes: 1024 * 1024 * 1024,
@@ -73,6 +78,24 @@ fn refusal(result: Result<(u64, Answer), CallError>) -> Refusal {
         Err(CallError::Refused(refused)) => refused.refusal,
         other => panic!("a refusal: {other:?}"),
     }
+}
+
+/// The server's own executable is a worker when it is started as one, whichever build
+/// of it was made last: nothing here asks it what only the tests ask.
+#[tokio::test]
+async fn the_servers_executable_is_a_worker() {
+    let worker = Worker::new(WorkerSettings {
+        command: WorkerCommand::of_executable(env!("CARGO_BIN_EXE_fvoci-server").into()),
+        limits: limits(100),
+        timeout: Duration::from_secs(10),
+        memory_bytes: 1024 * 1024 * 1024,
+    });
+    let (generation, _) = worker
+        .call(None, &open_body(1, &paragraphs(&["kept"])))
+        .await
+        .expect("opened");
+    assert_eq!(body_of(&worker, generation, 1).await, paragraphs(&["kept"]));
+    worker.end().await;
 }
 
 #[tokio::test]
@@ -237,7 +260,7 @@ async fn a_call_given_up_half_way_neither_kills_the_worker_nor_puts_the_answers_
 async fn a_request_larger_than_a_frame_is_refused_without_harm_to_the_worker() {
     // Memory for documents as large as a state: a frame is that and a little more.
     let worker = Worker::new(WorkerSettings {
-        command: WorkerCommand::of_executable(env!("CARGO_BIN_EXE_fvoci-server").into()),
+        command: WorkerCommand::of_executable(TEST_WORKER.into()),
         limits: Limits {
             held_bytes: STATE_BYTES,
             ..limits(100)
@@ -295,7 +318,7 @@ async fn a_worker_holds_no_more_bytes_of_documents_than_it_may() {
         panic!("{opened:?}");
     };
     let worker = Worker::new(WorkerSettings {
-        command: WorkerCommand::of_executable(env!("CARGO_BIN_EXE_fvoci-server").into()),
+        command: WorkerCommand::of_executable(TEST_WORKER.into()),
         limits: Limits {
             // Two and no third. A document's state is a few bytes longer or shorter
             // with the client identifier it was made under, which is drawn anew.

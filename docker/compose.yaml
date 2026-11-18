@@ -139,7 +139,7 @@ services:
       SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
       SSL_CERT_DIR: /opt/fvoci/search-ca
       # Metrics on every network fvoci is on, published nowhere, behind the token.
-      FVOCI_METRICS_ADDRESS: ":9092"
+      FVOCI_METRICS_ADDRESS: "0.0.0.0:9092"
       FVOCI_METRICS_TOKEN_FILE: /run/secrets/fvoci_metrics_token
       FVOCI_FILE_STORAGE: ${FVOCI_FILE_STORAGE:-local}
       FVOCI_FILE_STORAGE_S3_ENDPOINT: ${FVOCI_FILE_STORAGE_S3_ENDPOINT:-}

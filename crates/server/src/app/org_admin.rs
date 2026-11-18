@@ -11,44 +11,12 @@ use fvoci_model::{
     AuditAction, AuditRecord, ContainerKinds, MAX_NAME_CHARS, OrgMember, OrgRole, OrgWorkspace,
     Organization, OrganizationPatch, Workspace, is_id, new_id,
 };
-use fvoci_store::{
-    AuditPlace, Joining, OrgRoleChange, Paging, StoreError, Taken, WorkspaceTrashing,
-};
+use fvoci_store::{AuditPlace, Joining, OrgRoleChange, StoreError, Taken, WorkspaceTrashing};
 
 use super::App;
+use super::list_page::ListPage;
 use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
-
-/// How many records or members one page holds when the request does not say.
-pub const DEFAULT_PER_PAGE: u32 = 50;
-
-/// The most records or members one page holds; a request for more gets this many.
-pub const MAX_PER_PAGE: u32 = 200;
-
-/// One page of a list as a request asks for it, by its `page` and `perPage`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PageAsked {
-    /// The page, counted from 0.
-    pub page: i64,
-    /// How many a page has; zero or less is [`DEFAULT_PER_PAGE`], more than
-    /// [`MAX_PER_PAGE`] is that many.
-    pub per_page: i64,
-}
-
-impl PageAsked {
-    /// The page as the store reads it; `None` for a page before the first.
-    pub(super) fn paging(self) -> Option<Paging> {
-        let page = u32::try_from(self.page).ok()?;
-        let per_page = if self.per_page <= 0 {
-            DEFAULT_PER_PAGE
-        } else {
-            u32::try_from(self.per_page)
-                .unwrap_or(MAX_PER_PAGE)
-                .min(MAX_PER_PAGE)
-        };
-        Some(Paging { page, per_page })
-    }
-}
 
 /// The name of a workspace as it is stored: without the spaces around it, 1 to
 /// [`MAX_NAME_CHARS`] characters.
@@ -147,10 +115,8 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if they cannot be read.
-    pub async fn org_members(&self, asked: PageAsked) -> Result<Vec<OrgMember>, AppError> {
-        let Some(paging) = asked.paging() else {
-            return Ok(Vec::new());
-        };
+    pub async fn org_members(&self, asked: ListPage) -> Result<Vec<OrgMember>, AppError> {
+        let paging = asked.paging();
         Ok(self.store().org_members(paging).await?)
     }
 
@@ -395,10 +361,8 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if they cannot be read.
-    pub async fn org_audit(&self, asked: PageAsked) -> Result<Vec<AuditRecord>, AppError> {
-        let Some(paging) = asked.paging() else {
-            return Ok(Vec::new());
-        };
+    pub async fn org_audit(&self, asked: ListPage) -> Result<Vec<AuditRecord>, AppError> {
+        let paging = asked.paging();
         Ok(self
             .store()
             .audit_records(AuditPlace::Organization, paging)
@@ -416,11 +380,9 @@ impl App {
         &self,
         reader_id: &str,
         workspace_id: &str,
-        asked: PageAsked,
+        asked: ListPage,
     ) -> Result<Vec<AuditRecord>, AppError> {
-        let Some(paging) = asked.paging() else {
-            return Ok(Vec::new());
-        };
+        let paging = asked.paging();
         let mut records = self
             .store()
             .audit_records(AuditPlace::Workspace(workspace_id), paging)

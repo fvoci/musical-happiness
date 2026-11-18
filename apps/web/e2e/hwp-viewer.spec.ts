@@ -14,14 +14,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { deflateRawSync } from 'node:zlib';
 
-import {
-  expect,
-  test,
-  type FrameLocator,
-  type Locator,
-  type Page,
-  type Worker,
-} from '@playwright/test';
+import { expect, test, type Locator, type Page, type Worker } from '@playwright/test';
 
 import {
   compoundFile,
@@ -35,7 +28,7 @@ import {
   rewriteArchive,
 } from '../tests/support/hwp-files.ts';
 
-import { boardPath } from './address.ts';
+import { attach, frameOf, openCard, viewer } from './file-viewer.support.ts';
 
 const SCREENS = process.env.FVOCI_SCREENS === '1';
 const SCREENS_DIR = path.resolve(import.meta.dirname, '../../../target/viewer-h1');
@@ -44,57 +37,11 @@ const HWP_TYPE = 'application/x-hwp';
 /** How long the viewer gives a file to be drawn (LIMITS.draw in lib/file-viewer/session.svelte.ts). */
 const DRAW_LIMIT = 30_000;
 
-interface Dev {
-  backend: {
-    workspaces(): Promise<{ id: string }[]>;
-    boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
-    views(boardId: string): Promise<{ id: string; title: string }[]>;
-    cards(boardId: string): Promise<{ id: string; title: string }[]>;
-  };
-}
-
-/** Opens the card everything is tried on, by its address. */
-async function openCard(page: Page): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByTestId('board-page')).toBeVisible();
-  const place = await page.evaluate(async () => {
-    const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const [workspace] = await backend.workspaces();
-    const boards = await backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title.startsWith('Project Tasks'));
-    if (!board) throw new Error('no board of tasks');
-    const views = await backend.views(board.id);
-    const card = (await backend.cards(board.id)).find(
-      (each) => each.title === 'Identify dependencies',
-    );
-    if (!card) throw new Error('no card');
-    const first = [...views].sort((a, b) => a.title.localeCompare(b.title))[0];
-    return { boardId: board.id, viewId: first?.id ?? '', cardId: card.id };
-  });
-  await page.goto(boardPath(place.boardId, place.viewId, place.cardId));
-  await expect(page.getByTestId('card-attachments')).toBeVisible();
-}
-
-async function attach(
-  page: Page,
-  name: string,
-  buffer: Buffer,
-  mimeType: string,
-): Promise<Locator> {
-  await page.getByTestId('attach-input').setInputFiles({ name, mimeType, buffer });
-  const row = page.getByTestId('card-attachments').locator('[data-attachment]', { hasText: name });
-  await expect(row).toBeVisible();
-  return row;
-}
-
 async function view(page: Page, name: string, buffer: Buffer, mimeType: string): Promise<void> {
   const row = await attach(page, name, buffer, mimeType);
   await row.getByRole('link', { name }).click();
 }
 
-const viewer = (page: Page): Locator => page.getByTestId('file-viewer');
-const frameOf = (page: Page): FrameLocator =>
-  page.frameLocator('[data-testid="file-viewer-frame"]');
 const notice = (page: Page): Locator => page.getByTestId('file-viewer-notice');
 
 /** The next worker the viewer's frame starts (from a `blob:` of its opaque origin), and its end. */

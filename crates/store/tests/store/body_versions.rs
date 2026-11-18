@@ -24,7 +24,7 @@ pub(crate) fn body_showing(text: &str, names: &[&str]) -> Option<Body> {
 }
 
 /// A board of a workspace of the test's organization, with the files `names`.
-async fn board_with_files(store: &Store, user_id: &str, names: &[&str]) -> String {
+pub(crate) async fn board_with_files(store: &Store, user_id: &str, names: &[&str]) -> String {
     let workspace_id = common::workspace(store).await;
     let boards = common::create_test_boards(store, &workspace_id, user_id, 1).await;
     let board_id = boards[0].id.clone();
@@ -47,7 +47,12 @@ async fn board_with_files(store: &Store, user_id: &str, names: &[&str]) -> Strin
 }
 
 /// A card of the board with the body, made by the user.
-async fn card_with(store: &Store, board_id: &str, body: Option<Body>, user_id: &str) -> String {
+pub(crate) async fn card_with(
+    store: &Store,
+    board_id: &str,
+    body: Option<Body>,
+    user_id: &str,
+) -> String {
     let mut card = Block {
         id: new_id(),
         container_id: board_id.to_owned(),
@@ -86,10 +91,12 @@ pub(crate) async fn type_body(store: &Store, card_id: &str, body: Option<Body>, 
             .await
             .expect("a document");
     }
+    let as_read = crate::body_docs::as_read(store, card_id).await;
     let seqs = store
         .append_body_updates(
             card_id,
             &[(b"an update", user_id)],
+            as_read,
             &[],
             &[user_id],
             BodyBefore::Leave,
@@ -98,8 +105,17 @@ pub(crate) async fn type_body(store: &Store, card_id: &str, body: Option<Body>, 
         .expect("logged");
     let read_at = store.get_block(card_id).await.expect("the card").update_at;
     let digest = fvoci_store::body_digest(body.as_ref());
+    let as_read = crate::body_docs::as_read(store, card_id).await;
     store
-        .project_body(card_id, Some(body), read_at, seqs[0], &digest, user_id)
+        .project_body(
+            card_id,
+            Some(body),
+            read_at,
+            seqs[0],
+            &digest,
+            user_id,
+            as_read,
+        )
         .await
         .expect("written to the card");
 }
@@ -323,8 +339,16 @@ async fn the_body_before_an_update_is_kept_with_its_log() {
     let update: &[(&[u8], &str)] = &[(b"an update", &editor)];
 
     let no_file = ["7nothing.png".to_owned()];
+    let as_read = crate::body_docs::as_read(store, &card_id).await;
     store
-        .append_body_updates(&card_id, update, &no_file, &[&editor], BodyBefore::Keep)
+        .append_body_updates(
+            &card_id,
+            update,
+            as_read,
+            &no_file,
+            &[&editor],
+            BodyBefore::Keep,
+        )
         .await
         .expect_err("the board has no such file");
     assert_eq!(
@@ -334,8 +358,9 @@ async fn the_body_before_an_update_is_kept_with_its_log() {
     );
 
     for _ in 0..2 {
+        let as_read = crate::body_docs::as_read(store, &card_id).await;
         store
-            .append_body_updates(&card_id, update, &[], &[&editor], BodyBefore::Keep)
+            .append_body_updates(&card_id, update, as_read, &[], &[&editor], BodyBefore::Keep)
             .await
             .expect("logged");
     }
@@ -423,10 +448,12 @@ async fn versions_stay_in_the_trash_and_go_with_the_card() {
     for (id, text) in [(&card_id, "one"), (&stays, "other")] {
         type_body(store, id, body_showing(text, &[]), &author).await;
         assert_eq!(keep(store, id).await, Some(1));
+        let as_read = crate::body_docs::as_read(store, id).await;
         store
             .append_body_updates(
                 id,
                 &[(b"an update", &author)],
+                as_read,
                 &[],
                 &[&author],
                 BodyBefore::Leave,
@@ -556,14 +583,15 @@ async fn a_document_with_a_log_its_state_does_not_hold_is_folded_at_the_start() 
         [],
         "written and kept"
     );
-    let log_end = store
+    let as_read = store
         .get_body_doc(&folded)
         .await
         .expect("read")
         .expect("a document")
-        .log_end;
+        .as_read();
+    let log_end = as_read.log_end;
     store
-        .fold_body_doc(&folded, b"the state with it", log_end)
+        .fold_body_doc(&folded, b"the state with it", log_end, as_read)
         .await
         .expect("folded");
     store
