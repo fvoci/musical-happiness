@@ -16,6 +16,7 @@ import { repack } from '../../src/viewer-frame/zip-guard.ts';
 
 import {
   DISGUISED_PPTX,
+  tabbed,
   heavyPptx,
   layoutAndSlidePptx,
   smartArtPptx,
@@ -79,11 +80,7 @@ const DRAWN: Record<string, () => Buffer> = {
     deck({
       slides: [
         {
-          shapes: textBox(
-            2,
-            [0, 0, 4_000_000, 1_000_000],
-            [run('가\t나', 2400, '', '<a:tab/><a:tab/>')],
-          ),
+          shapes: textBox(2, [0, 0, 4_000_000, 1_000_000], [tabbed(2), run('가\t나')]),
         },
       ],
     }),
@@ -137,10 +134,10 @@ describe('what the renderer draws of a slide is no more than the worker counted'
         expect(element.querySelectorAll('img').length, 'pictures').toBeLessThanOrEqual(
           counted.pictures,
         );
-        expect(
-          element.querySelectorAll('[data-pptx-tab-stop]').length,
-          'tabs laid out',
-        ).toBeLessThanOrEqual(counted.tabs);
+        const tabs = element.querySelectorAll('[data-pptx-tab-stop]').length;
+        expect(tabs, 'tabs laid out').toBeLessThanOrEqual(counted.tabs);
+        // The deck of tabs lays some out: the check above can fail.
+        if (name.startsWith('tabs')) expect(tabs).toBeGreaterThan(0);
         expect(element.querySelectorAll('*').length, 'elements').toBeLessThanOrEqual(
           // What the renderer makes of each element counted: a few of its own for each.
           10 * counted.elements + 100,

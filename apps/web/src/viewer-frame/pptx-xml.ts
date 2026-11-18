@@ -52,9 +52,22 @@ const LENGTHS = new Set([
   'indent',
   'defTabSz',
   'pos',
+  'wR',
+  'hR',
 ]);
 /** The largest font size PowerPoint allows (4,000 points), in hundredths of a point. */
 const FONT_SIZE = 400_000;
+/**
+ * The bounds of the other values the renderer turns into a size of text: a
+ * spacing in points (`a:spcPts`, hundredths of a point, as a font size), a
+ * spacing in lines (`a:spcPct`, thousandths of a percent: 100 lines), and
+ * the scale autofit gives the text (`fontScale`, which only shrinks it).
+ */
+const TEXT_BOUNDS: Record<string, { attribute: string; most: number }> = {
+  spcPts: { attribute: 'val', most: FONT_SIZE },
+  spcPct: { attribute: 'val', most: 10_000_000 },
+  normAutofit: { attribute: 'fontScale', most: 100_000 },
+};
 /** The effects of a picture the renderer works out pixel by pixel, on the frame's thread. */
 const PIXEL_EFFECTS = new Set(['duotone', 'lum', 'biLevel']);
 /** The longest attribute value kept as one that may name a relationship (a longer Id is left out). */
@@ -167,9 +180,11 @@ function take(tag: Tag, open: Open[], measured: PartMeasure, element: Open): voi
   const values = (name: string): string[] =>
     attributes.filter((each) => each.local === name).map((each) => each.value);
   const blip = open.findLast((each) => each.blip)?.blip;
+  const bound = TEXT_BOUNDS[local];
   for (const { local: name, value: named } of attributes) {
     if (LENGTHS.has(name)) measured.extent = Math.max(measured.extent, length(named));
     if (name === 'sz' && length(named) > FONT_SIZE) measured.extent = Infinity;
+    if (name === bound?.attribute && length(named) > bound.most) measured.extent = Infinity;
     if (named.length > NAME_LENGTH) continue;
     measured.names.set(named, (measured.names.get(named) ?? 0) + 1);
     blip?.names.add(named);
@@ -181,7 +196,8 @@ function take(tag: Tag, open: Open[], measured: PartMeasure, element: Open): voi
     blip.effects += 1;
   } else if (local === 'txBody' && !inCell(open)) {
     measured.textBodies += 1;
-  } else if (local === 'tab') {
+  } else if (local === 'tab' && open.at(-1)?.local !== 'tabLst') {
+    // A tab of the text; not a tab stop, which the renderer lays nothing out for.
     measured.tabs += 1;
   } else if (local === 'tbl') {
     element.table = { rows: 0, columns: 0, cells: 0 };
@@ -190,7 +206,8 @@ function take(tag: Tag, open: Open[], measured: PartMeasure, element: Open): voi
     if (table) table[local === 'tr' ? 'rows' : local === 'gridCol' ? 'columns' : 'cells'] += 1;
   } else if (local === 'graphicData' && values('uri').some((uri) => uri.includes('diagram'))) {
     measured.diagrams += 1;
-  } else if (local === 'sldId') {
+  } else if (local === 'sldId' && open.length === 2 && open[1]?.local === 'sldIdLst') {
+    // The slide list under the root, as the renderer reads it; not a section's list of its slides.
     measured.slideIds += 1;
     measured.slideRefs.push(values('id'));
   } else if (local === 'sldSz' && open.length === 1 && !measured.size) {

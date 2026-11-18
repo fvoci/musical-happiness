@@ -30,11 +30,15 @@ const DRAWN_LIMIT = 16;
 /**
  * The most pixels of pictures the slides drawn at once may show together:
  * what one slide may show (`SLIDE_LIMITS.pixels` in `pptx-ceilings.ts`). A
- * slide over what is left waits until others are taken out; the first is
- * drawn whatever it shows.
+ * slide in view takes the place of slides drawn out of view, the farthest
+ * first; one only near the view waits for room. A slide in view is drawn
+ * whatever it shows when no other in view is drawn.
  */
 export const PIXELS_DRAWN = 150_000_000;
-/** How long a frame is waited for: a hidden page has none, and the slide is drawn all the same. */
+/**
+ * How long a frame, or the renderer's own fitting (which waits for frames),
+ * is waited for: a hidden page has none, and the slide is drawn all the same.
+ */
 const FRAME_WAIT = 100;
 
 /** Draws the slide at `index` (from 0). */
@@ -48,6 +52,11 @@ const nextFrame = (): Promise<void> =>
       clearTimeout(waited);
       resolve();
     });
+  });
+
+const wait = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
   });
 
 const yieldThread = (): Promise<void> =>
@@ -169,34 +178,52 @@ export class PptxView implements Drawn {
     element.style.transform = `scale(${this.#scale()})`;
     slide.handle = handle;
     slide.box.replaceChildren(element);
-    await handle.ready;
+    const clean = (): void => {
+      if (slide.handle === handle) cleanSlide(element, this.#chart);
+    };
+    // The renderer's fitting is ready on frames of its own; whenever it is, what it set is cleaned.
+    const ready = handle.ready.then(clean, () => undefined);
+    await Promise.race([ready, wait(FRAME_WAIT)]);
     // The renderer fits text again two frames on: that is part of drawing this slide.
     await nextFrame();
     await nextFrame();
     // What the renderer set meanwhile (its pictures' recolouring, its refitting) is cleaned too.
-    if (slide.handle === handle) cleanSlide(element, this.#chart);
+    clean();
   }
 
   /**
    * The slide to draw next: of those near the view not drawn yet, one in the
-   * frame's view before one only near it, the first first; none while
-   * `DRAWN_LIMIT` slides are drawn, and none whose pictures would take those
-   * drawn past `PIXELS_DRAWN`.
+   * frame's view before one only near it, the first first. A slide in view
+   * takes the place of slides drawn out of view, the farthest first, while
+   * `DRAWN_LIMIT` slides are drawn or their pictures and its own would be
+   * past `PIXELS_DRAWN`; one only near the view waits for room.
    */
   #next(): Slide | undefined {
-    const drawn = this.#slides.filter((slide) => slide.handle);
-    if (drawn.length >= DRAWN_LIMIT) return undefined;
-    const shown = drawn.reduce((sum, slide) => sum + slide.pixels, 0);
-    const fits = (slide: Slide): boolean =>
-      drawn.length === 0 || shown + slide.pixels <= PIXELS_DRAWN;
-    const inView = (slide: Slide): number => {
+    const inView = (slide: Slide): boolean => {
       const { top, bottom } = slide.box.getBoundingClientRect();
-      return bottom > 0 && top < window.innerHeight ? 0 : 1;
+      return bottom > 0 && top < window.innerHeight;
     };
-    return [...this.#visible]
-      .filter((slide) => !slide.handle && !slide.failed && fits(slide))
-      .map((slide) => ({ slide, rank: inView(slide) }))
-      .sort((a, b) => a.rank - b.rank || a.slide.number - b.slide.number)[0]?.slide;
+    const [slide] = [...this.#visible]
+      .filter((each) => !each.handle && !each.failed)
+      .sort((a, b) => Number(inView(b)) - Number(inView(a)) || a.number - b.number);
+    if (!slide) return undefined;
+    let drawn = this.#slides.filter((each) => each.handle);
+    const room = (): boolean =>
+      drawn.length < DRAWN_LIMIT &&
+      (drawn.length === 0 ||
+        drawn.reduce((sum, each) => sum + each.pixels, 0) + slide.pixels <= PIXELS_DRAWN);
+    if (inView(slide)) {
+      const middle = window.innerHeight / 2;
+      const distance = (each: Slide): number =>
+        Math.abs(each.box.getBoundingClientRect().top - middle);
+      const away = drawn.filter((each) => !inView(each)).sort((a, b) => distance(b) - distance(a));
+      for (const each of away) {
+        if (room()) break;
+        each.clear();
+        drawn = drawn.filter((other) => other !== each);
+      }
+    }
+    return room() ? slide : undefined;
   }
 
   /** Draws the slides in view one after another, the thread given back between them. */

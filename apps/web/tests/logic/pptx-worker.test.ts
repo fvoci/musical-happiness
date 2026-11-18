@@ -31,6 +31,7 @@ import {
   picture,
   PPTX_LINK,
   PPTX_TEXT,
+  textBox,
 } from '../support/viewer-pptx.ts';
 
 /** The archive as the frame hands it to the worker: counted and written anew. */
@@ -168,6 +169,22 @@ describe('each ceiling stops the deck that passes it, and only that one', () => 
   it('each SmartArt frame is counted with the drawing it draws', async () => {
     expect(await overOf(smartArtPptx(1, 4))).toEqual([]);
     expect(await overOf(smartArtPptx(40, 4))).toEqual(['textBodies']);
+  });
+
+  it('what PowerPoint writes besides is not counted as more: sections, tab stops', async () => {
+    // A section lists its slides again; the renderer reads the slide list under the root only.
+    const sections = `<p:extLst><p:ext uri="{521415D9-36F7-43E2-AB2F-B90AF26B5E84}"><p14:sectionLst xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main"><p14:section name="One" id="{00000000-0000-0000-0000-000000000001}"><p14:sldIdLst>${'<p14:sldId id="256"/>'.repeat(
+      LIMITS.slides + 1,
+    )}</p14:sldIdLst></p14:section></p14:sectionLst></p:ext></p:extLst>`;
+    expect(await overOf(deck({ slides: [{ shapes: '' }], presentationExtra: sections }))).toEqual(
+      [],
+    );
+    // Tab stops, many of them on many paragraphs: no tab laid out.
+    const stops = `<a:pPr><a:tabLst>${'<a:tab pos="914400" algn="l"/>'.repeat(16)}</a:tabLst></a:pPr>`;
+    const paragraphs = Array.from({ length: 70 }, () => stops);
+    expect(
+      await overOf(deck({ slides: [{ shapes: textBox(2, [0, 0, 100, 100], paragraphs) }] })),
+    ).toEqual([]);
   });
 
   it('every ceiling has a deck', () => {

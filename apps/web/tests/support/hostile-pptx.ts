@@ -232,6 +232,13 @@ export function smartArtPptx(frames: number, boxes: number, more = '', uri?: str
 const tinyPng = (): Buffer => png(1, 1, [0, 0, 0]);
 
 /**
+ * A paragraph with a tab stop and `tabs` tabs as elements between its runs,
+ * which the renderer lays out as tabs (tab stops in `a:tabLst` are not).
+ */
+export const tabbed = (tabs: number): string =>
+  `<a:pPr><a:tabLst><a:tab pos="914400" algn="l"/></a:tabLst></a:pPr>${run('가')}${'<a:tab/>'.repeat(tabs)}${run('나')}`;
+
+/**
  * The hostile decks in disguise: each names what it draws in a way the
  * renderer reads otherwise than plainly, and is to be stopped at the same
  * ceiling as its plain twin (or, `unreadable`, refused as no file it reads).
@@ -375,8 +382,45 @@ export const DISGUISED_PPTX: Record<string, { ceiling: string; make: () => Buffe
   },
   'tabs as elements': {
     ceiling: 'tabs',
+    make: () => one(textBox(2, PLACE, [tabbed(SLIDE_LIMITS.tabs + 1)])),
+  },
+  'text scaled up by its autofit': {
+    ceiling: 'extent',
     make: () =>
-      one(textBox(2, PLACE, [run('가', 2400, '', '<a:tab/>'.repeat(SLIDE_LIMITS.tabs + 1))])),
+      one(
+        textBox(2, PLACE, [run('가', 400_000)]).replace(
+          '<a:bodyPr wrap="square"/>',
+          '<a:bodyPr wrap="square"><a:normAutofit fontScale="100000000"/></a:bodyPr>',
+        ),
+      ),
+  },
+  'lines spaced by more points than any font': {
+    ceiling: 'extent',
+    make: () =>
+      one(
+        textBox(2, PLACE, [
+          `<a:pPr><a:lnSpc><a:spcPts val="1000000000000"/></a:lnSpc></a:pPr>${run('가')}`,
+        ]),
+      ),
+  },
+  'lines spaced by more lines than a slide holds': {
+    ceiling: 'extent',
+    make: () =>
+      one(
+        textBox(2, PLACE, [
+          `<a:pPr><a:spcBef><a:spcPct val="1000000000000"/></a:spcBef></a:pPr>${run('가')}`,
+        ]),
+      ),
+  },
+  'an arc of a radius wider than any slide': {
+    ceiling: 'extent',
+    make: () =>
+      one(
+        shape(2, 'rect', PLACE, '2E7DD2').replace(
+          /<a:prstGeom prst="rect">.*?<\/a:prstGeom>/,
+          `<a:custGeom><a:pathLst><a:path w="1" h="1"><a:moveTo><a:pt x="0" y="0"/></a:moveTo><a:arcTo wR="${DECK_LIMITS.extent + 1}" hR="1" stAng="0" swAng="5400000"/></a:path></a:pathLst></a:custGeom>`,
+        ),
+      ),
   },
   'text boxes under a slide root named as a table cell': {
     ceiling: 'textBodies',
