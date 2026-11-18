@@ -1,6 +1,6 @@
 # 서버의 설정
 
-적은 때: 2026-11-11 05:05 KST, 고친 때: 2026-11-17 05:22 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
+적은 때: 2026-11-11 05:05 KST, 고친 때: 2026-11-19 02:35 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
 
 키를 더하거나 바꾸면 같은 커밋에서 이 문서를 고친다. 이 문서는 코드와 함께 검사된다. `config.rs`의 테스트 `the_configuration_document_lists_every_key`가 다음을 견준다.
 
@@ -129,7 +129,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
-| `trusted_proxies` | `FVOCI_TRUSTED_PROXIES` | 문자열 목록 | `[]` | 서버 앞의 역방향 프록시의 주소나 주소 범위(`10.0.0.0/8` 꼴). 이 주소에서 온 요청만 `X-Forwarded-For`가 말하는 주소에서 온 것으로 본다. 비우면 클라이언트가 서버에 바로 닿는다고 본다. 읽을 수 없는 값이 있으면 시작하지 않는다. `server_url`이 https이고 `serve_https`가 거짓인데 이 목록이 비면 시작할 때 경고한다(모든 클라이언트가 프록시 하나로 보여 로그인 제한이 모두에게 한꺼번에 걸리고, 공개 링크로 한 보드를 읽는 연결도 `public_link_connections_per_address`개까지만 받는다) |
+| `trusted_proxies` | `FVOCI_TRUSTED_PROXIES` | 문자열 목록 | `[]` | 서버 앞의 역방향 프록시의 주소나 주소 범위(`10.0.0.0/8` 꼴). 이 주소에서 온 요청만 `X-Forwarded-For`가 말하는 주소에서 온 것으로 본다. 비우면 클라이언트가 서버에 바로 닿는다고 본다. 터널(cloudflared 같은 것)도 이런 프록시다: 서버가 보는 터널의 주소를 적는다(`docker/compose.yaml`의 프로필 `tunnel`이면 그 머리 주석). 읽는 머리글은 `X-Forwarded-For`뿐이고 `CF-Connecting-IP`는 읽지 않는다. 읽을 수 없는 값이 있으면 시작하지 않는다. `server_url`이 https이고 `serve_https`가 거짓인데 이 목록이 비면 시작할 때 경고한다(모든 클라이언트가 프록시 하나로 보여 로그인 제한이 모두에게 한꺼번에 걸리고, 공개 링크로 한 보드를 읽는 연결도 `public_link_connections_per_address`개까지만 받는다) |
 
 ## 키: 한도와 휴지통, 임시 파일
 
@@ -285,6 +285,7 @@ issuer가 바뀌면(바로 바꾸든, 대기 설정을 적용하든) 옛 공급�
 | `FVOCI_LOG_LEVEL` | 로그의 수준과 거르개(`tracing`의 `EnvFilter` 문법, 예: `info`, `fvoci_server=debug`). 기본은 `info` |
 | `FVOCI_LOG_FORMAT` | `json`이면 로그를 줄마다 JSON으로 쓴다. 그 밖에는 사람이 읽는 꼴이다 |
 | `FVOCI_SECRET_KEY` | 서버가 DB에 봉인해 두는 값(조직 공급자의 client secret)의 키. 32바이트를 표준 base64로 쓴 것이다(`openssl rand -base64 32`). AES-256-GCM의 키로 쓴다. 환경 변수로만 받는다: 설정 파일에 `secret_key`가 있으면 시작하지 않는다. 꼴이 틀리면 값을 되풀이하지 않는 오류로 시작하지 않는다. 로그와 `Debug` 출력에 나오지 않는다. 없으면 공급자를 저장할 수 없다(409, `secret-key-required`). 바꾸면 저장된 secret이 열리지 않으므로 공급자마다 secret을 다시 저장한다 |
+| `FVOCI_BUILD_HASH`, `FVOCI_BUILD_DATE` | 서버를 빌드할 때만 읽는다: 빌드한 커밋과 그 시각. `ping`의 `commit`·`build_date`가 이것이고, 주지 않으면 빈 글이다. 이미지는 같은 이름의 빌드 인자로 받고 `cargo xtask docker`가 넘긴다(고치지 않은 것이 있는 작업 트리면 커밋 뒤에 `-dirty`) |
 | `AWS_*` | `file_storage_s3.access_key_id`가 비었을 때 S3 클라이언트가 읽는 자격과 설정(위 "S3의 예") |
 
 ## 예시 파일
