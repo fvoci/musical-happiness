@@ -3,14 +3,21 @@
  * workbook opened from a card's attachments shows its sheets as pages, its
  * values in their formats, its merged title and frozen rows, and says which
  * sheet has drawings it does not draw; a large sheet draws only what is in
- * view; a workbook opened from a page's file block; one past a ceiling, an
+ * view; whole rows and columns of a style of their own show it on their
+ * empty cells; a workbook opened from a page's file block; one past a ceiling, an
  * old Excel file, and one read slowly that "Close" and the time limit end,
  * worker and all. The frame asks the network for nothing.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { manyCellsXlsx, manyMergesXlsx } from '../tests/support/hostile-xlsx.ts';
-import { koreanXlsx, largeXlsx, XLSX_TEXT } from '../tests/support/viewer-xlsx.ts';
+import {
+  koreanXlsx,
+  largeXlsx,
+  ROW_COLUMN_TITLE,
+  rowColumnXlsx,
+  XLSX_TEXT,
+} from '../tests/support/viewer-xlsx.ts';
 
 import { attach, frameOf, openCard, picture, viewer } from './file-viewer.support.ts';
 import { openApp } from './shell.support.ts';
@@ -155,6 +162,44 @@ test.describe('in Korean', () => {
       requests.filter((request) => !/^(document|script|stylesheet|font) /.test(request)),
     ).toEqual([]);
   });
+});
+
+test('a styled row or column shows its fill on its empty cells; a cell its own', async ({
+  page,
+}) => {
+  await openCard(page);
+  const row = await attach(page, '행과 열.xlsx', rowColumnXlsx(), XLSX_TYPE);
+  await row.getByRole('link', { name: '행과 열.xlsx' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  const sheet = frameOf(page).getByRole('table', { name: '서식' });
+  await expect(sheet.getByRole('cell', { name: ROW_COLUMN_TITLE })).toBeVisible();
+  // The fills of the empty cells drawn in each row, and of what is written in row 2.
+  const fills = await sheet.evaluate((table) => {
+    const of = (selector: string): string[] => [
+      ...new Set(
+        [...table.querySelectorAll<HTMLElement>(selector)].map(
+          (cell) => getComputedStyle(cell).backgroundColor,
+        ),
+      ),
+    ];
+    const blank = (row: number): string =>
+      `[aria-rowindex="${row}"] .xlsx-cell[aria-hidden="true"]`;
+    return {
+      row2: of(blank(2)),
+      row3: of(blank(3)),
+      row4: of(blank(4)),
+      written2: of('[aria-rowindex="2"] [role="cell"]'),
+      merged: of('.xlsx-merged'),
+    };
+  });
+  expect(fills).toEqual({
+    row2: ['rgb(255, 0, 0)'],
+    row3: ['rgb(0, 0, 255)'],
+    row4: [],
+    written2: ['rgba(0, 0, 0, 0)'],
+    merged: ['rgb(0, 0, 255)'],
+  });
+  await picture(page, SCREENS, 'xlsx-row-column');
 });
 
 test('a large sheet draws only what is in view, and as far down as it goes', async ({ page }) => {

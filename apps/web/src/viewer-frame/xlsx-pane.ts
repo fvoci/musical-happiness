@@ -1,19 +1,22 @@
 /**
  * One pane of a sheet in the frame: a box of the view that shows a window
  * of rows and columns (the frozen ones, or those scrolled to), and draws in
- * it only what lies in that window: the grid lines, the rows, their cells,
- * and the merged ranges. As the window moves, what stays in it is kept and
+ * it only what lies in that window: the grid lines, the rows, their cells
+ * (and the empty ones a styled row or column fills or borders,
+ * `xlsx-blank.ts`), and the merged ranges. As the window moves, what stays in it is kept and
  * moved, what leaves is taken out and what comes is made: the page holds
  * what the reader sees, not the sheet.
  *
  * However a sheet is made (rows a hair high, merges over merges, a million
  * cells in view), one drawing walks at most `ROW_WALK` rows, looks at no
  * more than `Budget.cells` cells and merges across the panes (drawn or
- * not: a cell under a merge is looked at too), draws `LINE_BUDGET` lines in
+ * not: a cell under a merge is looked at too, and an empty one of a styled
+ * row or column), draws `LINE_BUDGET` lines in
  * each direction and looks at `MERGE_BUDGET` merges; past them the rest of
  * the window stays empty.
  */
 import type { Axis } from './xlsx-axis.ts';
+import type { BlankStyles } from './xlsx-blank.ts';
 import type { Looks } from './xlsx-look.ts';
 import { BLANK, STRING, type Sheet } from './xlsx-protocol.ts';
 
@@ -84,6 +87,10 @@ export class Pane {
   readonly #looks: Looks;
   readonly #rows: Axis;
   readonly #columns: Axis;
+  readonly #blanks: BlankStyles;
+  /** The columns in view of some width, and those of them whose style paints: of this drawing. */
+  #inView: number[] | undefined;
+  #painting: number[] | undefined;
   /** What is in the page, by key; what a drawing does not touch is taken out. */
   #drawn = new Map<string, HTMLElement>();
   #touched = new Set<string>();
@@ -91,11 +98,12 @@ export class Pane {
   #y = 0;
   #x = 0;
 
-  constructor(sheet: Sheet, looks: Looks, rows: Axis, columns: Axis) {
+  constructor(sheet: Sheet, looks: Looks, rows: Axis, columns: Axis, blanks: BlankStyles) {
     this.#sheet = sheet;
     this.#looks = looks;
     this.#rows = rows;
     this.#columns = columns;
+    this.#blanks = blanks;
     this.element.className = 'xlsx-pane';
     this.#lines.className = 'xlsx-lines';
     this.#lines.setAttribute('aria-hidden', 'true');
@@ -123,6 +131,8 @@ export class Pane {
     box.width = `${Math.max(0, window.width)}px`;
     box.height = `${Math.max(0, window.height)}px`;
     this.#touched = new Set();
+    this.#inView = undefined;
+    this.#painting = undefined;
     const empty = window.rows[0] >= window.rows[1] || window.columns[0] >= window.columns[1];
     if (!empty && window.width > 0 && window.height > 0) {
       const rows = this.#visibleRows(window);
@@ -275,7 +285,68 @@ export class Pane {
       const element = this.#cell(at, row, columns, merges, end, false);
       if (element) drawn.push(element);
     }
+    drawn.push(...this.#blankCells(row, columns, merges, [start, end], budget));
     return drawn;
+  }
+
+  /** The columns in view of some width, in order, at most `CELL_BUDGET` of them. */
+  #columnsInView([first, last]: [number, number]): number[] {
+    if (this.#inView) return this.#inView;
+    const found: number[] = [];
+    for (
+      let column = first;
+      column <= last && found.length < CELL_BUDGET;
+      column = this.#columns.next(column)
+    ) {
+      if (this.#columns.size(column) > 0) found.push(column);
+    }
+    this.#inView = found;
+    return found;
+  }
+
+  /**
+   * The cells of a row in view not written in it (the row's are its cells
+   * from `written[0]` to before `written[1]`) whose row's or column's style
+   * paints, made or kept. Each looked at spends the budget.
+   */
+  #blankCells(
+    row: number,
+    columns: [number, number],
+    merges: readonly Range[],
+    [start, end]: [number, number],
+    budget: Budget,
+  ): HTMLElement[] {
+    const blanks = this.#blanks;
+    const own = blanks.row(row);
+    if (own >= 0 ? !blanks.paints(own) : !blanks.columnsPaint) return [];
+    const inView = this.#columnsInView(columns);
+    this.#painting ??= inView.filter((column) => blanks.paints(blanks.column(column)));
+    const sheet = this.#sheet;
+    const made: HTMLElement[] = [];
+    let written = start;
+    for (const column of own >= 0 ? inView : this.#painting) {
+      if (budget.cells <= 0) break;
+      budget.cells -= 1;
+      while (written < end && (sheet.cellColumns[written] ?? 0) < column) written += 1;
+      if (written < end && sheet.cellColumns[written] === column) continue;
+      const covered = merges.some(
+        ([top, left, bottom, right]) =>
+          row >= top && row <= bottom && column >= left && column <= right,
+      );
+      if (covered) continue;
+      const element = this.#take(`b${row}:${column}`, () => {
+        const blank = this.#make(-1, column, row, row);
+        // Not a cell to read: it holds nothing.
+        blank.removeAttribute('role');
+        blank.removeAttribute('aria-colindex');
+        blank.setAttribute('aria-hidden', 'true');
+        this.#looks.paint(blank, this.#looks.style(own >= 0 ? own : blanks.column(column)));
+        return blank;
+      });
+      element.style.left = `${this.#columns.start(column) * this.#zoom - this.#x}px`;
+      made.push(element);
+    }
+    return made;
   }
 
   #row(row: number): HTMLElement {
@@ -407,6 +478,9 @@ export class Pane {
     const element = this.#take(`m${top}:${left}:${bottom}:${right}`, () => {
       const made = this.#make(anchor, left, top, bottom, right);
       made.classList.add('xlsx-merged');
+      // A range whose first cell is not written shows that cell's row's or column's style.
+      const blank = anchor < 0 ? this.#blanks.at(top, left) : -1;
+      if (this.#blanks.paints(blank)) this.#looks.paint(made, this.#looks.style(blank));
       return made;
     });
     const zoom = this.#zoom;

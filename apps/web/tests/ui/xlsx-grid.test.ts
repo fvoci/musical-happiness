@@ -17,7 +17,7 @@ import { Looks } from '../../src/viewer-frame/xlsx-look.ts';
 import { CELL_BUDGET } from '../../src/viewer-frame/xlsx-pane.ts';
 import { readWorkbook } from '../../src/viewer-frame/xlsx-read.ts';
 import { repack } from '../../src/viewer-frame/zip-guard.ts';
-import { cell, esc, workbook } from '../support/viewer-xlsx.ts';
+import { cell, esc, ROW_COLUMN_STYLES, rowColumnXlsx, workbook } from '../support/viewer-xlsx.ts';
 
 const VALUES = ['<img src="x" onerror="globalThis.drawn = true">', '<b>굵게</b>', '&lt;i&gt;'];
 const NAME = '<script>표</script>';
@@ -147,5 +147,65 @@ describe('the rows along a sheet', () => {
     expect(axis.start(100_001)).toBe(20);
     expect(axis.indexAt(20)).toBe(100_001);
     expect(axis.total).toBe(100_000 * 20);
+  });
+});
+
+describe('rows and columns of a style of their own', () => {
+  /** The empty cells drawn in row `row` (from 1) for its row's or column's style. */
+  const blanks = (view: SheetView, row: number): HTMLElement[] => [
+    ...view.element.querySelectorAll<HTMLElement>(
+      `[role="row"][aria-rowindex="${row}"] .xlsx-cell[aria-hidden="true"]`,
+    ),
+  ];
+  const fills = (cells: HTMLElement[]): string[] => [
+    ...new Set(cells.map((each) => each.style.backgroundColor)),
+  ];
+  const RED = 'rgb(255, 0, 0)';
+  const BLUE = 'rgb(0, 0, 255)';
+
+  it('show on the cells not written: a cell over its row, a row over its column', async () => {
+    const view = await drawn(rowColumnXlsx());
+    // Row 2 is red across, column C too; B2, written, is of its own style (none).
+    const second = blanks(view, 2);
+    expect(second.length).toBeGreaterThan(5);
+    expect(fills(second)).toEqual([RED]);
+    const written = view.element.querySelectorAll<HTMLElement>(
+      '[role="row"][aria-rowindex="2"] [role="cell"]',
+    );
+    expect([...written].map((each) => [each.textContent, each.style.backgroundColor])).toEqual([
+      ['7', ''],
+    ]);
+    // A row of no style of its own: only column C, blue.
+    expect(fills(blanks(view, 3))).toEqual([BLUE]);
+    expect(blanks(view, 3)).toHaveLength(1);
+    // Row 4 is bold alone: it stands over column C, and paints nothing.
+    expect(blanks(view, 4)).toHaveLength(0);
+    // Row 6 names a style without customFormat, which Excel does not take.
+    expect(fills(blanks(view, 6))).toEqual([BLUE]);
+    // Row 7 is red but at E7, written empty of no style, which is its own.
+    expect(blanks(view, 7)).toHaveLength(second.length);
+    expect(view.element.querySelector('[role="row"][aria-rowindex="7"] [role="cell"]')).not.toBe(
+      null,
+    );
+    // A merge of no cell written takes its first cell's column's style.
+    const merged = view.element.querySelector<HTMLElement>('.xlsx-merged');
+    expect(merged?.style.backgroundColor).toBe(BLUE);
+    // Row 12 is bordered: each of its empty cells has the edges.
+    const bordered = blanks(view, 12);
+    expect(bordered.length).toBeGreaterThan(5);
+    expect(bordered.every((each) => each.querySelector('.xlsx-edges'))).toBe(true);
+    // Nothing of them is read out: they hold nothing.
+    expect(second.every((each) => !each.hasAttribute('role'))).toBe(true);
+  });
+
+  it('a styled column across the whole sheet spends the budget like any cell', async () => {
+    // Every column filled, 1-pixel columns and rows: far more empty cells in view than the budget.
+    const xml = `<sheetFormatPr defaultRowHeight="0.75"/><cols><col min="1" max="16384" width="0.1" style="1" customWidth="1"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>`;
+    const view = await drawn(
+      workbook({ sheets: [{ name: 'filled', xml }], stylesXml: ROW_COLUMN_STYLES }),
+    );
+    const drawnBlanks = view.element.querySelectorAll('.xlsx-cell[aria-hidden="true"]').length;
+    expect(drawnBlanks).toBeLessThanOrEqual(CELL_BUDGET);
+    expect(drawnBlanks).toBeGreaterThan(CELL_BUDGET / 2);
   });
 });

@@ -72,6 +72,7 @@ export class Looks {
   readonly #workbook: Workbook;
   readonly #language: string;
   readonly #formats = new Map<number, NumberFormat>();
+  readonly #paints = new Map<number, boolean>();
 
   constructor(workbook: Workbook, language: string) {
     this.#workbook = workbook;
@@ -166,6 +167,26 @@ export class Looks {
       const room = `${(style.indent * 9 * zoom).toFixed(1)}px`;
       set(shown.align === 'right' ? 'padding-right' : 'padding-left', room);
     }
+  }
+
+  /** Whether a style paints anything on a cell without a value: a fill or a border. */
+  paints(index: number): boolean {
+    let paints = this.#paints.get(index);
+    if (paints === undefined) {
+      const style = this.style(index);
+      const border = this.#workbook.borders[style.border];
+      const sides = border ? [border.left, border.right, border.top, border.bottom] : [];
+      paints = COLOR.test(style.fill) || sides.some(([line]) => line > 0);
+      this.#paints.set(index, paints);
+    }
+    return paints;
+  }
+
+  /** Puts a style's fill and borders on the element of a cell without a value. */
+  paint(element: HTMLElement, style: Style): void {
+    if (COLOR.test(style.fill)) element.style.setProperty('background-color', style.fill);
+    const edges = this.edges(style);
+    if (edges) element.append(edges);
   }
 
   /** The element that draws a style's borders over a cell, or undefined when it has none. */

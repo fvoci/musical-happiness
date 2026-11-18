@@ -126,6 +126,17 @@ export interface Sheet {
   columns: Float64Array;
   /** Rows of their own height or hidden: row (from 0), height in points (-1 the default), hidden. */
   rows: Float64Array;
+  /**
+   * The style of every cell of a row not written in it (`row@s` with
+   * `customFormat`): row (from 0) and style, in order of rows, each once.
+   */
+  rowStyles: Uint32Array;
+  /**
+   * The style of every cell of a run of columns not written in it, unless
+   * its row has one (`col@style`): first, last (from 0) and style; where
+   * runs overlap, as their widths do.
+   */
+  columnStyles: Uint32Array;
   /** The cells, by row and then column. */
   cellRows: Uint32Array;
   cellColumns: Uint16Array;
@@ -165,6 +176,8 @@ export function transfers(workbook: Workbook): ArrayBuffer[] {
     [
       sheet.columns,
       sheet.rows,
+      sheet.rowStyles,
+      sheet.columnStyles,
       sheet.cellRows,
       sheet.cellColumns,
       sheet.kinds,
