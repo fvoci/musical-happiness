@@ -112,6 +112,7 @@ export class PageStore {
     this.#closed = true;
     this.comments.close();
     this.closeBody();
+    for (const upload of this.#bodyUploads) upload.abort();
   }
 
   /**
@@ -215,13 +216,24 @@ export class PageStore {
     this.lost = [];
   }
 
-  /** Uploads an image for the body, a file of the wiki, and gives the identifier its node names. */
-  async uploadImage(file: File): Promise<string> {
+  /**
+   * Uploads a file for the body, a file of the wiki, and gives the identifier
+   * its image or file block names. Closing the page gives it up.
+   */
+  async uploadFile(file: File): Promise<string> {
+    const controller = new AbortController();
+    this.#bodyUploads.push(controller);
     try {
-      return (await this.wiki.workspace.backend.upload(this.#wikiId, file)).fileId;
+      const options = { signal: controller.signal };
+      return (await this.wiki.workspace.backend.upload(this.#wikiId, file, options)).fileId;
     } catch (error) {
-      this.wiki.workspace.report('upload', error);
+      if (!controller.signal.aborted) this.wiki.workspace.report('upload', error);
       throw error;
+    } finally {
+      this.#bodyUploads = this.#bodyUploads.filter((other) => other !== controller);
     }
   }
+
+  /** The uploads of files for the body under way, given up when the page closes. */
+  #bodyUploads: AbortController[] = [];
 }

@@ -23,14 +23,15 @@ const paragraph = (...content: DocNode[]): DocNode => ({ type: 'paragraph', cont
 const doc = (...content: DocNode[]): DocNode => ({ type: 'doc', content });
 
 describe('the list of what a body may contain', () => {
-  it('has the eighteen nodes and five marks of version 3', () => {
-    expect(BODY_VERSION).toBe(3);
+  it('has the nineteen nodes and five marks of version 4', () => {
+    expect(BODY_VERSION).toBe(4);
     expect(Object.keys(NODE_SPECS).sort()).toEqual([
       'blockMath',
       'blockquote',
       'bulletList',
       'codeBlock',
       'doc',
+      'file',
       'hardBreak',
       'heading',
       'horizontalRule',
@@ -90,6 +91,7 @@ describe('validating a document', () => {
       { type: 'codeBlock' },
       { type: 'horizontalRule' },
       { type: 'image', attrs: { fileId: 'f1', alt: 'a chart' } },
+      { type: 'file', attrs: { fileId: 'f2.pdf' } },
     );
     expect(validateDoc(everything)).toEqual([]);
     expect(validateDoc(emptyDoc())).toEqual([]);

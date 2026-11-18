@@ -130,7 +130,7 @@ impl Worker {
             .take(update, &limits)
             .map_err(|error| take_refused(&error))?;
         let state_bytes = u64::try_from(changed.state_bytes).unwrap_or(u64::MAX);
-        let images = changed
+        let files = changed
             .repair
             .body
             .as_ref()
@@ -141,7 +141,7 @@ impl Worker {
         Ok(Answer::Taken {
             repair: changed.repair.update,
             state_bytes,
-            images,
+            files,
         })
     }
 

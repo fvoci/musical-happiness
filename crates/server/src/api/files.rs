@@ -75,7 +75,7 @@ const NO_FILE_PART: &str = "the request has no part named `file` with a file nam
 #[serde(rename_all = "camelCase")]
 pub(super) struct UploadedFile {
     /// The identifier of the file: what `getFile` and `getFileInfo` take, and what an
-    /// attachment block or an image of a body names in its `fileId`.
+    /// attachment block, an image or a file block of a body names in its `fileId`.
     pub(super) file_id: String,
 }
 

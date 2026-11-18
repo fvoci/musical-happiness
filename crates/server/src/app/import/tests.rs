@@ -142,3 +142,50 @@ fn split_entry_name_takes_the_base_name() {
         "a bare name is in the current directory"
     );
 }
+
+/// A board line's names of its files are taken as an upload's name would be, with the
+/// extension of the entry's name; any other is left out, and its file keeps the name of
+/// its entry.
+#[test]
+fn the_names_of_files_are_taken_as_an_upload_names_them() {
+    let longest = format!("{}.pdf", "x".repeat(MAX_UPLOAD_NAME_CHARS - 4));
+    let board = serde_json::json!({"id": "b1", "fileNames": {
+        "7a.pdf": "회의록.pdf",
+        "7b.pdf": "renamed.exe",
+        "7c": "  ",
+        "7d.pdf": "nul\u{0}.pdf",
+        "7e.pdf": format!("{}.pdf", "x".repeat(MAX_UPLOAD_NAME_CHARS)),
+        "7f.pdf": 3,
+        "7g.pdf": longest,
+        "7h.jpg": "Photo.JPEG",
+        "7i.pdf": "../../minutes.pdf",
+        "7j": "dir/  ",
+    }});
+    let names = file_names_of(&board);
+    let taken = |entry: &str, name: &str| (entry.to_owned(), name.to_owned());
+    assert_eq!(
+        names,
+        FileNames::from([
+            taken("7a.pdf", "회의록.pdf"),
+            taken("7g.pdf", &longest),
+            taken("7h.jpg", "Photo.JPEG"),
+            // Whose record keeps the part after the last `/` alone (`FilePlace::new`).
+            taken("7i.pdf", "../../minutes.pdf"),
+        ]),
+        "only the names that fit"
+    );
+    for board in [
+        serde_json::json!({"id": "b1"}),
+        serde_json::json!({"id": "b1", "fileNames": ["7a.pdf"]}),
+    ] {
+        assert!(file_names_of(&board).is_empty(), "no names: {board}");
+    }
+    let by_dir = HashMap::from([("b1".to_owned(), names)]);
+    assert_eq!(name_in(&by_dir, "b1", "7a.pdf"), "회의록.pdf");
+    assert_eq!(name_in(&by_dir, "b1", "7b.pdf"), "7b.pdf", "left out");
+    assert_eq!(
+        name_in(&by_dir, "b2", "7a.pdf"),
+        "7a.pdf",
+        "another board's"
+    );
+}

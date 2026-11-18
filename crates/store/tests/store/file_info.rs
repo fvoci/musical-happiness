@@ -444,11 +444,9 @@ async fn collected(store: &fvoci_store::Store, before: i64) -> Vec<String> {
 fn card_showing(board_id: &str, names: &[&str]) -> Block {
     let mut content =
         vec![json!({"type": "paragraph", "content": [{"type": "text", "text": "x"}]})];
-    content.extend(
-        names
-            .iter()
-            .map(|name| json!({"type": "image", "attrs": {"fileId": name}})),
-    );
+    content.extend(names.iter().map(
+        |name| json!({"type": crate::image_files::node_kind(name), "attrs": {"fileId": name}}),
+    ));
     Block {
         id: new_id(),
         container_id: board_id.to_owned(),
@@ -460,7 +458,7 @@ fn card_showing(board_id: &str, names: &[&str]) -> Block {
 }
 
 /// Not in the original (`docs/s6-design.md` 5.7). A file that an image block or a card's
-/// body shows stays; one that no block shows, live or in the trash, is collected once
+/// body (an image, a file block) shows stays; one that no block shows, live or in the trash, is collected once
 /// the grace period has passed since it became so, and its record goes.
 #[tokio::test]
 async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
@@ -472,7 +470,7 @@ async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
     let board_id = &boards[0].id;
     let started = now_millis();
     let later = started + 3_600_000;
-    for name in ["7image.png", "7body.png", "7none.png"] {
+    for name in ["7image.png", "7body.png", "7block.pdf", "7none.png"] {
         store
             .save_file_info(&record_of(board_id, name))
             .await
@@ -486,7 +484,7 @@ async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
             .expect("the fields are a JSON object"),
         ..Block::default()
     };
-    let mut card = card_showing(board_id, &["7body.png"]);
+    let mut card = card_showing(board_id, &["7body.png", "7block.pdf"]);
     common::insert_blocks(store, std::slice::from_mut(&mut image), &user_id).await;
     common::insert_blocks(store, std::slice::from_mut(&mut card), &user_id).await;
 
@@ -529,7 +527,7 @@ async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
         .insert_block(&mut card, &user_id)
         .await
         .expect("the card is changed again");
-    assert_eq!(collected(store, later).await, ["7body.png"]);
+    assert_eq!(collected(store, later).await, ["7block.pdf", "7body.png"]);
 
     // Once the image is gone for good, so is what it showed.
     store
@@ -556,11 +554,13 @@ async fn a_restored_block_or_board_shows_its_files_again() {
     let mut old = record_of(board_id, "7old.png");
     old.create_at = 1;
     store.save_file_info(&old).await.expect("an old file");
-    store
-        .save_file_info(&record_of(board_id, "7shown.png"))
-        .await
-        .expect("a shown file");
-    let mut card = card_showing(board_id, &["7shown.png"]);
+    for name in ["7shown.png", "7shown.pdf"] {
+        store
+            .save_file_info(&record_of(board_id, name))
+            .await
+            .expect("a shown file");
+    }
+    let mut card = card_showing(board_id, &["7shown.png", "7shown.pdf"]);
     common::insert_blocks(store, std::slice::from_mut(&mut card), &user_id).await;
 
     store

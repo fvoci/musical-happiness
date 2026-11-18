@@ -13,7 +13,8 @@
   A reference is an element that holds an identifier; what it names is drawn
   into it from `references` (reference-chip.ts), and again whenever what the
   caller knows of it changes. Without `references` each shows as what the
-  reader may not see.
+  reader may not see. A file block is a place too, and its file's name, size
+  and link are drawn into it from the file source (file-view.ts).
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -22,6 +23,7 @@
 
   import './editor.css';
   import { drawEmbeds } from './embeds.ts';
+  import { drawFileBlocks } from './file-view.ts';
   import { drawReferences, openClickedReference, type ReferenceDrawing } from './reference-chip.ts';
   import { renderBody } from './render.ts';
 
@@ -84,6 +86,8 @@
     class={['doc-body', className]}
     {@attach (element: HTMLElement) => {
       element.replaceChildren(...nodes);
+      // Each file block's name, size and link, drawn as in the editor (file-view.ts).
+      drawFileBlocks(element);
       // Gives back what stops the drawing when the body changes or goes away.
       return drawEmbeds(element);
     }}

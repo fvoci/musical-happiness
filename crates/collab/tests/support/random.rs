@@ -183,9 +183,10 @@ fn block(random: &mut Random, depth: usize) -> Value {
             };
             with_content("codeBlock", language, text)
         }
-        4 => match random.below(3) {
+        4 => match random.below(4) {
             0 => json!({"type": "horizontalRule"}),
             1 => json!({"type": "blockMath", "attrs": {"latex": words(random)}}),
+            2 => json!({"type": "file", "attrs": {"fileId": "file.pdf"}}),
             _ if random.chance(2) => json!({"type": "image", "attrs": {"fileId": "file.png"}}),
             _ => json!({"type": "image", "attrs": {"fileId": "file.png", "alt": words(random)}}),
         },

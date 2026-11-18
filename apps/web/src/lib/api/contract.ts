@@ -1553,16 +1553,17 @@ export interface paths {
          *     10,000 entries, whose entries unpack to more than 1 GiB together, or with a
          *     `board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with
          *     the `limit` passed, and nothing of it is stored. The blocks that show files are
-         *     pointed at the board's new copies of them, the images of bodies included; a card
-         *     value that does not fit its property's kind is cleared, as a copy does. A wiki of
-         *     the archive (`kind` `wiki`) is made as a wiki, its pages and the comments on them
-         *     with it. What a write would refuse of an archive's boards, wikis and blocks is 400
-         *     before any of them is stored, with the message the write has: a block of a type of
-         *     the other kind (a page on a board, a card on a wiki), a page below anything but a
-         *     page of its wiki or below a page the archive does not have, pages that are each
-         *     other's parents, a comment on anything but a card or page, a wiki that is a template,
-         *     and a wiki deeper or with more pages than the organization's limits allow (400 with
-         *     the reason `page_too_deep` or `too_many_pages`).
+         *     pointed at the board's new copies of them, the images and file blocks of bodies
+         *     included; a card value that does not fit its property's kind is cleared, as a copy
+         *     does. A wiki of the archive (`kind` `wiki`) is made as a wiki, its pages and the
+         *     comments on them with it. What a write would refuse of an archive's boards, wikis
+         *     and blocks is 400 before any of them is stored, with the message the write has: a
+         *     block of a type of the other kind (a page on a board, a card on a wiki), a page
+         *     below anything but a page of its wiki or below a page the archive does not have,
+         *     pages that are each other's parents, a comment on anything but a card or page, a
+         *     wiki that is a template, and a wiki deeper or with more pages than the
+         *     organization's limits allow (400 with the reason `page_too_deep` or
+         *     `too_many_pages`).
          *
          *     The boards are made one after the other, not all or none: when one of them fails,
          *     those before it stay. The members of a board who are not in the workspace are left
@@ -1758,7 +1759,8 @@ export interface paths {
          *     only link its blocks to each other. All blocks are inserted or none, and they are
          *     listed afterwards in the order the request had them in. Comments need the role of a
          *     commenter, everything else that of an editor. A comment is on a card of the board,
-         *     and no block is below a comment (400 at the block's `parentId`).
+         *     and no block is below a comment (400 at the block's `parentId`). A comment's body
+         *     has no file block (400 at its `body`), and nothing is copied for one that has.
          */
         post: operations["createBlocks"];
         delete?: never;
@@ -1803,7 +1805,8 @@ export interface paths {
          *     moving a comment to another card (`parentId`) or making it a block of another type
          *     is for editors, and making a block of somebody else a comment for the board's admins.
          *     A comment goes only on a card of the board, no block goes below a comment (400 at
-         *     `parentId`), and a card with comments stays a card (400 at `type`). The block's
+         *     `parentId`), and a card with comments stays a card (400 at `type`). A comment's body
+         *     has no file block, nor does a block made a comment (400 at `body`). The block's
          *     `modifiedBy` and `updateAt` say who changed it and when.
          */
         patch: operations["patchBlock"];
@@ -2067,12 +2070,12 @@ export interface paths {
          * @description Writes the body of the version to the card again, as a write of the whole body by
          *     the caller: those who edit the card together are sent the body as a new document
          *     (`contracts/websocket.md`), the body it replaces is kept as a version first, with
-         *     what they typed, and the body written is the card's newest version, by the
-         *     caller. The versions before stay as they are. A card that has that body already is
-         *     left as it is. For editors of the card's board (403 for its other members); to a
-         *     user who is no member of it there is no such card. A number the card has no
-         *     version of, or has none of any more, is 404. A version whose body may not be
-         *     stored any more, or shows an image whose file the board no longer has, is 409.
+         *     what they typed, and the body written is the card's newest version, by the caller.
+         *     The versions before stay as they are. A card that has that body already is left as
+         *     it is. For editors of the card's board (403 for its other members); to a user who is
+         *     no member of it there is no such card. A number the card has no version of, or has
+         *     none of any more, is 404. A version whose body may not be stored any more, or names
+         *     a file (an image, a file block) the board no longer has, is 409.
          */
         post: operations["restoreCardBodyVersion"];
         delete?: never;
@@ -2306,9 +2309,14 @@ export interface paths {
          *     3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
          *     `block` or `boardMember` per line, in the shapes of this contract, bodies included,
          *     but that a block and a member name their board or wiki `boardId`, not `containerId`)
-         *     and the files the blocks show, the images of bodies among them. A wiki is written
-         *     as a board is, its `kind` `wiki`: its pages as they stand and the comments on them
-         *     are its blocks (not the pages in its trash, nor the versions of bodies).
+         *     and the files the blocks show, those of the images and file blocks of bodies among
+         *     them. A board's line also carries `fileNames`: the name of each of its files, by
+         *     stored name, which an import gives the files it stores. A name an upload could not
+         *     have (blank, with U+0000, over 255 characters, or of another extension than the
+         *     stored name) is passed over and its file keeps the name of its entry, and an archive
+         *     without the member is read as before. A wiki is written as a board is, its `kind` `wiki`: its
+         *     pages as they stand and the comments on them are its blocks (not the pages in its
+         *     trash, nor the versions of bodies).
          *
          *     A user runs one export at a time, and the server as many as its setting
          *     `max_concurrent_exports` (2 unless set). Over either it is 429 with the reason
@@ -2345,13 +2353,14 @@ export interface paths {
          *     built-in template for everyone.
          *
          *     A wiki is copied as a board is, with its pages as they stand: their tree and order,
-         *     titles, icons and bodies, the images of the bodies given files of their own, and
-         *     what a body names among the wiki's pages named in the copy by its copy (what it
-         *     names elsewhere stays as it was). The comments on the pages, the versions of their
-         *     bodies, the pages in the trash, the wiki's other members and teams and its public
-         *     link are not copied. A wiki is no template: `asTemplate=true` is 400. A copy deeper
-         *     or with more pages than the organization's limits allow, lowered since the wiki
-         *     grew, is 400 with the reason `page_too_deep` or `too_many_pages` and the `limit`.
+         *     titles, icons and bodies, the images and file blocks of the bodies given files of
+         *     their own, and what a body names among the wiki's pages named in the copy by its
+         *     copy (what it names elsewhere stays as it was). The comments on the pages, the
+         *     versions of their bodies, the pages in the trash, the wiki's other members and teams
+         *     and its public link are not copied. A wiki is no template: `asTemplate=true` is 400.
+         *     A copy deeper or with more pages than the organization's limits allow, lowered since
+         *     the wiki grew, is 400 with the reason `page_too_deep` or `too_many_pages` and the
+         *     `limit`.
          */
         post: operations["duplicateContainer"];
         delete?: never;
@@ -3563,12 +3572,12 @@ export interface paths {
         /**
          * Go back to a version of a page's body
          * @description Writes the body of the version to the page again, as `restoreCardBodyVersion` does
-         *     to a card: those who edit the page together are sent the body as a new document,
-         *     the body it replaces is kept as a version first, and the body written is the
-         *     page's newest version, by the caller. A page that has that body already is left as
-         *     it is. For editors of the wiki (403 for its other members). A number the page has
-         *     no version of, or has none of any more, is 404; a version whose body may not be
-         *     stored any more, or shows an image whose file the wiki no longer has, is 409.
+         *     to a card: those who edit the page together are sent the body as a new document, the
+         *     body it replaces is kept as a version first, and the body written is the page's
+         *     newest version, by the caller. A page that has that body already is left as it is.
+         *     For editors of the wiki (403 for its other members). A number the page has no
+         *     version of, or has none of any more, is 404; a version whose body may not be stored
+         *     any more, or names a file (an image, a file block) the wiki no longer has, is 409.
          */
         post: operations["restorePageBodyVersion"];
         delete?: never;
@@ -3598,8 +3607,8 @@ export interface paths {
          * Write a comment on a page
          * @description For the wiki's members from the commenter's role up. The server chooses the
          *     identifier, the author and the times. Every image of the text shows a file of the
-         *     wiki (400 otherwise). Who reads the wiki is told with `UPDATE_BLOCK`, as of a
-         *     comment on a card.
+         *     wiki (400 otherwise), and the text has no file block (400). Who reads the wiki is
+         *     told with `UPDATE_BLOCK`, as of a comment on a card.
          */
         post: operations["createPageComment"];
         delete?: never;
@@ -3634,7 +3643,7 @@ export interface paths {
          *     author from the commenter's role up, and the comment of somebody else by the wiki's
          *     admins only (403, `access denied to change other users' comments`); an editor may
          *     not change it. The text it had is kept (`getPageCommentVersions`), and the comment's
-         *     `editedAt` says when it last changed.
+         *     `editedAt` says when it last changed. The text has no file block (400).
          */
         patch: operations["patchPageComment"];
         trace?: never;
@@ -3703,15 +3712,15 @@ export interface paths {
         /**
          * Duplicate a page
          * @description Copies the page with every page below it, within its wiki, for editors of the wiki:
-         *     the copy goes right after the page among its siblings, titled `title` if given
-         *     (the page's own title otherwise; a client names it in its reader's language), and
-         *     the pages below it are copied below it as they are, with their titles, icons,
-         *     places and bodies, what is typed in them now included. The images in the bodies get
-         *     files of their own, as a card's duplicate's do. The versions of the bodies and the
-         *     comments are not copied. The tree is held to the organization's limits: 400 with the
-         *     reason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies would be
-         *     deeper, or the wiki larger, than they let it be; 400 at `/title` for a title longer
-         *     than 16383 characters. Nothing is changed then.
+         *     the copy goes right after the page among its siblings, titled `title` if given (the
+         *     page's own title otherwise; a client names it in its reader's language), and the
+         *     pages below it are copied below it as they are, with their titles, icons, places and
+         *     bodies, what is typed in them now included. The images and file blocks in the bodies
+         *     get files of their own, as a card's duplicate's do. The versions of the bodies and
+         *     the comments are not copied. The tree is held to the organization's limits: 400 with
+         *     the reason `page_too_deep` or `too_many_pages` (with the `limit`) if the copies
+         *     would be deeper, or the wiki larger, than they let it be; 400 at `/title` for a
+         *     title longer than 16383 characters. Nothing is changed then.
          *
          *     The wiki's members are told with `UPDATE_BLOCK` of each copy, a page before those
          *     below it, and of each page of the parent numbered anew to leave the copy room.
@@ -5925,7 +5934,7 @@ export interface components {
         UploadedFile: {
             /**
              * @description The identifier of the file: what `getFile` and `getFileInfo` take, and what an
-             *     attachment block or an image of a body names in its `fileId`.
+             *     attachment block, an image or a file block of a body names in its `fileId`.
              */
             fileId: string;
         };

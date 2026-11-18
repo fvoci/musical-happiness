@@ -100,7 +100,7 @@ pub use directory::{
     Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharedContainer, Sight, WorkspaceAccess,
 };
 pub use error::{StoreError, Taken};
-pub use file_refs::NewImages;
+pub use file_refs::NewBodyFiles;
 pub use invitations::{
     Acceptance, Accepted, Acceptor, Inviter, InviterOfContainer, MailedTo, NewLink,
 };

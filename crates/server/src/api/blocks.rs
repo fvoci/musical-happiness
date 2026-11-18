@@ -3,7 +3,7 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, CommentVersion, Container,
+    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body, CommentVersion, Container,
     RelationProperties, UnmatchedRelation, renew_block_ids, stamp_modification_metadata,
 };
 
@@ -180,8 +180,9 @@ pub(super) async fn asked_blocks(
     }
 }
 
-/// Checks that the images of the blocks' bodies show files of the board, or of the board
-/// named by `sourceBoardId`, and copies the files the blocks show from that board.
+/// Checks that the images and file blocks of the blocks' bodies name files of the
+/// board, or of the board named by `sourceBoardId`, and copies the files the blocks
+/// show from that board.
 async fn check_and_copy_body_files(
     ws: &InWorkspace,
     board_id: &str,
@@ -232,13 +233,28 @@ async fn check_and_copy_body_files(
     Ok(())
 }
 
+/// Gives each new block the body the request had for it. A body its type may not have
+/// ([`BlockType::check_body`]) is refused here, before anything is copied for it, at the
+/// block's place in the request.
+fn give_bodies(blocks: &mut [Block], bodies: Vec<Option<Body>>) -> Result<(), AppError> {
+    for (index, (block, body)) in blocks.iter_mut().zip(bodies).enumerate() {
+        block
+            .block_type
+            .check_body(body.as_ref())
+            .map_err(|refused| AppError::from(refused).under(&element_pointer(Some(""), index)))?;
+        block.body = body;
+    }
+    Ok(())
+}
+
 /// Insert blocks
 ///
 /// Inserts blocks under identifiers the server makes; the identifiers of the request
 /// only link its blocks to each other. All blocks are inserted or none, and they are
 /// listed afterwards in the order the request had them in. Comments need the role of a
 /// commenter, everything else that of an editor. A comment is on a card of the board,
-/// and no block is below a comment (400 at the block's `parentId`).
+/// and no block is below a comment (400 at the block's `parentId`). A comment's body
+/// has no file block (400 at its `body`), and nothing is copied for one that has.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/boards/{boardId}/blocks",
@@ -277,15 +293,9 @@ async fn handle_post_blocks(
     let bodies = take_block_bodies(blocks.iter_mut().map(Value::as_object_mut), Some(""))?;
     let mut blocks: Vec<Block> =
         serde_json::from_value(Value::Array(blocks)).map_err(AppError::bad_request)?;
+    give_bodies(&mut blocks, bodies)?;
     // Where a block is in the request: the body is the list.
     let place = |index: usize| element_pointer(Some(""), index);
-    for (index, (block, body)) in blocks.iter_mut().zip(bodies).enumerate() {
-        // Refused before anything is copied for it.
-        if body.is_some() && !block.block_type.has_body() {
-            return Err(AppError::from(BlockError::BodyNotAllowed).under(&place(index)));
-        }
-        block.body = body;
-    }
 
     let mut has_comments = false;
     let mut has_contents = false;
@@ -555,7 +565,8 @@ async fn handle_get_comment_versions(
 /// moving a comment to another card (`parentId`) or making it a block of another type
 /// is for editors, and making a block of somebody else a comment for the board's admins.
 /// A comment goes only on a card of the board, no block goes below a comment (400 at
-/// `parentId`), and a card with comments stays a card (400 at `type`). The block's
+/// `parentId`), and a card with comments stays a card (400 at `type`). A comment's body
+/// has no file block, nor does a block made a comment (400 at `body`). The block's
 /// `modifiedBy` and `updateAt` say who changed it and when.
 #[utoipa::path(
     patch,

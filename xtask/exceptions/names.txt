@@ -49,7 +49,7 @@ crates/server/tests/api/search.rs | /teams/
 crates/server/tests/api/sidebar.rs | `POST /teams/{team}/
 crates/server/tests/regression/content.rs | /teams/
 crates/server/tests/regression/sidebar.rs | /teams/
-crates/server/tests/regression/harness.rs | /files/teams/
+crates/server/tests/regression/harness/tests.rs | /files/teams/
 crates/server/tests/regression/golden/files.json | /teams/
 crates/server/tests/regression/golden/search.json | /teams/
 

@@ -61,8 +61,8 @@ export function pageVersions(page: PageStore): VersionsSource {
 
 /**
  * Why a version was not restored: the card has it no more (`gone`), it
- * cannot be stored any more or shows an image whose file is gone
- * (`unrestorable`), or the write did not go through.
+ * cannot be stored any more or names a file (of an image or a file block)
+ * that is gone (`unrestorable`), or the write did not go through.
  */
 export type RestoreRefusal = 'gone' | 'unrestorable' | 'failed';
 

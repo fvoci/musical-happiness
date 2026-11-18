@@ -37,8 +37,8 @@
  *  6. The placeholder's mark on the empty paragraph or heading the cursor is
  *     in: the attribute `data-placeholder` and the classes `is-empty` and
  *     `is-editor-empty`.
- *  7. `draggable` on an image (it can be dragged to another place) and on a
- *     rule while the selection is on it.
+ *  7. `draggable` on an image and on a file block (each can be dragged to
+ *     another place) and on a rule while the selection is on it.
  *  8. The `<span>` inside the `<label>` of a task: hidden text that repeats
  *     the checkbox's `aria-label`.
  * 11. A diagram around its source: the editor draws a code block in the
@@ -57,6 +57,11 @@
  *     module draws into it once the body is in the page (reference-chip.ts,
  *     tested on its own). The place is compared: the element, its class and
  *     the identifier.
+ * 14. What a file block shows of its file: the editor draws its icon, name,
+ *     size and link into the block as it makes it; the view makes the place
+ *     alone, and the same module draws into it once the body is in the page
+ *     (file-view.ts, tested in editor-file-blocks.test.ts). The place is
+ *     compared: the element and the identifier.
  *
  * On both sides:
  *
@@ -76,7 +81,7 @@ import { Editor } from '@tiptap/core';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { bodyExtensions } from '$lib/editor/extensions.ts';
-import { setFileUrlResolver, type FileUrlResolver } from '$lib/editor/files.ts';
+import { setFileSource, type FileSource } from '$lib/editor/files.ts';
 import { renderBody } from '$lib/editor/render.ts';
 import {
   MARK_SPECS,
@@ -128,6 +133,7 @@ const LEFT_OUT = {
   'diagram around its source': 0, // 11
   'block formula around its drawing': 0, // 12
   'what a reference shows': 0, // 13
+  'what a file block shows': 0, // 14
 };
 type LeftOut = keyof typeof LEFT_OUT;
 const leaveOut = (entry: LeftOut): void => {
@@ -171,8 +177,9 @@ function leftOutNode(node: Element): LeftOut | undefined {
 /** Which entry of the list takes this attribute out of the comparison, if any. */
 function leftOutAttribute(node: Element, name: string, ofEditor: boolean): LeftOut | undefined {
   if (ofEditor && name === 'data-placeholder') return 'attribute data-placeholder';
-  if (ofEditor && name === 'draggable' && (node.tagName === 'IMG' || node.tagName === 'HR'))
-    return 'attribute draggable';
+  const draggable =
+    node.tagName === 'IMG' || node.tagName === 'HR' || node.hasAttribute('data-file-block');
+  if (ofEditor && name === 'draggable' && draggable) return 'attribute draggable';
   if (!ofEditor && name === 'aria-readonly' && isTaskCheckbox(node))
     return 'attribute aria-readonly';
   return undefined;
@@ -199,6 +206,14 @@ function shapeOf(node: Node, side: 'editor' | 'view'): Shape | undefined {
     // Its description (how to edit it) points into the holder.
     formula.removeAttribute('aria-describedby');
     return shapeOf(formula, side);
+  }
+  if (ofEditor && node.hasAttribute('data-file-block') && node.hasAttribute('data-drawn')) {
+    leaveOut('what a file block shows');
+    const place = node.cloneNode(false) as Element;
+    for (const name of ['data-drawn', 'data-state', 'role', 'aria-label']) {
+      place.removeAttribute(name);
+    }
+    return shapeOf(place, side);
   }
   if (ofEditor && node.hasAttribute('data-reference') && node.hasAttribute('data-drawn')) {
     leaveOut('what a reference shows');
@@ -254,15 +269,16 @@ const shapesOf = (parent: ParentNode, side: 'editor' | 'view'): Shape[] =>
     .filter((child) => child !== undefined);
 
 let editor: Editor | undefined;
-let previousResolver: FileUrlResolver;
+let previousResolver: FileSource;
 
 beforeAll(() => {
-  previousResolver = setFileUrlResolver((fileId) =>
-    fileId.startsWith(UNRESOLVED_FILE_PREFIX) ? undefined : `/files/board-1/${fileId}`,
-  );
+  previousResolver = setFileSource({
+    url: (fileId) =>
+      fileId.startsWith(UNRESOLVED_FILE_PREFIX) ? undefined : `/files/board-1/${fileId}`,
+  });
 });
 afterAll(() => {
-  setFileUrlResolver(previousResolver);
+  setFileSource(previousResolver);
 });
 afterEach(() => {
   editor?.destroy();
@@ -358,7 +374,7 @@ describe('the view draws what the editor draws', () => {
       types.map((type) => [type, (counts.get(type) ?? 0) > 0]);
     const nodeTypes = Object.keys(NODE_SPECS);
     const markTypes = Object.keys(MARK_SPECS);
-    expect(nodeTypes).toHaveLength(18);
+    expect(nodeTypes).toHaveLength(19);
     expect(markTypes).toHaveLength(5);
     expect(times(compared.nodes, nodeTypes)).toEqual(nodeTypes.map((type) => [type, true]));
     expect(times(compared.marks, markTypes)).toEqual(markTypes.map((type) => [type, true]));

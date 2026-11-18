@@ -1,13 +1,14 @@
 <script lang="ts">
   import BodyView from '$lib/editor/BodyView.svelte';
-  import { setFileUrlResolver } from '$lib/editor/files.ts';
+  import { setFileSource } from '$lib/editor/files.ts';
 
-  import { PEOPLE, SAMPLE_REFERENCES, sampleFileUrl } from './body-samples.ts';
+  import { PEOPLE, SAMPLE_REFERENCES, sampleFileSource } from './body-samples.ts';
 
   let { doc }: { doc: unknown } = $props();
 
-  // The stories have no server: pictures are made up from the file identifier.
-  setFileUrlResolver(sampleFileUrl);
+  // The stories have no server: pictures are made up from the file identifier, and the
+  // records of the files of file blocks are the samples'.
+  setFileSource(sampleFileSource);
 </script>
 
 <div class="max-w-xl rounded-lg border border-input-border">

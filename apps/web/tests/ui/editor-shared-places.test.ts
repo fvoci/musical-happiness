@@ -17,7 +17,7 @@ import { BODY_FIELD } from '$lib/editor/body-editor.ts';
 import BodyEditor from '$lib/editor/BodyEditor.svelte';
 import { openPlace, placeKey, placeOf } from '$lib/editor/editing-place.ts';
 import { bodyExtensions } from '$lib/editor/extensions.ts';
-import { setFileUrlResolver } from '$lib/editor/files.ts';
+import { setFileSource } from '$lib/editor/files.ts';
 import type { DocNode } from '$lib/editor/schema.ts';
 
 import { doc, math, mathBlock, paragraph, text } from '../support/body-docs.ts';
@@ -26,7 +26,7 @@ vi.mock('$lib/editor/diagram.ts', () => ({
   drawDiagram: () => Promise.resolve({ ok: false, reason: 'failed' }),
 }));
 
-setFileUrlResolver((fileId) => `/files/${fileId}`);
+setFileSource({ url: (fileId) => `/files/${fileId}` });
 
 const schema = getSchema(bodyExtensions());
 
@@ -118,7 +118,7 @@ describe('an image going up in a body edited together', () => {
     const { container } = render(BodyEditor, {
       doc: null,
       collab: shared.reader,
-      uploadImage: upload,
+      uploadFile: upload,
     });
     const editor = editorIn(container);
     // The caret at the end of "second".
@@ -143,7 +143,7 @@ describe('an image going up in a body edited together', () => {
     const { container } = render(BodyEditor, {
       doc: null,
       collab: shared.reader,
-      uploadImage: upload,
+      uploadFile: upload,
     });
     const editor = editorIn(container);
     editor.commands.setTextSelection(editor.state.doc.content.size - 1);
@@ -170,7 +170,7 @@ describe('an image going up in a body edited together', () => {
     const { container } = render(BodyEditor, {
       doc: null,
       collab: shared.reader,
-      uploadImage: upload,
+      uploadFile: upload,
     });
     const editor = editorIn(container);
     editor.commands.setTextSelection(1);
@@ -194,7 +194,7 @@ describe('an image going up in a body edited together', () => {
     const { container } = render(BodyEditor, {
       doc: null,
       collab: shared.reader,
-      uploadImage: upload,
+      uploadFile: upload,
     });
     const editor = editorIn(container);
     editor.commands.setTextSelection(editor.state.doc.content.size - 1);
@@ -218,7 +218,7 @@ describe('an image going up in a body edited together', () => {
       const { container, rerender } = render(BodyEditor, {
         doc: null,
         collab: shared.reader,
-        uploadImage: upload,
+        uploadFile: upload,
         canWrite: true,
       });
       const editor = editorIn(container);
@@ -227,7 +227,7 @@ describe('an image going up in a body edited together', () => {
       await rerender({
         doc: null,
         collab: shared.reader,
-        uploadImage: upload,
+        uploadFile: upload,
         editable: false,
         canWrite,
       });
@@ -251,7 +251,7 @@ describe('an image going up in a body edited together', () => {
     const { container } = render(BodyEditor, {
       doc: null,
       collab: shared.reader,
-      uploadImage: upload,
+      uploadFile: upload,
       canWrite: true,
     });
     const editor = editorIn(container);
@@ -277,7 +277,7 @@ describe('an image going up in a body edited together', () => {
     const { container } = render(BodyEditor, {
       doc: null,
       collab: shared.reader,
-      uploadImage: upload,
+      uploadFile: upload,
     });
     const editor = editorIn(container);
     editor.commands.setTextSelection(editor.state.doc.content.size - 1);
@@ -590,7 +590,7 @@ describe('the box of a formula in a line in a body edited together', () => {
     const { container } = render(BodyEditor, {
       doc: null,
       collab: shared.reader,
-      uploadImage: upload,
+      uploadFile: upload,
     });
     const editor = editorIn(container);
     editor.commands.setTextSelection(1);
