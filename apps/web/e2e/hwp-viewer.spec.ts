@@ -379,25 +379,33 @@ test('past the time limit the viewer gives up, and the worker is stopped', async
 
 test('the notice in place of a page fits in the page, however it is drawn', async ({ page }) => {
   // The frame's own rules, on page boxes as a page is drawn: on a phone and at half that, a small
-  // page after a large one at half that again, and pages much wider than tall.
+  // page after a large one at half that again, pages much wider than tall, and a box just tall
+  // enough for the Korean line on two lines (and the taller button of a touch screen).
   const css = readFileSync(
     path.resolve(import.meta.dirname, '../src/viewer-frame/frame.css'),
     'utf8',
   );
-  // Each size, and whether the line is shown (or left to screen readers, the page drawn small).
+  // Each size, whether the line is shown (or left to screen readers, the page drawn small), and
+  // in which language.
   const sizes = [
-    [358, 506, true],
-    [179, 253, true],
-    [89, 126, false],
-    [500, 125, true],
-    [1000, 150, true],
-    [300, 100, false],
+    [358, 506, true, 'en'],
+    [179, 253, true, 'ko'],
+    [89, 126, false, 'ko'],
+    [500, 125, true, 'en'],
+    [1000, 150, true, 'en'],
+    [300, 100, false, 'en'],
+    [200, 116, true, 'ko'],
+    [300, 44, false, 'en'],
   ] as const;
+  const words = {
+    en: ['This page is too large to show.', 'Download'],
+    ko: ['이 쪽은 너무 커서 보이지 않습니다.', '다운로드'],
+  };
   const boxes = sizes
-    .map(
-      ([width, height]) =>
-        `<div class="page" style="width:${String(width)}px;height:${String(height)}px"><div class="page-notice"><p>This page is too large to show.</p><button type="button">Download</button></div></div>`,
-    )
+    .map(([width, height, , language]) => {
+      const [line, button] = words[language];
+      return `<div class="page" style="width:${String(width)}px;height:${String(height)}px"><div class="page-notice"><p>${line}</p><button type="button">${button}</button></div></div>`;
+    })
     .join('');
   await page.setContent(`<style>${css}</style><div class="pages">${boxes}</div>`);
   const laidOut = await page.locator('.page-notice').evaluateAll((notices) =>

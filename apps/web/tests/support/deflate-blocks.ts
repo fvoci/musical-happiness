@@ -99,6 +99,15 @@ export const SHAPES = {
     body: times(17, { literal: 0 }),
     unpacks: 17,
   },
+  // All 320 lengths (past the 286 and 30 symbols zlib takes) 9 bits long, written with repeats.
+  '320 codes of 9 bits': {
+    literals: 31,
+    distances: 31,
+    lengthCode: { 9: 1, 16: 1 },
+    lengths: [[9], ...times(53, [16, 3] as const), [9]],
+    body: [],
+    unpacks: 0,
+  },
   // All 316 lengths 15 bits long, each written alone (the code-length code has codes of 1 bit).
   '316 codes of 15 bits': {
     literals: 29,
@@ -167,7 +176,20 @@ export function blocksOf(shape: Shape, bytes: number): { data: Buffer; unpacks: 
 
 /**
  * Bytes before a stream that lead both starts the guard reads from (0, and
- * 2 past a zlib header) to its first byte: at 0, a stored block of 10 bytes;
- * at 2, a stored block of 8.
+ * 2 past a zlib header) to one bit, each with what it unpacks to from each
+ * start.
  */
-export const BOTH_STARTS_HEAD = Buffer.from([0, 10, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+export const BOTH_STARTS_HEADS = {
+  // At 0, a stored block of 10 bytes; at 2, one of 8: both go on at byte 15.
+  'the first ahead': {
+    head: Buffer.from([0, 10, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    unpacks: [10, 8],
+  },
+  // At 0, stored blocks of none and of 5; at 2, one of 8: both go on at byte 15.
+  'the second ahead': {
+    head: Buffer.from([0, 0, 0, 8, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0]),
+    unpacks: [5, 8],
+  },
+  // At 0, a block of fixed codes with two literals; at 2, one with its end only: both go on at bit 26.
+  'inside a byte': { head: Buffer.from([0x8a, 0x71, 0x02, 0x00]), unpacks: [2, 0] },
+} as const;
