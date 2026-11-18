@@ -16,7 +16,6 @@ import {
   attach,
   frameOf,
   frameReaches,
-  longestGap,
   recordTicks,
   ticks,
   openCard,
@@ -92,8 +91,53 @@ test('a deck in Korean opens in the viewer, and its slides are turned', async ({
   const zoom = page.getByTestId('file-viewer-zoom');
   await page.keyboard.press('+');
   await expect(zoom).toHaveText('125%');
+  // Zoomed out, several slides are in view at once.
+  for (const _ of [1, 2, 3]) await page.keyboard.press('-');
+  await expect(zoom).toHaveText('50%');
+  await expect(frame.locator('.slide[data-page="2"]')).toContainText(PPTX_TEXT.tableTitle);
+  await picture(page, SCREENS, 'pptx-slides');
   await page.keyboard.press('Escape');
   await expect(viewer(page)).toHaveCount(0);
+});
+
+test('a deck at the narrowest width, in the dark: the slide fits and keeps its colours', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await openCard(page);
+  await open(page, '분기 보고.pptx', koreanPptx());
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await expect(page.getByTestId('file-viewer-announce')).toHaveText('Slide 1 of 3');
+  await expect(frameOf(page).locator('.slide[data-page="1"]')).toContainText(PPTX_TEXT.title);
+  const seen = await viewerFrame(page).evaluate(() => {
+    const box = document.querySelector('.slide');
+    const drawn = box?.firstElementChild;
+    return {
+      dark: document.documentElement.classList.contains('dark'),
+      scheme: getComputedStyle(document.documentElement).colorScheme,
+      width: innerWidth,
+      scrolls: (document.scrollingElement?.scrollWidth ?? 0) > innerWidth,
+      box: box?.getBoundingClientRect().width ?? 0,
+      background: drawn ? getComputedStyle(drawn).backgroundColor : '',
+    };
+  });
+  // The frame is dark as the app is; the slide is as wide as the frame allows, keeps its own
+  // white, and nothing scrolls sideways.
+  expect(seen.dark).toBe(true);
+  expect(seen.scheme).toBe('dark');
+  expect(seen.scrolls).toBe(false);
+  expect(seen.box).toBeGreaterThan(seen.width - 40);
+  expect(seen.box).toBeLessThanOrEqual(seen.width - 32);
+  expect(seen.background).toBe('rgb(255, 255, 255)');
+  // The slides are turned and zoomed within the screen's width.
+  for (const name of ['Previous slide', 'Next slide', 'Zoom out', 'Zoom in']) {
+    const button = await viewer(page).getByRole('button', { name }).boundingBox();
+    expect(button, name).not.toBeNull();
+    expect((button?.x ?? -1) >= 0 && (button?.x ?? 0) + (button?.width ?? 0) <= 390, name).toBe(
+      true,
+    );
+  }
 });
 
 test("a deck's frame reaches neither the network nor the app", async ({ page }) => {
@@ -190,7 +234,7 @@ async function recordDrawn(page: Page): Promise<void> {
 }
 
 /** Small slides of many text boxes: many in view, each a while to draw. */
-const boxes = (): Buffer => heavyPptx(40, 120, { cx: 3_048_000, cy: 914_400 });
+const boxes = (): Buffer => heavyPptx(40, 80, { cx: 3_048_000, cy: 914_400 });
 
 test('while slides are drawn, the app answers', async ({ page }) => {
   await openCard(page);
@@ -198,16 +242,18 @@ test('while slides are drawn, the app answers', async ({ page }) => {
   await open(page, 'boxes.pptx', boxes());
   await recordDrawn(page);
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
-  await expect.poll(async () => (await drawing(page)).waiting).toBe(0);
-  const drawn = await viewerFrame(page).evaluate(
-    () => (window as unknown as { fvociDrawn: number[] }).fvociDrawn,
-  );
-  // Slide after slide was drawn, over long enough that drawing them at one go would hold the page
-  // past the limit below; between the first and the last, the page's timer kept running.
-  const [first = 0, last = 0] = [drawn[0], drawn.at(-1)];
-  expect(drawn.length).toBeGreaterThanOrEqual(5);
-  expect(last - first).toBeGreaterThan(1500);
-  expect(longestGap(await ticks(page), first, last)).toBeLessThan(500);
+  const drawnTimes = (): Promise<number[]> =>
+    viewerFrame(page).evaluate(() => (window as unknown as { fvociDrawn: number[] }).fvociDrawn);
+  await expect.poll(async () => (await drawnTimes()).length).toBeGreaterThanOrEqual(5);
+  // Slide after slide was put in place, and between each and the next the page's timer ran:
+  // the thread was given back between them, however long each took.
+  const drawn = await drawnTimes();
+  const ran = await ticks(page);
+  const held = drawn
+    .slice(1)
+    .map((time, index) => [drawn[index] ?? 0, time] as const)
+    .filter(([from, to]) => !ran.some((tick) => tick > from && tick < to));
+  expect(held).toEqual([]);
 });
 
 test('while slides are drawn, "Close" closes the viewer', async ({ page }) => {

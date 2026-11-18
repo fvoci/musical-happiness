@@ -145,12 +145,6 @@ export async function recordTicks(page: Page): Promise<void> {
 export const ticks = (page: Page): Promise<number[]> =>
   page.evaluate(() => (window as unknown as { fvociTicks: number[] }).fvociTicks);
 
-/** The longest time between two ticks from `from` to `to`, and before the first and after the last. */
-export function longestGap(times: readonly number[], from: number, to: number): number {
-  const within = [from, ...times.filter((time) => time > from && time < to), to];
-  return Math.max(...within.slice(1).map((time, index) => time - (within[index] ?? time)));
-}
-
 /** How late a timer of 100 ms on the app's page fires, in milliseconds. */
 export function timerLateness(page: Page): Promise<number> {
   return page.evaluate(

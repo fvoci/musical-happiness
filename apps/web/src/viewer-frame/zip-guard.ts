@@ -20,6 +20,10 @@
  * - the new archive has each part's name as the directory's bytes, its true
  *   size, and nothing that was not counted: no extra fields, no comments, no
  *   gaps.
+ *
+ * The frame's thread is the app's, and the unpacking resolves as promises
+ * that do not let a timer in: it gives the thread back every `BREATH`
+ * milliseconds, between parts and between the slices of one.
  */
 import {
   MARKUP_LIMIT_BYTES,
@@ -53,6 +57,20 @@ const MOST_16 = 0xffff;
 const BLANK = new Set([0x20, 0x09, 0x0a, 0x0d, 0x00, 0xfeff]);
 /** How much of a part's packed bytes the unpacker is fed at a time: little, so one feed cannot unpack to much. */
 const SLICE = 16 * 1024;
+/** The longest the frame's thread is held while an archive is counted, in milliseconds. */
+const BREATH = 16;
+
+/** Gives the thread back, when it has been held `BREATH` milliseconds since it last was. */
+type Breathe = () => Promise<void>;
+
+function breather(): Breathe {
+  let since = performance.now();
+  return async () => {
+    if (performance.now() - since < BREATH) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    since = performance.now();
+  };
+}
 
 /** A part as counted: what goes into the new archive. */
 interface Part {
@@ -190,6 +208,7 @@ async function inflate(
   most: number,
   sniffer: MarkupSniffer,
   past: (size: number) => boolean,
+  breathe: Breathe,
 ): Promise<number> {
   let at = 0;
   const slices = new ReadableStream<Uint8Array<ArrayBuffer>>({
@@ -210,6 +229,7 @@ async function inflate(
       size += value.byteLength;
       sniffer.feed(value);
       if (size > most || past(size)) throw new UnreadableFile();
+      await breathe();
     }
   } catch {
     // Past what was said or the limits, or not deflated data.
@@ -219,7 +239,12 @@ async function inflate(
 }
 
 /** A part unpacked and counted into `used`; or `UnreadableFile`. */
-async function count(entry: ZipEntry, packed: Uint8Array<ArrayBuffer>, used: Used): Promise<Part> {
+async function count(
+  entry: ZipEntry,
+  packed: Uint8Array<ArrayBuffer>,
+  used: Used,
+  breathe: Breathe,
+): Promise<Part> {
   if (entry.flags & ENCRYPTED) throw new UnreadableFile();
   // A backslash in a name: docx-preview finds such a part under any mix of it and "/", and
   // would parse it once for each spelling (a package's part names have none).
@@ -233,7 +258,7 @@ async function count(entry: ZipEntry, packed: Uint8Array<ArrayBuffer>, used: Use
     sniffer.feed(packed);
     if (size > entry.size || past(size)) throw new UnreadableFile();
   } else if (entry.method === DEFLATED) {
-    size = await inflate(packed, entry.size, sniffer, past);
+    size = await inflate(packed, entry.size, sniffer, past, breathe);
   } else {
     throw new UnreadableFile();
   }
@@ -305,8 +330,10 @@ export async function repack(buffer: ArrayBuffer): Promise<ArrayBuffer> {
   const packed = packedParts(bytes, entries);
   const used: Used = { total: 0, markup: 0 };
   const parts: Part[] = [];
+  const breathe = breather();
   for (const [index, entry] of entries.entries()) {
-    parts.push(await count(entry, packed[index] ?? new Uint8Array(), used));
+    parts.push(await count(entry, packed[index] ?? new Uint8Array(), used, breathe));
+    await breathe();
   }
   return writeArchive(parts);
 }
