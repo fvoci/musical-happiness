@@ -954,9 +954,12 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         },
     ];
     common::insert_blocks(&test, &mut below, &user_id).await;
-    test.delete_block(&blocks[6].id, &user_id)
-        .await
-        .expect("the heading goes to the trash");
+    // The block below the text goes to the trash on its own, below a block that goes.
+    for trashed in [&below[0].id, &blocks[6].id] {
+        test.delete_block(trashed, &user_id)
+            .await
+            .expect("the block goes to the trash");
+    }
     test.store.close().await;
     common::execute_raw(
         &test.database_connection(),
@@ -1004,7 +1007,10 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
     let left = common::try_execute_raw(&test.database_connection(), "DELETE FROM deleted_blocks")
         .await
         .expect("the trash is there");
-    assert_eq!(left, 0, "the heading and the block below it left the trash");
+    assert_eq!(
+        left, 0,
+        "the heading and the blocks below the two left the trash"
+    );
 
     test.teardown().await;
 }

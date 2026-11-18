@@ -163,10 +163,12 @@ async fn a_block_trashed_below_a_board_block_goes_and_the_board_is_noted_for_the
 }
 
 /// On PostgreSQL, which holds several organizations, the step goes through every one
-/// of them: another organization's board block goes with what is below it, and its card
-/// stays, as the first organization's do.
+/// of them, and names a block by its organization: another organization's board block
+/// goes with what is below it, and its card stays, as the first organization's do; and
+/// a card of the trash with the identifier of a board block of the trash of another
+/// organization (the trash's key is the identifier and the organization) stays.
 #[tokio::test]
-async fn every_organization_loses_its_board_blocks() {
+async fn every_organization_loses_its_board_blocks_and_only_its_own() {
     if common::db_type() != DbType::Postgres {
         return;
     }
@@ -190,6 +192,21 @@ async fn every_organization_loses_its_board_blocks() {
         gone.push((org_id.clone(), [legacy, below]));
         kept.push((org_id.clone(), card));
     }
+    // A board block goes to the first organization's trash; a card of the other takes
+    // its identifier, which no live block has then, and goes to the other's trash.
+    let trashed = stored(&test, block(&board, "board", "", none.clone()), &user_id).await;
+    test.delete_block(&trashed.id, &user_id)
+        .await
+        .expect("to the trash");
+    let same_id = Block {
+        id: trashed.id.clone(),
+        ..block(other_board, "card", "", none)
+    };
+    let same_id = stored(&other, same_id, &user_id).await;
+    other
+        .delete_block(&same_id.id, &user_id)
+        .await
+        .expect("to the trash");
 
     let store = after_the_step(&test).await;
     for (org_id, blocks) in &gone {
@@ -202,6 +219,12 @@ async fn every_organization_loses_its_board_blocks() {
         let scoped = store.for_org(org_id).expect("an identifier");
         scoped.get_block(&card.id).await.expect("the card stays");
     }
+    assert_gone(&store, &trashed, &user_id).await;
+    let other = store.for_org(&other_org).expect("an identifier");
+    other
+        .undelete_block(&same_id.id, &user_id)
+        .await
+        .expect("the other organization's card stays in its trash and comes back");
     store.close().await;
 
     test.teardown().await;

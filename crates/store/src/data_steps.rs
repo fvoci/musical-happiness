@@ -100,7 +100,7 @@ async fn content_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
     let mut deleted = u64::try_from(live.len()).unwrap_or(u64::MAX);
 
     // The trash keeps a block as JSON: its type is read there.
-    deleted += delete_from_trash(scope, org, live, |block_type| {
+    deleted += delete_from_trash(scope, org, &live, |block_type| {
         !KEPT_TYPES.contains(&BlockType::from(block_type).as_str())
     })
     .await?;
@@ -132,7 +132,7 @@ async fn board_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
     ));
     let live = keys_of(&scope.fetch_all(sql).await?, org)?;
     let mut deleted = u64::try_from(live.len()).unwrap_or(u64::MAX);
-    deleted += delete_from_trash(scope, org, live, |block_type| block_type == BOARD_TYPE).await?;
+    deleted += delete_from_trash(scope, org, &live, |block_type| block_type == BOARD_TYPE).await?;
     block_derived::forget_gone_blocks(scope).await?;
     for container_id in &containers {
         search_outbox::note_container_regardless(scope, container_id).await?;
@@ -185,7 +185,7 @@ async fn touched_containers(scope: &mut Scope<'_>) -> Result<Vec<String>, StoreE
 async fn delete_from_trash(
     scope: &mut Scope<'_>,
     org: Option<&str>,
-    deleted: Vec<(String, String)>,
+    deleted: &[(String, String)],
     is_gone: impl Fn(&str) -> bool,
 ) -> Result<u64, StoreError> {
     let org_select = org.map_or_else(String::new, |column| format!(", {column}"));
@@ -207,7 +207,7 @@ async fn delete_from_trash(
     }
     // A block deleted on its own below a live block that went goes with it: it would
     // have nothing to come back to.
-    for parent in &deleted {
+    for parent in deleted {
         let below = children.get(parent).into_iter().flatten();
         gone.extend(below.map(|child| (parent.0.clone(), child.clone())));
     }
