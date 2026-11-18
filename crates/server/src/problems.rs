@@ -215,6 +215,7 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::UploadsPending
         | Reason::ServerUploadsPending
         | Reason::UploadInParts
+        | Reason::FileVersionStale
         | Reason::ExportRunning
         | Reason::ServerExportsBusy
         | Reason::ImportRunning
@@ -329,6 +330,13 @@ fn describe_transfer(reason: Reason) -> Option<&'static str> {
         Reason::UploadInParts => {
             "Status 413. The file is larger than one request takes (`limit`): send it as an \
              upload in parts, which takes a file up to the largest the server stores."
+        }
+        Reason::FileVersionStale => {
+            "Status 409. A version of a file was written from a version (`baseVersion`) that \
+             is the file's newest no more: somebody wrote one meanwhile. Nothing is changed, \
+             and an uploaded file that was to become the version (`addFileVersion`) is still \
+             a file of the board. Read the versions again (`getFileVersions`), and write \
+             from the newest or attach the uploaded file on its own."
         }
         Reason::ExportRunning => {
             "Status 429. The user has an export running, and runs one at a time. Try again \

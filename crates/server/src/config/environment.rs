@@ -18,7 +18,7 @@ pub(super) enum EnvKind {
 /// the key, for example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILE_STORAGE_S3_BUCKET`. The
 /// S3 credentials have none: the S3 client reads them from the `AWS_*` variables when
 /// `access_key_id` is empty.
-pub(super) const ENV_KEYS: [(&str, EnvKind); 59] = [
+pub(super) const ENV_KEYS: [(&str, EnvKind); 60] = [
     ("server_url", EnvKind::Text),
     ("port", EnvKind::Number),
     ("database_kind", EnvKind::Text),
@@ -65,6 +65,7 @@ pub(super) const ENV_KEYS: [(&str, EnvKind); 59] = [
     ("max_pending_upload_bytes", EnvKind::Number),
     ("max_import_bytes", EnvKind::Number),
     ("max_comment_versions", EnvKind::Number),
+    ("max_file_versions", EnvKind::Number),
     ("max_concurrent_exports", EnvKind::Number),
     ("export_stall_seconds", EnvKind::Number),
     ("max_concurrent_imports", EnvKind::Number),

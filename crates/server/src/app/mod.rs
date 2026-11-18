@@ -17,6 +17,7 @@ mod containers_and_blocks;
 mod doomed;
 mod download;
 mod export;
+mod file_versions;
 mod files;
 mod housekeeping;
 mod import;
@@ -238,6 +239,7 @@ impl App {
         }
         store.set_comment_versions_kept(config.max_comment_versions);
         store.set_body_versions_kept(config.collab.collab_body_versions);
+        store.set_file_versions_kept(config.max_file_versions);
         // The authenticator reads what is no organization's (sessions), and asks the
         // directory whose a shared board is: it is given no organization to reach.
         let auth = Authenticator::new(store.scoped(Tenant::Unset), &config)?;

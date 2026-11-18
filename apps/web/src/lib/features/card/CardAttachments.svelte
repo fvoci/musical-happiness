@@ -1,7 +1,7 @@
 <!--
   The files attached to a card: their names and sizes; a file's name opens it
-  in the viewer (lib/components/file-viewer), and a button beside it
-  downloads it; and, where the reader may edit, attaching more (the
+  in the viewer (lib/components/file-viewer), which lists its versions
+  (file-versions.ts), and a button beside it downloads it; and, where the reader may edit, attaching more (the
   button, or files dropped on this part of the card; several at once),
   following an upload while it runs, giving it up, and deleting a file.
 
@@ -25,6 +25,8 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import { saveBlob } from '$lib/save.ts';
+
+  import { attachmentVersions } from './file-versions.ts';
 
   interface Props {
     board: BoardStore;
@@ -282,6 +284,7 @@
       size: attachment.size,
       read: (signal?: AbortSignal) => card.fileBytes(attachment.fileId, signal),
     }}
+    versions={attachmentVersions(board, card, attachment)}
     onClose={closeViewer}
   />
 {/if}

@@ -10,6 +10,12 @@
   close. A file that cannot be shown here says why and offers itself as a
   download.
 
+  Where the file has versions to show (`versions`: not for who reads by a
+  public link), a button in the header opens their list (FileVersions.svelte)
+  beside the document, or over it on a narrow screen. A version picked there
+  is shown in the file's place, in a frame of its own; the header says when
+  what is shown is not the newest.
+
   It is mounted for one file and closed by unmounting it, which takes the
   frame out of the page and stops whatever the frame was doing.
 -->
@@ -17,10 +23,11 @@
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import DownloadIcon from '@lucide/svelte/icons/download';
+  import HistoryIcon from '@lucide/svelte/icons/history';
   import XIcon from '@lucide/svelte/icons/x';
   import ZoomInIcon from '@lucide/svelte/icons/zoom-in';
   import ZoomOutIcon from '@lucide/svelte/icons/zoom-out';
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { display } from '$lib/display.svelte.ts';
@@ -31,6 +38,11 @@
     type Status,
     type ViewedFile,
   } from '$lib/file-viewer/session.svelte.ts';
+  import {
+    VersionsList,
+    type FileVersion,
+    type VersionsSource,
+  } from '$lib/file-viewer/versions.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
@@ -39,24 +51,48 @@
   import { saveBlob } from '$lib/save.ts';
   import * as Dialog from '$lib/ui/dialog/index.js';
 
+  import FileVersions from './FileVersions.svelte';
+
   interface Props {
     /** The file; the viewer is made for one and is not handed another. */
     file: ViewedFile;
+    /** The file's versions, where the reader may see them. */
+    versions?: VersionsSource | undefined;
     onClose: () => void;
   }
 
-  let { file, onClose }: Props = $props();
+  let { file, versions, onClose }: Props = $props();
 
-  const session = untrack(
-    () =>
-      new ViewerSession(file, {
-        theme: () => display.resolved.theme,
-        lang: getLocale,
-        onKey: (key) => {
-          command(key);
-        },
-      }),
+  const uid = $props.id();
+
+  const sessionOf = (viewed: ViewedFile): ViewerSession =>
+    new ViewerSession(viewed, {
+      theme: () => display.resolved.theme,
+      lang: getLocale,
+      onKey: (key) => {
+        command(key);
+      },
+    });
+
+  /** What is on screen: the file as it was opened, then whichever version was picked. */
+  let session = $state.raw(untrack(() => sessionOf(file)));
+  /** The version picked from the list, if one was. */
+  let picked = $state.raw<FileVersion>();
+  /** The list of versions, made when it is first opened. */
+  let list = $state.raw<VersionsList>();
+  let listed = $state(false);
+  let panel = $state<HTMLElement>();
+
+  /** The number of the version on screen, once the list has said which the file was opened as. */
+  const shownVersion = $derived(picked?.version ?? list?.opened);
+  /** What is on screen is not the file's newest version. */
+  const older = $derived(
+    shownVersion !== undefined &&
+      list?.current !== undefined &&
+      shownVersion !== list.current.version,
   );
+  const extension = $derived(/\.[^./\\]+$/.exec(file.name)?.[0] ?? '');
+
   const address = frameAddress(document);
   const compact = $derived(page.stage === 'compact');
   const status = $derived(session.status);
@@ -68,6 +104,13 @@
       onClose();
     },
   );
+  // Narrow, the list is over the document: back shows the document again.
+  closeOnBack(
+    () => compact && listed,
+    () => {
+      closeVersions();
+    },
+  );
 
   $effect(() => {
     const theme = display.resolved.theme;
@@ -77,8 +120,12 @@
     });
   });
 
-  $effect(() => () => {
-    session.close();
+  // A session ends when another takes its place, and with the viewer.
+  $effect(() => {
+    const current = session;
+    return () => {
+      current.close();
+    };
   });
 
   /** What the viewer says when it cannot show the file. */
@@ -107,9 +154,43 @@
       saveBlob(session.blob, file.name);
       return;
     }
-    void file.read().then((blob) => {
+    void session.file.read().then((blob) => {
       if (blob) saveBlob(blob, file.name);
     });
+  }
+
+  /** Shows a version in the file's place. */
+  function view(version: FileVersion): void {
+    const source = versions;
+    if (!source) return;
+    picked = version;
+    session = sessionOf({
+      name: file.name,
+      size: version.size,
+      read: (signal) => source.bytes(version.version, signal),
+    });
+    // Narrow, the document is under the list.
+    if (compact) closeVersions();
+  }
+
+  function downloadVersion(version: FileVersion): void {
+    void versions?.bytes(version.version).then((blob) => {
+      if (blob) saveBlob(blob, file.name);
+    });
+  }
+
+  async function openVersions(): Promise<void> {
+    if (!versions) return;
+    list ??= new VersionsList(versions);
+    listed = true;
+    await tick();
+    panel?.querySelector<HTMLElement>('h2')?.focus();
+  }
+
+  function closeVersions(): void {
+    listed = false;
+    // The list is gone with its focus: back to the button it was opened from.
+    document.getElementById(`${uid}-versions`)?.focus();
   }
 
   function command(key: string): boolean {
@@ -169,6 +250,28 @@
         >{file.name}</Dialog.Title
       >
       <Dialog.Description class="sr-only">{m.viewer_description()}</Dialog.Description>
+      {#if older}
+        <p
+          class="shrink-0 rounded-sm border px-1.5 py-0.5 text-xs font-medium"
+          data-testid="file-viewer-older"
+        >
+          {m.viewer_older_version()}
+        </p>
+      {/if}
+      {#if versions}
+        <IconButton
+          id="{uid}-versions"
+          label={m.viewer_versions()}
+          aria-expanded={listed}
+          data-testid="file-viewer-versions"
+          onclick={() => {
+            if (listed) closeVersions();
+            else void openVersions();
+          }}
+        >
+          <HistoryIcon aria-hidden="true" />
+        </IconButton>
+      {/if}
       <IconButton label={m.viewer_download()} data-testid="file-viewer-download" onclick={download}>
         <DownloadIcon aria-hidden="true" />
       </IconButton>
@@ -177,41 +280,63 @@
       </IconButton>
     </header>
 
-    <div class="relative min-h-0 flex-1 bg-muted">
-      {#if framed}
-        <iframe
-          {@attach session.attach}
-          src={address}
-          sandbox="allow-scripts"
-          referrerpolicy="no-referrer"
-          title={m.viewer_frame_title({ name: file.name })}
-          class={['size-full border-0', status.name !== 'shown' && 'invisible']}
-          data-testid="file-viewer-frame"
-        ></iframe>
-      {/if}
-      {#if status.name === 'reading' || status.name === 'opening'}
-        <p
-          class="absolute inset-0 flex items-center justify-center text-muted-foreground"
-          role="status"
-        >
-          {m.viewer_opening()}
-        </p>
-      {:else if notice}
-        <div
-          class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center"
-          role="status"
-          data-testid="file-viewer-notice"
-        >
-          <p class="font-medium">{notice}</p>
-          <p class="text-muted-foreground">{m.viewer_download_instead()}</p>
-          <button
-            type="button"
-            class="inline-flex min-h-9 items-center gap-2 rounded-md border bg-background px-3 hover:bg-accent roomy:min-h-touch"
-            onclick={download}
+    <div class="relative flex min-h-0 flex-1">
+      <div class="relative min-h-0 min-w-0 flex-1 bg-muted">
+        {#if framed}
+          <!-- A frame is one session's: another version is drawn in a new one. -->
+          {#key session}
+            <iframe
+              {@attach session.attach}
+              src={address}
+              sandbox="allow-scripts"
+              referrerpolicy="no-referrer"
+              title={m.viewer_frame_title({ name: file.name })}
+              class={['size-full border-0', status.name !== 'shown' && 'invisible']}
+              data-testid="file-viewer-frame"
+            ></iframe>
+          {/key}
+        {/if}
+        {#if status.name === 'reading' || status.name === 'opening'}
+          <p
+            class="absolute inset-0 flex items-center justify-center text-muted-foreground"
+            role="status"
           >
-            <DownloadIcon class="size-4" aria-hidden="true" />
-            {m.viewer_download()}
-          </button>
+            {m.viewer_opening()}
+          </p>
+        {:else if notice}
+          <div
+            class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center"
+            role="status"
+            data-testid="file-viewer-notice"
+          >
+            <p class="font-medium">{notice}</p>
+            <p class="text-muted-foreground">{m.viewer_download_instead()}</p>
+            <button
+              type="button"
+              class="inline-flex min-h-9 items-center gap-2 rounded-md border bg-background px-3 hover:bg-accent roomy:min-h-touch"
+              onclick={download}
+            >
+              <DownloadIcon class="size-4" aria-hidden="true" />
+              {m.viewer_download()}
+            </button>
+          </div>
+        {/if}
+      </div>
+      {#if listed && list && versions}
+        <div
+          bind:this={panel}
+          class={compact ? 'absolute inset-0 z-10 flex' : 'flex w-80 shrink-0 border-s'}
+        >
+          <FileVersions
+            {list}
+            source={versions}
+            shown={shownVersion}
+            accept={extension}
+            onView={view}
+            onDownload={downloadVersion}
+            onWritten={view}
+            onClose={closeVersions}
+          />
         </div>
       {/if}
     </div>

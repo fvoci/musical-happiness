@@ -127,7 +127,11 @@ async fn handle_serve_file(
 }
 
 /// Checks that the user may read the files of the board.
-async fn require_file_reader(app: &App, user_id: &str, container_id: &str) -> Result<(), AppError> {
+pub(super) async fn require_file_reader(
+    app: &App,
+    user_id: &str,
+    container_id: &str,
+) -> Result<(), AppError> {
     let grant = app.container_grant(user_id, container_id).await?;
     require_granted(grant, ContainerPermission::View, "access denied to board")
 }
@@ -144,11 +148,22 @@ pub(super) async fn serve_container_file(
     let Some(info) = app.file_info(container_id, file_id).await? else {
         return Err(AppError::not_found(FILE));
     };
-    if !app.files().exists(&info.path).await? {
+    serve_stored(app, file_id, &info.path, headers).await
+}
+
+/// Answers with the bytes stored at `path`, as the file `file_id`: the newest version
+/// of a file, or an older one. 404 if the storage has nothing there.
+pub(super) async fn serve_stored(
+    app: &App,
+    file_id: &str,
+    path: &str,
+    headers: &HeaderMap,
+) -> ApiResult {
+    if !app.files().exists(path).await? {
         return Err(AppError::not_found(FILE));
     }
-    let size = app.files().size(&info.path).await?.unwrap_or(0);
-    serve_content(app, file_id, &info.path, size, "", headers).await
+    let size = app.files().size(path).await?.unwrap_or(0);
+    serve_content(app, file_id, path, size, "", headers).await
 }
 
 /// What is known about a file
@@ -254,7 +269,7 @@ async fn handle_upload_file(
         };
         // The stored name is what a reader asks for the file by; it stays out of the log.
         tracing::debug!(filename, "uploadFile");
-        break store_field(&ws.app, &container_id, &filename, field, limit).await;
+        break store_field(&ws.app, &container_id, &filename, field, limit, user_id).await;
     };
     match stored {
         Ok(file_id) => Ok(created(&UploadedFile { file_id })),
@@ -355,6 +370,7 @@ async fn store_field(
     filename: &str,
     field: Field<'_>,
     limit: SingleUploadLimit,
+    user_id: &str,
 ) -> Result<String, AppError> {
     let state = AtomicU8::new(Reading::Fine.value());
     let mut received: u64 = 0;
@@ -372,7 +388,9 @@ async fn store_field(
     });
     let mut reader = StreamReader::new(Box::pin(bytes));
     // What fails is not kept: the storage writes a file whole or not at all.
-    let saved = app.save_file(&mut reader, container_id, filename).await;
+    let saved = app
+        .save_file_by(&mut reader, container_id, filename, user_id)
+        .await;
     match (saved, Reading::load(&state)) {
         (Ok(file_id), _) => Ok(file_id),
         (Err(_), Reading::TooLarge) => Err(limit.refusal()),

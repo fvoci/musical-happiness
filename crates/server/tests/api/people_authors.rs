@@ -18,6 +18,7 @@ enum Authorship {
     TrashedCommentVersion,
     BodyVersion,
     PageVersion,
+    FileVersion,
 }
 
 fn body(text: &str) -> Body {
@@ -47,7 +48,8 @@ async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -
         Authorship::CommentVersion
         | Authorship::TrashedCommentVersion
         | Authorship::BodyVersion
-        | Authorship::PageVersion => &th.client,
+        | Authorship::PageVersion
+        | Authorship::FileVersion => &th.client,
     };
     let board: Container = creator
         .create_board(&new_board(
@@ -67,6 +69,8 @@ async fn authored_board(th: &TestServer, authorship: Authorship, leaver: &str) -
             .check_ok();
     } else if matches!(authorship, Authorship::BodyVersion) {
         versioned_card(th, &board.id, &owner, leaver).await;
+    } else if matches!(authorship, Authorship::FileVersion) {
+        versioned_file(th, &board.id, &owner, leaver).await;
     } else {
         let mut card = Block {
             id: new_id(),
@@ -168,6 +172,42 @@ async fn versioned_card(th: &TestServer, board_id: &str, owner: &str, leaver: &s
     );
     let versions = store.body_versions(&card.id).await.expect("the versions");
     assert_eq!(versions[1].editors, [leaver], "the version before the last");
+}
+
+/// A file of the board that the owner uploaded and wrote the newest version of, with a
+/// version between the two that the leaver wrote.
+async fn versioned_file(th: &TestServer, board_id: &str, owner: &str, leaver: &str) {
+    let upload = async |by: &str| {
+        th.app
+            .save_file_by(&mut &b"some bytes"[..], board_id, "paper.txt", by)
+            .await
+            .expect("a file is stored")
+    };
+    let file = upload(owner).await;
+    for (base, writer) in [(1, leaver), (2, owner)] {
+        let next = upload(writer).await;
+        let added = th
+            .app
+            .store()
+            .add_file_version(board_id, &file, base, &next, writer)
+            .await
+            .expect("a version is written");
+        assert!(
+            matches!(added, fvoci_store::VersionAdded::Written(_)),
+            "{added:?}"
+        );
+    }
+    let versions = th
+        .app
+        .store()
+        .file_versions(board_id, &file)
+        .await
+        .expect("the versions");
+    let writers: Vec<&str> = versions
+        .iter()
+        .map(|version| version.created_by.as_str())
+        .collect();
+    assert_eq!(writers, [owner, leaver, owner], "the newest first");
 }
 
 /// A page of the wiki that the owner made and wrote last, with an earlier version of
@@ -328,4 +368,9 @@ async fn a_departed_writer_of_a_version_of_a_readable_card_body_is_named() {
 #[tokio::test]
 async fn a_departed_writer_of_a_version_of_a_readable_page_body_is_named() {
     check_authorship(Authorship::PageVersion).await;
+}
+
+#[tokio::test]
+async fn a_departed_writer_of_a_version_of_a_readable_file_is_named() {
+    check_authorship(Authorship::FileVersion).await;
 }

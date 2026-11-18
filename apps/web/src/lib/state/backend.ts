@@ -36,6 +36,7 @@ import type {
 import type { PresenceOfContainers } from './presence.ts';
 import type { DocRooms } from './body-doc.ts';
 import type { WorkspaceRole } from './people-types.ts';
+import type { VersionsOfFiles } from './file-versions.ts';
 import type { OfBodies } from './references.ts';
 import type { TrashReads } from './trash-reads.ts';
 import type { ChangeListener } from './changes.ts';
@@ -276,7 +277,8 @@ export interface Backend
     PresenceOfContainers,
     OfBodies,
     WikisOfBackend,
-    ContentSearchOfBackend {
+    ContentSearchOfBackend,
+    VersionsOfFiles {
   // The reader and the people around them.
   me(): Promise<User>;
   /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */

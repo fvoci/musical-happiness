@@ -39,6 +39,7 @@ async fn board_with_files(store: &Store, user_id: &str, names: &[&str]) -> Strin
                 name: "upload.png".to_owned(),
                 extension: ".png".to_owned(),
                 size: 7,
+                ..FileInfo::default()
             })
             .await
             .expect("a file of the board is stored");

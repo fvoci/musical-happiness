@@ -54,6 +54,10 @@ impl Configuration {
         if self.max_comment_versions == 0 {
             bail!("max_comment_versions must be at least 1");
         }
+        // Zero would keep not even the bytes a file has.
+        if self.max_file_versions == 0 {
+            bail!("max_file_versions must be at least 1");
+        }
         // Zero would refuse every export or import.
         if self.max_concurrent_exports == 0 {
             bail!("max_concurrent_exports must be at least 1");

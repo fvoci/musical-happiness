@@ -48,6 +48,7 @@ mod fake_provider;
 mod fake_search;
 mod fake_smtp;
 mod file_blocks;
+mod file_versions;
 mod files;
 mod guests;
 mod hostile_category_ids;

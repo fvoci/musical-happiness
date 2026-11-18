@@ -29,6 +29,8 @@ import type { StoredBlock, StoredCard } from './world.ts';
 export const LIMITS = {
   bodyBytes: MAX_BODY_BYTES,
   fileBytes: 100 * 1024 * 1024,
+  /** The versions kept of a file, as the server keeps them unless set otherwise. */
+  fileVersions: 50,
   uploadPartBytes: 8 * 1024 * 1024,
   screenStateKeys: 100,
   screenStateValueBytes: 4 * 1024,

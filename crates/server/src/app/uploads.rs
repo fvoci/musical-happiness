@@ -637,7 +637,7 @@ impl App {
         // record.
         let size = u64::try_from(upload.size).unwrap_or_default();
         let place = FilePlace::at(&upload.path, &upload.name);
-        let recorded = self.record_file(&upload.container_id, place, size).await;
+        let recorded = self.record_file(upload, place, size).await;
         // A record whose answer was lost may be there all the same.
         if recorded.is_err() && self.remove_if_unrecorded(upload).await.is_none() {
             // Left closed for the clean-up to look at again.
@@ -685,8 +685,7 @@ impl App {
         directory: &Path,
     ) -> Result<String, AppError> {
         let mut reader = parts_reader(parts, directory).await?;
-        self.save_file(&mut reader, &upload.container_id, &upload.name)
-            .await
+        self.save_upload(&mut reader, upload).await
     }
 
     /// Imports the archive of an upload into its workspace, as its user, and throws the

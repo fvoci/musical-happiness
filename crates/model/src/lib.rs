@@ -25,6 +25,7 @@ mod containers_and_blocks;
 mod date_value;
 mod deleted_item;
 mod file_info;
+mod file_version;
 mod id;
 mod invitation;
 mod linked;
@@ -93,6 +94,7 @@ pub use date_value::{
 };
 pub use deleted_item::DeletedItem;
 pub use file_info::{FileInfo, is_storage_path};
+pub use file_version::{FileVersion, FileVersionBase, NewFileVersion};
 pub use id::{is_id, new_id};
 pub use invitation::{
     AcceptInvitation, AcceptedInvitation, GUEST_INVITATION_USES, INVITATION_LIFETIME_MILLIS,

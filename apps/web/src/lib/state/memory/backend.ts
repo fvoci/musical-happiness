@@ -78,7 +78,8 @@ import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
 import { copiedBlocks, giveCopiesFiles } from './copies.ts';
 import { memberRole, memberFileUrl } from './container-access.ts';
-import { readableFile, storeUpload } from './files.ts';
+import { MemoryFileVersions } from './file-versions.ts';
+import { readableBlob, readableFile, storeUpload } from './files.ts';
 import { usersAmong, usersNamed } from './users.ts';
 import { changeDisplayName } from './account.ts';
 import { archiveLines, archiveOf, blockOfLine } from './archive.ts';
@@ -124,6 +125,7 @@ export class MemoryBackend implements Backend {
   readonly bodyVersions: MemoryBodyVersions;
   readonly search: MemoryContentSearch;
   readonly references = new MemoryReferences(this, () => this.#enter('references'));
+  readonly fileVersions = new MemoryFileVersions(this, () => this.#enter('fileVersions'));
   /** Milliseconds every call waits before it answers. */
   latency = 0;
   readonly #failures = new Map<MethodName, BackendError>();
@@ -1040,14 +1042,12 @@ export class MemoryBackend implements Backend {
   async upload(id: string, file: File, options: UploadOptions = {}): Promise<UploadedFile> {
     await this.#enter('upload', options.signal);
     this.#container(id);
-    return storeUpload(this.world, id, file, options, (signal) => this.#enter('upload', signal));
+    return storeUpload(this, id, file, options, (signal) => this.#enter('upload', signal));
   }
 
   async fileBytes(id: string, fileId: string): Promise<Blob> {
     await this.#enter('fileBytes');
-    const { blob } = readableFile(this.world, this.userId, id, fileId);
-    if (!blob) fail(404, 'no such file');
-    return blob;
+    return readableBlob(this.world, this.userId, id, fileId);
   }
 
   async fileDetails(id: string, fileId: string): Promise<FileDetails> {

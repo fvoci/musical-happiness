@@ -201,6 +201,8 @@ reasons! {
     ServerUploadsPending => "server_uploads_pending", "The server's open uploads hold too much";
     /// The file is larger than one request takes; it is to be sent in parts.
     UploadInParts => "upload_in_parts", "File to be uploaded in parts";
+    /// A version of a file was written from a version that is the file's newest no more.
+    FileVersionStale => "file_version_stale", "The file has a newer version";
     /// The user has an export running.
     ExportRunning => "export_running", "An export is running";
     /// The server runs as many exports as it may.

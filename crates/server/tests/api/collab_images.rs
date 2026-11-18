@@ -21,6 +21,7 @@ async fn old_file(e: &Editing, th: &TestServer) -> FileInfo {
         name: "image.png".to_owned(),
         extension: ".png".to_owned(),
         size: 7,
+        ..FileInfo::default()
     };
     e.app
         .store()

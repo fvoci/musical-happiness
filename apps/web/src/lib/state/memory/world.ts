@@ -44,6 +44,21 @@ export interface StoredFile {
   /** Absent for the files the seed only names: their bytes are not in this repository. */
   blob?: Blob;
   url?: string;
+  /** When it was uploaded and by whom, for the files uploaded here. */
+  createAt?: number;
+  createdBy?: string;
+  /** Its versions, the oldest first, once it was written anew (file-versions.ts). */
+  versions?: KeptFileVersion[];
+}
+
+/** A version kept of a file: `name`, `size` and `blob` of the file are its newest's. */
+export interface KeptFileVersion {
+  version: number;
+  createAt: number;
+  createdBy: string;
+  size: number;
+  restoredFrom: number | null;
+  blob?: Blob;
 }
 
 interface DeletedBlocks {

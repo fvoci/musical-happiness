@@ -75,6 +75,7 @@ fn file_of(board_id: &str, stored_name: &str) -> FileInfo {
         size: 2048,
         path: format!("boards/{board_id}/{stored_name}"),
         create_at: 1,
+        ..FileInfo::default()
     }
 }
 
