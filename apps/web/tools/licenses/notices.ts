@@ -29,6 +29,7 @@ import exceptions from './exceptions.json' with { type: 'json' };
 import { katexFontLicense } from './katex-fonts.ts';
 import { withPackageNotices } from './package-notices.ts';
 import { readPackageLicense, statedLicense, type PackageLicense } from './packages.ts';
+import { bundledWorkerPackages } from './worker-packages.ts';
 import { pdfjsDataLicenses } from './pdfjs-data.ts';
 import { prebuiltLicenses } from './prebuilt.ts';
 import { isAllowed, readAllowedLicenses } from './policy.ts';
@@ -123,6 +124,10 @@ export function thirdPartyNotices(): Plugin {
         }
         // The file viewer's pdf.js data: other people's files, under their own licences.
         for (const item of pdfjsDataLicenses(bundledModules)) byName.set(item.name, item);
+        // Packages in the app's workers, which reach the bundle as text (worker-packages.ts).
+        for (const item of bundledWorkerPackages()) {
+          if (!byName.has(item.name)) byName.set(item.name, item);
+        }
         // Packages inside another package's prebuilt bundle (prebuilt.ts).
         for (const item of prebuiltLicenses([...byName.keys()])) {
           if (!byName.has(item.name)) byName.set(item.name, item);

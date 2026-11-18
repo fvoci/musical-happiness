@@ -8,7 +8,14 @@
  */
 import path from 'node:path';
 
-import { expect, test, type FrameLocator, type Locator, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type Frame,
+  type FrameLocator,
+  type Locator,
+  type Page,
+} from '@playwright/test';
 
 import { boardPath } from './address.ts';
 
@@ -92,9 +99,7 @@ export async function picture(page: Page, folder: string, name: string): Promise
  * its own), the app's storage and cookies, and the app's page.
  */
 export async function frameReaches(page: Page): Promise<Record<string, string>> {
-  const inside = page.frames().find((each) => each.url().endsWith('/static/viewer-frame.html'));
-  if (!inside) throw new Error('no viewer frame');
-  return inside.evaluate(async () => {
+  return viewerFrame(page).evaluate(async () => {
     const attempt = async (action: () => unknown): Promise<string> => {
       try {
         const result = await action();
@@ -113,6 +118,37 @@ export async function frameReaches(page: Page): Promise<Record<string, string>> 
       parent: await attempt(() => window.parent.document.title),
     };
   });
+}
+
+/** The viewer's frame, to run code in. */
+export function viewerFrame(page: Page): Frame {
+  const inside = page.frames().find((each) => each.url().endsWith('/static/viewer-frame.html'));
+  if (!inside) throw new Error('no viewer frame');
+  return inside;
+}
+
+/**
+ * Starts noting, on the app's page, each run of a timer every 20 ms (`ticks`
+ * reads them), in milliseconds since 1970 (`performance.timeOrigin` plus
+ * `performance.now()`), which the frame reads alike.
+ */
+export async function recordTicks(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const noted = window as unknown as { fvociTicks: number[] };
+    noted.fvociTicks = [];
+    setInterval(() => {
+      noted.fvociTicks.push(performance.timeOrigin + performance.now());
+    }, 20);
+  });
+}
+
+export const ticks = (page: Page): Promise<number[]> =>
+  page.evaluate(() => (window as unknown as { fvociTicks: number[] }).fvociTicks);
+
+/** The longest time between two ticks from `from` to `to`, and before the first and after the last. */
+export function longestGap(times: readonly number[], from: number, to: number): number {
+  const within = [from, ...times.filter((time) => time > from && time < to), to];
+  return Math.max(...within.slice(1).map((time, index) => time - (within[index] ?? time)));
 }
 
 /** How late a timer of 100 ms on the app's page fires, in milliseconds. */

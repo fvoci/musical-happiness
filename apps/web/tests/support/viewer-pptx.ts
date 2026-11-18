@@ -34,6 +34,8 @@ export interface SlideSpec {
   /** The slide's whole part, when it is not to be made of `shapes`. */
   xml?: string;
   links?: Link[];
+  /** The relationship to the slide's layout, when it is not the plain one to the deck's layout. */
+  layout?: Link;
 }
 
 export interface DeckSpec {
@@ -51,6 +53,8 @@ export interface DeckSpec {
   themeExtra?: string;
   /** The slide list, when it is to say other than one entry for each slide. */
   slideList?: string;
+  /** More of the presentation part, as XML after its elements (`<p:extLst>…`). */
+  presentationExtra?: string;
 }
 
 const box = (x: number, y: number, cx: number, cy: number): string =>
@@ -194,7 +198,7 @@ export function deck(spec: DeckSpec): Buffer {
     )
     .join('');
   const types = `${XML}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>${overrides}</Types>`;
-  const presentation = `${XML}<p:presentation ${NAMESPACES}><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rIdMaster"/></p:sldMasterIdLst><p:sldIdLst>${slideList}</p:sldIdLst><p:sldSz cx="${size.cx}" cy="${size.cy}"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>`;
+  const presentation = `${XML}<p:presentation ${NAMESPACES}><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rIdMaster"/></p:sldMasterIdLst><p:sldIdLst>${slideList}</p:sldIdLst><p:sldSz cx="${size.cx}" cy="${size.cy}"/><p:notesSz cx="6858000" cy="9144000"/>${spec.presentationExtra ?? ''}</p:presentation>`;
   const presentationLinks: Link[] = [
     { id: 'rIdMaster', type: 'slideMaster', target: 'slideMasters/slideMaster1.xml' },
     { id: 'rIdTheme', type: 'theme', target: 'theme/theme1.xml' },
@@ -243,7 +247,11 @@ export function deck(spec: DeckSpec): Buffer {
       xml(
         `ppt/slides/_rels/slide${index + 1}.xml.rels`,
         relationships([
-          { id: 'rIdLayout', type: 'slideLayout', target: '../slideLayouts/slideLayout1.xml' },
+          slide.layout ?? {
+            id: 'rIdLayout',
+            type: 'slideLayout',
+            target: '../slideLayouts/slideLayout1.xml',
+          },
           ...(slide.links ?? []),
         ]),
       ),

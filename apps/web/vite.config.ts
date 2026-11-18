@@ -10,6 +10,7 @@ import { checkHashedNames, precompress } from './tools/build/output.ts';
 import { pdfjsData } from './tools/build/pdfjs-data.ts';
 import { pptxRenderer } from './tools/build/pptx-renderer.ts';
 import { thirdPartyNotices } from './tools/licenses/notices.ts';
+import { workerPackages } from './tools/licenses/worker-packages.ts';
 
 /**
  * The server serves `index.html` for every page of the app and everything
@@ -106,6 +107,8 @@ export default defineConfig(({ command }) => ({
   // of an opaque origin cannot load modules.
   worker: {
     format: 'iife',
+    // What each worker bundles, for the notices (their step does not see inside a worker).
+    plugins: () => [workerPackages()],
     rolldownOptions: { output: OUTPUT_NAMES },
   },
   test: {

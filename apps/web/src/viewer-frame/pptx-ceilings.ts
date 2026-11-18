@@ -10,34 +10,44 @@
  *
  * - before the first slide, the renderer parses the presentation, its
  *   themes, slide masters and layouts and every relationship part at once
- *   (`EAGER_ELEMENT_LIMIT` holds them together);
- * - a slide is drawn with its layout's and its master's shapes and the
- *   SmartArt drawings it shows, so each ceiling of a slide holds for the
- *   slide, its layout, its master and its drawings together;
+ *   (their elements and their bytes are held together);
+ * - a slide is drawn with its layout's and its master's shapes, and each
+ *   SmartArt on any of them parses and draws a drawing of its own, so each
+ *   ceiling of a slide holds for all of these together;
  * - a picture is decoded to its pixels, and one the slide recolours is
- *   worked out pixel by pixel on the frame's thread;
+ *   worked out pixel by pixel on the frame's thread, once for each effect;
  * - the text is laid out once for each tab in it;
- * - a place or size beyond any slide's (`EXTENT_LIMIT`), or a slide size
- *   beyond PowerPoint's, is a lie of the file.
+ * - a place or size beyond any slide's, or a slide size beyond what
+ *   PowerPoint allows, is a lie of the file.
  *
- * Past any of them the file is refused as too large (`TooMuch`), before the
- * frame draws anything: never once a slide scrolls into view.
+ * The relationships are the ones the worker wrote (`pptx-parts.ts`), which
+ * the renderer reads as they are; what the slides' XML names is counted
+ * generously instead (`pptx-xml.ts`). Past any ceiling the file is refused
+ * as too large (`TooMuch`), before the frame draws anything: never once a
+ * slide scrolls into view.
  */
-import type { Pixels } from './pptx-images.ts';
-import type { Relationship, Sorted } from './pptx-parts.ts';
+import { resolveTarget, type Relationship, type Sorted } from './pptx-parts.ts';
 import type { PartMeasure } from './pptx-xml.ts';
 import { TooMuch } from './worker-xml.ts';
 
-/** The most slides: several times a long deck's. */
-export const SLIDE_LIMIT = 1_000;
-/** The most XML elements the parts parsed before the first slide may have together. */
-export const EAGER_ELEMENT_LIMIT = 300_000;
 /** The largest slide side PowerPoint allows (56 inches), in EMU. */
-export const SLIDE_SIDE_LIMIT = 51_206_400;
-/** The farthest place or largest size a shape may give, in EMU: ten times the largest slide's side. */
-export const EXTENT_LIMIT = 10 * SLIDE_SIDE_LIMIT;
-/** The most pixels one picture may decode to (a 48-megapixel photograph has fewer). */
-export const PICTURE_PIXEL_LIMIT = 50_000_000;
+const SLIDE_SIDE = 51_206_400;
+/** The smallest slide side PowerPoint allows (1 inch), in EMU. */
+export const SLIDE_SIDE_MIN = 914_400;
+
+/** The ceilings of the whole presentation, by the name a deck past one is refused with. */
+export const DECK_LIMITS = {
+  /** Several times a long deck's slides. */
+  slides: 1_000,
+  'elements before the first slide': 300_000,
+  'bytes before the first slide': 20_000_000,
+  /** The largest slide side, in EMU (the smallest is `SLIDE_SIDE_MIN`). */
+  'slide size': SLIDE_SIDE,
+  /** The farthest place or largest size a shape may give, in EMU: ten times the largest slide's side. */
+  extent: 10 * SLIDE_SIDE,
+  /** The most pixels one picture may decode to (a 48-megapixel photograph has fewer). */
+  picture: 50_000_000,
+} as const;
 
 /**
  * The ceilings of one slide, with its layout, its master and its drawings.
@@ -47,6 +57,8 @@ export const PICTURE_PIXEL_LIMIT = 50_000_000;
  * (2,000 text boxes took half a minute).
  */
 export const SLIDE_LIMITS = {
+  /** The XML parsed to draw it: the slide's, and its drawings' for each SmartArt. */
+  bytes: 10_000_000,
   elements: 40_000,
   depth: 64,
   text: 100_000,
@@ -59,11 +71,11 @@ export const SLIDE_LIMITS = {
   pictures: 300,
   /** The pixels of the pictures it shows, each time it shows one. */
   pixels: 150_000_000,
-  /** The pixels of the pictures it recolours. */
+  /** The pixels of the pictures it recolours, once for each effect. */
   recoloured: 4_000_000,
   /**
-   * The share of its ceiling each of the five above takes, summed: a slide
-   * near several of them at once takes as long as several slides.
+   * The share of its ceiling each of the five in `WORK` takes, summed: a
+   * slide near several of them at once takes as long as several slides.
    */
   work: 2,
 } as const;
@@ -71,20 +83,10 @@ export const SLIDE_LIMITS = {
 /** What the drawing time of a slide grows with: the ceilings that `work` sums the shares of. */
 const WORK = ['elements', 'shapes', 'textBodies', 'cells', 'text'] as const;
 
+export const LIMITS = { ...DECK_LIMITS, ...SLIDE_LIMITS };
+export type Limits = Record<keyof typeof LIMITS, number>;
+
 type SlideCount = Record<keyof typeof SLIDE_LIMITS, number>;
-
-const LAYOUT = '/slideLayout';
-const MASTER = '/slideMaster';
-
-/** The part a relationship of `from` leads to, as the renderer finds it. */
-export function resolve(from: string, target: string): string {
-  const base = target.startsWith('/') ? [] : from.split('/').slice(0, -1);
-  for (const segment of target.replace(/^\/+/, '').split('/')) {
-    if (segment === '..') base.pop();
-    else if (segment !== '.' && segment !== '') base.push(segment);
-  }
-  return base.join('/');
-}
 
 /** The name of a part's relationship part. */
 const relationshipsOf = (part: string): string => {
@@ -92,21 +94,20 @@ const relationshipsOf = (part: string): string => {
   return `${part.slice(0, at)}/_rels/${part.slice(at + 1)}.rels`;
 };
 
+const directoryOf = (part: string): string => part.slice(0, Math.max(0, part.lastIndexOf('/')));
+
 /** The picture a relationship's target names, as the renderer looks it up (under `ppt/media/`). */
 function mediaOf(target: string): string {
-  const segments = target.split(/[?#]/)[0]?.replace(/\\/g, '/').split('/') ?? [];
+  const segments = target.split('/').filter(Boolean);
   const at = segments.lastIndexOf('media');
   const rest = at >= 0 && at < segments.length - 1 ? segments.slice(at + 1) : segments.slice(-1);
   return `ppt/media/${rest.join('/')}`;
 }
 
-function over(what: string): never {
-  throw new TooMuch(what);
-}
-
 class SlideCounter {
   readonly #sorted: Sorted;
   readonly count: SlideCount = {
+    bytes: 0,
     elements: 0,
     depth: 0,
     text: 0,
@@ -125,73 +126,111 @@ class SlideCounter {
     this.#sorted = sorted;
   }
 
-  /** Adds a part, its pictures found through `relationships` (its own, or the slide's for a drawing). */
-  add(part: PartMeasure, relationships: readonly Relationship[], from: string): void {
+  /** The pixels of the picture a relationship leads to, if it leads to one. */
+  #area(relationship: Relationship): number {
+    const pixels = this.#sorted.pixels.get(mediaOf(relationship.target));
+    return pixels ? pixels.width * pixels.height : 0;
+  }
+
+  /**
+   * Adds a part, drawn `times` times, its pictures named by `relationships`
+   * (its own, or the slide's for a drawing). `parsed` is whether the part's
+   * XML is parsed for the slide (not a layout's or master's, parsed before).
+   */
+  add(
+    part: PartMeasure,
+    relationships: readonly Relationship[],
+    times: number,
+    parsed: boolean,
+  ): void {
     const { count } = this;
-    count.elements += part.elements;
+    if (parsed) count.bytes += part.bytes * times;
+    count.elements += part.elements * times;
     count.depth = Math.max(count.depth, part.depth);
-    count.text += part.text;
-    count.tabs += part.tabs;
-    count.shapes += part.shapes;
-    count.textBodies += part.textBodies;
+    count.text += part.text * times;
+    count.tabs += part.tabs * times;
+    count.shapes += part.shapes * times;
+    count.textBodies += part.textBodies * times;
     count.groups = Math.max(count.groups, part.groups);
-    count.cells += part.cells;
-    count.pictures += part.pictures.length;
-    for (const shown of part.pictures) {
-      const target = relationships.find((each) => each.id === shown.embed)?.target;
-      const pixels: Pixels | undefined =
-        target === undefined ? undefined : this.#sorted.pixels.get(mediaOf(resolve(from, target)));
-      const area = pixels ? pixels.width * pixels.height : 0;
-      count.pixels += area;
-      if (shown.recoloured) count.recoloured += area;
+    count.cells += part.cells * times;
+    const pictures = relationships.filter((each) => this.#area(each) > 0);
+    for (const relationship of pictures) {
+      const named = part.names.get(relationship.id) ?? 0;
+      count.pictures += named * times;
+      count.pixels += named * this.#area(relationship) * times;
+    }
+    for (const blip of part.blips) {
+      if (blip.effects === 0) continue;
+      const areas = pictures
+        .filter((each) => blip.names.has(each.id))
+        .map((each) => this.#area(each));
+      count.recoloured += blip.effects * Math.max(0, ...areas) * times;
     }
   }
 
-  check(): void {
+  /** The ceilings of a slide it passes. */
+  over(limits: Limits): string[] {
     const { count } = this;
-    count.work = WORK.reduce((sum, name) => sum + count[name] / SLIDE_LIMITS[name], 0);
-    for (const [name, limit] of Object.entries(SLIDE_LIMITS)) {
-      if (this.count[name as keyof SlideCount] > limit) over(name);
-    }
+    count.work = WORK.reduce((sum, name) => sum + count[name] / limits[name], 0);
+    return (Object.keys(SLIDE_LIMITS) as (keyof SlideCount)[]).filter(
+      (name) => count[name] > limits[name],
+    );
   }
 }
 
-/** The part a part's relationship of `type` leads to, if it is one the renderer has. */
+/** The part that the first relationship of `part` the renderer takes for `type` leads to. */
 function related(sorted: Sorted, part: string, type: string): string | undefined {
+  // The renderer takes the first whose type has the name in it (its `Yi` and `Qs`).
   const found = sorted.relationships
     .get(relationshipsOf(part))
-    ?.find((each) => each.type.endsWith(type));
-  return found ? resolve(part, found.target) : undefined;
+    ?.find((each) => each.type.includes(type));
+  return found ? resolveTarget(directoryOf(part), found.target) : undefined;
 }
 
-/** What drawing slide `slide` asks for; throws `TooMuch` past a ceiling of a slide. */
-function checkSlide(sorted: Sorted, slide: string): Set<string> {
+interface SlideMeasure {
+  over: string[];
+  characters: Set<string>;
+}
+
+/** The layout and master a slide is drawn with, as the renderer finds them. */
+export function drawnWith(sorted: Sorted, slide: string): { layout?: string; master?: string } {
+  const layout = related(sorted, slide, 'slideLayout');
+  return {
+    layout,
+    master: layout === undefined ? undefined : related(sorted, layout, 'slideMaster'),
+  };
+}
+
+/** What drawing slide `slide` asks for: the ceilings of a slide it passes, and its characters. */
+function measureSlide(sorted: Sorted, slide: string, limits: Limits): SlideMeasure {
   const counter = new SlideCounter(sorted);
-  const own = sorted.relationships.get(relationshipsOf(slide)) ?? [];
-  const layout = related(sorted, slide, LAYOUT);
-  const master = layout === undefined ? undefined : related(sorted, layout, MASTER);
+  const { layout, master } = drawnWith(sorted, slide);
   const characters = new Set<string>();
   const take = (
-    part: string | undefined,
+    part: string,
     relationships: readonly Relationship[],
-    from: string,
+    times: number,
+    parsed: boolean,
   ): void => {
-    const measured = part === undefined ? undefined : sorted.measures.get(part);
+    const measured = sorted.measures.get(part);
     if (!measured) return;
-    counter.add(measured, relationships, from);
+    counter.add(measured, relationships, times, parsed);
     for (const character of measured.characters) characters.add(character);
   };
-  take(slide, own, slide);
-  for (const part of [layout, master]) {
-    if (part !== undefined) take(part, sorted.relationships.get(relationshipsOf(part)) ?? [], part);
+  for (const part of [slide, layout, master]) {
+    if (part === undefined) continue;
+    const own = sorted.relationships.get(relationshipsOf(part)) ?? [];
+    take(part, own, 1, part === slide);
+    // Each SmartArt parses and draws one of the drawings its part names, and may parse another
+    // for its layout: each of the part's drawings is counted twice for each.
+    const diagrams = sorted.measures.get(part)?.diagrams ?? 0;
+    if (diagrams === 0) continue;
+    for (const { target } of own) {
+      const drawing = resolveTarget(directoryOf(part), target);
+      if (sorted.parts.diagramDrawings.has(drawing)) take(drawing, own, 2 * diagrams, true);
+    }
   }
-  // A SmartArt drawing's pictures are found through the slide's relationships.
-  for (const { target } of own) {
-    const part = resolve(slide, target);
-    if (sorted.parts.diagramDrawings.has(part)) take(part, own, slide);
-  }
-  counter.check();
-  return characters;
+  return { over: counter.over(limits), characters };
 }
 
 /** The parts the renderer parses before it draws any slide. */
@@ -207,33 +246,64 @@ function eagerParts(sorted: Sorted): string[] {
   ];
 }
 
-/**
- * Checks the presentation against every ceiling; throws `TooMuch` past one.
- * Returns the characters of all the slides' text, each once.
- */
-export function checkCeilings(sorted: Sorted): string {
+/** The ceilings of the whole presentation it passes. */
+function deckOver(sorted: Sorted, limits: Limits): string[] {
   const { measures, parts } = sorted;
+  const over = new Set<string>();
   for (const measured of measures.values()) {
-    if (measured.extent > EXTENT_LIMIT) over('extent');
+    if (measured.extent > limits.extent) over.add('extent');
   }
   for (const pixels of sorted.pixels.values()) {
-    if (pixels.width * pixels.height > PICTURE_PIXEL_LIMIT) over('picture');
+    if (pixels.width * pixels.height > limits.picture) over.add('picture');
   }
   const presentation = measures.get('ppt/presentation.xml');
-  const size = presentation?.size;
-  if (size && (size.cx > SLIDE_SIDE_LIMIT || size.cy > SLIDE_SIDE_LIMIT)) over('slide size');
-  let eager = 0;
-  for (const part of new Set(eagerParts(sorted))) eager += measures.get(part)?.elements ?? 0;
-  if (eager > EAGER_ELEMENT_LIMIT) over('elements before the first slide');
+  const sides = presentation?.size ? [presentation.size.cx, presentation.size.cy] : [];
+  if (sides.some((each) => !(each >= SLIDE_SIDE_MIN && each <= limits['slide size']))) {
+    over.add('slide size');
+  }
+  let elements = 0;
+  let bytes = 0;
+  for (const part of new Set(eagerParts(sorted))) {
+    elements += measures.get(part)?.elements ?? 0;
+    bytes += measures.get(part)?.bytes ?? 0;
+  }
+  if (elements > limits['elements before the first slide']) {
+    over.add('elements before the first slide');
+  }
+  if (bytes > limits['bytes before the first slide']) over.add('bytes before the first slide');
   // The renderer takes the slides of the list, or every slide relationship when the list has none.
   const listed = presentation?.slideIds ?? 0;
   const slides = (sorted.relationships.get('ppt/_rels/presentation.xml.rels') ?? []).filter(
     (each) => each.type.endsWith('/slide'),
   );
-  if (Math.max(listed, slides.length, parts.slides.size) > SLIDE_LIMIT) over('slides');
+  if (Math.max(listed, slides.length, parts.slides.size) > limits.slides) over.add('slides');
+  return [...over];
+}
+
+/**
+ * Every ceiling the presentation passes, each once, and the characters of
+ * all the slides' text; `limits` are the ceilings (other ones only in tests).
+ */
+export function measureCeilings(
+  sorted: Sorted,
+  limits: Limits = LIMITS,
+): { over: string[]; characters: string } {
+  const over = new Set(deckOver(sorted, limits));
   const characters = new Set<string>();
-  for (const slide of parts.slides.keys()) {
-    for (const character of checkSlide(sorted, slide)) characters.add(character);
+  for (const slide of sorted.parts.slides.keys()) {
+    const measured = measureSlide(sorted, slide, limits);
+    for (const name of measured.over) over.add(name);
+    for (const character of measured.characters) characters.add(character);
   }
-  return [...characters].join('');
+  return { over: [...over], characters: [...characters].join('') };
+}
+
+/**
+ * Checks the presentation against every ceiling; throws `TooMuch` past one.
+ * Returns the characters of all the slides' text, each once.
+ */
+export function checkCeilings(sorted: Sorted): string {
+  const { over, characters } = measureCeilings(sorted);
+  if (over[0] !== undefined) throw new TooMuch(over[0]);
+  return characters;
 }

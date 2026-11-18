@@ -8,9 +8,17 @@
  * Left out, so that the frame neither reads nor draws them: embedded fonts
  * (the app's fonts stand in), charts (a placeholder stands in), pictures of
  * kinds other than those `pptx-images.ts` reads, sounds and films, and
- * every relationship to something outside the file or to a web page (the
- * relationship parts are written anew without them). What a slide links to
- * within the presentation stays.
+ * every relationship to something outside the file or to a web page. What
+ * a slide links to within the presentation stays.
+ *
+ * The renderer finds parts by names and relationships it reads its own way;
+ * the worker counts what it would draw only if both read them alike. So
+ * nothing is left to its reading: a part whose name it would read otherwise
+ * (an escape, a backslash, a query) is left out, and every relationship
+ * part is written anew, each target the name of a part that is kept, as an
+ * absolute name the renderer resolves to that very name, of a type it reads
+ * (a chart's, whose part is left out, too: the renderer draws a box there).
+ * A relationship part that gives an identifier twice is unreadable.
  */
 import { SaxesParser } from 'saxes';
 
@@ -20,7 +28,29 @@ import { measure, type PartMeasure } from './pptx-xml.ts';
 import { UnreadableFile } from './renderer.ts';
 
 const RELATIONSHIPS = 'http://schemas.openxmlformats.org/package/2006/relationships';
-const HYPERLINK = '/hyperlink';
+
+/** Where the types of relationships the renderer draws by are named, transitional and strict. */
+const TYPE_PREFIXES = [
+  'http://schemas.openxmlformats.org/officeDocument/2006/relationships/',
+  'http://purl.oclc.org/ooxml/officeDocument/relationships/',
+  'http://schemas.microsoft.com/office/2007/relationships/',
+];
+/** The types of relationships kept: what the renderer draws with. */
+const TYPES = new Set([
+  'slide',
+  'slideLayout',
+  'slideMaster',
+  'theme',
+  'image',
+  'tableStyles',
+  'diagramData',
+  'diagramLayout',
+  'diagramQuickStyle',
+  'diagramColors',
+  'diagramDrawing',
+  // Charts are left out; the relationship stays, so that the renderer draws the box that says so.
+  'chart',
+]);
 
 /** The maps of `PptxParts` the parts are sorted into, by the names the renderer reads. */
 const SORTED = [
@@ -63,9 +93,42 @@ export interface Sorted {
 
 const decoder = new TextDecoder('utf-8');
 
-/** The relationships of a relationship part, those to outside the file and to web pages left out. */
-function readRelationships(text: string): Relationship[] {
-  const kept: Relationship[] = [];
+/** Whether the renderer reads the name as it is: no escapes, backslashes, queries or fragments. */
+export const isPlainName = (name: string): boolean => !/[%\\?#]/.test(name);
+
+/** A type the renderer draws by, of those in `TYPES`. */
+function isKeptType(type: string): boolean {
+  const prefix = TYPE_PREFIXES.find((each) => type.startsWith(each));
+  return prefix !== undefined && TYPES.has(type.slice(prefix.length));
+}
+
+/** The part a relationship of the part in `directory` leads to, as the renderer resolves it (its `Kt`). */
+export function resolveTarget(directory: string, target: string): string {
+  const cut = target.search(/[?#]/);
+  const path = (cut >= 0 ? target.slice(0, cut) : target).replace(/\\/g, '/');
+  const decode = (segment: string): string => {
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      return segment;
+    }
+  };
+  const segments = path.split('/').filter(Boolean).map(decode);
+  const resolved = path.startsWith('/') ? [] : directory.split('/').filter(Boolean);
+  for (const segment of segments) {
+    if (segment === '..') resolved.pop();
+    else if (segment !== '.') resolved.push(segment);
+  }
+  return resolved.join('/');
+}
+
+/** The directory of the part a relationship part is of: `ppt/slides` for `ppt/slides/_rels/slide1.xml.rels`. */
+const directoryOf = (relationshipPart: string): string =>
+  relationshipPart.replace(/(^|\/)_rels\/[^/]*$/, '');
+
+/** The relationships as read from a relationship part, before they are judged. */
+function parseRelationships(text: string): (Relationship & { outside: boolean })[] {
+  const read: (Relationship & { outside: boolean })[] = [];
   const parser = new SaxesParser({ xmlns: true, position: false });
   parser.on('doctype', () => {
     throw new UnreadableFile();
@@ -73,15 +136,39 @@ function readRelationships(text: string): Relationship[] {
   parser.on('opentag', (tag) => {
     if (tag.local !== 'Relationship' || tag.uri !== RELATIONSHIPS) return;
     const value = (name: string): string => tag.attributes[name]?.value ?? '';
-    const relationship = { id: value('Id'), type: value('Type'), target: value('Target') };
     const outside = value('TargetMode').trim().toLowerCase() === 'external';
-    if (!outside && !relationship.type.endsWith(HYPERLINK)) kept.push(relationship);
+    read.push({ id: value('Id'), type: value('Type'), target: value('Target'), outside });
   });
   parser.on('error', () => {
     throw new UnreadableFile();
   });
   parser.write(text).close();
-  return kept;
+  return read;
+}
+
+/**
+ * The relationships kept of a relationship part: to a part that is kept
+ * (`kept`), of a type kept, each identifier once; the target written as the
+ * absolute name of the part.
+ */
+function readRelationships(
+  name: string,
+  text: string,
+  kept: (part: string) => boolean,
+): Relationship[] {
+  const directory = directoryOf(name);
+  const byId = new Map<string, Relationship>();
+  const seen = new Set<string>();
+  for (const { id, type, target, outside } of parseRelationships(text)) {
+    if (outside || !isKeptType(type)) continue;
+    // The renderer would keep the first's place and the last's target: no file PowerPoint writes.
+    if (seen.has(id)) throw new UnreadableFile();
+    seen.add(id);
+    const part = resolveTarget(directory, target);
+    const leads = kept(part) || type.endsWith('/chart');
+    if (id !== '' && isPlainName(part) && leads) byId.set(id, { id, type, target: `/${part}` });
+  }
+  return [...byId.values()];
 }
 
 const escape = (value: string): string =>
@@ -97,27 +184,6 @@ export function writeRelationships(relationships: readonly Relationship[]): stri
       `<Relationship Id="${escape(id)}" Type="${escape(type)}" Target="${escape(target)}"/>`,
   );
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${RELATIONSHIPS}">${each.join('')}</Relationships>`;
-}
-
-/** The name the renderer also finds a part by: each segment of it URI-decoded. */
-function decodedName(name: string): string {
-  return name
-    .split('/')
-    .map((segment) => {
-      try {
-        return decodeURIComponent(segment);
-      } catch {
-        return segment;
-      }
-    })
-    .join('/');
-}
-
-/** Sets a part under its name and, as the renderer does, under its decoded name when no part has it. */
-function put<T>(map: Map<string, T>, name: string, value: T): void {
-  map.set(name, value);
-  const decoded = decodedName(name);
-  if (decoded !== name && !map.has(decoded)) map.set(decoded, value);
 }
 
 function emptyParts(): PptxParts {
@@ -143,19 +209,26 @@ function emptyParts(): PptxParts {
 
 const isRelationshipPart = (name: string): boolean => name.endsWith('.rels');
 
-/** The text of an XML part, measured and, for a relationship part, written anew. */
-function readPart(name: string, bytes: Uint8Array, sorted: Sorted): string {
-  let text = decoder.decode(bytes);
-  if (isRelationshipPart(name)) {
-    const relationships = readRelationships(text);
-    sorted.relationships.set(name, relationships);
-    text = writeRelationships(relationships);
-  }
-  sorted.measures.set(name, measure(text));
-  return text;
+/** Where a part goes: one of the single parts, one of the maps, or nowhere. */
+function placeOf(
+  name: string,
+): { single: (typeof SINGLE)[keyof typeof SINGLE] } | { map: SortedMap } | undefined {
+  if (Object.hasOwn(SINGLE, name)) return { single: SINGLE[name as keyof typeof SINGLE] };
+  const map = SORTED.find(([pattern]) => pattern.test(name))?.[1];
+  return map ? { map } : undefined;
 }
 
-/** Sorts the unpacked parts; throws `UnreadableFile` when an XML part kept is not one the frame reads alike. */
+function place(parts: PptxParts, name: string, text: string): void {
+  const where = placeOf(name);
+  if (where && 'single' in where) Object.assign(parts, { [where.single]: text });
+  else if (where) parts[where.map].set(name, text);
+}
+
+/**
+ * Sorts the unpacked parts; throws `UnreadableFile` when an XML part kept
+ * is not one the frame reads alike. The relationship parts come last, as
+ * they keep only relationships to parts kept.
+ */
 export function sortParts(unpacked: ReadonlyMap<string, Uint8Array>): Sorted {
   const sorted: Sorted = {
     parts: emptyParts(),
@@ -164,21 +237,31 @@ export function sortParts(unpacked: ReadonlyMap<string, Uint8Array>): Sorted {
     pixels: new Map(),
   };
   const { parts } = sorted;
+  const kept = new Set<string>();
+  const relationshipParts: [string, Uint8Array][] = [];
   for (const [name, bytes] of unpacked) {
+    if (!isPlainName(name)) continue;
     if (name.startsWith('ppt/media/')) {
       const pixels = pixelsOf(bytes);
       if (!pixels) continue;
-      put(parts.media, name, bytes);
+      parts.media.set(name, bytes);
       sorted.pixels.set(name, pixels);
-      continue;
+      kept.add(name);
+    } else if (placeOf(name) && isRelationshipPart(name)) {
+      relationshipParts.push([name, bytes]);
+    } else if (placeOf(name)) {
+      const text = decoder.decode(bytes);
+      sorted.measures.set(name, measure(text));
+      place(parts, name, text);
+      kept.add(name);
     }
-    const single = Object.hasOwn(SINGLE, name) ? SINGLE[name as keyof typeof SINGLE] : undefined;
-    if (single) {
-      parts[single] = readPart(name, bytes, sorted);
-      continue;
-    }
-    const map: SortedMap | undefined = SORTED.find(([pattern]) => pattern.test(name))?.[1];
-    if (map) put(parts[map], name, readPart(name, bytes, sorted));
+  }
+  for (const [name, bytes] of relationshipParts) {
+    const relationships = readRelationships(name, decoder.decode(bytes), (part) => kept.has(part));
+    sorted.relationships.set(name, relationships);
+    const text = writeRelationships(relationships);
+    sorted.measures.set(name, measure(text));
+    place(parts, name, text);
   }
   return sorted;
 }

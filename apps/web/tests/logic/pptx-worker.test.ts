@@ -1,24 +1,32 @@
 import { describe, expect, it } from 'vitest';
 
 import { examine } from '$lib/file-viewer/formats.ts';
-import { checkCeilings, resolve, SLIDE_LIMITS } from '../../src/viewer-frame/pptx-ceilings.ts';
+import { LIMITS, measureCeilings } from '../../src/viewer-frame/pptx-ceilings.ts';
 import { pixelsOf } from '../../src/viewer-frame/pptx-images.ts';
-import { sortParts, type Sorted } from '../../src/viewer-frame/pptx-parts.ts';
+import { resolveTarget, sortParts, type Sorted } from '../../src/viewer-frame/pptx-parts.ts';
 import { readFromPptxWorker } from '../../src/viewer-frame/pptx-protocol.ts';
 import { readPresentation } from '../../src/viewer-frame/pptx-read.ts';
 import { unpack } from '../../src/viewer-frame/pptx-unpack.ts';
-import { TooMuch } from '../../src/viewer-frame/worker-xml.ts';
 import { repack } from '../../src/viewer-frame/zip-guard.ts';
 
 import {
+  DISGUISED_PPTX,
   doctypePptx,
   HOSTILE_PPTX,
   layoutAndSlidePptx,
   malformedPptx,
   pngHeader,
+  smartArtPptx,
 } from '../support/hostile-pptx.ts';
 import { png, zip } from '../support/viewer-files.ts';
-import { deck, koreanPptx, picture, PPTX_LINK, PPTX_TEXT } from '../support/viewer-pptx.ts';
+import {
+  deck,
+  koreanPptx,
+  NAMESPACES,
+  picture,
+  PPTX_LINK,
+  PPTX_TEXT,
+} from '../support/viewer-pptx.ts';
 
 /** The archive as the frame hands it to the worker: counted and written anew. */
 const repacked = (file: Buffer): Promise<ArrayBuffer> => repack(Uint8Array.from(file).buffer);
@@ -26,17 +34,8 @@ const repacked = (file: Buffer): Promise<ArrayBuffer> => repack(Uint8Array.from(
 const sorted = async (file: Buffer): Promise<Sorted> =>
   sortParts(await unpack(await repacked(file)));
 
-/** The ceiling a deck is stopped at, or undefined when it passes them all. */
-async function stoppedAt(file: Buffer): Promise<string | undefined> {
-  const parts = await sorted(file);
-  try {
-    checkCeilings(parts);
-    return undefined;
-  } catch (error) {
-    if (error instanceof TooMuch) return error.message;
-    throw error;
-  }
-}
+/** Every ceiling a deck passes. */
+const overOf = async (file: Buffer): Promise<string[]> => measureCeilings(await sorted(file)).over;
 
 describe('a presentation is told apart by its first bytes', () => {
   it('a ZIP archive with ppt/presentation.xml', () => {
@@ -116,23 +115,98 @@ describe('the PowerPoint worker reads a presentation into the parts the renderer
 
 describe('each ceiling stops the deck that passes it, and only that one', () => {
   it('the Korean sample passes them all', async () => {
-    expect(await stoppedAt(koreanPptx())).toBeUndefined();
+    expect(await overOf(koreanPptx())).toEqual([]);
   });
 
   for (const [ceiling, make] of Object.entries(HOSTILE_PPTX)) {
     it(ceiling, async () => {
-      expect(await stoppedAt(make())).toBe(ceiling);
-      const answer = await readPresentation(await repacked(make()));
-      expect(answer).toEqual({ kind: 'failed', reason: 'too-large' });
+      expect(await overOf(make())).toEqual([ceiling]);
     });
   }
 
+  it('a deck past a ceiling is refused as too large', async () => {
+    for (const ceiling of ['text', 'slide size'] as const) {
+      const file = HOSTILE_PPTX[ceiling]?.() ?? Buffer.alloc(0);
+      expect(await readPresentation(await repacked(file))).toEqual({
+        kind: 'failed',
+        reason: 'too-large',
+      });
+    }
+  });
+
   it("a slide is counted with its layout's shapes, which it draws", async () => {
-    expect(await stoppedAt(layoutAndSlidePptx())).toBe('elements');
+    expect(await overOf(layoutAndSlidePptx())).toEqual(['elements']);
+  });
+
+  it('each SmartArt frame is counted with the drawing it draws', async () => {
+    expect(await overOf(smartArtPptx(1, 4))).toEqual([]);
+    expect(await overOf(smartArtPptx(40, 4))).toEqual(['textBodies']);
   });
 
   it('every ceiling has a deck', () => {
-    for (const name of Object.keys(SLIDE_LIMITS)) expect(HOSTILE_PPTX).toHaveProperty([name]);
+    expect(Object.keys(HOSTILE_PPTX).sort()).toEqual(Object.keys(LIMITS).sort());
+  });
+});
+
+describe('a deck in disguise is stopped as its plain twin is', () => {
+  for (const [disguise, { ceiling, make }] of Object.entries(DISGUISED_PPTX)) {
+    it(`${disguise}: ${ceiling}`, async () => {
+      const packed = await repacked(make());
+      const answer = await readPresentation(packed);
+      if (ceiling === 'unreadable') {
+        expect(answer).toEqual({ kind: 'failed', reason: 'unreadable' });
+        return;
+      }
+      expect(measureCeilings(sortParts(await unpack(packed))).over).toEqual([ceiling]);
+      expect(answer).toEqual({ kind: 'failed', reason: 'too-large' });
+    });
+  }
+});
+
+describe('the relationships the frame gets are the ones the worker counted', () => {
+  it('each leads to a part kept, by its absolute name, of a type the renderer draws by', async () => {
+    const file = deck({
+      slides: [
+        {
+          shapes: '',
+          layout: {
+            id: 'rIdLayout',
+            type: 'slideLayout',
+            target: '..\\slideLayouts\\slideLayout1.xml?x',
+          },
+          links: [
+            { id: 'rIdNotes', type: 'notesSlide', target: '../notesSlides/notesSlide1.xml' },
+            { id: 'rIdNowhere', type: 'image', target: '../media/missing.png' },
+            { id: 'rIdPlural', type: 'slideLayouts', target: '../slideLayouts/slideLayout2.xml' },
+          ],
+        },
+      ],
+      parts: [{ name: 'slideLayouts/slideLayout2.xml', data: `<p:sldLayout ${NAMESPACES}/>` }],
+    });
+    const { relationships, parts } = await sorted(file);
+    expect(relationships.get('ppt/slides/_rels/slide1.xml.rels')).toEqual([
+      {
+        id: 'rIdLayout',
+        type: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout',
+        target: '/ppt/slideLayouts/slideLayout1.xml',
+      },
+    ]);
+    expect(parts.slideRels.get('ppt/slides/_rels/slide1.xml.rels')).toContain(
+      'Target="/ppt/slideLayouts/slideLayout1.xml"',
+    );
+  });
+
+  it('a part whose name the renderer would read otherwise is left out', async () => {
+    const file = deck({
+      slides: [{ shapes: '' }],
+      parts: [
+        { name: 'slides/slide%32.xml', data: `<p:sld ${NAMESPACES}/>` },
+        { name: 'media/image%31.png', data: png(2, 2, [0, 0, 0]) },
+      ],
+    });
+    const { parts } = await sorted(file);
+    expect([...parts.slides.keys()]).toEqual(['ppt/slides/slide1.xml']);
+    expect(parts.media.size).toBe(0);
   });
 });
 
@@ -216,11 +290,18 @@ describe('the size a picture decodes to is read from its header', () => {
   });
 });
 
-describe('a relationship leads where the renderer looks', () => {
-  it('relative to its part, up and down', () => {
-    expect(resolve('ppt/slides/slide1.xml', '../media/a.png')).toBe('ppt/media/a.png');
-    expect(resolve('ppt/slides/slide1.xml', 'slide2.xml')).toBe('ppt/slides/slide2.xml');
-    expect(resolve('ppt/slides/slide1.xml', '/ppt/media/b.png')).toBe('ppt/media/b.png');
+describe('a relationship leads where the renderer looks (its `Kt`)', () => {
+  it('relative to its part, up and down, or from the root', () => {
+    expect(resolveTarget('ppt/slides', '../media/a.png')).toBe('ppt/media/a.png');
+    expect(resolveTarget('ppt/slides', 'slide2.xml')).toBe('ppt/slides/slide2.xml');
+    expect(resolveTarget('ppt/slides', '/ppt/media/b.png')).toBe('ppt/media/b.png');
+  });
+
+  it('without its query or fragment, its backslashes slashes, its escapes decoded', () => {
+    expect(resolveTarget('ppt/slides', '../media/a.png?x#y')).toBe('ppt/media/a.png');
+    expect(resolveTarget('ppt/slides', '..\\media\\a.png')).toBe('ppt/media/a.png');
+    expect(resolveTarget('ppt/slides', '../media/%61.png')).toBe('ppt/media/a.png');
+    expect(resolveTarget('ppt/slides', '../media/%E0%A4%A.png')).toBe('ppt/media/%E0%A4%A.png');
   });
 });
 

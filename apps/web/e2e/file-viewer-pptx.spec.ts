@@ -16,10 +16,14 @@ import {
   attach,
   frameOf,
   frameReaches,
+  longestGap,
+  recordTicks,
+  ticks,
   openCard,
   picture,
   timerLateness,
   viewer,
+  viewerFrame,
 } from './file-viewer.support.ts';
 
 const PPTX_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
@@ -146,22 +150,71 @@ test('while a deck is read, the app answers and "Close" closes the viewer', asyn
   await expect(viewer(page)).toHaveCount(0, { timeout: 2000 });
 });
 
-test('while slides are drawn, the app answers and "Close" closes the viewer', async ({ page }) => {
+/** The slides drawn, and those near the frame's view (where it draws them) not drawn yet. */
+function drawing(page: Page): Promise<{ drawn: number; waiting: number }> {
+  return viewerFrame(page).evaluate(() => {
+    const boxes = [...document.querySelectorAll('.slide')];
+    const near = (box: Element): boolean => {
+      const { top, bottom } = box.getBoundingClientRect();
+      return bottom > -innerHeight && top < 2 * innerHeight;
+    };
+    return {
+      drawn: boxes.filter((box) => box.childElementCount > 0).length,
+      waiting: boxes.filter((box) => box.childElementCount === 0 && near(box)).length,
+    };
+  });
+}
+
+/** Starts noting, in the frame, when each slide is put in its box (the times as `recordTicks`'). */
+async function recordDrawn(page: Page): Promise<void> {
+  await expect(page.getByTestId('file-viewer-frame')).toHaveCount(1);
+  await expect
+    .poll(() => page.frames().some((each) => each.url().endsWith('/static/viewer-frame.html')))
+    .toBe(true);
+  await viewerFrame(page).evaluate(() => {
+    const noted = window as unknown as { fvociDrawn: number[] };
+    noted.fvociDrawn = [];
+    new MutationObserver((records) => {
+      for (const record of records) {
+        const box = record.target;
+        if (
+          box instanceof HTMLElement &&
+          box.classList.contains('slide') &&
+          record.addedNodes.length > 0
+        ) {
+          noted.fvociDrawn.push(performance.timeOrigin + performance.now());
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+}
+
+/** Small slides of many text boxes: many in view, each a while to draw. */
+const boxes = (): Buffer => heavyPptx(40, 120, { cx: 3_048_000, cy: 914_400 });
+
+test('while slides are drawn, the app answers', async ({ page }) => {
   await openCard(page);
-  // Slides of many text boxes, each a while to draw; zoomed out, many are in view at once.
-  const slides = 30;
-  await open(page, 'boxes.pptx', heavyPptx(slides, 120));
+  await recordTicks(page);
+  await open(page, 'boxes.pptx', boxes());
+  await recordDrawn(page);
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
-  await viewer(page).getByRole('button', { name: 'Zoom out' }).click();
-  await viewer(page).getByRole('button', { name: 'Zoom out' }).click();
-  const frame = frameOf(page);
-  const drawn = (): Promise<number> => frame.locator('.slide:has(> *)').count();
-  await expect.poll(drawn).toBeGreaterThan(1);
-  // The slides come one by one, and between them the page's timers keep their time.
-  for (let check = 0; check < 3; check += 1) {
-    expect(await timerLateness(page)).toBeLessThan(500);
-  }
-  expect(await drawn()).toBeLessThan(slides);
+  await expect.poll(async () => (await drawing(page)).waiting).toBe(0);
+  const drawn = await viewerFrame(page).evaluate(
+    () => (window as unknown as { fvociDrawn: number[] }).fvociDrawn,
+  );
+  // Slide after slide was drawn, over long enough that drawing them at one go would hold the page
+  // past the limit below; between the first and the last, the page's timer kept running.
+  const [first = 0, last = 0] = [drawn[0], drawn.at(-1)];
+  expect(drawn.length).toBeGreaterThanOrEqual(5);
+  expect(last - first).toBeGreaterThan(1500);
+  expect(longestGap(await ticks(page), first, last)).toBeLessThan(500);
+});
+
+test('while slides are drawn, "Close" closes the viewer', async ({ page }) => {
+  await openCard(page);
+  await open(page, 'boxes.pptx', boxes());
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  expect((await drawing(page)).waiting).toBeGreaterThan(0);
   await page.getByTestId('file-viewer-close').click();
   await expect(viewer(page)).toHaveCount(0, { timeout: 2000 });
 });

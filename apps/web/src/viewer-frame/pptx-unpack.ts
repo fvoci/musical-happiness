@@ -27,7 +27,13 @@ function packedBytes(bytes: Uint8Array<ArrayBuffer>, entry: ZipEntry): Uint8Arra
 }
 
 async function inflate(packed: Uint8Array<ArrayBuffer>, size: number): Promise<Uint8Array> {
-  const stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  const source = new ReadableStream<BufferSource>({
+    start(controller) {
+      controller.enqueue(packed);
+      controller.close();
+    },
+  });
+  const stream = source.pipeThrough(new DecompressionStream('deflate-raw'));
   const out = new Uint8Array(size);
   let at = 0;
   const reader = stream.getReader();

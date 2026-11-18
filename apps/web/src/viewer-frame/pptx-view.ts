@@ -22,6 +22,11 @@ import { PageFollower, type Drawn, type Report } from './renderer.ts';
 
 /** The room around the slides, in CSS pixels, at each side. */
 const GUTTER = 16;
+/**
+ * The most slides drawn at once, whatever the deck's slide size and the
+ * zoom put in view: the frame's memory is the app's process's.
+ */
+const DRAWN_LIMIT = 16;
 
 /** Draws the slide at `index` (from 0). */
 export type DrawSlide = (index: number, options: SlideRendererOptions) => SlideHandle;
@@ -100,7 +105,9 @@ export class PptxView implements Drawn {
       (entries) => {
         this.#onSight(entries);
       },
-      { rootMargin: '100% 0px' },
+      // The document as the root: the frame's own viewport, whose margin is taken (it is not
+      // when the root is left out, the frame being of another origin than the page).
+      { root: document, rootMargin: '100% 0px' },
     );
     this.#layOut();
     for (const slide of this.#slides) this.#observer.observe(slide.box);
@@ -148,13 +155,26 @@ export class PptxView implements Drawn {
     // The renderer fits text again two frames on: that is part of drawing this slide.
     await nextFrame();
     await nextFrame();
+    // What the renderer set meanwhile (its pictures' recolouring, its refitting) is cleaned too.
+    if (slide.handle === handle) cleanSlide(element, this.#chart);
   }
 
-  /** The slide in view that is not drawn yet, nearest the top of the frame. */
+  /**
+   * The slide to draw next: of those near the view not drawn yet, one in the
+   * frame's view before one only near it, the first first; none while
+   * `DRAWN_LIMIT` slides are drawn.
+   */
   #next(): Slide | undefined {
+    const drawn = this.#slides.filter((slide) => slide.handle).length;
+    if (drawn >= DRAWN_LIMIT) return undefined;
+    const inView = (slide: Slide): number => {
+      const { top, bottom } = slide.box.getBoundingClientRect();
+      return bottom > 0 && top < window.innerHeight ? 0 : 1;
+    };
     return [...this.#visible]
       .filter((slide) => !slide.handle && !slide.failed)
-      .sort((a, b) => a.number - b.number)[0];
+      .map((slide) => ({ slide, rank: inView(slide) }))
+      .sort((a, b) => a.rank - b.rank || a.slide.number - b.slide.number)[0]?.slide;
   }
 
   /** Draws the slides in view one after another, the thread given back between them. */
