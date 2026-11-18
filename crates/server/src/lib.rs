@@ -447,6 +447,7 @@ impl Server {
         {
             tracing::warn!("background notifications did not finish before shutdown");
         }
+        self.app.warn_of_unsent_mail();
         if let Some(server_lock) = self.lock.take() {
             server_lock
                 .close_store_and_release(STORE_CLOSE_TIMEOUT)
