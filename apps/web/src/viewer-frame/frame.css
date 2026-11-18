@@ -95,7 +95,8 @@ body {
 /*
   In place of an HWP page too large to draw (hwp-view.ts): a line that says
   so and a button that saves the file, on the page's white in either theme,
-  near its top (a page is often taller than the frame).
+  near its top (a page is often taller than the frame): a share of the
+  page's height down, a space that gives way first on a short page.
 */
 .page-notice {
   position: absolute;
@@ -104,13 +105,18 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  padding: 12% 6% 6%;
+  padding: 8px 6%;
   overflow: hidden;
   container-type: size;
   color: color-mix(in srgb, black 75%, white);
   font-size: 14px;
   line-height: 1.5;
   text-align: center;
+}
+
+.page-notice::before {
+  content: '';
+  flex: 0 1 8%;
 }
 
 .page-notice p {
@@ -148,7 +154,7 @@ body {
   A page drawn small (a small page after a large first one, zoomed out): the
   line is left to screen readers and the button made small, so that it fits.
 */
-@container (width < 150px) or (height < 120px) {
+@container (width < 150px) or (height < 100px) {
   .page-notice p {
     position: absolute;
     width: 1px;

@@ -28,8 +28,13 @@ const END = new StreamEnd('the deflated stream ends');
 const MAX_BITS = 15;
 /** Codes up to this long are looked up at once; longer ones are read a bit at a time. */
 const FAST_BITS = 9;
-/** How many symbols a code reads by the canonical rule before its lookup table is made. */
-const FAST_AFTER = 16;
+/** For each 9 bits, those bits in the other order. */
+const REVERSED = Uint16Array.from({ length: 1 << FAST_BITS }, (_, bits) => {
+  let reversed = 0;
+  for (let bit = 0; bit < FAST_BITS; bit += 1)
+    reversed |= ((bits >> bit) & 1) << (FAST_BITS - 1 - bit);
+  return reversed;
+});
 
 /** The order in which a block's lengths of the code-length code are written. */
 const LENGTH_CODE_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
@@ -50,17 +55,23 @@ const DISTANCE_EXTRA = [
  * A table of prefix codes, by the canonical rule of deflate, made again in
  * place for each block from the symbols that have a code: a stream of many
  * small blocks allocates nothing for each, and a run of symbols without a
- * code costs nothing. The lookup table is made only once a code has read
- * `FAST_AFTER` symbols; before that, a symbol is read by the canonical rule,
- * which gives the same symbol (so a block of few symbols costs little).
+ * code costs nothing. The lookup table has a place for each `fastBits`
+ * bits (the longest code, up to `FAST_BITS`) and is made only once the code
+ * has read as many symbols as it has places; before that, a symbol is read
+ * by the canonical rule, which gives the same one. Making the table costs
+ * about twice its places (no code of `fastBits` or fewer has more symbols),
+ * so it costs a block no more than the symbols it read first: what a block
+ * costs follows the bits it takes, whatever its shape.
  */
 class Code {
   /** How many codes are this many bits long. */
   readonly counts = new Uint16Array(MAX_BITS + 1);
   /** The symbols, by the length of their code and then by their value. */
   readonly symbols: Uint16Array;
-  /** For each `FAST_BITS` bits (first bit lowest): the symbol and its length, `symbol << 4 | length`; 0 for none. */
+  /** For each `fastBits` bits (first bit lowest): the symbol and its length, `symbol << 4 | length`; 0 for none. */
   readonly fast = new Int32Array(1 << FAST_BITS);
+  /** How many bits `fast` is looked up by: the longest code, up to `FAST_BITS`. */
+  fastBits = 0;
   /** Whether `fast` is made for the code as it is now. */
   hasFast = false;
   /** How many symbols were read by the canonical rule since the code was made. */
@@ -89,11 +100,20 @@ class Code {
       const length = lengths[used[at] ?? 0] ?? 0;
       counts[length] = (counts[length] ?? 0) + 1;
     }
+    return this.place(lengths, base, used, from, to);
+  }
+
+  /** `set`, with `counts` already counted from those lengths. */
+  place(lengths: Uint8Array, base: number, used: Uint16Array, from: number, to: number): boolean {
+    const counts = this.counts;
     let left = 1;
+    let longest = 0;
     for (let length = 1; length <= MAX_BITS; length += 1) {
       left = 2 * left - (counts[length] ?? 0);
       if (left < 0) return false;
+      if (counts[length] !== 0) longest = length;
     }
+    this.fastBits = Math.min(longest, FAST_BITS);
     const offsets = this.#next;
     offsets[1] = 0;
     for (let length = 1; length <= MAX_BITS; length += 1) {
@@ -121,7 +141,8 @@ class Code {
       next[length] = code;
     }
     const fast = this.fast;
-    fast.fill(0);
+    const places = 1 << this.fastBits;
+    fast.fill(0, 0, places);
     for (let at = this.#from; at < this.#to; at += 1) {
       const position = this.#used[at] ?? 0;
       const length = this.#lengths[position] ?? 0;
@@ -129,11 +150,9 @@ class Code {
       next[length] = value + 1;
       if (length > FAST_BITS) continue;
       // The code is read first bit first: the table is indexed by its bits reversed.
-      let reversed = 0;
-      for (let bit = 0; bit < length; bit += 1)
-        reversed |= ((value >> bit) & 1) << (length - 1 - bit);
+      const reversed = (REVERSED[value] ?? 0) >> (FAST_BITS - length);
       const entry = ((position - this.#base) << 4) | length;
-      for (let fill = reversed; fill < fast.length; fill += 1 << length) fast[fill] = entry;
+      for (let fill = reversed; fill < places; fill += 1 << length) fast[fill] = entry;
     }
     this.hasFast = true;
   }
@@ -142,12 +161,12 @@ class Code {
 /** Puts in `used` the symbols that have a code in `lengths`, in order; how many. */
 function usedOf(lengths: Uint8Array, used: Uint16Array): number {
   let count = 0;
-  lengths.forEach((length, symbol) => {
-    if (length !== 0) {
+  for (let symbol = 0; symbol < lengths.length; symbol += 1) {
+    if (lengths[symbol] !== 0) {
       used[count] = symbol;
       count += 1;
     }
-  });
+  }
   return count;
 }
 
@@ -162,6 +181,11 @@ class Bits {
   constructor(data: Uint8Array, from: number) {
     this.#data = data;
     this.#at = from;
+  }
+
+  /** The bit the stream is read at, from the first of the data. */
+  get position(): number {
+    return this.#at * 8 - this.#held;
   }
 
   /** Holds at least `count` bits (up to 24), or as many as are left. */
@@ -205,11 +229,11 @@ class Bits {
   decode(code: Code): number {
     if (!code.hasFast) {
       code.uses += 1;
-      if (code.uses > FAST_AFTER) code.makeFast();
+      if (code.uses > 1 << code.fastBits) code.makeFast();
     }
     if (code.hasFast) {
-      this.#fill(FAST_BITS);
-      const entry = code.fast[this.#buffer & ((1 << FAST_BITS) - 1)] ?? 0;
+      this.#fill(code.fastBits);
+      const entry = code.fast[this.#buffer & ((1 << code.fastBits) - 1)] ?? 0;
       const length = entry & 15;
       if (entry !== 0 && length <= this.#held) {
         this.#buffer >>>= length;
@@ -288,74 +312,105 @@ class Dynamic {
     const lengthCodeUsed = this.#lengthCodeUsed;
     const lengthCodes = usedOf(lengthCodeLengths, lengthCodeUsed);
     if (!lengthCode.set(lengthCodeLengths, 0, lengthCodeUsed, 0, lengthCodes)) throw END;
+    // Only the lengths of the symbols in `used` are read again, so what the block before left is let be.
     const lengths = this.#lengths;
     const used = this.#used;
+    const literals = this.#literals;
+    const distances = this.#distances;
+    literals.counts.fill(0);
+    distances.counts.fill(0);
     const total = literalCount + distanceCount;
-    lengths.fill(0, 0, total);
     let count = 0;
+    let literalCodes = 0;
+    let before = 0;
     for (let index = 0; index < total;) {
       const symbol = bits.decode(lengthCode);
       if (symbol < 16) {
-        lengths[index] = symbol;
         if (symbol !== 0) {
+          lengths[index] = symbol;
           used[count] = index;
           count += 1;
+          if (index < literalCount) {
+            literals.counts[symbol] = (literals.counts[symbol] ?? 0) + 1;
+            literalCodes += 1;
+          } else {
+            distances.counts[symbol] = (distances.counts[symbol] ?? 0) + 1;
+          }
         }
         index += 1;
+        before = symbol;
         continue;
       }
       // A repeat: of the length before (zlib refuses one with none before), or of none.
-      const value = symbol === 16 ? (lengths[index - 1] ?? 0) : 0;
+      const value = symbol === 16 ? before : 0;
       const times =
         symbol === 16 ? 3 + bits.take(2) : symbol === 17 ? 3 + bits.take(3) : 11 + bits.take(7);
       // Past the lengths there are room for, zlib refuses it; here the rest is filled.
       const end = Math.min(total, index + times);
-      for (; value !== 0 && index < end; index += 1) {
-        lengths[index] = value;
-        used[count] = index;
-        count += 1;
+      if (value !== 0) {
+        const ofLiterals = Math.max(0, Math.min(end, literalCount) - index);
+        literals.counts[value] = (literals.counts[value] ?? 0) + ofLiterals;
+        distances.counts[value] = (distances.counts[value] ?? 0) + (end - index - ofLiterals);
+        literalCodes += ofLiterals;
+        for (; index < end; index += 1) {
+          lengths[index] = value;
+          used[count] = index;
+          count += 1;
+        }
       }
       index = end;
+      before = value;
     }
-    let literalCodes = 0;
-    while (literalCodes < count && (used[literalCodes] ?? 0) < literalCount) literalCodes += 1;
-    const literals = this.#literals;
-    const distances = this.#distances;
-    if (!literals.set(lengths, 0, used, 0, literalCodes)) throw END;
-    if (!distances.set(lengths, literalCount, used, literalCodes, count)) throw END;
+    if (!literals.place(lengths, 0, used, 0, literalCodes)) throw END;
+    if (!distances.place(lengths, literalCount, used, literalCodes, count)) throw END;
     return [literals, distances];
   }
 }
 
-/**
- * What the deflated stream that starts at `from` unpacks to, in bytes, read
- * as far as its last block (or as far as it goes); counted as far as past
- * `room`.
- */
-export function deflatedSize(data: Uint8Array, from: number, room: number): number {
-  const bits = new Bits(data, from);
-  let dynamic: Dynamic | undefined;
-  let size = 0;
-  try {
-    for (let last = 0; last === 0 && size <= room;) {
-      last = bits.take(1);
+/** Counts a deflated stream a block at a time. */
+class Counter {
+  readonly #bits: Bits;
+  #dynamic: Dynamic | undefined;
+  /** What the blocks read so far unpack to. */
+  size = 0;
+  /** Whether there is no block more to read: the last was read, the stream ended, or the count passed its room. */
+  done = false;
+
+  constructor(data: Uint8Array, from: number) {
+    this.#bits = new Bits(data, from);
+  }
+
+  /** The bit the next block starts at. */
+  get position(): number {
+    return this.#bits.position;
+  }
+
+  /** Reads the next block, and stops as soon as the count passes `room`. */
+  block(room: number): void {
+    const bits = this.#bits;
+    try {
+      const last = bits.take(1);
       const type = bits.take(2);
-      if (type === 3) break;
+      if (type === 3) {
+        this.done = true;
+        return;
+      }
       if (type === 0) {
         bits.align();
         const length = bits.take(16);
         // Its complement, which zlib checks; whatever it says, the block is read on.
         bits.take(16);
         const copied = bits.skip(length);
-        size += copied;
-        if (copied < length) break;
-        continue;
+        this.size += copied;
+        this.done = last === 1 || copied < length || this.size > room;
+        return;
       }
-      const [literals, distances] = type === 1 ? fixed() : (dynamic ??= new Dynamic()).read(bits);
+      const [literals, distances] =
+        type === 1 ? fixed() : (this.#dynamic ??= new Dynamic()).read(bits);
       for (;;) {
         const symbol = bits.decode(literals);
         if (symbol < 256) {
-          size += 1;
+          this.size += 1;
         } else if (symbol === 256) {
           break;
         } else {
@@ -365,13 +420,58 @@ export function deflatedSize(data: Uint8Array, from: number, room: number): numb
           const distance = bits.decode(distances);
           if (distance >= DISTANCE_EXTRA.length) throw END;
           bits.take(DISTANCE_EXTRA[distance] ?? 0);
-          size += length;
+          this.size += length;
         }
-        if (size > room) return size;
+        if (this.size > room) {
+          this.done = true;
+          return;
+        }
       }
+      this.done = last === 1;
+    } catch (error) {
+      if (error !== END) throw error;
+      this.done = true;
     }
-  } catch (error) {
-    if (error !== END) throw error;
   }
-  return size;
+
+  /** Reads the rest of the blocks, as far as past `room`; what they all unpack to. */
+  rest(room: number): number {
+    while (!this.done) this.block(room);
+    return this.size;
+  }
+}
+
+/**
+ * What the deflated stream that starts at `from` unpacks to, in bytes, read
+ * as far as its last block (or as far as it goes); counted as far as past
+ * `room`.
+ */
+export function deflatedSize(data: Uint8Array, from: number, room: number): number {
+  return new Counter(data, from).rest(room);
+}
+
+/**
+ * The larger of what the streams that start at `first` and at `second`
+ * unpack to (each as `deflatedSize` counts it), counted as far as past
+ * `room`. The two are read a block at a time, the one behind first. What a
+ * block unpacks to depends on its bits alone, so once both are to read a
+ * block at the same bit, they read the same blocks from there on: the rest
+ * is read once, by the one that has unpacked more.
+ */
+export function largerDeflatedSize(
+  data: Uint8Array,
+  first: number,
+  second: number,
+  room: number,
+): number {
+  const one = new Counter(data, first);
+  const other = new Counter(data, second);
+  while (!one.done && !other.done) {
+    if (one.position === other.position) {
+      return (one.size >= other.size ? one : other).rest(room);
+    }
+    (one.position < other.position ? one : other).block(room);
+  }
+  const [ended, going] = one.done ? [one, other] : [other, one];
+  return ended.size > room ? ended.size : Math.max(ended.size, going.rest(room));
 }

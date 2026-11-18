@@ -10,6 +10,7 @@
  * `target/viewer-h1/` (light and dark), at every size the project runs at
  * (the phone at 390 pixels), named by the browser too.
  */
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { deflateRawSync } from 'node:zlib';
 
@@ -374,4 +375,53 @@ test('past the time limit the viewer gives up, and the worker is stopped', async
   await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
   await ended;
   for (const release of held) await release().catch(() => undefined);
+});
+
+test('the notice in place of a page fits in the page, however it is drawn', async ({ page }) => {
+  // The frame's own rules, on page boxes as a page is drawn: on a phone and at half that, a small
+  // page after a large one at half that again, and pages much wider than tall.
+  const css = readFileSync(
+    path.resolve(import.meta.dirname, '../src/viewer-frame/frame.css'),
+    'utf8',
+  );
+  // Each size, and whether the line is shown (or left to screen readers, the page drawn small).
+  const sizes = [
+    [358, 506, true],
+    [179, 253, true],
+    [89, 126, false],
+    [500, 125, true],
+    [1000, 150, true],
+    [300, 100, false],
+  ] as const;
+  const boxes = sizes
+    .map(
+      ([width, height]) =>
+        `<div class="page" style="width:${String(width)}px;height:${String(height)}px"><div class="page-notice"><p>This page is too large to show.</p><button type="button">Download</button></div></div>`,
+    )
+    .join('');
+  await page.setContent(`<style>${css}</style><div class="pages">${boxes}</div>`);
+  const laidOut = await page.locator('.page-notice').evaluateAll((notices) =>
+    notices.map((notice) => {
+      const box = notice.getBoundingClientRect();
+      const inside = (element: Element | null): boolean => {
+        const part = element?.getBoundingClientRect();
+        return (
+          part !== undefined &&
+          part.left >= box.left &&
+          part.right <= box.right &&
+          part.top >= box.top &&
+          part.bottom <= box.bottom
+        );
+      };
+      const line = notice.querySelector('p');
+      return {
+        button: inside(notice.querySelector('button')),
+        // Left to screen readers, it is a pixel wide (and a little more at some pixel ratios).
+        line: (line?.getBoundingClientRect().width ?? 0) > 2 ? inside(line) : 'for screen readers',
+      };
+    }),
+  );
+  expect(laidOut).toEqual(
+    sizes.map(([, , shown]) => ({ button: true, line: shown ? true : 'for screen readers' })),
+  );
 });

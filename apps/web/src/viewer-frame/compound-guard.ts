@@ -30,7 +30,7 @@ import {
 import { HWP_SIGNATURE, UNPACKED_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
 
 import { writeCompound, type CompoundPart } from './compound-writer.ts';
-import { deflatedSize } from './deflated-size.ts';
+import { largerDeflatedSize } from './deflated-size.ts';
 import { LockedFile, TooLargeFile, UnreadableFile } from './renderer.ts';
 
 /** The signature (32 bytes), the version (4) and the properties (4) of `FileHeader`. */
@@ -38,7 +38,8 @@ const HEAD_SIZE = 40;
 /** The property that says the document is locked with a password. */
 const PASSWORD = 1 << 1;
 /** Where the deflated bytes start as rhwp tries them: raw, then after a zlib header. */
-const DEFLATE_STARTS = [0, 2];
+const RAW_START = 0;
+const ZLIB_START = 2;
 
 const ascii = new TextDecoder('ascii');
 
@@ -48,12 +49,8 @@ const ascii = new TextDecoder('ascii');
  * bound on what rhwp unpacks that way, not a sign that rhwp took it.
  */
 function unpackedSize(data: Uint8Array, room: number): number {
-  let most = data.byteLength;
-  for (const start of DEFLATE_STARTS) {
-    if (most > room) break;
-    most = Math.max(most, deflatedSize(data, start, room));
-  }
-  return most;
+  if (data.byteLength > room) return data.byteLength;
+  return Math.max(data.byteLength, largerDeflatedSize(data, RAW_START, ZLIB_START, room));
 }
 
 /**

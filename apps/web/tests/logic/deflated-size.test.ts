@@ -2,7 +2,8 @@ import { constants, deflateRawSync, deflateSync, inflateRawSync, inflateSync } f
 
 import { describe, expect, it } from 'vitest';
 
-import { deflatedSize } from '../../src/viewer-frame/deflated-size.ts';
+import { deflatedSize, largerDeflatedSize } from '../../src/viewer-frame/deflated-size.ts';
+import { BOTH_STARTS_HEAD, SHAPES, blocksOf } from '../support/deflate-blocks.ts';
 
 const SYNC = { finishFlush: constants.Z_SYNC_FLUSH };
 
@@ -145,34 +146,56 @@ describe('what a deflated stream unpacks to, counted without unpacking it', () =
     expect(counted).toBeLessThan((1 << 20) + 300);
   });
 
-  it('reads a stream of many blocks of their own codes that unpack to nothing in a moment', () => {
-    // Each block gives 258 lengths (two literals of 1 bit, one distance) in 91 bits, then ends.
-    // 1.6 million of them (18 MB, under the file limit) took a counter that made its tables
-    // anew for each block 33 s, past the worker's time.
-    const bits: number[] = [];
-    const put = (value: number, count: number): void => {
-      for (let bit = 0; bit < count; bit += 1) bits.push((value >> bit) & 1);
-    };
-    const order = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1];
-    for (let block = 0; block < 8; block += 1) {
-      put(0b100, 3);
-      put(0, 10);
-      put(14, 4);
-      for (const symbol of order) put(symbol === 18 || symbol === 1 ? 1 : 0, 3);
-      // Lengths 1, 0 × 138, 0 × 117, 1 and 1 (symbol 1 is "0", 18 is "1"); then the end ("1").
-      for (const [code, extra] of [[0], [1, 127], [1, 106], [0], [0], [1]] as const) {
-        put(code, 1);
-        if (extra !== undefined) put(extra, 7);
+  it.each(Object.entries(SHAPES))('counts a stream of many blocks of %s', (_, shape) => {
+    const { data, unpacks } = blocksOf(shape, 64 * 1024);
+    expect(deflatedSize(data, 0, Infinity)).toBe(unpacks);
+  });
+
+  it('reads two starts led to the same bit once, and gives the larger of their counts', () => {
+    const plain = Buffer.from(korean.subarray(0, 50_000));
+    const streams = [
+      deflateRawSync(plain),
+      deflateSync(plain),
+      ...Object.values(SHAPES).map((shape) => blocksOf(shape, 20_000).data),
+    ];
+    for (const stream of streams) {
+      for (const data of [stream, Buffer.concat([BOTH_STARTS_HEAD, stream])]) {
+        const larger = Math.max(deflatedSize(data, 0, Infinity), deflatedSize(data, 2, Infinity));
+        expect(largerDeflatedSize(data, 0, 2, Infinity)).toBe(larger);
+        const counted = largerDeflatedSize(data, 0, 2, 100);
+        expect(larger > 100 ? counted > 100 : counted === larger).toBe(true);
       }
     }
-    const eight = Buffer.alloc(Math.ceil(bits.length / 8));
-    bits.forEach((bit, at) => {
-      eight[at >> 3] = (eight[at >> 3] ?? 0) | (bit << (at & 7));
-    });
-    const many = Buffer.concat(Array.from({ length: 200_000 }, () => eight));
-    expect(inflateRawSync(many, SYNC).length).toBe(0);
+  });
+
+  it('costs for each kind of block about what ordinary data costs for the bits it takes', () => {
+    const next = numbers(3);
+    const words = korean.toString().slice(0, 200);
+    const text = deflateRawSync(
+      Buffer.from(
+        Array.from({ length: 300_000 }, () => words.slice(next() * 40, 40 + next() * 60)).join(''),
+      ),
+    );
+    const streams = Object.values(SHAPES).map((shape) => blocksOf(shape, 2 << 20).data);
+    const fastest = Array.from({ length: streams.length + 1 }, () => Infinity);
+    for (let run = 0; run < 3; run += 1) {
+      [text, ...streams].forEach((data, at) => {
+        const started = performance.now();
+        deflatedSize(data, 0, Infinity);
+        const perByte = (performance.now() - started) / data.length;
+        fastest[at] = Math.min(fastest[at] ?? Infinity, perByte);
+      });
+    }
+    const [ofText = 0, ...ofBlocks] = fastest;
+    for (const ofBlock of ofBlocks) expect(ofBlock / ofText).toBeLessThan(20);
+  }, 60_000);
+
+  it('reads 16 MiB of the costliest blocks from both starts in a moment', () => {
+    // 49 MiB of them fit under the file limit; the worker gives the guard and rhwp 30 s in all.
+    const { data } = blocksOf(SHAPES['316 codes of 15 bits'], 16 << 20);
+    const both = Buffer.concat([BOTH_STARTS_HEAD, data]);
     const started = performance.now();
-    expect(deflatedSize(many, 0, Infinity)).toBe(0);
+    expect(largerDeflatedSize(both, 0, 2, Infinity)).toBe(10);
     expect(performance.now() - started).toBeLessThan(10_000);
   }, 60_000);
 });
