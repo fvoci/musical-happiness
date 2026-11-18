@@ -4,7 +4,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::serde_util::{is_zero, null_as_default};
+use crate::serde_util::is_zero;
 
 /// The sharing state of a board.
 ///
@@ -18,21 +18,17 @@ pub struct Sharing {
     #[serde(skip)]
     pub container_id: String,
     /// Whether the board is shared.
-    #[serde(deserialize_with = "null_as_default")]
     pub enabled: bool,
     /// The read token: whoever has it reads the board. The server makes it. Empty, and
     /// left out of the JSON form, while the board is not shared.
-    #[serde(
-        deserialize_with = "null_as_default",
-        skip_serializing_if = "String::is_empty"
-    )]
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub token: String,
     /// The identifier of the user who last changed the sharing state.
     #[serde(skip)]
     pub modified_by: String,
     /// When the state last changed, in milliseconds since the Unix epoch. Zero, and
     /// left out of the JSON form, for a board that was never shared.
-    #[serde(deserialize_with = "null_as_default", skip_serializing_if = "is_zero")]
+    #[serde(skip_serializing_if = "is_zero")]
     pub update_at: i64,
 }
 

@@ -14,7 +14,6 @@ use crate::body::{Body, BodyChange};
 use crate::card_property::{CardPropertyError, PersonProperties, validate_block_properties};
 use crate::page::{PAGE_ICON_FIELD, PAGE_ORDER_FIELD, is_order_value};
 use crate::relation::RelationError;
-use crate::serde_util::null_as_default;
 
 /// Maximum number of characters in a block title.
 ///
@@ -189,20 +188,21 @@ impl From<BlockType> for String {
     }
 }
 
-/// Error returned when a string names no block type the server recognizes.
+/// Error returned when a string names no block type the server recognizes. It does not
+/// say the string: that is whatever a client wrote.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("{0} is an invalid block type.")]
-pub struct ParseBlockTypeError(String);
+#[error("the text names no block type")]
+pub struct ParseBlockTypeError(());
 
 impl FromStr for BlockType {
     type Err = ParseBlockTypeError;
 
-    /// Parses one of the known block types, ignoring ASCII case.
+    /// Parses one of the known block types, written exactly as [`BlockType::as_str`]
+    /// writes it: `Card` is no type.
     ///
     /// Unlike the `From<&str>` conversion, which keeps unknown strings, this rejects them.
-    /// It is the strict form used for the `type` query parameter.
     fn from_str(name: &str) -> Result<Self, Self::Err> {
-        Self::known(&name.to_lowercase()).ok_or_else(|| ParseBlockTypeError(name.to_owned()))
+        Self::known(name).ok_or(ParseBlockTypeError(()))
     }
 }
 
@@ -210,7 +210,7 @@ impl FromStr for BlockType {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BlockError {
     /// The block names no board.
-    #[error("boardID is empty")]
+    #[error("the block names no board")]
     EmptyContainerId,
     /// The block's parent is not a block of the block's board.
     #[error("the parent is not a block of the board")]
@@ -367,37 +367,29 @@ impl BlockError {
 #[serde(default, rename_all = "camelCase")]
 pub struct Block {
     /// The block's identifier.
-    #[serde(deserialize_with = "null_as_default")]
     pub id: String,
     /// The identifier of the parent block; empty for root blocks.
-    #[serde(deserialize_with = "null_as_default")]
     pub parent_id: String,
     /// The identifier of the user who created the block.
-    #[serde(deserialize_with = "null_as_default")]
     pub created_by: String,
     /// The identifier of the user who last modified the block.
-    #[serde(deserialize_with = "null_as_default")]
     pub modified_by: String,
     /// The schema version of the block.
-    #[serde(deserialize_with = "null_as_default")]
     pub schema: i64,
     /// The block type: `card`, `view`, `comment` or `attachment` on a board, and `page`
     /// and `comment` (on a page) on a wiki. No request of blocks makes a block of
     /// another type or patches one into it (400 naming `type`), nor a page:
     /// `createPage` makes those, and `createPageComment` the comments of a wiki.
     #[serde(rename = "type")]
-    #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = String)]
     pub block_type: BlockType,
     /// The display title. A title with U+0000 is refused (400 naming `title`).
-    #[serde(deserialize_with = "null_as_default")]
     pub title: String,
     /// Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
     /// comment, an attachment or a page and 800,000 for a view or a block of another
     /// type. The `icon` of a card is a string and its `isTemplate` a boolean, or either
     /// `null` (400 naming `fields` otherwise). A page has its `icon` and its `order`
     /// here, as `Page` gives them.
-    #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub fields: JsonMap,
     /// The body of a card, a comment or a page; `null` for a block without one. Only
@@ -407,16 +399,12 @@ pub struct Block {
     /// would have refused.
     pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
-    #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    #[serde(deserialize_with = "null_as_default")]
     pub update_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
-    #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
     /// The identifier of the board the block belongs to.
-    #[serde(deserialize_with = "null_as_default")]
     pub container_id: String,
     /// For a comment whose body was changed: when that last happened, in milliseconds
     /// since the Unix epoch. Absent for a comment never changed and for every other
@@ -596,11 +584,9 @@ pub struct BlockPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// Fields to set, replacing any existing value under the same key.
-    #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub updated_fields: JsonMap,
     /// Keys of fields to remove.
-    #[serde(deserialize_with = "null_as_default")]
     pub deleted_fields: Vec<String>,
     /// The new body of a card or a comment; `null` takes the body away. Sent only with
     /// `readAt` (400 naming `readAt` without it).
@@ -702,10 +688,8 @@ impl BlockPatch {
 #[serde(default, rename_all = "camelCase")]
 pub struct BlockPatchBatch {
     /// The identifiers of the blocks to patch.
-    #[serde(deserialize_with = "null_as_default")]
     pub block_ids: Vec<String>,
     /// The patches, one per identifier.
-    #[serde(deserialize_with = "null_as_default")]
     pub block_patches: Vec<BlockPatch>,
 }
 

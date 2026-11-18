@@ -39,8 +39,8 @@ pub(crate) fn merged(base: &Value, changes: Value) -> Value {
     result
 }
 
-/// A block as a client sends it. An empty `parent` means the board itself; `fields` is
-/// the block's `fields` object.
+/// A block as a client sends it. An empty `parent` puts it directly on the board; `fields`
+/// is the block's `fields` object.
 pub(crate) fn block(
     id: &str,
     board: &str,
@@ -52,7 +52,7 @@ pub(crate) fn block(
     let mut block = json!({
         "id": id,
         "containerId": board,
-        "parentId": if parent.is_empty() { board } else { parent },
+        "parentId": parent,
         "type": block_type,
         "title": title,
         "schema": 1,

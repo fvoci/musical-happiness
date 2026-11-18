@@ -56,7 +56,6 @@ crates/server/tests/regression/golden/search.json | /teams/
 # ports, and the original's spelling of a member, which tests send as one the port
 # does not know.
 crates/server/tests/api/sidebar.rs | "teamID"
-crates/model/tests/wire_format.rs | "teamID"
 crates/server/src/ws/tests.rs | `TestTeamSubscription
 crates/server/src/ws/tests.rs | "Should correctly subscribe to a team"
 crates/server/src/ws/tests.rs | "Should correctly unsubscribe to a team"

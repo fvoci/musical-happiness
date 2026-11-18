@@ -173,35 +173,35 @@ fn card_validate_reports_the_first_problem() {
                 id: String::new(),
                 ..valid.clone()
             },
-            "ID is missing",
+            "the card has no identifier",
         ),
         (
             Card {
                 board_id: String::new(),
                 ..valid.clone()
             },
-            "BoardID is missing",
+            "the card is on no board",
         ),
         (
             Card {
                 icon: "🎨🎨".to_owned(),
                 ..valid.clone()
             },
-            "Icon can have only one grapheme",
+            "an icon is at most one grapheme",
         ),
         (
             Card {
                 create_at: 0,
                 ..valid.clone()
             },
-            "CreateAt",
+            "the card has no createAt",
         ),
         (
             Card {
                 update_at: 0,
                 ..valid
             },
-            "UpdateAt",
+            "the card has no updateAt",
         ),
     ];
     for (card, message) in cases {
@@ -334,7 +334,7 @@ fn card_patch_rejects_an_icon_of_two_graphemes() {
         icon: Some("ab".to_owned()),
         ..CardPatch::default()
     };
-    let want = Err(CardError::Invalid("Icon can have only one grapheme"));
+    let want = Err(CardError::Invalid("an icon is at most one grapheme"));
     assert_eq!(patch.validate(), want);
     assert_eq!(patch.to_block_patch().map(|_| ()), want);
 }

@@ -42,7 +42,7 @@
     "request": "(observation)",
     "status": 0,
     "body": [
-      "8.0.0",
+      "<version>",
       "personal_server",
       "<db>"
     ]

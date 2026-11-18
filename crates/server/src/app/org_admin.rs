@@ -29,24 +29,23 @@ pub const MAX_PER_PAGE: u32 = 200;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PageAsked {
     /// The page, counted from 0.
-    pub page: i64,
-    /// How many a page has; zero or less is [`DEFAULT_PER_PAGE`], more than
-    /// [`MAX_PER_PAGE`] is that many.
-    pub per_page: i64,
+    pub page: u32,
+    /// How many a page has; 0 is [`DEFAULT_PER_PAGE`], more than [`MAX_PER_PAGE`] is
+    /// that many.
+    pub per_page: u32,
 }
 
 impl PageAsked {
-    /// The page as the store reads it; `None` for a page before the first.
-    pub(super) fn paging(self) -> Option<Paging> {
-        let page = u32::try_from(self.page).ok()?;
-        let per_page = if self.per_page <= 0 {
-            DEFAULT_PER_PAGE
-        } else {
-            u32::try_from(self.per_page)
-                .unwrap_or(MAX_PER_PAGE)
-                .min(MAX_PER_PAGE)
+    /// The page as the store reads it.
+    pub(super) fn paging(self) -> Paging {
+        let per_page = match self.per_page {
+            0 => DEFAULT_PER_PAGE,
+            asked => asked.min(MAX_PER_PAGE),
         };
-        Some(Paging { page, per_page })
+        Paging {
+            page: self.page,
+            per_page,
+        }
     }
 }
 
@@ -148,9 +147,7 @@ impl App {
     ///
     /// Returns the store's error if they cannot be read.
     pub async fn org_members(&self, asked: PageAsked) -> Result<Vec<OrgMember>, AppError> {
-        let Some(paging) = asked.paging() else {
-            return Ok(Vec::new());
-        };
+        let paging = asked.paging();
         Ok(self.store().org_members(paging).await?)
     }
 
@@ -396,9 +393,7 @@ impl App {
     ///
     /// Returns the store's error if they cannot be read.
     pub async fn org_audit(&self, asked: PageAsked) -> Result<Vec<AuditRecord>, AppError> {
-        let Some(paging) = asked.paging() else {
-            return Ok(Vec::new());
-        };
+        let paging = asked.paging();
         Ok(self
             .store()
             .audit_records(AuditPlace::Organization, paging)
@@ -418,9 +413,7 @@ impl App {
         workspace_id: &str,
         asked: PageAsked,
     ) -> Result<Vec<AuditRecord>, AppError> {
-        let Some(paging) = asked.paging() else {
-            return Ok(Vec::new());
-        };
+        let paging = asked.paging();
         let mut records = self
             .store()
             .audit_records(AuditPlace::Workspace(workspace_id), paging)

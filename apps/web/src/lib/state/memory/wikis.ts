@@ -252,7 +252,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     // The title and the icon first, as the server checks them.
     const title = checkedTitle(draft.title ?? '');
     const icon = checkedIcon(draft.icon ?? '');
-    const parentId = draft.parentId === wikiId ? '' : (draft.parentId ?? '');
+    const parentId = draft.parentId ?? '';
     if (parentId !== '') {
       const parent = this.#world.blocks.get(parentId);
       if (parent?.type !== 'page' || parent.containerId !== wikiId) {
@@ -289,7 +289,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     await this.#enter('movePage');
     this.#mayWrite(wikiId);
     const page = this.#page(wikiId, pageId);
-    const parentId = to.parentId === wikiId ? '' : (to.parentId ?? '');
+    const parentId = to.parentId ?? '';
     const tree = this.#tree(wikiId);
     tree.checkMove(pageId, parentId, this.limits);
     // Where it is already: nothing is written, and nobody is told.

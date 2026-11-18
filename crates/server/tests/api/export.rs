@@ -93,7 +93,7 @@ async fn board_with_card(ts: &TestServer, workspace_id: &str) -> Container {
     let board = ts.create_board(workspace_id, ContainerType::Open).await;
     let card = Block {
         id: new_id(),
-        parent_id: board.id.clone(),
+        parent_id: String::new(),
         container_id: board.id.clone(),
         block_type: BlockType::Card,
         title: "a card for export".to_owned(),
@@ -423,7 +423,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
         fvoci_model::Block {
             id: fvoci_model::new_id(),
             container_id: board.id.clone(),
-            parent_id: board.id.clone(),
+            parent_id: String::new(),
             block_type: fvoci_model::BlockType::Attachment,
             fields,
             create_at: 1,
@@ -572,7 +572,7 @@ async fn an_archive_carries_the_files_of_bodies(kind: &str) {
         .check_status(reqwest::StatusCode::CREATED);
     let without_file = Block {
         id: new_id(),
-        parent_id: board.id.clone(),
+        parent_id: String::new(),
         container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         create_at: 1,
@@ -755,9 +755,9 @@ async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
     );
     let before = boards_of(&ts).await.len();
     for blocks in [
-        block("c1", "b1", "comment"),
+        block("c1", "", "comment"),
         [
-            block("k1", "b1", "card"),
+            block("k1", "", "card"),
             block("c1", "k1", "comment"),
             block("c2", "c1", "comment"),
         ]
@@ -835,7 +835,7 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
         Block {
             id: new_id(),
             container_id: board.id.clone(),
-            parent_id: board.id.clone(),
+            parent_id: String::new(),
             block_type: BlockType::Attachment,
             fields,
             create_at: 1,
@@ -998,7 +998,7 @@ async fn a_large_file_is_whole_in_the_archive() {
     let file_id = crate::files::uploaded_id(&response);
     let attachment = Block {
         id: new_id(),
-        parent_id: board.id.clone(),
+        parent_id: String::new(),
         container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         fields: serde_json::json!({"fileId": file_id})
@@ -1090,7 +1090,7 @@ async fn board_with_large_archive(ts: &TestServer) -> Container {
         response.check_created();
         attachments.push(Block {
             id: new_id(),
-            parent_id: board.id.clone(),
+            parent_id: String::new(),
             container_id: board.id.clone(),
             block_type: BlockType::Attachment,
             fields: serde_json::json!({"fileId": crate::files::uploaded_id(&response)})

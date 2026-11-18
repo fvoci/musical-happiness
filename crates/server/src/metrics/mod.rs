@@ -94,8 +94,7 @@ impl Metrics {
         )?;
         build_info
             .with_label_values(&[
-                // The version of this build, which `--version` prints too, and not the
-                // one `ping` reports for the original's web app (`SERVER_VERSION`).
+                // The version of this build, which `--version` and `ping` give too.
                 env!("CARGO_PKG_VERSION"),
                 option_env!("FVOCI_BUILD_HASH").unwrap_or_default(),
             ])

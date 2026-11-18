@@ -29,38 +29,23 @@ impl From<CardPreviews> for Previews {
     }
 }
 
-/// Which cards of a board a `page` and `per_page` pair asks for.
+/// One page of a list as a request asks for it by its `page` and `perPage`: the page,
+/// counted from 0, of pages of `per_page` items, and every item at once for a `per_page`
+/// of 0, whatever the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum CardRange {
-    /// Every card.
-    All,
-    /// One page of the cards.
-    Page(Paging),
-    /// A page before the first one or beyond any card there can be.
-    Nothing,
+pub struct ListPage {
+    /// The page, counted from 0.
+    pub page: u32,
+    /// How many items a page has; 0 for all of them.
+    pub per_page: u32,
 }
 
-impl CardRange {
-    /// Reads the paging parameters the way the original's query does
-    /// (server/services/store/sqlstore/blocks.go:73-79): a page size of zero or less
-    /// does not limit, and a page before the first one finds nothing.
-    ///
-    /// Where the original's query fails, this does not: a page other than the first
-    /// with a page size of zero or less is every card (the original's SQLite refuses an
-    /// offset without a limit), and an offset beyond the range of the database's
-    /// integers finds nothing (the original's arithmetic wraps around).
-    pub(super) fn new(page: i64, per_page: i64) -> Self {
-        if per_page <= 0 {
-            return Self::All;
-        }
-        let (Ok(page_number), Some(_offset)) = (u32::try_from(page), page.checked_mul(per_page))
-        else {
-            return Self::Nothing;
-        };
-        Self::Page(Paging {
-            page: page_number,
-            // More cards per page than the store can count are every card of the page.
-            per_page: u32::try_from(per_page).unwrap_or(u32::MAX),
+impl ListPage {
+    /// The page as the store reads it: `None` for every item.
+    pub(super) fn paging(self) -> Option<Paging> {
+        (self.per_page > 0).then_some(Paging {
+            page: self.page,
+            per_page: self.per_page,
         })
     }
 }
@@ -105,9 +90,8 @@ impl App {
         Ok(Card::from_block(&block, now)?)
     }
 
-    /// Returns cards of a board, in no particular order: page number `page`, counted
-    /// from zero, of pages of `per_page` cards. A `per_page` of zero or less asks for
-    /// all cards, whatever the page. With [`CardPreviews::With`] each card has its preview.
+    /// Returns one page of the cards of a board ([`ListPage`]), in no particular order.
+    /// With [`CardPreviews::With`] each card has its preview.
     ///
     /// # Errors
     ///
@@ -116,16 +100,11 @@ impl App {
     pub async fn cards_for_board(
         &self,
         board_id: &str,
-        page: i64,
-        per_page: i64,
+        page: ListPage,
         previews: CardPreviews,
     ) -> Result<Vec<Card>, AppError> {
         let mut filter = BlockFilter::container(board_id).with_type(BlockType::Card);
-        match CardRange::new(page, per_page) {
-            CardRange::All => {}
-            CardRange::Page(paging) => filter.paging = Some(paging),
-            CardRange::Nothing => return Ok(Vec::new()),
-        }
+        filter.paging = page.paging();
         let blocks = self
             .store()
             .get_listed_blocks(&filter, previews.into())
@@ -246,10 +225,6 @@ mod tests {
 
     use super::*;
 
-    fn page(page: u32, per_page: u32) -> CardRange {
-        CardRange::Page(Paging { page, per_page })
-    }
-
     /// The API and the store refuse to write such a block, so this is the one place
     /// that can still show what reading one does.
     #[test]
@@ -328,26 +303,26 @@ mod tests {
     }
 
     #[test]
-    fn card_range_reads_paging_like_the_original() {
-        let cases = [
-            ((0, 100), page(0, 100)),
-            ((2, 10), page(2, 10)),
-            ((0, 0), CardRange::All),
-            ((0, -1), CardRange::All),
-            ((3, 0), CardRange::All),
-            ((-1, -1), CardRange::All),
-            ((-1, 10), CardRange::Nothing),
-            ((i64::from(u32::MAX) + 1, 1), CardRange::Nothing),
-            ((i64::from(u32::MAX), i64::MAX), CardRange::Nothing),
-            ((0, i64::MAX), page(0, u32::MAX)),
-            ((1, i64::MAX), page(1, u32::MAX)),
-        ];
-        for ((page, per_page), expected) in cases {
-            assert_eq!(
-                CardRange::new(page, per_page),
-                expected,
-                "page {page}, per_page {per_page}"
-            );
-        }
+    fn a_page_of_no_size_is_every_item_and_any_other_is_one_page() {
+        let all = ListPage {
+            page: 3,
+            per_page: 0,
+        };
+        assert_eq!(
+            all.paging(),
+            None,
+            "0 per page is every item, whatever the page"
+        );
+        let one = ListPage {
+            page: 2,
+            per_page: 10,
+        };
+        assert_eq!(
+            one.paging(),
+            Some(Paging {
+                page: 2,
+                per_page: 10
+            })
+        );
     }
 }

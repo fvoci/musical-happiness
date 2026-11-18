@@ -172,8 +172,7 @@ pub(super) async fn asked_blocks(
         ])
     } else {
         let parent_id = optional_query_param(query, "parentId");
-        // The type is matched as it is written: one that no block has finds nothing. The
-        // word `unknown` is the exception, and narrows nothing.
+        // The type is matched as it is written: one that no block has finds nothing.
         let block_type = optional_query_param(query, "type").map(BlockType::from);
         app.blocks(container_id, parent_id.as_deref(), block_type.as_ref())
             .await
@@ -300,45 +299,20 @@ async fn handle_post_blocks(
     let mut has_comments = false;
     let mut has_contents = false;
     for (index, block) in blocks.iter().enumerate() {
-        let id = &block.id;
-        let place = place(index);
-        if block.block_type.is_empty() {
-            return Err(
-                AppError::bad_request(format_args!("missing type for block id {id}"))
-                    .with_field("type")
-                    .under(&place),
-            );
-        }
-        if !block.block_type.is_current() {
-            return Err(
-                AppError::from(BlockError::type_not_current(&block.block_type)).under(&place),
-            );
+        let on_board = |container_id: &str| container_id == board_id;
+        if let Some((member, problem)) = new_block_problem(
+            block,
+            on_board,
+            "the block is on another board than the path",
+        ) {
+            return Err(AppError::bad_request(problem)
+                .with_field(member)
+                .under(&place(index)));
         }
         if block.block_type == BlockType::Comment {
             has_comments = true;
         } else {
             has_contents = true;
-        }
-        if block.create_at < 1 {
-            return Err(
-                AppError::bad_request(format_args!("invalid createAt for block id {id}"))
-                    .with_field("createAt")
-                    .under(&place),
-            );
-        }
-        if block.update_at < 1 {
-            return Err(
-                AppError::bad_request(format_args!("invalid updateAt for block id {id}"))
-                    .with_field("updateAt")
-                    .under(&place),
-            );
-        }
-        if block.container_id != board_id {
-            return Err(AppError::bad_request(format_args!(
-                "invalid containerId for block id {id}"
-            ))
-            .with_field("containerId")
-            .under(&place));
         }
     }
     if has_contents {
@@ -375,6 +349,34 @@ async fn handle_post_blocks(
         .map_err(|error| error.among_blocks(ids.iter().map(String::as_str), ""))?;
     tracing::debug!(block_count = blocks.len(), "POST Blocks");
     Ok(created(&blocks))
+}
+
+/// What is wrong with a block that a request makes, if anything, in the order the
+/// checks go: its board (`on_board` says whether the request makes blocks on the board
+/// it names, and `elsewhere` is the words for one it does not), its type, and its times.
+/// The member that is wrong, and the words, which do not repeat what the request says:
+/// the answer points at the block.
+pub(super) fn new_block_problem(
+    block: &Block,
+    on_board: impl Fn(&str) -> bool,
+    elsewhere: &'static str,
+) -> Option<(&'static str, String)> {
+    if !on_board(&block.container_id) {
+        Some(("containerId", elsewhere.to_owned()))
+    } else if block.block_type.is_empty() {
+        Some(("type", "the block has no type".to_owned()))
+    } else if !block.block_type.is_current() {
+        Some((
+            "type",
+            BlockError::type_not_current(&block.block_type).to_string(),
+        ))
+    } else if block.create_at < 1 {
+        Some(("createAt", "a new block's createAt is 1 or more".to_owned()))
+    } else if block.update_at < 1 {
+        Some(("updateAt", "a new block's updateAt is 1 or more".to_owned()))
+    } else {
+        None
+    }
 }
 
 /// Gives the blocks of a request to a board new identifiers ([`renew_block_ids`]): a

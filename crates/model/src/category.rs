@@ -5,7 +5,6 @@ use thiserror::Error;
 
 use crate::id::new_id;
 use crate::refusal::{RefusalReason, Refusals};
-use crate::serde_util::null_as_default;
 
 /// The spacing between the sort orders of consecutive boards in a category.
 pub const CATEGORY_CONTAINERS_SORT_ORDER_GAP: i64 = 10;
@@ -54,31 +53,22 @@ impl CategoryError {
 #[serde(default, rename_all = "camelCase")]
 pub struct Category {
     /// The category's identifier.
-    #[serde(deserialize_with = "null_as_default")]
     pub id: String,
     /// The display name.
-    #[serde(deserialize_with = "null_as_default")]
     pub name: String,
     /// The identifier of the user the category belongs to.
-    #[serde(deserialize_with = "null_as_default")]
     pub user_id: String,
     /// The identifier of the workspace the category belongs to.
-    #[serde(deserialize_with = "null_as_default")]
     pub workspace_id: String,
     /// Creation time in milliseconds since the Unix epoch.
-    #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    #[serde(deserialize_with = "null_as_default")]
     pub update_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
-    #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
     /// Whether the category is collapsed in the sidebar.
-    #[serde(deserialize_with = "null_as_default")]
     pub collapsed: bool,
     /// The position of the category among the user's categories.
-    #[serde(deserialize_with = "null_as_default")]
     pub sort_order: i64,
     /// The sorting method applied to the boards in the category. Nothing stores one;
     /// not part of the JSON form.
@@ -86,7 +76,6 @@ pub struct Category {
     pub sorting: String,
     /// Whether this is a system or a custom category.
     #[serde(rename = "type")]
-    #[serde(deserialize_with = "null_as_default")]
     pub category_type: CategoryType,
 }
 
@@ -141,10 +130,8 @@ impl Category {
 #[serde(default, rename_all = "camelCase")]
 pub struct CategoryContainerMetadata {
     /// The identifier of the board.
-    #[serde(deserialize_with = "null_as_default")]
     pub container_id: String,
     /// Whether the user has hidden the board from the sidebar.
-    #[serde(deserialize_with = "null_as_default")]
     pub hidden: bool,
 }
 
@@ -156,7 +143,6 @@ pub struct CategoryContainers {
     #[serde(flatten)]
     pub category: Category,
     /// The boards in the category.
-    #[serde(deserialize_with = "null_as_default")]
     pub container_metadata: Vec<CategoryContainerMetadata>,
 }
 

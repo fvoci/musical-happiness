@@ -1,4 +1,4 @@
-//! Pins the JSON form of the wire types, and the leniency of decoding.
+//! Pins the JSON form of the wire types, and what decoding takes and refuses.
 
 use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Category, CategoryContainerMetadata,
@@ -53,8 +53,8 @@ fn block_json_members() {
 }
 
 #[test]
-fn block_decodes_missing_and_null_members_as_empty() {
-    let block: Block = serde_json::from_str(r#"{"id":"a1","fields":null}"#).expect("decodes");
+fn block_decodes_missing_members_as_empty_and_refuses_null_ones() {
+    let block: Block = serde_json::from_str(r#"{"id":"a1"}"#).expect("decodes");
     assert_eq!(
         block,
         Block {
@@ -66,6 +66,11 @@ fn block_decodes_missing_and_null_members_as_empty() {
         block.block_type.is_empty(),
         "a missing type is the empty type"
     );
+    serde_json::from_str::<Block>(r#"{"id":"a1","fields":null}"#)
+        .expect_err("fields is no member that may be null");
+    let block: Block =
+        serde_json::from_str(r#"{"id":"a1","body":null}"#).expect("body may be null");
+    assert_eq!(block.body, None, "a null body is none");
 }
 
 #[test]
@@ -77,7 +82,10 @@ fn block_type_keeps_unknown_strings_and_parses_strictly() {
             "{name} is a known type"
         );
         assert_eq!(block_type.as_str(), name);
-        assert_eq!(name.to_uppercase().parse::<BlockType>(), Ok(block_type));
+        assert_eq!(name.parse::<BlockType>(), Ok(block_type));
+        name.to_uppercase()
+            .parse::<BlockType>()
+            .expect_err("a type is parsed as it is written, case and all");
     }
 
     // Decoding is exact: a different case is some other type, kept as sent.
@@ -98,7 +106,11 @@ fn block_type_keeps_unknown_strings_and_parses_strictly() {
     let error = "h1"
         .parse::<BlockType>()
         .expect_err("h1 is not a server-side type");
-    assert_eq!(error.to_string(), "h1 is an invalid block type.");
+    assert_eq!(
+        error.to_string(),
+        "the text names no block type",
+        "the text is not echoed"
+    );
 }
 
 #[test]
@@ -115,13 +127,16 @@ fn block_patch_json_members() {
     assert_eq!(patch.updated_fields["a"], json!(1));
     assert_eq!(patch.deleted_fields, ["b"]);
 
-    // The original's own client sends null for everything it did not set.
+    // A member that may be null is none when it is; the lists may only be left out.
     let nulls: BlockPatch = serde_json::from_value(json!({
         "parentId": null, "schema": null, "type": null, "title": null,
-        "updatedFields": null, "deletedFields": null
     }))
     .expect("decodes");
     assert_eq!(nulls, BlockPatch::default());
+    for list in ["updatedFields", "deletedFields"] {
+        serde_json::from_value::<BlockPatch>(json!({ list: null }))
+            .expect_err("a null list is refused");
+    }
     assert_eq!(
         to_json(&BlockPatch::default()),
         json!({ "updatedFields": {}, "deletedFields": [] })
@@ -202,13 +217,8 @@ fn container_requires_a_valid_type_and_role() {
     // A board always has a minimum role. One that names none starts with editor.
     assert_eq!(minimal.minimum_role, MinimumRole::Editor);
     assert_eq!(to_json(&minimal)["minimumRole"], json!("editor"));
-    let null_role: Container =
-        serde_json::from_value(json!({ "type": "O", "minimumRole": null })).expect("decodes");
-    assert_eq!(
-        null_role.minimum_role,
-        MinimumRole::Editor,
-        "null is absent"
-    );
+    serde_json::from_value::<Container>(json!({ "type": "O", "minimumRole": null }))
+        .expect_err("a null minimum role is refused: it may only be left out");
     for role in MinimumRole::ALL {
         let board: Container =
             serde_json::from_value(json!({ "type": "O", "minimumRole": role.as_str() }))
@@ -672,13 +682,16 @@ fn config_error_and_request_json_members() {
     );
 
     let preferences: UserPreferencesPatch =
-        serde_json::from_value(json!({ "updatedFields": { "a": "b" }, "deletedFields": null }))
-            .expect("decodes");
+        serde_json::from_value(json!({ "updatedFields": { "a": "b" } })).expect("decodes");
     assert_eq!(preferences.updated_fields["a"], "b");
     assert!(
         preferences.deleted_fields.is_empty(),
-        "null decodes as empty"
+        "a list left out is empty"
     );
+    serde_json::from_value::<UserPreferencesPatch>(
+        json!({ "updatedFields": {}, "deletedFields": null }),
+    )
+    .expect_err("a null list is refused");
 }
 
 #[test]
@@ -723,68 +736,85 @@ fn subscription_validate() {
     }
 }
 
-/// The original's decoder leaves a member at its zero value when the JSON says `null`,
-/// and clients rely on it (a block with `"title": null` is accepted). Verified on the
-/// original: `POST /boards/{id}/blocks` with `{"title": null, "parentId": null, ...}`
-/// answers 200.
+/// `null` is a value only for a member that may be `null` (an `Option`, `null` in the
+/// contract's schema), and is then none. For every other member it is refused, as any
+/// value of the wrong type is: a member that may be left out is left out instead.
 #[test]
-fn null_members_decode_as_empty_values() {
-    let block: Block = serde_json::from_value(json!({
-        "id": null, "parentId": null, "createdBy": null, "modifiedBy": null, "schema": null,
-        "type": "card", "title": null, "fields": null, "createAt": null, "updateAt": null,
-        "deleteAt": null, "containerId": null,
-    }))
-    .expect("a block with null members decodes");
-    assert_eq!(
-        block,
-        Block {
-            block_type: BlockType::Card,
-            ..Block::default()
-        },
-        "every null member is the empty value"
+fn null_is_refused_for_members_that_are_not_nullable() {
+    /// `base` decodes; each of its members is refused when it is null, and may be left
+    /// out unless it is one of `required`.
+    fn refuses<T: serde::de::DeserializeOwned>(base: &Value, required: &[&str], what: &str) {
+        assert!(
+            serde_json::from_value::<T>(base.clone()).is_ok(),
+            "{what} decodes"
+        );
+        let members = base.as_object().expect("an object");
+        for member in members.keys() {
+            let mut nulled = base.clone();
+            nulled[member.as_str()] = Value::Null;
+            assert!(
+                serde_json::from_value::<T>(nulled).is_err(),
+                "{what}: a null {member} is refused"
+            );
+            if required.contains(&member.as_str()) {
+                continue;
+            }
+            let mut left_out = base.clone();
+            left_out
+                .as_object_mut()
+                .expect("an object")
+                .remove(member.as_str());
+            assert!(
+                serde_json::from_value::<T>(left_out).is_ok(),
+                "{what}: {member} may be left out"
+            );
+        }
+    }
+
+    refuses::<Block>(
+        &json!({
+            "id": "a1", "parentId": "", "createdBy": "u1", "modifiedBy": "u1", "schema": 1,
+            "type": "card", "title": "t", "fields": {}, "createAt": 1, "updateAt": 1,
+            "deleteAt": 0, "containerId": "b1",
+        }),
+        &[],
+        "a block",
+    );
+    refuses::<Container>(
+        &json!({
+            "id": "b1", "workspaceId": "w1", "createdBy": "u1", "modifiedBy": "u1",
+            "type": "P", "minimumRole": "editor", "title": "t", "description": "", "icon": "",
+            "showDescription": false, "isTemplate": false, "templateVersion": 0,
+            "properties": {}, "cardProperties": [], "createAt": 1, "updateAt": 1,
+            "deleteAt": 0,
+        }),
+        &["type"],
+        "a board",
+    );
+    refuses::<ContainerMember>(
+        &json!({
+            "containerId": "b1", "userId": "u1", "schemeAdmin": false, "schemeEditor": false, "schemeCommenter": false,
+            "schemeViewer": false,
+        }),
+        &[],
+        "a member",
+    );
+    refuses::<Category>(
+        &json!({
+            "id": "c1", "name": "n", "userId": "u1", "workspaceId": "w1", "createAt": 1,
+            "updateAt": 1, "deleteAt": 0, "collapsed": false, "sortOrder": 0,
+        }),
+        &[],
+        "a category",
+    );
+    refuses::<LoginRequest>(
+        &json!({ "username": "u", "password": "p" }),
+        &[],
+        "a login request",
     );
 
-    let board: Container = serde_json::from_value(json!({
-        "id": null, "workspaceId": null, "channelId": null, "createdBy": null, "modifiedBy": null,
-        "type": "P", "minimumRole": null, "title": null, "description": null, "icon": null,
-        "showDescription": null, "isTemplate": null, "templateVersion": null, "properties": null,
-        "cardProperties": null, "createAt": null, "updateAt": null, "deleteAt": null,
-    }))
-    .expect("a board with null members decodes");
-    assert_eq!(
-        board,
-        Container {
-            container_type: ContainerType::Private,
-            ..Container::default()
-        },
-        "every null member is the empty value"
-    );
-
-    let member: ContainerMember = serde_json::from_value(json!({
-        "containerId": null, "userId": null, "roles": null, "minimumRole": null,
-        "schemeAdmin": null, "schemeEditor": null, "schemeCommenter": null, "schemeViewer": null,
-    }))
-    .expect("a member with null members decodes");
-    assert_eq!(
-        member,
-        ContainerMember::default(),
-        "every null member is the empty value"
-    );
-
-    let login: LoginRequest = serde_json::from_value(json!({
-        "type": null, "username": null, "email": null, "password": null, "mfa_token": null,
-    }))
-    .expect("a login request with null members decodes");
-    assert_eq!(login.username, "", "null is the empty string");
-
-    let category: Category = serde_json::from_value(json!({
-        "id": null, "name": null, "userID": null, "teamID": null, "createAt": null,
-        "updateAt": null, "deleteAt": null, "collapsed": null, "sortOrder": null, "sorting": null,
-    }))
-    .expect("a category with null members decodes");
-    assert_eq!(
-        category,
-        Category::default(),
-        "every null member is the empty value"
-    );
+    // A member that may be null is none when it is.
+    let block: Block =
+        serde_json::from_value(json!({ "id": "a1", "body": null })).expect("decodes");
+    assert_eq!(block.body, None, "a null body is no body");
 }

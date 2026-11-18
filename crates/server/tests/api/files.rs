@@ -67,7 +67,7 @@ async fn board_with_attachment(ts: &TestServer) -> (Container, String) {
     image_fields.insert("fileId".to_owned(), Value::String(file_id.clone()));
     let blocks = vec![Block {
         id: card_id.clone(),
-        parent_id: board.id.clone(),
+        parent_id: String::new(),
         container_id: board.id.clone(),
         block_type: BlockType::Card,
         create_at: 1,
@@ -715,12 +715,7 @@ async fn foreign_file(ts: &TestServer) -> ForeignFile {
         ..Block::default()
     };
     let blocks = vec![
-        block(
-            card_id.clone(),
-            &intruder_board.id,
-            BlockType::Card,
-            JsonMap::new(),
-        ),
+        block(card_id.clone(), "", BlockType::Card, JsonMap::new()),
         block(new_id(), &card_id, BlockType::Attachment, named("fileId")),
         block(
             new_id(),
@@ -1029,7 +1024,7 @@ async fn duplicating_a_board_with_an_empty_file_reference_works() {
         ..Block::default()
     };
     let blocks = vec![
-        block(card_id.clone(), &board.id, BlockType::Card, JsonMap::new()),
+        block(card_id.clone(), "", BlockType::Card, JsonMap::new()),
         block(new_id(), &card_id, BlockType::Attachment, empty),
         block(new_id(), &card_id, BlockType::Attachment, JsonMap::new()),
     ];
@@ -1114,7 +1109,7 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
         ..Block::default()
     };
     let blocks = vec![
-        block(card_id.clone(), &board.id, BlockType::Card, JsonMap::new()),
+        block(card_id.clone(), "", BlockType::Card, JsonMap::new()),
         block(new_id(), &card_id, BlockType::Attachment, fields),
     ];
     ts.client

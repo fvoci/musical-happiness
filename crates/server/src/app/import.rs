@@ -520,8 +520,8 @@ async fn parse_board_jsonl(
 }
 
 /// Removes the blocks that nothing in the archive leads to, and returns how many went:
-/// those whose parent is neither a block nor a board of the archive, the blocks below
-/// them, and blocks that are each other's parents without any of them being on a board.
+/// those whose parent is no block of the archive, the blocks below them, and blocks that
+/// are each other's parents without any of them being on a board.
 ///
 /// Such a block belongs to nothing that is imported: no card lists it, and its parent
 /// would be a reference to something outside the import.
@@ -529,15 +529,11 @@ async fn parse_board_jsonl(
 /// One walk down from the blocks that are directly on a board; the time it takes grows
 /// with the number of blocks and not with how deep they are nested.
 fn drop_orphans(containers_and_blocks: &mut ContainersAndBlocks) -> usize {
-    let ContainersAndBlocks { containers, blocks } = containers_and_blocks;
-    let container_ids: HashSet<&str> = containers
-        .iter()
-        .map(|container| container.id.as_str())
-        .collect();
+    let blocks = &mut containers_and_blocks.blocks;
     let mut below: HashMap<&str, Vec<usize>> = HashMap::new();
     let mut reached: Vec<usize> = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
-        if block.parent_id.is_empty() || container_ids.contains(block.parent_id.as_str()) {
+        if block.parent_id.is_empty() {
             reached.push(index);
         } else {
             below

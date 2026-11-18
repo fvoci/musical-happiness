@@ -23,7 +23,10 @@ fn block_validate_requires_a_board() {
         Err(BlockError::EmptyContainerId)
     );
     assert_eq!(block().validate(), Ok(()));
-    assert_eq!(BlockError::EmptyContainerId.to_string(), "boardID is empty");
+    assert_eq!(
+        BlockError::EmptyContainerId.to_string(),
+        "the block names no board"
+    );
 }
 
 /// A comment's body has no file block, though it may have an image; a block of a type

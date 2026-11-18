@@ -13,7 +13,7 @@ use fvoci_model::{
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::cards::int_query_param;
+use super::cards::paging_params;
 use super::contract::params::{CappedPerPage, OrgId, OrgWorkspaceId, Page, UserId};
 use super::contract::tag;
 use super::org::OrgAdmin;
@@ -40,15 +40,11 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_org_audit))
 }
 
-/// The page a request asks for with `page` and `perPage`. A `page` or `perPage` that is no whole number is 400.
+/// The page a request asks for with `page` and `perPage`, read as every list reads
+/// them ([`paging_params`]).
 pub(super) fn requested_page(query: Option<&str>) -> Result<PageAsked, AppError> {
-    let page = int_query_param(query, "page", 0);
-    let per_page = int_query_param(query, "perPage", i64::from(DEFAULT_PER_PAGE));
-    match (page, per_page) {
-        (Ok(page), Ok(per_page)) => Ok(PageAsked { page, per_page }),
-        (Err(refusal), Ok(_)) | (Ok(_), Err(refusal)) => Err(refusal),
-        (Err(page), Err(per_page)) => Err(page.and(per_page)),
-    }
+    let (page, per_page) = paging_params(query, DEFAULT_PER_PAGE)?;
+    Ok(PageAsked { page, per_page })
 }
 
 /// An organization

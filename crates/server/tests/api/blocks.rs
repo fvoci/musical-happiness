@@ -1132,12 +1132,12 @@ async fn get_blocks_filters() {
             "?type=h1".to_owned(),
             none.clone(),
         ),
-        ("the type is case-sensitive", "?type=Card".to_owned(), none),
         (
-            "preserved quirk: the type unknown does not filter",
+            "unknown is a type as any other",
             "?type=unknown".to_owned(),
-            everything.clone(),
+            none.clone(),
         ),
+        ("the type is case-sensitive", "?type=Card".to_owned(), none),
         (
             "there is no paging on this route",
             "?page=1&perPage=1".to_owned(),
@@ -1401,15 +1401,13 @@ async fn post_blocks_validation() {
     let mut elsewhere = valid.clone();
     elsewhere["containerId"] = json!(other_board.id);
 
+    let elsewhere_words = "the block is on another board than the path";
     let cases = [
-        (without("type"), "missing type for block id x1"),
-        (without("createAt"), "invalid createAt for block id x1"),
-        (without("updateAt"), "invalid updateAt for block id x1"),
-        (
-            without("containerId"),
-            "invalid containerId for block id x1",
-        ),
-        (json!([elsewhere]), "invalid containerId for block id x1"),
+        (without("type"), "the block has no type"),
+        (without("createAt"), "a new block's createAt is 1 or more"),
+        (without("updateAt"), "a new block's updateAt is 1 or more"),
+        (without("containerId"), elsewhere_words),
+        (json!([elsewhere]), elsewhere_words),
     ];
     for (body, message) in &cases {
         let response = th.client.post(&path, body).await;

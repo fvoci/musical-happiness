@@ -776,7 +776,6 @@ async fn duplicate_container_copies_under_new_ids_as_a_private_board_of_the_user
         }],
         blocks: vec![
             Block {
-                parent_id: source_id.clone(),
                 title: "Card".to_owned(),
                 ..new_card(&card_id, &source_id)
             },
@@ -854,7 +853,7 @@ async fn duplicate_container_copies_under_new_ids_as_a_private_board_of_the_user
     assert_eq!(card.container_id, board.id, "the card is on the copy");
     assert_eq!(
         card.parent_id, "",
-        "a block that named its board as its parent is copied without a parent"
+        "a block directly on its board is copied without a parent"
     );
     assert_eq!(paragraph.parent_id, card.id, "the text follows its card");
     assert_eq!(paragraph.container_id, board.id, "the text is on the copy");

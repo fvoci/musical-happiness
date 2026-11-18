@@ -1,6 +1,5 @@
 //! The record kept about an uploaded file.
 
-use crate::serde_util::null_as_default;
 use serde::{Deserialize, Serialize};
 
 /// What the server records about an uploaded file.
@@ -8,7 +7,6 @@ use serde::{Deserialize, Serialize};
 #[serde(default, rename_all = "camelCase")]
 pub struct FileInfo {
     /// The record's identifier.
-    #[serde(deserialize_with = "null_as_default")]
     pub id: String,
     /// The board the file belongs to. Never sent to clients: they ask for a file
     /// through its board.
@@ -19,19 +17,15 @@ pub struct FileInfo {
     #[serde(skip)]
     pub stored_name: String,
     /// Creation time in milliseconds since the Unix epoch.
-    #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
     /// Where the file lives in the file storage. Never sent to clients.
     #[serde(skip)]
     pub path: String,
     /// The name the file was uploaded under.
-    #[serde(deserialize_with = "null_as_default")]
     pub name: String,
     /// The lower-cased extension of the name, with its leading dot.
-    #[serde(deserialize_with = "null_as_default")]
     pub extension: String,
     /// The size of the file in bytes.
-    #[serde(deserialize_with = "null_as_default")]
     pub size: i64,
 }
 

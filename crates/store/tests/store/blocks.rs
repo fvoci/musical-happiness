@@ -270,8 +270,8 @@ pub(crate) async fn assert_no_block(store: &Store, block_id: &str) {
     }
 }
 
-/// `createTestCards` (`server/services/store/storetests/util.go:76`). Like the original,
-/// it gives a card its board as parent.
+/// `createTestCards` (`server/services/store/storetests/util.go:76`): cards directly on
+/// the board.
 async fn create_test_cards(
     store: &Store,
     user_id: &str,
@@ -281,7 +281,7 @@ async fn create_test_cards(
     let mut cards = Vec::with_capacity(count);
     for index in 0..count {
         let mut card = Block {
-            parent_id: board_id.to_owned(),
+            parent_id: String::new(),
             block_type: BlockType::Card,
             created_by: user_id.to_owned(),
             title: format!("card {index}"),
@@ -1890,10 +1890,10 @@ async fn get_blocks_pages_the_result() {
     test.teardown().await;
 }
 
-/// Preserved quirk: the empty type and the type `unknown` do not filter
-/// (`server/services/store/sqlstore/blocks.go:69`).
+/// The empty type does not filter; any other, `unknown` too, finds the blocks of that
+/// type.
 #[tokio::test]
-async fn get_blocks_does_not_filter_by_the_empty_or_the_unknown_type() {
+async fn get_blocks_does_not_filter_by_the_empty_type() {
     let test = common::setup().await;
     let store = &test.store;
     let Fixture {
@@ -1908,24 +1908,29 @@ async fn get_blocks_does_not_filter_by_the_empty_or_the_unknown_type() {
     let mut sample = named_blocks(&board_id, &specs);
     common::insert_blocks(store, &mut sample, &user_id).await;
 
-    for block_type in ["", "unknown"] {
-        let filter = BlockFilter::container(&board_id).with_type(BlockType::from(block_type));
-        let blocks = store.get_blocks(&filter).await.expect("the query runs");
-        assert_eq!(
-            blocks.len(),
-            7,
-            "the type {block_type:?} selects every block of the board: {:?}",
-            sorted_names(&blocks)
-        );
+    let filter = BlockFilter::container(&board_id).with_type(BlockType::from(""));
+    let blocks = store.get_blocks(&filter).await.expect("the query runs");
+    assert_eq!(
+        blocks.len(),
+        7,
+        "the empty type selects every block of the board: {:?}",
+        sorted_names(&blocks)
+    );
+    let below = filter.with_parent(id_of(&sample, "block1"));
+    let blocks = store.get_blocks(&below).await.expect("the query runs");
+    assert_eq!(
+        sorted_names(&blocks),
+        ["block2", "block3", "block4"],
+        "the empty type leaves the other filters in force"
+    );
 
-        let filter = filter.with_parent(id_of(&sample, "block1"));
-        let blocks = store.get_blocks(&filter).await.expect("the query runs");
-        assert_eq!(
-            sorted_names(&blocks),
-            ["block2", "block3", "block4"],
-            "the type {block_type:?} leaves the other filters in force"
-        );
-    }
+    let filter = BlockFilter::container(&board_id).with_type(BlockType::from("unknown"));
+    let blocks = store.get_blocks(&filter).await.expect("the query runs");
+    assert_eq!(
+        sorted_names(&blocks),
+        ["unknown-typed"],
+        "`unknown` is a type"
+    );
 
     test.teardown().await;
 }
@@ -3013,16 +3018,28 @@ async fn insert_block_refuses_a_parent_that_is_not_a_block_of_the_board() {
     test.teardown().await;
 }
 
-/// A block that names its board as its parent is directly on its board: it is stored,
-/// and comes back, without a parent, when it is inserted and when it is updated. Asked
-/// for by the same name, the blocks directly on the board are the ones found.
+/// The board is no parent of its blocks: a block that names it as its parent is refused
+/// as one whose parent is no block of the board, when it is inserted, when it is updated
+/// and in a batch, and asking for the blocks below the board finds none.
 #[tokio::test]
-async fn a_block_that_names_its_board_as_parent_is_stored_without_a_parent() {
+async fn a_block_that_names_its_board_as_parent_is_refused() {
     let test = common::setup().await;
     let store = &test.store;
     let Fixture {
         user_id, board_id, ..
     } = fixture(store).await;
+    let refused = |result: Result<(), StoreError>, what: &str| {
+        assert!(
+            matches!(
+                result,
+                Err(StoreError::InvalidBlock {
+                    source: BlockError::ParentNotOnContainer,
+                    ..
+                })
+            ),
+            "{what}: {result:?}"
+        );
+    };
 
     let card_id = new_id();
     let mut card = Block {
@@ -3030,65 +3047,32 @@ async fn a_block_that_names_its_board_as_parent_is_stored_without_a_parent() {
         block_type: BlockType::Card,
         ..block(&card_id, &board_id)
     };
-    for (written, title) in [("inserted", "new"), ("updated", "renamed")] {
-        card.parent_id.clone_from(&board_id);
-        title.clone_into(&mut card.title);
-        store
-            .insert_block(&mut card, &user_id)
-            .await
-            .unwrap_or_else(|error| {
-                panic!("a block with its board as parent should be {written}: {error:?}")
-            });
-        assert_eq!(
-            card.parent_id, "",
-            "the block that was {written} comes back without a parent"
-        );
-        let stored = existing_block(store, &card_id).await;
-        assert_eq!(
-            (stored.parent_id.as_str(), stored.title.as_str()),
-            ("", title),
-            "the block that was {written} is stored without a parent"
-        );
-    }
-
-    // A batch does the same, and a block of the batch may be on such a block.
-    let mut batch = [
-        Block {
-            parent_id: board_id.clone(),
-            block_type: BlockType::Card,
-            ..block(&new_id(), &board_id)
-        },
-        Block {
-            parent_id: card_id.clone(),
-            block_type: BlockType::Attachment,
-            ..block(&new_id(), &board_id)
-        },
-    ];
+    refused(store.insert_block(&mut card, &user_id).await, "a new block");
+    card.parent_id.clear();
     store
-        .insert_blocks(&mut batch, &user_id)
+        .insert_block(&mut card, &user_id)
         .await
-        .expect("a batch with a block that names its board as parent is stored");
+        .expect("a block without a parent is directly on its board");
+    card.parent_id.clone_from(&board_id);
+    refused(store.insert_block(&mut card, &user_id).await, "an update");
     assert_eq!(
-        existing_block(store, &batch[0].id).await.parent_id,
+        existing_block(store, &card_id).await.parent_id,
         "",
-        "the card of the batch is stored without a parent"
+        "unchanged"
     );
-    assert_eq!(
-        existing_block(store, &batch[1].id).await.parent_id,
-        card_id,
-        "the text of the batch is on the card"
-    );
-    let on_the_board = store
+
+    let mut batch = [Block {
+        parent_id: board_id.clone(),
+        block_type: BlockType::Card,
+        ..block(&new_id(), &board_id)
+    }];
+    refused(store.insert_blocks(&mut batch, &user_id).await, "a batch");
+
+    let below_board = store
         .get_blocks(&BlockFilter::container(&board_id).with_parent(&board_id))
         .await
         .expect("the query runs");
-    let mut cards = vec![card_id.clone(), batch[0].id.clone()];
-    cards.sort();
-    assert_eq!(
-        common::sorted_ids(&on_the_board),
-        cards,
-        "the two cards are on the board, the text is on a card"
-    );
+    assert!(below_board.is_empty(), "no block is below the board");
 
     test.teardown().await;
 }

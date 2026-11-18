@@ -36,6 +36,11 @@ use crate::common::{
 
 // -- helpers --------------------------------------------------------------------------
 
+/// The refusal of a board type outside the set.
+const TYPE_REFUSAL: &str = "the type of a board is `O` (open) or `P` (private)";
+/// The refusal of a minimum role outside the set.
+const ROLE_REFUSAL: &str = "the minimum role of a board is `viewer`, `commenter` or `editor`";
+
 pub(crate) fn new_board(workspace_id: &str, board_type: ContainerType, title: &str) -> Container {
     Container {
         workspace_id: workspace_id.to_owned(),
@@ -594,17 +599,14 @@ async fn create_board_create_invalid_board_invalid_board_type() {
         .await;
 
     response.check_bad_request();
-    assert_eq!(
-        response.error_message(),
-        "invalid-board-type",
-        "the original's message"
-    );
+    assert_eq!(response.error_message(), TYPE_REFUSAL);
+    assert_eq!(response.refused_at(), "/type", "the member, not its value");
     assert_no_boards(&th, &user1.id).await;
     th.teardown().await;
 }
 
-/// `TestCreateBoard/"create invalid board"/"no type"`. The original's client sends an
-/// empty string; a client that leaves the member out gets the same answer.
+/// `TestCreateBoard/"create invalid board"/"no type"`: an empty type, none, and `null`
+/// get the same answer.
 #[tokio::test]
 async fn create_board_create_invalid_board_no_type() {
     let th = Setup::native().start().await.init_basic().await;
@@ -617,7 +619,7 @@ async fn create_board_create_invalid_board_no_type() {
     ] {
         let response = th.client.post(&format!("{TEST_WS}/boards"), &body).await;
         response.check_bad_request();
-        assert_eq!(response.error_message(), "invalid-board-type", "{body}");
+        assert_eq!(response.error_message(), TYPE_REFUSAL, "{body}");
     }
 
     assert_no_boards(&th, &user1.id).await;
@@ -696,11 +698,7 @@ async fn create_board_validates_the_body_like_the_original() {
             )
             .await;
         response.check_bad_request();
-        assert_eq!(
-            response.error_message(),
-            "invalid-board-minimum-role",
-            "the minimum role {role:?}"
-        );
+        assert_eq!(response.error_message(), ROLE_REFUSAL, "{role:?}");
     }
 
     // The type is checked before the minimum role.
@@ -712,7 +710,7 @@ async fn create_board_validates_the_body_like_the_original() {
         )
         .await;
     response.check_bad_request();
-    assert_eq!(response.error_message(), "invalid-board-type", "type first");
+    assert_eq!(response.error_message(), TYPE_REFUSAL, "type first");
 
     // A new board does not choose its identifier. (The original answers 500.)
     let response = th
@@ -1219,18 +1217,14 @@ async fn patch_container_invalid_patch_on_a_board_with_permissions() {
 
     let response = patch_board(&th.client, &board.id, &json!({"type": "invalid"})).await;
     response.check_bad_request();
-    assert_eq!(response.error_message(), "invalid-board-type", "the type");
+    assert_eq!(response.error_message(), TYPE_REFUSAL, "the type");
 
     // Empty is no minimum role, and neither is admin: nobody becomes an administrator of
     // a board by joining it.
     for role in ["boss", "", "admin", "Editor"] {
         let response = patch_board(&th.client, &board.id, &json!({"minimumRole": role})).await;
         response.check_bad_request();
-        assert_eq!(
-            response.error_message(),
-            "invalid-board-minimum-role",
-            "the minimum role {role:?}"
-        );
+        assert_eq!(response.error_message(), ROLE_REFUSAL, "{role:?}");
     }
     assert_eq!(
         stored_board(&th, &board.id).await.minimum_role,

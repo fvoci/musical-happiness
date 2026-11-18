@@ -15,12 +15,11 @@
 # function <lines> <path> <name>
 
 file 1009 crates/server/src/app/uploads.rs
-file 2603 crates/server/tests/api/blocks.rs
-file 3207 crates/server/tests/api/boards.rs
+file 2601 crates/server/tests/api/blocks.rs
+file 3201 crates/server/tests/api/boards.rs
 file 2621 crates/server/tests/api/sidebar.rs
-file 4068 crates/store/tests/store/blocks.rs
+file 4052 crates/store/tests/store/blocks.rs
 file 4160 crates/store/tests/store/boards.rs
-function 108 crates/server/src/api/blocks.rs handle_post_blocks
 function 109 crates/server/src/app/import.rs App::import_archive
 function 322 crates/server/tests/regression/blocks.rs blocks
 function 221 crates/server/tests/regression/permissions.rs request

@@ -112,9 +112,7 @@ impl App {
         if told.is_empty() {
             return Ok(None);
         }
-        let Some(paging) = asked.paging() else {
-            return Ok(Some(Vec::new()));
-        };
+        let paging = asked.paging();
         let mut containers = self.containers_held(user_id, workspace_id).await?;
         // A template of the workspace is read by who works there, and what is on it
         // names as anything does.

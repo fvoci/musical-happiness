@@ -129,7 +129,7 @@ async fn view_of(client: &Client, board_id: &str) -> String {
         .post(
             &format!("{TEST_WS}/boards/{board_id}/blocks"),
             &json!([{
-                "id": "v", "containerId": board_id, "parentId": board_id, "type": "view",
+                "id": "v", "containerId": board_id, "type": "view",
                 "title": "Table", "schema": 1, "createAt": 1, "updateAt": 1,
                 "fields": {"viewType": "table"},
             }]),
@@ -321,11 +321,11 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
     check_refused(&created, REASON, "/properties");
 
     let mut block = json!({
-        "id": "c", "containerId": board.id, "parentId": board.id, "type": "card", "title": "c",
+        "id": "c", "containerId": board.id, "type": "card", "title": "c",
         "schema": 1, "createAt": 1, "updateAt": 1, "fields": {"properties": {RELATION: refused}},
     });
     let view = json!({
-        "id": "v", "containerId": board.id, "parentId": board.id, "type": "view", "title": "v",
+        "id": "v", "containerId": board.id, "type": "view", "title": "v",
         "schema": 1, "createAt": 1, "updateAt": 1, "fields": {},
     });
     let blocks = th
@@ -372,7 +372,7 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
     check_refused(&both, REASON, "/blockPatches/0/updatedFields");
 
     block["containerId"] = json!("b");
-    block["parentId"] = json!("b");
+    block["parentId"] = json!("");
     let new_board = th
         .client
         .post(
@@ -403,7 +403,7 @@ async fn new_cards_of_one_request_may_name_each_other() {
     let there = &cards[0].id;
     let card = |id: &str, names: Value| {
         json!({
-            "id": id, "containerId": board.id, "parentId": board.id, "type": "card", "title": id,
+            "id": id, "containerId": board.id, "type": "card", "title": id,
             "schema": 1, "createAt": 1, "updateAt": 1, "fields": {"properties": {RELATION: names}},
         })
     };
@@ -429,10 +429,10 @@ async fn new_cards_of_one_request_may_name_each_other() {
                     "cardProperties": [{"id": RELATION, "type": "relation"}],
                 }],
                 "blocks": [
-                    {"id": "x", "containerId": "nb", "parentId": "nb", "type": "card", "title": "x",
+                    {"id": "x", "containerId": "nb", "type": "card", "title": "x",
                      "schema": 1, "createAt": 1, "updateAt": 1,
                      "fields": {"properties": {RELATION: ["y"]}}},
-                    {"id": "y", "containerId": "nb", "parentId": "nb", "type": "card", "title": "y",
+                    {"id": "y", "containerId": "nb", "type": "card", "title": "y",
                      "schema": 1, "createAt": 1, "updateAt": 1,
                      "fields": {"properties": {RELATION: ["x"]}}},
                 ],
@@ -583,7 +583,7 @@ async fn a_block_that_becomes_a_card_has_its_relations_checked() {
             .post(
                 &blocks,
                 &json!([{
-                    "id": id, "containerId": board.id, "parentId": board.id, "type": "view",
+                    "id": id, "containerId": board.id, "type": "view",
                     "title": id, "schema": 1, "createAt": 1, "updateAt": 1,
                     "fields": {"viewType": "table", "properties": value},
                 }]),

@@ -4765,7 +4765,7 @@ export interface components {
          */
         NewAccount: {
             /**
-             * @description The name to be shown by; may be left out, `null` or empty for none. Read as
+             * @description The name to be shown by; may be left out or empty for none. Read as
              *     `patchMe` reads it.
              */
             displayName?: string;
@@ -5472,7 +5472,7 @@ export interface components {
         /** @description A request to register a new user. */
         RegisterRequest: {
             /**
-             * @description The name to be shown by; may be left out, `null` or empty for none. Read as
+             * @description The name to be shown by; may be left out or empty for none. Read as
              *     `patchMe` reads it.
              */
             displayName?: string;
@@ -5559,13 +5559,16 @@ export interface components {
             db_version: string;
             /** @description The edition of the server. */
             edition: string;
-            /** @description The CPU architecture the server runs on. */
+            /** @description The CPU architecture the server runs on, as Rust names it (`x86_64`, `aarch64`). */
             os_arch: string;
-            /** @description The operating system the server runs on. */
+            /**
+             * @description The operating system the server runs on, as Rust names it (`linux`, `macos`,
+             *     `windows`).
+             */
             os_type: string;
             /** @description The kind of deployment: always `personal_server`. */
             sku: string;
-            /** @description The server version. */
+            /** @description The version of the server, the one the contract's `info.version` gives too. */
             version: string;
         };
         /**
@@ -6588,9 +6591,9 @@ export interface operations {
     getOrgAudit: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 is 400. */
                 perPage?: number;
             };
             header?: never;
@@ -6625,9 +6628,9 @@ export interface operations {
     getOrgMembers: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 is 400. */
                 perPage?: number;
             };
             header?: never;
@@ -7386,9 +7389,9 @@ export interface operations {
                 all?: string;
                 /** @description Asks for the one block with this identifier, in a list of one. 404 if the board has no such block. */
                 blockId?: string;
-                /** @description Narrows the list to the blocks with this parent. With the identifier of the board, to the blocks directly on the board. */
+                /** @description Narrows the list to the blocks below the block of this identifier. */
                 parentId?: string;
-                /** @description Narrows the list to the blocks of this type. The word `unknown` narrows nothing. */
+                /** @description Narrows the list to the blocks of this type, written as the blocks have it. */
                 type?: string;
             };
             header?: never;
@@ -7425,9 +7428,9 @@ export interface operations {
             query: {
                 /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
                 readToken: string;
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400. */
                 perPage?: number;
                 /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
                 preview?: boolean;
@@ -8158,9 +8161,9 @@ export interface operations {
     getWorkspaceAudit: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 is 400. */
                 perPage?: number;
             };
             header?: never;
@@ -8410,9 +8413,9 @@ export interface operations {
                 all?: string;
                 /** @description Asks for the one block with this identifier, in a list of one. 404 if the board has no such block. */
                 blockId?: string;
-                /** @description Narrows the list to the blocks with this parent. With the identifier of the board, to the blocks directly on the board. */
+                /** @description Narrows the list to the blocks below the block of this identifier. */
                 parentId?: string;
-                /** @description Narrows the list to the blocks of this type. The word `unknown` narrows nothing. */
+                /** @description Narrows the list to the blocks of this type, written as the blocks have it. */
                 type?: string;
             };
             header?: never;
@@ -8720,9 +8723,9 @@ export interface operations {
     getCards: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400. */
                 perPage?: number;
                 /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
                 preview?: boolean;
@@ -8840,9 +8843,9 @@ export interface operations {
     getDeletedCards: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400. */
                 perPage?: number;
             };
             header?: never;
@@ -10536,9 +10539,9 @@ export interface operations {
     getReferencesTo: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
                 page?: number;
-                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                /** @description How many a page has, at most 200. Left out or 0, 50. Below 0 is 400. */
                 perPage?: number;
             };
             header?: never;
@@ -10990,9 +10993,9 @@ export interface operations {
     getDeletedContainers: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400. */
                 perPage?: number;
             };
             header?: never;
@@ -11981,9 +11984,9 @@ export interface operations {
     getDeletedPages: {
         parameters: {
             query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
+                /** @description The page, counted from 0. Left out, the first one. Below 0 is 400. */
                 page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                /** @description How many a page has. Left out, 100; 0 asks for all of them. Below 0 is 400. */
                 perPage?: number;
             };
             header?: never;

@@ -80,7 +80,7 @@ fn ids_after_dropping(blocks: Vec<Block>) -> (Vec<String>, usize) {
 fn blocks_that_nothing_leads_to_are_dropped_with_what_is_below_them() {
     let (kept, dropped) = ids_after_dropping(vec![
         block("text", "card"),
-        block("card", "board"),
+        block("card", ""),
         block("view", ""),
         block("lost", "gone"),
         block("below-lost", "lost"),
@@ -108,7 +108,7 @@ fn a_long_chain_of_orphans_is_dropped_in_one_walk() {
     let length = 200_000;
     let mut blocks = vec![block("0", "missing")];
     blocks.extend((1..length).map(|index| block(&index.to_string(), &(index - 1).to_string())));
-    blocks.push(block("card", "board"));
+    blocks.push(block("card", ""));
 
     let started = std::time::Instant::now();
     let (kept, dropped) = ids_after_dropping(blocks);

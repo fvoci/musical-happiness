@@ -9,7 +9,7 @@ use fvoci_store::{PageCopies, PageRestore, PageWrite, StoreError};
 
 use super::App;
 use super::blocks::{ChangeAction, ChangeNotification, log_notification};
-use super::cards::CardRange;
+use super::cards::ListPage;
 use crate::error::{AppError, Reason};
 
 impl App {
@@ -205,7 +205,7 @@ impl App {
     }
 
     /// The wiki's pages in the trash at the top of what went with them, one page of the
-    /// list as `page` and `per_page` say (as for the cards of a board).
+    /// list ([`ListPage`]).
     ///
     /// # Errors
     ///
@@ -213,15 +213,12 @@ impl App {
     pub async fn deleted_pages(
         &self,
         wiki_id: &str,
-        page: i64,
-        per_page: i64,
+        page: ListPage,
     ) -> Result<Vec<DeletedPage>, AppError> {
-        let paging = match CardRange::new(page, per_page) {
-            CardRange::All => None,
-            CardRange::Page(paging) => Some(paging),
-            CardRange::Nothing => return Ok(Vec::new()),
-        };
-        Ok(self.store().get_deleted_pages(wiki_id, paging).await?)
+        Ok(self
+            .store()
+            .get_deleted_pages(wiki_id, page.paging())
+            .await?)
     }
 
     /// Brings a page of the wiki back from the trash with the pages that went with it,

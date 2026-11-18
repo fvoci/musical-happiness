@@ -51,10 +51,8 @@ async fn handle_get_deleted_cards(
         "access denied to the trash of the board",
     )
     .await?;
-    let (page, per_page) = page_params(query)?;
-    Ok(json_response(
-        &ws.app.deleted_cards(&board_id, page, per_page).await?,
-    ))
+    let page = page_params(query)?;
+    Ok(json_response(&ws.app.deleted_cards(&board_id, page).await?))
 }
 
 /// The deleted boards of a workspace
@@ -81,16 +79,10 @@ async fn handle_get_deleted_containers(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
-    let (page, per_page) = page_params(query.as_deref())?;
+    let page = page_params(query.as_deref())?;
     Ok(json_response(
         &ws.app
-            .deleted_containers(
-                &ws.workspace_id,
-                &ws.session.user_id,
-                ws.role,
-                page,
-                per_page,
-            )
+            .deleted_containers(&ws.workspace_id, &ws.session.user_id, ws.role, page)
             .await?,
     ))
 }

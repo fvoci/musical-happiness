@@ -454,10 +454,8 @@ async fn handle_get_deleted_pages(
         "access denied to the trash of the wiki",
     )
     .await?;
-    let (page, per_page) = page_params(query.as_deref())?;
-    Ok(json_response(
-        &ws.app.deleted_pages(&wiki_id, page, per_page).await?,
-    ))
+    let page = page_params(query.as_deref())?;
+    Ok(json_response(&ws.app.deleted_pages(&wiki_id, page).await?))
 }
 
 /// Bring back a page

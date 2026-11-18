@@ -8,6 +8,7 @@ use fvoci_model::{
     generate_containers_and_blocks_ids,
 };
 
+use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -16,11 +17,10 @@ use super::contract::params::MemberWorkspaceId;
 use super::contract::tag;
 use super::workspace::InWorkspace;
 
-use super::containers::{
-    InvalidContainerMember, take_invalid_container_members, take_invalid_patch_members,
-};
-use super::decode_object_with;
+use super::blocks::new_block_problem;
+use super::containers::{BoardObject, check_listed_boards};
 use super::{ApiResult, json_response, no_content};
+use super::{decode_json, json_object};
 use super::{decode_object, require_container_permission};
 use super::{element_pointer, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies};
 
@@ -70,22 +70,12 @@ async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiRes
     let user_id = &ws.session.user_id;
     // Whoever works in the workspace makes boards in it.
     ws.require_container_maker("access denied to create board")?;
-    let (mut request, (invalid, bodies)): (ContainersAndBlocks, _) =
-        decode_object_with(&body, |body| {
-            let invalid: Option<InvalidContainerMember> = objects_mut(body, "containers")
-                .flatten()
-                .find_map(take_invalid_container_members);
-            (
-                invalid,
-                take_block_bodies(objects_mut(body, "blocks"), Some(BLOCKS)),
-            )
-        })?;
-    // Not as in the original, which validates neither the type nor the minimum role of
-    // these boards and stores whatever it is given. The model has no way to hold such a
-    // board, so it is refused as `POST /boards` refuses it.
-    if let Some(invalid) = invalid {
-        return Err(invalid.into_error());
-    }
+    let mut object = json_object(decode_json(&body)?)?;
+    // Each board's type and minimum role are refused as `createBoard` refuses them.
+    check_listed_boards(&object, "/containers", BoardObject::Board)?;
+    let bodies = take_block_bodies(objects_mut(&mut object, "blocks"), Some(BLOCKS));
+    let mut request: ContainersAndBlocks =
+        serde_json::from_value(Value::Object(object)).map_err(AppError::bad_request)?;
     // The boards are new and have no files, so a body that names a file is refused, without
     // looking up anything the request names.
     for (index, (block, body)) in request.blocks.iter_mut().zip(bodies?).enumerate() {
@@ -126,7 +116,9 @@ async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiRes
         .iter()
         .enumerate()
         .find_map(|(index, block)| {
-            new_block_problem(block, &container_ids).map(|problem| (index, problem))
+            let on_board = |container_id: &str| container_ids.contains(container_id);
+            new_block_problem(block, on_board, "the block is on no board of the request")
+                .map(|problem| (index, problem))
         });
     if let Some((index, (field, problem))) = problem {
         return Err(AppError::bad_request(problem)
@@ -147,43 +139,6 @@ async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiRes
         .await
         .map_err(|error| error.among_blocks(ids.iter().map(String::as_str), BLOCKS))?;
     Ok(super::created(&created))
-}
-
-/// Returns what is wrong with a block that is to be created with the boards that have
-/// the given identifiers, if anything, in the original's order of checking: the member
-/// of the block that is wrong, and the message.
-fn new_block_problem(
-    block: &Block,
-    container_ids: &HashSet<&str>,
-) -> Option<(&'static str, String)> {
-    if block.block_type.is_empty() {
-        Some(("type", format!("missing type for block id {}", block.id)))
-    } else if !block.block_type.is_current() {
-        Some((
-            "type",
-            fvoci_model::BlockError::type_not_current(&block.block_type).to_string(),
-        ))
-    } else if block.create_at < 1 {
-        Some((
-            "createAt",
-            format!("invalid createAt for block id {}", block.id),
-        ))
-    } else if block.update_at < 1 {
-        Some((
-            "updateAt",
-            format!("invalid updateAt for block id {}", block.id),
-        ))
-    } else if !container_ids.contains(block.container_id.as_str()) {
-        Some((
-            "containerId",
-            format!(
-                "invalid containerId {} (no board of the request has that id)",
-                block.container_id
-            ),
-        ))
-    } else {
-        None
-    }
 }
 
 /// Change boards and blocks together
@@ -208,25 +163,15 @@ fn new_block_problem(
 )]
 async fn handle_patch_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
-    // The patches' types and minimum roles are validated board by board below, as in the
-    // original, not while decoding.
-    let (mut patches, (invalid_members, changes)): (PatchContainersAndBlocks, _) =
-        decode_object_with(&body, |body| {
-            let invalid: Vec<(Option<InvalidContainerMember>, bool)> =
-                objects_mut(body, "containerPatches")
-                    .map(|patch| match patch {
-                        Some(patch) => (
-                            take_invalid_patch_members(patch),
-                            patch.contains_key("kind"),
-                        ),
-                        None => (None, false),
-                    })
-                    .collect();
-            (
-                invalid,
-                take_patch_bodies(objects_mut(body, "blockPatches"), Some(PATCHES)),
-            )
-        })?;
+    let mut object = json_object(decode_json(&body)?)?;
+    // Each patch's type and minimum role are refused as `patchContainer` refuses them.
+    check_listed_boards(&object, "/containerPatches", BoardObject::Patch)?;
+    let names_a_kind: Vec<bool> = objects_mut(&mut object, "containerPatches")
+        .map(|patch| patch.is_some_and(|patch| patch.contains_key("kind")))
+        .collect();
+    let changes = take_patch_bodies(objects_mut(&mut object, "blockPatches"), Some(PATCHES));
+    let mut patches: PatchContainersAndBlocks =
+        serde_json::from_value(Value::Object(object)).map_err(AppError::bad_request)?;
     patches.validate().map_err(AppError::bad_request)?;
     put_patch_bodies(&mut patches.block_patches, changes?, Some(PATCHES))?;
 
@@ -240,10 +185,7 @@ async fn handle_patch_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiResu
     {
         container_ids.insert(container_id.as_str());
 
-        let (invalid, names_a_kind) = invalid_members.get(index).copied().unwrap_or_default();
-        if let Some(invalid) = invalid {
-            return Err(invalid.into_error());
-        }
+        let names_a_kind = names_a_kind.get(index).copied().unwrap_or_default();
         require_container_permission(
             &ws.app,
             user_id,
