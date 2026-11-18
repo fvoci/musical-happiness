@@ -1,9 +1,45 @@
 /** User names are shared by the screens of one workspace visit. */
+import type { DocNode } from '../editor/schema.ts';
+import { isGone, userDisplayName } from '../logic/users.ts';
+
 import { isBackendError, type User, type WorkspaceInfo } from './backend.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
-export function authorIds(blocks: readonly { createdBy: string; modifiedBy: string }[]): string[] {
-  return blocks.flatMap((block) => [block.createdBy, block.modifiedBy]);
+/**
+ * Whom the blocks name: who made and last changed each, and whom the body of
+ * each mentions. Somebody mentioned may be no member any more, or be gone:
+ * their name is asked for like a writer's.
+ */
+export function authorIds(
+  blocks: readonly { createdBy: string; modifiedBy: string; body?: DocNode | null }[],
+): string[] {
+  return blocks.flatMap((block) => [block.createdBy, block.modifiedBy, ...mentionedIn(block.body)]);
+}
+
+/** The users a body mentions, each as often as it does. */
+export function mentionedIn(body: DocNode | null | undefined): string[] {
+  if (!body) return [];
+  const userId: unknown = body.type === 'mention' ? body.attrs?.userId : undefined;
+  const below = (body.content ?? []).flatMap(mentionedIn);
+  return typeof userId === 'string' && userId !== '' ? [userId, ...below] : below;
+}
+
+/**
+ * Whom the cards name in their properties of people (`person`, `multiPerson`):
+ * somebody a card is set to may be no member of the board any more, or be gone.
+ */
+export function assignedIds(
+  cards: readonly { fields: { properties: Record<string, unknown> } }[],
+  properties: readonly { id: string; type: string }[],
+): string[] {
+  const ofPeople = properties.filter(({ type }) => type === 'person' || type === 'multiPerson');
+  return cards.flatMap((card) =>
+    ofPeople.flatMap(({ id }) => {
+      const value = card.fields.properties[id];
+      const ids: unknown[] = Array.isArray(value) ? value : [value];
+      return ids.filter((one): one is string => typeof one === 'string' && one !== '');
+    }),
+  );
 }
 
 export const memberId = (member: { userId: string }): string => member.userId;
@@ -27,8 +63,40 @@ export class UserNames {
   readonly #pending = new WeakMap<WorkspaceInfo, Map<string, Promise<void>>>();
   readonly #answered = new WeakMap<WorkspaceInfo, Set<string>>();
 
-  constructor(workspace: Workspace) {
+  readonly #goneName: (() => string) | undefined;
+
+  /**
+   * `goneName` names somebody whose account was deleted, in the app's
+   * language. Without it they are as unknown as somebody without a name here.
+   */
+  constructor(workspace: Workspace, goneName?: () => string) {
     this.#workspace = workspace;
+    this.#goneName = goneName;
+  }
+
+  /**
+   * The name to show for a user: "Display name (@login)". Somebody whose
+   * account was deleted has none left: what they wrote stays under an
+   * identifier, and they are named as the app names a deleted user.
+   */
+  nameOf(user: User): string | undefined {
+    return isGone(user) ? this.#goneName?.() : userDisplayName(user);
+  }
+
+  /**
+   * People of the workspace whose name has `query` in it (ten at most). A failure
+   * finds nobody; a session that is over signs out.
+   */
+  async search(query: string): Promise<User[]> {
+    const workspace = this.#workspace;
+    if (!workspace.info) return [];
+    try {
+      return await workspace.backend.searchUsers(workspace.info.id, query);
+    } catch (error) {
+      if (isBackendError(error) && error.status === 401) workspace.report('load', error);
+      else if (!isBackendError(error)) console.error(error);
+      return [];
+    }
   }
 
   async learn(userIds: readonly string[], learning: Learning = {}): Promise<void> {

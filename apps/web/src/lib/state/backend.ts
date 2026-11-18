@@ -45,7 +45,9 @@ import type { WikisOfBackend } from './wiki-types.ts';
 export type {
   AcceptedInvitation,
   Account,
+  AccountDeletion,
   InvitationPreview,
+  LeavingOrganization,
   LinkedIdentity,
   LoginOptions,
   LoginOrganization,

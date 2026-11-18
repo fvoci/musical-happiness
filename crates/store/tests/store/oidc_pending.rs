@@ -326,3 +326,40 @@ async fn a_trial_ends_only_in_its_administrators_account() {
     assert_eq!(read, Some(enforced), "the provider as it was");
     assert_eq!(made, [false, false], "no session");
 }
+
+/// A trial does not end in an account that waits to be deleted, which changes nothing
+/// of its organization; back in use, it does.
+#[tokio::test]
+async fn a_trial_does_not_end_in_an_account_that_waits_to_be_deleted() {
+    let test = common::setup().await;
+    let user = person(&test).await;
+    let enforced = test
+        .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user, Duration::ZERO)
+        .await
+        .expect("stored")
+        .expect("new");
+    let pending = set_aside(&test, "next", &enforced, &user)
+        .await
+        .expect("set aside");
+    test.execute_unchecked(&format!(
+        "UPDATE users SET delete_at = 5, delete_after = 6 WHERE id = '{user}'"
+    ))
+    .await
+    .expect("the account waits");
+
+    let waiting = trial(&test, &enforced.id, pending.create_at, &user, "waiting").await;
+    let left = test.oidc_pending_provider().await.expect("read");
+    let read = test.oidc_provider().await.expect("read");
+    assert!(
+        test.cancel_account_deletion(&user, 7)
+            .await
+            .expect("taken back")
+    );
+    let back = trial(&test, &enforced.id, pending.create_at, &user, "back").await;
+    test.teardown().await;
+
+    assert_eq!(waiting.err(), Some(OidcRefusal::NotTheTrier));
+    assert_eq!(left, Some(pending), "still aside");
+    assert_eq!(read, Some(enforced), "the provider as it was");
+    assert!(back.is_ok(), "{back:?}");
+}

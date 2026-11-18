@@ -12,6 +12,7 @@ use utoipa_axum::routes;
 use super::contract::tag;
 use super::signup_cookie::{marker_of, with_marker};
 
+use super::session::AccountSession;
 use super::{ApiResult, RequiredSession, created, decode_object, no_content};
 use crate::app::App;
 use crate::client_address::ClientAddress;
@@ -117,7 +118,8 @@ pub(super) fn with_session_cookie(app: &App, token: &str, mut response: Response
 
 /// Sign out
 ///
-/// Ends the session of the request and clears its cookie.
+/// Ends the session of the request and clears its cookie. The session of an account
+/// that waits to be deleted is ended too.
 #[utoipa::path(
     post,
     path = "/logout",
@@ -129,11 +131,8 @@ pub(super) fn with_session_cookie(app: &App, token: &str, mut response: Response
         headers(("Set-Cookie" = String, description = "Clears the session cookie.")),
     )),
 )]
-async fn handle_logout(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-) -> ApiResult {
-    app.logout(&session.id).await?;
+async fn handle_logout(State(app): State<App>, account: AccountSession) -> ApiResult {
+    app.logout(&account.session.id).await?;
     let mut response = no_content();
     response
         .headers_mut()

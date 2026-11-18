@@ -87,6 +87,40 @@ export interface SignInOrganization {
   name: string;
 }
 
+/** An organization the deletion of the account is about, as the reader is told it. */
+export interface LeavingOrganization {
+  id: string;
+  /** Empty if it was given none. */
+  name: string;
+  /**
+   * How much is in it, which goes with it. Absent when the session does not
+   * open the organization: it takes its single sign-on.
+   */
+  boards?: number;
+  wikis?: number;
+  files?: number;
+}
+
+/** What deleting the reader's account comes to, as things are now. */
+export interface AccountDeletion {
+  /** The days an account waits between the asking and the deleting. */
+  graceDays: number;
+  /** What proves the account is the reader's: its password, or a sign-in made just before. */
+  proof: 'password' | 'sign_in';
+  /** The reader is the only administrator of the server: the account is not deleted. */
+  lastInstanceAdmin: boolean;
+  /**
+   * Organizations that stay and have no other administrator (those with other
+   * people, and the server's own first one): nor then.
+   */
+  soleAdminOf: { id: string; name: string }[];
+  /** The other organizations that have nobody else: they are deleted with the account. */
+  organizations: LeavingOrganization[];
+  /** When the deletion was asked for and when it is due, once it was. */
+  requestedAt?: number;
+  deleteAfter?: number;
+}
+
 /**
  * Signing in and out, where a backend has accounts: the server has, the one
  * in memory has not. Until somebody is signed in, every read of a backend
@@ -158,4 +192,20 @@ export interface Account {
    * account without a password keeps its last (409, `last_sign_in`).
    */
   unlinkIdentity(identity: LinkedIdentity, password: string): Promise<void>;
+  /**
+   * What deleting the account comes to. The one read, with `cancelDeletion`
+   * and `signOut`, that the session of an account waiting to be deleted opens.
+   */
+  deletion(): Promise<AccountDeletion>;
+  /**
+   * Asks for the account to be deleted: `username` is its name typed out,
+   * `password` its password, empty for an account that has none, which
+   * signed in through its provider just before (403, `sign_in_again`,
+   * otherwise). Every session of the account is over with the answer, which
+   * is when the account is deleted at the earliest. 409 with `last_admin` or
+   * `last_org_admin` for the only administrator.
+   */
+  requestDeletion(username: string, password: string): Promise<number>;
+  /** Takes the deletion back; the session is an ordinary one again. */
+  cancelDeletion(): Promise<void>;
 }

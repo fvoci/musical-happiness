@@ -1,5 +1,5 @@
 /** Reads a board's content and learns the names it carries beyond current membership. */
-import { authorIds, memberId } from './user-names.ts';
+import { assignedIds, authorIds, memberId } from './user-names.ts';
 import { containerOfWorkspace } from './board-parts.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
@@ -13,11 +13,11 @@ export async function readBoard(workspace: Workspace, boardId: string) {
     backend.members(boardId),
   ]);
   if (workspace.info === visit) {
-    // One request for the authors and the members together; only the members are asked again.
+    // One request for the authors, whom the cards are set to and the members together;
+    // only the members are asked again.
     const memberIds = members.map(memberId);
-    void workspace.learnUsers([board.createdBy, ...authorIds(cards), ...memberIds], {
-      members: memberIds,
-    });
+    const named = [...authorIds(cards), ...assignedIds(cards, board.cardProperties)];
+    void workspace.learnUsers([board.createdBy, ...named, ...memberIds], { members: memberIds });
   }
   return [board, views, cards, members] as const;
 }

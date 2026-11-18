@@ -798,6 +798,7 @@ impl Store {
                 );
                 sql.bind(token_hash);
                 invitations::push_live_but_for(&mut sql, now, replacing);
+                invitations::push_maker_in_use(&mut sql);
                 sql.push(IN_USE)
                     .push(&scope.same_organization(&[("i", "t")]));
                 match scope.fetch_optional(sql).await? {
@@ -890,7 +891,9 @@ fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
 
 /// The instance's own organization as `scope` reaches the organizations: the oldest
 /// non-system one in use ([`Store::instance_organization`]).
-async fn oldest_organization(scope: &mut Scope<'_>) -> Result<Option<String>, StoreError> {
+pub(crate) async fn oldest_organization(
+    scope: &mut Scope<'_>,
+) -> Result<Option<String>, StoreError> {
     let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
     sql.bind(false)
         .push_bind(" AND delete_at = ", 0_i64)
