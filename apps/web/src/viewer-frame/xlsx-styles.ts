@@ -137,6 +137,9 @@ function borderPart(
   } else if (name === 'color' && reading.side) {
     const [style] = border[reading.side];
     border[reading.side] = [style, colorOf(attributes, palette)];
+  } else if (name !== 'color') {
+    // A line not drawn (a diagonal, a range's inner lines): its colour is no side's.
+    reading.side = undefined;
   }
 }
 

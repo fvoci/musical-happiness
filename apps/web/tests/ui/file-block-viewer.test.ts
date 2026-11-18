@@ -161,14 +161,25 @@ describe('the name of a file the viewer shows', () => {
       for (const key of ['v', 'X', 'z', 'b']) expect(pressed(key, held), key).toBe(true);
     }
     expect(pressed('@', { ctrlKey: true, altKey: true })).toBe(true);
-    button?.dispatchEvent(
-      new InputEvent('beforeinput', {
+    // So are the keys an input method takes, and a dead key.
+    for (const key of ['Process', 'Dead']) expect(pressed(key), key).toBe(true);
+    expect(pressed('Unidentified', { isComposing: true })).toBe(true);
+    // What would be typed comes to the editor itself, which takes nothing while the name has the
+    // focus; once the focus is back in the text, it does.
+    const typed = (): boolean => {
+      const event = new InputEvent('beforeinput', {
         inputType: 'insertText',
-        data: ' ',
+        data: '가',
         bubbles: true,
         cancelable: true,
-      }),
-    );
+      });
+      editor.view.dom.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    button?.focus();
+    expect(typed()).toBe(true);
+    editor.view.dom.focus();
+    expect(typed()).toBe(false);
     expect(viewer.open).not.toHaveBeenCalled();
     expect(editor.getJSON()).toEqual(body);
     expect(editor.state.selection).toBeInstanceOf(NodeSelection);
@@ -232,7 +243,10 @@ describe('the viewer opened from a file block', () => {
     const editor = document.body.appendChild(document.createElement('div'));
     editor.setAttribute('contenteditable', 'true');
     editor.tabIndex = -1;
-    const button = editor.appendChild(document.createElement('button'));
+    // Opened from the editor's selected block (by Enter, or a press that selected it).
+    const block = editor.appendChild(document.createElement('div'));
+    block.className = 'ProseMirror-selectednode';
+    const button = block.appendChild(document.createElement('button'));
     expect(await view?.open('7minutes.pdf', details, () => button)).toBe(true);
     expect(viewing.file).toMatchObject({ name: '회의록 2026-11.pdf', size: 2048 });
     const signal = new AbortController().signal;
@@ -244,6 +258,11 @@ describe('the viewer opened from a file block', () => {
     viewing.close();
     expect(viewing.file).toBeUndefined();
     expect(document.activeElement).toBe(editor);
+    // Opened from the name, reached by Tab with its block not selected: back to the name.
+    block.className = '';
+    await view?.open('7minutes.pdf', details, () => button);
+    viewing.close();
+    expect(document.activeElement).toBe(button);
 
     const shownOnly = document.body.appendChild(document.createElement('button'));
     await view?.open('7minutes.pdf', details, () => shownOnly);

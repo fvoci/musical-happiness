@@ -40,7 +40,10 @@ class Viewing {
     const back = this.#back?.();
     this.forget();
     if (!back?.isConnected) return;
-    const editor = back.closest<HTMLElement>('[contenteditable="true"]');
+    // From the editor's selected block to the editor, whose selection it still is; from a name
+    // the focus was on (reached by Tab), back to the name.
+    const selected = back.closest('.ProseMirror-selectednode') !== null;
+    const editor = selected ? back.closest<HTMLElement>('[contenteditable="true"]') : null;
     (editor ?? back).focus({ preventScroll: true });
   }
 

@@ -196,13 +196,15 @@ function nameOf(
   // (WebKit would apply it where the editor's caret was before the button had the focus).
   // A shortcut of the browser's (find, print) is still the browser's, but not one a browser
   // edits by (bold, italic, underline, paste, cut, undo, redo); AltGr's characters (Ctrl with
-  // Alt) are typed.
+  // Alt) are typed, and so are the keys an input method or a dead key takes.
   button.addEventListener('keydown', (event) => {
     const shortcut = (event.ctrlKey || event.metaKey) && !event.altKey;
     const typed = event.key.length === 1 && event.key !== ' ';
+    const composed = event.isComposing || ['Process', 'Dead'].includes(event.key);
     if (
       event.key === 'Backspace' ||
       event.key === 'Delete' ||
+      composed ||
       (typed && (!shortcut || 'biuvxyz'.includes(event.key.toLowerCase())))
     ) {
       event.preventDefault();

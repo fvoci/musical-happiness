@@ -118,7 +118,6 @@ class WorkbookView implements Drawn {
 
 export const render: Render = async (bytes, place, report) => {
   const workbook = await (import.meta.env.DEV ? readHere : readInWorker)(bytes);
-  place.classList.add('xlsx-place');
   const view = new WorkbookView(workbook, place, report);
   report.sheets(workbook.sheets.map((sheet) => ({ name: sheet.name, drawings: sheet.drawings })));
   report.shown(workbook.sheets.length);

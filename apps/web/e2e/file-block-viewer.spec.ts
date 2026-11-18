@@ -14,6 +14,7 @@ import { koreanPdf } from '../tests/support/viewer-files.ts';
 
 import { boardPath } from './address.ts';
 import { openApp } from './shell.support.ts';
+import { picture } from './viewer.support.ts';
 import { nameThePage, newWiki, pageBody } from './wiki.support.ts';
 
 const NAME = '회의록 2026-11.pdf';
@@ -99,6 +100,7 @@ test('a PDF in a page opens in the viewer by its name and by Enter, and the bloc
   await expect(open).toHaveText(NAME);
   // The download stays a link of its own.
   await expect(block.getByRole('link', { name: `Download ${NAME}` })).toBeVisible();
+  await picture(page, 'file-block');
 
   // Pressed by a finger where the screen is touched, by the mouse elsewhere.
   if (hasTouch) await open.tap();
@@ -106,6 +108,7 @@ test('a PDF in a page opens in the viewer by its name and by Enter, and the bloc
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
   await expect(viewer(page).getByRole('heading', { name: NAME })).toBeVisible();
   await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 2');
+  await picture(page, 'pdf-file-block');
   await page.getByTestId('file-viewer-close').click();
   await expect(viewer(page)).toHaveCount(0);
 
@@ -117,17 +120,19 @@ test('a PDF in a page opens in the viewer by its name and by Enter, and the bloc
   await page.keyboard.press('Tab');
   await expect(open).toBeFocused();
   for (const key of ['Enter', 'Space']) {
-    await open.focus();
     await page.keyboard.press(key);
     await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
     await page.keyboard.press('Escape');
     await expect(viewer(page)).toHaveCount(0);
+    // Closed, the focus is back on the name it was opened from.
+    await expect(open).toBeFocused();
   }
-  await open.focus();
-  // Nor the browser's shortcuts that edit (WebKit would apply them where the caret was).
+  // Nor the browser's shortcuts that edit, nor text put in (WebKit would apply them where the
+  // caret was).
   for (const key of ['Backspace', 'ControlOrMeta+X', 'ControlOrMeta+V', 'ControlOrMeta+B']) {
     await page.keyboard.press(key);
   }
+  await page.keyboard.insertText('가');
   await expect(body.locator(':scope > *')).toHaveCount(lines);
   await expect(block).toHaveCount(1);
   await expect(body.getByText('Above:').last()).toHaveText('Above:');

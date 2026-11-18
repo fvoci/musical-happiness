@@ -116,6 +116,17 @@ export const FileBlock = Node.create({
               event.preventDefault();
               return true;
             },
+            // With the focus on a file's name, nothing is typed into the body: an edit comes to
+            // the editor itself, and WebKit would make it where the caret was before.
+            beforeinput: (view, event) => {
+              const focused = view.dom.ownerDocument.activeElement;
+              if (!(focused instanceof Element) || !focused.matches('button.doc-file-open')) {
+                return false;
+              }
+              if (!view.dom.contains(focused)) return false;
+              event.preventDefault();
+              return true;
+            },
           },
         },
       }),

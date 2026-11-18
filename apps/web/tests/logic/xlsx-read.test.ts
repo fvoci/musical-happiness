@@ -155,6 +155,13 @@ describe('the Korean workbook', () => {
     expect(book.borders[style(3)?.border ?? -1]?.left[0]).toBe(1);
     expect([style(1)?.horizontal, style(1)?.vertical, style(7)?.wrap]).toEqual([2, 2, true]);
   });
+
+  it("gives the colour of a line it does not draw (a diagonal) to no side's", async () => {
+    const stylesXml = `<fonts count="1"><font><sz val="11"/><name val="Arial"/></font></fonts><borders count="1"><border><left/><right/><top/><bottom style="thin"><color rgb="FF0000FF"/></bottom><diagonal style="thin"><color rgb="FFFF0000"/></diagonal></border></borders><cellXfs count="1"><xf numFmtId="0" fontId="0" borderId="0"/></cellXfs>`;
+    const xml = `<sheetData><row r="1">${cell('A1', 1)}</row></sheetData>`;
+    const book = await read(workbook({ sheets: [{ name: 'diagonal', xml }], stylesXml }));
+    expect(book.borders[0]?.bottom).toEqual([1, '#0000ff']);
+  });
 });
 
 describe('what a cell holds, and where the parts are', () => {
