@@ -893,7 +893,7 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
 }
 
 /// Stores a record of a file of the board for each name.
-async fn save_files(store: &Store, board_id: &str, names: &[&str]) {
+pub(crate) async fn save_files(store: &Store, board_id: &str, names: &[&str]) {
     for name in names {
         let file = fvoci_model::FileInfo {
             id: new_id(),
@@ -1005,108 +1005,6 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         .await
         .expect("the trash is there");
     assert_eq!(left, 0, "the heading and the block below it left the trash");
-
-    test.teardown().await;
-}
-
-/// The step of migration 42 deletes the blocks of the original's type `board` with
-/// what is below them, on the board and in the trash, and leaves the files that only
-/// they showed to be collected. The other blocks, live and in the trash, and their files
-/// stay.
-#[tokio::test]
-async fn the_board_block_step_deletes_them_with_what_is_below_them() {
-    let test = common::setup().await;
-    let user_id = common::user(&test, "migrated").await;
-    let workspace_id = common::workspace(&test).await;
-    let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
-    let board_id = &boards[0].id;
-    save_files(&test, board_id, &["42kept.png", "42gone.png"]).await;
-    let block = |block_type: &str, parent_id: &str, fields: serde_json::Value| Block {
-        id: new_id(),
-        container_id: board_id.clone(),
-        parent_id: parent_id.to_owned(),
-        block_type: BlockType::from(block_type),
-        fields: serde_json::from_value(fields).expect("the fields are a JSON object"),
-        ..Block::default()
-    };
-    let none = serde_json::json!({});
-    // A card with an attachment and a card in the trash that stay; a board block with a
-    // card below it and an attachment below that, and a board block in the trash with a
-    // card below it, that go.
-    let mut kept = [block("card", "", none.clone())];
-    common::insert_blocks(&test, &mut kept, &user_id).await;
-    let mut kept_below = [block(
-        "attachment",
-        &kept[0].id,
-        serde_json::json!({"fileId": "42kept.png"}),
-    )];
-    common::insert_blocks(&test, &mut kept_below, &user_id).await;
-    let mut trashed_card = [block("card", "", none.clone())];
-    common::insert_blocks(&test, &mut trashed_card, &user_id).await;
-    let mut legacy = [
-        block("board", "", none.clone()),
-        block("board", "", none.clone()),
-    ];
-    common::insert_blocks(&test, &mut legacy, &user_id).await;
-    let mut below = [
-        block("card", &legacy[0].id, none.clone()),
-        block("card", &legacy[1].id, none),
-    ];
-    common::insert_blocks(&test, &mut below, &user_id).await;
-    let mut further_below = [block(
-        "attachment",
-        &below[0].id,
-        serde_json::json!({"fileId": "42gone.png"}),
-    )];
-    common::insert_blocks(&test, &mut further_below, &user_id).await;
-    for trashed in [&trashed_card[0].id, &legacy[1].id] {
-        test.delete_block(trashed, &user_id)
-            .await
-            .expect("the block goes to the trash");
-    }
-    test.store.close().await;
-    common::execute_raw(
-        &test.database_connection(),
-        "INSERT INTO data_steps (name) VALUES ('board_blocks')",
-    )
-    .await;
-
-    let store = test.reconnect().await;
-    for stays in kept.iter().chain(&kept_below) {
-        store.get_block(&stays.id).await.expect("the block stays");
-    }
-    for gone in [&legacy[0], &below[0], &further_below[0]] {
-        let error = store
-            .get_block(&gone.id)
-            .await
-            .expect_err("the board block and what is below it are gone");
-        assert!(error.is_not_found(), "{error:?}");
-    }
-    let error = store
-        .undelete_block(&legacy[1].id, &user_id)
-        .await
-        .expect_err("nor in the trash");
-    assert!(error.is_not_found(), "{error:?}");
-    let collected: Vec<String> = store
-        .collect_unreferenced_files(crate::blocks::now_millis() + 3_600_000)
-        .await
-        .expect("the files no block shows are collected")
-        .into_iter()
-        .map(|file| file.stored_name)
-        .collect();
-    assert_eq!(collected, ["42gone.png"], "the gone attachment's file only");
-    store
-        .undelete_block(&trashed_card[0].id, &user_id)
-        .await
-        .expect("the card in the trash stays there and comes back");
-    store.close().await;
-    let left = common::try_execute_raw(&test.database_connection(), "DELETE FROM deleted_blocks")
-        .await
-        .expect("the trash is there");
-    assert_eq!(
-        left, 0,
-        "the board block in the trash and the card below it left"
-    );
 
     test.teardown().await;
 }

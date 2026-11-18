@@ -187,7 +187,7 @@ mod tests {
     /// The base URL cases of `Test_NewServer` in `server/web/webserver_test.go`. The
     /// listen address cases of that test are covered where the listener is created.
     #[test]
-    fn base_url_is_the_path_of_the_server_root() {
+    fn base_url_is_the_path_of_the_server_url() {
         let cases = [
             ("https://some-fake-server.com/fake-url", "/fake-url"),
             ("https://localhost:8080/fake-url", "/fake-url"),

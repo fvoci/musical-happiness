@@ -39,7 +39,7 @@
   | 11 | 보드의 속성 순서를 바꾸는 요청 | 끝 |
   | 끝 | `docs/contract-pending.md` 9절, 웹앱의 만든 타입(`contract.ts`), 묶음 전체의 리뷰, 마지막 `cargo xtask check`·`test` | 끝 |
 
-- **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다(읽지 않는 키가 없어야 한다). 키는 적힌 그대로만 맞고, 읽지 않는 키는 시작할 때 이름만 경고한다. `auth_mode`는 예약된 키다(사용자 결정, 05:04 KST). `metrics_address`는 지표를 따로 연 리스너에서 낸다(`fvoci/metrics`). S3의 키 가운데 자격이 아닌 것은 `FVOCI_FILE_STORAGE_S3_*` 환경 변수로도 받고, 자격은 `AWS_*`로만 받는다(사용자 결정 11:05 KST).
+- **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다(읽지 않는 키가 없어야 한다). 키는 적힌 그대로만 맞고, 읽지 않는 키는 시작할 때 이름만 경고한다. 값은 우리 꼴이다(`database_kind`는 `sqlite`·`postgres`, `file_storage`는 `local`·`s3`). `metrics_address`는 지표를 따로 연 리스너에서 낸다(`fvoci/metrics`). S3의 키 가운데 자격이 아닌 것은 `FVOCI_FILE_STORAGE_S3_*` 환경 변수로도 받고, 자격은 `AWS_*`로만 받는다(사용자 결정 11:05 KST).
 
 - **작업 자리.** 저장소는 `fvoci/musical-happiness`(비공개)이고 브랜치는 `master`다. 일마다 `master`에서 워크트리를 새로 만들고 끝나면 `master`에 합친다.
 - **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다. 강제 푸시는 하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않는다.** 고칠 것은 새 커밋으로 얹는다.

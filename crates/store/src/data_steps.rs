@@ -6,9 +6,10 @@ use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{BlockType, date_property_ids, rewrite_previous_date_values};
 
+use crate::db::{Dialect, Row};
 use crate::db::{Id, Param, Scope};
 use crate::error::StoreError;
-use crate::{Store, block_derived, file_refs, loose_objects, search_outbox};
+use crate::{Store, block_derived, file_refs, search_outbox};
 
 /// The step of migration 4: date values to the shape of `docs/s6-design.md` 5.7 (B).
 const DATE_VALUES: &str = "date_values";
@@ -37,11 +38,12 @@ const BOARD_TYPE: &str = "board";
 /// Returns [`StoreError::Database`] if a statement fails, and [`StoreError::Corrupt`] if
 /// stored JSON cannot be read; nothing of the failed step is kept then.
 pub(crate) async fn run(store: &Store) -> Result<(), StoreError> {
-    // The steps change what is stored, whosever it is. They name the rows of the trash
-    // and the boards by identifier alone, which since the keys of the organizations
-    // (migration 15) may name one row of each organization: each step is done once,
-    // just after the migrations of the server that brought it, on a database that
-    // holds one organization then.
+    // The steps change what is stored, whosever it is. Those of migrations 4 and 8 name
+    // the rows of the boards by identifier alone, which since the keys of the
+    // organizations (migration 15) may name one row of each organization: each is done
+    // once, just after the migrations of the server that brought it, on a database that
+    // holds one organization then. The step of migration 42 names a row by its
+    // organization and its identifier.
     store
         .system()
         .transaction(async |scope| {
@@ -88,15 +90,17 @@ async fn content_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
     for (index, block_type) in KEPT_TYPES.iter().enumerate() {
         sql.push_bind(if index == 0 { "" } else { ", " }, *block_type);
     }
-    sql.push(
+    let org = org_column(scope);
+    sql.push(&format!(
         ") UNION SELECT b.id FROM blocks AS b JOIN tree ON b.parent_id = tree.id) \
-         DELETE FROM blocks WHERE id IN (SELECT id FROM tree)",
-    );
-    let mut deleted = scope.execute(sql).await?;
+         DELETE FROM blocks WHERE id IN (SELECT id FROM tree) RETURNING {}",
+        key(org, "")
+    ));
+    let live = keys_of(&scope.fetch_all(sql).await?, org)?;
+    let mut deleted = u64::try_from(live.len()).unwrap_or(u64::MAX);
 
     // The trash keeps a block as JSON: its type is read there.
-    let org = loose_objects::org_column(scope);
-    deleted += delete_from_trash(scope, org, |block_type| {
+    deleted += delete_from_trash(scope, org, live, |block_type| {
         !KEPT_TYPES.contains(&BlockType::from(block_type).as_str())
     })
     .await?;
@@ -114,39 +118,52 @@ async fn content_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
 /// Unlike the steps before it, this one runs on a database that may hold several
 /// organizations: a block is named by its organization and its identifier.
 async fn board_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
-    let org = loose_objects::org_column(scope);
-    let (key, key_of_b) = match org {
-        Some(column) => (format!("{column}, id"), format!("b.{column}, b.id")),
-        None => ("id".to_owned(), "b.id".to_owned()),
-    };
+    let org = org_column(scope);
+    let (key, key_of_b) = (key(org, ""), key(org, "b."));
     let containers = touched_containers(scope).await?;
     // `UNION`, not `UNION ALL`: a cycle of parents ends.
-    let statement = [
-        "WITH RECURSIVE tree(",
-        &key,
-        ") AS (SELECT ",
-        &key,
-        " FROM blocks WHERE type = '",
-        BOARD_TYPE,
-        "' UNION SELECT ",
-        &key_of_b,
-        " FROM blocks AS b JOIN tree ON b.parent_id = tree.id",
-        &scope.same_organization(&[("b", "tree")]),
-        ") DELETE FROM blocks WHERE (",
-        &key,
-        ") IN (SELECT ",
-        &key,
-        " FROM tree)",
-    ]
-    .concat();
-    let sql = scope.sql(&statement);
-    let mut deleted = scope.execute(sql).await?;
-    deleted += delete_from_trash(scope, org, |block_type| block_type == BOARD_TYPE).await?;
+    let mut sql = scope.sql(&format!(
+        "WITH RECURSIVE tree({key}) AS (SELECT {key} FROM blocks WHERE type = "
+    ));
+    sql.bind(BOARD_TYPE).push(&format!(
+        " UNION SELECT {key_of_b} FROM blocks AS b JOIN tree ON b.parent_id = tree.id{}) \
+         DELETE FROM blocks WHERE ({key}) IN (SELECT {key} FROM tree) RETURNING {key}",
+        scope.same_organization(&[("b", "tree")]),
+    ));
+    let live = keys_of(&scope.fetch_all(sql).await?, org)?;
+    let mut deleted = u64::try_from(live.len()).unwrap_or(u64::MAX);
+    deleted += delete_from_trash(scope, org, live, |block_type| block_type == BOARD_TYPE).await?;
     block_derived::forget_gone_blocks(scope).await?;
     for container_id in &containers {
-        search_outbox::note_container(scope, container_id).await?;
+        search_outbox::note_container_regardless(scope, container_id).await?;
     }
     Ok(deleted)
+}
+
+/// The column that names a row's organization where the database holds several: the
+/// steps run in the system's scope, which names none.
+fn org_column(scope: &Scope<'_>) -> Option<&'static str> {
+    debug_assert!(!scope.has_org(), "the data steps run in the system's scope");
+    (scope.dialect() == Dialect::Postgres).then_some("org_id")
+}
+
+/// The columns that name a block, of the table or alias `prefix` (`""` or `"b."`).
+fn key(org: Option<&str>, prefix: &str) -> String {
+    match org {
+        Some(column) => format!("{prefix}{column}, {prefix}id"),
+        None => format!("{prefix}id"),
+    }
+}
+
+/// The blocks the rows name, as [`key`] selects them: by organization (empty where the
+/// database holds one) and identifier.
+fn keys_of(rows: &[Row], org: Option<&str>) -> Result<Vec<(String, String)>, StoreError> {
+    rows.iter()
+        .map(|row| match org {
+            Some(_) => Ok((row.id(0)?, row.id(1)?)),
+            None => Ok((String::new(), row.id(0)?)),
+        })
+        .collect()
 }
 
 /// The boards that hold a live block of the type `board`.
@@ -161,12 +178,14 @@ async fn touched_containers(scope: &mut Scope<'_>) -> Result<Vec<String>, StoreE
         .collect()
 }
 
-/// Deletes from the trash the blocks whose type `is_gone` says, with every block below
-/// them there, each organization's apart (`org`, the column that names it, where the
-/// database holds several). Returns how many went.
+/// Deletes from the trash the blocks whose type `is_gone` says and those whose parent
+/// is among `deleted` (the live blocks the step deleted, by organization and
+/// identifier), with every block below them there, each organization's apart (`org`,
+/// the column that names it, where the database holds several). Returns how many went.
 async fn delete_from_trash(
     scope: &mut Scope<'_>,
     org: Option<&str>,
+    deleted: Vec<(String, String)>,
     is_gone: impl Fn(&str) -> bool,
 ) -> Result<u64, StoreError> {
     let org_select = org.map_or_else(String::new, |column| format!(", {column}"));
@@ -186,6 +205,12 @@ async fn delete_from_trash(
         }
         children.entry((org_id, parent_id)).or_default().push(id);
     }
+    // A block deleted on its own below a live block that went goes with it: it would
+    // have nothing to come back to.
+    for parent in &deleted {
+        let below = children.get(parent).into_iter().flatten();
+        gone.extend(below.map(|child| (parent.0.clone(), child.clone())));
+    }
     let mut in_trash: HashMap<String, HashSet<String>> = HashMap::new();
     while let Some((org_id, id)) = gone.pop() {
         if in_trash
@@ -197,7 +222,7 @@ async fn delete_from_trash(
             gone.extend(below.map(|child| (org_id.clone(), child.clone())));
         }
     }
-    let mut deleted = 0;
+    let mut removed = 0;
     for (org_id, ids) in in_trash {
         let ids: Vec<String> = ids.into_iter().collect();
         for chunk in ids.chunks(500) {
@@ -208,10 +233,10 @@ async fn delete_from_trash(
             sql.push("id IN (")
                 .bind_list(chunk.iter().map(|id| Id(id)))
                 .push(")");
-            deleted += scope.execute(sql).await?;
+            removed += scope.execute(sql).await?;
         }
     }
-    Ok(deleted)
+    Ok(removed)
 }
 
 /// The identifiers of each board's date properties, live boards and those in the trash.
