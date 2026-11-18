@@ -40,7 +40,15 @@ describe('somebody whose account was deleted', () => {
     expect(await workspace.searchUsers(before)).toEqual([]);
 
     await workspace.learnUsers([otherId]);
-    expect(workspace.user(otherId)).toMatchObject({ username: '', displayName: '', email: '' });
+    // Nor when the account came or went: the name tells it, not a time.
+    expect(workspace.user(otherId)).toMatchObject({
+      username: '',
+      displayName: '',
+      email: '',
+      createAt: 0,
+      updateAt: 0,
+      deleteAt: 0,
+    });
     expect(workspace.userName(otherId)).toBe('Deleted user');
     // On no board any more.
     for (const members of world.members.values()) {

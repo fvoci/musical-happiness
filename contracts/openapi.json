@@ -4408,12 +4408,12 @@
         "description": "A user account.\n\nThe JSON form carries only the public members. The email address, password hash and\nthe other authentication members are never serialized and are ignored when decoding.",
         "properties": {
           "createAt": {
-            "description": "Creation time in milliseconds since the Unix epoch.",
+            "description": "Creation time in milliseconds since the Unix epoch; zero for a deleted account\n(an empty `username`).",
             "format": "int64",
             "type": "integer"
           },
           "deleteAt": {
-            "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
+            "description": "When the account was put out of use (deactivated, or its deletion asked), in\nmilliseconds since the Unix epoch; zero for one in use, and for a deleted account,\nwhich an empty `username` tells.",
             "format": "int64",
             "type": "integer"
           },
@@ -4430,7 +4430,7 @@
             "type": "boolean"
           },
           "updateAt": {
-            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "description": "Last modification time in milliseconds since the Unix epoch; zero for a deleted\naccount.",
             "format": "int64",
             "type": "integer"
           },
@@ -6518,7 +6518,7 @@
     },
     "/api/v1/password-reset/complete": {
       "post": {
-        "description": "Consumes a reset token before its one-hour expiry and sets the new password.\nAll of the account's sessions and WebSocket connections end, and so do its other\nreset links, as they do when the password is changed or set by an operator. The sign-in\nlock of the account, at its user name and its email, ends, and so does the wait of the\naddress that finished the reset. A missing, expired or already used token answers the\nsame 400, naming `token` in `errors`.",
+        "description": "Consumes a reset token before its one-hour expiry and sets the new password.\nAll of the account's sessions and WebSocket connections end, and so do its other\nreset links, as they do when the password is changed or set by an operator. The sign-in\nlock of the account, at its user name and its email, ends, and so does the wait of the\naddress that finished the reset. An account that waits to be deleted waits still:\nsigning in with the new password shows the way back (`getAccountDeletion`), and\ntaking the deletion back is the person's own act there. A missing, expired or already\nused token answers the same 400, naming `token` in `errors`, and so does the token of\nan account whose erasing began.",
         "operationId": "completePasswordReset",
         "requestBody": {
           "content": {
@@ -6556,7 +6556,7 @@
     },
     "/api/v1/password-reset/request": {
       "post": {
-        "description": "Answers 204 with an empty body for an existing account, an absent account and\nan account without a password. Lookup and delivery run in the background;\nthe request never waits for either. Accounts without passwords receive no mail.\nRequests are limited by address only, with the login setting of attempts per minute\nand a separate counter (429); never by email. An account is sent at most\n`mail_reset_per_account_hour` messages an hour: more requests are answered the same\nand send nothing. A server that sends no mail answers 404.",
+        "description": "Answers 204 with an empty body for an existing account, an absent account and\nan account without a password. Lookup and delivery run in the background;\nthe request never waits for either. Accounts without passwords receive no mail. An\naccount that waits to be deleted is sent a link as one in use is, so that its person\nmay sign in and take the deletion back; one whose erasing began, or that was erased,\nis sent none (a message already on its way as the erasing begins carries a link that\nsets nothing).\nRequests are limited by address only, with the login setting of attempts per minute\nand a separate counter (429); never by email. An account is sent at most\n`mail_reset_per_account_hour` messages an hour: more requests are answered the same\nand send nothing. A server that sends no mail answers 404.",
         "operationId": "requestPasswordReset",
         "requestBody": {
           "content": {
@@ -12966,7 +12966,7 @@
         ]
       },
       "post": {
-        "description": "The users with the identifiers of the body that the user sees in the workspace, each\nonce; the body names at least one and at most 200: an empty list, or a longer one,\nis 400. An identifier of\nsomebody the user does not see finds nothing, as one of nobody: the answer does not\ntell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or\nlast changed a card, block or comment of a board of the workspace they read, also\nafter leaving the workspace. Oldest account first, not in the order of the request.\n\nAn account that was deleted is answered to whoever asks by its identifier, seen\nbefore or not, as what is left of it: the identifier and an empty `username`,\n`email` and `displayName`. The empty `username` is what tells it: a page shows a\ndeleted user where it wrote or is mentioned. Its times are answered as they are:\n`createAt`, `updateAt` (when it was erased) and `deleteAt` (when its deletion was\nasked, or ordered). `deleteAt` is not zero either for a writer whose account waits\nto be deleted, who is answered as they are, with their name.",
+        "description": "The users with the identifiers of the body that the user sees in the workspace, each\nonce; the body names at least one and at most 200: an empty list, or a longer one,\nis 400. An identifier of\nsomebody the user does not see finds nothing, as one of nobody: the answer does not\ntell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or\nlast changed a card, block or comment of a board of the workspace they read, also\nafter leaving the workspace. Oldest account first, not in the order of the request:\nby `createAt`, then by identifier.\n\nAn account that was deleted is answered to whoever asks by its identifier, seen\nbefore or not, as what is left of it: the identifier, an empty `username`, `email`\nand `displayName`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of\nthe account is answered, neither when it went nor when it was asked to (the\nidentifier is kept as it was made). The empty `username` is what tells it, not a\ntime: a page shows a deleted user where it wrote or is mentioned.\n`deleteAt` is not zero for a writer whose account waits to be deleted, who is\nanswered as they are, with their name.",
         "operationId": "getWorkspaceUsersById",
         "parameters": [
           {
