@@ -3,7 +3,8 @@
  *
  * The frame is a document without an origin of its own (`sandbox` without
  * `allow-same-origin`) and without the network. The app hands it a file's
- * bytes and a few commands; the frame answers with what the app shows around
+ * bytes, the few words of its own it may show (`Labels`) and a few commands;
+ * the frame answers with what the app shows around
  * it: how many pages there are, which one is in view, that it failed, and the
  * keys the reader pressed while the frame had the focus. Nothing else crosses.
  *
@@ -34,8 +35,27 @@ export const PAGE_LIMIT = 100_000;
 export const ZOOM_MIN = 0.25;
 export const ZOOM_MAX = 4;
 
+/**
+ * The words the frame may show of its own, in the app's language: the frame
+ * loads none of the app's messages.
+ */
+export interface Labels {
+  /** In the box of a chart that is not drawn (a PowerPoint deck's). */
+  chart: string;
+}
+
+/** The longest a label may be. */
+export const LABEL_LIMIT = 200;
+
 export type ToFrame =
-  | { kind: 'open'; format: FormatId; bytes: ArrayBuffer; theme: Theme; lang: string }
+  | {
+      kind: 'open';
+      format: FormatId;
+      bytes: ArrayBuffer;
+      theme: Theme;
+      lang: string;
+      labels: Labels;
+    }
   | { kind: 'page'; page: number }
   | { kind: 'zoom'; zoom: number }
   | { kind: 'theme'; theme: Theme };
@@ -66,6 +86,14 @@ const isTheme = (value: unknown): value is Theme => value === 'light' || value =
 /** A language tag such as `ko` or `pt-BR`. */
 const isLanguage = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8}){0,3}$/.test(value);
+
+const isLabel = (value: unknown): value is string =>
+  typeof value === 'string' && value !== '' && value.length <= LABEL_LIMIT;
+
+function readLabels(data: unknown): Labels | undefined {
+  const chart = exactly(data, ['chart'])?.chart;
+  return isLabel(chart) ? { chart } : undefined;
+}
 
 const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T =>
   typeof value === 'string' && (list as readonly string[]).includes(value);
@@ -104,11 +132,13 @@ export function readFromFrame(data: unknown): FromFrame | undefined {
 export function readToFrame(data: unknown): ToFrame | undefined {
   switch (kindOf(data)) {
     case 'open': {
-      const fields = exactly(data, ['kind', 'format', 'bytes', 'theme', 'lang']);
+      const fields = exactly(data, ['kind', 'format', 'bytes', 'theme', 'lang', 'labels']);
       if (!fields || !isFormatId(fields.format) || !isTheme(fields.theme)) return undefined;
       if (!(fields.bytes instanceof ArrayBuffer) || !isLanguage(fields.lang)) return undefined;
+      const labels = readLabels(fields.labels);
+      if (!labels) return undefined;
       const { format, bytes, theme, lang } = fields;
-      return { kind: 'open', format, bytes, theme, lang };
+      return { kind: 'open', format, bytes, theme, lang, labels };
     }
     case 'page': {
       const page = exactly(data, ['kind', 'page'])?.page;

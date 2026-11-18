@@ -16,13 +16,12 @@ import { setDisplaySettings } from '../display.svelte.ts';
 import { DEFAULT_ACCOUNT_SETTINGS } from '../logic/account-settings.ts';
 import { resolveRegional, type Regional } from '../logic/regional.ts';
 import { UndoManager } from '../logic/undo.ts';
-import { userDisplayName } from '../logic/users.ts';
 import { createBoard as createEmptyBoard, type Container } from '../logic/wire.ts';
 import { browserTimeZone, setRegionalSettings } from '../regional.ts';
 
 import {
   isBackendError,
-  isSignedOut,
+  sessionOver,
   type AccountSettings,
   type AccountSettingsPatch,
   type Backend,
@@ -44,7 +43,8 @@ import * as entry from './workspace-entry.ts';
 import { reread } from './write.ts';
 
 /** `signedOut`: the backend has accounts and nobody is signed in (401). */
-export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut';
+/** `leaving`: the account waits to be deleted, and its session opens only taking that back. */
+export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut' | 'leaving';
 
 /** Something a write or a read failed with, for the reader to be told. */
 export interface Problem {
@@ -65,6 +65,8 @@ export interface WorkspaceOptions {
    * one: entered when `load` is not told which.
    */
   lastWorkspace?: (userId: string) => string | undefined;
+  /** How somebody whose account was deleted is named, in the app's language (`UserNames`). */
+  goneUserName?: () => string;
 }
 
 const DEFAULT_SETTINGS: AccountSettings = DEFAULT_ACCOUNT_SETTINGS;
@@ -130,6 +132,7 @@ export class Workspace {
     this.backend = options.backend;
     this.#locale = options.locale;
     this.#lastWorkspace = options.lastWorkspace;
+    this.#userNames = new UserNames(this, options.goneUserName);
     this.undo.onStateDidChange = () => {
       this.canUndo = this.undo.canUndo;
       this.canRedo = this.undo.canRedo;
@@ -145,10 +148,10 @@ export class Workspace {
     return this.#usersById[userId];
   }
 
-  /** The name to show for a user ("Display name (@login)"); undefined for someone unknown. */
+  /** The name to show for a user (`UserNames.nameOf`); undefined for someone unknown. */
   userName(userId: string): string | undefined {
     const user = this.#usersById[userId];
-    return user ? userDisplayName(user) : undefined;
+    return user && this.#userNames.nameOf(user);
   }
 
   /**
@@ -175,8 +178,9 @@ export class Workspace {
       else await this.#enter(chosen);
       this.status = 'ready';
     } catch (error) {
-      if (isSignedOut(error)) {
-        this.#signedOut();
+      const over = sessionOver(error);
+      if (over) {
+        this.#over(over);
         return;
       }
       this.status = 'failed';
@@ -245,12 +249,12 @@ export class Workspace {
   }
 
   /**
-   * The session is over. Nothing listens any more (a connection without a
-   * session hears nothing, and would only be opened again and again):
-   * signing in reads afresh, or starts the page again.
+   * The session is over, or opens nothing (`sessionOver`). Nothing listens any
+   * more (a connection without a session hears nothing, and would only be
+   * opened again and again): signing in reads afresh, or starts the page again.
    */
-  #signedOut(): void {
-    this.status = 'signedOut';
+  #over(status: 'signedOut' | 'leaving'): void {
+    this.status = status;
     this.close();
   }
 
@@ -353,8 +357,9 @@ export class Workspace {
       return;
     }
     // The session is over (it went idle, or past its end): sign in again.
-    if (isSignedOut(error)) {
-      this.#signedOut();
+    const over = sessionOver(error);
+    if (over) {
+      this.#over(over);
       return;
     }
     this.#problemCount += 1;
@@ -369,7 +374,7 @@ export class Workspace {
     this.problems = this.problems.filter((problem) => problem.id !== id);
   }
 
-  readonly #userNames = new UserNames(this);
+  readonly #userNames: UserNames;
 
   /**
    * Reads the people among `userIds` the workspace has no name for yet: the
@@ -385,16 +390,8 @@ export class Workspace {
    * People of the workspace whose name has `query` in it (ten at most). A failure
    * finds nobody; a session that is over signs out.
    */
-  async searchUsers(query: string): Promise<User[]> {
-    const workspace = this.info;
-    if (!workspace) return [];
-    try {
-      return await this.backend.searchUsers(workspace.id, query);
-    } catch (error) {
-      if (isBackendError(error) && error.status === 401) this.report('load', error);
-      else if (!isBackendError(error)) console.error(error);
-      return [];
-    }
+  searchUsers(query: string): Promise<User[]> {
+    return this.#userNames.search(query);
   }
 
   // ----------------------------------------------------------- settings

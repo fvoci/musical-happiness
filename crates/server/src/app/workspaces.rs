@@ -156,7 +156,7 @@ impl App {
     }
 
     /// The application behind the wall of the organization the store named.
-    fn in_organization(&self, org_id: &str) -> Result<Self, AppError> {
+    pub(crate) fn in_organization(&self, org_id: &str) -> Result<Self, AppError> {
         // What the store answered is an identifier; one that is none is the server's
         // fault, not the request's.
         let tenant = Tenant::org(org_id).map_err(|error| {

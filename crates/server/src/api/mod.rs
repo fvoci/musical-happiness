@@ -4,6 +4,7 @@
 //! `routes()` function, and [`router`] puts them together.
 
 mod access;
+mod account_deletion;
 mod admin;
 mod archive;
 mod auth;
@@ -115,6 +116,7 @@ struct Routes {
 /// Every route under [`PREFIX`]. The router and the contract are both made from this.
 fn routes() -> Routes {
     let json = OpenApiRouter::new()
+        .merge(account_deletion::routes())
         .merge(archive::routes())
         .merge(auth::routes())
         .merge(blocks::routes())

@@ -445,3 +445,17 @@ export function ageSessions(baseURL: string, minutes: number): void {
     database.close();
   }
 }
+
+/** A message the server's fake SMTP received. */
+export interface Mail {
+  recipient: string;
+  decoded: string;
+}
+
+/** What the server's fake SMTP received, from its inbox three ports up. */
+export async function inbox(baseURL: string): Promise<Mail[]> {
+  const url = new URL(baseURL);
+  url.port = String(Number(url.port) + 3);
+  const response = await fetch(new URL('/messages', url));
+  return (await response.json()) as Mail[];
+}

@@ -7,24 +7,13 @@ import {
   boardPath,
   makeBoard,
   apiClient,
+  inbox,
   person,
   register,
   signedIn,
   signInOnPage,
   watchErrors,
 } from './support.ts';
-
-interface Mail {
-  recipient: string;
-  decoded: string;
-}
-
-export async function inbox(baseURL: string): Promise<Mail[]> {
-  const url = new URL(baseURL);
-  url.port = String(Number(url.port) + 3);
-  const response = await fetch(new URL('/messages', url));
-  return (await response.json()) as Mail[];
-}
 
 export async function mailShot(page: Page, name: string): Promise<void> {
   if (process.env.FVOCI_SCREENS !== '1') return;

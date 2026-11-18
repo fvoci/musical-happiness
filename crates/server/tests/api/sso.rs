@@ -447,6 +447,10 @@ async fn the_administration_socket_releases_an_organization() {
 /// session, or read a board or wiki by its public link, which asks for none: what a session
 /// that does not open the organization still does.
 const OPEN_TO_ANY_SESSION: &[&str] = &[
+    // Deleting the account is the account's own, and so is leaving an organization by
+    // it. An organization that would go with the account is asked for
+    // (`account_deletion::an_organization_behind_the_wall_does_not_go_by_a_password`).
+    "cancelAccountDeletion",
     "changePassword",
     // Confirming a registration's address asks for no session: there is no account yet.
     "completeEmailVerification",
@@ -457,6 +461,7 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "finishHeldOidcLogin",
     "finishOidcLogin",
     "getClientConfig",
+    "getAccountDeletion",
     "getClientState",
     "getLoginOptions",
     "getMe",
@@ -484,6 +489,7 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "previewInvitation",
     "ready",
     "register",
+    "requestAccountDeletion",
     "requestEmailVerification",
     "requestPasswordReset",
     "startOidcCarryOver",

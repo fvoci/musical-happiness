@@ -6,6 +6,8 @@ use serde_json::{Value, json};
 use crate::common::{Client, PASSWORD, Setup};
 use crate::rooms::{Incoming, PATIENCE, paragraphs, two_in_a_room};
 
+const DELETION: &str = "/users/me/deletion";
+
 #[tokio::test]
 async fn reset_links_end_sessions_and_collaborative_rooms_and_cannot_be_replayed() {
     let th = Setup::native().start().await.init_basic().await;
@@ -313,4 +315,186 @@ async fn second_and_third(
         .await
         .expect("a member of the second");
     made
+}
+
+/// The link of a reset mail, and its token.
+fn reset_token(mail: &crate::fake_smtp::Received) -> String {
+    let link = mail
+        .decoded
+        .lines()
+        .find(|line| line.starts_with("http") && line.contains("/reset-password#"))
+        .expect("the mail has the link");
+    link.split_once('#')
+        .expect("a fragment")
+        .1
+        .trim()
+        .to_owned()
+}
+
+/// Somebody who asked to delete their account and forgot the password asks for a reset
+/// by mail, sets a new one, and signs in with it to the way back: the account waits
+/// still, until its person takes the deletion back there. The guesses that locked the
+/// account before lock it no more.
+#[tokio::test]
+async fn an_account_that_waits_resets_its_password_and_signs_in_to_the_way_back() {
+    use crate::common::USER2_USERNAME;
+    use crate::fake_smtp::FakeSmtp;
+
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .configure(|config| {
+            config.login_account_max_failures = 2;
+            config.login_account_lock_seconds = 600;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let asked: Value = th
+        .client2
+        .post(
+            DELETION,
+            &json!({"username": USER2_USERNAME, "password": PASSWORD}),
+        )
+        .await
+        .ok_json();
+    for _ in 0..2 {
+        th.anonymous()
+            .login(USER2_USERNAME, "a forgotten password")
+            .await
+            .check_unauthorized();
+    }
+    th.anonymous()
+        .login(USER2_USERNAME, PASSWORD)
+        .await
+        .check_status(StatusCode::TOO_MANY_REQUESTS);
+    th.anonymous()
+        .post(
+            "/password-reset/request",
+            &json!({"email": "user2@sample.com"}),
+        )
+        .await
+        .check_no_content();
+    let mail = smtp.received(1).await;
+    assert_eq!(mail[0].recipient, "user2@sample.com");
+    th.anonymous()
+        .post(
+            "/password-reset/complete",
+            &json!({"token": reset_token(&mail[0]), "password": "New-password-1"}),
+        )
+        .await
+        .check_no_content();
+
+    // Unlocked, the new password signs in, and the old one no more.
+    let back = th.login(USER2_USERNAME, "New-password-1").await;
+    th.anonymous()
+        .login(USER2_USERNAME, PASSWORD)
+        .await
+        .check_unauthorized();
+    let me = back.get("/users/me").await;
+    me.check_unauthorized();
+    assert_eq!(
+        me.error_reason(),
+        "account_deletion_pending",
+        "{}",
+        me.text()
+    );
+    let waiting: Value = back.get(DELETION).await.ok_json();
+    assert_eq!(
+        waiting["deleteAfter"], asked["deleteAfter"],
+        "the reset took nothing back: {waiting}"
+    );
+    back.delete(DELETION)
+        .await
+        .check_status(StatusCode::NO_CONTENT);
+    back.get("/users/me").await.check_ok();
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+/// The operator's reset link reaches an account that waits to be deleted, and an
+/// account whose erasing began gets none: neither a new link, by the operator or by
+/// mail, nor anything of one made before it began.
+#[tokio::test]
+async fn an_account_being_erased_gets_no_reset_and_an_earlier_link_sets_nothing() {
+    use crate::common::USER2_USERNAME;
+    use crate::fake_smtp::FakeSmtp;
+
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let user2 = th.client2.me().await.id;
+    th.client2
+        .post(
+            DELETION,
+            &json!({"username": USER2_USERNAME, "password": PASSWORD}),
+        )
+        .await
+        .check_ok();
+    let url = th
+        .app
+        .password_reset_link(USER2_USERNAME)
+        .await
+        .expect("a link for an account that waits");
+    let token = url.split_once('#').expect("a fragment").1.to_owned();
+
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE users SET erase_started_at = 1 WHERE id = '{user2}'"
+        ))
+        .await
+        .expect("its erasing began");
+    let refused = th.app.password_reset_link(USER2_USERNAME).await;
+    assert_eq!(
+        refused
+            .as_ref()
+            .map_err(fvoci_server::error::AppError::status)
+            .err(),
+        Some(404),
+        "no link: {refused:?}"
+    );
+    let stored = th
+        .app
+        .store()
+        .create_password_reset(&user2, "a-digest", fvoci_server::auth::now_millis())
+        .await
+        .expect("asked");
+    assert!(!stored, "nor one stored");
+    // Nor one by mail: asked for first, it is not the message that comes.
+    for email in ["user2@sample.com", "user1@sample.com"] {
+        th.anonymous()
+            .post("/password-reset/request", &json!({ "email": email }))
+            .await
+            .check_no_content();
+    }
+    let mail = smtp.received(1).await;
+    assert_eq!(mail[0].recipient, "user1@sample.com", "user1's alone");
+    th.anonymous()
+        .post(
+            "/password-reset/complete",
+            &json!({"token": token, "password": "New-password-1"}),
+        )
+        .await
+        .check_error(
+            StatusCode::BAD_REQUEST,
+            "the reset link is invalid or expired",
+        );
+    // The password is as it was: put back as if the erasing had not begun, the old one
+    // signs in.
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE users SET erase_started_at = 0 WHERE id = '{user2}'"
+        ))
+        .await
+        .expect("as if it had not begun");
+    th.login(USER2_USERNAME, PASSWORD).await;
+    th.teardown().await;
+    smtp.stop().await;
 }

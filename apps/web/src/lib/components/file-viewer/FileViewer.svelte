@@ -1,6 +1,6 @@
 <!--
-  A file shown in the app instead of downloaded: a PDF or a Word document,
-  drawn in a frame that has no origin and no network
+  A file shown in the app instead of downloaded: a PDF, a Word document or a
+  PowerPoint deck (its slides are its pages), drawn in a frame that has no origin and no network
   (lib/file-viewer/session.svelte.ts, src/viewer-frame/).
 
   A dialog over the page on a wide screen, the whole screen on a narrow one.
@@ -61,6 +61,11 @@
   const compact = $derived(page.stage === 'compact');
   const status = $derived(session.status);
   const framed = $derived(status.name === 'opening' || status.name === 'shown');
+  /** A deck's pages are its slides, and are called so. */
+  const slides = $derived(status.name === 'shown' && status.format === 'pptx');
+  const pageLabel = $derived(
+    (slides ? m.viewer_slide : m.viewer_page)({ page: session.page, pages: session.pages }),
+  );
 
   closeOnBack(
     () => true,
@@ -218,13 +223,13 @@
 
     <!-- In the page from the start, so that the first page is announced as well as the next. -->
     <p class="sr-only" aria-live="polite" data-testid="file-viewer-announce">
-      {status.name === 'shown' ? m.viewer_page({ page: session.page, pages: session.pages }) : ''}
+      {status.name === 'shown' ? pageLabel : ''}
     </p>
 
     {#if status.name === 'shown'}
       <footer class="flex min-h-12 items-center justify-center gap-1 border-t p-1">
         <IconButton
-          label={m.viewer_previous_page()}
+          label={slides ? m.viewer_previous_slide() : m.viewer_previous_page()}
           disabled={session.page <= 1}
           onclick={() => {
             session.goTo(session.page - 1);
@@ -234,10 +239,10 @@
         </IconButton>
         <p class="min-w-16 text-center text-sm tabular-nums" data-testid="file-viewer-page">
           <span aria-hidden="true">{session.page} / {session.pages}</span>
-          <span class="sr-only">{m.viewer_page({ page: session.page, pages: session.pages })}</span>
+          <span class="sr-only">{pageLabel}</span>
         </p>
         <IconButton
-          label={m.viewer_next_page()}
+          label={slides ? m.viewer_next_slide() : m.viewer_next_page()}
           disabled={session.page >= session.pages}
           onclick={() => {
             session.goTo(session.page + 1);

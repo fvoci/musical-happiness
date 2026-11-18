@@ -202,6 +202,18 @@ fn describe_reason(reason: Reason) -> &'static str {
             "Status 409. The change would leave the board, the workspace or the server \
              without an administrator. Make somebody else one first."
         }
+        Reason::AccountDeletionPending => {
+            "Status 401, with a session that is good: its account was asked to be deleted \
+             and waits. Every operation answers so but `getAccountDeletion`, which says \
+             until when it waits, `cancelAccountDeletion`, which puts the account in use \
+             again as it was, and `logout`."
+        }
+        Reason::SignInAgain => {
+            "Status 403, asking to delete an account that has no password \
+             (`requestAccountDeletion`): the session was not made through a provider in \
+             the last five minutes. Sign in through the provider again (`startOidcLogin`) \
+             and send the request from the session that comes of it."
+        }
         Reason::AdminRequired => "Status 403. Only an administrator of the server may do this.",
         Reason::TeamSelfJoining => {
             "Status 403. While joined as organization administrator, you cannot add yourself to a team. Another workspace administrator may add you. Direct board roles end with the administrative joining."
@@ -401,7 +413,12 @@ fn describe_organization(reason: Reason) -> Option<&'static str> {
         }
         Reason::LastOrgAdmin => {
             "Status 409. The change would leave the organization without an administrator. \
-             Make somebody else one first."
+             Make somebody else one first. From `requestAccountDeletion`: the account is \
+             the only administrator of an organization that has other people in it, or \
+             of the server's own first organization, and `orgId` names that organization, \
+             the first by identifier if there are several (`getAccountDeletion` lists \
+             them all). Another organization that has nobody else does not stand in the \
+             way: it goes with the account."
         }
         Reason::PublicLinksOff => {
             "Status 403. The organization has turned its public links off: no board of it is \

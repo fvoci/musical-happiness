@@ -76,6 +76,11 @@
     onStartAnew?: (orgId: string) => Promise<void>;
     /** Where "Forgot your password?" leads; the link shows only while the server sends mail. */
     forgotHref?: string;
+    /**
+     * The page was started by asking for the account's deletion: the days the
+     * account waits, said above the form, for the sign-out is not unexplained.
+     */
+    leavingDays?: number;
   }
 
   let {
@@ -87,6 +92,7 @@
     onCarryOver,
     onStartAnew,
     forgotHref,
+    leavingDays,
   }: Props = $props();
 
   /** What the page's address says: the organization, and what went wrong. */
@@ -367,6 +373,10 @@
 
       {#if problem}
         <p class="text-sm text-destructive" role="alert">{problem}</p>
+      {:else if leavingDays !== undefined && mode === 'signIn'}
+        <p class="text-sm text-muted-foreground" role="status" data-testid="account-leaving-asked">
+          {m.account_delete_asked({ days: leavingDays })}
+        </p>
       {/if}
       {#if unconfirmed !== undefined && onResend}
         {@const named = unconfirmed}

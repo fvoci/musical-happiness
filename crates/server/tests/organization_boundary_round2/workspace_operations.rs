@@ -359,7 +359,7 @@ fn comparable_response(value: &Value, field: &str, founder: &str) -> Value {
         return json!("<instance-role>");
     }
     match value {
-        Value::Number(_) if field.ends_with("At") => json!("<time>"),
+        Value::Number(_) if field.ends_with("At") || field == "deleteAfter" => json!("<time>"),
         Value::String(text)
             if uuid::Uuid::try_parse(text).is_ok()
                 || matches!(
