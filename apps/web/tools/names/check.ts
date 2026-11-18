@@ -21,15 +21,27 @@ import { EXCEPTIONS, checkFile, parseExceptions, staleExceptions } from './works
 
 const WEB_ROOT = path.resolve(import.meta.dirname, '../..');
 
-/** The files git tracks or would track; none when git cannot say. */
+/**
+ * The files git tracks or would track; none when git cannot say. The paths are
+ * asked for as they are written, ended by a NUL: listed by lines, git quotes a
+ * path that has a letter outside ASCII, and the quoted path names no file.
+ */
 function filesOfGit(): string[] {
   try {
-    return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
-      cwd: WEB_ROOT,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-      .split('\n')
+    return execFileSync(
+      'git',
+      [
+        '-c',
+        'core.quotePath=false',
+        'ls-files',
+        '-z',
+        '--cached',
+        '--others',
+        '--exclude-standard',
+      ],
+      { cwd: WEB_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+      .split('\0')
       .filter((file) => file !== '');
   } catch {
     return [];

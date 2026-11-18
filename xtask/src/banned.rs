@@ -76,7 +76,7 @@ impl Words {
     }
 
     /// Whether a run of lowercase letters holds a banned word.
-    fn are_in_run(&self, run: &str) -> bool {
+    fn any_in_run(&self, run: &str) -> bool {
         if run.is_empty() {
             return false;
         }
@@ -131,7 +131,7 @@ impl<'words> Reading<'words> {
         if self.clean.contains(run) {
             return false;
         }
-        if self.words.are_in_run(&run.to_lowercase()) {
+        if self.words.any_in_run(&run.to_lowercase()) {
             return true;
         }
         self.clean.insert(run.to_owned());
@@ -146,18 +146,10 @@ impl<'words> Reading<'words> {
 /// Fails on what it finds, and if git cannot list the files or one cannot be read.
 pub(crate) fn run(root: &Path) -> Result<()> {
     let words = Words::parse(&BANNED)?;
-    let files = names::tracked_files(root)?;
-    let mut reading = Reading::new(&words);
-    let mut hits = Vec::new();
-    for file in &files {
-        let text =
-            names::tracked_text(&root.join(file)).with_context(|| format!("reading {file}"))?;
-        hits.extend(check_file(file, &text, &mut reading));
-    }
+    let Found { files, hits } = find(root, &words)?;
     if hits.is_empty() {
         steps::say(&format!(
-            "    no banned word in the {} files, nor in their paths",
-            files.len()
+            "    no banned word in the {files} files, nor in their paths"
         ));
         return Ok(());
     }
@@ -166,6 +158,31 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     }
     steps::say("    these hold a banned word (xtask/src/banned.rs): say it in our own words");
     bail!("{} places have a banned word", hits.len())
+}
+
+/// What a reading of the files under a root found.
+#[derive(Debug)]
+struct Found {
+    /// How many files were read.
+    files: usize,
+    /// The places that hold a word, as [`check_file`] writes them.
+    hits: Vec<String>,
+}
+
+/// Reads every file git tracks or would track under `root`, and its path, for `words`.
+fn find(root: &Path, words: &Words) -> Result<Found> {
+    let files = names::tracked_files(root)?;
+    let mut reading = Reading::new(words);
+    let mut hits = Vec::new();
+    for file in &files {
+        let text =
+            names::tracked_text(&root.join(file)).with_context(|| format!("reading {file}"))?;
+        hits.extend(check_file(file, &text, &mut reading));
+    }
+    Ok(Found {
+        files: files.len(),
+        hits,
+    })
 }
 
 /// The hits of one file: `path: in its name`, then `path:line` for each line.
@@ -185,12 +202,12 @@ fn check_file(file: &str, text: &str, reading: &mut Reading<'_>) -> Vec<String> 
 /// The 32 bytes that 64 hexadecimal digits write.
 fn digest_of_hexadecimal(hexadecimal: &str) -> Result<Digest> {
     let mut digest = [0_u8; 32];
+    // Every digit is one byte, so the pairs below are cut between letters.
     if hexadecimal.len() != 64 || !hexadecimal.is_ascii() {
         bail!("a digest is 64 hexadecimal digits: {hexadecimal}");
     }
-    for (byte, pair) in digest.iter_mut().zip(hexadecimal.as_bytes().chunks(2)) {
-        let pair = std::str::from_utf8(pair).context("the digits are ASCII")?;
-        *byte = u8::from_str_radix(pair, 16)
+    for (index, byte) in digest.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hexadecimal[index * 2..index * 2 + 2], 16)
             .with_context(|| format!("a digest is 64 hexadecimal digits: {hexadecimal}"))?;
     }
     Ok(digest)
@@ -199,8 +216,20 @@ fn digest_of_hexadecimal(hexadecimal: &str) -> Result<Digest> {
 #[cfg(test)]
 mod tests {
     use std::fmt::Write as _;
+    use std::process::Command;
 
     use super::*;
+    use crate::files::testing;
+
+    /// Runs git in `root` and fails the test if git does.
+    fn git(root: &Path, arguments: &[&str]) {
+        let status = Command::new("git")
+            .args(arguments)
+            .current_dir(root)
+            .status()
+            .expect("git runs");
+        assert!(status.success(), "git {arguments:?} succeeds");
+    }
 
     /// The list that bans the given words, written as [`BANNED`] is.
     fn banning(banned: &[&str]) -> Words {
@@ -276,6 +305,35 @@ mod tests {
         assert_eq!(
             check_file("docs/notes.md", "our notes\n", &mut reading),
             Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn every_file_git_lists_is_read_whatever_its_name_and_a_gone_one_by_its_name() {
+        let words = banning(&["gadget", "가나다라"]);
+        let root = testing::scratch("banned-find");
+        testing::write(&root, "plain.md", "our notes\n");
+        testing::write(&root, "notes/held.md", "our notes\nonce a Gadget\n");
+        testing::write(&root, "기록/옛가나다라.md", "our notes\n");
+        testing::write(&root, "기록/글.md", "첫 줄\n\n가나다라의 글\n");
+        testing::write(&root, "gone-gadget.md", "our notes\n");
+        std::os::unix::fs::symlink("notes/gadgets", root.join("link")).expect("the link is made");
+        git(&root, &["init", "--quiet"]);
+        git(&root, &["add", "gone-gadget.md"]);
+        std::fs::remove_file(root.join("gone-gadget.md")).expect("the file is removed");
+
+        let found = find(&root, &words).expect("the files are read");
+
+        assert_eq!(found.files, 6);
+        assert_eq!(
+            found.hits,
+            [
+                "gone-gadget.md: in its name",
+                "link:1",
+                "notes/held.md:2",
+                "기록/글.md:3",
+                "기록/옛가나다라.md: in its name",
+            ]
         );
     }
 

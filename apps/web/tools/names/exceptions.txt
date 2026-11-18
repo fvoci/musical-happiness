@@ -1,4 +1,4 @@
-# Where the name the original gives the workspace stays in the web app, and why
+# Where the former name of the workspace stays in the web app, and why
 # (tools/names/workspace.ts). `node tools/names/check.ts` fails on the name anywhere
 # else, in any case, and on an entry here that nothing needs any more. Every entry
 # stands under its reason. Of a file of messages only the ids are checked.

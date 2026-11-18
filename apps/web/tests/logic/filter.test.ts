@@ -1,6 +1,6 @@
 /**
- * The filter of cards: a clause on each kind of property, groups of clauses,
- * and the properties a new card takes from a filter.
+ * The filter of cards: a clause on a property of options, text, people or
+ * dates, groups of clauses, and the properties a new card takes from a filter.
  */
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 

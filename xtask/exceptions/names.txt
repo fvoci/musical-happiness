@@ -1,4 +1,4 @@
-# Where the name the original gives the workspace stays, and why (xtask/src/names.rs).
+# Where the former name of the workspace stays, and why (xtask/src/names.rs).
 # `cargo xtask check` fails on the name anywhere else, in any case, and on an entry here
 # that nothing needs any more. Every entry stands under its reason.
 #
@@ -41,7 +41,7 @@ crates/server/tests/api/imports.rs | `teamId`
 crates/server/tests/api/imports.rs | "teamId"
 crates/server/tests/api/imports.rs | _teamid_is_imported
 
-# The original's routes, which are not routes here: tests pin that they are not found.
+# Routes under the former name, which are not routes here: tests pin that they are not found.
 crates/server/tests/api/admin.rs | /teams/
 crates/server/tests/api/paths.rs | /teams/
 crates/server/tests/api/search.rs | /teams/
@@ -52,9 +52,9 @@ crates/server/tests/regression/harness/tests.rs | /files/teams/
 crates/server/tests/regression/golden/files.json | /teams/
 crates/server/tests/regression/golden/search.json | /teams/
 
-# The original's tests, subtests, files and functions that a port names to say what it
-# ports, and the original's spelling of a member, which tests send as one the port
-# does not know.
+# Tests, subtests, files and functions under the former name, which a test names to
+# say what it covers, and the former spelling of a member, which tests send as one the
+# server does not know.
 crates/server/tests/api/sidebar.rs | "teamID"
 crates/server/src/ws/tests.rs | `TestTeamSubscription
 crates/server/src/ws/tests.rs | "Should correctly subscribe to a team"

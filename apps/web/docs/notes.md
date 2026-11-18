@@ -194,7 +194,7 @@ Tiptap은 편집기 스파이크에서 넣었다(`docs/spike-editor.md`).
 
 사용자 결정(2026-11-10)으로 바꾼 것 둘(2026-11-10 20:02 KST 적용):
 
-1. **한국어는 세 파일**(안 A′): 상용 파일에는 KS X 1001의 한글 2,350자만 넣고, 나머지 현대 음절 8,822자는 따로 `noto-sans-kr-syllables.woff2`로 뗀다. 드문 음절(`똠`, `쌰`, `뷁`)이 나오면 이 0.78 MB만 받고 잔여(2.67 MB)는 받지 않는다. 일본어·중국어의 글자 집합은 그대로다.
+1. **한국어는 세 파일**: 상용 파일에는 KS X 1001의 한글 2,350자만 넣고, 나머지 현대 음절 8,822자는 따로 `noto-sans-kr-syllables.woff2`로 뗀다. 드문 음절(`똠`, `쌰`, `뷁`)이 나오면 이 0.78 MB만 받고 잔여(2.67 MB)는 받지 않는다. 일본어·중국어의 글자 집합은 그대로다.
 2. **한국어·일본어 로케일은 자기 CJK 글꼴이 스택 맨 앞이다.** 영문·숫자·문장부호도 그 글꼴의 것으로 그린다(말줄임표가 가운데 높이에 찍힌다). 그래서 KR·JP의 상용 파일에 기본 라틴, 라틴-1, 일반 문장부호를 넣었다. 중국어 두 로케일은 전처럼 라틴 글꼴이 앞이다(중국어 글꼴의 전각 따옴표가 영문 `it’s`를 벌린다).
 
 글자 집합 정의(커밋됨):
@@ -484,8 +484,8 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 | -------------------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | 날짜 값의 와이어, 지역 설정의 값, 파일 주소의 전제 | `src/lib/logic/wire.ts`, `regional.ts`, `src/lib/editor/files.ts`                 | 위 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대" |
 | 글꼴: 한국어 세 파일, 한국어·일본어는 CJK 먼저     | `tools/fonts/`, `src/styles/app.css`, `e2e/fonts.spec.ts`                         | 위 "글꼴"                                             |
-| 번역 결정, 한국어 검수 표                          | `messages/`, `docs/ko-review.md`                                                  | 아래 "번역"                                           |
-| 내장 템플릿                                        | 저장소 루트의 `crates/server/assets/templates/`                                   | 아래 "내장 템플릿의 변환 산출물"                      |
+| 번역 결정, 한국어 검수 표                          | `messages/`, `docs/ko-review.md`                                                  | `docs/i18n-conversion.md`                             |
+| 내장 템플릿                                        | 저장소 루트의 `crates/server/assets/templates/`                                   | 그 폴더의 `README.md`                                 |
 | 모바일 화면 안(합의용)                             | `spikes/mobile/`, `docs/mobile/`(그림 64장), `docs/mobile-proposal.md`(질문 36개) | 그 문서                                               |
 | 본문 읽기 전용 표시기                              | `src/lib/editor/render.ts`, `BodyView.svelte`, `drawing.ts`                       | `docs/spike-editor.md` 9절                            |
 | 속성 편집기 15종                                   | `src/lib/components/properties/`, `stories/properties/`, `tests/ui/properties/`   | 아래                                                  |
