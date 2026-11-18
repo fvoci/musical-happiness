@@ -353,7 +353,7 @@ pub(crate) async fn hold_workspace(
 /// Holds every board of the workspace the user has a role on, in the order of their
 /// identifiers, and returns those that are there: one that went to the trash while
 /// this waited is none of them.
-async fn hold_containers_of(
+pub(crate) async fn hold_containers_of(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     user_id: &str,
@@ -402,7 +402,7 @@ async fn holds_every_container_of(
 
 /// What the user is in the workspace, held against whoever counts them among the
 /// admins of a board until this transaction ends; `None` for who is no member.
-async fn held_role(
+pub(crate) async fn held_role(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     user_id: &str,
@@ -420,7 +420,7 @@ async fn held_role(
 }
 
 /// Whether no other member of the workspace than the user administers it.
-async fn is_only_administrator(
+pub(crate) async fn is_only_administrator(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     user_id: &str,

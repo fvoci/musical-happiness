@@ -7,6 +7,7 @@
 //! Unix epoch as an argument; the one place that reads a clock is [`new_id`], whose
 //! identifiers begin with the time they were made.
 
+mod account_deletion;
 mod allowlist;
 mod archive;
 mod auth;
@@ -47,6 +48,10 @@ mod upload;
 mod user;
 mod workspace;
 
+pub use account_deletion::{
+    ACCOUNT_DELETION_GRACE_DAYS, AccountDeletion, AccountDeletionAsked, DeleteAccountRequest,
+    DeletionProof, Leaving, LeavingOrganization, OrganizationName,
+};
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
     AuthParamError, ChangePasswordRequest, DISPLAY_NAME_MAX_LENGTH, LoginRequest,

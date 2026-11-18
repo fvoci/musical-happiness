@@ -220,6 +220,16 @@ const SCHEMAS: &[(&str, Members)] = &[
         "AcceptedInvitation",
         Members::AllBut(&["containerId", "containerKind"]),
     ),
+    (
+        "AccountDeletion",
+        Members::AllBut(&["requestedAt", "deleteAfter"]),
+    ),
+    ("AccountDeletionAsked", Members::All),
+    (
+        "LeavingOrganization",
+        Members::AllBut(&["boards", "wikis", "files"]),
+    ),
+    ("OrganizationName", Members::All),
     ("EmailVerified", Members::AllBut(&["containerId"])),
     ("Block", Members::AllBut(&["editedAt"])),
     ("Body", Members::AsWritten),
@@ -362,6 +372,7 @@ const SCHEMAS: &[(&str, Members)] = &[
         Members::Only(&["issuer", "clientId"]),
     ),
     ("OidcStartRequest", Members::Only(&[])),
+    ("DeleteAccountRequest", Members::Only(&["username"])),
     (
         "PatchContainersAndBlocks",
         Members::Only(&["containerIds", "containerPatches"]),
@@ -381,6 +392,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("UserPreferencesPatch", Members::Only(&[])),
     // Closed sets of words.
     ("CardOpen", Members::AsWritten),
+    ("DeletionProof", Members::AsWritten),
     ("CategoryType", Members::AsWritten),
     ("ContainerKind", Members::AsWritten),
     ("ContainerType", Members::AsWritten),

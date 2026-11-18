@@ -124,20 +124,24 @@ export async function startBackend(): Promise<StartedBackend> {
 }
 
 async function startMemory(): Promise<StartedBackend> {
-  const [{ MemoryBackend }, { loadTemplates, seedWorld }] = await Promise.all([
+  const [{ MemoryBackend }, { loadTemplates, seedWorld }, { eraseUser }] = await Promise.all([
     import('$lib/state/memory/backend.ts'),
     import('$lib/state/memory/seed.ts'),
+    import('$lib/state/memory/users.ts'),
   ]);
   const { world, readerId } = seedWorld(await loadTemplates());
   // The tabs of this browser edit their bodies together, as through one server.
   world.shareRooms = 'fvoci:memory-rooms';
   // `?search=0` is a client configuration that says bodies are not searched: no search box.
   world.searchEnabled = new URLSearchParams(location.search).get('search') !== '0';
+  const otherId = [...world.users.keys()].find((id) => id !== readerId);
+  // `?gone=1` says the other person's account was deleted: what they wrote is a deleted user's.
+  const gone = new URLSearchParams(location.search).get('gone') === '1';
+  if (gone && otherId !== undefined) eraseUser(world, otherId);
   const backend = new MemoryBackend(world, readerId);
   // Long enough to see that a change shows before it is answered.
   backend.latency = 40;
   await keepSettings(backend);
-  const otherId = [...world.users.keys()].find((id) => id !== readerId);
   const asSomeoneElse = otherId === undefined ? undefined : () => backend.as(otherId);
   // A handle for the browser tests and for trying things by hand in the
   // console: the same data as another person, and the next call failing.

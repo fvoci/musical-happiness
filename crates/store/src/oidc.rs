@@ -418,7 +418,8 @@ impl Store {
         .await
     }
 
-    /// The account a provider vouches for under `identity`, if there is one. A
+    /// The account a provider vouches for under `identity`, if there is one somebody
+    /// can sign in to: in use, or waiting to be deleted (`Store::account_by_id`). A
     /// deactivated account is none.
     ///
     /// # Errors
@@ -433,12 +434,12 @@ impl Store {
                 scope.sql("SELECT user_id FROM user_identities AS i JOIN users AS u ON u.id = i.user_id WHERE i.issuer = ");
             sql.bind(identity.issuer)
                 .push_bind(" AND i.subject = ", identity.subject)
-                .push_bind(" AND u.delete_at = ", 0_i64);
+                .push(" AND (u.delete_at = 0 OR (u.delete_after > 0 AND u.erase_started_at = 0))");
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(None);
             };
             let user_id = row.id(0)?;
-            crate::users::get_user_by_id(scope, &user_id).await.map(Some)
+            crate::users::account_by_id(scope, &user_id).await.map(Some)
         })
         .await
     }
@@ -717,9 +718,12 @@ pub(crate) async fn admit(
         } => {
             // Held, the account waits for an unlinking under way, which ends the
             // sessions of the identity: one made after it is refused here.
-            if !sessions::hold_unchanged_user(scope, user_id, password_hash).await?
-                || !is_identity_of(scope, identity, user_id).await?
-            {
+            let Some(signed_into) =
+                sessions::hold_unchanged_account(scope, user_id, password_hash).await?
+            else {
+                return Ok(Err(OidcRefusal::AccountChanged));
+            };
+            if !is_identity_of(scope, identity, user_id).await? {
                 return Ok(Err(OidcRefusal::AccountChanged));
             }
             user_id.clone_into(&mut session.user_id);
@@ -728,6 +732,12 @@ pub(crate) async fn admit(
             let has_place = has_place(scope, user_id).await?;
             if !has_place && !auto_join {
                 return Ok(Err(OidcRefusal::JoinClosed));
+            }
+            // An account that waits to be deleted is signed in to for the way back
+            // alone, through a door that is open to it: it joins nothing, and the
+            // registration at its address stays.
+            if signed_into == sessions::SignedInto::Waiting {
+                return Ok(Ok(false));
             }
             // Let in: only now does a registration at the address go, its link held
             // before the account joins anything, as an acceptance holds it.

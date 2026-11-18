@@ -48,7 +48,10 @@ export function takeReturn(now: number = Date.now()): string | undefined {
  */
 export function resume(router: Router, cameBack: URLSearchParams): void {
   const kept = takeReturn();
-  if (cameBack.has('oidc_linked')) history.replaceState(null, '', location.pathname);
+  // What the page was told once (a provider connected, the account asked to be deleted) is not told again.
+  if (cameBack.has('oidc_linked') || cameBack.has('account_leaving')) {
+    history.replaceState(null, '', location.pathname);
+  }
   const { unknown, workspaceId, orgId: organization } = router.route;
   if (kept === undefined || unknown || workspaceId || organization) return;
   const route = parseRoute(kept, router.basePath);
