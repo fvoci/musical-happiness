@@ -890,8 +890,11 @@ export interface paths {
          *     All of the account's sessions and WebSocket connections end, and so do its other
          *     reset links, as they do when the password is changed or set by an operator. The sign-in
          *     lock of the account, at its user name and its email, ends, and so does the wait of the
-         *     address that finished the reset. A missing, expired or already used token answers the
-         *     same 400, naming `token` in `errors`.
+         *     address that finished the reset. An account that waits to be deleted waits still:
+         *     signing in with the new password shows the way back (`getAccountDeletion`), and
+         *     taking the deletion back is the person's own act there. A missing, expired or already
+         *     used token answers the same 400, naming `token` in `errors`, and so does the token of
+         *     an account whose erasing began.
          */
         post: operations["completePasswordReset"];
         delete?: never;
@@ -913,7 +916,10 @@ export interface paths {
          * Request a password reset
          * @description Answers 204 with an empty body for an existing account, an absent account and
          *     an account without a password. Lookup and delivery run in the background;
-         *     the request never waits for either. Accounts without passwords receive no mail.
+         *     the request never waits for either. Accounts without passwords receive no mail. An
+         *     account that waits to be deleted is sent a link as one in use is, so that its person
+         *     may sign in and take the deletion back; one whose erasing began, or that was erased,
+         *     is sent none.
          *     Requests are limited by address only, with the login setting of attempts per minute
          *     and a separate counter (429); never by email. An account is sent at most
          *     `mail_reset_per_account_hour` messages an hour: more requests are answered the same
@@ -3387,15 +3393,16 @@ export interface paths {
          *     somebody the user does not see finds nothing, as one of nobody: the answer does not
          *     tell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or
          *     last changed a card, block or comment of a board of the workspace they read, also
-         *     after leaving the workspace. Oldest account first, not in the order of the request.
+         *     after leaving the workspace. Oldest account first by `createAt`, then by identifier,
+         *     not in the order of the request.
          *
          *     An account that was deleted is answered to whoever asks by its identifier, seen
-         *     before or not, as what is left of it: the identifier and an empty `username`,
-         *     `email` and `displayName`. The empty `username` is what tells it: a page shows a
-         *     deleted user where it wrote or is mentioned. Its times are answered as they are:
-         *     `createAt`, `updateAt` (when it was erased) and `deleteAt` (when its deletion was
-         *     asked, or ordered). `deleteAt` is not zero either for a writer whose account waits
-         *     to be deleted, who is answered as they are, with their name.
+         *     before or not, as what is left of it: the identifier, an empty `username`, `email`
+         *     and `displayName`, and `createAt`, `updateAt` and `deleteAt` all zero, so that
+         *     neither when it was made nor when it went is told. The empty `username` is what
+         *     tells it, not a time: a page shows a deleted user where it wrote or is mentioned.
+         *     `deleteAt` is not zero for a writer whose account waits to be deleted, who is
+         *     answered as they are, with their name.
          */
         post: operations["getWorkspaceUsersById"];
         delete?: never;

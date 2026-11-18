@@ -33,8 +33,11 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// All of the account's sessions and WebSocket connections end, and so do its other
 /// reset links, as they do when the password is changed or set by an operator. The sign-in
 /// lock of the account, at its user name and its email, ends, and so does the wait of the
-/// address that finished the reset. A missing, expired or already used token answers the
-/// same 400, naming `token` in `errors`.
+/// address that finished the reset. An account that waits to be deleted waits still:
+/// signing in with the new password shows the way back (`getAccountDeletion`), and
+/// taking the deletion back is the person's own act there. A missing, expired or already
+/// used token answers the same 400, naming `token` in `errors`, and so does the token of
+/// an account whose erasing began.
 #[utoipa::path(
     post, path = "/password-reset/complete", operation_id = "completePasswordReset",
     tag = tag::AUTH, security(()), request_body = FinishPasswordReset,
@@ -65,7 +68,10 @@ struct RequestPasswordReset {
 ///
 /// Answers 204 with an empty body for an existing account, an absent account and
 /// an account without a password. Lookup and delivery run in the background;
-/// the request never waits for either. Accounts without passwords receive no mail.
+/// the request never waits for either. Accounts without passwords receive no mail. An
+/// account that waits to be deleted is sent a link as one in use is, so that its person
+/// may sign in and take the deletion back; one whose erasing began, or that was erased,
+/// is sent none.
 /// Requests are limited by address only, with the login setting of attempts per minute
 /// and a separate counter (429); never by email. An account is sent at most
 /// `mail_reset_per_account_hour` messages an hour: more requests are answered the same

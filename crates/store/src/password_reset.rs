@@ -1,15 +1,27 @@
 //! Single-use password reset credentials, stored only as digests, outside any organization.
 
 use crate::db::{Dialect, Id, Scope};
-use crate::sessions;
 use crate::{Store, StoreError};
+use crate::{sessions, users};
 
 /// A reset link is valid for one hour from its creation, in milliseconds.
 pub const PASSWORD_RESET_LIFETIME_MILLIS: i64 = 60 * 60 * 1_000;
 
+/// The condition on a user row whose password may be reset: it has one, and somebody
+/// can sign in to the account (in use, or waiting to be deleted). Not one being erased,
+/// nor one put out of use otherwise.
+fn resettable() -> String {
+    format!(
+        "password_hash <> '' AND (delete_at = 0 OR ({}))",
+        users::WAITS
+    )
+}
+
 impl Store {
-    /// Stores a reset credential for an active account that has a password.
-    /// Expired credentials are removed before the new one is stored.
+    /// Stores a reset credential for an account that has a password and that somebody can
+    /// sign in to: in use, or waiting to be deleted ([`users::WAITS`]), whose person may
+    /// have forgotten the password they would take the deletion back with. Expired
+    /// credentials are removed before the new one is stored.
     ///
     /// # Errors
     /// Returns the database error if the credential cannot be stored.
@@ -29,7 +41,9 @@ impl Store {
 
     /// Consumes a live credential, changes its user's password and ends all sessions atomically.
     /// Every other credential of the user goes with it: they were issued for the old password.
-    /// Returns the user whose sessions ended, or none for an unavailable credential.
+    /// Returns the user whose sessions ended, or none for an unavailable credential: one
+    /// whose account is no more one somebody can sign in to. An account that waits to be
+    /// deleted waits still: signing in with the new password shows the way back.
     ///
     /// # Errors
     /// Returns the database error; none of the changes then take effect.
@@ -49,8 +63,10 @@ impl Store {
             let user_id = row.id(0)?;
             // The user is held before changing credentials or sessions, in the same
             // order as login. A login with the old hash must finish before this reset.
-            let mut hold = scope
-                .sql("SELECT id FROM users WHERE delete_at = 0 AND password_hash <> '' AND id = ");
+            let mut hold = scope.sql(&format!(
+                "SELECT id FROM users WHERE {} AND id = ",
+                resettable()
+            ));
             hold.bind(Id(&user_id));
             if scope.dialect() == Dialect::Postgres {
                 hold.push(" FOR UPDATE");
@@ -103,8 +119,10 @@ pub(crate) async fn delete_expired_password_resets(
     Ok(())
 }
 
-/// Stores a reset credential under `digest` for the user, if the account is in use and
-/// has a password; says whether it did.
+/// Stores a reset credential under `digest` for the user, if the account is one whose
+/// password may be reset ([`resettable`]); says whether it did. On PostgreSQL the row of
+/// the user is held, so that an account whose erasing began meanwhile is seen as it is
+/// now, and gets none.
 pub(crate) async fn insert_password_reset(
     scope: &mut Scope<'_>,
     user_id: &str,
@@ -117,6 +135,10 @@ pub(crate) async fn insert_password_reset(
         .push(", id")
         .push_bind(", ", now.saturating_add(PASSWORD_RESET_LIFETIME_MILLIS))
         .push_bind(" FROM users WHERE id = ", Id(user_id))
-        .push(" AND delete_at = 0 AND password_hash <> ''");
+        .push(" AND ")
+        .push(&resettable());
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR UPDATE");
+    }
     Ok(scope.execute(sql).await? == 1)
 }

@@ -21,6 +21,13 @@ use crate::{directory, members};
 const USER_COLUMNS: &str =
     "id, username, email, password_hash, create_at, update_at, delete_at, is_admin, display_name";
 
+/// [`USER_COLUMNS`], with the times of an erased account read as zero: when it was made,
+/// erased and asked to be are not told of an account that is gone.
+const ERASED_AS_NOBODY: &str = "id, username, email, password_hash, \
+     CASE WHEN erased_at > 0 THEN 0 ELSE create_at END, \
+     CASE WHEN erased_at > 0 THEN 0 ELSE update_at END, \
+     CASE WHEN erased_at > 0 THEN 0 ELSE delete_at END, is_admin, display_name";
+
 /// What a user is to the instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstanceRole {
@@ -534,9 +541,9 @@ pub(crate) async fn users_by_ids(
 ///
 /// An account that waits to be deleted is among them as it is, with its name: until it
 /// is erased it is a member of what it was, and wrote what it wrote. One that was
-/// erased is found whatever `narrow` keeps, as the row it left: its identifier and no
-/// name, by which whoever reads what it wrote, or a mention of it, is told that the
-/// account is gone (`delete_at` is when it was asked to be, or marked). Nothing of a
+/// erased is found whatever `narrow` keeps, as the row it left: its identifier, no
+/// name and its three times zero, by which whoever reads what it wrote, or a mention
+/// of it, is told that the account is gone and not when it came or went. Nothing of a
 /// person is in that row to keep from anybody. Looked up by name ([`search_users`])
 /// neither is found.
 ///
@@ -551,12 +558,15 @@ pub(crate) async fn found_users_by_ids(
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let mut sql = scope.sql(&format!("SELECT {USER_COLUMNS} FROM users WHERE id IN ("));
+    let mut sql = scope.sql(&format!(
+        "SELECT {ERASED_AS_NOBODY} FROM users WHERE id IN ("
+    ));
     sql.bind_list(user_ids.iter().map(|id| Id(id))).push(
         ") AND (erased_at > 0 OR ((delete_at = 0 OR delete_after > 0 OR erase_started_at > 0)",
     );
     narrow(&mut sql, scope);
-    sql.push("))").push(OLDEST_FIRST);
+    // Oldest first by the times answered, so that the order tells no more than they do.
+    sql.push(")) ORDER BY CASE WHEN erased_at > 0 THEN 0 ELSE create_at END, id");
     fetch_users(scope, sql).await
 }
 

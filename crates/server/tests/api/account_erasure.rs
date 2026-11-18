@@ -114,7 +114,11 @@ async fn the_operator_erases_an_account_and_what_it_wrote_stays_under_no_name() 
         ("", "", ""),
         "nothing of the person"
     );
-    assert!(gone[0].delete_at > 0, "and that it is gone");
+    assert_eq!(
+        (gone[0].create_at, gone[0].update_at, gone[0].delete_at),
+        (0, 0, 0),
+        "nor when it came, or went"
+    );
     // Among the people of the workspace, and in a search, they are not.
     let people: Vec<User> = th.client.get(&format!("{ROOT_WS}/users")).await.ok_json();
     assert_eq!(
@@ -216,7 +220,7 @@ async fn the_housekeeping_erases_an_account_whose_wait_ran_out() {
 
 /// Somebody who forgot their password while their account waits is helped by the
 /// operator, who sets one on the administration socket: with it they sign in, and take
-/// the deletion back. (A reset by mail is not sent to an account out of use.)
+/// the deletion back.
 #[tokio::test]
 async fn the_operator_sets_the_password_of_an_account_that_waits() {
     let (th, socket) = with_socket().await;
@@ -253,4 +257,71 @@ async fn the_operator_sets_the_password_of_an_account_that_waits() {
         .check_status(StatusCode::NO_CONTENT);
     back.get("/users/me").await.check_ok();
     th.teardown().await;
+}
+
+/// What is left of an erased account tells nobody when it came or went: whoever asks by
+/// its identifier, of its organization or (on PostgreSQL) of another, is answered the
+/// identifier, no name and its three times zero.
+#[tokio::test]
+async fn an_erased_account_tells_nobody_when_it_came_or_went() {
+    let (th, socket) = with_socket().await;
+    let user2 = th.client2.me().await.id;
+    let elsewhere = if th.app.store().db_type() == fvoci_store::DbType::Postgres {
+        Some(of_another_organization(&th).await)
+    } else {
+        None
+    };
+    socket_request(&socket, "POST", &erase(USER2_USERNAME), "")
+        .await
+        .check_no_content();
+
+    let mut answers = vec![named(&th.client, &[&user2]).await];
+    if let Some((client, workspace_id)) = &elsewhere {
+        answers.push(
+            client
+                .post(&format!("/w/{workspace_id}/users"), &[&user2])
+                .await
+                .ok_json(),
+        );
+    }
+    for gone in answers {
+        let told: Vec<_> = gone
+            .iter()
+            .map(|user| {
+                (
+                    user.id.as_str(),
+                    user.username.as_str(),
+                    user.create_at,
+                    user.update_at,
+                    user.delete_at,
+                )
+            })
+            .collect();
+        assert_eq!(told, [(user2.as_str(), "", 0, 0, 0)]);
+    }
+    th.teardown().await;
+}
+
+/// A third account, made a member of a second organization and of its workspace only:
+/// its client and that workspace's identifier.
+async fn of_another_organization(th: &TestServer) -> (Client, String) {
+    let (theirs, workspace_id, _) = crate::workspaces::another_organization(th).await;
+    let client = th.add_user("user3").await;
+    let user_id = client.me().await.id;
+    for table in ["workspace_members", "organization_members"] {
+        th.app
+            .store()
+            .execute_unchecked(&format!("DELETE FROM {table} WHERE user_id = '{user_id}'"))
+            .await
+            .expect("out of the first organization");
+    }
+    theirs
+        .add_organization_member(&user_id, fvoci_model::OrgRole::Member)
+        .await
+        .expect("a member of the second");
+    theirs
+        .add_workspace_member(&workspace_id, &user_id, fvoci_model::WorkspaceRole::Member)
+        .await
+        .expect("a member of its workspace");
+    (client, workspace_id)
 }
