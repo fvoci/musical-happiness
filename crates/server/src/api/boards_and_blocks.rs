@@ -86,7 +86,7 @@ async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiRes
     if let Some(invalid) = invalid {
         return Err(invalid.into_error());
     }
-    // The boards are new and have no files, so a body with an image is refused, without
+    // The boards are new and have no files, so a body that names a file is refused, without
     // looking up anything the request names.
     for (index, (block, body)) in request.blocks.iter_mut().zip(bodies?).enumerate() {
         if body
@@ -94,7 +94,7 @@ async fn handle_create_boards_and_blocks(ws: InWorkspace, body: Bytes) -> ApiRes
             .is_some_and(|body| !body.file_ids().is_empty())
         {
             return Err(AppError::bad_request(
-                "an image of the body shows no file of the board: a new board has none",
+                "an image or a file block of the body names no file of the board: a new board has none",
             )
             .with_field("body")
             .under(&element_pointer(Some(BLOCKS), index)));

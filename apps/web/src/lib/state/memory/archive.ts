@@ -6,9 +6,9 @@
 import type { Container } from '../../logic/wire.ts';
 import type { DownloadedFile, DownloadOptions } from '../backend.ts';
 
-import { flushContainers } from './bodies.ts';
+import { FILE_BLOCK_IN_COMMENT, flushContainers } from './bodies.ts';
 import { fail } from './refuse.ts';
-import { MEMORY_ARCHIVE } from './shapes.ts';
+import { hasFileBlock, MEMORY_ARCHIVE } from './shapes.ts';
 import type { StoredBlock, World } from './world.ts';
 
 export function archiveOf(
@@ -49,12 +49,18 @@ export async function archiveLines(
 
 /**
  * A block of an archive's line as the backend keeps it: the line names its
- * board `boardId`, the archive's own name, as it always has.
+ * board `boardId`, the archive's own name, as it always has. A comment with a
+ * file block refuses the archive (400), as the server refuses it whole.
  */
 export function blockOfLine(data: unknown): StoredBlock {
-  const block =
-    typeof data === 'object' && data !== null ? renamed(data, 'boardId', 'containerId') : data;
-  return block as StoredBlock;
+  const block = (
+    typeof data === 'object' && data !== null ? renamed(data, 'boardId', 'containerId') : data
+  ) as StoredBlock;
+  // As the server refuses the archive whole: a comment has no file block.
+  if (block.type === 'comment' && block.body && hasFileBlock(block.body)) {
+    fail(400, FILE_BLOCK_IN_COMMENT, { field: 'body' });
+  }
+  return block;
 }
 
 /** `value` with its member `from` named `to`, in the same place among the others. */

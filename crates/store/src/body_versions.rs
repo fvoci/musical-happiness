@@ -23,7 +23,7 @@ use crate::block_derived::{self, Before};
 use crate::body_digest::body_digest;
 use crate::db::{Id, Param, Row, Scope, VersionsKept, now_millis, to_json_text};
 use crate::error::StoreError;
-use crate::file_refs::NewImages;
+use crate::file_refs::NewBodyFiles;
 use crate::{blocks, containers};
 
 /// How many versions of a card's body the store keeps unless told otherwise.
@@ -219,7 +219,7 @@ pub(crate) async fn keep_held(
     if kept.forgot_some {
         // The files the card shows are put down again with those of the versions
         // that are left.
-        block_derived::refresh(scope, &card, Before::Unchanged, NewImages::Unchecked).await?;
+        block_derived::refresh(scope, &card, Before::Unchanged, NewBodyFiles::Unchecked).await?;
     }
     Ok(kept.version)
 }

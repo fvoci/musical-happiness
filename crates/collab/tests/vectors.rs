@@ -78,12 +78,14 @@ fn what_only_the_servers_rules_refuse_is_refused_and_repaired() {
     let a =
         r#"{"content":[{"content":[{"text":"a","type":"text"}],"type":"paragraph"}],"type":"doc"}"#;
     let two_empty = r#"{"content":[{"type":"paragraph"},{"type":"paragraph"}],"type":"doc"}"#;
-    let left: [(&str, usize, &str); 18] = [
+    let left: [(&str, usize, &str); 20] = [
         ("a heading of level 7", 1, a),
         ("a heading whose level is a text", 1, "null"),
         ("a heading whose level is null", 1, "null"),
         ("an image without a file", 1, a),
         ("an image whose file is empty", 1, "null"),
+        ("a file block without a file", 1, a),
+        ("a file block whose file is empty", 1, "null"),
         // The mentions go, the paragraphs they stood in stay.
         (
             "a mention of nobody, and of somebody who is no identifier",

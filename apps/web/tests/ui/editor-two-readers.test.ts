@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import BodyEditor from '$lib/editor/BodyEditor.svelte';
 import { openPlace, placeOf } from '$lib/editor/editing-place.ts';
-import { setFileUrlResolver } from '$lib/editor/files.ts';
+import { setFileSource } from '$lib/editor/files.ts';
 import type { DocNode } from '$lib/editor/schema.ts';
 import type { BodyDoc, BodyDocHears } from '$lib/state/backend.ts';
 
@@ -28,7 +28,7 @@ vi.mock('$lib/editor/diagram.ts', () => ({
   drawDiagram: () => Promise.resolve({ ok: false, reason: 'failed' }),
 }));
 
-setFileUrlResolver((fileId) => `/files/${fileId}`);
+setFileSource({ url: (fileId) => `/files/${fileId}` });
 
 const hears = (): BodyDocHears => ({ state: () => undefined, discarded: () => undefined });
 
@@ -94,7 +94,7 @@ async function two(body: DocNode, upload?: (file: File) => Promise<string>): Pro
       doc: null,
       collab: room.state.doc,
       canWrite: true,
-      ...(index === 0 && upload ? { uploadImage: upload } : {}),
+      ...(index === 0 && upload ? { uploadFile: upload } : {}),
     });
     return editorIn(container);
   }) as [Editor, Editor];

@@ -141,8 +141,9 @@ pub enum Answer {
         repair: Option<Vec<u8>>,
         /// The size of the document's state now.
         state_bytes: u64,
-        /// The files the images of its body show now, by their stored names.
-        images: Vec<String>,
+        /// The files the images and file blocks of its body name now, by their stored
+        /// names.
+        files: Vec<String>,
     },
     /// Bytes: a state vector, a diff or a state.
     Bytes(Vec<u8>),
@@ -376,12 +377,12 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
         Ok(Answer::Taken {
             repair,
             state_bytes,
-            images,
+            files,
         }) => {
             out.tag(3)
                 .optional(repair.as_deref())
                 .number(*state_bytes)
-                .names(images);
+                .names(files);
         }
         Ok(Answer::Bytes(bytes)) => {
             out.tag(4).bytes(bytes);
@@ -414,7 +415,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, Malformed> {
         3 => Ok(Answer::Taken {
             repair: input.optional()?,
             state_bytes: input.number()?,
-            images: input.names()?,
+            files: input.names()?,
         }),
         4 => Ok(Answer::Bytes(input.bytes()?)),
         5 => Ok(Answer::Body(input.optional()?)),
@@ -608,12 +609,12 @@ mod tests {
             Ok(Answer::Taken {
                 repair: None,
                 state_bytes: 3,
-                images: Vec::new(),
+                files: Vec::new(),
             }),
             Ok(Answer::Taken {
                 repair: Some(vec![6]),
                 state_bytes: 4,
-                images: vec!["7a.png".to_owned(), "7b.png".to_owned()],
+                files: vec!["7a.png".to_owned(), "7b.png".to_owned()],
             }),
             Ok(Answer::Bytes(vec![4, 5])),
             Ok(Answer::Body(Some(b"{}".to_vec()))),

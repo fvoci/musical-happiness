@@ -1,5 +1,5 @@
 //! The allowlist of a body: which nodes and marks a document may have, with which
-//! attributes, and which node may be inside which (`docs/s6-design.md` 5.7, version 3).
+//! attributes, and which node may be inside which (`docs/s6-design.md` 5.7, version 4).
 //!
 //! The web app's validator (`apps/web/src/lib/editor/schema.ts`) is the same list as
 //! TypeScript; the shared vectors of `contracts/body-vectors.json` hold the two
@@ -29,6 +29,7 @@ const BLOCKS: &[&str] = &[
     "codeBlock",
     "horizontalRule",
     "image",
+    "file",
     "blockMath",
 ];
 
@@ -118,6 +119,9 @@ const IMAGE: &[Attribute] = &[
     required("fileId", Rule::NonEmptyText(100)),
     optional("alt", Rule::Text(1000)),
 ];
+/// A file block names its file and nothing else: its name, size and kind are read from
+/// the file's record where it is shown.
+const FILE: &[Attribute] = &[required("fileId", Rule::NonEmptyText(100))];
 const MENTION: &[Attribute] = &[required("userId", Rule::Id)];
 const REFERENCE: &[Attribute] = &[required("id", Rule::Id)];
 const MATH: &[Attribute] = &[required("latex", Rule::NonEmptyText(LATEX_MAX))];
@@ -137,6 +141,7 @@ fn node_spec(name: &str) -> Option<NodeSpec> {
         "codeBlock" => node(CODE_BLOCK, &["text"], 0),
         "horizontalRule" | "hardBreak" | "text" => node(&[], LEAF, 0),
         "image" => node(IMAGE, LEAF, 0),
+        "file" => node(FILE, LEAF, 0),
         "mention" => node(MENTION, LEAF, 0),
         "reference" => node(REFERENCE, LEAF, 0),
         "inlineMath" | "blockMath" => node(MATH, LEAF, 0),
@@ -407,7 +412,7 @@ fn check_text(members: &Map<String, Value>) -> Result<(), &'static str> {
 /// left out. A hard break is a line break inside its block's line and is kept. A
 /// formula in a line gives its source there. A mention gives nothing: the name is not
 /// stored. Nor does a reference: the title of what it names is not the body's, and not
-/// every reader's to see.
+/// every reader's to see. Nor does a file block: the name is its file's, not the body's.
 pub(crate) fn plain_text(document: &Value) -> String {
     let mut lines = Vec::new();
     collect_lines(document, &mut lines);

@@ -139,12 +139,20 @@ export function scramble<T extends { id: string } | { userId: string }>(items: r
   return [...items].sort((first, second) => key(first) - key(second));
 }
 
-/** The files a body shows. */
-export function imageFileIds(node: DocNode, found: string[] = []): string[] {
-  if (node.type === 'image' && typeof node.attrs?.fileId === 'string')
-    found.push(node.attrs.fileId);
-  for (const child of node.content ?? []) imageFileIds(child, found);
+/** Whether a node names a file: an image, or a file block. */
+export const namesFile = (node: DocNode): boolean =>
+  (node.type === 'image' || node.type === 'file') && typeof node.attrs?.fileId === 'string';
+
+/** The files a body names, by its images and file blocks. */
+export function bodyFileIds(node: DocNode, found: string[] = []): string[] {
+  if (namesFile(node)) found.push(String(node.attrs?.fileId));
+  for (const child of node.content ?? []) bodyFileIds(child, found);
   return found;
+}
+
+/** Whether a body has a file block, which a comment's may not. */
+export function hasFileBlock(node: DocNode): boolean {
+  return node.type === 'file' || (node.content ?? []).some(hasFileBlock);
 }
 
 export function memberOf(

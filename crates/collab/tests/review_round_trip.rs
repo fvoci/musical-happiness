@@ -91,6 +91,7 @@ fn unicode_in_every_string_attribute_and_mermaid_is_preserved() {
         ]},
         {"type": "blockMath", "attrs": {"latex": words}},
         {"type": "image", "attrs": {"fileId": "😀e\u{301}.png", "alt": words}},
+        {"type": "file", "attrs": {"fileId": "😀e\u{301}.pdf"}},
         {"type": "codeBlock", "attrs": {"language": "mermaid"}, "content": [
             text("graph TD\n A[\"😀e\u{301}\"]-->B[\"한글\"]", &[]),
         ]},
@@ -136,6 +137,7 @@ fn binding_vectors_exercise_every_allowlisted_node_and_mark() {
             "bulletList",
             "codeBlock",
             "doc",
+            "file",
             "hardBreak",
             "heading",
             "horizontalRule",

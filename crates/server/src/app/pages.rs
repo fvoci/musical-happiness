@@ -104,8 +104,8 @@ impl App {
 
     /// Copies a page of the wiki with every page below it, right after the page, the copy
     /// titled `title` if given; the bodies are copied, what is typed in them now
-    /// included, and the images in them get files of their own, as a card's duplicate's
-    /// do. Their versions and comments are not copied. The wiki's members are told of
+    /// included, and their images and file blocks get files of their own, as a card's
+    /// duplicate's do. Their versions and comments are not copied. The wiki's members are told of
     /// each copy and each sibling numbered anew. Returns the copy of the page.
     ///
     /// # Errors
@@ -156,9 +156,9 @@ impl App {
         Ok(page)
     }
 
-    /// Gives the images of the copies files of their own, as a card's duplicate's are:
-    /// the bodies pointed at them are part of the copy, not a change of it, so the copies
-    /// begin without versions. The copies are stored whatever becomes of their files: a
+    /// Gives the images and file blocks of the copies files of their own, as a card's
+    /// duplicate's are: the bodies pointed at them are part of the copy, not a change of
+    /// it, so the copies begin without versions. The copies are stored whatever becomes of their files: a
     /// failure is logged, and the copies keep showing the files of the originals. Copies
     /// deleted meanwhile (with a page above them) are left out of `pages`, not to be told.
     async fn give_copies_their_files(&self, wiki_id: &str, pages: &mut Vec<Block>) {

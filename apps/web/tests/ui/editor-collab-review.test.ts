@@ -93,11 +93,11 @@ describe('independent collaboration regressions', () => {
   it('an image upload is discarded when its own writer deletes the target paragraph', async () => {
     const shared = sharedBody(doc(paragraph(text('target')), paragraph(text('neighbor'))));
     let finish: (fileId: string) => void = () => undefined;
-    const uploadImage = (): Promise<string> =>
+    const uploadFile = (): Promise<string> =>
       new Promise((resolve) => {
         finish = resolve;
       });
-    const { container } = render(BodyEditor, { doc: null, collab: shared, uploadImage });
+    const { container } = render(BodyEditor, { doc: null, collab: shared, uploadFile });
     const editor = editorIn(container);
     const targetSize = editor.state.doc.child(0).nodeSize;
     editor.commands.setTextSelection(targetSize - 1);

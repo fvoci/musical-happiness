@@ -11,6 +11,7 @@ import type { Doc } from 'yjs';
 import type { SuggestionEntry } from './extensions.ts';
 import type { ReferenceDrawing } from './reference-chip.ts';
 import type { DocNode } from './schema.ts';
+import type { UploadKind } from './uploads.ts';
 
 /**
  * The shared type of a body's Y document that the editor binds to, and the
@@ -59,8 +60,12 @@ export interface BodyEditorProps {
    * shows as what the reader may not see, and none can be put.
    */
   references?: BodyReferences;
-  /** Uploads a pasted or dropped image and gives its file identifier. Without it images cannot be added. */
-  uploadImage?: (file: File) => Promise<string>;
+  /**
+   * Uploads a file for the body (pasted, dropped or chosen through the slash
+   * menu; a picture becomes an image, any other file a file block) and gives
+   * its identifier. Without it no file can be added.
+   */
+  uploadFile?: (file: File) => Promise<string>;
   /** What an empty body says while it can be written. */
   placeholder?: string;
   /** What an empty body says while it can only be read; nothing unless given. */
@@ -117,8 +122,8 @@ export interface BodyEditorProps {
    * went up, a formula's field) is still written then; the room sends it.
    */
   canWrite?: boolean;
-  /** With `collab`: an image that went up had no place left, the editor being made anew meanwhile. */
-  onImageDropped?: () => void;
+  /** With `collab`: an image or a file that went up had no place left, the editor being made anew meanwhile. */
+  onUploadDropped?: (kind: UploadKind) => void;
   /**
    * With `collab`: the shared document holds something the editor could not
    * draw no longer. The editor took nothing from it meanwhile and is to be

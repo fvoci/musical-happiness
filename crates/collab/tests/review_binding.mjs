@@ -95,6 +95,7 @@ cases.push({ name: 'Unicode in attributes, empty optional strings, defaults and 
   { type: 'blockMath', attrs: { latex: letters } },
   { type: 'image', attrs: { fileId: '😀e\u0301.png', alt: letters } },
   { type: 'image', attrs: { fileId: 'empty-alt.png', alt: '' } },
+  { type: 'file', attrs: { fileId: '😀e\u0301.pdf' } },
   { type: 'codeBlock', attrs: { language: 'mermaid' }, content: [text('graph TD\n A["😀e\u0301"]-->B["한글"]')] },
   { type: 'codeBlock' },
   { type: 'orderedList', content: [{ type: 'listItem', content: [paragraph()] }] },

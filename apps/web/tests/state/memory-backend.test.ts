@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import type { DocNode } from '$lib/editor/schema.ts';
 import { BackendError, isConflict, type Change } from '$lib/state/index.ts';
 import { LIMITS } from '$lib/state/memory/backend.ts';
 
@@ -263,6 +264,113 @@ describe('files', () => {
     backend.latency = 0;
     const refused = await rejection(backend.upload(boardId, new File(['y'], 'next.txt')));
     expect(refused.status).toBe(413);
+  });
+});
+
+describe('file blocks', () => {
+  const withFile = (fileId: string): DocNode => ({
+    type: 'doc',
+    content: [{ type: 'file', attrs: { fileId } }],
+  });
+
+  it('reads the name and size of a file of the board, and no file of another', async () => {
+    const made = setup();
+    const { backend, boardId } = await firstBoard(made);
+    const uploaded = await backend.upload(boardId, new File(['%PDF'], 'minutes.pdf'));
+    expect(await backend.fileDetails(boardId, uploaded.fileId)).toEqual({
+      name: 'minutes.pdf',
+      size: 4,
+    });
+    expect((await rejection(backend.fileDetails(boardId, 'nowhere'))).status).toBe(404);
+    const [workspace] = await backend.workspaces();
+    const other = (await backend.boards(workspace?.id ?? '')).find((one) => one.id !== boardId);
+    expect((await rejection(backend.fileDetails(other?.id ?? '', uploaded.fileId))).status).toBe(
+      404,
+    );
+  });
+
+  it('stores a card body naming a file of the board, and refuses one of no board', async () => {
+    const { backend, boardId, byTitle } = await firstBoard();
+    const uploaded = await backend.upload(boardId, new File(['%PDF'], 'minutes.pdf'));
+    const card = await backend.card(boardId, byTitle('Alpha').id);
+    const written = await backend.writeCardBody(boardId, card.id, {
+      body: withFile(uploaded.fileId),
+      readAt: card.updateAt,
+    });
+    expect(written.body).toEqual(withFile(uploaded.fileId));
+    const error = await rejection(
+      backend.writeCardBody(boardId, card.id, {
+        body: withFile('nowhere'),
+        readAt: written.updateAt,
+      }),
+    );
+    expect(error).toMatchObject({ status: 400, errors: [{ pointer: '/body' }] });
+  });
+
+  it('refuses a comment with a file block, written or changed, as the server does', async () => {
+    const { backend, boardId, byTitle } = await firstBoard();
+    const uploaded = await backend.upload(boardId, new File(['%PDF'], 'minutes.pdf'));
+    const cardId = byTitle('Alpha').id;
+    const refused = await rejection(
+      backend.createComment(boardId, cardId, withFile(uploaded.fileId)),
+    );
+    expect(refused).toMatchObject({ status: 400, errors: [{ pointer: '/body' }] });
+    const comment = await backend.createComment(boardId, cardId, text('fine'));
+    const changed = await rejection(
+      backend.patchComment(boardId, comment.id, {
+        body: withFile(uploaded.fileId),
+        readAt: comment.updateAt,
+      }),
+    );
+    expect(changed).toMatchObject({ status: 400, errors: [{ pointer: '/body' }] });
+  });
+
+  it('refuses an archive whose comment has a file block, whole, as the server does', async () => {
+    const { backend, boardId, byTitle } = await firstBoard();
+    const exported = await backend.exportContainer(boardId);
+    const comment = {
+      type: 'block',
+      data: {
+        id: 'comment-with-a-file',
+        boardId,
+        parentId: byTitle('Alpha').id,
+        type: 'comment',
+        title: '',
+        fields: {},
+        createAt: 1,
+        updateAt: 1,
+        body: withFile('7x.pdf'),
+      },
+    };
+    const archive = `${await exported.bytes.text()}${JSON.stringify(comment)}
+`;
+    const [workspace] = await backend.workspaces();
+    const workspaceId = workspace?.id ?? '';
+    const before = (await backend.boards(workspaceId)).length;
+    const refused = await rejection(
+      backend.importArchive(workspaceId, new File([archive], 'with-a-file.boardarchive')),
+    );
+    expect(refused).toMatchObject({ status: 400, errors: [{ pointer: '/body' }] });
+    expect(await backend.boards(workspaceId)).toHaveLength(before);
+  });
+
+  it('gives a copy of the board files of its own for its file blocks, with the same bytes', async () => {
+    const { backend, boardId, byTitle } = await firstBoard();
+    const uploaded = await backend.upload(boardId, new File(['%PDF'], 'minutes.pdf'));
+    const card = await backend.card(boardId, byTitle('Alpha').id);
+    await backend.writeCardBody(boardId, card.id, {
+      body: withFile(uploaded.fileId),
+      readAt: card.updateAt,
+    });
+    const [workspace] = await backend.workspaces();
+    const copy = await backend.duplicateContainer(boardId, false, workspace?.id ?? '');
+    const copied = (await backend.cards(copy.id)).find((one) => one.title === 'Alpha');
+    const body = (await backend.card(copy.id, copied?.id ?? '')).body;
+    const [node] = body?.content ?? [];
+    const fileId = String(node?.attrs?.fileId);
+    expect(node?.type).toBe('file');
+    expect(fileId).not.toBe(uploaded.fileId);
+    expect(await backend.fileDetails(copy.id, fileId)).toEqual({ name: 'minutes.pdf', size: 4 });
   });
 });
 

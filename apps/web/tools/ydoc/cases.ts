@@ -220,6 +220,7 @@ export const READINGS: RawCase[] = [
     root: [
       { element: 'paragraph', attrs: { colour: 'red', level: 2 }, children: [text('p')] },
       { element: 'image', attrs: { fileId: 'f.png', width: 10 } },
+      { element: 'file', attrs: { fileId: 'f.pdf', name: 'minutes.pdf', size: 7 } },
     ],
   },
   {
@@ -293,6 +294,8 @@ export const REFUSED: RawCase[] = [
   { name: 'a heading whose level is null', root: [heading({ level: null })] },
   { name: 'an image without a file', root: [{ element: 'image' }, paragraph(text('a'))] },
   { name: 'an image whose file is empty', root: [{ element: 'image', attrs: { fileId: '' } }] },
+  { name: 'a file block without a file', root: [{ element: 'file' }, paragraph(text('a'))] },
+  { name: 'a file block whose file is empty', root: [{ element: 'file', attrs: { fileId: '' } }] },
   {
     name: 'a mention of nobody, and of somebody who is no identifier',
     root: [
@@ -456,6 +459,7 @@ export const REPAIRS: RawCase[] = [
     root: [
       paragraph(text('a'), { element: 'hardBreak', children: [text('x')] }),
       { element: 'image', attrs: { fileId: 'f.png' }, children: [paragraph()] },
+      { element: 'file', attrs: { fileId: 'f.pdf' }, children: [paragraph()] },
       { element: 'horizontalRule', children: [paragraph()] },
       { element: 'blockMath', attrs: { latex: 'x' }, children: [text('x')] },
       paragraph({ element: 'mention', attrs: { userId: ADA }, children: [text('x')] }),

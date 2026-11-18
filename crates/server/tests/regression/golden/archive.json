@@ -136,6 +136,9 @@
             "createdBy": "<id:2>",
             "deleteAt": 0,
             "description": "to export",
+            "fileNames": {
+              "<secret:1>.png": "pixel.png"
+            },
             "icon": "",
             "id": "<id:3>",
             "isBuiltin": false,

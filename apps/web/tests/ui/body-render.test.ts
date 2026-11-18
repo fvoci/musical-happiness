@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { setFileUrlResolver } from '$lib/editor/files.ts';
+import { setFileSource } from '$lib/editor/files.ts';
 import { renderBody, type RenderedBody } from '$lib/editor/render.ts';
 import {
   isAllowedHref,
@@ -148,9 +148,9 @@ describe('what is drawn', () => {
   });
 
   it('draws an image from the address of its file, lazily', () => {
-    const previous = setFileUrlResolver((fileId) =>
-      fileId === 'known' ? '/files/board-1/known' : undefined,
-    );
+    const previous = setFileSource({
+      url: (fileId) => (fileId === 'known' ? '/files/board-1/known' : undefined),
+    });
     try {
       const body = place(renderBody(doc(image('known', '진행 그래프'), image('unknown'))));
       const [known, unknown] = Array.from(body.querySelectorAll('img'));
@@ -165,7 +165,7 @@ describe('what is drawn', () => {
       expect(unknown?.getAttribute('data-file-id')).toBe('unknown');
       expect(unknown?.getAttribute('loading')).toBe('lazy');
     } finally {
-      setFileUrlResolver(previous);
+      setFileSource(previous);
     }
   });
 
@@ -488,7 +488,7 @@ describe('text that looks like markup', () => {
   it.each(HOSTILE.map((value) => [value]))(
     'keeps %j inside the attributes it is given for',
     (value) => {
-      const previous = setFileUrlResolver((fileId) => `/files/${encodeURIComponent(fileId)}`);
+      const previous = setFileSource({ url: (fileId) => `/files/${encodeURIComponent(fileId)}` });
       try {
         const body = place(
           renderBody(doc(paragraph(mention(value)), image(value, value)), {
@@ -513,7 +513,7 @@ describe('text that looks like markup', () => {
         expect(body.querySelector('script, iframe, svg, style, b')).toBeNull();
         expectHarmless(body);
       } finally {
-        setFileUrlResolver(previous);
+        setFileSource(previous);
       }
     },
   );
