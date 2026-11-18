@@ -14,6 +14,10 @@
  * time limit and its "Close" hold throughout (they throw the frame away,
  * and the worker with it).
  *
+ * A slide hidden from a show (`p:sld@show`, read by the worker: the
+ * renderer's model learns it only of a slide it draws) is left out until
+ * the reader asks for the hidden slides, and then marked in place.
+ *
  * Not drawn: animations and transitions (a slide is drawn as it stands),
  * films and sounds, speaker notes, embedded fonts and charts (a box says
  * where a chart was, in words the app gives). The renderer's chart library and its embedded-font
@@ -22,6 +26,8 @@
  * presentation, so the renderer fits text in the font it will be shown in.
  */
 import { buildPresentation, renderSlide, type PptxFiles } from '@aiden0z/pptx-renderer';
+
+import { SlideOrder } from '$lib/file-viewer/slide-order.ts';
 
 import { readFromPptxWorker, type FromPptxWorker, type ToPptxWorker } from './pptx-protocol.ts';
 import { PptxView, type DrawSlide } from './pptx-view.ts';
@@ -90,7 +96,13 @@ export const render: Render = async (bytes, place, report, labels) => {
     if (!slide) throw new Error(`no slide ${index}`);
     return renderSlide(model, slide, options);
   };
-  const view = new PptxView(model, place, report, draw, labels.chart, answer.pixels);
+  const hiddenParts = new Set(answer.hidden);
+  const hidden = model.slides.flatMap((slide, index) =>
+    hiddenParts.has(slide.slidePath) ? [index + 1] : [],
+  );
+  if (hidden.length > 0) report.hidden(hidden);
+  const order = new SlideOrder(model.slides.length, hidden);
+  const view = new PptxView(model, place, report, draw, labels, answer.pixels, order);
   // Shown once the reader sees a slide, so that the time to draw counts and a slide that
   // cannot be drawn is a failure rather than a white box.
   await view.drawFirst();

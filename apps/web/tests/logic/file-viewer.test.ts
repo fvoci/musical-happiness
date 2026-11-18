@@ -307,6 +307,31 @@ describe('a message from the frame is taken only in one of its shapes', () => {
     expect(readFromFrame({ kind: 'sheets', sheets: [sheet('a')], pages: 1 })).toBeUndefined();
   });
 
+  it("a deck's hidden slides: numbers of pages, at least one, in order, each once", () => {
+    expect(readFromFrame({ kind: 'hidden', pages: [1, 4, 52] })).toEqual({
+      kind: 'hidden',
+      pages: [1, 4, 52],
+    });
+    const most = Array.from({ length: PAGE_LIMIT }, (_, index) => index + 1);
+    expect(readFromFrame({ kind: 'hidden', pages: most })).toBeDefined();
+    for (const pages of [
+      [],
+      [0],
+      [2, 1],
+      [3, 3],
+      [1.5],
+      ['2'],
+      [PAGE_LIMIT + 1],
+      '1',
+      [...most, 1],
+    ]) {
+      expect(readFromFrame({ kind: 'hidden', pages }), JSON.stringify(pages).slice(0, 80)).toBe(
+        undefined,
+      );
+    }
+    expect(readFromFrame({ kind: 'hidden', pages: [1], shown: true })).toBeUndefined();
+  });
+
   it('not with a field more, a field less, or a value out of range', () => {
     for (const data of [
       undefined,
@@ -350,13 +375,17 @@ describe('a message from the app, in the frame', () => {
       chart: '미리 보기에는 차트가 나오지 않습니다',
       pageTooLarge: '이 쪽은 너무 커서 보이지 않습니다.',
       download: '다운로드',
+      hidden: '숨김',
     };
     const open = { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko', labels };
     expect(readToFrame(open)).toEqual(open);
     expect(readToFrame({ ...open, format: 'pptx' })).toEqual({ ...open, format: 'pptx' });
     expect(readToFrame({ ...open, lang: 'zh-Hans' })).toEqual({ ...open, lang: 'zh-Hans' });
     const long = 'x'.repeat(LABEL_LIMIT);
-    const most = { ...open, labels: { chart: long, pageTooLarge: long, download: long } };
+    const most = {
+      ...open,
+      labels: { chart: long, pageTooLarge: long, download: long, hidden: long },
+    };
     expect(readToFrame(most)).toEqual(most);
     for (const wrong of [
       { ...open, format: 'html' },
@@ -369,6 +398,8 @@ describe('a message from the app, in the frame', () => {
       { ...open, labels: { ...labels, chart: '' } },
       { ...open, labels: { ...labels, download: '' } },
       { ...open, labels: { ...labels, download: 7 } },
+      { ...open, labels: { ...labels, hidden: '' } },
+      { ...open, labels: { chart: long, pageTooLarge: long, download: long } },
       { ...open, labels: { ...labels, chart: 'a'.repeat(LABEL_LIMIT + 1) } },
       { ...open, labels: { ...labels, pageTooLarge: `${long}x` } },
       { ...open, labels: { ...labels, page: 'Page' } },
@@ -384,5 +415,21 @@ describe('a message from the app, in the frame', () => {
     expect(readToFrame({ kind: 'zoom', zoom: Number.NaN })).toBeUndefined();
     expect(readToFrame({ kind: 'page', page: 4 })).toEqual({ kind: 'page', page: 4 });
     expect(readToFrame({ kind: 'theme', theme: 'dim' })).toBeUndefined();
+  });
+
+  it("shows a deck's hidden slides or leaves them out, with the slide the reader is on", () => {
+    expect(readToFrame({ kind: 'hidden', shown: true, page: 3 })).toEqual({
+      kind: 'hidden',
+      shown: true,
+      page: 3,
+    });
+    for (const wrong of [
+      { kind: 'hidden', shown: 'yes', page: 3 },
+      { kind: 'hidden', shown: false, page: 0 },
+      { kind: 'hidden', shown: false },
+      { kind: 'hidden', shown: false, page: 1, pages: [1] },
+    ]) {
+      expect(readToFrame(wrong), JSON.stringify(wrong)).toBeUndefined();
+    }
   });
 });
