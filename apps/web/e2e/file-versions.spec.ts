@@ -12,6 +12,7 @@ import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { humanFileSize } from '../src/lib/logic/format.ts';
 import { koreanPdf } from '../tests/support/viewer-files.ts';
 
 import { boardPath } from './address.ts';
@@ -125,8 +126,12 @@ test('the versions of a file are listed, written, looked at, downloaded and gone
   page,
 }) => {
   await openCard(page);
-  await viewAttached(page, '보고서.pdf', 1);
+  const row = await viewAttached(page, '보고서.pdf', 1);
   await expect(counter(page)).toContainText('1 / 1');
+  const firstSize = humanFileSize(koreanPdf(1).length);
+  const nextSize = humanFileSize(koreanPdf(3).length);
+  expect(nextSize).not.toBe(firstSize);
+  await expect(row).toContainText(firstSize);
 
   // The list opens from the header, with the focus on its heading; the file has one version.
   const button = page.getByTestId('file-viewer-versions');
@@ -137,6 +142,8 @@ test('the versions of a file are listed, written, looked at, downloaded and gone
   await expect(list.getByRole('heading', { name: 'Versions of the file' })).toBeFocused();
   await expect(page.getByTestId('file-versions-list').locator('li')).toHaveCount(1);
   await expect(versionRow(page, 1).getByTestId('file-version-current')).toBeVisible();
+  await expect(versionRow(page, 1).getByTestId('file-version-number')).toHaveText('Version 1');
+  await expect(versionRow(page, 1)).toHaveAttribute('data-shown', '');
   await expect(versionRow(page, 1).getByTestId('file-version-restore')).toHaveCount(0);
   // Closed with its own button, the focus is back on the one it was opened from.
   await page.getByTestId('file-versions-close').click();
@@ -151,6 +158,8 @@ test('the versions of a file are listed, written, looked at, downloaded and gone
   await expect(versionRow(page, 2).getByTestId('file-version-current')).toBeVisible();
   await expect(versionRow(page, 2)).toHaveAttribute('data-shown', '');
   await expect(page.getByTestId('file-viewer-older')).toHaveCount(0);
+  // The card's row of the file says the newest version's size.
+  await expect(row).toContainText(nextSize);
   await picture(page, 'versions');
 
   // The first version is downloaded under the file's name, and looked at in the file's place.
@@ -179,6 +188,7 @@ test('the versions of a file are listed, written, looked at, downloaded and gone
   await expect(versionRow(page, 3)).toContainText('Restored from version 1');
   await expect(versionRow(page, 3).getByTestId('file-version-current')).toBeVisible();
   await expect(page.getByTestId('file-viewer-older')).toHaveCount(0);
+  await expect(row).toContainText(firstSize);
 
   // The card reads the file as its newest version.
   await page.keyboard.press('Escape');
@@ -192,41 +202,58 @@ test('the versions of a file are listed, written, looked at, downloaded and gone
   await expect(counter(page)).toContainText('1 / 1');
 });
 
+/** Somebody else, an editor of the board, writes a version of the file from the version `base`. */
+async function writtenElsewhere(page: Page, place: Place, name: string, base: number) {
+  await page.evaluate(
+    async ({ boardId, cardId, name, base }) => {
+      const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
+      const other = dev.someoneElse();
+      if (base === 1) await dev.backend.addMember(boardId, (await other.me()).id, 'editor');
+      const attached = (await dev.backend.attachments(boardId, cardId)).find(
+        (each) => each.name === name,
+      );
+      if (!attached) throw new Error('the file is not attached');
+      const theirs = await other.upload(
+        boardId,
+        new File(['%PDF-1.4 theirs'], 'theirs.pdf', { type: 'application/pdf' }),
+      );
+      await other.fileVersions.add(boardId, attached.fileId, base, theirs);
+    },
+    { ...place, name, base },
+  );
+}
+
 test('a file that somebody else wrote a version of meanwhile is saved under another name', async ({
   page,
 }) => {
   const place = await openCard(page);
-  await viewAttached(page, '계획.pdf', 1);
-  await versions(page);
-  await expect(page.getByTestId('file-versions-list').locator('li')).toHaveCount(1);
+  const row = await viewAttached(page, '계획.pdf', 1);
+  await expect(row).toContainText(humanFileSize(koreanPdf(1).length));
 
-  // Somebody else, an editor of the board, writes a version the list has not read.
-  await page.evaluate(async ({ boardId, cardId }) => {
-    const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const other = dev.someoneElse();
-    await dev.backend.addMember(boardId, (await other.me()).id, 'editor');
-    const attached = (await dev.backend.attachments(boardId, cardId)).find(
-      (each) => each.name === '계획.pdf',
-    );
-    if (!attached) throw new Error('the file is not attached');
-    const theirs = await other.upload(
-      boardId,
-      new File(['%PDF-1.4 theirs'], 'theirs.pdf', { type: 'application/pdf' }),
-    );
-    await other.fileVersions.add(boardId, attached.fileId, 1, theirs);
-  }, place);
+  // A version written elsewhere after the file was opened: the card is told its size,
+  // and the list, read when it is shown, says that what is on screen is the one before.
+  await writtenElsewhere(page, place, '계획.pdf', 1);
+  await expect(row).toContainText(humanFileSize('%PDF-1.4 theirs'.length));
+  await versions(page);
+  await expect(page.getByTestId('file-versions-list').locator('li')).toHaveCount(2);
+  await expect(versionRow(page, 1)).toHaveAttribute('data-shown', '');
+  await expect(versionRow(page, 2).getByTestId('file-version-current')).toBeVisible();
+  await expect(page.getByTestId('file-viewer-older')).toBeVisible();
+
+  // Another, which the list that is shown has not read.
+  await writtenElsewhere(page, place, '계획.pdf', 2);
 
   await uploadVersion(page, '내 계획.pdf', 2);
   const refusal = page.getByTestId('file-version-refusal');
   await expect(refusal).toHaveAttribute('data-refusal', 'stale');
   await expect(refusal).toContainText('Somebody else wrote a new version in the meantime');
   // Nothing was written over theirs, and the list was read again.
-  await expect(page.getByTestId('file-versions-list').locator('li')).toHaveCount(2);
+  await expect(page.getByTestId('file-versions-list').locator('li')).toHaveCount(3);
   await picture(page, 'versions-stale');
 
   await page.getByTestId('file-version-save-apart').click();
   await expect(refusal).toHaveCount(0);
-  await expect(page.getByTestId('file-versions-list').locator('li')).toHaveCount(2);
+  await expect(page.getByTestId('file-versions-list').locator('li')).toHaveCount(3);
   if (await page.getByTestId('file-versions').isVisible()) {
     await page.getByTestId('file-versions-close').click();
   }

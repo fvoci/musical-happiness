@@ -2,7 +2,8 @@
  * The versions of the files of the backend in memory, as the server keeps
  * them: a file that was never written anew has its upload as its only
  * version; from the second on each is kept, the newest `LIMITS.fileVersions`
- * of them. Read by who reads the board or wiki, written by who edits it.
+ * of them. Read by who reads the board or wiki, written by who edits it. The
+ * attachments that give a file say the size of its newest version.
  */
 import type { UploadedFile } from '../backend.ts';
 import { FILE_VERSION_STALE, type FileVersion, type FileVersions } from '../file-versions.ts';
@@ -10,7 +11,7 @@ import { FILE_VERSION_STALE, type FileVersion, type FileVersions } from '../file
 import { memberRole } from './container-access.ts';
 import { readableFile } from './files.ts';
 import { fail } from './refuse.ts';
-import { LIMITS } from './shapes.ts';
+import { bodyFileIds, LIMITS, wireOf } from './shapes.ts';
 import type { KeptFileVersion, StoredFile, World } from './world.ts';
 
 const extensionOf = (name: string): string => /\.[^./]+$/.exec(name)?.[0]?.toLowerCase() ?? '';
@@ -86,7 +87,9 @@ export class MemoryFileVersions implements FileVersions {
     const file = this.#held(containerId, fileId, baseVersion);
     const source = this.#world.files.get(upload.fileId);
     const shown = [...this.#world.blocks.values()].some(
-      (block) => block.file?.fileId === upload.fileId,
+      (block) =>
+        block.file?.fileId === upload.fileId ||
+        (block.body ? bodyFileIds(block.body).includes(upload.fileId) : false),
     );
     if (
       source?.containerId !== containerId ||
@@ -151,6 +154,26 @@ export class MemoryFileVersions implements FileVersions {
     file.size = size;
     if (blob) file.blob = blob;
     else delete file.blob;
+    this.#resize(file);
     return told(made, made.version);
+  }
+
+  /** The attachments that give the file say its newest size, and who listens is told. */
+  #resize(file: StoredFile): void {
+    const changed = [...this.#world.blocks.values()].filter(
+      (block) => block.file?.fileId === file.fileId && block.file.size !== file.size,
+    );
+    for (const block of changed) {
+      if (block.file) block.file = { ...block.file, size: file.size };
+      block.updateAt = this.#world.now();
+      block.modifiedBy = this.#userId;
+    }
+    if (changed.length > 0) {
+      this.#world.tellContainer(file.containerId, {
+        kind: 'blocks',
+        containerId: file.containerId,
+        blocks: changed.map(wireOf),
+      });
+    }
   }
 }

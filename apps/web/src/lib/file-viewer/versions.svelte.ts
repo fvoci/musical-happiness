@@ -1,7 +1,8 @@
 /**
  * The versions of the file open in the viewer, as its list reads them: the
- * list, read when this is made and again after a write; writing a new
- * version from a file the reader picks; and going back to an older one.
+ * list, read when this is made, when it is shown again and after a write;
+ * writing a new version from a file the reader picks; and going back to an
+ * older one.
  *
  * A version is written from the newest the list had. When the file has a
  * newer one by then (somebody else wrote it meanwhile), nothing is changed:
@@ -66,22 +67,20 @@ export class VersionsList {
   status = $state<'loading' | 'ready' | 'failed'>('loading');
   /** The newest first. */
   versions = $state.raw<FileVersion[]>([]);
-  /**
-   * The newest version when the list was first read: the one the viewer
-   * opened the file as, a moment before.
-   */
-  opened = $state<number>();
   /** A write is under way: the list offers none meanwhile. */
   writing = $state<'upload' | 'restore' | 'apart'>();
   refusal = $state<WriteRefusal>();
   /** A file that went up and did not become a version (`stale`). */
   apart = $state.raw<VersionUpload>();
 
+  /** The first reading of the list, over whether it was read or not. */
+  readonly first: Promise<void>;
+
   readonly #source: VersionsSource;
 
   constructor(source: VersionsSource) {
     this.#source = source;
-    void this.read();
+    this.first = this.read();
   }
 
   /** The file's newest version, as the list has it. */
@@ -97,7 +96,6 @@ export class VersionsList {
       const list = await this.#source.list();
       await this.#source.learnUsers(list.map((one) => one.createdBy).filter((id) => id !== ''));
       this.versions = list;
-      this.opened ??= this.current?.version;
       this.status = 'ready';
     } catch {
       this.status = 'failed';

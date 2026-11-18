@@ -11,10 +11,12 @@
   download.
 
   Where the file has versions to show (`versions`: not for who reads by a
-  public link), a button in the header opens their list (FileVersions.svelte)
-  beside the document, or over it on a narrow screen. A version picked there
-  is shown in the file's place, in a frame of its own; the header says when
-  what is shown is not the newest.
+  public link), the file is read as its newest version by that version's
+  number, so that the version on screen is known and not guessed. A button in
+  the header opens their list (FileVersions.svelte) beside the document, or
+  over it on a narrow screen. A version picked there is shown in the file's
+  place, in a frame of its own; the header says when what is shown is not the
+  newest.
 
   It is mounted for one file and closed by unmounting it, which takes the
   frame out of the page and stops whatever the frame was doing.
@@ -27,7 +29,7 @@
   import XIcon from '@lucide/svelte/icons/x';
   import ZoomInIcon from '@lucide/svelte/icons/zoom-in';
   import ZoomOutIcon from '@lucide/svelte/icons/zoom-out';
-  import { tick, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { display } from '$lib/display.svelte.ts';
@@ -74,17 +76,47 @@
       },
     });
 
+  /** The list of versions, read as the viewer opens: the file is read by what it says. */
+  const list = untrack(() => (versions ? new VersionsList(versions) : undefined));
+  /** The number of the version on screen, where it is known: the one read, then whichever was picked. */
+  let shownVersion = $state<number>();
   /** What is on screen: the file as it was opened, then whichever version was picked. */
-  let session = $state.raw(untrack(() => sessionOf(file)));
-  /** The version picked from the list, if one was. */
-  let picked = $state.raw<FileVersion>();
-  /** The list of versions, made when it is first opened. */
-  let list = $state.raw<VersionsList>();
+  let session = $state.raw(untrack(() => sessionOf(opening())));
   let listed = $state(false);
   let panel = $state<HTMLElement>();
+  /** The viewer is closed: what ends after shows nothing. */
+  let closed = false;
+  onDestroy(() => {
+    closed = true;
+  });
 
-  /** The number of the version on screen, once the list has said which the file was opened as. */
-  const shownVersion = $derived(picked?.version ?? list?.opened);
+  /**
+   * The file as the viewer opens it. Where its versions are listed it is read
+   * as the newest of them by number, and that number is the version on
+   * screen; where the list could not be read, as the file is, its version
+   * unknown.
+   */
+  function opening(): ViewedFile {
+    const source = versions;
+    if (!source || !list) return file;
+    const { name, size, read } = file;
+    let opened: FileVersion | undefined;
+    return {
+      name,
+      size,
+      read: async (signal) => {
+        await list.first;
+        // The same version however often it is read: the download is of what is on screen.
+        opened ??= list.current;
+        if (!opened) return read(signal);
+        const blob = await source.bytes(opened.version, signal);
+        // Not over a version picked meanwhile.
+        if (blob) shownVersion ??= opened.version;
+        return blob;
+      },
+    };
+  }
+
   /** What is on screen is not the file's newest version. */
   const older = $derived(
     shownVersion !== undefined &&
@@ -162,8 +194,9 @@
   /** Shows a version in the file's place. */
   function view(version: FileVersion): void {
     const source = versions;
-    if (!source) return;
-    picked = version;
+    // A write that ended after the viewer was closed has nowhere to be shown.
+    if (!source || closed) return;
+    shownVersion = version.version;
     session = sessionOf({
       name: file.name,
       size: version.size,
@@ -180,8 +213,9 @@
   }
 
   async function openVersions(): Promise<void> {
-    if (!versions) return;
-    list ??= new VersionsList(versions);
+    if (!list) return;
+    // What it said when it was last shown may be so no more.
+    void list.read();
     listed = true;
     await tick();
     panel?.querySelector<HTMLElement>('h2')?.focus();
@@ -281,7 +315,8 @@
     </header>
 
     <div class="relative flex min-h-0 flex-1">
-      <div class="relative min-h-0 min-w-0 flex-1 bg-muted">
+      <!-- Narrow, the list is over the document: nothing under it takes the focus. -->
+      <div class="relative min-h-0 min-w-0 flex-1 bg-muted" inert={compact && listed}>
         {#if framed}
           <!-- A frame is one session's: another version is drawn in a new one. -->
           {#key session}

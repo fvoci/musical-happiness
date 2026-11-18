@@ -82,6 +82,7 @@ describe('the list of the versions of a file', () => {
       expect(within(row).getByTestId('file-version-by').textContent).not.toContain('Ada');
     }
     expect(within(first).getByTestId('file-version-by').textContent).toBe('By Ada');
+    expect(within(first).getByTestId('file-version-number').textContent.trim()).toBe('Version 1');
     expect(first.querySelector('time')?.getAttribute('datetime')).toBe('2026-01-01T12:00:00.000Z');
   });
 
@@ -95,7 +96,8 @@ describe('the list of the versions of a file', () => {
     expect(calls.onDownload.mock.calls[0]?.[0]).toMatchObject({ version: 1 });
     // Each button says which version it is of.
     expect(within(first).getByTestId('file-version-view').getAttribute('aria-label')).toMatch(
-      /^View the version of January 01 at /,
+      // Noon in Greenwich is the first or, far east, the second.
+      /^View version 1, of January 0[12] at /,
     );
   });
 

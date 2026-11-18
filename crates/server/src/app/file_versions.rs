@@ -2,10 +2,14 @@
 //! board's readers are given them and as its editors write a new one: from an uploaded
 //! file, or by going back to an older one.
 
-use fvoci_model::FileVersion;
-use fvoci_store::{KeptFileVersion, RestoredCopy, UnusableUpload, VersionAdded, VersionRestored};
+use fvoci_model::{BlockPatch, BlockType, FileVersion, JsonMap};
+use fvoci_store::{
+    BlockFilter, KeptFileVersion, RestoredCopy, UnusableUpload, VersionAdded, VersionRestored,
+};
+use serde_json::Value;
 
 use super::App;
+use super::blocks::ChangeNotification;
 use super::files::{FILE, new_place};
 use super::loose_objects::{WRITE_TIMEOUT, Written};
 use crate::error::{AppError, Reason};
@@ -52,6 +56,58 @@ impl App {
             .ok_or_else(|| AppError::not_found(VERSION))
     }
 
+    /// Writes the size of a file's newest version on the attachments of the board that
+    /// give the file, as `user_id`; who listens to the board is told as of any change
+    /// of a block. An attachment says the size it was made with, and a card shows that
+    /// one and the viewer holds the file to its limit by it.
+    ///
+    /// The version is written by now, so nothing here fails the request: what could
+    /// not be read or changed is logged, and the attachment says an older size until
+    /// the next version is written. The size is read here and not taken from the
+    /// write, so of two versions written close together the later one's is what is
+    /// read; the block is still patched outside the write's lock.
+    async fn resize_attachments(&self, container_id: &str, file_id: &str, user_id: &str) {
+        let size = match self.file_info(container_id, file_id).await {
+            Ok(Some(info)) => info.size,
+            // Gone meanwhile, with its board or collected: nothing gives it any more.
+            Ok(None) => return,
+            Err(error) => {
+                tracing::warn!(%error, container_id, file_id, "a file with a new version was not read");
+                return;
+            }
+        };
+        let attachments = BlockFilter {
+            block_type: Some(BlockType::Attachment),
+            ..BlockFilter::container(container_id)
+        };
+        let blocks = match self.store().get_blocks(&attachments).await {
+            Ok(blocks) => blocks,
+            Err(error) => {
+                tracing::warn!(%error, container_id, "the attachments of a board were not read");
+                return;
+            }
+        };
+        let stale = blocks.iter().filter(|block| {
+            let fields = &block.fields;
+            fields.get("fileId").and_then(Value::as_str) == Some(file_id)
+                && fields.get("size").and_then(Value::as_i64) != Some(size)
+        });
+        for block in stale {
+            let mut updated_fields = JsonMap::new();
+            updated_fields.insert("size".to_owned(), Value::from(size));
+            let patch = BlockPatch {
+                updated_fields,
+                ..BlockPatch::default()
+            };
+            let patched = self
+                .patch_block(&block.id, &patch, user_id, ChangeNotification::default())
+                .await;
+            if let Err(error) = patched {
+                tracing::warn!(%error, block_id = %block.id, "an attachment keeps its file's older size");
+            }
+        }
+    }
+
     async fn kept_file_versions(
         &self,
         container_id: &str,
@@ -87,7 +143,11 @@ impl App {
             .add_file_version(container_id, file_id, base, upload, user_id)
             .await;
         match added {
-            Ok(VersionAdded::Written(kept)) => Ok(described(kept)),
+            Ok(VersionAdded::Written(kept)) => {
+                self.resize_attachments(container_id, file_id, user_id)
+                    .await;
+                Ok(described(kept))
+            }
             Ok(VersionAdded::Stale { current }) => Err(stale(base, current)),
             Ok(VersionAdded::Unusable(why)) => {
                 Err(AppError::bad_request(unusable(why)).with_pointer("/fileId"))
@@ -156,7 +216,11 @@ impl App {
             .restore_file_version(container_id, file_id, base, copy)
             .await;
         match restored {
-            Ok(VersionRestored::Written(kept)) => Ok(described(kept)),
+            Ok(VersionRestored::Written(kept)) => {
+                self.resize_attachments(container_id, file_id, user_id)
+                    .await;
+                Ok(described(kept))
+            }
             // Doomed while it was copied, which took longer than any write takes: the
             // store doomed it again, for the housekeeping to remove.
             Ok(VersionRestored::GivenUp) => Err(AppError::internal(

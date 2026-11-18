@@ -134,6 +134,10 @@ describe('the versions of a file in memory', () => {
     const shown = await backend.upload(boardId, named('shown.txt', 'shown'));
     await backend.createAttachment(boardId, card?.id ?? '', shown);
     expect(await refusedFor(shown.fileId)).toBe(400);
+    const pictured = await backend.upload(boardId, named('pictured.txt', 'in a body'));
+    if (!card) throw new Error('no card');
+    card.body = { type: 'doc', content: [{ type: 'image', attrs: { fileId: pictured.fileId } }] };
+    expect(await refusedFor(pictured.fileId)).toBe(400);
     const written = await backend.upload(boardId, named('w.txt', 'w'));
     await versions.add(
       boardId,
@@ -143,6 +147,36 @@ describe('the versions of a file in memory', () => {
     );
     expect(await refusedFor(written.fileId)).toBe(400);
     expect((await versions.list(boardId, file.fileId)).map((one) => one.version)).toEqual([1]);
+  });
+
+  it('writes the size of the newest version on the attachment that gives the file', async () => {
+    const { backend, boardId, file, add, versions, world } = await boardWithFile();
+    const cardId = [...world.blocks.values()].find((block) => block.type === 'card')?.id ?? '';
+    const attached = await backend.createAttachment(boardId, cardId, file);
+    const size = async () =>
+      (await backend.attachments(boardId, cardId)).find((one) => one.id === attached.id)?.size;
+    expect(await size()).toBe(5);
+    await add('the second', 1);
+    expect(await size()).toBe(10);
+    await versions.restore(boardId, file.fileId, 1, 2);
+    expect(await size()).toBe(5);
+  });
+
+  it('copies a file as its newest version alone, by nobody', async () => {
+    const { backend, boardId, file, add, versions, world } = await boardWithFile();
+    const cardId = [...world.blocks.values()].find((block) => block.type === 'card')?.id ?? '';
+    await backend.createAttachment(boardId, cardId, file);
+    await add('the second', 1);
+    const [workspace] = await backend.workspaces();
+    const copy = await backend.duplicateContainer(boardId, false, workspace?.id ?? '');
+    const copied = [...world.files.values()].find(
+      (one) => one.containerId === copy.id && one.name === 'paper.txt',
+    );
+    if (!copied) throw new Error('the file was not copied');
+    expect(await versions.list(copy.id, copied.fileId)).toMatchObject([
+      { version: 1, createdBy: '', size: 10, isCurrent: true },
+    ]);
+    expect(await (await versions.bytes(copy.id, copied.fileId, 1)).text()).toBe('the second');
   });
 
   it('keeps the newest versions and lets the oldest go', async () => {
@@ -256,15 +290,18 @@ describe('the list of the versions of a file attached to an open card', () => {
   it('reads the versions with the names of who wrote them', async () => {
     const { list, source, backend } = await listed();
     expect(list.versions.map((one) => one.version)).toEqual([1]);
-    expect([list.opened, list.current?.version]).toEqual([1, 1]);
+    expect(list.current?.version).toBe(1);
     expect(source.canWrite).toBe(true);
     expect(source.userName(backend.userId)).toBeTruthy();
   });
 
   it('writes a new version from a file, and goes back to the one before', async () => {
-    const { list } = await listed();
+    const { list, card, attachment } = await listed();
+    const sizeOnCard = () => card.attachments.find((one) => one.id === attachment.id)?.size;
     const written = await list.add(named('paper.txt', 'the second'));
     expect(written?.version).toBe(2);
+    // The card's row of the file says the newest version's size.
+    expect(sizeOnCard()).toBe(10);
     expect(list.versions.map((one) => [one.version, one.isCurrent])).toEqual([
       [2, true],
       [1, false],
@@ -273,7 +310,7 @@ describe('the list of the versions of a file attached to an open card', () => {
     if (!first) throw new Error('no first version');
     expect((await list.restore(first))?.restoredFrom).toBe(1);
     expect(list.versions.map((one) => one.version)).toEqual([3, 2, 1]);
-    expect([list.refusal, list.writing, list.opened]).toEqual([undefined, undefined, 1]);
+    expect([list.refusal, list.writing, sizeOnCard()]).toEqual([undefined, undefined, 5]);
   });
 
   it('keeps a file that did not become a version, to be attached on its own or let go', async () => {

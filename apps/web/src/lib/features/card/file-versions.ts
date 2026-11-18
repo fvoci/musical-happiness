@@ -5,9 +5,15 @@
  * public link) has none, and the viewer shows no list.
  *
  * A file that went up to become a version and did not (somebody else wrote
- * one meanwhile) can be attached to the same card as a file of its own.
+ * one meanwhile) can be attached to the same card as a file of its own. The
+ * card's row of the file says the size of the newest version: the server
+ * writes it on the attachment, and a version written here is shown at once.
  */
-import type { VersionsSource, WriteRefusal } from '$lib/file-viewer/versions.svelte.ts';
+import type {
+  FileVersion,
+  VersionsSource,
+  WriteRefusal,
+} from '$lib/file-viewer/versions.svelte.ts';
 import { FILE_VERSION_STALE } from '$lib/state/file-versions.ts';
 import {
   isBackendError,
@@ -37,6 +43,12 @@ export function attachmentVersions(
   const versions = backend.fileVersions;
   if (!versions) return undefined;
   const { fileId } = attachment;
+  /** The card's row of the file says the size of the version written here, before it is told. */
+  const resized = (written: FileVersion): FileVersion => {
+    const row = card.attachments.find((one) => one.id === attachment.id);
+    if (row && row.size !== written.size) card.receive({ ...row, size: written.size });
+    return written;
+  };
   return {
     get canWrite() {
       return board.canEdit;
@@ -51,8 +63,10 @@ export function attachmentVersions(
         return undefined;
       }
     },
-    add: (baseVersion, upload) => versions.add(boardId, fileId, baseVersion, upload),
-    restore: (version, baseVersion) => versions.restore(boardId, fileId, version, baseVersion),
+    add: async (baseVersion, upload) =>
+      resized(await versions.add(boardId, fileId, baseVersion, upload)),
+    restore: async (version, baseVersion) =>
+      resized(await versions.restore(boardId, fileId, version, baseVersion)),
     async attachApart(upload) {
       card.receive(await backend.createAttachment(boardId, card.cardId, upload));
     },

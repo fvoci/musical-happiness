@@ -176,6 +176,9 @@ describe.skipIf(!FOLDER)('real documents through the viewer’s check', () => {
       expect(outcomes.length, 'the folder holds samples').toBeGreaterThan(0);
       expect(wrongRefusals, 'files rhwp reads and the check refuses').toEqual([]);
       expect(otherPages, 'files the check changes the pages of').toEqual([]);
+      // A first page over the viewer's own limit is the limit's doing; any other failure is not.
+      const failedPages = notDrawn.filter((one) => one.drew !== 'too-large').map(relative);
+      expect(failedPages, 'opened files whose first page is not drawn').toEqual([]);
     },
     60 * 60 * 1000,
   );

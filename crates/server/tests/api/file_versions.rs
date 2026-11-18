@@ -3,9 +3,10 @@
 //! it names; kept as many as the server is set to; and gone with the file.
 
 use fvoci_model::{Block, BlockType, Container, ContainerType, FileInfo, JsonMap, new_id};
+use fvoci_server::app::ChangeNotification;
 use fvoci_server::auth::now_millis;
 use fvoci_store::testing::db_type_of_the_tests;
-use fvoci_store::{DbType, VersionAdded};
+use fvoci_store::{BlockFilter, DbType, VersionAdded};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -105,7 +106,8 @@ async fn board_with_file(ts: &TestServer) -> (Container, String) {
 }
 
 /// Attaches the file to a new card of the board: a block shows it from then on.
-async fn attach(ts: &TestServer, board_id: &str, file_id: &str) {
+/// Attaches the file to a new card of the board; the card.
+async fn attach(ts: &TestServer, board_id: &str, file_id: &str) -> String {
     let card = Block {
         id: new_id(),
         parent_id: board_id.to_owned(),
@@ -136,6 +138,26 @@ async fn attach(ts: &TestServer, board_id: &str, file_id: &str) {
         .insert_blocks(board_id, &[attachment])
         .await
         .check_created();
+    made[0].id.clone()
+}
+
+/// The size the attachment of a file says, if it says one.
+async fn attached_size(ts: &TestServer, board_id: &str, file_id: &str) -> Option<i64> {
+    let attachments = BlockFilter {
+        block_type: Some(BlockType::Attachment),
+        ..BlockFilter::container(board_id)
+    };
+    let blocks = ts
+        .app
+        .store()
+        .get_blocks(&attachments)
+        .await
+        .expect("the attachments are read");
+    let block = blocks
+        .iter()
+        .find(|block| block.fields.get("fileId").and_then(Value::as_str) == Some(file_id))
+        .expect("the file is attached");
+    block.fields.get("size").and_then(Value::as_i64)
 }
 
 /// The places in the file storage of the versions kept of a file, the newest first.
@@ -326,19 +348,26 @@ async fn a_version_written_from_an_older_one_is_a_conflict() {
 }
 
 /// Of two versions written at once from the same version, one is written and the
-/// other is a conflict whose upload stays a file.
+/// other is a conflict whose upload stays a file. Both files are up before: only the
+/// two writes are made together.
 #[tokio::test]
 async fn of_two_versions_written_at_once_one_is_a_conflict() {
     let ts = Setup::native().start().await.init_basic().await;
     let (board, file_id) = board_with_file(&ts).await;
+    let path = versions_path(&board.id, &file_id);
     for round in 1..=5 {
-        let first = add_version(&ts.client, &board.id, &file_id, round, b"one");
-        let second = add_version(&ts.client, &board.id, &file_id, round, b"other");
-        let ((first, first_upload), (second, second_upload)) = tokio::join!(first, second);
+        let one = uploaded_id(&upload(&ts.client, &board.id, "next.txt", b"one").await);
+        let other = uploaded_id(&upload(&ts.client, &board.id, "next.txt", b"other").await);
+        let from_one = json!({"baseVersion": round, "fileId": one});
+        let from_other = json!({"baseVersion": round, "fileId": other});
+        let (first, second) = tokio::join!(
+            ts.client.post(&path, &from_one),
+            ts.client.post(&path, &from_other)
+        );
         let (lost, lost_upload, won_bytes) = match (first.status, second.status) {
-            (StatusCode::CREATED, StatusCode::CONFLICT) => (second, second_upload, &b"one"[..]),
-            (StatusCode::CONFLICT, StatusCode::CREATED) => (first, first_upload, &b"other"[..]),
-            other => panic!("round {round}: {other:?}"),
+            (StatusCode::CREATED, StatusCode::CONFLICT) => (second, other, &b"one"[..]),
+            (StatusCode::CONFLICT, StatusCode::CREATED) => (first, one, &b"other"[..]),
+            statuses => panic!("round {round}: {statuses:?}"),
         };
         check_stale(&lost);
         assert_eq!(file_bytes(&ts.client, &board.id, &file_id).await, won_bytes);
@@ -348,6 +377,126 @@ async fn of_two_versions_written_at_once_one_is_a_conflict() {
             usize::try_from(round).expect("small") + 1
         );
     }
+    ts.teardown().await;
+}
+
+/// A version gone back to and one written at once from the same version: one of the
+/// two is the file's new version, the other a conflict, and no number is given twice.
+#[tokio::test]
+async fn of_a_version_gone_back_to_and_one_written_at_once_one_is_a_conflict() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let (board, file_id) = board_with_file(&ts).await;
+    add_version(&ts.client, &board.id, &file_id, 1, b"the second")
+        .await
+        .0
+        .check_created();
+    let path = versions_path(&board.id, &file_id);
+    for base in 2..=6 {
+        let next = uploaded_id(&upload(&ts.client, &board.id, "next.txt", b"written").await);
+        let written = json!({"baseVersion": base, "fileId": next});
+        let (back, added) = tokio::join!(
+            restore(&ts.client, &board.id, &file_id, 1, base),
+            ts.client.post(&path, &written)
+        );
+        let (lost, won_bytes) = match (back.status, added.status) {
+            (StatusCode::OK, StatusCode::CONFLICT) => (added, &b"first"[..]),
+            (StatusCode::CONFLICT, StatusCode::CREATED) => (back, &b"written"[..]),
+            statuses => panic!("from {base}: {statuses:?}"),
+        };
+        check_stale(&lost);
+        assert_eq!(file_bytes(&ts.client, &board.id, &file_id).await, won_bytes);
+        let numbers: Vec<i64> = said(&versions(&ts.client, &board.id, &file_id).await)
+            .iter()
+            .map(|version| version.0)
+            .collect();
+        let counted: Vec<i64> = (1..=base + 1).rev().collect();
+        assert_eq!(numbers, counted, "from {base}");
+    }
+    ts.teardown().await;
+}
+
+/// The attachments that give a file say the size of its newest version, once one is
+/// written and once one is gone back to; the attachment of another file is left.
+#[tokio::test]
+async fn an_attachment_says_the_size_of_the_newest_version() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let (board, file_id) = board_with_file(&ts).await;
+    let other = uploaded_id(&upload(&ts.client, &board.id, "other.txt", b"another").await);
+    attach(&ts, &board.id, &file_id).await;
+    attach(&ts, &board.id, &other).await;
+    assert_eq!(attached_size(&ts, &board.id, &file_id).await, None);
+
+    add_version(&ts.client, &board.id, &file_id, 1, b"the second")
+        .await
+        .0
+        .check_created();
+    assert_eq!(attached_size(&ts, &board.id, &file_id).await, Some(10));
+    restore(&ts.client, &board.id, &file_id, 1, 2)
+        .await
+        .check_ok();
+    assert_eq!(attached_size(&ts, &board.id, &file_id).await, Some(5));
+    assert_eq!(attached_size(&ts, &board.id, &other).await, None);
+    ts.teardown().await;
+}
+
+/// The versions of a file a card attaches stay while the card is in the trash and
+/// are there when it comes back; once the card is removed for good and the file is
+/// collected, the versions and their objects are gone.
+#[tokio::test]
+async fn versions_go_for_good_with_the_card_that_attached_their_file() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let (board, file_id) = board_with_file(&ts).await;
+    let card_id = attach(&ts, &board.id, &file_id).await;
+    add_version(&ts.client, &board.id, &file_id, 1, b"the second")
+        .await
+        .0
+        .check_created();
+    restore(&ts.client, &board.id, &file_id, 1, 2)
+        .await
+        .check_ok();
+    let kept = places(&ts, &board.id, &file_id).await;
+    assert_eq!(kept.len(), 3, "{kept:?}");
+    let me = ts.client.me().await.id;
+    let collect = async || {
+        let store = ts.app.store();
+        let collected = store.collect_unreferenced_files(i64::MAX).await;
+        collected.expect("collected").len()
+    };
+
+    ts.app
+        .delete_block(&card_id, &me, ChangeNotification::default())
+        .await
+        .expect("the card goes to the trash");
+    assert_eq!(collect().await, 0, "the card in the trash holds its file");
+    assert_eq!(remove_doomed(&ts, now_millis()).await.removed, 0);
+    ts.app
+        .undelete_block(&card_id, &me)
+        .await
+        .expect("the card comes back");
+    assert_eq!(versions(&ts.client, &board.id, &file_id).await.len(), 3);
+    assert_eq!(
+        version_bytes(&ts.client, &board.id, &file_id, 2).await,
+        b"the second"
+    );
+
+    ts.app
+        .delete_block(&card_id, &me, ChangeNotification::default())
+        .await
+        .expect("the card goes to the trash again");
+    ts.app
+        .store()
+        .purge_trash(i64::MAX)
+        .await
+        .expect("the trash is purged");
+    assert_eq!(collect().await, 1, "the file nothing shows any more");
+    assert_eq!(remove_doomed(&ts, now_millis()).await.removed, 3);
+    for path in &kept {
+        assert!(!exists(&ts, path).await, "{path} went with the card");
+    }
+    ts.client
+        .get(&versions_path(&board.id, &file_id))
+        .await
+        .check_not_found();
     ts.teardown().await;
 }
 

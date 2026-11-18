@@ -201,7 +201,13 @@
             data-shown={shown === version.version ? '' : undefined}
           >
             <p class="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <time class="font-medium" datetime={new Date(version.createAt).toISOString()}>
+              <span class="font-medium" data-testid="file-version-number">
+                {m.file_version_number({ version: version.version })}
+              </span>
+              <time
+                class="text-muted-foreground"
+                datetime={new Date(version.createAt).toISOString()}
+              >
                 {relativeTime(version.createAt, context.locale)}
               </time>
               {#if version.isCurrent}
@@ -229,7 +235,7 @@
             </p>
             <div class="flex gap-1">
               <IconButton
-                label={m.file_version_view({ when: at })}
+                label={m.file_version_view({ version: version.version, when: at })}
                 disabled={shown === version.version}
                 data-testid="file-version-view"
                 onclick={() => {
@@ -239,7 +245,7 @@
                 <EyeIcon aria-hidden="true" />
               </IconButton>
               <IconButton
-                label={m.file_version_download({ when: at })}
+                label={m.file_version_download({ version: version.version, when: at })}
                 data-testid="file-version-download"
                 onclick={() => {
                   onDownload(version);
@@ -249,7 +255,7 @@
               </IconButton>
               {#if source.canWrite && !version.isCurrent}
                 <IconButton
-                  label={m.file_version_restore({ when: at })}
+                  label={m.file_version_restore({ version: version.version, when: at })}
                   disabled={busy}
                   data-testid="file-version-restore"
                   onclick={() => {

@@ -145,26 +145,6 @@ impl Store {
         .await
     }
 
-    /// A version kept of a file of a board; `None` if the file has no such version
-    /// (any more).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::NotFound`] if the board has no file of that stored name,
-    /// and [`StoreError::Database`] if a query fails.
-    pub async fn file_version(
-        &self,
-        container_id: &str,
-        stored_name: &str,
-        version: i64,
-    ) -> Result<Option<KeptFileVersion>, StoreError> {
-        Ok(self
-            .file_versions(container_id, stored_name)
-            .await?
-            .into_iter()
-            .find(|kept| kept.version == version))
-    }
-
     /// Makes the uploaded file `upload` of a board the new version of its file
     /// `stored_name`, written by `user_id` from the version `base`: the upload's
     /// object becomes the version's, and its record goes, so that it is no file of its
@@ -294,6 +274,8 @@ struct Head {
 
 impl Head {
     const COLUMNS: &'static str = "name, id, version, path, size, create_at, created_by, extension";
+    /// Where the organization's column is read, when it is: after [`Self::COLUMNS`].
+    const ORG_COLUMN: usize = 8;
 
     async fn read(
         scope: &mut Scope<'_>,
@@ -324,7 +306,7 @@ impl Head {
     /// The stored name of the row's record, and the record.
     fn from_row(row: &Row, scope: &Scope<'_>) -> Result<(String, Self), StoreError> {
         let org_id = loose_objects::org_column(scope)
-            .map(|_| row.id(8))
+            .map(|_| row.id(Self::ORG_COLUMN))
             .transpose()?;
         Ok((
             row.text(0)?,

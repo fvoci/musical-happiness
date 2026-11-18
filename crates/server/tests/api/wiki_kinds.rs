@@ -57,6 +57,10 @@ const REACHED: &[(&str, Reaches)] = &[
     ("uploadFile", Reaches::Both),
     ("getFile", Reaches::Both),
     ("getFileInfo", Reaches::Both),
+    ("getFileVersions", Reaches::Both),
+    ("getFileVersion", Reaches::Both),
+    ("addFileVersion", Reaches::Both),
+    ("restoreFileVersion", Reaches::Both),
     ("createUpload", Reaches::Both),
     ("getUpload", Reaches::Both),
     ("putUploadPart", Reaches::Both),
@@ -412,6 +416,9 @@ impl World {
             "setContainerTeam" => json!({"role": "editor"}),
             "setSharing" => json!({"enabled": false}),
             "createUpload" => json!({"name": "more.bin", "size": 4}),
+            // The file itself is no version of it: refused as what it is, where the file is.
+            "addFileVersion" => json!({"baseVersion": 1, "fileId": things.file}),
+            "restoreFileVersion" => json!({"baseVersion": 1}),
             "patchBlocks" => {
                 json!({"blockIds": [things.block], "blockPatches": [{"title": "changed"}]})
             }
