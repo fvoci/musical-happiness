@@ -107,7 +107,8 @@ function copiedValue(element: Element, attribute: Attr, prefix: string): string 
   if (name === 'id') return `${prefix}${value}`;
   if (name === 'font-family') return withFallback(value);
   // A reference (a clip, a gradient) only within the page; nothing in a value reaches further.
-  if (/url\(\s*[^#\s]/i.test(value)) return undefined;
+  // A backslash goes too: CSS reads `u\72l(` as `url(`, and no value rhwp writes has one.
+  if (value.includes('\\') || /url\(\s*[^#\s]/i.test(value)) return undefined;
   return withIds(value, prefix);
 }
 

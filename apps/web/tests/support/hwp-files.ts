@@ -8,10 +8,13 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { inflateRawSync } from 'node:zlib';
 
 import { HwpDocument, initSync } from '@rhwp/core';
 
-import { png } from './viewer-files.ts';
+import { zipEntries } from '../../src/lib/file-viewer/zip-directory.ts';
+
+import { png, zip, type ZipMember } from './viewer-files.ts';
 
 /** The text of the sample, for the tests to look for. */
 export const HWP_TEXT = {
@@ -68,8 +71,39 @@ function koreanDocument(): HwpDocument {
   return document;
 }
 
+/**
+ * The part rhwp adds to an HWPX it writes from its own document, which makes
+ * it read the file back with the layout rules of HWP. Hancom's editor drops it
+ * on saving; the samples drop it too, to be read as any HWPX is.
+ */
+const RHWP_ORIGIN = 'META-INF/rhwp-hwp5-origin';
+
+/**
+ * The archive again with each part as `change` makes it (the same, another,
+ * or left out when it gives undefined), each stored or deflated as it was.
+ */
+export function rewriteArchive(
+  archive: Buffer,
+  change: (member: ZipMember) => ZipMember | undefined,
+): Buffer {
+  const members = (zipEntries(archive) ?? []).flatMap((entry) => {
+    const at = entry.offset;
+    const start = at + 30 + archive.readUInt16LE(at + 26) + archive.readUInt16LE(at + 28);
+    const packed = archive.subarray(start, start + entry.compressedSize);
+    const stored = entry.method === 0;
+    const changed = change({
+      name: entry.name,
+      data: stored ? packed : inflateRawSync(packed),
+      stored,
+    });
+    return changed ? [changed] : [];
+  });
+  return zip(members);
+}
+
 export function koreanHwpx(): Buffer {
-  return Buffer.from(koreanDocument().exportHwpx());
+  const exported = Buffer.from(koreanDocument().exportHwpx());
+  return rewriteArchive(exported, (member) => (member.name === RHWP_ORIGIN ? undefined : member));
 }
 
 export function lockedHwpx(): Buffer {

@@ -189,10 +189,12 @@ test('the frame and the worker the renderer runs in reach no network', async ({ 
   };
   const inside = page.frames().find((each) => each.url().endsWith('/static/viewer-frame.html'));
   if (!inside) throw new Error('no viewer frame');
-  const app = new URL('/', inside.url()).href;
-  expect(await inside.evaluate(attempt, app)).toMatch(/^refused/);
-  expect(await worker.evaluate(attempt, app)).toMatch(/^refused/);
-  expect(await worker.evaluate(attempt, 'https://example.invalid/')).toMatch(/^refused/);
+  // A file of the app that any origin may read (`Access-Control-Allow-Origin: *`): only the
+  // frame's policy stops it, and the app's own page reaches it.
+  const open = inside.url();
+  expect(await page.evaluate(attempt, open)).toBe('reached: 200');
+  expect(await inside.evaluate(attempt, open)).toMatch(/^refused/);
+  expect(await worker.evaluate(attempt, open)).toMatch(/^refused/);
 });
 
 test('a document locked with a password says so', async ({ page }) => {

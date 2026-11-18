@@ -4,7 +4,8 @@
  * and draws its pages one at a time.
  *
  * Before rhwp reads a file it is checked: an archive (HWPX) is unpacked,
- * counted and written anew (zip-guard.ts). rhwp lays the
+ * counted and written anew (zip-guard.ts), and what rhwp parses of it as XML
+ * held to the limit (hwpx-package.ts). rhwp lays the
  * document out with font metrics of its own (it has no `document` in a
  * worker to measure text with), so the layout does not depend on the fonts
  * the reader has; only the glyphs drawn do.
@@ -13,6 +14,7 @@ import init, { HwpDocument } from '@rhwp/core';
 
 import { PAGE_LIMIT } from '$lib/file-viewer/protocol.ts';
 
+import { checkHwpxPackage } from './hwpx-package.ts';
 import type { FromWorker, PageSize, TextRun, ToWorker } from './hwp-messages.ts';
 import { LockedFile, UnreadableFile } from './renderer.ts';
 import { repack } from './zip-guard.ts';
@@ -79,6 +81,7 @@ export class HwpReader {
   async open(message: Extract<ToWorker, { kind: 'open' }>): Promise<FromWorker> {
     if (this.#document) throw new Error('a document is open already');
     const checked = await repack(message.bytes);
+    await checkHwpxPackage(checked);
     await init({ module_or_path: fromHex(message.wasm) });
     let document: HwpDocument;
     try {

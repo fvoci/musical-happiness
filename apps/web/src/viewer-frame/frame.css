@@ -78,6 +78,15 @@ body {
   background: color-mix(in srgb, Highlight 40%, transparent);
 }
 
+/* The breaks between runs, out of the flow and unpainted when selected, as pdf.js's are. */
+.hwp-text > br {
+  position: absolute;
+}
+
+.hwp-text > br::selection {
+  background: transparent;
+}
+
 /* docx-preview's wrapper: its grey and its padding give way to the frame's. */
 .docx-body .docx-wrapper {
   background: transparent;
