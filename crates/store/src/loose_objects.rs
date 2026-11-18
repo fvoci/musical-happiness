@@ -272,12 +272,18 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::InvalidPath`] for a place spelled otherwise than the one way
-    /// (nothing is doomed then), and [`StoreError::Database`] if a statement fails.
+    /// Returns [`StoreError::InvalidPath`] for a place spelled otherwise than the one way,
+    /// or by a handle of an organization for the key of another (nothing is doomed then),
+    /// and [`StoreError::Database`] if a statement fails.
     pub async fn doom_unrecorded(&self, paths: &[&str]) -> Result<u64, StoreError> {
+        let org = self.tenant().org_id();
+        let another_orgs = |path: &str| {
+            org.as_deref()
+                .is_some_and(|org| FileKey::parse(path).is_some_and(|key| key.org_id != org))
+        };
         if let Some(path) = paths
             .iter()
-            .find(|path| !fvoci_model::is_storage_path(path))
+            .find(|path| !fvoci_model::is_storage_path(path) || another_orgs(path))
         {
             return Err(StoreError::InvalidPath((*path).to_owned()));
         }

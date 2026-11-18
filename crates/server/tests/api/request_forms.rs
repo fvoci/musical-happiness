@@ -8,7 +8,7 @@ use serde_json::json;
 use crate::blocks::{
     blocks_of, blocks_path, create_board_in_store, insert, insert_one, new_block, titles,
 };
-use crate::common::{Setup, TEST_WORKSPACE_ID, TEST_WS};
+use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS};
 
 /// A request member that is no `Option` refuses `null`, as it refuses a value of another
 /// type; one that is (a block's `body`, a patch's `title`) takes it as none.
@@ -241,26 +241,45 @@ async fn every_list_takes_1_to_1000_to_a_page() {
         format!("{TEST_WS}/boards/{}/trash/cards", board.id),
         format!("{TEST_WS}/references/to/{}", card.id),
     ] {
-        for query in ["", "?perPage=1", "?perPage=1000", "?page=3&perPage=1000"] {
-            th.client.get(&format!("{path}{query}")).await.check_ok();
-        }
-        for (query, refused) in [
-            ("page=-1", "page"),
-            ("perPage=0", "perPage"),
-            ("perPage=1001", "perPage"),
-            ("perPage=2147483648", "perPage"),
-        ] {
-            let response = th.client.get(&format!("{path}?{query}")).await;
-            response.check_bad_request();
-            assert_eq!(
-                response.refused_at(),
-                format!("parameter {refused}"),
-                "{path}?{query}"
-            );
-        }
+        takes_1_to_1000_to_a_page(&th.client, &format!("{path}?")).await;
     }
 
     th.teardown().await;
+}
+
+/// The cards of a board read by its link take a page as every list does.
+#[tokio::test]
+async fn the_cards_of_a_shared_board_take_1_to_1000_to_a_page() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let board = create_board_in_store(&th, ContainerType::Open).await;
+    insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
+    let token = th.share(&board.id).await;
+    let path = format!("/shared/{}/cards?readToken={token}&", board.id);
+    takes_1_to_1000_to_a_page(&th.anonymous(), &path).await;
+
+    th.teardown().await;
+}
+
+/// Checks that the list of `path` (ending in `?` or `&`) answers pages of 1 to 1000 and
+/// refuses the rest at the parameter.
+async fn takes_1_to_1000_to_a_page(client: &Client, path: &str) {
+    for query in ["", "perPage=1", "perPage=1000", "page=3&perPage=1000"] {
+        client.get(&format!("{path}{query}")).await.check_ok();
+    }
+    for (query, refused) in [
+        ("page=-1", "page"),
+        ("perPage=0", "perPage"),
+        ("perPage=1001", "perPage"),
+        ("perPage=2147483648", "perPage"),
+    ] {
+        let response = client.get(&format!("{path}{query}")).await;
+        response.check_bad_request();
+        assert_eq!(
+            response.refused_at(),
+            format!("parameter {refused}"),
+            "{path}{query}"
+        );
+    }
 }
 
 /// The board is no parent in a batch of patches, nor where boards and blocks are made

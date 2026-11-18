@@ -487,6 +487,31 @@ async fn an_unrecorded_object_is_doomed_as_its_keys_organizations() {
     test.teardown().await;
 }
 
+/// By a handle of an organization, the key of another is refused and nothing of the
+/// batch is doomed; its own keys, and places of no key, are its own.
+#[tokio::test]
+async fn an_organization_dooms_no_key_of_another() {
+    let test = common::setup().await;
+    let (board_id, _) = board(&test).await;
+    let ours = format!("{}/{board_id}/stray", test.org_id);
+    let theirs = format!("{}/{board_id}/stray", new_id());
+    let refused = test
+        .doom_unrecorded(&[ours.as_str(), theirs.as_str()])
+        .await;
+    assert!(
+        matches!(&refused, Err(StoreError::InvalidPath(path)) if *path == theirs),
+        "{refused:?}"
+    );
+    assert_eq!(
+        test.loose_objects().await.expect("listed"),
+        [],
+        "nothing doomed"
+    );
+    let paths = [ours.as_str(), "boards/20261112/stray.png"];
+    assert_eq!(test.doom_unrecorded(&paths).await.expect("doomed"), 2);
+    test.teardown().await;
+}
+
 /// The places the records name, live or kept with a board in the trash, read a page at a
 /// time after the last one read, each once and in order.
 #[tokio::test]

@@ -46,7 +46,6 @@ pub(crate) async fn upload_in(
     Client::send(request).await
 }
 
-/// The `fileId` of a successful upload.
 /// A key of the server's making for a file of `board_id` ([`fvoci_model::FileKey`]),
 /// under the organization of the board, whichever it is.
 pub(crate) async fn key_of(ts: &TestServer, board_id: &str, secret: &str) -> String {
@@ -60,6 +59,7 @@ pub(crate) async fn key_of(ts: &TestServer, board_id: &str, secret: &str) -> Str
     format!("{org}/{board_id}/{secret}")
 }
 
+/// The `fileId` of a successful upload.
 pub(crate) fn uploaded_id(response: &crate::common::ApiResponse) -> String {
     response.value()["fileId"]
         .as_str()
