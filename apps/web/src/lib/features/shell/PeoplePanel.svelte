@@ -63,6 +63,11 @@
   );
   let askOpen = $state(false);
 
+  /** A member's name as the workspace holds it now, which follows a change of it. */
+  function nameNow(member: WorkspaceMember): string {
+    return userDisplayName(workspace.user(member.userId) ?? member);
+  }
+
   const ROLE_LABELS: Record<WorkspaceRole, () => string> = {
     admin: m.people_role_admin,
     member: m.people_role_member,
@@ -295,14 +300,14 @@
       </h3>
       <ul class="grid gap-1" data-testid="people-members">
         {#each members as member (member.userId)}
-          {@const name = userDisplayName(member)}
-          {@const self = member.userId === workspace.me?.id}
+          <!-- As the workspace holds them now: a change of their name shows at once. -->
           {@const person = workspace.user(member.userId) ?? member}
+          {@const name = userDisplayName(person)}
+          {@const self = member.userId === workspace.me?.id}
           <li
             class="flex min-h-8 flex-wrap items-center gap-2 roomy:min-h-touch"
             data-member={member.username}
           >
-            <!-- As the workspace holds them now: a change of their name shows at once. -->
             <span class="flex min-w-0 flex-1">
               <PersonProfile
                 userId={member.userId}
@@ -351,9 +356,9 @@
 <ConfirmDialog
   bind:open={askOpen}
   title={asked?.kind === 'guest'
-    ? m.people_guest_title({ name: userDisplayName(asked.member) })
+    ? m.people_guest_title({ name: nameNow(asked.member) })
     : m.people_remove_title({
-        name: asked ? userDisplayName(asked.member) : '',
+        name: asked ? nameNow(asked.member) : '',
         workspace: workspaceName,
       })}
   description={asked?.kind === 'guest'

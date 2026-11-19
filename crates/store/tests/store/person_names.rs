@@ -46,10 +46,18 @@ async fn a_name_is_stored_whole_and_shown_by_its_choice() {
     let stored = store
         .change_person_name(&id, &change(&kim()))
         .await
-        .unwrap();
+        .unwrap()
+        .user;
     assert_eq!(stored.name, kim());
     assert_eq!(stored.display_name, "김영환");
     assert_eq!(store.get_user_by_id(&id).await.unwrap(), stored);
+    // The same again changes nothing, and writes nothing.
+    let again = store
+        .change_person_name(&id, &change(&kim()))
+        .await
+        .unwrap();
+    assert!(!again.changed, "the same name is no change");
+    assert_eq!(again.user, stored, "not even the time");
 
     for (shown, want) in [
         (NameShown::LatinName, "Younghwan Kim"),
@@ -64,7 +72,8 @@ async fn a_name_is_stored_whole_and_shown_by_its_choice() {
         let user = store
             .change_person_name(&id, &only_the_choice)
             .await
-            .unwrap();
+            .unwrap()
+            .user;
         assert_eq!(user.display_name, want, "{shown:?}");
         assert_eq!(user.name.first_name, "영환", "the rest stays");
     }
@@ -76,7 +85,7 @@ async fn a_name_is_stored_whole_and_shown_by_its_choice() {
         credentials: Some(Vec::new()),
         ..PersonNameChange::default()
     };
-    let user = store.change_person_name(&id, &emptied).await.unwrap();
+    let user = store.change_person_name(&id, &emptied).await.unwrap().user;
     assert_eq!(user.display_name, "Younghwan Kim", "down the list");
     assert_eq!((user.name.title, user.name.credentials.len()), (None, 0));
 

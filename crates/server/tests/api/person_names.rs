@@ -216,8 +216,13 @@ async fn a_change_of_a_name_is_told_to_the_members_who_follow_the_workspace() {
         "who, and nothing of the name"
     );
     own.expect("UPDATE_USER", "/userId", &user2.id).await;
-    // A request that changes nothing tells nothing.
-    th.client2.patch("/users/me", &json!({})).await.check_ok();
+    // A request that changes nothing tells nothing: none, or the title it has.
+    watching.drain().await;
+    let before = th.client2.me().await;
+    for body in [json!({}), json!({"title": "dr", "nameShown": null})] {
+        th.client2.patch("/users/me", &body).await.check_ok();
+    }
+    assert_eq!(th.client2.me().await, before, "not even the time");
     assert_eq!(
         renames(&watching.drain().await),
         Vec::<&Value>::new(),

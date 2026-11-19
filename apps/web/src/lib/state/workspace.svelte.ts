@@ -42,8 +42,7 @@ import { UserNames, type Learning } from './user-names.ts';
 import * as entry from './workspace-entry.ts';
 import { reread } from './write.ts';
 
-/** `signedOut`: the backend has accounts and nobody is signed in (401). */
-/** `leaving`: the account waits to be deleted, and its session opens only taking that back. */
+/** `signedOut`: nobody is signed in (401); `leaving`: the account waits to be deleted (its session opens only taking that back). */
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut' | 'leaving';
 
 /** Something a write or a read failed with, for the reader to be told. */
@@ -298,9 +297,10 @@ export class Workspace {
         break;
       case 'resync':
         void this.#refresh();
+        void this.#userNames.reread();
         break;
       case 'user':
-        void this.#userNames.reread(change.userId);
+        void this.#userNames.reread([change.userId]);
         break;
       default:
         break;

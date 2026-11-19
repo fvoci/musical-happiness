@@ -45,9 +45,11 @@ impl App {
         user_id: &str,
         change: &PersonNameChange,
     ) -> Result<User, AppError> {
-        let user = self.store().change_person_name(user_id, change).await?;
-        self.broadcast_person_change_in_background(user_id.to_owned());
-        Ok(user)
+        let changed = self.store().change_person_name(user_id, change).await?;
+        if changed.changed {
+            self.broadcast_person_change_in_background(user_id.to_owned());
+        }
+        Ok(changed.user)
     }
 
     /// Returns the user with the given identifier.

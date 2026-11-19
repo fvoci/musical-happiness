@@ -17,7 +17,7 @@ pub(super) enum Access<'a> {
         also: Option<&'a str>,
     },
     Public(&'a str),
-    /// Who follows the workspace and sees `person` in it.
+    /// Who follows the workspace and sees `person`, a member of it, in it.
     Seers {
         workspace: &'a str,
         person: &'a str,
@@ -391,8 +391,8 @@ impl Hub {
         }
     }
 
-    /// Whether `user`, in `role` in the workspace, sees `person` in it by name; one whose
-    /// sight cannot be read now is closed as retryable, and reads anew.
+    /// Whether `user`, in `role` in the workspace, sees `person`, a member of it, by name;
+    /// one whose sight cannot be read now is closed as retryable, and reads anew.
     async fn sees(
         &self,
         id: ListenerId,
@@ -401,7 +401,11 @@ impl Hub {
         role: WorkspaceRole,
         person: &str,
     ) -> bool {
-        match self.audience.sees(user, workspace, role, person).await {
+        match self
+            .audience
+            .sees_member(user, workspace, role, person)
+            .await
+        {
             Ok(sees) => sees,
             Err(error) => {
                 tracing::error!(%error, workspace_id = workspace, "websocket: reading whom a user sees failed");
@@ -472,7 +476,7 @@ enum Told<'a> {
     Readers {
         also: Option<&'a str>,
     },
-    /// Only who sees `person` in the workspace.
+    /// Only who sees `person`, a member of the workspace, in it.
     Seers {
         person: &'a str,
     },

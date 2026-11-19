@@ -17,7 +17,7 @@ export async function changeName(workspace: Workspace, patch: NameChange): Promi
 export function takeUser(workspace: Workspace, changed: User): void {
   const replace = (users: User[]): User[] =>
     users.map((user) => (user.id === changed.id ? changed : user));
-  // Another's reading of the reader does not say whether they administer the server.
+  // Kept from the reader's own reading where another reading leaves it out.
   const me = workspace.me;
   if (me?.id === changed.id) workspace.me = { ...changed, isAdmin: changed.isAdmin ?? me.isAdmin };
   workspace.users = workspace.user(changed.id)

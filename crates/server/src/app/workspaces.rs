@@ -163,7 +163,7 @@ impl App {
             let workspaces = match app.store().workspaces_of_user(&user_id, None).await {
                 Ok(workspaces) => workspaces,
                 Err(error) => {
-                    tracing::error!(%error, "reading the workspaces of a renamed user failed");
+                    tracing::error!(%error, user_id = %user_id, "reading the workspaces of a renamed user failed");
                     return;
                 }
             };
@@ -175,7 +175,12 @@ impl App {
                             .broadcast_person_change(&workspace.id, &user_id)
                             .await;
                     }
-                    Err(error) => tracing::error!(%error, "a renamed user's organization"),
+                    Err(error) => tracing::error!(
+                        %error,
+                        user_id = %user_id,
+                        org_id = %workspace.org_id,
+                        "a renamed user's organization"
+                    ),
                 }
             }
         });

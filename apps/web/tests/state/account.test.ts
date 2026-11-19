@@ -5,9 +5,9 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { BackendError, changeName } from '$lib/state/index.ts';
+import { BackendError, changeName, type User } from '$lib/state/index.ts';
 
-import { serverBackend, setup } from './support.ts';
+import { serverBackend, settle, setup } from './support.ts';
 
 const rejection = async (promise: Promise<unknown>): Promise<BackendError> => {
   try {
@@ -90,6 +90,42 @@ describe('a change of a name, told', () => {
     });
     expect(told).toHaveBeenCalledWith({ kind: 'user', userId: workspace.me?.id });
     stop();
+  });
+
+  it('keeps the later of two readings of one person, whichever answers last', async () => {
+    const { workspace, backend, other } = setup();
+    await workspace.load();
+    const them = await other.me();
+    await settle();
+    const answers: ((users: User[]) => void)[] = [];
+    vi.spyOn(backend, 'usersById').mockImplementation(
+      () => new Promise<User[]>((resolve) => answers.push(resolve)),
+    );
+    await other.patchMe({ customName: 'B' });
+    await other.patchMe({ customName: 'C' });
+    await vi.waitFor(() => {
+      expect(answers).toHaveLength(2);
+    });
+    answers[1]?.([{ ...them, displayName: 'C' }]);
+    await settle();
+    answers[0]?.([{ ...them, displayName: 'B' }]);
+    await settle();
+    expect(workspace.user(them.id)?.displayName).toBe('C');
+  });
+
+  it('reads everybody held again when changes may have been missed', async () => {
+    const { workspace, world, other } = setup();
+    await workspace.load();
+    const them = await other.me();
+    await settle();
+    // Changed while the page heard nothing, as when its connection was down.
+    const held = world.users.get(them.id);
+    if (!held) throw new Error('no such user in the world');
+    held.displayName = 'Missed';
+    world.tellUsers([workspace.me?.id ?? ''], { kind: 'resync' });
+    await vi.waitFor(() => {
+      expect(workspace.user(them.id)?.displayName).toBe('Missed');
+    });
   });
 });
 

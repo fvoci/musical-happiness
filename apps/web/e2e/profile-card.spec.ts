@@ -2,8 +2,8 @@
  * A member's profile, on the in-memory backend: the sharing dialog lists each member by
  * their name with title and credentials, a button that opens the card of their profile.
  * Another user of the same world (`fvociDev.backend.as`) names themselves, and the list
- * follows without the page reading anything again; the narrow places (the faces of who
- * is here) keep the name alone.
+ * follows without the page being loaded again; the narrow places (the faces of who is
+ * here) keep the name alone. At 390px, light and dark, the list and the card fit.
  */
 import path from 'node:path';
 
@@ -13,9 +13,12 @@ import { othersArrive, type Dev } from './presence.support.ts';
 import { screensDir } from './screens.ts';
 import { openApp, topBar } from './shell.support.ts';
 
-/** Has the first other user of the world, on the board, name themselves; their login name. */
-async function otherNamesThemselves(page: Page): Promise<string> {
-  return page.evaluate(async () => {
+/**
+ * Has the first other user of the world, on the board, name themselves (shown by
+ * `customName` when one is given); their login name.
+ */
+async function otherNamesThemselves(page: Page, customName = ''): Promise<string> {
+  return page.evaluate(async (customName) => {
     const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
     // The one `othersArrive` brings onto the board first.
     const other = [...dev.backend.world.users.keys()].find((id) => id !== dev.workspace.me?.id);
@@ -31,9 +34,10 @@ async function otherNamesThemselves(page: Page): Promise<string> {
       latinLastName: 'Kim',
       title: 'dr',
       credentials: ['phd', 'kr_attorney'],
+      ...(customName ? { customName, nameShown: 'custom_name' } : {}),
     });
     return named.username;
-  });
+  }, customName);
 }
 
 test("a member's name with title and credentials opens their profile, which follows a change of it", async ({
@@ -47,7 +51,7 @@ test("a member's name with title and credentials opens their profile, which foll
   const members = dialog.getByTestId('share-members');
 
   const login = await otherNamesThemselves(page);
-  // Told, not read again by the page: the list shows the new name with its title.
+  // Told, and read again by the page: the list shows the new name with its title.
   const opener = members.getByRole('button', {
     name: `Dr. 김영환, PhD, Attorney at law (Korea) @${login}`,
   });
@@ -79,6 +83,61 @@ test("a member's name with title and credentials opens their profile, which foll
   await expect(here).toContainText(`김영환 (@${login})`);
   await expect(here).not.toContainText('Dr.');
   await expect(here).not.toContainText('PhD');
+});
+
+test.describe('at 390px, dark', () => {
+  test.use({ viewport: { width: 390, height: 844 }, colorScheme: 'dark' });
+
+  test('a long name and login name stay in the row, and the card in the window', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'the size is set here, once');
+    await openApp(page);
+    await othersArrive(page, 1);
+    const login = await otherNamesThemselves(page, '김영환김영환김영환김영환김영환');
+    await topBar(page).getByTestId('share-board').click();
+    const opener = page.getByTestId('share-members').locator(`[data-person="${login}"]`);
+    await expect(opener).toBeVisible();
+    // Nothing of the name spills out of the button, nor the button out of its row.
+    const inside = await opener.evaluate((button) => {
+      const box = button.getBoundingClientRect();
+      const parts = [...button.children].map((part) => part.getBoundingClientRect());
+      const rowBox = button.closest('[data-member]')?.getBoundingClientRect();
+      return (
+        parts.every((part) => part.right <= box.right + 0.5) &&
+        rowBox !== undefined &&
+        box.right <= rowBox.right + 0.5
+      );
+    });
+    expect(inside).toBe(true);
+    await opener.click();
+    const card = page.getByTestId('profile-card');
+    await expect(card).toBeVisible();
+    const fits = await card.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return box.left >= 0 && box.right <= window.innerWidth;
+    });
+    expect(fits).toBe(true);
+    // The page scrolls nowhere sideways.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
+    // Dark: the card is drawn in the dark theme's colours (read back as a pixel).
+    expect(await page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(
+      true,
+    );
+    const red = await card.evaluate((element) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const context = canvas.getContext('2d');
+      if (!context) return 255;
+      context.fillStyle = getComputedStyle(element).backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+      return context.getImageData(0, 0, 1, 1).data[0] ?? 255;
+    });
+    expect(red).toBeLessThan(96);
+  });
 });
 
 /**

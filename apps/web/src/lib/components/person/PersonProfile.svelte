@@ -68,7 +68,9 @@
     >
       <span class="min-w-0 truncate" translate="no">{titled}</span>
       {#if displayName}
-        <span class="shrink-0 text-muted-foreground" translate="no">@{username}</span>
+        <span class="max-w-[50%] min-w-0 shrink-0 truncate text-muted-foreground" translate="no"
+          >@{username}</span
+        >
       {/if}
     </Popover.Trigger>
     <Popover.Content
@@ -83,7 +85,7 @@
         <div class="min-w-0">
           <p id="{uid}-name" class="font-medium break-words" translate="no">{titled}</p>
           <p class="break-all text-muted-foreground" translate="no">
-            <span class="sr-only">{m.profile_card_username()}</span>@{username}
+            <span class="sr-only">{m.profile_card_username()}: </span>@{username}
           </p>
         </div>
       </div>

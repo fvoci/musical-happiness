@@ -151,20 +151,24 @@ impl Audience {
         self.store.resolve_workspace(user_id, workspace_id).await
     }
 
-    /// Whether the user `seer_id`, in `role` in the workspace, sees `person_id` in it by
-    /// name (`permissions::sees_person`), as the store reads it for any other look at
-    /// the person; not cached, for a change of a name is rare.
+    /// Whether the user `seer_id`, in `role` in the workspace, sees `person_id`, a
+    /// member of it, by name (`permissions::sees_person`). Whoever works there sees
+    /// each of its members; a guest is asked of the store, as for any other look at
+    /// the person, and not cached, for a change of a name is rare.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if whom the user sees cannot be read.
-    pub async fn sees(
+    /// Returns the store's error if whom the guest sees cannot be read.
+    pub async fn sees_member(
         &self,
         seer_id: &str,
         workspace_id: &str,
         role: WorkspaceRole,
         person_id: &str,
     ) -> Result<bool, StoreError> {
+        if role != WorkspaceRole::Guest || seer_id == person_id {
+            return Ok(true);
+        }
         let sight = Sight::InWorkspace {
             seer_id,
             workspace_id,

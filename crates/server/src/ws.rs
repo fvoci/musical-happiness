@@ -686,8 +686,8 @@ impl Hub {
         .await;
     }
 
-    /// Tells whoever follows the workspace and sees the person in it
-    /// (`permissions::sees_person`, by name) that the person's name changed.
+    /// Tells whoever follows the workspace and sees the person, a member of it
+    /// (`permissions::sees_person`, by name), that the person's name changed.
     pub async fn broadcast_person_change(&self, workspace_id: &str, user_id: &str) {
         let message = UpdateUserMessage {
             action: "UPDATE_USER",

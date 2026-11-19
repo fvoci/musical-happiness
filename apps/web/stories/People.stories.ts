@@ -20,7 +20,7 @@ export const Members: Story = {
     // A title and credentials are written with the name, which opens the profile.
     await expect(
       within(list).getByRole('button', {
-        name: 'Prof. Example member 1 · 이름이 긴 예시 구성원, PhD @example-member-1',
+        name: `${m.person_titled({ title: m.person_title_prof(), name: 'Example member 1 · 이름이 긴 예시 구성원' })}, PhD @example-member-1`,
       }),
     ).toHaveAttribute('aria-haspopup', 'dialog');
   },
@@ -65,7 +65,8 @@ export const WriteFailed: Story = {
 };
 export const ConfirmRemoval: Story = {
   play: async ({ canvasElement }) => {
-    await clickStory(canvasElement, '[data-member="example-member-1"] button');
+    // The row's last button takes the member out; the first opens their profile.
+    await clickStory(canvasElement, '[data-member="example-member-1"] > button:last-child');
     await storyElement(canvasElement, '[data-testid="confirm-dialog"]');
   },
 };
