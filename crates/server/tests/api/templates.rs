@@ -429,7 +429,8 @@ struct Seen {
     bodies: usize,
     dates: usize,
     ordered: usize,
-    shown: usize,
+    /// Each file once, however many bodies of its board show it.
+    shown: std::collections::BTreeSet<(String, String)>,
 }
 
 impl Seen {
@@ -465,7 +466,7 @@ impl Seen {
                         info["size"].as_u64().and_then(|size| size.try_into().ok()),
                         "{file} is read whole"
                     );
-                    self.shown += 1;
+                    self.shown.insert((board.id.clone(), file));
                 }
             }
             self.dates += block["fields"]["properties"]
@@ -548,14 +549,15 @@ async fn the_templates_listed_are_the_files_of(ts: &crate::common::TestServer, l
         dates, files_dates,
         "{language}: the dates of the templates, in the new shape"
     );
-    assert!(ordered > 0, "the views have card orders");
+    assert!(ordered > 0, "{language}: the views have card orders");
     let named: usize = files
         .iter()
         .map(|template| template["files"].as_array().map_or(0, Vec::len))
         .sum();
     assert!(named > 0, "the files of the templates name files");
     assert_eq!(
-        shown, named,
+        shown.len(),
+        named,
         "{language}: every file named is shown and read"
     );
 }
@@ -647,7 +649,10 @@ async fn an_organizations_purge_leaves_the_files_of_the_templates() {
         .expect("the file is recorded");
 
     let ours = ts.app.store();
-    assert_ne!(ours.tenant(), ts.system_store().tenant(), "an organization");
+    assert!(
+        matches!(ours.tenant(), fvoci_store::Tenant::Org(_)),
+        "the store of an organization"
+    );
     ours.get_file_info(&template.id, &unshown.stored_name)
         .await
         .expect("an organization reads the record");
@@ -827,6 +832,31 @@ async fn a_guest_uses_templates_in_the_workspace_where_they_are_a_member() {
         .get(&format!("{elsewhere}/boards/{board}/blocks"))
         .await
         .check_ok();
+    // A file of a template is read where its blocks are, and not where the user is a
+    // guest.
+    let mut files = 0;
+    for template in &templates {
+        let blocks = ts
+            .client2
+            .get(&format!("{elsewhere}/boards/{}/blocks", template.id))
+            .await
+            .ok_json::<Vec<Block>>();
+        for file in blocks.iter().flat_map(Block::shown_files) {
+            for part in ["", "/info"] {
+                let asked = format!("containers/{}/files/{file}{part}", template.id);
+                ts.client2
+                    .get(&format!("{ROOT_WS}/{asked}"))
+                    .await
+                    .check_forbidden();
+                ts.client2
+                    .get(&format!("{elsewhere}/{asked}"))
+                    .await
+                    .check_ok();
+            }
+            files += 1;
+        }
+    }
+    assert!(files > 0, "the templates show files");
     ts.client2
         .post(
             &format!("{elsewhere}/containers/{board}/duplicate"),

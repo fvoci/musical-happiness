@@ -10,9 +10,8 @@ use super::contract::params::{ScreenLanguage, WorkspaceId};
 use super::contract::tag;
 
 use super::workspace::TextInWorkspace;
-use super::{ApiResult, json_response};
+use super::{ApiResult, json_response, query_option};
 use crate::app::App;
-use crate::auth::token::query_value;
 
 /// What asking for a first board answers: where it is.
 #[derive(Debug, Serialize, ToSchema)]
@@ -47,9 +46,7 @@ async fn handle_onboard(
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
-    let screen_language = query
-        .as_deref()
-        .and_then(|query| query_value(query, "language"));
+    let screen_language = query_option(query.as_deref(), "language");
     let board_id = app
         .create_welcome_board(user_id, workspace_id, screen_language.as_deref())
         .await?;

@@ -26,9 +26,10 @@ use crate::error::AppError;
 const DEFAULT_TEMPLATE_VERSION: i64 = 8;
 
 /// The longest the storing of one file of the templates may take. The files are a few
-/// kilobytes each and a server does not start before they are stored, so a file storage
-/// that does not answer fails the start within this instead of holding it for as long
-/// as an upload may take.
+/// kilobytes each, and a server does not start, nor a request for a first board that
+/// finds no template answer, before they are stored: a file storage that does not
+/// answer fails either within this instead of holding it for as long as an upload may
+/// take.
 const TEMPLATE_FILE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The board property that marks the built-in template a new account's first board is
@@ -452,13 +453,14 @@ impl App {
                 Ok(Ok(_)) => {}
                 Ok(Err(error)) => {
                     return Err(AppError::internal(format_args!(
-                        "unable to store a file of the built-in templates: {error}"
+                        "unable to store a file of the built-in templates at {path}: {error}"
                     )));
                 }
                 Err(_) => {
-                    return Err(AppError::internal(
-                        "storing a file of the built-in templates took too long",
-                    ));
+                    return Err(AppError::internal(format_args!(
+                        "storing a file of the built-in templates at {path} took longer than {} seconds",
+                        TEMPLATE_FILE_TIMEOUT.as_secs()
+                    )));
                 }
             }
         }

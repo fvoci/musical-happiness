@@ -2426,7 +2426,9 @@ export interface paths {
         /**
          * A file
          * @description The content of a file of the board, for the board's members. A file is asked for
-         *     through its own board only: through another board it is not there.
+         *     through its own board only: through another board it is not there. A guest of the
+         *     path's workspace reads a template's files only as a member of that template (403
+         *     otherwise).
          *
          *     Every file is sent as `application/octet-stream` and offered as a download
          *     (`Content-Disposition: attachment`) under its `fileId`, not under the name it was
@@ -2455,7 +2457,8 @@ export interface paths {
         /**
          * What is known about a file
          * @description The name a file was uploaded under, its size and when it was uploaded. For the
-         *     board's members.
+         *     board's members; a guest of the path's workspace is told of a template's files only
+         *     as a member of that template (403 otherwise).
          */
         get: operations["getFileInfo"];
         put?: never;

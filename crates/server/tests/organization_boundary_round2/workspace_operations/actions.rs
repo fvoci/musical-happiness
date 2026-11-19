@@ -566,9 +566,14 @@ async fn templates(case: &mut Case) {
         .await
         .value();
     case.remember(&copied["containers"][0], "id");
-    let toured = case.run("onboard", &[], json!({})).await.value();
+    let welcomed = case.run("onboard", &[], json!({})).await.value();
+    let welcome = case.remember(&welcomed, "boardId");
+    let board = case
+        .present("getContainer", &[("boardId", &welcome)], &welcome)
+        .await
+        .value();
     assert_eq!(
-        toured["workspaceId"], case.workspace,
-        "onboarding uses this workspace"
+        board["workspaceId"], case.workspace,
+        "the welcome board is made in this workspace"
     );
 }

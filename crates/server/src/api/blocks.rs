@@ -91,11 +91,21 @@ async fn require_read_access(ws: &InWorkspace, container: &Container) -> Result<
         "access denied to board",
     )
     .await?;
-    // A guest of the path's workspace reads a template only as a member of it: not an
-    // open template of the workspace, nor one the server ships with.
+    refuse_a_guest_a_template(ws, container).await
+}
+
+/// A guest of the path's workspace reads a template, and its files, only as a member of
+/// it: not an open template of the workspace, nor one the server ships with.
+pub(super) async fn refuse_a_guest_a_template(
+    ws: &InWorkspace,
+    container: &Container,
+) -> Result<(), AppError> {
     if container.is_template
         && ws.role == fvoci_model::WorkspaceRole::Guest
-        && !app.invited_to_container(user_id, &container.id).await?
+        && !ws
+            .app
+            .invited_to_container(&ws.session.user_id, &container.id)
+            .await?
     {
         return Err(AppError::forbidden(
             "guest are not allowed to get board templates",
