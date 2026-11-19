@@ -8,6 +8,8 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use crate::person_name::PersonName;
+
 /// What a member of an organization is in it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -110,6 +112,10 @@ pub struct WorkspaceMember {
     pub username: String,
     /// The name the user is shown by; empty if they have none.
     pub display_name: String,
+    /// The parts of the user's name, and their title and credentials: the
+    /// administrators see the user's name.
+    #[serde(flatten)]
+    pub name: PersonName,
     /// What the user is in the workspace.
     pub role: WorkspaceRole,
     /// When the user became a member, in milliseconds since the Unix epoch.

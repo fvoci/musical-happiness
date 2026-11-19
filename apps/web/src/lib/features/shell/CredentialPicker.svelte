@@ -15,7 +15,7 @@
   import { CREDENTIALS, MAX_CREDENTIALS, type Credential } from '$lib/logic/person-names.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { CREDENTIAL_LABELS } from './name-labels.ts';
+  import { CREDENTIAL_LABELS } from '$lib/components/person/name-labels.ts';
 
   let {
     value = $bindable(),
@@ -95,6 +95,7 @@
       class="h-8 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2 roomy:h-touch"
       aria-label={m.account_name_credentials_add()}
       aria-invalid={problem ? 'true' : undefined}
+      aria-describedby={problem ? `${uid}-problem` : undefined}
       disabled={disabled || full}
       data-testid="credential-add"
     >
@@ -114,7 +115,12 @@
     </Button>
   </div>
   {#if problem}
-    <p class="text-sm text-destructive" role="alert" data-testid="problem-credentials">
+    <p
+      id="{uid}-problem"
+      class="text-sm text-destructive"
+      role="alert"
+      data-testid="problem-credentials"
+    >
       {problem}
     </p>
   {/if}

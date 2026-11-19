@@ -1222,7 +1222,8 @@ export interface paths {
          *     and the credentials. White space around a part is dropped, and empty or `null` is
          *     none. A part has at most 64 UTF-16 code units, without control characters and
          *     without characters that show nothing, break a line or turn the text around (U+00AD,
-         *     U+200B–U+200F, U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). `title` is a
+         *     U+034F, U+061C, U+115F, U+1160, U+180E, U+200B–U+200F, U+2028–U+202E, U+2060–U+206F,
+         *     U+2800, U+3164, U+FEFF, U+FFA0, U+FFF9–U+FFFB). `title` is a
          *     code of its list or `null`; `credentials` at most three codes of their list, each
          *     once, in the order they are written, or `null` for none. `displayName` follows: the
          *     server makes it from these (`contracts/name-vectors.json`). A member that is no such
@@ -3385,9 +3386,10 @@ export interface paths {
          * The users of a workspace
          * @description Up to ten of the users the user sees in the workspace: whoever works there sees its
          *     members and who is on a board of it with them, a guest only who is on a board of it
-         *     with them; and the user. With `search` those whose login name or display name has
-         *     that text in it, whatever the case of the letters, without it the ten oldest
-         *     accounts. Oldest account first.
+         *     with them; and the user. With `search` those whose login name, display name or a
+         *     part of whose name (either way round, and the name they wrote) has that text in it,
+         *     whatever the case of the letters, without it the ten oldest accounts. Oldest account
+         *     first.
          */
         get: operations["getWorkspaceUsers"];
         put?: never;
@@ -3404,7 +3406,8 @@ export interface paths {
          *
          *     An account that was deleted is answered to whoever asks by its identifier, seen
          *     before or not, as what is left of it: the identifier, an empty `username`, `email`
-         *     and `displayName`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
+         *     and `displayName`, every part of the name empty, no title nor credentials,
+         *     `nameShown` `name`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
          *     the account is answered, neither when it went nor when it was asked to (the
          *     identifier is kept as it was made). The empty `username` is what tells it, not a
          *     time: a page shows a deleted user where it wrote or is mentioned.
@@ -5382,7 +5385,7 @@ export interface components {
             workspaceId: string;
         };
         /** @description A member of an organization, as its administrators list them. */
-        OrgMember: {
+        OrgMember: components["schemas"]["PersonName"] & {
             /** @description The name the user shows; empty for none. */
             displayName: string;
             /** @description What the user is in the organization. */
@@ -6164,7 +6167,7 @@ export interface components {
             updateAt: number;
         };
         /** @description A member of a workspace, as its administrators list them. */
-        WorkspaceMember: {
+        WorkspaceMember: components["schemas"]["PersonName"] & {
             /**
              * Format: int64
              * @description When the user became a member, in milliseconds since the Unix epoch.

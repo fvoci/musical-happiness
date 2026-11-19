@@ -7,10 +7,12 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use cache::Cache;
-use fvoci_model::{Block, BlockType, Body, ContainerKind, ContainerMember, PersonProperties};
-use fvoci_store::{Store, StoreError, Tenant, VisibilityVersion, WorkspaceAccess};
+use fvoci_model::{
+    Block, BlockType, Body, ContainerKind, ContainerMember, PersonProperties, WorkspaceRole,
+};
+use fvoci_store::{Looking, Sight, Store, StoreError, Tenant, VisibilityVersion, WorkspaceAccess};
 
-use crate::permissions::ContainerScope;
+use crate::permissions::{ContainerScope, people_reach};
 
 /// The boards as the websocket hub asks about them: who the members of a board are,
 /// which of its properties name users, and which board a block is of. The hub is made
@@ -147,6 +149,37 @@ impl Audience {
         workspace_id: &str,
     ) -> Result<Option<WorkspaceAccess>, StoreError> {
         self.store.resolve_workspace(user_id, workspace_id).await
+    }
+
+    /// Whether the user `seer_id`, in `role` in the workspace, sees `person_id`, a
+    /// member of it, by name (`permissions::sees_person`). Whoever works there sees
+    /// each of its members; a guest is asked of the store, as for any other look at
+    /// the person, and not cached, for a change of a name is rare.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if whom the guest sees cannot be read.
+    pub async fn sees_member(
+        &self,
+        seer_id: &str,
+        workspace_id: &str,
+        role: WorkspaceRole,
+        person_id: &str,
+    ) -> Result<bool, StoreError> {
+        if role != WorkspaceRole::Guest || seer_id == person_id {
+            return Ok(true);
+        }
+        let sight = Sight::InWorkspace {
+            seer_id,
+            workspace_id,
+            reach: people_reach(role),
+            looking: Looking::ByName,
+        };
+        let seen = self
+            .store
+            .get_users_in_sight(sight, &[person_id.to_owned()])
+            .await?;
+        Ok(!seen.is_empty())
     }
 
     /// The members of the board.

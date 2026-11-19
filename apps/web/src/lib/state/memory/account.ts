@@ -63,6 +63,7 @@ export function changeName(world: World, userId: string, patch: NameChange): Use
   const user = world.users.get(userId) ?? fail(401, 'no session');
   const name: PersonName = { ...emptyName(), ...user.name };
   if (!user.name) name.customName = user.displayName;
+  const before = JSON.stringify(name);
   for (const [member, value] of Object.entries(patch) as [string, unknown][]) {
     const asPart = PARTS.find((known) => known === member);
     // Left out of the JSON the server is sent, and so left as it is; so is a choice of `null`.
@@ -81,8 +82,13 @@ export function changeName(world: World, userId: string, patch: NameChange): Use
     } else if (member === 'credentials') name.credentials = credentials(value);
     else fail(400, `there is no member ${member}`, { field: member, reason: 'unknown' });
   }
+  // As the server: the same name again is no change, writes nothing and tells nothing.
+  if (JSON.stringify(name) === before) return user;
   user.name = name;
   user.displayName = shownName(name);
   user.updateAt = world.now();
+  // Told to everybody here; each reads the person again, and the backend's rule of who
+  // sees whom answers (the server tells only who sees them).
+  world.tellUsers([...world.users.keys()], { kind: 'user', userId });
   return user;
 }

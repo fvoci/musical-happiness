@@ -333,6 +333,27 @@ test('name: its parts, the one shown, a title and credentials, saved with one bu
   await expect(form.getByTestId('problem-customName')).toHaveCount(0);
 });
 
+test('name: a save sends what was changed here, and leaves what another tab changed meanwhile', async ({
+  page,
+}) => {
+  await openApp(page);
+  await openSettings(page);
+  const form = setting(page, 'name');
+  // Another tab of the same reader gives a title while this form is open.
+  await page.evaluate(async () => {
+    const dev = (
+      window as unknown as {
+        fvociDev: { backend: { patchMe: (patch: Record<string, unknown>) => Promise<unknown> } };
+      }
+    ).fvociDev;
+    await dev.backend.patchMe({ title: 'prof' });
+  });
+  await form.getByRole('textbox', { name: 'Given name', exact: true }).fill('영환');
+  await form.getByRole('button', { name: 'Save name' }).click();
+  await expect(form.getByText('Saved.')).toBeVisible();
+  await expect(form.getByRole('combobox', { name: 'Title' })).toHaveValue('prof');
+});
+
 /**
  * Pictures of the name in the settings, filled in, wide and at 390 pixels, light and
  * dark, into `target/screens/settings-name/`: taken only with `FVOCI_SCREENS=1`.

@@ -26,7 +26,7 @@ use crate::containers::{delete_member, find_member, lock_container, save_member}
 use crate::db::{Dialect, Id, Row, Scope};
 use crate::error::StoreError;
 use crate::trash::{self, TrashedRoles};
-use crate::{members, org_admin};
+use crate::{members, org_admin, person_names};
 
 /// How often a change is made anew because the user came onto another board while its
 /// locks were waited for.
@@ -293,17 +293,21 @@ async fn remove(
 }
 
 /// The members of a workspace `t` of an organization; the workspace's identifier and
-/// the conditions on `t` follow.
-const SELECT_MEMBERS: &str = "SELECT wm.user_id, u.username, u.display_name, wm.role, \
-     wm.create_at, wm.via_org_admin FROM workspace_members AS wm \
+/// the conditions on `t` follow. The name's columns, unqualified, are the user's alone.
+const SELECT_MEMBERS: &str = concat!(
+    "SELECT wm.user_id, u.username, u.display_name, wm.role, wm.create_at, wm.via_org_admin, ",
+    person_names::name_columns!(),
+    " FROM workspace_members AS wm \
      JOIN workspaces AS t ON t.id = wm.workspace_id \
-     JOIN users AS u ON u.id = wm.user_id WHERE wm.workspace_id = ";
+     JOIN users AS u ON u.id = wm.user_id WHERE wm.workspace_id = "
+);
 
 fn member_from_row(row: &Row) -> Result<WorkspaceMember, StoreError> {
     Ok(WorkspaceMember {
         user_id: row.id(0)?,
         username: row.text(1)?,
         display_name: row.text(2)?,
+        name: person_names::name_from_row(row, 6)?,
         role: role_from(&row.text(3)?)?,
         create_at: row.int(4)?,
         joined_as_org_admin: row.bool(5)?,

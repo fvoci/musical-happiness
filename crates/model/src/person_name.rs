@@ -716,8 +716,13 @@ mod tests {
         let change = PersonNameChange::from_members(&members).expect("taken");
         assert!(change.is_empty(), "null leaves the choice as it is");
 
-        // The Hangul fillers are letters that show nothing: refused like U+200B.
-        for filler in ['\u{115F}', '\u{1160}', '\u{3164}', '\u{FFA0}'] {
+        // The Hangul fillers and the blank Braille pattern show nothing, the grapheme
+        // joiner, the Mongolian vowel separator and the Arabic letter mark neither, or
+        // turn the text: refused like U+200B.
+        for filler in [
+            '\u{115F}', '\u{1160}', '\u{3164}', '\u{FFA0}', '\u{2800}', '\u{034F}', '\u{180E}',
+            '\u{061C}',
+        ] {
             let members: JsonMap =
                 serde_json::from_value(serde_json::json!({ "firstName": filler.to_string() }))
                     .expect("an object");

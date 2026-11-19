@@ -5,9 +5,9 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { BackendError, changeName } from '$lib/state/index.ts';
+import { BackendError, changeName, type User } from '$lib/state/index.ts';
 
-import { serverBackend, setup } from './support.ts';
+import { serverBackend, settle, setup } from './support.ts';
 
 const rejection = async (promise: Promise<unknown>): Promise<BackendError> => {
   try {
@@ -64,6 +64,71 @@ describe('the display name, in memory', () => {
   });
 });
 
+describe('a change of a name, told', () => {
+  it("shows another person's new name without reading the workspace again", async () => {
+    const { workspace, other } = setup();
+    await workspace.load();
+    const them = await other.me();
+    await other.patchMe({ customName: 'Grace', title: 'dr', credentials: ['phd'] });
+    await vi.waitFor(() => {
+      expect(workspace.user(them.id)?.name?.title).toBe('dr');
+    });
+    expect(workspace.userName(them.id)).toBe(`Grace (@${them.username})`);
+    expect(workspace.user(them.id)?.name?.credentials).toEqual(['phd']);
+  });
+
+  it("follows the reader's own change made in another tab, and nothing tells nothing", async () => {
+    const { workspace, backend } = setup();
+    await workspace.load();
+    const told = vi.fn();
+    const stop = backend.watchSelf(told);
+    await backend.patchMe({});
+    expect(told).not.toHaveBeenCalled();
+    await backend.patchMe({ customName: 'Ada' });
+    await vi.waitFor(() => {
+      expect(workspace.me?.displayName).toBe('Ada');
+    });
+    expect(told).toHaveBeenCalledWith({ kind: 'user', userId: workspace.me?.id });
+    stop();
+  });
+
+  it('keeps the later of two readings of one person, whichever answers last', async () => {
+    const { workspace, backend, other } = setup();
+    await workspace.load();
+    const them = await other.me();
+    await settle();
+    const answers: ((users: User[]) => void)[] = [];
+    vi.spyOn(backend, 'usersById').mockImplementation(
+      () => new Promise<User[]>((resolve) => answers.push(resolve)),
+    );
+    await other.patchMe({ customName: 'B' });
+    await other.patchMe({ customName: 'C' });
+    await vi.waitFor(() => {
+      expect(answers).toHaveLength(2);
+    });
+    answers[1]?.([{ ...them, displayName: 'C' }]);
+    await settle();
+    answers[0]?.([{ ...them, displayName: 'B' }]);
+    await settle();
+    expect(workspace.user(them.id)?.displayName).toBe('C');
+  });
+
+  it('reads everybody held again when changes may have been missed', async () => {
+    const { workspace, world, other } = setup();
+    await workspace.load();
+    const them = await other.me();
+    await settle();
+    // Changed while the page heard nothing, as when its connection was down.
+    const held = world.users.get(them.id);
+    if (!held) throw new Error('no such user in the world');
+    held.displayName = 'Missed';
+    world.tellUsers([workspace.me?.id ?? ''], { kind: 'resync' });
+    await vi.waitFor(() => {
+      expect(workspace.user(them.id)?.displayName).toBe('Missed');
+    });
+  });
+});
+
 describe('the name, in memory', () => {
   it('is shown by the choice, down the list when it is empty, as the server shows it', async () => {
     const { backend } = setup();
@@ -95,8 +160,14 @@ describe('the name, in memory', () => {
       [{ credentials: ['phd', 'phd'] }, '/credentials/1'],
       [{ credentials: ['phd', 'md', 'mba', 'ms'] }, '/credentials'],
       [{ nameShown: 'nickname' as 'name' }, '/nameShown'],
-      // A Hangul filler is a letter that shows nothing: refused like U+200B.
-      [{ firstName: '\u3164' }, '/firstName'],
+      // A Hangul filler, the blank Braille pattern and the like show nothing, or turn
+      // the text: refused like U+200B, as the server refuses them.
+      ...['\u3164', '\u2800', '\u034f', '\u180e', '\u061c'].map(
+        (blank): [Parameters<typeof backend.patchMe>[0], string] => [
+          { firstName: blank },
+          '/firstName',
+        ],
+      ),
     ];
     for (const [patch, pointer] of refusals) {
       const refused = await rejection(backend.patchMe(patch));

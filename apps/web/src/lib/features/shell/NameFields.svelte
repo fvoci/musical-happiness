@@ -15,6 +15,7 @@
     nameOf,
     shownName,
     TITLES,
+    type NameChange,
     type PersonName,
   } from '$lib/logic/person-names.ts';
   import { changeName, isBackendError, type Workspace } from '$lib/state/index.ts';
@@ -23,7 +24,7 @@
   import { Label } from '$lib/ui/label/index.js';
 
   import CredentialPicker from './CredentialPicker.svelte';
-  import { NAME_SHOWN_LABELS, TITLE_LABELS } from './name-labels.ts';
+  import { NAME_SHOWN_LABELS, TITLE_LABELS } from '$lib/components/person/name-labels.ts';
 
   type Part = 'lastName' | 'firstName' | 'latinFirstName' | 'latinLastName' | 'customName';
 
@@ -45,6 +46,12 @@
   const stored = $derived(storedOf(workspace));
   // svelte-ignore state_referenced_locally (the form starts from the stored name, then is the reader's)
   let draft = $state<PersonName>(copied(stored));
+  /**
+   * The name the form started from: what the reader left as it was there is
+   * not sent, so that a change made meanwhile elsewhere (another tab) stays.
+   */
+  // svelte-ignore state_referenced_locally (as the draft)
+  let base = $state.raw<PersonName>(copied(stored));
   let working = $state(false);
   let saved = $state(false);
   let problems = $state<Partial<Record<Part | 'title' | 'credentials' | 'nameShown', string>>>({});
@@ -59,6 +66,16 @@
     return m.account_name_refused();
   }
 
+  /** The members of `draft` the reader changed from `from`. */
+  function editedOf(draft: PersonName, from: PersonName): NameChange {
+    const keys = Object.keys(draft) as (keyof PersonName)[];
+    return Object.fromEntries(
+      keys
+        .filter((key) => JSON.stringify(draft[key]) !== JSON.stringify(from[key]))
+        .map((key) => [key, draft[key]]),
+    );
+  }
+
   function edited(): void {
     saved = false;
     problems = {};
@@ -70,9 +87,10 @@
     working = true;
     edited();
     try {
-      await changeName(workspace, $state.snapshot(draft));
+      await changeName(workspace, editedOf($state.snapshot(draft), base));
       // As the server keeps it: without the white space around each part.
       draft = copied(storedOf(workspace));
+      base = copied(draft);
       saved = true;
     } catch (error) {
       const refused = isBackendError(error) ? error.errors : [];
@@ -143,6 +161,7 @@
           bind:group={draft.nameShown}
           disabled={working}
           onchange={edited}
+          aria-describedby={problems.nameShown ? `${uid}-shown-problem` : undefined}
           data-testid="name-shown-{shown}"
           class="mt-1 size-4 accent-primary"
         />
@@ -155,7 +174,12 @@
       </label>
     {/each}
     {#if problems.nameShown}
-      <p class="text-sm text-destructive" role="alert" data-testid="problem-nameShown">
+      <p
+        id="{uid}-shown-problem"
+        class="text-sm text-destructive"
+        role="alert"
+        data-testid="problem-nameShown"
+      >
         {problems.nameShown}
       </p>
     {/if}

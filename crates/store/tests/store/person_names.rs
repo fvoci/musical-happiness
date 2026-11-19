@@ -46,10 +46,18 @@ async fn a_name_is_stored_whole_and_shown_by_its_choice() {
     let stored = store
         .change_person_name(&id, &change(&kim()))
         .await
-        .unwrap();
+        .unwrap()
+        .user;
     assert_eq!(stored.name, kim());
     assert_eq!(stored.display_name, "김영환");
     assert_eq!(store.get_user_by_id(&id).await.unwrap(), stored);
+    // The same again changes nothing, and writes nothing.
+    let again = store
+        .change_person_name(&id, &change(&kim()))
+        .await
+        .unwrap();
+    assert!(!again.changed, "the same name is no change");
+    assert_eq!(again.user, stored, "not even the time");
 
     for (shown, want) in [
         (NameShown::LatinName, "Younghwan Kim"),
@@ -64,7 +72,8 @@ async fn a_name_is_stored_whole_and_shown_by_its_choice() {
         let user = store
             .change_person_name(&id, &only_the_choice)
             .await
-            .unwrap();
+            .unwrap()
+            .user;
         assert_eq!(user.display_name, want, "{shown:?}");
         assert_eq!(user.name.first_name, "영환", "the rest stays");
     }
@@ -76,7 +85,7 @@ async fn a_name_is_stored_whole_and_shown_by_its_choice() {
         credentials: Some(Vec::new()),
         ..PersonNameChange::default()
     };
-    let user = store.change_person_name(&id, &emptied).await.unwrap();
+    let user = store.change_person_name(&id, &emptied).await.unwrap().user;
     assert_eq!(user.display_name, "Younghwan Kim", "down the list");
     assert_eq!((user.name.title, user.name.credentials.len()), (None, 0));
 
@@ -156,8 +165,9 @@ async fn people_are_found_by_every_part_of_their_name() {
     test.teardown().await;
 }
 
-/// Migration 0045: an account is shown by the name it had, which becomes the name it
-/// wrote; one without is shown by its login name still.
+/// Migrations 0045 and 0046: an account is shown by the name it had, which becomes the
+/// name it wrote; one without is shown by its login name still, and by the parts of a
+/// name it gives later, as a new account is.
 #[tokio::test]
 async fn the_migration_keeps_the_name_every_account_is_shown_by() {
     let database = common::empty_database().await;
@@ -199,4 +209,59 @@ async fn the_migration_keeps_the_name_every_account_is_shown_by() {
     );
     assert_eq!(unnamed.display_name, "");
     assert_eq!(unnamed.name.shown(), "");
+    assert_eq!(
+        unnamed.name,
+        PersonName::default(),
+        "as a new account, and as an erased one"
+    );
+}
+
+/// Migration 0046 on an account that gave a part of its name while still shown by the
+/// name it wrote, which was none: it keeps its choice, so that the name it is shown by is
+/// still the one the rule makes, as stored.
+#[tokio::test]
+async fn the_nameless_are_shown_by_name_but_not_those_that_gave_a_part() {
+    let database = common::empty_database().await;
+    let connection = common::raw_connection(&database);
+    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 45)
+        .await;
+    let (nameless, part_given) = (new_id(), new_id());
+    let insert = |id: &str, username: &str, first_name: &str| {
+        format!(
+            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+             display_name, first_name, last_name, name_shown) VALUES ('{id}', '{username}', \
+             '{username}@example.com', '', 1, 1, '', '{first_name}', '김', 'custom_name');"
+        )
+    };
+    common::execute_raw(
+        &connection,
+        &[
+            insert(&nameless, "nameless", "").replace("'김'", "''"),
+            insert(&part_given, "given", "영환"),
+        ]
+        .concat(),
+    )
+    .await;
+    let store = Store::connect(database.db_type(), database.database_connection())
+        .await
+        .expect("migrated");
+    let nameless = store.get_user_by_id(&nameless).await.unwrap();
+    let part_given = store.get_user_by_id(&part_given).await.unwrap();
+    store.close().await;
+    database.remove().await;
+
+    assert_eq!(nameless.name, PersonName::default(), "as a new account");
+    assert_eq!(
+        part_given.name.name_shown,
+        NameShown::CustomName,
+        "its choice kept"
+    );
+    assert_eq!(
+        (
+            part_given.display_name.as_str(),
+            part_given.name.shown().as_str()
+        ),
+        ("", ""),
+        "shown as stored"
+    );
 }

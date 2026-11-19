@@ -48,6 +48,16 @@ pub(crate) fn push_name_values(sql: &mut Sql, name: &PersonName) {
         .push_bind(", ", name.stored_credentials());
 }
 
+/// A user as stored after a change of their name, and whether it changed it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangedName {
+    /// The user as stored now.
+    pub user: User,
+    /// Whether the name is another than it was: a change to what it already was writes
+    /// nothing, not even the time.
+    pub changed: bool,
+}
+
 impl Store {
     /// Changes what `change` names of the user's name, makes the name they are shown by
     /// anew from it, and returns the user as stored now. Whether each part is one a
@@ -61,7 +71,7 @@ impl Store {
         &self,
         user_id: &str,
         change: &PersonNameChange,
-    ) -> Result<User, StoreError> {
+    ) -> Result<ChangedName, StoreError> {
         self.transaction(async |scope| {
             users::lock_user(scope, user_id)
                 .await
@@ -70,7 +80,14 @@ impl Store {
                     error => error,
                 })?;
             let mut user = users::get_user_by_id(scope, user_id).await?;
+            let before = user.name.clone();
             user.name.apply(change);
+            if user.name == before {
+                return Ok(ChangedName {
+                    user,
+                    changed: false,
+                });
+            }
             let name = &user.name;
             let mut sql = scope.sql("UPDATE users SET display_name = ");
             sql.bind(name.shown())
@@ -85,7 +102,10 @@ impl Store {
                 .push_bind(", update_at = ", now_millis())
                 .push_bind(" WHERE delete_at = 0 AND id = ", Id(user_id));
             scope.execute(sql).await?;
-            users::get_user_by_id(scope, user_id).await
+            Ok(ChangedName {
+                user: users::get_user_by_id(scope, user_id).await?,
+                changed: true,
+            })
         })
         .await
     }

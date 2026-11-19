@@ -42,8 +42,7 @@ import { UserNames, type Learning } from './user-names.ts';
 import * as entry from './workspace-entry.ts';
 import { reread } from './write.ts';
 
-/** `signedOut`: the backend has accounts and nobody is signed in (401). */
-/** `leaving`: the account waits to be deleted, and its session opens only taking that back. */
+/** `signedOut`: nobody is signed in (401); `leaving`: the account waits to be deleted (its session opens only taking that back). */
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut' | 'leaving';
 
 /** Something a write or a read failed with, for the reader to be told. */
@@ -170,9 +169,7 @@ export class Workspace {
       this.#takeSettings(settings);
       if (leaves?.(settings)) return;
       this.#stopWatching?.();
-      this.#stopWatching = this.backend.watchSelf((change) => {
-        this.#apply(change);
-      });
+      this.#stopWatching = this.backend.watchSelf(this.#apply.bind(this));
       const chosen = workspaceId ?? this.firstChoice();
       if (chosen === undefined) this.#leave(undefined);
       else await this.#enter(chosen);
@@ -242,8 +239,7 @@ export class Workspace {
     this.asked = asked;
     [this.info, this.closed] = [undefined, undefined];
     this.entered = 'none';
-    this.users = [];
-    this.workspaceUsers = [];
+    [this.users, this.workspaceUsers] = [[], []];
     this.containers = [];
     this.categories = [];
   }
@@ -301,6 +297,10 @@ export class Workspace {
         break;
       case 'resync':
         void this.#refresh();
+        void this.#userNames.reread();
+        break;
+      case 'user':
+        void this.#userNames.reread([change.userId]);
         break;
       default:
         break;
