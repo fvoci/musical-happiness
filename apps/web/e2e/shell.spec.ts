@@ -268,6 +268,7 @@ test.describe('the top bar', () => {
     await expect.poll(async () => (await descriptions())[FIRST_BOARD]).toBe('Written, then left.');
     expect((await descriptions()).Roadmap).not.toBe('Written, then left.');
     // The bar still follows the board it shows: emptied here, its "ⓘ" offers to add one.
+    await expect(about).toHaveAccessibleName('Description');
     await about.click();
     await field.fill('');
     await page.keyboard.press(await primaryKey(page, 'Enter'));
