@@ -215,3 +215,53 @@ async fn the_migration_keeps_the_name_every_account_is_shown_by() {
         "as a new account, and as an erased one"
     );
 }
+
+/// Migration 0046 on an account that gave a part of its name while still shown by the
+/// name it wrote, which was none: it keeps its choice, so that the name it is shown by is
+/// still the one the rule makes, as stored.
+#[tokio::test]
+async fn the_nameless_are_shown_by_name_but_not_those_that_gave_a_part() {
+    let database = common::empty_database().await;
+    let connection = common::raw_connection(&database);
+    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 45)
+        .await;
+    let (nameless, part_given) = (new_id(), new_id());
+    let insert = |id: &str, username: &str, first_name: &str| {
+        format!(
+            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+             display_name, first_name, last_name, name_shown) VALUES ('{id}', '{username}', \
+             '{username}@example.com', '', 1, 1, '', '{first_name}', '김', 'custom_name');"
+        )
+    };
+    common::execute_raw(
+        &connection,
+        &[
+            insert(&nameless, "nameless", "").replace("'김'", "''"),
+            insert(&part_given, "given", "영환"),
+        ]
+        .concat(),
+    )
+    .await;
+    let store = Store::connect(database.db_type(), database.database_connection())
+        .await
+        .expect("migrated");
+    let nameless = store.get_user_by_id(&nameless).await.unwrap();
+    let part_given = store.get_user_by_id(&part_given).await.unwrap();
+    store.close().await;
+    database.remove().await;
+
+    assert_eq!(nameless.name, PersonName::default(), "as a new account");
+    assert_eq!(
+        part_given.name.name_shown,
+        NameShown::CustomName,
+        "its choice kept"
+    );
+    assert_eq!(
+        (
+            part_given.display_name.as_str(),
+            part_given.name.shown().as_str()
+        ),
+        ("", ""),
+        "shown as stored"
+    );
+}

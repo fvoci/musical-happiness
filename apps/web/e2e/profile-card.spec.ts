@@ -15,29 +15,35 @@ import { openApp, topBar } from './shell.support.ts';
 
 /**
  * Has the first other user of the world, on the board, name themselves (shown by
- * `customName` when one is given); their login name.
+ * `customName` when one is given, and signing in as `login` when one is); their login
+ * name.
  */
-async function otherNamesThemselves(page: Page, customName = ''): Promise<string> {
-  return page.evaluate(async (customName) => {
-    const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
-    // The one `othersArrive` brings onto the board first.
-    const other = [...dev.backend.world.users.keys()].find((id) => id !== dev.workspace.me?.id);
-    if (!other) throw new Error('nobody else is on the board');
-    const named = await (
-      dev.backend.as(other) as unknown as {
-        patchMe(patch: Record<string, unknown>): Promise<{ username: string }>;
-      }
-    ).patchMe({
-      lastName: '김',
-      firstName: '영환',
-      latinFirstName: 'Younghwan',
-      latinLastName: 'Kim',
-      title: 'dr',
-      credentials: ['phd', 'kr_attorney'],
-      ...(customName ? { customName, nameShown: 'custom_name' } : {}),
-    });
-    return named.username;
-  }, customName);
+async function otherNamesThemselves(page: Page, customName = '', login = ''): Promise<string> {
+  return page.evaluate(
+    async ([customName, login]) => {
+      const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
+      // The one `othersArrive` brings onto the board first.
+      const other = [...dev.backend.world.users.keys()].find((id) => id !== dev.workspace.me?.id);
+      if (!other) throw new Error('nobody else is on the board');
+      const held = dev.backend.world.users.get(other);
+      if (login && held) held.username = login;
+      const named = await (
+        dev.backend.as(other) as unknown as {
+          patchMe(patch: Record<string, unknown>): Promise<{ username: string }>;
+        }
+      ).patchMe({
+        lastName: '김',
+        firstName: '영환',
+        latinFirstName: 'Younghwan',
+        latinLastName: 'Kim',
+        title: 'dr',
+        credentials: ['phd', 'kr_attorney'],
+        ...(customName ? { customName, nameShown: 'custom_name' } : {}),
+      });
+      return named.username;
+    },
+    [customName, login] as const,
+  );
 }
 
 test("a member's name with title and credentials opens their profile, which follows a change of it", async ({
@@ -94,7 +100,11 @@ test.describe('at 390px, dark', () => {
     test.skip(testInfo.project.name !== 'desktop', 'the size is set here, once');
     await openApp(page);
     await othersArrive(page, 1);
-    const login = await otherNamesThemselves(page, '김영환김영환김영환김영환김영환');
+    const login = await otherNamesThemselves(
+      page,
+      '김영환김영환김영환김영환김영환',
+      'younghwan.kim.cardiology.department',
+    );
     await topBar(page).getByTestId('share-board').click();
     const opener = page.getByTestId('share-members').locator(`[data-person="${login}"]`);
     await expect(opener).toBeVisible();
