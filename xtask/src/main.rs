@@ -64,9 +64,10 @@ enum Command {
         #[arg(long)]
         write: bool,
     },
-    /// Builds the server's and the search server's images for this machine, starts
-    /// them with docker/compose.yaml, signs up, writes a card and finds it by search,
-    /// checks what the installation must not do, and takes it down with its volumes.
+    /// Builds the server's and the search server's images for this machine, and the
+    /// server's once more from a source older than the build cache, starts them with
+    /// docker/compose.yaml, signs up, writes a card and finds it by search, checks what
+    /// the installation must not do, and takes it down with its volumes.
     Docker {
         /// Prints the commands that put the images of this commit on GHCR instead,
         /// and runs nothing.

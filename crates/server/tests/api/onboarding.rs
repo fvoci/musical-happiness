@@ -30,7 +30,7 @@ async fn impostor_template(client: &Client) -> Container {
     let card = Block {
         id: new_id(),
         container_id: board.id.clone(),
-        parent_id: board.id.clone(),
+        parent_id: String::new(),
         block_type: BlockType::Card,
         title: "hijacked".to_owned(),
         create_at: 1,

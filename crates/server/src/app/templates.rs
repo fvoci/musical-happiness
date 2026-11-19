@@ -183,7 +183,8 @@ fn builtin_templates(workspace_id: &str) -> Result<ContainersAndBlocks, AppError
                 )));
             }
             block.container_id.clone_from(&board.id);
-            block.parent_id.clone_from(&board.id);
+            // Directly on the board: no parent.
+            block.parent_id.clear();
             boards_and_blocks.blocks.push(block);
         }
         boards_and_blocks.containers.push(board);

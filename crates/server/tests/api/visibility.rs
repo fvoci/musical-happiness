@@ -60,7 +60,7 @@ impl Hidden {
         };
         let mut created: Vec<Block> = th
             .client
-            .insert_blocks(&board.id, &[block(BlockType::Card, &board.id)])
+            .insert_blocks(&board.id, &[block(BlockType::Card, "")])
             .await
             .created_json();
         let card = created.pop().expect("the card is created");
@@ -140,7 +140,7 @@ impl Hidden {
         };
         let mut created: Vec<Block> = th
             .client2
-            .insert_blocks(&own_board.id, &[own_block(BlockType::Card, &own_board.id)])
+            .insert_blocks(&own_board.id, &[own_block(BlockType::Card, "")])
             .await
             .created_json();
         let own_card = created.pop().expect("the card is created");

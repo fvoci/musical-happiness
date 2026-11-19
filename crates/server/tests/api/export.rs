@@ -93,7 +93,7 @@ async fn board_with_card(ts: &TestServer, workspace_id: &str) -> Container {
     let board = ts.create_board(workspace_id, ContainerType::Open).await;
     let card = Block {
         id: new_id(),
-        parent_id: board.id.clone(),
+        parent_id: String::new(),
         container_id: board.id.clone(),
         block_type: BlockType::Card,
         title: "a card for export".to_owned(),
@@ -407,13 +407,18 @@ async fn import_of_a_traversing_entry_is_harmless() {
     ts.teardown().await;
 }
 
-/// Two blocks that name the same file: the original writes the file into the archive
-/// twice under one name; the port writes it once. Found when an export of such a board
-/// failed. A third block's own file is exported too.
+/// Two blocks that name the same file: it is written once, as an entry has a name of its
+/// own. Found when an export of such a board failed. A third block's own file is
+/// exported too.
 #[tokio::test]
 async fn export_of_a_board_whose_blocks_share_a_file() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, TEST_WORKSPACE_ID).await;
+    let upload = async |name: &str| {
+        crate::files::uploaded_id(&crate::files::upload(&ts.client, &board.id, name, b"x").await)
+    };
+    let shared = upload("shared.png").await;
+    let own = upload("own.png").await;
     let attachment = |file: &str| {
         let mut fields = fvoci_model::JsonMap::new();
         fields.insert(
@@ -423,7 +428,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
         fvoci_model::Block {
             id: fvoci_model::new_id(),
             container_id: board.id.clone(),
-            parent_id: board.id.clone(),
+            parent_id: String::new(),
             block_type: fvoci_model::BlockType::Attachment,
             fields,
             create_at: 1,
@@ -432,14 +437,11 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
         }
     };
     ts.client
-        .insert_blocks(&board.id, &[attachment("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png")])
+        .insert_blocks(&board.id, &[attachment(&shared)])
         .await
         .check_created();
     // Another block shares the file, and a third has one that only it shows.
-    let mut others = [
-        attachment("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png"),
-        attachment("7bbbbbbbbbbbbbbbbbbbbbbbbbb.png"),
-    ];
+    let mut others = [attachment(&shared), attachment(&own)];
     ts.app
         .insert_blocks(
             &mut others,
@@ -460,12 +462,10 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
         .map(|name| name.rsplit('/').next().unwrap_or_default().to_owned())
         .collect();
     files.sort();
+    let mut expected = [shared, own];
+    expected.sort();
     assert_eq!(
-        files,
-        [
-            "7aaaaaaaaaaaaaaaaaaaaaaaaaa.png",
-            "7bbbbbbbbbbbbbbbbbbbbbbbbbb.png"
-        ],
+        files, expected,
         "the shared file has one entry, and the third block's own file one too"
     );
     ts.teardown().await;
@@ -572,7 +572,7 @@ async fn an_archive_carries_the_files_of_bodies(kind: &str) {
         .check_status(reqwest::StatusCode::CREATED);
     let without_file = Block {
         id: new_id(),
-        parent_id: board.id.clone(),
+        parent_id: String::new(),
         container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         create_at: 1,
@@ -755,9 +755,9 @@ async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
     );
     let before = boards_of(&ts).await.len();
     for blocks in [
-        block("c1", "b1", "comment"),
+        block("c1", "", "comment"),
         [
-            block("k1", "b1", "card"),
+            block("k1", "", "card"),
             block("c1", "k1", "comment"),
             block("c2", "c1", "comment"),
         ]
@@ -835,7 +835,7 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
         Block {
             id: new_id(),
             container_id: board.id.clone(),
-            parent_id: board.id.clone(),
+            parent_id: String::new(),
             block_type: BlockType::Attachment,
             fields,
             create_at: 1,
@@ -919,7 +919,7 @@ async fn an_archive_with_a_refused_board_stores_nothing() {
         "updateAt": 1, "fields": {"note": "x".repeat(70_000)},
     }});
     for (block, says) in [
-        (older_type, "\"text\""),
+        (older_type, "a block is a `card`"),
         (oversized, "block fields size limit exceeded"),
     ] {
         let before = boards_of(&ts).await.len();
@@ -998,7 +998,7 @@ async fn a_large_file_is_whole_in_the_archive() {
     let file_id = crate::files::uploaded_id(&response);
     let attachment = Block {
         id: new_id(),
-        parent_id: board.id.clone(),
+        parent_id: String::new(),
         container_id: board.id.clone(),
         block_type: BlockType::Attachment,
         fields: serde_json::json!({"fileId": file_id})
@@ -1090,7 +1090,7 @@ async fn board_with_large_archive(ts: &TestServer) -> Container {
         response.check_created();
         attachments.push(Block {
             id: new_id(),
-            parent_id: board.id.clone(),
+            parent_id: String::new(),
             container_id: board.id.clone(),
             block_type: BlockType::Attachment,
             fields: serde_json::json!({"fileId": crate::files::uploaded_id(&response)})
@@ -1213,4 +1213,199 @@ async fn a_download_that_takes_nothing_is_given_up() {
         received < length,
         "{received} bytes of an archive of {length}"
     );
+}
+
+/// A file a block shows that is not there to be exported, its object gone or its record
+/// never made, gets no entry: the board's line lists it in `missingFiles` and leaves it
+/// out of `fileNames`. An import stores no file for it, also when an entry of its name
+/// was put into the archive after all, and what showed it shows no file: an empty
+/// paragraph in a body, the empty name in an attachment.
+async fn a_missing_file_is_listed_and_imported_as_missing(ts: &TestServer) {
+    let MissingFiles {
+        board,
+        present,
+        gone,
+        unrecorded,
+    } = board_with_missing_files(ts).await;
+
+    let exported = export_board(&ts.client, &board).await;
+    exported.check_ok();
+    let archive = zip::ZipArchive::new(Cursor::new(exported.body.clone())).expect("a zip");
+    let mut entries: Vec<String> = archive
+        .file_names()
+        .map(|name| name.expect("an entry's name").into_owned())
+        .collect();
+    entries.sort_unstable();
+    let mut expected = vec![
+        "version.json".to_owned(),
+        format!("{}/board.jsonl", board.id),
+        format!("{}/{present}", board.id),
+    ];
+    expected.sort_unstable();
+    assert_eq!(entries, expected, "no entry for a missing file");
+    let line = board_line(archive, &board.id);
+    assert_eq!(
+        line["data"]["fileNames"],
+        serde_json::json!({ present.as_str(): "here.png" }),
+        "{line}"
+    );
+    let mut missing: Vec<String> =
+        serde_json::from_value(line["data"]["missingFiles"].clone()).expect("a list");
+    missing.sort_unstable();
+    let mut expected_missing = vec![gone.clone(), unrecorded.clone()];
+    expected_missing.sort_unstable();
+    assert_eq!(missing, expected_missing, "{line}");
+
+    // The same archive, and the same with an entry for the missing file put back.
+    let with_entry = with_extra_entry(&exported.body, &format!("{}/{gone}", board.id));
+    for archive in [exported.body.clone(), with_entry] {
+        imported_without(ts, &archive, [gone.as_str(), unrecorded.as_str()]).await;
+    }
+}
+
+/// A board whose card shows a file there is and one whose object is gone, its record
+/// kept, and whose attachment names a file of no record.
+struct MissingFiles {
+    board: Container,
+    present: String,
+    gone: String,
+    unrecorded: String,
+}
+
+async fn board_with_missing_files(ts: &TestServer) -> MissingFiles {
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
+    let upload = async |name: &str, bytes: &[u8]| {
+        crate::files::uploaded_id(&crate::files::upload(&ts.client, &board.id, name, bytes).await)
+    };
+    let present = upload("here.png", b"here").await;
+    let gone = upload("gone.png", b"gone").await;
+    let gone_info = ts
+        .app
+        .store()
+        .get_file_info(&board.id, &gone)
+        .await
+        .expect("the record of the file whose object goes");
+    ts.app
+        .files()
+        .delete(&gone_info.path)
+        .await
+        .expect("its object goes");
+    let unrecorded = format!("{}.png", fvoci_server::auth::secret::new_secret());
+    let body = serde_json::json!({"type": "doc", "content": [
+        {"type": "image", "attrs": {"fileId": present}},
+        {"type": "image", "attrs": {"fileId": gone}},
+    ]});
+    ts.client
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
+            &serde_json::json!({"title": "Card", "body": body}),
+        )
+        .await
+        .check_status(StatusCode::CREATED);
+    let mut fields = fvoci_model::JsonMap::new();
+    fields.insert("fileId".to_owned(), serde_json::json!(unrecorded));
+    let attachment = Block {
+        id: new_id(),
+        container_id: board.id.clone(),
+        block_type: BlockType::Attachment,
+        fields,
+        create_at: 1,
+        update_at: 1,
+        ..Block::default()
+    };
+    ts.client
+        .insert_blocks(&board.id, std::slice::from_ref(&attachment))
+        .await
+        .check_created();
+
+    MissingFiles {
+        board,
+        present,
+        gone,
+        unrecorded,
+    }
+}
+
+/// Imports `archive` of [`board_with_missing_files`] and checks the new board: the
+/// present file is shown and there, the missing ones neither shown nor recorded.
+async fn imported_without(ts: &TestServer, archive: &[u8], missing: [&str; 2]) {
+    let before: Vec<String> = boards_of(ts).await.into_iter().map(|b| b.id).collect();
+    import(&ts.client, TEST_WORKSPACE_ID, archive)
+        .await
+        .check_ok();
+    let imported = boards_of(ts)
+        .await
+        .into_iter()
+        .find(|other| !before.contains(&other.id))
+        .expect("the imported board");
+    let cards: Vec<serde_json::Value> = ts
+        .client
+        .get(&format!(
+            "{TEST_WS}/boards/{}/blocks?type=card",
+            imported.id
+        ))
+        .await
+        .ok_json();
+    let content = &cards[0]["body"]["content"];
+    assert_eq!(content[0]["type"], "image", "the present file: {content}");
+    let new_present = content[0]["attrs"]["fileId"].as_str().expect("a file");
+    ts.client
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{new_present}",
+            imported.id
+        ))
+        .await
+        .check_ok();
+    assert_eq!(
+        content[1]["type"], "paragraph",
+        "the missing file: {content}"
+    );
+    let attachments: Vec<serde_json::Value> = ts
+        .client
+        .get(&format!(
+            "{TEST_WS}/boards/{}/blocks?type=attachment",
+            imported.id
+        ))
+        .await
+        .ok_json();
+    assert_eq!(
+        attachments[0]["fields"]["fileId"],
+        serde_json::json!(""),
+        "{attachments:?}"
+    );
+    for name in missing {
+        let missing = ts.app.store().get_file_info(&imported.id, name).await;
+        assert!(missing.is_err(), "no record of {name}: {missing:?}");
+    }
+}
+
+/// `archive` with one more entry, `name`, holding a few bytes.
+fn with_extra_entry(archive: &[u8], name: &str) -> Vec<u8> {
+    let mut source = zip::ZipArchive::new(Cursor::new(archive.to_vec())).expect("a zip");
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for index in 0..source.len() {
+        let entry = source.by_index_raw(index).expect("an entry");
+        writer.raw_copy_file(entry).expect("copied");
+    }
+    let options = zip::write::SimpleFileOptions::default();
+    writer.start_file(name, options).expect("start");
+    writer.write_all(b"not the file").expect("write");
+    writer.finish().expect("finish").into_inner()
+}
+
+#[tokio::test]
+async fn a_missing_file_is_listed_in_the_archive_and_imported_as_missing() {
+    let ts = Setup::native().start().await.init_basic().await;
+    a_missing_file_is_listed_and_imported_as_missing(&ts).await;
+    ts.teardown().await;
+}
+
+#[tokio::test]
+#[ignore = "needs an S3-compatible server; see tests/storage.rs"]
+async fn with_s3_a_missing_file_is_listed_in_the_archive_and_imported_as_missing() {
+    let ts = crate::uploads::s3_server().await;
+    a_missing_file_is_listed_and_imported_as_missing(&ts).await;
+    ts.teardown().await;
 }

@@ -65,7 +65,7 @@ async fn new_board(client: &Client, card_properties: Value) -> ApiResponse {
 
 fn card_block(board_id: &str, properties: Value) -> Value {
     let mut block = json!({
-        "id": "c1", "containerId": board_id, "parentId": board_id, "type": "card", "title": "Card",
+        "id": "c1", "containerId": board_id, "type": "card", "title": "Card",
         "schema": 1, "createAt": 1, "updateAt": 1, "fields": {},
     });
     block["fields"]["properties"] = properties;

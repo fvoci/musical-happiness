@@ -306,9 +306,9 @@ async fn create_subscription_validation() {
             "invalid subscriber type",
         ),
         (with("blockId", json!("")), "missing block id"),
-        // Nothing at all, also as `null` members: everything missing is reported.
+        // Nothing at all: everything missing is reported. `null` is no string.
         (json!({}), "4 members of the request were refused"),
-        (all_null, "4 members of the request were refused"),
+        (all_null, "invalid type: null, expected a string"),
         (
             json!({"subscriberId": other}),
             "3 members of the request were refused",

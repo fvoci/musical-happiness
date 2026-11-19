@@ -171,7 +171,7 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
 /// cookie the name and the address of a registration that waits are taken.
 ///
 /// The name and the email address must not be blank, the email address must look like
-/// one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
+/// one, the display name (`displayName`, may be left out) is checked as `patchMe` checks it,
 /// the password must have at least 8 characters and at most 1024 bytes, and the organization
 /// name must not be blank, and is otherwise read as a display name is; otherwise the
 /// request is 400, and `errors` names every member that is refused, each with

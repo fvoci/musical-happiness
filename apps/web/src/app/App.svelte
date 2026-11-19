@@ -18,7 +18,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
-  import { setFileSource } from '$lib/editor/files.ts';
+  import FileViewerHost from '$lib/components/file-viewer/FileViewerHost.svelte';
+  import { setViewedFileSource } from '$lib/components/file-viewer/viewing.svelte.ts';
   import AccountDeletion from '$lib/features/account/AccountDeletion.svelte';
   import AccountLeaving from '$lib/features/account/AccountLeaving.svelte';
   import { daysLeft } from '$lib/features/account/account-deletion.ts';
@@ -137,15 +138,14 @@
       }
       // The bodies of cards and pages name their images and file blocks by file; the board or
       // wiki shown has them. A file block that cannot be saved says why, as an attachment does.
-      setFileSource(
-        fileSourceOf(
-          backend,
-          () => router.route.wikiId ?? made.board?.boardId,
-          (error) => {
-            made.report('load', error);
-          },
-        ),
+      const files = fileSourceOf(
+        backend,
+        () => router.route.wikiId ?? made.board?.boardId,
+        (error) => {
+          made.report('load', error);
+        },
       );
+      setViewedFileSource(files);
       workspace = made;
       // On the handle of the browser tests and the console too, where there is
       // one (the backend in memory): a test undoes through it.
@@ -495,4 +495,5 @@
     />
   </AppShell>
   <Problems {workspace} />
+  <FileViewerHost />
 {/if}

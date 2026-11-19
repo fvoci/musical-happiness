@@ -55,10 +55,7 @@ impl Store {
                 title: new.title.clone(),
                 ..Block::default()
             };
-            // A page at the top has no parent; a client may name the wiki there.
-            if new.parent_id != wiki_id {
-                page.parent_id.clone_from(&new.parent_id);
-            }
+            page.parent_id.clone_from(&new.parent_id);
             if !new.icon.is_empty() {
                 page.fields
                     .insert(PAGE_ICON_FIELD.to_owned(), Value::from(new.icon.clone()));
@@ -126,12 +123,7 @@ impl Store {
                 id: page_id.to_owned(),
                 source,
             };
-            // A page at the top has no parent; a client may name the wiki there.
-            let parent_id = if to.parent_id == wiki_id {
-                ""
-            } else {
-                to.parent_id.as_str()
-            };
+            let parent_id = to.parent_id.as_str();
             let tree = page_tree(scope, wiki_id).await?;
             tree.check_move(page_id, parent_id, limits)
                 .map_err(invalid)?;

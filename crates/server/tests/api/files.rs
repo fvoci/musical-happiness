@@ -46,6 +46,19 @@ pub(crate) async fn upload_in(
     Client::send(request).await
 }
 
+/// A key of the server's making for a file of `board_id` ([`fvoci_model::FileKey`]),
+/// under the organization of the board, whichever it is.
+pub(crate) async fn key_of(ts: &TestServer, board_id: &str, secret: &str) -> String {
+    let org = ts
+        .app
+        .store()
+        .system()
+        .org_of_container(board_id)
+        .await
+        .expect("the board's organization");
+    format!("{org}/{board_id}/{secret}")
+}
+
 /// The `fileId` of a successful upload.
 pub(crate) fn uploaded_id(response: &crate::common::ApiResponse) -> String {
     response.value()["fileId"]
@@ -67,7 +80,7 @@ async fn board_with_attachment(ts: &TestServer) -> (Container, String) {
     image_fields.insert("fileId".to_owned(), Value::String(file_id.clone()));
     let blocks = vec![Block {
         id: card_id.clone(),
-        parent_id: board.id.clone(),
+        parent_id: String::new(),
         container_id: board.id.clone(),
         block_type: BlockType::Card,
         create_at: 1,
@@ -715,12 +728,7 @@ async fn foreign_file(ts: &TestServer) -> ForeignFile {
         ..Block::default()
     };
     let blocks = vec![
-        block(
-            card_id.clone(),
-            &intruder_board.id,
-            BlockType::Card,
-            JsonMap::new(),
-        ),
+        block(card_id.clone(), "", BlockType::Card, JsonMap::new()),
         block(new_id(), &card_id, BlockType::Attachment, named("fileId")),
         block(
             new_id(),
@@ -988,8 +996,9 @@ async fn a_file_without_a_record_is_given_out_through_no_board() {
         .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
         .await;
 
-    let name = format!("{}.txt", fvoci_server::auth::secret::new_secret());
-    let path = format!("boards/20230101/{}/{name}", board.id);
+    let secret = fvoci_server::auth::secret::new_secret();
+    let name = format!("{secret}.txt");
+    let path = key_of(&ts, &board.id, &secret).await;
     ts.app
         .files()
         .write(&path, &mut &b"an old file"[..])
@@ -1029,7 +1038,7 @@ async fn duplicating_a_board_with_an_empty_file_reference_works() {
         ..Block::default()
     };
     let blocks = vec![
-        block(card_id.clone(), &board.id, BlockType::Card, JsonMap::new()),
+        block(card_id.clone(), "", BlockType::Card, JsonMap::new()),
         block(new_id(), &card_id, BlockType::Attachment, empty),
         block(new_id(), &card_id, BlockType::Attachment, JsonMap::new()),
     ];
@@ -1114,7 +1123,7 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
         ..Block::default()
     };
     let blocks = vec![
-        block(card_id.clone(), &board.id, BlockType::Card, JsonMap::new()),
+        block(card_id.clone(), "", BlockType::Card, JsonMap::new()),
         block(new_id(), &card_id, BlockType::Attachment, fields),
     ];
     ts.client

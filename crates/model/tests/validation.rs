@@ -23,7 +23,10 @@ fn block_validate_requires_a_board() {
         Err(BlockError::EmptyContainerId)
     );
     assert_eq!(block().validate(), Ok(()));
-    assert_eq!(BlockError::EmptyContainerId.to_string(), "boardID is empty");
+    assert_eq!(
+        BlockError::EmptyContainerId.to_string(),
+        "the block names no board"
+    );
 }
 
 /// A comment's body has no file block, though it may have an image; a block of a type
@@ -119,26 +122,17 @@ fn only_four_types_are_current() {
     }
 }
 
-/// The refusal shows at most 64 characters of the type a client wrote.
+/// The refusal of a type does not repeat what the client wrote.
 #[test]
-fn a_refused_type_is_shown_shortened() {
-    assert_eq!(fvoci_model::TYPE_SHOWN_CHARS, 64);
-    let long = "é".repeat(100);
-    let BlockError::TypeNotCurrent(shown) = BlockError::type_not_current(&BlockType::from(long))
-    else {
-        panic!("a refusal of the type");
-    };
-    assert_eq!(shown, format!("{}…", "é".repeat(64)));
-    for (length, shown) in [(64, "a".repeat(64)), (65, format!("{}…", "a".repeat(64)))] {
-        assert_eq!(
-            BlockError::type_not_current(&BlockType::from("a".repeat(length))),
-            BlockError::TypeNotCurrent(shown),
-            "{length} characters"
-        );
+fn a_refused_type_is_not_repeated() {
+    for name in ["text", "h1", &"é".repeat(100)] {
+        let refusal = BlockError::type_not_current(&BlockType::from(name));
+        assert_eq!(refusal, BlockError::TypeNotCurrent, "{name}");
+        assert!(!refusal.to_string().contains(name), "{refusal}");
     }
     assert_eq!(
-        BlockError::type_not_current(&BlockType::from("text")),
-        BlockError::TypeNotCurrent("text".to_owned())
+        BlockError::type_not_current(&BlockType::Page),
+        BlockError::PageByBlocks
     );
 }
 
@@ -151,14 +145,8 @@ fn a_patch_does_not_give_a_block_a_type_that_is_not_current() {
     };
     assert_eq!(BlockPatch::default().check_type(), Ok(()), "no type");
     assert_eq!(to("card").check_type(), Ok(()), "to a card");
-    assert_eq!(
-        to("text").check_type(),
-        Err(BlockError::TypeNotCurrent("text".to_owned()))
-    );
-    assert_eq!(
-        to("h1").check_type(),
-        Err(BlockError::TypeNotCurrent("h1".to_owned()))
-    );
+    assert_eq!(to("text").check_type(), Err(BlockError::TypeNotCurrent));
+    assert_eq!(to("h1").check_type(), Err(BlockError::TypeNotCurrent));
 }
 
 #[test]

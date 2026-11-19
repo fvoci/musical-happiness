@@ -19,6 +19,8 @@
 @source not '../../tests';
 @source not '../../e2e';
 @source not '../../messages';
+/* The viewer's frame is a page of its own, drawn by its own style sheet (frame.css). */
+@source not '../viewer-frame';
 
 @custom-variant dark (&:is(.dark *));
 

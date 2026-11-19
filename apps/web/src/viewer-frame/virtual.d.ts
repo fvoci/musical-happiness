@@ -6,3 +6,9 @@ declare module 'virtual:pdfjs-data' {
 
 /** pdf.js's worker module: loaded for its effect, which sets the worker up. */
 declare module 'pdfjs-dist/build/pdf.worker.mjs';
+
+/** tools/build/rhwp-wasm.ts: the HWP renderer's WebAssembly, its bytes as hexadecimal text. */
+declare module 'virtual:rhwp-wasm' {
+  const hex: string;
+  export default hex;
+}

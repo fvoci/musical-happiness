@@ -1,18 +1,22 @@
-//! `cargo xtask docker`: builds the two images of `docker/`, starts them with
-//! `docker/compose.yaml` as an installation would, and tries them from outside: sign
-//! up, a board, a card, words in its body, and a search that finds them. Then it looks
-//! at what the installation must not do (secrets in the images, a database role past
-//! the wall, ports open to the host, processes as root) and takes everything down with
-//! its volumes, whatever happened. `--push-plan` prints how the images go to GHCR.
+//! `cargo xtask docker`: builds the two images of `docker/`, and the server's once more
+//! from a source older than the build cache, which must still be what is built. Then it
+//! starts them with `docker/compose.yaml` as an installation would, and tries them from
+//! outside: ping names the commit, sign up, a board, a card, words in its body, and a
+//! search that finds them. Then it looks at what the installation must not do (secrets
+//! in the images, a database role past the wall, ports open to the host, processes as
+//! root), reads the profile `tunnel` without starting it, and takes everything down
+//! with its volumes, whatever happened. `--push-plan` prints how the images go to GHCR.
 //!
-//! It needs `docker` with compose 2.24 or newer, `curl` and `git`. The images are built
+//! It needs `docker` with compose 2.24 or newer, `curl`, `git` and `tar`. The images are built
 //! natively, for the processor of the machine; the other one is built on a machine of
 //! that kind. The images stay, to be pushed (`--push-plan`); `docker image rm` removes
 //! them.
 
 mod checks;
+mod freshness;
 mod images;
 mod scenario;
+mod tunnel;
 
 use std::fs;
 use std::net::{Ipv4Addr, TcpListener};
@@ -182,6 +186,7 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     check_compose()?;
     let names = images::Names::of_checkout(root)?;
     images::build(root, &names)?;
+    freshness::probe(root)?;
     let built = started.elapsed();
 
     let directory = root.join("target/docker-smoke");
@@ -299,6 +304,9 @@ fn try_installation(trial: &Trial, directory: &Path) -> Result<()> {
             steps::Step::new("no secret in the images, containers or logs", || {
                 checks::secrets(trial)
             }),
+            steps::Step::new("the profile tunnel, and nothing of it without", || {
+                tunnel::profile(trial)
+            }),
         ],
     );
     if checks.is_err() {
@@ -320,6 +328,8 @@ fn take_down(trial: &Trial) -> Result<()> {
             "s3",
             "--profile",
             "mail",
+            "--profile",
+            "tunnel",
             "down",
             "--volumes",
             "--remove-orphans",

@@ -1,6 +1,6 @@
 # 서버의 설정
 
-적은 때: 2026-11-11 05:05 KST, 고친 때: 2026-11-17 05:22 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
+적은 때: 2026-11-11 05:05 KST, 고친 때: 2026-11-19 02:35 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
 
 키를 더하거나 바꾸면 같은 커밋에서 이 문서를 고친다. 이 문서는 코드와 함께 검사된다. `config.rs`의 테스트 `the_configuration_document_lists_every_key`가 다음을 견준다.
 
@@ -58,7 +58,7 @@
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
 | `file_storage` | `FVOCI_FILE_STORAGE` | 문자열 | `"local"` | `local`(디스크) 또는 `s3`(S3와 S3 호환 저장소). 그 밖의 값이면 시작하지 않는다 |
-| `file_storage_path` | `FVOCI_FILE_STORAGE_PATH` | 문자열 | `"./files"` | `local`일 때 파일을 두는 디렉터리. 파일은 그 아래 `.tmp/writing`에 다 쓴 뒤 제자리로 옮긴다(같은 파일시스템이라 원자적이다. `tmp_path`와 상관없다). 이 DB의 서버만 쓴다: 관리 소켓의 파일 대조(`removeUnrecorded`)는 서버가 만드는 모양의 자리(`boards/…`)에서 이 DB가 이름하지 않는 파일을 지운다. 준비 상태(`GET /api/v1/ready`)는 5초에 한 번까지 `<file_storage_path>/.fvoci-ready`를 같은 길로 써서 읽고 지워 보고, 디렉터리가 없으면 만든다 |
+| `file_storage_path` | `FVOCI_FILE_STORAGE_PATH` | 문자열 | `"./files"` | `local`일 때 파일을 두는 디렉터리. 파일은 그 아래 `.tmp/writing`에 다 쓴 뒤 제자리로 옮긴다(같은 파일시스템이라 원자적이다. `tmp_path`와 상관없다). 이 DB의 서버만 쓴다: 관리 소켓의 파일 대조(`removeUnrecorded`)는 서버가 만드는 모양의 자리(`<조직>/<보드>/<비밀>`)에서 이 DB가 이름하지 않는 파일을 지운다. 준비 상태(`GET /api/v1/ready`)는 5초에 한 번까지 `<file_storage_path>/.fvoci-ready`를 같은 길로 써서 읽고 지워 보고, 디렉터리가 없으면 만든다 |
 | `max_file_bytes` | `FVOCI_MAX_FILE_BYTES` | 정수(1 이상, 바이트) | `104857600` | 올릴 수 있는 파일의 가장 큰 크기(100 MiB). 0이나 음수는 시작 오류다(예전에는 0이 "한도 없음"이었다). `upload_part_bytes` × 10,000(S3 멀티파트의 부분 수 한도)을 넘어도 시작 오류다. 요청 하나로 올리는 파일(`uploadFile`)은 그에 더해 `upload_part_bytes`까지다. 사용자 한 명이 열린 업로드에 걸어 둘 수 있는 크기는 이 한도와 `max_import_bytes` 가운데 큰 것의 두 배다 |
 | `file_storage_s3.access_key_id` | — | 문자열 | `""` | 액세스 키. **비워 두면 S3 클라이언트가 환경에서 자격을 읽는다**(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` 등. 아래 "S3의 예") |
 | `file_storage_s3.secret_access_key` | — | 문자열 | `""` | 비밀 키. `access_key_id`가 있을 때만 쓴다. 로그에 남기지 않는다 |
@@ -129,7 +129,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
-| `trusted_proxies` | `FVOCI_TRUSTED_PROXIES` | 문자열 목록 | `[]` | 서버 앞의 역방향 프록시의 주소나 주소 범위(`10.0.0.0/8` 꼴). 이 주소에서 온 요청만 `X-Forwarded-For`가 말하는 주소에서 온 것으로 본다. 비우면 클라이언트가 서버에 바로 닿는다고 본다. 읽을 수 없는 값이 있으면 시작하지 않는다. `server_url`이 https이고 `serve_https`가 거짓인데 이 목록이 비면 시작할 때 경고한다(모든 클라이언트가 프록시 하나로 보여 로그인 제한이 모두에게 한꺼번에 걸리고, 공개 링크로 한 보드를 읽는 연결도 `public_link_connections_per_address`개까지만 받는다) |
+| `trusted_proxies` | `FVOCI_TRUSTED_PROXIES` | 문자열 목록 | `[]` | 서버 앞의 역방향 프록시의 주소나 주소 범위(`10.0.0.0/8` 꼴). 이 주소에서 온 요청만 `X-Forwarded-For`가 말하는 주소에서 온 것으로 본다. 비우면 클라이언트가 서버에 바로 닿는다고 본다. 터널(cloudflared 같은 것)도 이런 프록시다: 서버가 보는 터널의 주소를 적는다(`docker/compose.yaml`의 프로필 `tunnel`이면 그 머리 주석). 읽는 머리글은 `X-Forwarded-For`뿐이고 `CF-Connecting-IP`는 읽지 않는다. 읽을 수 없는 값이 있으면 시작하지 않는다. `server_url`이 https이고 `serve_https`가 거짓인데 이 목록이 비면 시작할 때 경고한다(모든 클라이언트가 프록시 하나로 보여 로그인 제한이 모두에게 한꺼번에 걸리고, 공개 링크로 한 보드를 읽는 연결도 `public_link_connections_per_address`개까지만 받는다) |
 
 ## 키: 한도와 휴지통, 임시 파일
 
@@ -196,7 +196,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
-| `metrics_address` | `FVOCI_METRICS_ADDRESS` | 문자열(`호스트:포트`) | `""` | Prometheus 지표를 내는 주소. 비어 있으면 지표를 모으지 않고 아무것도 듣지 않는다. 주소가 있으면 API와 **다른 리스너**를 그 주소에 열고 `GET /metrics`만 Prometheus의 글 형식으로 답한다(그 밖의 길은 404이고, 거절은 API와 같은 `application/problem+json`이며 그것이 가리키는 `/problems`의 글도 여기서 내준다). API의 리스너에는 지표의 길이 없다. 호스트는 이름, IPv4, 괄호 안의 IPv6(`[::1]:9092`)이고, 비우면(`:9092`) 모든 인터페이스이고, `listen_loopback_only`가 참이면 API처럼 루프백(`localhost`가 풀리는 주소 하나)이다. 포트 0은 빈 포트 아무것이고 고른 주소를 로그에 남긴다. 꼴이 틀리면, 그 주소에서 들을 수 없으면(이미 쓰임, 이 기기의 주소가 아님) 시작하지 않는다. 인증은 `metrics_token`을 따르고, `serve_https`와 관계없이 평문 HTTP다. 모니터링만 닿는 안쪽 주소(루프백, 사설망)에 묶는다. 요청 로그에 남기지 않는다. 긁을 때 DB를 세는 조회가 둘 있다: 열린 업로드는 5초에 한 번까지, 살아 있는 세션은 1분에 한 번까지(세션 표 전체를 훑는다). 긁기가 아무리 잦아도 DB에 묻는 것은 그만큼이다. 둘은 나란히 돌고 긁기는 각각 2초까지 기다리며, 같은 조회는 DB가 답할 때까지 동시에 하나다. 준비 상태(`GET /api/v1/ready`의 확인, 5초 동안 기억한다)도 긁을 때 보고 `fvoci_ready`로 낸다 |
+| `metrics_address` | `FVOCI_METRICS_ADDRESS` | 문자열(`호스트:포트`) | `""` | Prometheus 지표를 내는 주소. 비어 있으면 지표를 모으지 않고 아무것도 듣지 않는다. 주소가 있으면 API와 **다른 리스너**를 그 주소에 열고 `GET /metrics`만 Prometheus의 글 형식으로 답한다(그 밖의 길은 404이고, 거절은 API와 같은 `application/problem+json`이며 그것이 가리키는 `/problems`의 글도 여기서 내준다). API의 리스너에는 지표의 길이 없다. 호스트는 이름(글자·숫자·`-`의 마디를 점으로 이은 것, 끝 마디는 글자로 시작), 점 넷의 IPv4, 괄호 안의 IPv6(`[::1]:9092`)이고 빠질 수 없다(`0x7f.1`, `127.1` 같은 다른 IPv4 표기는 받지 않는다). 모든 인터페이스는 `0.0.0.0:9092`(IPv4)나 `[::]:9092`(IPv6)이고, `listen_loopback_only`가 참이면 모든 인터페이스에서 듣게 되는 주소(이 둘, `[::ffff:0.0.0.0]`, 그리로 풀리는 이름)는 시작 오류다. 그 밖의 주소는 적힌 대로 듣는다. 포트는 0–65535의 수(앞에 0 없이)이고, 0은 빈 포트 아무것이며 고른 주소를 로그에 남긴다. 꼴이 틀리면(`:9092`, `localhost`, 괄호 없는 IPv6, 영역이 붙은 IPv6, 서비스 이름) 무엇이 틀렸는지 말하며, 그 주소에서 들을 수 없으면(이미 쓰임, 이 기기의 주소가 아님) 시작하지 않는다. 인증은 `metrics_token`을 따르고, `serve_https`와 관계없이 평문 HTTP다. 모니터링만 닿는 안쪽 주소(루프백, 사설망)에 묶는다. 요청 로그에 남기지 않는다. 긁을 때 DB를 세는 조회가 둘 있다: 열린 업로드는 5초에 한 번까지, 살아 있는 세션은 1분에 한 번까지(세션 표 전체를 훑는다). 긁기가 아무리 잦아도 DB에 묻는 것은 그만큼이다. 둘은 나란히 돌고 긁기는 각각 2초까지 기다리며, 같은 조회는 DB가 답할 때까지 동시에 하나다. 준비 상태(`GET /api/v1/ready`의 확인, 5초 동안 기억한다)도 긁을 때 보고 `fvoci_ready`로 낸다 |
 | `metrics_token` | `FVOCI_METRICS_TOKEN` | 문자열 | `""` | 지표 리스너의 `GET /metrics`가 요구하는 bearer 토큰. 비어 있으면 인증이 없다. 값이 있으면 `Authorization: Bearer <토큰>`이 맞아야 하고, 없거나 틀리면 401(`WWW-Authenticate: Bearer realm="metrics"`, 틀린 것에는 `error="invalid_token"`)이며 그때는 아무것도 읽지 않는다. `Authorization` 머리글이 둘 이상이면 어느 것도 받지 않고 순서와 값에 상관없이 401(`error="invalid_request"`)이다. 환경 변수가 빈 값이면 파일의 값을 둔다. 글자열이 아닌 값(따옴표 없는 수)은 그 값을 되풀이하지 않는 오류로 시작하지 않는다. 설정돼 있으면 32자 이상이어야 하고, 짧으면(환경 변수로 준 것도) 키 이름과 '32자 이상'만 말하고 값도 그 길이도 말하지 않는 오류로 시작하지 않는다. 비교는 SHA-256 다이제스트를 일정 시간에 견준다. 글자는 RFC 6750의 것(영문자, 숫자, `-._~+/`, 끝의 `=`)만 받고, 아니면 시작하지 않는다. 로그, 오류 문구, `Debug` 출력에 나오지 않는다. 토큰이 있어도 평문 HTTP이므로 지표 리스너는 안쪽 주소에 둔다 |
 
 ## 키: 메일 보내기
@@ -285,6 +285,7 @@ issuer가 바뀌면(바로 바꾸든, 대기 설정을 적용하든) 옛 공급�
 | `FVOCI_LOG_LEVEL` | 로그의 수준과 거르개(`tracing`의 `EnvFilter` 문법, 예: `info`, `fvoci_server=debug`). 기본은 `info` |
 | `FVOCI_LOG_FORMAT` | `json`이면 로그를 줄마다 JSON으로 쓴다. 그 밖에는 사람이 읽는 꼴이다 |
 | `FVOCI_SECRET_KEY` | 서버가 DB에 봉인해 두는 값(조직 공급자의 client secret)의 키. 32바이트를 표준 base64로 쓴 것이다(`openssl rand -base64 32`). AES-256-GCM의 키로 쓴다. 환경 변수로만 받는다: 설정 파일에 `secret_key`가 있으면 시작하지 않는다. 꼴이 틀리면 값을 되풀이하지 않는 오류로 시작하지 않는다. 로그와 `Debug` 출력에 나오지 않는다. 없으면 공급자를 저장할 수 없다(409, `secret-key-required`). 바꾸면 저장된 secret이 열리지 않으므로 공급자마다 secret을 다시 저장한다 |
+| `FVOCI_BUILD_HASH`, `FVOCI_BUILD_DATE` | 서버를 빌드할 때만 읽는다: 빌드한 커밋과 그 시각. `ping`의 `commit`·`build_date`가 이것이고, 주지 않으면 빈 글이다. 이미지는 같은 이름의 빌드 인자로 받고 `cargo xtask docker`가 넘긴다(고치지 않은 것이 있는 작업 트리면 커밋 뒤에 `-dirty`) |
 | `AWS_*` | `file_storage_s3.access_key_id`가 비었을 때 S3 클라이언트가 읽는 자격과 설정(위 "S3의 예") |
 
 ## 예시 파일

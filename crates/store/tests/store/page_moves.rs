@@ -107,13 +107,32 @@ async fn a_page_moves_with_what_is_below_it_where_it_is_asked() {
         .expect("moved");
     assert_eq!(below(&test, &wiki, "").await, [a.as_str(), d.as_str()]);
     assert_eq!(below(&test, &wiki, &d).await, [b.as_str()]);
-    // The wiki named as the parent is its top.
+    // The wiki is no page, and no parent; the top is no parent.
+    let refused = moved(
+        &test,
+        &user_id,
+        &wiki.id,
+        &b,
+        &to(&wiki.id, None),
+        limits(10, 10),
+    )
+    .await;
+    assert!(
+        matches!(
+            refused,
+            Err(StoreError::InvalidBlock {
+                source: BlockError::ParentNotOnContainer,
+                ..
+            })
+        ),
+        "{refused:?}"
+    );
     moved(
         &test,
         &user_id,
         &wiki.id,
         &b,
-        &to(&wiki.id, Some(&a)),
+        &to("", Some(&a)),
         limits(10, 10),
     )
     .await

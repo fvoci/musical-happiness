@@ -61,7 +61,7 @@ pub use auth::{
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
-    BlockType, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, PropertyChanges, TYPE_SHOWN_CHARS,
+    BlockType, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, PropertyChanges,
     stamp_modification_metadata,
 };
 pub use block_ids::{UnmatchedRelation, generate_block_ids, renew_block_ids};
@@ -97,7 +97,7 @@ pub use date_value::{
     DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
 };
 pub use deleted_item::DeletedItem;
-pub use file_info::{FileInfo, is_storage_path};
+pub use file_info::{FileInfo, FileKey, is_storage_path};
 pub use id::{is_id, new_id};
 pub use invitation::{
     AcceptInvitation, AcceptedInvitation, GUEST_INVITATION_USES, INVITATION_LIFETIME_MILLIS,

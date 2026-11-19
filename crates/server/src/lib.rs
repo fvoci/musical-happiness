@@ -121,7 +121,14 @@ impl Server {
         let app = App::new(config, store, files)?;
         // Before the slow work below: an address that is taken is reported at once.
         let metrics_listener = match app.config().metrics_listen_address()? {
-            Some(address) => Some(metrics_listener::bind(&address).await?),
+            Some(address) => {
+                let reach = if app.config().listen_loopback_only {
+                    metrics_listener::Reach::LoopbackOnly
+                } else {
+                    metrics_listener::Reach::Any
+                };
+                Some(metrics_listener::bind(&address, reach).await?)
+            }
             None => None,
         };
         let server_lock = app.hold_server_lock(server_lock);
@@ -471,16 +478,6 @@ fn spawn_metrics_server(
             tracing::error!(%error, "the metrics server stopped");
         }
     })
-}
-
-/// Returns the address the server listens on, in the original's notation: `localhost:8000`
-/// for a local-only server, `:8000` for all interfaces.
-pub fn listen_address(config: &Configuration) -> String {
-    if config.listen_loopback_only {
-        format!("localhost:{}", config.port)
-    } else {
-        format!(":{}", config.port)
-    }
 }
 
 /// Tells browsers not to say where a request comes from when a page of this server

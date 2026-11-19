@@ -14,8 +14,8 @@ use crate::metrics::Metrics;
 
 /// Files kept in a directory on the local disk, the `file_storage_path` setting.
 ///
-/// A stored path such as `boards/20240131/7abc.png` is that relative path under the
-/// directory, exactly as the original server lays files out.
+/// A stored path such as `<organization>/<board>/<secret>` ([`fvoci_model::FileKey`]) is
+/// that relative path under the directory, the same key as in a bucket.
 #[derive(Debug, Clone)]
 pub struct LocalFiles {
     root: PathBuf,

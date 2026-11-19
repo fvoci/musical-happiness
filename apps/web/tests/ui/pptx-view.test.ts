@@ -67,7 +67,13 @@ function view(pixels: number[]): { view: PptxView; drawn: () => number[] } {
   const shown = new PptxView(
     presentation,
     place,
-    { shown: () => undefined, page: () => undefined },
+    {
+      sheets: () => undefined,
+      shown: () => undefined,
+      page: () => undefined,
+      failed: () => undefined,
+      download: () => undefined,
+    },
     (index): SlideHandle => {
       live.add(index + 1);
       return {

@@ -1,18 +1,29 @@
 /**
  * A file block on the real server: a PDF chosen through the slash menu of a
  * wiki's page goes up as a file of the wiki and its block shows in another
- * editor's browser, which downloads the same bytes, by its button and by
- * Enter; somebody who may only look downloads them where the body is only
- * shown; a copy of the wiki has a file of its own with those bytes, and a
- * reader by the wiki's public link downloads them too. The server offers the
- * file as an attachment that is never sniffed. Pictures of the block, wide
- * and 390 pixels across, go to `target/files-f1/`.
+ * editor's browser, which downloads the same bytes by its button and opens
+ * the file in the viewer by Enter; somebody who may only look downloads them
+ * and opens the viewer by the file's name where the body is only shown; a
+ * copy of the wiki has a file of its own with those bytes, and a reader by
+ * the wiki's public link downloads them too and views them, the viewer
+ * naming nobody. The server offers the file as an attachment that is never
+ * sniffed. Pictures of the block, wide and 390 pixels across, go to
+ * `target/files-f1/`.
  */
 import path from 'node:path';
 
-import { expect, test, type APIRequestContext, type Download, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Download,
+  type Page,
+  type Response,
+} from '@playwright/test';
 
 import { hideSidebar, sidebar } from '../e2e/shell.support.ts';
+import { humanFileSize } from '../src/lib/logic/file-size.ts';
+import { koreanPdf } from '../tests/support/viewer-files.ts';
 
 import {
   person,
@@ -28,10 +39,8 @@ test.use({ locale: 'en-US' });
 
 const SHOTS = path.resolve(import.meta.dirname, '../../../target/files-f1');
 
-/** A small PDF: what matters is that its bytes come back the same. */
-const PDF = Buffer.from(
-  '%PDF-1.4\n% fvoci file block\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n',
-);
+/** A PDF of one page in Korean, which the viewer shows: its bytes come back the same. */
+const PDF = koreanPdf(1);
 const NAME = '2026-11 회의록 (minutes) of the steering committee.pdf';
 
 interface Node {
@@ -76,7 +85,40 @@ async function download(page: Page): Promise<[string, Buffer]> {
   return [saved.suggestedFilename(), await bytesOf(saved)];
 }
 
-test('a PDF put into a page is a file block that others, a copy and the public link download', async ({
+/**
+ * Opens the file of the block in `page` in the viewer by its name, pressed by the mouse or by
+ * Enter once it has the focus, sees it shown and closes it; the focus goes back to the name.
+ * Gives what the viewer held, and the addresses and bodies of what the page was sent meanwhile.
+ */
+async function view(page: Page, by: 'mouse' | 'keyboard' = 'mouse'): Promise<string[]> {
+  const sent: Promise<string>[] = [];
+  const onResponse = (response: Response): void => {
+    const type = response.headers()['content-type'] ?? '';
+    const body = /json|text|html|javascript/.test(type) ? response.text().catch(() => '') : '';
+    sent.push(Promise.resolve(body).then((text) => `${response.url()}\n${text}`));
+  };
+  page.on('response', onResponse);
+  const name = page
+    .getByTestId('page-body')
+    .locator('[data-file-block]')
+    .getByRole('button', { name: `View ${NAME}` });
+  if (by === 'mouse') await name.click();
+  else {
+    await name.focus();
+    await page.keyboard.press('Enter');
+  }
+  const viewer = page.getByTestId('file-viewer');
+  await expect(viewer).toHaveAttribute('data-status', 'shown');
+  await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 1');
+  const held = await viewer.evaluate((element) => element.outerHTML);
+  await page.getByTestId('file-viewer-close').click();
+  await expect(viewer).toHaveCount(0);
+  await expect(name).toBeFocused();
+  page.off('response', onResponse);
+  return [held, ...(await Promise.all(sent))];
+}
+
+test('a PDF put into a page is a file block that others, a copy and the public link download and view', async ({
   page,
   browser,
   baseURL,
@@ -93,6 +135,8 @@ test('a PDF put into a page is a file block that others, a copy and the public l
     await api.get('/api/v1/users/me/workspaces'),
   );
   const ws = home?.id ?? '';
+  // Whom the viewer must never name to the public link's reader.
+  const people = [((await (await api.get('/api/v1/users/me')).json()) as Schemas['User']).id];
   const wiki = await answered<Schemas['Container']>(
     await api.post(`/api/v1/w/${ws}/wikis`, { data: { title: 'Committee', type: 'P' } }),
   );
@@ -108,6 +152,7 @@ test('a PDF put into a page is a file block that others, a copy and the public l
       await api.get(`/api/v1/w/${ws}/users`, { params: { search: who.username } }),
     );
     const userId = found.find((user) => user.username === who.username)?.id ?? '';
+    people.push(userId);
     await answered(
       await api.post(`/api/v1/w/${ws}/containers/${wiki.id}/members`, {
         data: { userId, schemeViewer: true, schemeCommenter: editor, schemeEditor: editor },
@@ -144,7 +189,7 @@ test('a PDF put into a page is a file block that others, a copy and the public l
   const [fileId] = fileBlocksIn(await stored(minutes.id));
   const block = page.getByTestId('page-body').locator('[data-file-block]');
   await expect(block).toHaveAttribute('data-state', 'shown');
-  await expect(block).toHaveAttribute('aria-label', `File: ${NAME}, ${PDF.length} B`);
+  await expect(block).toHaveAttribute('aria-label', `File: ${NAME}, ${humanFileSize(PDF.length)}`);
   expect(await download(page)).toEqual([NAME, PDF]);
   // Followed by the browser itself (a press with a modifier), it is an attachment never sniffed.
   const href = (await block.getByRole('link').getAttribute('href')) ?? '';
@@ -184,16 +229,18 @@ test('a PDF put into a page is a file block that others, a copy and the public l
     fileId ?? '',
   );
   expect(await download(other)).toEqual([NAME, PDF]);
-  // Reached by the keyboard: selected with an arrow from the line above it, saved with Enter.
+  // Reached by the keyboard: selected with an arrow from the line above it, viewed with Enter.
   await other.getByTestId('page-body').getByText('Agenda and minutes:').click();
   await other.keyboard.press('End');
   await other.keyboard.press('ArrowDown');
-  await expect(other.locator('[data-file-block].ProseMirror-selectednode')).toHaveCount(1);
-  const [byKey] = await Promise.all([
-    other.waitForEvent('download'),
-    other.keyboard.press('Enter'),
-  ]);
-  expect(await bytesOf(byKey)).toEqual(PDF);
+  const selected = other.locator('[data-file-block].ProseMirror-selectednode');
+  await expect(selected).toHaveCount(1);
+  await other.keyboard.press('Enter');
+  await expect(other.getByTestId('file-viewer')).toHaveAttribute('data-status', 'shown');
+  await other.keyboard.press('Escape');
+  await expect(other.getByTestId('file-viewer')).toHaveCount(0);
+  // Back in the editor, still selected and still there.
+  await expect(selected).toHaveCount(1);
   await other.context().close();
 
   // Somebody who may only look sees the body only shown, and downloads the same bytes.
@@ -202,6 +249,7 @@ test('a PDF put into a page is a file block that others, a copy and the public l
   await openPage(look, at, onlooker);
   await expect(look.getByTestId('page-body').locator('[contenteditable="true"]')).toHaveCount(0);
   expect(await download(look)).toEqual([NAME, PDF]);
+  await view(look, 'keyboard');
   await look.context().close();
 
   // A copy of the wiki has a file of its own, with the same bytes, that its block downloads.
@@ -231,6 +279,12 @@ test('a PDF put into a page is a file block that others, a copy and the public l
   await reader.goto(`/shared/${wiki.id}/${minutes.id}?r=${encodeURIComponent(token)}`);
   await expect(reader.getByTestId('page-body').locator('[data-file-block]')).toBeVisible();
   expect(await download(reader)).toEqual([NAME, PDF]);
+  // Nobody is named to the reader: not in the viewer, nor in anything sent to show it.
+  const seen = await view(reader);
+  expect(seen.length).toBeGreaterThan(1);
+  for (const id of people) {
+    for (const text of seen) expect(text).not.toContain(id);
+  }
   const elsewhere = await anonymous.request.get(
     `/api/v1/shared/${wiki.id}/files/${copied ?? ''}?readToken=${encodeURIComponent(token)}`,
   );

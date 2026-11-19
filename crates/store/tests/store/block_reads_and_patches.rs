@@ -76,12 +76,11 @@ async fn two_patches_of_a_block_at_once_both_take_effect() {
     test.teardown().await;
 }
 
-/// Asked for the blocks whose parent is the board itself, the store answers with the
-/// blocks directly on the board: the ones it stores without a parent. Not the blocks
-/// below those, not the blocks of another board, and nothing if the board named as
-/// parent is not the board that is asked about.
+/// The parent of a list is a block: the board named as the parent is no block, and
+/// finds nothing, of its own blocks or another board's. A block as parent finds the
+/// blocks directly below it.
 #[tokio::test]
-async fn get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_board() {
+async fn get_blocks_with_the_board_as_parent_finds_nothing() {
     let test = common::setup().await;
     let store = &test.store;
     let Fixture {
@@ -91,8 +90,6 @@ async fn get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_
     } = fixture(store).await;
     let other_board_id = another_board(store, &workspace_id, &user_id).await;
 
-    // Two cards and a view at the top, one of the cards written with the board as its
-    // parent; a text on a card and a checkbox on the text.
     let mut tree = named_blocks(
         &board_id,
         &[
@@ -103,46 +100,21 @@ async fn get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_
         ],
     );
     common::insert_blocks(store, &mut tree, &user_id).await;
-    let mut named_the_board = Block {
-        parent_id: board_id.clone(),
-        block_type: BlockType::Card,
-        title: "second card".to_owned(),
-        ..block(&new_id(), &board_id)
-    };
-    store
-        .insert_block(&mut named_the_board, &user_id)
-        .await
-        .expect("a card that names its board as parent is stored");
     let mut elsewhere = named_blocks(&other_board_id, &[("other card", "", "card")]);
     common::insert_blocks(store, &mut elsewhere, &user_id).await;
 
-    let on_the_board = BlockFilter::container(&board_id).with_parent(&board_id);
-    let blocks = store
-        .get_blocks(&on_the_board)
-        .await
-        .expect("the query runs");
-    assert_eq!(
-        sorted_names(&blocks),
-        ["card", "second card", "view"],
-        "exactly the blocks directly on the board"
-    );
-    assert!(
-        blocks.iter().all(|block| block.parent_id.is_empty()),
-        "none of them has a parent: {blocks:?}"
-    );
+    for (container, parent) in [
+        (&board_id, &board_id),
+        (&other_board_id, &other_board_id),
+        (&board_id, &other_board_id),
+    ] {
+        let found = store
+            .get_blocks(&BlockFilter::container(container).with_parent(parent))
+            .await
+            .expect("the query runs");
+        assert!(found.is_empty(), "a board is no parent: {found:?}");
+    }
 
-    // The other filters narrow it as they narrow any list.
-    let cards = store
-        .get_blocks(&on_the_board.clone().with_type(BlockType::Card))
-        .await
-        .expect("the query runs");
-    assert_eq!(
-        sorted_names(&cards),
-        ["card", "second card"],
-        "of them, the cards"
-    );
-
-    // A block as parent still means that block.
     let on_the_card = store
         .get_blocks(&BlockFilter::container(&board_id).with_parent(id_of(&tree, "card")))
         .await
@@ -151,25 +123,6 @@ async fn get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_
         sorted_names(&on_the_card),
         ["text"],
         "the block on the card"
-    );
-
-    // Each board has its own, and one board is not the parent of another's blocks.
-    let on_the_other = store
-        .get_blocks(&BlockFilter::container(&other_board_id).with_parent(&other_board_id))
-        .await
-        .expect("the query runs");
-    assert_eq!(
-        sorted_names(&on_the_other),
-        ["other card"],
-        "the other board's"
-    );
-    let mixed = store
-        .get_blocks(&BlockFilter::container(&board_id).with_parent(&other_board_id))
-        .await
-        .expect("the query runs");
-    assert!(
-        mixed.is_empty(),
-        "no block of the board is on another board: {mixed:?}"
     );
 
     test.teardown().await;

@@ -4,7 +4,9 @@
 # root; what it may read is in Dockerfile.dockerignore.
 #
 #   docker build -f docker/fvoci/Dockerfile -t fvoci-server \
-#       --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD) .
+#       --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD) \
+#       --build-arg FVOCI_BUILD_DATE=$(git log -1 --format=%cI) .
+#   (without the two, ping's commit and build_date are empty)
 #   docker run --init -p 127.0.0.1:8080:8000 -e FVOCI_SERVER_URL=http://localhost:8080 \
 #       -v fvoci-data:/data fvoci-server
 #
@@ -24,9 +26,9 @@
 # Secrets are never build arguments or layers. At run time docker/fvoci/entrypoint.sh
 # reads the files of Docker secrets into the variables the server reads.
 #
-# Metrics are off. To serve them, set FVOCI_METRICS_ADDRESS=:9092, publish that port to
-# the monitoring network only, and give FVOCI_METRICS_TOKEN_FILE (a file of at least
-# 32 characters, such as `openssl rand -hex 32`): the listener is plain HTTP.
+# Metrics are off. To serve them, set FVOCI_METRICS_ADDRESS=0.0.0.0:9092, publish that
+# port to the monitoring network only, and give FVOCI_METRICS_TOKEN_FILE (a file of at
+# least 32 characters, such as `openssl rand -hex 32`): the listener is plain HTTP.
 
 ARG RUST_VERSION=1
 ARG NODE_VERSION=24
@@ -55,18 +57,32 @@ RUN --mount=type=cache,id=fvoci-web-fonts,target=/src/target/web-fonts \
 FROM rust:${RUST_VERSION}-trixie AS build
 # The processor the image is built for, which keeps apart the caches of the builds.
 ARG TARGETARCH
-# The commit the server is built from, for ping and the metrics' fvoci_build_info:
-#   --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD)
+# The commit the server is built from and its time, for ping (`commit`, `build_date`)
+# and the metrics' fvoci_build_info; empty when not given.
 ARG FVOCI_BUILD_HASH=
-ENV FVOCI_BUILD_HASH=${FVOCI_BUILD_HASH}
+ARG FVOCI_BUILD_DATE=
+ENV FVOCI_BUILD_HASH=${FVOCI_BUILD_HASH} FVOCI_BUILD_DATE=${FVOCI_BUILD_DATE}
+# The cache of cargo's target directory, shared by every build of the machine; the
+# probe of `cargo xtask docker` builds with one of its own.
+ARG FVOCI_CARGO_TARGET_CACHE=fvoci-cargo-target
 WORKDIR /src
 COPY Cargo.toml Cargo.lock clippy.toml ./
 COPY crates ./crates
 # A member of the workspace; cargo needs its manifest even though it is not built here.
 COPY xtask ./xtask
+# cargo takes a source for unchanged when it is older than what the cache built from it,
+# and a copied file keeps the time it had in the context: a checkout or an archive older
+# than the cache's last build (another commit's, another worktree's) would get that
+# build's executable. Every source is dated in 2100 first, later than anything cargo
+# can have written whatever the builder's clock says, so the workspace's crates are
+# always compiled from what was copied; the dependencies stay cached. Docker's cache of
+# this step goes by the contents it was sent, but it sends a file again only when its
+# time or size changed since the same context directory was last sent: do not rewrite a
+# context in place keeping its files' times.
 RUN --mount=type=cache,id=fvoci-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=fvoci-cargo-target-${TARGETARCH},target=/src/target,sharing=locked \
-    cargo build --release --locked -p fvoci-server \
+    --mount=type=cache,id=${FVOCI_CARGO_TARGET_CACHE}-${TARGETARCH},target=/src/target,sharing=locked \
+    find Cargo.toml Cargo.lock clippy.toml crates xtask -exec touch -c -d @4102444800 {} + \
+    && cargo build --release --locked -p fvoci-server \
     && cp target/release/fvoci-server /fvoci-server
 
 FROM debian:trixie-slim

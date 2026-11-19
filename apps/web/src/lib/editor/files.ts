@@ -34,6 +34,22 @@ export interface FileDetails {
 
 export type FileUrlResolver = (fileId: string) => string | undefined;
 
+/**
+ * How a file block opens its file in the viewer, where the app has one: the
+ * editor names no viewer, and the app hands it this through the source.
+ */
+export interface FileViewerLink {
+  /** Whether the viewer is likely to show the file, by its name and size. */
+  opens(details: FileDetails): boolean;
+  /**
+   * Opens the viewer on the file; says whether the viewer came (it may not,
+   * with the connection gone). `back` finds where the focus goes back to when
+   * it closes: the name pressed (or the one drawn in its place meanwhile), or
+   * the editor whose selection the block is.
+   */
+  open(fileId: string, details: FileDetails, back: () => HTMLElement | null): Promise<boolean>;
+}
+
 /** Where the files of the body shown come from. */
 export interface FileSource {
   /** The address of a file, or undefined when it cannot be shown. */
@@ -43,8 +59,13 @@ export interface FileSource {
    * board or wiki shown). Rejects when it cannot be asked now.
    */
   details?: (fileId: string) => Promise<FileDetails | null>;
-  /** The bytes of a file, to save it under its own name. Rejects when they cannot be read. */
-  bytes?: (fileId: string) => Promise<Blob>;
+  /**
+   * The bytes of a file, to save it under its own name or to view it.
+   * Rejects when they cannot be read, or are no longer wanted (`signal`).
+   */
+  bytes?: (fileId: string, signal?: AbortSignal) => Promise<Blob>;
+  /** How a file block opens its file in the viewer; without it, a file is only downloaded. */
+  view?: FileViewerLink;
   /**
    * Whose files the identifiers name now (the board or wiki shown), which
    * what is known of a file is kept under; `undefined` while none is, when
@@ -108,4 +129,9 @@ export function forgetFile(fileId: string): void {
 /** The bytes of a file, or undefined when the source cannot give them. */
 export function fileBytes(fileId: string): Promise<Blob> | undefined {
   return source.bytes?.(fileId);
+}
+
+/** How file blocks open the viewer, or undefined when the source names none. */
+export function fileViewer(): FileViewerLink | undefined {
+  return source.view;
 }

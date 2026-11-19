@@ -6,7 +6,6 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::refusal::{RefusalReason, Refusals};
-use crate::serde_util::null_as_default;
 
 /// How long an account waits between the asking and the erasing, in days: until then
 /// its person may take the asking back.
@@ -17,10 +16,9 @@ pub const ACCOUNT_DELETION_GRACE_DAYS: i64 = 30;
 #[serde(default, rename_all = "camelCase")]
 pub struct DeleteAccountRequest {
     /// The account's login name, typed out: that the person means this account.
-    #[serde(deserialize_with = "null_as_default")]
     pub username: String,
-    /// The account's password; left out, or empty, by an account that has none.
-    #[serde(deserialize_with = "null_as_default")]
+    /// The account's password; left out, or empty, by an account that has none. Not
+    /// `null`, as no member that is not optional is.
     pub password: String,
 }
 
@@ -155,4 +153,26 @@ pub struct AccountDeletionAsked {
     /// When the account is erased at the earliest, in milliseconds since the Unix
     /// epoch.
     pub delete_after: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_member_left_out_is_empty_and_null_is_refused() {
+        let request: DeleteAccountRequest =
+            serde_json::from_value(json!({"username": "kim"})).expect("the password left out");
+        assert_eq!(request.password, "", "no password");
+        for member in ["username", "password"] {
+            let mut body = json!({"username": "kim", "password": "secret"});
+            body[member] = serde_json::Value::Null;
+            assert!(
+                serde_json::from_value::<DeleteAccountRequest>(body).is_err(),
+                "{member}: null is no string"
+            );
+        }
+    }
 }
