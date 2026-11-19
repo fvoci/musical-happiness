@@ -10,7 +10,7 @@ use std::time::Duration;
 use fvoci_model::Container;
 use fvoci_server::config::Configuration;
 
-use crate::common::{ROOT_WS, Setup, TestServer};
+use crate::common::{PASSWORD, ROOT_WS, Setup, TestServer, USER1_USERNAME};
 
 /// How many built-in templates a reader is listed: each once, in one language.
 const TEMPLATES: usize = 7;
@@ -21,12 +21,15 @@ fn dead_storage(name: &str) -> PathBuf {
         .join("api-tests")
         .join(format!("dead-storage-{name}-{}", std::process::id()));
     std::fs::create_dir_all(&directory).expect("the directory is made");
-    allow_writes(&directory, false);
+    set_mode(&directory, READ_ONLY);
     directory
 }
 
-fn allow_writes(directory: &Path, allowed: bool) {
-    let mode = if allowed { 0o755 } else { 0o555 };
+/// The directory's mode when it takes files, and when it takes none.
+const WRITABLE: u32 = 0o755;
+const READ_ONLY: u32 = 0o555;
+
+fn set_mode(directory: &Path, mode: u32) {
     std::fs::set_permissions(directory, std::fs::Permissions::from_mode(mode))
         .expect("the permissions of the test's directory are set");
 }
@@ -45,13 +48,16 @@ async fn listed(ts: &TestServer) -> usize {
 /// Starts a server that stores the templates as it starts, on the file storage
 /// `configure` names, which takes no file.
 async fn started_on_dead_storage(configure: fn(&mut Configuration)) -> TestServer {
-    let ts = Setup::native()
+    let mut ts = Setup::native()
         .with_templates()
         .configure(configure)
         .try_start()
         .await
-        .expect("run as an unprivileged user: the server starts though the write fails")
-        .init_basic()
+        .expect("run as an unprivileged user: the server starts though the write fails");
+    // The first user only: whoever a link lets in asks for the owed templates too, as
+    // their welcome board is looked for, and these tests say when they are asked for.
+    ts.client = ts
+        .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD)
         .await;
     assert!(ts.app.owes_templates(), "the templates are owed");
     ts
@@ -80,7 +86,7 @@ async fn a_server_starts_without_its_file_storage_and_stores_the_templates_when_
     assert!(ts.app.owes_templates(), "still owed");
     assert_eq!(listed(&ts).await, 0);
 
-    allow_writes(&storage, true);
+    set_mode(&storage, WRITABLE);
     ts.anonymous().get("/ready").await.check_ok();
     assert!(
         ts.app.owes_templates(),
@@ -108,7 +114,7 @@ async fn a_list_of_templates_that_are_owed_has_them_stored_in_the_background() {
         config.file_storage_path = dead_storage("listed").display().to_string();
     }
     let ts = started_on_dead_storage(configure).await;
-    allow_writes(Path::new(&ts.app.config().file_storage_path), true);
+    set_mode(Path::new(&ts.app.config().file_storage_path), WRITABLE);
 
     let mut templates = listed(&ts).await;
     for _ in 0..100 {
@@ -141,7 +147,7 @@ async fn a_first_board_asked_for_while_the_templates_are_owed_stores_them() {
         .check_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
     assert!(ts.app.owes_templates(), "still owed");
 
-    allow_writes(Path::new(&ts.app.config().file_storage_path), true);
+    set_mode(Path::new(&ts.app.config().file_storage_path), WRITABLE);
     ts.client
         .post_empty(&format!("{ROOT_WS}/onboard"))
         .await

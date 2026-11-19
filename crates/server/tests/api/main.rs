@@ -74,6 +74,7 @@ mod mail_reset_review;
 mod mail_ses;
 mod mail_shutdown;
 mod mail_smoke;
+mod member_welcome;
 mod metrics;
 mod metrics_accounts;
 mod metrics_listener;

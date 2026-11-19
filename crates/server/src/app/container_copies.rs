@@ -25,12 +25,12 @@ impl App {
     ///
     /// The titles the copy is given (the original's with `copy` after it, `New board
     /// template`) are in the language the server writes in for the user
-    /// ([`App::language_for`], by `accept_language`, the request's `Accept-Language`).
+    /// (`App::language_for`, by `accept_language`, the request's `Accept-Language`).
     ///
     /// A copy of a built-in template is the user's own board or template: it is made
     /// without the template's marks, and its days are moved by as many days as the day
     /// it is for the user is after the day the template was written for
-    /// ([`super::templates::changes_of_copy`]).
+    /// (`templates::changes_of_copy`).
     ///
     /// # Errors
     ///

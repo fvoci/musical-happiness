@@ -214,6 +214,27 @@ impl App {
         Ok(within.kind_of_admitted(container_id).await)
     }
 
+    /// [`App::welcome_member`] behind the wall of `org_id`, the organization the store
+    /// said an account just confirmed came into as a member.
+    pub(super) async fn welcome_member_in(
+        &self,
+        org_id: &str,
+        user_id: &str,
+        workspace_id: &str,
+        accept_language: Option<&str>,
+    ) {
+        match self.in_organization(org_id) {
+            Ok(within) => {
+                within
+                    .welcome_member(user_id, workspace_id, accept_language)
+                    .await;
+            }
+            Err(error) => {
+                tracing::warn!(user_id, %error, "a new member was not given their welcome board");
+            }
+        }
+    }
+
     /// Whether the user works in the workspace: a member of the workspace who is no guest.
     /// This is what the routes that name a workspace in their body or query, and not under
     /// `/w/{workspaceId}`, ask before anything else; for anybody else the workspace is not

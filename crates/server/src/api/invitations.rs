@@ -24,7 +24,9 @@ use super::contract::tag;
 use super::session::optional_session_of;
 use super::signup_cookie::{marker_of, with_marker};
 use super::workspace::{InContainer, InWorkspace};
-use super::{ApiResult, OptionalSession, created, decode_object, json_response, no_content};
+use super::{
+    ApiResult, OptionalSession, accept_language, created, decode_object, json_response, no_content,
+};
 use crate::app::{Accepting, Admission, App, Inviting};
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
@@ -421,7 +423,12 @@ async fn handle_accept_invitation(
     };
     // What is refused of the body is of the account: a name or an address that is taken.
     let admission = app
-        .accept_invitation(&request.token, accepting, address_of(client))
+        .accept_invitation(
+            &request.token,
+            accepting,
+            address_of(client),
+            accept_language(&headers),
+        )
         .await
         .map_err(|error| error.under(ACCOUNT))?;
     Ok(match admission {

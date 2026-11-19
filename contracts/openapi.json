@@ -11896,7 +11896,7 @@
     },
     "/api/v1/w/{workspaceId}/onboard": {
       "post": {
-        "description": "Copies the built-in welcome board for the user, as a private board of their own in\nthe workspace: what a new account starts on. It is written in the language of the\nuser's settings; where that is left to the device, or is one the board is not\nwritten in, in the one `Accept-Language` prefers; failing both, in English. Every\nrequest makes another copy.",
+        "description": "Copies the built-in welcome board for the user, as a private board of their own in\nthe workspace: what a new account starts on. It is written in the language of the\nuser's settings; where that is left to the device, or is one the board is not\nwritten in, in the one `Accept-Language` prefers; failing both, in English. Every\nrequest makes another copy.\n\nWhoever starts an organization asks for it. An account that comes into an\norganization as a member (by a link, by a registration made by a link, or by\nsigning in through the organization's provider) is given one without asking, in\nthe workspace it comes into, unless it has one: an account is given one once,\nwhatever it comes into after, and a guest none.",
         "operationId": "onboard",
         "parameters": [
           {

@@ -32,6 +32,12 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// user's settings; where that is left to the device, or is one the board is not
 /// written in, in the one `Accept-Language` prefers; failing both, in English. Every
 /// request makes another copy.
+///
+/// Whoever starts an organization asks for it. An account that comes into an
+/// organization as a member (by a link, by a registration made by a link, or by
+/// signing in through the organization's provider) is given one without asking, in
+/// the workspace it comes into, unless it has one: an account is given one once,
+/// whatever it comes into after, and a guest none.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/onboard",

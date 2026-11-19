@@ -25,7 +25,7 @@ use super::contract::params::{
     CallbackOrg, LoginOrg, OidcCode, OidcError, OidcIssuer, OidcState, StartOrg,
 };
 use super::contract::tag;
-use super::{ApiResult, decode_json, json_object, json_response, query_param};
+use super::{ApiResult, accept_language, decode_json, json_object, json_response, query_param};
 use crate::app::{
     App, BackTo, Callback, FinishedLogin, HELD_SIGN_IN_LIFETIME_MILLIS, LOGIN_FLOW_LIFETIME_MILLIS,
     LoginFailure, StartedLogin,
@@ -279,6 +279,7 @@ async fn handle_callback(
             Some(Credential::Bearer(_)) | None => None,
         },
         held_secret: cookie_value(&headers, held_cookie_name(&app)),
+        accept_language: accept_language(&headers).map(str::to_owned),
     };
     let came_with_held = callback.held_secret.is_some();
     let returned = app

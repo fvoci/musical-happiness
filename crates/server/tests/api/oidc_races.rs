@@ -98,6 +98,7 @@ async fn callback_for(ts: &TestServer, fake: &FakeProvider, org_id: &str) -> Cal
         issuer: None,
         session_token: None,
         held_secret: None,
+        accept_language: None,
     }
 }
 

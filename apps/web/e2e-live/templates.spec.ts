@@ -146,6 +146,21 @@ async function welcomeBoard(
   return { workspaceId, boardId };
 }
 
+/** The welcome board whoever `api` is signed in as was given as they came into the workspace: one, of that title. */
+async function givenWelcomeBoard(
+  api: APIRequestContext,
+  workspaceId: string,
+  title: string,
+): Promise<{ workspaceId: string; boardId: string }> {
+  const answer = await api.get(`/api/v1/w/${workspaceId}/boards`);
+  expect(answer.ok()).toBe(true);
+  const given = ((await answer.json()) as Schemas['Container'][]).filter(
+    (board) => board.title === title,
+  );
+  expect(given).toHaveLength(1);
+  return { workspaceId, boardId: given[0]?.id ?? '' };
+}
+
 test('the welcome board shows its five views, its pictures and its document, in English and in Korean', async ({
   page,
   browser,
@@ -156,7 +171,8 @@ test('the welcome board shows its five views, its pictures and its document, in 
   await register(base, owner);
   const api = await signedIn(base, owner);
   const { workspaceId } = await makeBoard(api, { title: 'Before the welcome' });
-  const english = await welcomeBoard(api, workspaceId, 'en');
+  // A member has the board from the moment a link let them in; nothing asks for it.
+  const english = await givenWelcomeBoard(api, workspaceId, 'Getting started with fvoci');
 
   const errors = watchErrors(page);
   await page.goto(boardPath(english));
@@ -215,7 +231,7 @@ test('the welcome board shows its five views, its pictures and its document, in 
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   expect(errors).toEqual([]);
 
-  // The same account on a Korean screen: the board is written in Korean.
+  // The same account asks for one on a Korean screen: the board is written in Korean.
   const korean = await welcomeBoard(api, workspaceId, 'ko');
   const context = await browser.newContext({
     locale: 'ko-KR',

@@ -18,7 +18,7 @@ use super::auth::{address_of, user_agent};
 use super::contract::params::StartOrg;
 use super::contract::tag;
 use super::oidc::{browser_cookie, held_cookie_name, started_response};
-use super::{ApiResult, no_content, query_param};
+use super::{ApiResult, accept_language, no_content, query_param};
 use crate::app::App;
 use crate::auth::token::cookie_value;
 use crate::client_address::ClientAddress;
@@ -176,7 +176,13 @@ async fn handle_finish_held(
 ) -> ApiResult {
     let (org_id, secret) = held_of(&headers, &app, query.as_deref())?;
     let ended = app
-        .finish_held_oidc_login(&org_id, &secret, address_of(client), &user_agent(&headers))
+        .finish_held_oidc_login(
+            &org_id,
+            &secret,
+            address_of(client),
+            &user_agent(&headers),
+            accept_language(&headers),
+        )
         .await;
     let mut response = match ended {
         Ok(token) => {

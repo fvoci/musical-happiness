@@ -249,17 +249,21 @@
         "collapsed": false,
         "containerMetadata": [
           {
+            "containerId": "<id:18>",
+            "hidden": false
+          },
+          {
             "containerId": "<id:4>",
             "hidden": false
           },
           {
-            "containerId": "<id:18>",
+            "containerId": "<id:19>",
             "hidden": false
           }
         ],
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:19>",
+        "id": "<id:20>",
         "name": "Boards",
         "sortOrder": 10,
         "type": "system",

@@ -429,6 +429,11 @@ impl App {
     /// `address` is where the request comes from: acceptances are counted against it
     /// as registrations are, and one of an address is under way at a time.
     ///
+    /// An account that comes into the workspace as a member by it is given its welcome
+    /// board there, if it was given none before (`App::welcome_member`, in the
+    /// language `accept_language`, the request's `Accept-Language`, prefers where the
+    /// account's settings name none).
+    ///
     /// # Errors
     ///
     /// Returns one and the same 404 (reason `invitation_unavailable`) for a token that
@@ -440,6 +445,7 @@ impl App {
         token: &str,
         accepting: Accepting<'_>,
         address: Option<IpAddr>,
+        accept_language: Option<&str>,
     ) -> Result<Admission, AppError> {
         let _attempt = self.admit_registration(address)?;
         let mut new_user = None;
@@ -477,6 +483,11 @@ impl App {
             self.metrics().registered();
         }
         app.announce_admission(&accepted).await;
+        // A guest's link names a board; a link for members names none.
+        if accepted.used && accepted.container_id.is_none() {
+            app.welcome_member(&accepted.user_id, &accepted.workspace_id, accept_language)
+                .await;
+        }
         tracing::info!(
             user_id = %accepted.user_id,
             workspace_id = %accepted.workspace_id,

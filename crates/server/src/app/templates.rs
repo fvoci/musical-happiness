@@ -542,7 +542,7 @@ impl App {
     /// administrator of the workspace (`role`) every one of it, for anybody else those
     /// that are open or that the user is a member of; and the built-in ones that are
     /// written in the language the server writes in for the user
-    /// ([`App::language_for`], by `accept_language`, the request's `Accept-Language`).
+    /// (`App::language_for`, by `accept_language`, the request's `Accept-Language`).
     ///
     /// # Errors
     ///

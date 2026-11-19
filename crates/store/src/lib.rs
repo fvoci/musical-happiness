@@ -76,6 +76,7 @@ mod uploads;
 mod users;
 mod users_by_id;
 mod visibility;
+mod welcome;
 mod workspace_membership;
 mod workspaces;
 

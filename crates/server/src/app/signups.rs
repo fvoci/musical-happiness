@@ -379,6 +379,18 @@ impl App {
                 first = confirmed.user.is_admin,
                 "a registration was confirmed"
             );
+            // Whoever starts an organization asks for their welcome board (`onboard`);
+            // whoever comes into one as a member is given it here, in the language of
+            // the screen the registration was made from. A guest's link names a board.
+            if !confirmed.started_organization && confirmed.container_id.is_none() {
+                self.welcome_member_in(
+                    &confirmed.org_id,
+                    &confirmed.user.id,
+                    &confirmed.workspace_id,
+                    Some(&signup.language),
+                )
+                .await;
+            }
         }
         Ok(confirmed)
     }
