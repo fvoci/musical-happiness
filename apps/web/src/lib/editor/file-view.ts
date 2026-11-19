@@ -28,6 +28,7 @@ import {
   forgetFile,
   type FileDetails,
 } from './files.ts';
+import { keepTouchFromText } from './touch-press.ts';
 
 /** The places of file blocks, in the editor and in a body that is shown. */
 export const FILE_BLOCK_SELECTOR = `div[${FILE_BLOCK_ATTRIBUTE}]`;
@@ -233,15 +234,20 @@ function nameOf(
     return again?.querySelector<HTMLElement>('button.doc-file-open') ?? null;
   };
   holdTyping(page, button);
+  // A finger's press in a body not being written opens the file and leaves the body unfocused.
+  keepTouchFromText(button);
   button.addEventListener('click', (event) => {
     const block = button.closest<HTMLElement>(FILE_BLOCK_SELECTOR);
     // Pressed by a pointer that left the focus in the editor (a click, after which the editor has
     // selected the block and taken the focus), or by Enter on the selected block, the editor has
     // the focus back when the viewer closes, whose selection the block still is (Delete deletes
     // it, the arrows move on from it). Pressed from the keyboard on the name, by an assistive
-    // technology, or by a pointer that left the focus on the name (a double or a Shift click),
-    // the name has it back; where a body is only shown, too.
-    const toEditor = pressedFromBlock || (event.detail > 0 && page.activeElement !== button);
+    // technology, or by a pointer that left the focus elsewhere (on the name after a double or a
+    // Shift click, or where it was after a finger's press, see touch-press.ts), the name
+    // has it back; where a body is only shown, too.
+    const text = button.closest('[contenteditable="true"]');
+    const toEditor =
+      pressedFromBlock || (event.detail > 0 && text !== null && page.activeElement === text);
     const back = (): HTMLElement | null => {
       const now = drawn();
       if (!toEditor || !now) return now;

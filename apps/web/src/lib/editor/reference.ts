@@ -22,6 +22,7 @@ import { REFERENCE_CLASS, REFERENCE_ID_ATTRIBUTE } from './drawing.ts';
 import type { SuggestionEntry, SuggestionRenderer } from './extensions.ts';
 import { drawReference, openClickedReference, type ReferenceDrawing } from './reference-chip.ts';
 import { isBlockId } from './schema.ts';
+import { keepTouchFromText } from './touch-press.ts';
 
 export interface ReferenceOptions {
   /** What the references are drawn from, as it is now (reference-chip.ts). */
@@ -121,6 +122,8 @@ export const Reference = Node.create<ReferenceOptions>({
       dom.addEventListener('click', (event) => {
         openClickedReference(event, this.options.drawing());
       });
+      // A finger opens what it names without the body taking the focus (touch-press.ts).
+      keepTouchFromText(dom);
       // No part of it is the document's: what is drawn inside is no change of it.
       return { dom };
     };
