@@ -46,6 +46,8 @@ export type FromPptxWorker =
       characters: string;
       /** The pixels of the pictures each slide shows, by the slide's name: what drawing it holds. */
       pixels: Map<string, number>;
+      /** The slides hidden from a show (`p:sld@show` false), by name. */
+      hidden: string[];
     }
   | { kind: 'failed'; reason: PptxFailure };
 
@@ -113,9 +115,11 @@ export function readFromPptxWorker(data: unknown): FromPptxWorker | undefined {
       : undefined;
   }
   if (message.kind !== 'read' || !isString(message.characters)) return undefined;
+  const { hidden } = message;
+  if (!Array.isArray(hidden) || !hidden.every(isString)) return undefined;
   const parts = readParts(message.parts);
   const pixels = mapOf(message.pixels, isCount);
   return parts && pixels
-    ? { kind: 'read', parts, characters: message.characters, pixels }
+    ? { kind: 'read', parts, characters: message.characters, pixels, hidden }
     : undefined;
 }

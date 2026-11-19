@@ -256,3 +256,40 @@ export function largeXlsx(rows: number, columns: number): Buffer {
     sheets: [{ name: '큰 시트', xml: `${view}<sheetData>${lines.join('')}</sheetData>` }],
   });
 }
+
+/**
+ * Styles for whole rows and columns: 1 a red fill, 2 a blue fill, 3 bold
+ * alone (nothing an empty cell shows), 4 a thin border all round.
+ */
+export const ROW_COLUMN_STYLES =
+  '<fonts count="2"><font><sz val="11"/><name val="맑은 고딕"/></font><font><b/><sz val="11"/><name val="맑은 고딕"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFF0000"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0000FF"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/></border><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/></border></borders><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="0" fontId="0" fillId="2" borderId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="3" borderId="0" applyFill="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyBorder="1"/></cellXfs>';
+
+/** The text in A1 of `rowColumnXlsx`. */
+export const ROW_COLUMN_TITLE = '행과 열의 서식';
+
+/**
+ * A sheet of `ROW_COLUMN_STYLES` whose rows and columns have styles of
+ * their own: column C blue; row 2 red (and B2 written in it, of no style);
+ * row 4 bold alone, over column C; row 6 red without `customFormat`, which
+ * Excel does not take; row 7 red with E7 written empty and of no style; the
+ * merge C9:D10 of no cell written; row 12 bordered.
+ */
+export function rowColumnXlsx(): Buffer {
+  const data = [
+    `<row r="1"><c r="A1" t="inlineStr"><is><t>${esc(ROW_COLUMN_TITLE)}</t></is></c></row>`,
+    '<row r="2" s="1" customFormat="1"><c r="B2"><v>7</v></c></row>',
+    '<row r="4" s="3" customFormat="1"/>',
+    '<row r="6" s="1"/>',
+    '<row r="7" s="1" customFormat="1"><c r="E7"/></row>',
+    '<row r="12" s="4" customFormat="1"/>',
+  ].join('');
+  return workbook({
+    sheets: [
+      {
+        name: '서식',
+        xml: `<cols><col min="3" max="3" width="9" style="2" customWidth="1"/></cols><sheetData>${data}</sheetData><mergeCells count="1"><mergeCell ref="C9:D10"/></mergeCells>`,
+      },
+    ],
+    stylesXml: ROW_COLUMN_STYLES,
+  });
+}

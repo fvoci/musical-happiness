@@ -1,7 +1,7 @@
 /**
  * One worksheet part read into what the frame draws: its cells and their
  * values (a formula's stored value, never calculated), its columns' widths
- * and rows' heights, what is hidden, its frozen panes, its merged cells,
+ * and rows' heights, the styles of whole rows and columns, what is hidden, its frozen panes, its merged cells,
  * whether it shows grid lines, and whether it has drawings (charts,
  * pictures, shapes) that are not drawn.
  *
@@ -75,6 +75,9 @@ class SheetReader {
   readonly cells = new Cells();
   readonly columns: number[] = [];
   readonly rows: number[] = [];
+  /** Row and style of each row with a style of its own: in the order read. */
+  readonly rowStyles: number[] = [];
+  readonly columnStyles: number[] = [];
   readonly merges: number[] = [];
   drawings = false;
   gridLines = true;
@@ -84,6 +87,8 @@ class SheetReader {
   defaultColumnWidth = 0;
   #views = 0;
   #row = -1;
+  /** The row being read has a style of its own. */
+  #rowStyled = false;
   #column = -1;
   #cell: Reading | undefined;
 
@@ -163,11 +168,22 @@ class SheetReader {
     this.#column = -1;
     const height = decimal(attribute(attributes, 'ht'), 0, 409);
     const hidden = flag(attribute(attributes, 'hidden'));
+    // A row's style counts only with `customFormat` (ECMA-376 18.3.1.73).
+    const style = flag(attribute(attributes, 'customFormat'))
+      ? this.#style(attribute(attributes, 's'))
+      : undefined;
+    this.#rowStyled = style !== undefined;
     // A row of the default height is kept as one of no height of its own.
-    if (hidden || (height !== undefined && height !== this.defaultRowHeight)) {
-      this.#context.ceilings.rows.add();
-      this.rows.push(row, height ?? -1, hidden ? 1 : 0);
-    }
+    const sized = hidden || (height !== undefined && height !== this.defaultRowHeight);
+    if (sized || style !== undefined) this.#context.ceilings.rows.add();
+    if (sized) this.rows.push(row, height ?? -1, hidden ? 1 : 0);
+    if (style !== undefined) this.rowStyles.push(row, style);
+  }
+
+  /** A style index as a cell, a row or a column gives it: one of the workbook's, or 0. */
+  #style(given: string | undefined): number {
+    const style = whole(given, 0, 0xffffffff) ?? 0;
+    return style < this.#context.styles ? style : 0;
   }
 
   #openCell(attributes: Attributes): void {
@@ -182,12 +198,11 @@ class SheetReader {
     if (column >= MAX_COLUMNS) throw new Unreadable('a cell past the edge');
     this.#column = column;
     this.#context.ceilings.cells.add();
-    const style = whole(attribute(attributes, 's'), 0, 0xffffffff) ?? 0;
     this.#cell = {
       row,
       column,
       type: attribute(attributes, 't') ?? 'n',
-      style: style < this.#context.styles ? style : 0,
+      style: this.#style(attribute(attributes, 's')),
       value: '',
       inValue: false,
     };
@@ -198,12 +213,15 @@ class SheetReader {
     const add = (kind: number, value: number): void => {
       this.cells.add(cell.row, cell.column, kind, cell.style, value);
     };
+    // A cell written without a value stays when it has a style, or when its row or a column
+    // has one: its own (0 when it names none) is the one it shows, not theirs.
+    const kept = cell.style !== 0 || this.#rowStyled || this.columnStyles.length > 0;
     const value = cell.value;
     switch (cell.type) {
       case 's': {
         const index = whole(value, 0, shared - 1);
         if (index !== undefined) add(STRING, index);
-        else if (cell.style !== 0) add(BLANK, 0);
+        else if (kept) add(BLANK, 0);
         return;
       }
       case 'inlineStr':
@@ -227,7 +245,7 @@ class SheetReader {
       default: {
         const number = value.trim() === '' ? Number.NaN : Number(value);
         if (Number.isFinite(number)) add(NUMBER, number);
-        else if (cell.style !== 0) add(BLANK, 0);
+        else if (kept) add(BLANK, 0);
       }
     }
   }
@@ -241,6 +259,8 @@ class SheetReader {
     const hidden = flag(attribute(attributes, 'hidden'));
     const pixels = width === undefined ? -1 : columnPixels(width, this.#context.digitWidth);
     this.columns.push(first - 1, last - 1, pixels, hidden ? 1 : 0);
+    const style = attribute(attributes, 'style');
+    if (style !== undefined) this.columnStyles.push(first - 1, last - 1, this.#style(style));
   }
 
   #merge(reference: string): void {
@@ -273,6 +293,13 @@ class SheetReader {
   }
 }
 
+/** Pairs of row and style in order of rows, the last of a row kept (a row written twice). */
+function byRow(pairs: readonly number[]): Uint32Array {
+  const last = new Map<number, number>();
+  for (let at = 0; at + 1 < pairs.length; at += 2) last.set(pairs[at] ?? 0, pairs[at + 1] ?? 0);
+  return Uint32Array.from([...last].sort(([a], [b]) => a - b).flat());
+}
+
 /** Reads a worksheet's part. */
 export function readSheet(name: string, text: string, context: SheetContext): Sheet {
   const reader = new SheetReader(context);
@@ -297,6 +324,8 @@ export function readSheet(name: string, text: string, context: SheetContext): Sh
     defaultColumnWidth: reader.defaultColumnWidth,
     columns: Float64Array.from(reader.columns),
     rows: Float64Array.from(reader.rows),
+    rowStyles: byRow(reader.rowStyles),
+    columnStyles: Uint32Array.from(reader.columnStyles),
     ...reader.cells.done(),
     merges: Uint32Array.from(reader.merges),
   };
@@ -314,6 +343,8 @@ export function drawingSheet(name: string, digitWidth: number): Sheet {
     defaultColumnWidth: Math.ceil((8 * digitWidth + 5) / 8) * 8,
     columns: new Float64Array(),
     rows: new Float64Array(),
+    rowStyles: new Uint32Array(),
+    columnStyles: new Uint32Array(),
     cellRows: new Uint32Array(),
     cellColumns: new Uint16Array(),
     kinds: new Uint8Array(),

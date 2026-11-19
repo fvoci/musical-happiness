@@ -13,6 +13,7 @@
  * out somewhere past some millions of pixels, WebKit before the others.
  */
 import { Axis } from './xlsx-axis.ts';
+import { BlankStyles } from './xlsx-blank.ts';
 import { PX_PER_POINT, type Looks } from './xlsx-look.ts';
 import { CELL_BUDGET, Pane, type Window } from './xlsx-pane.ts';
 import { MAX_COLUMNS, MAX_ROWS, type Sheet } from './xlsx-protocol.ts';
@@ -40,6 +41,8 @@ export function extent(sheet: Sheet): [number, number] {
     columns = Math.max(columns, sheet.merges[at + 3] ?? 0);
   }
   for (let at = 0; at + 2 < sheet.rows.length; at += 3) rows = Math.max(rows, sheet.rows[at] ?? 0);
+  // A styled row is in use, as Excel takes it; a styled column (often all of them) is not.
+  rows = Math.max(rows, sheet.rowStyles.at(-2) ?? 0);
   return [rows, columns];
 }
 
@@ -121,7 +124,12 @@ export class SheetView {
     const { rows, columns } = axesOf(sheet);
     this.#rows = rows;
     this.#columns = columns;
-    const pane = (): Pane => new Pane(sheet, looks, rows, columns);
+    const blanks = new BlankStyles(
+      sheet,
+      (style) => looks.paints(style),
+      (style) => !looks.bordered(style),
+    );
+    const pane = (): Pane => new Pane(sheet, looks, rows, columns, blanks);
     this.#panes = [pane(), pane(), pane(), pane()];
     this.#rulers = [
       new Ruler(columns, true),

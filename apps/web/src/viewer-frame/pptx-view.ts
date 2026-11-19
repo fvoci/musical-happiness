@@ -14,8 +14,16 @@
  * A slide is drawn at its own size and scaled with a transform, so the
  * renderer's measuring sees the sizes it laid out; zooming scales the boxes
  * without drawing again.
+ *
+ * A slide hidden from a show is left out of the column (`SlideOrder`) until
+ * the reader shows the hidden slides; then it is in its place, marked with
+ * a word over it and its drawing faded. The slide the reader is on stays
+ * where it was in the view as the others come or go.
  */
 import type { PresentationData, SlideHandle, SlideRendererOptions } from '@aiden0z/pptx-renderer';
+
+import type { Labels } from '$lib/file-viewer/protocol.ts';
+import type { SlideOrder } from '$lib/file-viewer/slide-order.ts';
 
 import { cleanSlide } from './pptx-clean.ts';
 import { PageFollower, type Drawn, type Report } from './renderer.ts';
@@ -70,21 +78,37 @@ class Slide {
   readonly number: number;
   /** The pixels of the pictures it shows. */
   readonly pixels: number;
+  /** The word over a slide hidden from a show; none on the others. */
+  readonly #mark: HTMLElement[] = [];
   handle: SlideHandle | undefined;
   /** The renderer could not draw it: it stays an empty box and is not tried again. */
   failed = false;
 
-  constructor(number: number, pixels: number) {
+  constructor(number: number, pixels: number, hidden: string | undefined) {
     this.number = number;
     this.pixels = pixels;
     this.box.className = 'page slide';
     this.box.dataset.page = String(number);
+    if (hidden !== undefined) {
+      this.box.classList.add('slide-hidden');
+      const mark = document.createElement('span');
+      mark.className = 'slide-mark';
+      mark.textContent = hidden;
+      this.#mark.push(mark);
+      this.box.append(mark);
+    }
+  }
+
+  /** Puts the slide drawn in its box, under its mark. */
+  show(handle: SlideHandle): void {
+    this.handle = handle;
+    this.box.replaceChildren(handle.element, ...this.#mark);
   }
 
   clear(): void {
     this.handle?.dispose();
     this.handle = undefined;
-    this.box.replaceChildren();
+    this.box.replaceChildren(...this.#mark);
   }
 }
 
@@ -98,6 +122,9 @@ export class PptxView implements Drawn {
   readonly #observer: IntersectionObserver;
   readonly #follower: PageFollower;
   readonly #options: SlideRendererOptions;
+  readonly #order: SlideOrder;
+  /** Whether the hidden slides are in the column. */
+  #expanded = false;
   #zoom = 1;
   #drawing = false;
 
@@ -106,12 +133,14 @@ export class PptxView implements Drawn {
     place: HTMLElement,
     report: Report,
     draw: DrawSlide,
-    chart: string,
+    labels: Labels,
     pixels: ReadonlyMap<string, number>,
+    order: SlideOrder,
   ) {
     this.#presentation = presentation;
     this.#draw = draw;
-    this.#chart = chart;
+    this.#chart = labels.chart;
+    this.#order = order;
     this.#options = {
       externalMedia: 'block',
       pdfjs: false,
@@ -124,10 +153,19 @@ export class PptxView implements Drawn {
     const column = document.createElement('div');
     column.className = 'pages';
     this.#slides = presentation.slides.map(
-      (slide, index) => new Slide(index + 1, pixels.get(slide.slidePath) ?? 0),
+      (slide, index) =>
+        new Slide(
+          index + 1,
+          pixels.get(slide.slidePath) ?? 0,
+          order.hidden.has(index + 1) ? labels.hidden : undefined,
+        ),
     );
+    this.#leaveOut();
     column.append(...this.#slides.map((slide) => slide.box));
     place.replaceChildren(column);
+    // The view keeps the reader's place itself as slides come and go (`showHidden`); the
+    // browser's own keeping of it would move the view again after.
+    document.documentElement.style.overflowAnchor = 'none';
     this.#observer = new IntersectionObserver(
       (entries) => {
         this.#onSight(entries);
@@ -138,7 +176,11 @@ export class PptxView implements Drawn {
     );
     this.#layOut();
     for (const slide of this.#slides) this.#observer.observe(slide.box);
-    this.#follower = new PageFollower(() => this.boxes, report);
+    this.#follower = new PageFollower(
+      () => this.boxes,
+      report,
+      (box) => Number((box as HTMLElement).dataset.page),
+    );
     let resizing: ReturnType<typeof setTimeout> | undefined;
     window.addEventListener('resize', () => {
       clearTimeout(resizing);
@@ -148,8 +190,18 @@ export class PptxView implements Drawn {
     });
   }
 
+  /** The boxes of the slides in the column. */
   get boxes(): Element[] {
-    return this.#slides.map((slide) => slide.box);
+    return this.#slides.filter((slide) => !slide.box.hidden).map((slide) => slide.box);
+  }
+
+  /** Takes the slides not laid out out of the column (and out of view: their drawing goes). */
+  #leaveOut(): void {
+    for (const slide of this.#slides) {
+      const out = !this.#order.shows(slide.number, this.#expanded);
+      if (out && !slide.box.hidden) slide.clear();
+      slide.box.hidden = out;
+    }
   }
 
   /** The scale at the zoom: the slide as wide as the frame allows (its scroll bar left out), at most its own size. */
@@ -161,11 +213,10 @@ export class PptxView implements Drawn {
   #layOut(): void {
     const scale = this.#scale();
     const { width, height } = this.#presentation;
-    for (const { box } of this.#slides) {
+    for (const { box, handle } of this.#slides) {
       box.style.width = `${Math.floor(width * scale)}px`;
       box.style.height = `${Math.floor(height * scale)}px`;
-      const drawn = box.firstElementChild;
-      if (drawn instanceof HTMLElement) drawn.style.transform = `scale(${scale})`;
+      if (handle) handle.element.style.transform = `scale(${scale})`;
     }
   }
 
@@ -176,8 +227,7 @@ export class PptxView implements Drawn {
     cleanSlide(element, this.#chart);
     element.style.transformOrigin = '0 0';
     element.style.transform = `scale(${this.#scale()})`;
-    slide.handle = handle;
-    slide.box.replaceChildren(element);
+    slide.show(handle);
     const clean = (): void => {
       if (slide.handle === handle) cleanSlide(element, this.#chart);
     };
@@ -256,9 +306,9 @@ export class PptxView implements Drawn {
     void this.#drawInView();
   }
 
-  /** Draws the first slide, the one in view when the presentation opens; rejects when it cannot be drawn. */
+  /** Draws the first slide laid out, the one in view when the presentation opens; rejects when it cannot be drawn. */
   async drawFirst(): Promise<void> {
-    const first = this.#slides[0];
+    const first = this.#slides[this.#order.first(this.#expanded) - 1];
     if (!first) return;
     // The slides in view wait for it (the observer tells of them once the column is laid out).
     this.#drawing = true;
@@ -272,9 +322,29 @@ export class PptxView implements Drawn {
 
   goTo(page: number): void {
     const box = this.#slides[page - 1]?.box;
-    if (!box) return;
+    // A link to a slide left out goes nowhere, as one to a slide that is not there.
+    if (!box || box.hidden) return;
     box.scrollIntoView({ block: 'start' });
     this.#follower.pin(page);
+  }
+
+  /**
+   * The slide in view (as the frame follows it, not as the app last heard)
+   * stays where it is in the view; when it is left out, the slide the reader
+   * lands on (`SlideOrder.landing`) takes its place. Either is told.
+   */
+  showHidden(shown: boolean): void {
+    if (shown === this.#expanded) return;
+    const page = this.#follower.current || this.#order.first(this.#expanded);
+    const from = this.#slides[page - 1];
+    const to = this.#slides[this.#order.landing(page, shown) - 1];
+    const before = from && !from.box.hidden ? from.box.getBoundingClientRect().top : undefined;
+    this.#expanded = shown;
+    this.#leaveOut();
+    if (!to) return;
+    if (before === undefined) to.box.scrollIntoView({ block: 'start' });
+    else window.scrollBy({ top: to.box.getBoundingClientRect().top - before, behavior: 'instant' });
+    this.#follower.pin(to.number);
   }
 
   zoom(zoom: number): void {
