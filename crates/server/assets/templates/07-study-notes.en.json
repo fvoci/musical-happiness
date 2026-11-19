@@ -1,6 +1,7 @@
 {
   "key": "study-notes",
   "language": "en",
+  "baseDate": "2026-12-01",
   "onboarding": false,
   "board": {
     "id": "a539d7df-4aaf-58af-ac3b-e4d7b7fcfc8c",

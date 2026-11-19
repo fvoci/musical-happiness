@@ -165,6 +165,11 @@ impl TimeZone {
     pub fn as_str(&self) -> &str {
         self.0.as_deref().unwrap_or(Self::AUTO)
     }
+
+    /// The name of the time zone, or `None` where it is left to the device.
+    pub(crate) fn name(&self) -> Option<&str> {
+        self.0.as_deref()
+    }
 }
 
 impl FromStr for TimeZone {

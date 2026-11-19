@@ -4,20 +4,20 @@
 //! the onboarding mark and is written in their language, not from a board with a
 //! certain title.
 
-use fvoci_model::{ContainerPatch, ContainerType};
 use fvoci_store::DuplicateAs;
 
 use super::App;
 use super::language::Language;
-use super::templates::{ONBOARDING_PROPERTY, is_onboarding_template, written_in};
+use super::templates::{is_onboarding_template, written_in};
 use crate::error::AppError;
 use crate::metrics::ContainerWork;
 
 impl App {
     /// Copies the welcome board into a workspace for a user, in the language the
-    /// built-in templates are offered to them in (that of their settings, or else of the
-    /// screen, `screen_language`, or else English), makes the copy private, and returns
-    /// its identifier.
+    /// server writes in for them ([`App::language_for`], by `accept_language`, the
+    /// request's `Accept-Language`), and returns the copy's identifier. The copy is a
+    /// private board of the user's as any copy of a built-in template is: without the
+    /// template's marks, its days moved to the day it is for the user.
     ///
     /// # Errors
     ///
@@ -27,10 +27,27 @@ impl App {
         &self,
         user_id: &str,
         workspace_id: &str,
-        screen_language: Option<&str>,
+        accept_language: Option<&str>,
     ) -> Result<String, AppError> {
-        let language = self.template_language(user_id, screen_language).await?;
-        let welcome_board_id = self.welcome_template_id(language).await?;
+        let now = crate::auth::now_millis();
+        self.create_welcome_board_at(user_id, workspace_id, accept_language, now)
+            .await
+    }
+
+    /// [`App::create_welcome_board`] at the time `now`, in milliseconds.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::create_welcome_board`].
+    pub async fn create_welcome_board_at(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+        accept_language: Option<&str>,
+        now: i64,
+    ) -> Result<String, AppError> {
+        let reader = self.reader_at(user_id, accept_language, now).await?;
+        let welcome_board_id = self.welcome_template_id(reader.language).await?;
 
         let (boards_and_blocks, _members) = self
             .copy_container(
@@ -38,25 +55,14 @@ impl App {
                 user_id,
                 workspace_id,
                 DuplicateAs::Copy,
-                // A board made from a template keeps the template's title: no title is
-                // written in this language.
-                Language::English,
+                &reader,
                 ContainerWork::Welcome,
             )
             .await?;
         let [board] = boards_and_blocks.containers.as_slice() else {
             return Err(AppError::internal("new board wasn't created"));
         };
-        let board_id = board.id.clone();
-
-        // The copy is a user's board, not the built-in template: it loses the mark.
-        let patch = ContainerPatch {
-            container_type: Some(ContainerType::Private),
-            deleted_properties: vec![ONBOARDING_PROPERTY.to_owned()],
-            ..ContainerPatch::default()
-        };
-        self.patch_container(&patch, &board_id, user_id).await?;
-        Ok(board_id)
+        Ok(board.id.clone())
     }
 
     /// The identifier of the built-in welcome board written in `language`.

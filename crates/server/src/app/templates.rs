@@ -12,7 +12,7 @@ use fvoci_model::{
     Block, BlockType, Container, ContainerType, ContainersAndBlocks, FileInfo, WorkspaceRole,
     renew_containers_and_blocks_ids,
 };
-use fvoci_store::{SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Tenant};
+use fvoci_store::{CopyChanges, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Tenant};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -23,7 +23,7 @@ use super::loose_objects::Written;
 use crate::error::AppError;
 
 /// The current version of the built-in templates. Raising it stores them again.
-const DEFAULT_TEMPLATE_VERSION: i64 = 8;
+const DEFAULT_TEMPLATE_VERSION: i64 = 9;
 
 /// The longest the storing of one file of the templates may take. The files are a few
 /// kilobytes each, and a server does not start, nor a request for a first board that
@@ -40,13 +40,28 @@ const TEMPLATE_FILE_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) const ONBOARDING_PROPERTY: &str = "onboarding";
 
 /// The board property that names a built-in template, as its file does (`key`). It
-/// stays when the title changes; a copy carries it too, so it names a template only
-/// together with `isBuiltin`.
+/// stays when the title changes. Any user sets the properties of their own boards, so it
+/// names a template only together with `isBuiltin`.
 const TEMPLATE_KEY_PROPERTY: &str = "templateKey";
 
 /// The board property that says which language a built-in template is written in: a
-/// tag of [`Language`], as its file gives it (`language`). A copy carries it too.
+/// tag of [`Language`], as its file gives it (`language`).
 const TEMPLATE_LANGUAGE_PROPERTY: &str = "templateLanguage";
+
+/// The board property that says which day a built-in template was written for, as its
+/// file gives it (`baseDate`, `YYYY-MM-DD`): the days of the template are so many days
+/// before or after it, and a copy has them as many days before or after the day it is
+/// made on.
+const TEMPLATE_BASE_DATE_PROPERTY: &str = "templateBaseDate";
+
+/// The properties that say of a board what only a built-in template is: a copy, which
+/// is somebody's own board, is made without them.
+const TEMPLATE_MARKS: [&str; 4] = [
+    ONBOARDING_PROPERTY,
+    TEMPLATE_KEY_PROPERTY,
+    TEMPLATE_LANGUAGE_PROPERTY,
+    TEMPLATE_BASE_DATE_PROPERTY,
+];
 
 /// The files of `assets/templates/` under `$folder` that are named, each with what it
 /// holds: as text (`text`) or as bytes (`bytes`).
@@ -112,6 +127,9 @@ struct TemplateFile {
     key: String,
     /// The tag of the language the template is written in.
     language: String,
+    /// The day the template is written for: what its days are counted from.
+    #[serde(rename = "baseDate")]
+    base_date: String,
     /// Whether this is the board a new account starts on; one template has it.
     onboarding: bool,
     board: TemplateBoard,
@@ -190,6 +208,13 @@ fn builtin_templates(workspace_id: &str) -> Result<BuiltinTemplates, AppError> {
                 .properties
                 .insert(ONBOARDING_PROPERTY.to_owned(), Value::Bool(true));
         }
+        if fvoci_model::days_between(&template.base_date, &template.base_date).is_none() {
+            return Err(mistake(name, "is written for no day of the calendar"));
+        }
+        board.properties.insert(
+            TEMPLATE_BASE_DATE_PROPERTY.to_owned(),
+            Value::String(template.base_date),
+        );
         let blocks = template_blocks(name, &board.id, template.views, template.cards)?;
 
         // Each file by itself: a template has the identifiers of its file in every
@@ -479,8 +504,8 @@ impl App {
     /// Returns the template boards of a workspace, for the templates route: for an
     /// administrator of the workspace (`role`) every one of it, for anybody else those
     /// that are open or that the user is a member of; and the built-in ones that are
-    /// written in the language the templates are offered to the user in: that of their
-    /// settings, or else of the screen (`screen_language`, a tag), or else English.
+    /// written in the language the server writes in for the user
+    /// ([`App::language_for`], by `accept_language`, the request's `Accept-Language`).
     ///
     /// # Errors
     ///
@@ -490,9 +515,9 @@ impl App {
         workspace_id: &str,
         user_id: &str,
         role: WorkspaceRole,
-        screen_language: Option<&str>,
+        accept_language: Option<&str>,
     ) -> Result<Vec<Container>, AppError> {
-        let language = self.template_language(user_id, screen_language).await?;
+        let language = self.language_for(user_id, accept_language).await?;
         let mut boards = if role == WorkspaceRole::Admin {
             self.store()
                 .get_templates_of_workspace(workspace_id)
@@ -510,22 +535,6 @@ impl App {
         );
         Ok(boards)
     }
-
-    /// The language the built-in templates are offered to a user in: the language of
-    /// their settings; where that is left to the device, or is one no template is
-    /// written in, the language of the screen the request came from (`screen_language`,
-    /// a tag); failing both, English.
-    pub(crate) async fn template_language(
-        &self,
-        user_id: &str,
-        screen_language: Option<&str>,
-    ) -> Result<Language, AppError> {
-        let settings = self.user_settings(user_id).await?;
-        Ok(Language::first_of([
-            Language::written_in(settings.language.as_str()),
-            screen_language.and_then(Language::written_in),
-        ]))
-    }
 }
 
 /// Returns whether a board is a built-in template that a new account's first board is
@@ -538,6 +547,28 @@ pub(crate) fn is_onboarding_template(board: &Container) -> bool {
     board.is_template
         && board.is_builtin
         && board.properties.get(ONBOARDING_PROPERTY) == Some(&Value::Bool(true))
+}
+
+/// What a copy of `source` made on the day `today` (`YYYY-MM-DD`) does not take from it
+/// as it stands. Of a built-in template, the marks that say it is one, and its days:
+/// they are moved by as many days as `today` is after the day the template was written
+/// for, and stay where `today` is unknown. Of any other board, nothing.
+pub(super) fn changes_of_copy(source: &Container, today: Option<&str>) -> CopyChanges<'static> {
+    if !(source.is_template && source.is_builtin) {
+        return CopyChanges::default();
+    }
+    let written_for = source
+        .properties
+        .get(TEMPLATE_BASE_DATE_PROPERTY)
+        .and_then(Value::as_str);
+    let days_later = written_for
+        .zip(today)
+        .and_then(|(written_for, today)| fvoci_model::days_between(written_for, today))
+        .unwrap_or_default();
+    CopyChanges {
+        without_properties: &TEMPLATE_MARKS,
+        days_later,
+    }
 }
 
 /// The language a built-in template says it is written in.

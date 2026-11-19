@@ -9,7 +9,7 @@ use fvoci_model::{
 };
 
 use crate::Store;
-use crate::blocks::{self, BlockFilter, CopyTitles, DuplicateAs};
+use crate::blocks::{self, BlockFilter, CopyChanges, CopyTitles, DuplicateAs};
 use crate::body_versions::BodyWrite;
 use crate::card_values;
 use crate::containers;
@@ -186,7 +186,8 @@ impl Store {
     /// or else in the workspace of the original. A copy of the same kind as the original is
     /// titled by `titles.copy_of` from the original's title, as it stands when it is
     /// copied; a template made from a board is titled `titles.new_template`, and a board
-    /// made from a template keeps the title.
+    /// made from a template keeps the title. The copy is made without the properties
+    /// of the board that `changes` names, its days as many days later as it says.
     ///
     /// # Errors
     ///
@@ -200,6 +201,7 @@ impl Store {
         to_workspace: Option<&str>,
         duplicate_as: DuplicateAs,
         titles: &CopyTitles,
+        changes: CopyChanges<'_>,
     ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), StoreError> {
         self.transaction(async |scope| {
             duplicate_container(
@@ -209,6 +211,7 @@ impl Store {
                 to_workspace,
                 duplicate_as,
                 titles,
+                changes,
             )
             .await
         })
@@ -332,8 +335,12 @@ pub(crate) async fn duplicate_container(
     to_workspace: Option<&str>,
     duplicate_as: DuplicateAs,
     titles: &CopyTitles,
+    changes: CopyChanges<'_>,
 ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), StoreError> {
     let mut container = containers::get_container(scope, container_id).await?;
+    for name in changes.without_properties {
+        container.properties.remove(*name);
+    }
 
     let as_template = duplicate_as == DuplicateAs::Template;
     if as_template == container.is_template {
@@ -362,6 +369,10 @@ pub(crate) async fn duplicate_container(
         .filter(|block| block.block_type != BlockType::Comment)
         .collect();
     card_values::clear_copied_values(&mut blocks, &container.card_properties);
+    let dates = fvoci_model::date_property_ids(&container.card_properties);
+    for block in &mut blocks {
+        fvoci_model::move_dates(&mut block.fields, &dates, changes.days_later);
+    }
 
     // A board without blocks, or with comments only, is copied as a board without
     // blocks. The original refuses it, because it regenerates the identifiers with the

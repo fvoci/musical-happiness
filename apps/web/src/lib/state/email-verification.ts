@@ -34,8 +34,7 @@ export interface EmailVerification {
   complete(token: string, password?: string): Promise<Confirmed>;
   /**
    * Makes the welcome board of the first workspace of an organization the
-   * confirmation started, as a new account's first sign-in does. It is written
-   * in `language`, the page's, unless the account's settings name one.
+   * confirmation started, as a new account's first sign-in does.
    */
-  welcome(workspaceId: string, language: string): Promise<string>;
+  welcome(workspaceId: string): Promise<string>;
 }

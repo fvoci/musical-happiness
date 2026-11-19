@@ -1,6 +1,7 @@
 {
   "key": "content-calendar",
   "language": "en",
+  "baseDate": "2026-12-01",
   "onboarding": false,
   "board": {
     "id": "c50d84fe-4fca-5fe4-a4c6-bc7fa2146469",

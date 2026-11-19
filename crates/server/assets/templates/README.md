@@ -21,6 +21,7 @@
 {
   "key": "issue-tracker",         // 제목이 바뀌어도 변하지 않는 이름. 언어가 달라도 같다
   "language": "ko",               // 쓰인 언어
+  "baseDate": "2026-12-01",       // 날짜의 기준일. 보드를 만들 때 이 날이 만드는 사람의 오늘이 되게 날짜를 옮긴다
   "onboarding": false,            // 새 계정이 받는 환영 보드만 true
   "board": { "id", "title", "description", "icon", "showDescription", "cardProperties": [{ "id", "name", "type", "options": [{ "id", "value", "color" }] }] },
   "views": [{ "id", "type": "view", "title", "fields": { /* viewType, groupById, cardOrder, filter, sortOptions, … */ } }],

@@ -164,6 +164,7 @@ mod team_lifecycle;
 mod team_review;
 mod team_standing;
 mod teams;
+mod template_copies;
 mod templates;
 mod uploads;
 mod users;

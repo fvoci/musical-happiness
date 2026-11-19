@@ -163,14 +163,15 @@
 - 내장 템플릿은 `crates/server/assets/templates/`의 파일이다. `getTemplates`의 모양은 그대로다.
 - `onboard`가 복사하는 환영 보드의 내용도 같이 바뀐다.
 
-**들어간 것.** 내장 템플릿 7개는 서버 크레이트의 파일이고(`crates/server/assets/templates/`, 한국어·영어로 한 파일씩) 바이너리에 들어간다. `getTemplates`와 `onboard`에 선택 쿼리 `language`가 생겼고, 그 보드의 블록이 담는 것이 바뀌었다.
+**들어간 것.** 내장 템플릿 7개는 서버 크레이트의 파일이고(`crates/server/assets/templates/`, 한국어·영어로 한 파일씩) 바이너리에 들어간다. `getTemplates`와 `onboard`는 `Accept-Language`를 읽고, 그 보드의 블록이 담는 것이 바뀌었다.
 
 - 본문이 보이는 그림과 문서는 직접 만든 작은 파일이고(설계 결정 18번), 템플릿을 넣을 때 시스템 조직의 파일로 저장된다. 템플릿에서 만든 보드는 제 사본을 갖는다.
 - 카드의 내용은 본문(`body`)에 있다. 내장 템플릿에는 콘텐츠 블록(`text`, `checkbox`, `image` 등)이 없다.
 - 날짜 속성의 값은 2절의 새 모양이다.
-- `templateVersion`이 8이 된다. 7 이하의 내장 템플릿을 가진 DB는 다음 시작 때 템플릿을 새로 넣는다. 그 템플릿에서 이미 만든 보드(계정의 환영 보드 포함)는 그대로다.
-- 보드의 `properties`에 `templateKey`와 `templateLanguage`가 있다. 템플릿마다의 이름(`welcome`, `issue-tracker` 등)과 쓰인 언어(`ko`, `en`)이고, 제목이 바뀌어도 그대로다. 템플릿에서 만든 보드에도 복사되고 아무 클라이언트나 적을 수 있으므로, 내장 템플릿을 가려낼 때는 `isBuiltin`이 `true`인 보드에서만 이것을 본다.
-- `getTemplates`는 내장 템플릿을 한 언어로만 낸다: 사용자 설정의 언어, 설정이 기기를 따르거나 템플릿이 없는 언어면 `language`, 둘 다 아니면 영어.
+- `templateVersion`이 9가 된다. 8 이하의 내장 템플릿을 가진 DB는 다음 시작 때 템플릿을 새로 넣는다. 그 템플릿에서 이미 만든 보드(계정의 환영 보드 포함)는 그대로다.
+- 내장 템플릿의 `properties`에 `templateKey`, `templateLanguage`, `templateBaseDate`가 있다. 템플릿마다의 이름(`welcome`, `issue-tracker` 등), 쓰인 언어(`ko`, `en`), 템플릿의 날짜가 기준으로 삼는 날(`YYYY-MM-DD`)이고, 제목이 바뀌어도 그대로다. 아무 클라이언트나 제 보드에 적을 수 있으므로, 내장 템플릿을 가려낼 때는 `isBuiltin`이 `true`인 보드에서만 이것을 본다.
+- 내장 템플릿에서 만든 보드(`duplicateContainer`, `onboard`)는 이 셋과 `onboarding`을 갖지 않고, 날짜 속성의 값과 뷰가 날짜 속성을 거르는 날이 기준일에서 만든 날까지의 날수만큼 옮겨진다. 만든 날은 그 계정 설정의 시간대의 오늘이고, 설정이 기기를 따르면 UTC의 오늘이다.
+- `getTemplates`는 내장 템플릿을 한 언어로만 낸다: 사용자 설정의 언어, 설정이 기기를 따르거나 템플릿이 없는 언어면 `Accept-Language`가 가장 앞세우는 서버의 언어(`duplicateContainer`가 사본의 제목을 짓는 언어와 같은 규칙), 둘 다 아니면 영어.
 - `onboard`는 내장 템플릿 가운데 `properties.onboarding`이 `true`이고 같은 규칙으로 고른 언어의 보드를 복사하고 `{boardId}`만 답한다. 그런 보드가 없으면(템플릿을 지웠거나 시작할 때 넣지 못한 경우) 템플릿을 다시 넣고 복사한다. 템플릿을 넣을지 정하고 지우고 넣는 일은 한 트랜잭션이라, 여러 서버나 요청이 함께 해도 한 번만 넣는다.
 - 템플릿을 새로 넣을 때 옛 내장 템플릿의 파일을 저장소에서도 지운다. 새 파일은 먼저 쓰고 같은 트랜잭션에서 기록한다.
 

@@ -89,18 +89,10 @@ async fn get_templates_returns_the_built_in_templates() {
     ts.teardown().await;
 }
 
-/// The titles of the built-in templates listed for the client's user when the screen
-/// says `language` (nothing when empty).
+/// The titles of the built-in templates listed for the client's user when the request
+/// accepts `language` (says nothing when empty).
 async fn titles_listed(client: &crate::common::Client, language: &str) -> Vec<String> {
-    let query = if language.is_empty() {
-        String::new()
-    } else {
-        format!("?language={language}")
-    };
-    let boards: Vec<Container> = client
-        .get(&format!("{ROOT_WS}/templates{query}"))
-        .await
-        .ok_json();
+    let boards = templates_accepting(client, language).await;
     boards
         .into_iter()
         .filter(|board| board.is_builtin)
@@ -108,11 +100,22 @@ async fn titles_listed(client: &crate::common::Client, language: &str) -> Vec<St
         .collect()
 }
 
+/// `getTemplates` of the root workspace by `client`, with an `Accept-Language` unless
+/// `language` is empty.
+async fn templates_accepting(client: &crate::common::Client, language: &str) -> Vec<Container> {
+    let mut request = client.request(reqwest::Method::GET, &format!("{ROOT_WS}/templates"));
+    if !language.is_empty() {
+        request = request.header(reqwest::header::ACCEPT_LANGUAGE, language);
+    }
+    crate::common::Client::send(request).await.ok_json()
+}
+
 /// The built-in templates are listed in one language: that of the user's settings;
 /// where the settings leave it to the device, or name a language no template is written
-/// in, that of the screen; failing both, English. Each language has every template.
+/// in, the one the request accepts first; failing both, English. Each language has
+/// every template.
 #[tokio::test]
-async fn the_templates_are_listed_in_the_language_of_the_settings_or_else_of_the_screen() {
+async fn the_templates_are_listed_in_the_language_of_the_settings_or_else_of_the_request() {
     let ts = Setup::native()
         .with_templates()
         .start()
@@ -135,6 +138,11 @@ async fn the_templates_are_listed_in_the_language_of_the_settings_or_else_of_the
     );
     assert_eq!(titles_listed(client, "en").await, english, "en");
     assert_eq!(titles_listed(client, "ja").await, english, "ja");
+    assert_eq!(
+        titles_listed(client, "ja, en;q=0.5, ko;q=0.8").await,
+        korean,
+        "the heaviest of the server's languages"
+    );
 
     client
         .patch("/users/me/settings", &json!({"language": "ko"}))
@@ -144,7 +152,7 @@ async fn the_templates_are_listed_in_the_language_of_the_settings_or_else_of_the
     assert_eq!(
         titles_listed(client, "en").await,
         korean,
-        "set to ko, on an English screen"
+        "set to ko, where English is accepted"
     );
     // The other user's settings are their own.
     assert_eq!(
@@ -491,13 +499,10 @@ impl Seen {
     }
 }
 
-/// Holds the templates listed on a screen in `language` to the files written in it.
+/// Holds the templates listed for a request that accepts `language` to the files
+/// written in it.
 async fn the_templates_listed_are_the_files_of(ts: &crate::common::TestServer, language: &str) {
-    let boards = ts
-        .client
-        .get(&format!("{ROOT_WS}/templates?language={language}"))
-        .await
-        .ok_json::<Vec<Container>>();
+    let boards = templates_accepting(&ts.client, language).await;
     let files: Vec<Value> = template_files()
         .into_iter()
         .filter(|template| template["language"] == json!(language))

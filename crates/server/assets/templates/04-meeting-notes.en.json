@@ -1,6 +1,7 @@
 {
   "key": "meeting-notes",
   "language": "en",
+  "baseDate": "2026-12-01",
   "onboarding": false,
   "board": {
     "id": "e741751d-1205-5410-b6b6-396e6375c6c1",

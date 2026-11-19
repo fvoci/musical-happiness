@@ -21,9 +21,7 @@
     let route = acceptedRoute(confirmed);
     if (confirmed.organizationStarted) {
       // The account is in: no welcome board is no reason to keep it out.
-      const boardId = await client
-        .welcome(confirmed.workspaceId, getLocale())
-        .catch(() => undefined);
+      const boardId = await client.welcome(confirmed.workspaceId).catch(() => undefined);
       route = { workspaceId: confirmed.workspaceId, boardId };
     }
     location.replace(router.href(route));

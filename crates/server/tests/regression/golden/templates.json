@@ -18,7 +18,7 @@
     "request": "(observation)",
     "status": 0,
     "body": [
-      8
+      9
     ]
   },
   {
@@ -224,12 +224,9 @@
       "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
-      "properties": {
-        "templateKey": "welcome",
-        "templateLanguage": "en"
-      },
+      "properties": {},
       "showDescription": true,
-      "templateVersion": 8,
+      "templateVersion": 9,
       "title": "Getting started with fvoci",
       "type": "P",
       "updateAt": "<ts>",

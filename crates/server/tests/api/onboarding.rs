@@ -135,11 +135,18 @@ async fn onboarding_copies_the_built_in_board_whatever_users_made() {
         .get(&format!("{ROOT_WS}/containers/{board_id}"))
         .await
         .ok_json();
-    assert_eq!(
-        copy.properties.get("onboarding"),
-        None,
-        "the copy is a user's board and does not carry the mark"
-    );
+    for mark in [
+        "onboarding",
+        "templateKey",
+        "templateLanguage",
+        "templateBaseDate",
+    ] {
+        assert_eq!(
+            copy.properties.get(mark),
+            None,
+            "the copy is a user's board and does not carry the mark {mark}"
+        );
+    }
     assert_eq!(
         copy.container_type,
         ContainerType::Private,
@@ -258,18 +265,14 @@ async fn onboard_makes_the_board_in_the_workspace_of_the_path() {
     ts.teardown().await;
 }
 
-/// The title of the board that `onboard` makes for the client's user when the screen
-/// says `language` (nothing when empty).
+/// The title of the board that `onboard` makes for the client's user when the request
+/// accepts `language` (says nothing when empty).
 async fn welcome_title(client: &Client, language: &str) -> String {
-    let query = if language.is_empty() {
-        String::new()
-    } else {
-        format!("?language={language}")
-    };
-    let value = client
-        .post_empty(&format!("{ROOT_WS}/onboard{query}"))
-        .await
-        .ok_json::<Value>();
+    let mut request = client.request(reqwest::Method::POST, &format!("{ROOT_WS}/onboard"));
+    if !language.is_empty() {
+        request = request.header(reqwest::header::ACCEPT_LANGUAGE, language);
+    }
+    let value = Client::send(request).await.ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id");
     let board: Container = client
         .get(&format!("{ROOT_WS}/containers/{board_id}"))
@@ -280,9 +283,9 @@ async fn welcome_title(client: &Client, language: &str) -> String {
 
 /// The welcome board is written in the language of the user's settings; where the
 /// settings leave the language to the device, or name one the board is not written in,
-/// in the language of the screen; failing both, in English.
+/// in the language the request accepts first; failing both, in English.
 #[tokio::test]
-async fn the_welcome_board_is_in_the_language_of_the_settings_or_else_of_the_screen() {
+async fn the_welcome_board_is_in_the_language_of_the_settings_or_else_of_the_request() {
     let ts = Setup::native()
         .with_templates()
         .start()
@@ -297,7 +300,7 @@ async fn the_welcome_board_is_in_the_language_of_the_settings_or_else_of_the_scr
             .check_ok();
     };
 
-    // The settings leave it to the device: the screen says.
+    // The settings leave it to the device: the request says.
     assert_eq!(
         welcome_title(client, "").await,
         WELCOME_TITLE,
@@ -312,7 +315,7 @@ async fn the_welcome_board_is_in_the_language_of_the_settings_or_else_of_the_scr
     assert_eq!(welcome_title(client, "en-GB").await, WELCOME_TITLE, "en-GB");
     assert_eq!(welcome_title(client, "ja").await, WELCOME_TITLE, "ja");
 
-    // The settings say: the screen is not asked.
+    // The settings say: the request is not asked.
     set(json!("ko")).await;
     assert_eq!(
         welcome_title(client, "").await,
@@ -322,21 +325,21 @@ async fn the_welcome_board_is_in_the_language_of_the_settings_or_else_of_the_scr
     assert_eq!(
         welcome_title(client, "en").await,
         WELCOME_TITLE_KO,
-        "set to ko, on an English screen"
+        "set to ko, where English is accepted"
     );
     set(json!("en-US")).await;
     assert_eq!(
         welcome_title(client, "ko").await,
         WELCOME_TITLE,
-        "set to en-US, on a Korean screen"
+        "set to en-US, where Korean is accepted"
     );
 
-    // A language the board is not written in: the screen says again.
+    // A language the board is not written in: the request says again.
     set(json!("ja")).await;
     assert_eq!(
         welcome_title(client, "ko").await,
         WELCOME_TITLE_KO,
-        "set to ja, on a Korean screen"
+        "set to ja, where Korean is accepted"
     );
     assert_eq!(
         welcome_title(client, "ja").await,

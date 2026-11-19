@@ -1,6 +1,7 @@
 {
   "key": "project-schedule",
   "language": "en",
+  "baseDate": "2026-12-01",
   "onboarding": false,
   "board": {
     "id": "9639bb66-ecfc-5b4b-905d-bcf2ae50790c",

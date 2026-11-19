@@ -1,6 +1,7 @@
 {
   "key": "customer-contacts",
   "language": "en",
+  "baseDate": "2026-12-01",
   "onboarding": false,
   "board": {
     "id": "92b511de-7777-5737-837e-7f4d8c182371",

@@ -85,19 +85,17 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /** The last change of each card or view on its way, settled either way (`#inTurn`). */
   readonly #writes = new Map<string, Promise<void>>();
 
-  readonly #screenLanguage: () => string;
   readonly #live: LiveChanges;
   readonly presence: Backend['presence'];
   readonly search: Backend['search'];
   /** The server's settings for clients, read once. */
   readonly #config: ClientConfig;
 
-  /** `basePath` is the path the app is served under; `screenLanguage` gives the tag of the language the screen is in. */
-  constructor(basePath: string, screenLanguage: () => string = () => '') {
+  /** `basePath` is the path the app is served under. */
+  constructor(basePath: string) {
     const http = new Http(basePath);
     super(http);
     this.#http = http;
-    this.#screenLanguage = screenLanguage;
     this.#config = new ClientConfig(http);
     this.search = new ServerContentSearch(http, this.#config);
     // The page's own origin: the browser sends the session's cookie with it.
@@ -236,7 +234,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   templates(workspaceId: string): Promise<Container[]> {
-    return templatesOf(this.#http, workspaceId, this.#screenLanguage());
+    return templatesOf(this.#http, workspaceId);
   }
 
   /** `duplicateContainer` into the workspace `to` (`toWorkspace`). The copy is the first board of the answer. */
@@ -252,7 +250,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   onboard(workspaceId: string): Promise<string> {
-    return makeWelcomeBoard(this.#http, workspaceId, this.#screenLanguage());
+    return makeWelcomeBoard(this.#http, workspaceId);
   }
 
   /** To the server's trash, with its blocks and members (`deleteContainer`, board admins only). */

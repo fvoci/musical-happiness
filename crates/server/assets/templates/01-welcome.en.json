@@ -1,6 +1,7 @@
 {
   "key": "welcome",
   "language": "en",
+  "baseDate": "2026-12-01",
   "onboarding": true,
   "board": {
     "id": "b4b96ed2-37eb-5214-80d4-0fc05fc5ecad",

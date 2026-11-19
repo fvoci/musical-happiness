@@ -29,7 +29,7 @@ test.use({ locale: 'en-US' });
 
 async function templates(api: APIRequestContext, workspaceId: string, language?: string) {
   const answer = await api.get(`/api/v1/w/${workspaceId}/templates`, {
-    params: language === undefined ? {} : { language },
+    headers: language === undefined ? {} : { 'Accept-Language': language },
   });
   expect(answer.ok()).toBe(true);
   return (await answer.json()) as Schemas['Container'][];
@@ -132,13 +132,15 @@ async function shot(page: Page, name: string): Promise<void> {
   await page.setViewportSize(wide);
 }
 
-/** Makes the welcome board for whoever `api` is signed in as, on a screen in `language`, and answers where it is. */
+/** Makes the welcome board for whoever `api` is signed in as, by a request that accepts `language`, and answers where it is. */
 async function welcomeBoard(
   api: APIRequestContext,
   workspaceId: string,
   language: string,
 ): Promise<{ workspaceId: string; boardId: string }> {
-  const answer = await api.post(`/api/v1/w/${workspaceId}/onboard`, { params: { language } });
+  const answer = await api.post(`/api/v1/w/${workspaceId}/onboard`, {
+    headers: { 'Accept-Language': language },
+  });
   expect(answer.ok()).toBe(true);
   const { boardId } = (await answer.json()) as Schemas['WelcomeBoard'];
   return { workspaceId, boardId };

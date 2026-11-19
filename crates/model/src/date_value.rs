@@ -20,6 +20,7 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use crate::JsonMap;
+use crate::settings::TimeZone;
 
 /// The last millisecond a time may be: 9999-12-31 23:59:59.999 UTC.
 pub(crate) const LAST_MILLISECOND: i64 = 253_402_300_799_999;
@@ -182,6 +183,108 @@ pub(crate) fn date_value_from_previous(text: &str) -> Option<Value> {
 #[must_use]
 pub(crate) fn date_filter_value_from_previous(text: &str) -> Option<String> {
     text.parse::<i64>().ok().and_then(utc_date)
+}
+
+/// The calendar day it is at a time for somebody whose settings name `time_zone`, as
+/// `YYYY-MM-DD`. Where the settings leave the zone to the device, which the server does
+/// not know, it is the day in UTC. `None` for a time outside years 1 to 9999.
+#[must_use]
+pub fn day_at(millis: i64, time_zone: &TimeZone) -> Option<String> {
+    let zone = match time_zone.name() {
+        // A name the settings hold is one of the bundled database.
+        Some(name) => jiff::tz::TimeZoneDatabase::bundled().get(name).ok()?,
+        None => jiff::tz::TimeZone::UTC,
+    };
+    let time = jiff::Timestamp::from_millisecond(millis).ok()?;
+    let day = zone.to_datetime(time).date().to_string();
+    is_calendar_date(&day).then_some(day)
+}
+
+/// How many days after the calendar day `from` the calendar day `to` is: negative if it
+/// is before. `None` unless both are days as `YYYY-MM-DD`.
+#[must_use]
+pub fn days_between(from: &str, to: &str) -> Option<i64> {
+    let from = calendar_date(from)?;
+    let to = calendar_date(to)?;
+    Some(i64::from(from.until(to).ok()?.get_days()))
+}
+
+/// Moves the days among the fields of a card or a view by `days`, given the
+/// identifiers of the board's date properties: the date values of a card and the days a
+/// view filters a date property by. A calendar date becomes the day that many days
+/// later and a time is moved by that many times 24 hours; earlier for a negative
+/// number. A value that is no date value, or would leave years 1 to 9999, stays as it
+/// is.
+pub fn move_dates<S: BuildHasher>(fields: &mut JsonMap, dates: &HashSet<String, S>, days: i64) {
+    if days == 0 || dates.is_empty() {
+        return;
+    }
+    if let Some(Value::Object(values)) = fields.get_mut("properties") {
+        for (id, value) in values.iter_mut() {
+            let Value::Object(value) = value else {
+                continue;
+            };
+            if !dates.contains(id) || check_date_value(value).is_err() {
+                continue;
+            }
+            let moved: Option<JsonMap> = value
+                .iter()
+                .map(|(member, point)| Some((member.clone(), moved_point(point, days)?)))
+                .collect();
+            if let Some(moved) = moved {
+                *value = moved;
+            }
+        }
+    }
+    if let Some(filter) = fields.get_mut("filter") {
+        move_filter(filter, dates, days);
+    }
+}
+
+/// Moves the days that a view's filter group, and the groups within it, filter date
+/// properties by.
+fn move_filter<S: BuildHasher>(group: &mut Value, dates: &HashSet<String, S>, days: i64) {
+    let Some(filters) = group.get_mut("filters").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for filter in filters {
+        move_filter(filter, dates, days);
+        let Some(filter) = filter.as_object_mut() else {
+            continue;
+        };
+        if !is_date_filter(filter, dates) {
+            continue;
+        }
+        let Some(values) = filter.get_mut("values").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for value in values {
+            if let Some(moved) = moved_point(value, days).filter(Value::is_string) {
+                *value = moved;
+            }
+        }
+    }
+}
+
+/// A `from` or `to` moved by `days`, or `None` if it would leave years 1 to 9999.
+fn moved_point(point: &Value, days: i64) -> Option<Value> {
+    match Point::read(point).ok()? {
+        Point::Date(date) => {
+            let span = jiff::Span::new().try_days(days).ok()?;
+            let moved = calendar_date(date)?.checked_add(span).ok()?.to_string();
+            is_calendar_date(&moved).then_some(Value::String(moved))
+        }
+        Point::Time(millis) => days
+            .checked_mul(DAY_MILLIS)
+            .and_then(|by| millis.checked_add(by))
+            .filter(|moved| (0..=LAST_MILLISECOND).contains(moved))
+            .map(Value::from),
+    }
+}
+
+/// The day of the calendar that `text` names as `YYYY-MM-DD`, years 1 to 9999.
+fn calendar_date(text: &str) -> Option<jiff::civil::Date> {
+    is_calendar_date(text).then(|| text.parse().ok()).flatten()
 }
 
 /// The identifiers of the date properties among a board's definitions.
@@ -397,5 +500,112 @@ mod tests {
             Some("2026-03-05")
         );
         assert_eq!(date_filter_value_from_previous("2026-03-05"), None);
+    }
+
+    #[test]
+    fn the_day_is_that_of_the_named_zone_or_else_of_utc() {
+        // 2026-12-31 20:00 UTC is the next year's first morning in Seoul.
+        let millis = 1_798_747_200_000;
+        let zone = |name: &str| name.parse::<TimeZone>().expect(name);
+        assert_eq!(day_at(millis, &zone("auto")).as_deref(), Some("2026-12-31"));
+        assert_eq!(day_at(millis, &zone("UTC")).as_deref(), Some("2026-12-31"));
+        assert_eq!(
+            day_at(millis, &zone("Asia/Seoul")).as_deref(),
+            Some("2027-01-01")
+        );
+        assert_eq!(
+            day_at(millis, &zone("America/Los_Angeles")).as_deref(),
+            Some("2026-12-31")
+        );
+        assert_eq!(day_at(LAST_MILLISECOND, &zone("Asia/Seoul")), None);
+        assert_eq!(day_at(i64::MAX, &zone("auto")), None);
+    }
+
+    #[test]
+    fn days_between_counts_the_days_of_the_calendar() {
+        assert_eq!(days_between("2026-12-01", "2026-12-01"), Some(0));
+        assert_eq!(days_between("2026-12-01", "2027-03-01"), Some(90));
+        assert_eq!(
+            days_between("2028-02-28", "2028-03-01"),
+            Some(2),
+            "a leap day"
+        );
+        assert_eq!(days_between("2026-12-01", "2026-11-19"), Some(-12));
+        assert_eq!(days_between("0001-01-01", "9999-12-31"), Some(3_652_058));
+        assert_eq!(days_between("2026-12-01", "tomorrow"), None);
+        assert_eq!(days_between("2026-02-30", "2026-03-01"), None);
+    }
+
+    fn fields(value: &Value) -> JsonMap {
+        value.as_object().expect("an object").clone()
+    }
+
+    #[test]
+    fn date_values_move_by_days_and_nothing_else_does() {
+        let dates: HashSet<String> = ["due", "met", "odd"].map(str::to_owned).into();
+        let before = json!({"properties": {
+            "due": {"from": "2026-12-30", "to": "2027-01-02"},
+            "met": {"from": 1_772_703_000_000_i64},
+            "odd": "2026-12-30",
+            "note": {"from": "2026-12-30"},
+        }});
+        let mut card = fields(&before);
+        move_dates(&mut card, &dates, 60);
+        assert_eq!(
+            Value::Object(card.clone()),
+            json!({"properties": {
+                "due": {"from": "2027-02-28", "to": "2027-03-03"},
+                "met": {"from": 1_772_703_000_000_i64 + 60 * DAY_MILLIS},
+                "odd": "2026-12-30",
+                "note": {"from": "2026-12-30"},
+            }})
+        );
+        move_dates(&mut card, &dates, -60);
+        assert_eq!(Value::Object(card), before);
+    }
+
+    #[test]
+    fn the_days_a_view_filters_dates_by_move_with_them() {
+        let dates: HashSet<String> = ["due"].map(str::to_owned).into();
+        let mut view = fields(&json!({"filter": {"operation": "and", "filters": [
+            {"propertyId": "due", "condition": "isBefore", "values": ["2026-12-30"]},
+            {"propertyId": "note", "condition": "is", "values": ["2026-12-30"]},
+            {"operation": "or", "filters": [
+                {"propertyId": "due", "condition": "isSet", "values": []},
+                {"propertyId": "due", "condition": "is", "values": ["2026-12-01", "soon"]},
+            ]},
+        ]}}));
+        move_dates(&mut view, &dates, 3);
+        assert_eq!(
+            Value::Object(view),
+            json!({"filter": {"operation": "and", "filters": [
+                {"propertyId": "due", "condition": "isBefore", "values": ["2027-01-02"]},
+                {"propertyId": "note", "condition": "is", "values": ["2026-12-30"]},
+                {"operation": "or", "filters": [
+                    {"propertyId": "due", "condition": "isSet", "values": []},
+                    {"propertyId": "due", "condition": "is", "values": ["2026-12-04", "soon"]},
+                ]},
+            ]}})
+        );
+    }
+
+    #[test]
+    fn a_date_value_that_would_leave_the_calendar_stays() {
+        let dates: HashSet<String> = ["due", "met"].map(str::to_owned).into();
+        let last = json!({"properties": {"due": {"from": "9999-12-01", "to": "9999-12-31"}}});
+        let first = json!({"properties": {
+            "due": {"from": "0001-01-01"},
+            "met": {"from": 5},
+        }});
+        for (before, days, what) in [
+            (&last, 1, "the end would be past 9999"),
+            (&last, i64::MAX, "more days than there are"),
+            (&first, -1, "before year 1, and before 1970"),
+            (&first, i64::MIN, "more days than there are"),
+        ] {
+            let mut card = fields(before);
+            move_dates(&mut card, &dates, days);
+            assert_eq!(&Value::Object(card), before, "{what}");
+        }
     }
 }

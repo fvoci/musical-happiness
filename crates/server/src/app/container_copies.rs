@@ -6,9 +6,10 @@ use fvoci_model::{
 use fvoci_store::{CopyTitles, DuplicateAs};
 
 use super::App;
-use super::accept_language::accepted_language;
+use super::accept_language::Reader;
 use super::language::Language;
 use super::pages::refused_without_member;
+use super::templates::changes_of_copy;
 use crate::error::AppError;
 use crate::metrics::{ContainerWork, Module};
 
@@ -23,10 +24,13 @@ impl App {
     /// else under the default category.
     ///
     /// The titles the copy is given (the original's with `copy` after it, `New board
-    /// template`) are in the language of the user's settings; where those leave it to
-    /// the device, or name a language the server writes nothing in, in the first
-    /// language of the server's that `accept_language` (the request's `Accept-Language`)
-    /// prefers; failing both, in English.
+    /// template`) are in the language the server writes in for the user
+    /// ([`App::language_for`], by `accept_language`, the request's `Accept-Language`).
+    ///
+    /// A copy of a built-in template is the user's own board or template: it is made
+    /// without the template's marks, and its days are moved by as many days as the day
+    /// it is for the user is after the day the template was written for
+    /// ([`super::templates::changes_of_copy`]).
     ///
     /// # Errors
     ///
@@ -41,35 +45,60 @@ impl App {
         duplicate_as: DuplicateAs,
         accept_language: Option<&str>,
     ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), AppError> {
-        let settings = self.user_settings(user_id).await?;
-        let language = Language::first_of([
-            Language::written_in(settings.language.as_str()),
-            accept_language.and_then(accepted_language),
-        ]);
+        let now = crate::auth::now_millis();
+        self.duplicate_container_at(
+            container_id,
+            user_id,
+            to_workspace,
+            duplicate_as,
+            accept_language,
+            now,
+        )
+        .await
+    }
+
+    /// [`App::duplicate_container`] at the time `now`, in milliseconds: the day the
+    /// days of a built-in template are moved to is the day it is then for the user.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::duplicate_container`].
+    pub async fn duplicate_container_at(
+        &self,
+        container_id: &str,
+        user_id: &str,
+        to_workspace: &str,
+        duplicate_as: DuplicateAs,
+        accept_language: Option<&str>,
+        now: i64,
+    ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), AppError> {
+        let reader = self.reader_at(user_id, accept_language, now).await?;
         self.copy_container(
             container_id,
             user_id,
             to_workspace,
             duplicate_as,
-            language,
+            &reader,
             ContainerWork::Duplicate,
         )
         .await
     }
 
-    /// [`App::duplicate_container`] with its titles in `language`, counted among the
-    /// boards copied whole as `work`.
+    /// [`App::duplicate_container`] for `reader`, counted among the boards copied whole
+    /// as `work`.
     pub(super) async fn copy_container(
         &self,
         container_id: &str,
         user_id: &str,
         to_workspace: &str,
         duplicate_as: DuplicateAs,
-        language: Language,
+        reader: &Reader,
         work: ContainerWork,
     ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), AppError> {
-        let titles = titles_in(language);
-        let kind = self.container(container_id).await?.kind;
+        let titles = titles_in(reader.language);
+        let source = self.container(container_id).await?;
+        let changes = changes_of_copy(&source, reader.today.as_deref());
+        let kind = source.kind;
         if kind == ContainerKind::Wiki && duplicate_as == DuplicateAs::Template {
             return Err(
                 AppError::bad_request(ContainerError::WikiIsTemplate).with_parameter("asTemplate")
@@ -86,6 +115,7 @@ impl App {
                         to_workspace_named,
                         duplicate_as,
                         &titles,
+                        changes,
                     )
                     .await?
             }

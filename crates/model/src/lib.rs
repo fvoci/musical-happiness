@@ -96,7 +96,8 @@ pub use containers_and_blocks::{
     renew_containers_and_blocks_ids, renew_containers_and_blocks_ids_told,
 };
 pub use date_value::{
-    DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
+    DateValueError, check_date_value, date_property_ids, day_at, days_between, move_dates,
+    rewrite_previous_date_values,
 };
 pub use deleted_item::DeletedItem;
 pub use file_info::{FileInfo, FileKey, is_storage_path};

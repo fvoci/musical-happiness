@@ -55,7 +55,7 @@ use axum::Json;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::header::CACHE_CONTROL;
-use axum::http::{HeaderValue, Method, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
@@ -351,6 +351,13 @@ pub(crate) fn query_option(query: Option<&str>, name: &str) -> Option<String> {
     query
         .and_then(|query| crate::auth::token::query_value(query, name))
         .filter(|value| !value.is_empty())
+}
+
+/// The request's `Accept-Language`, if it has one that is text.
+pub(crate) fn accept_language(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(axum::http::header::ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
 }
 
 /// Reads the `disableNotify` query flag.

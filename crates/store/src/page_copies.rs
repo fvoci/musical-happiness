@@ -14,7 +14,9 @@ use fvoci_model::{
     Block, ContainerKind, ContainerMember, ContainersAndBlocks, PageLimits, generate_block_ids,
 };
 
-use crate::blocks::{CopyTitles, DuplicateAs, fetch_blocks, insert_blocks, select_blocks};
+use crate::blocks::{
+    CopyChanges, CopyTitles, DuplicateAs, fetch_blocks, insert_blocks, select_blocks,
+};
 use crate::containers_and_blocks::duplicate_container;
 use crate::db::{Id, Scope};
 use crate::file_refs::NewBodyFiles;
@@ -125,6 +127,7 @@ impl Store {
                 to_workspace,
                 DuplicateAs::Copy,
                 titles,
+                CopyChanges::default(),
             )
             .await
         })

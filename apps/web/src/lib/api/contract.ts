@@ -2958,8 +2958,8 @@ export interface paths {
          * @description Copies the built-in welcome board for the user, as a private board of their own in
          *     the workspace: what a new account starts on. It is written in the language of the
          *     user's settings; where that is left to the device, or is one the board is not
-         *     written in, in `language`; failing both, in English. Every request makes another
-         *     copy.
+         *     written in, in the one `Accept-Language` prefers; failing both, in English. Every
+         *     request makes another copy.
          */
         post: operations["onboard"];
         delete?: never;
@@ -3270,7 +3270,7 @@ export interface paths {
          *     The built-in templates are written in several languages (`templateLanguage` among a
          *     board's `properties`), and those of one are listed: the language of the user's
          *     settings; where that is left to the device, or is one the templates are not written
-         *     in, `language`; failing both, English.
+         *     in, the one `Accept-Language` prefers; failing both, English.
          */
         get: operations["getTemplates"];
         put?: never;
@@ -10817,11 +10817,11 @@ export interface operations {
     };
     onboard: {
         parameters: {
-            query?: {
-                /** @description The language of the screen the request comes from, as a tag such as `ko` or `en-US`: what the built-in templates are written in for a user whose settings leave the language to the device. */
-                language?: string;
+            query?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
             };
-            header?: never;
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
@@ -11345,11 +11345,11 @@ export interface operations {
     };
     getTemplates: {
         parameters: {
-            query?: {
-                /** @description The language of the screen the request comes from, as a tag such as `ko` or `en-US`: what the built-in templates are written in for a user whose settings leave the language to the device. */
-                language?: string;
+            query?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
             };
-            header?: never;
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;

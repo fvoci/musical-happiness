@@ -36,7 +36,7 @@ export class ServerEmailVerification implements EmailVerification {
   }
 
   /** Makes the welcome board of a new organization's first workspace. */
-  welcome(workspaceId: string, language: string): Promise<string> {
-    return makeWelcomeBoard(this.#http, workspaceId, language);
+  welcome(workspaceId: string): Promise<string> {
+    return makeWelcomeBoard(this.#http, workspaceId);
   }
 }

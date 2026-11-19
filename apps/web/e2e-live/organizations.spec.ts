@@ -114,7 +114,7 @@ test('an organization started on a Korean screen begins on the welcome board in 
   await form.getByLabel('비밀번호', { exact: true }).fill(owner.password);
   await form.getByRole('button', { name: '조직 시작하기' }).click();
   await expect(page.getByTestId('app-shell')).toBeVisible();
-  // The account's settings leave the language to the device: the screen's is taken.
+  // The account's settings leave the language to the device: the browser's is taken.
   await expect(boardLink(page, 'fvoci 시작하기')).toHaveAttribute('aria-current', 'page');
   await expect(page.getByText('카드를 열어 보세요', { exact: true })).toBeVisible();
   expect(errors).toEqual([]);

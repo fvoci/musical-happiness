@@ -1,6 +1,7 @@
 {
   "key": "issue-tracker",
   "language": "ko",
+  "baseDate": "2026-12-01",
   "onboarding": false,
   "board": {
     "id": "61dfafed-a3e0-5f6f-a4fe-e2b4062f4d48",

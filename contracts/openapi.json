@@ -11896,7 +11896,7 @@
     },
     "/api/v1/w/{workspaceId}/onboard": {
       "post": {
-        "description": "Copies the built-in welcome board for the user, as a private board of their own in\nthe workspace: what a new account starts on. It is written in the language of the\nuser's settings; where that is left to the device, or is one the board is not\nwritten in, in `language`; failing both, in English. Every request makes another\ncopy.",
+        "description": "Copies the built-in welcome board for the user, as a private board of their own in\nthe workspace: what a new account starts on. It is written in the language of the\nuser's settings; where that is left to the device, or is one the board is not\nwritten in, in the one `Accept-Language` prefers; failing both, in English. Every\nrequest makes another copy.",
         "operationId": "onboard",
         "parameters": [
           {
@@ -11909,9 +11909,9 @@
             }
           },
           {
-            "description": "The language of the screen the request comes from, as a tag such as `ko` or `en-US`: what the built-in templates are written in for a user whose settings leave the language to the device.",
-            "in": "query",
-            "name": "language",
+            "description": "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.",
+            "in": "header",
+            "name": "Accept-Language",
             "required": false,
             "schema": {
               "type": "string"
@@ -12731,7 +12731,7 @@
     },
     "/api/v1/w/{workspaceId}/templates": {
       "get": {
-        "description": "The workspace's template boards the user may see, then the built-in templates, which\nevery workspace is offered. Each of the two oldest first.\n\nThe built-in templates are written in several languages (`templateLanguage` among a\nboard's `properties`), and those of one are listed: the language of the user's\nsettings; where that is left to the device, or is one the templates are not written\nin, `language`; failing both, English.",
+        "description": "The workspace's template boards the user may see, then the built-in templates, which\nevery workspace is offered. Each of the two oldest first.\n\nThe built-in templates are written in several languages (`templateLanguage` among a\nboard's `properties`), and those of one are listed: the language of the user's\nsettings; where that is left to the device, or is one the templates are not written\nin, the one `Accept-Language` prefers; failing both, English.",
         "operationId": "getTemplates",
         "parameters": [
           {
@@ -12744,9 +12744,9 @@
             }
           },
           {
-            "description": "The language of the screen the request comes from, as a tag such as `ko` or `en-US`: what the built-in templates are written in for a user whose settings leave the language to the device.",
-            "in": "query",
-            "name": "language",
+            "description": "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.",
+            "in": "header",
+            "name": "Accept-Language",
             "required": false,
             "schema": {
               "type": "string"

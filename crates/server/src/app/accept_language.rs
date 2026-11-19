@@ -1,6 +1,71 @@
-//! The language a request accepts, of those the server writes its own text in.
+//! Whom the server writes for: the language it writes in for them, of those it writes
+//! its own text in, and the day it is for them.
 
+use fvoci_model::UserSettings;
+
+use super::App;
 use super::language::Language;
+use crate::error::AppError;
+
+/// Whoever the server writes something for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Reader {
+    /// The language the server writes in for them ([`App::language_for`]).
+    pub(super) language: Language,
+    /// The calendar day it is for them, as `YYYY-MM-DD`: in the time zone of their
+    /// settings, or in UTC where those leave the zone to the device, which the server
+    /// does not know. `None` at a time outside years 1 to 9999.
+    pub(super) today: Option<String>,
+}
+
+impl App {
+    /// The user as somebody the server writes for at the time `now`, in milliseconds,
+    /// by `accept_language` (the request's `Accept-Language`) where their settings name
+    /// no language of the server's.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the settings cannot be read.
+    pub(super) async fn reader_at(
+        &self,
+        user_id: &str,
+        accept_language: Option<&str>,
+        now: i64,
+    ) -> Result<Reader, AppError> {
+        let settings = self.user_settings(user_id).await?;
+        Ok(Reader {
+            language: language_of(&settings, accept_language),
+            today: fvoci_model::day_at(now, &settings.time_zone),
+        })
+    }
+
+    /// The language the server writes in for a user: the titles of a copy, the built-in
+    /// templates they are offered and their welcome board. It is the language of their
+    /// settings; where those leave it to the device, or name a language the server
+    /// writes nothing in, the first language of the server's that `accept_language`
+    /// (the request's `Accept-Language`) prefers; failing both, English.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the settings cannot be read.
+    pub(super) async fn language_for(
+        &self,
+        user_id: &str,
+        accept_language: Option<&str>,
+    ) -> Result<Language, AppError> {
+        let settings = self.user_settings(user_id).await?;
+        Ok(language_of(&settings, accept_language))
+    }
+}
+
+/// The language of the settings, or else the one `accept_language` prefers, or else
+/// English.
+fn language_of(settings: &UserSettings, accept_language: Option<&str>) -> Language {
+    Language::first_of([
+        Language::written_in(settings.language.as_str()),
+        accept_language.and_then(accepted_language),
+    ])
+}
 
 /// The language an `Accept-Language` header prefers among those the server writes in:
 /// the ranges are tried from the highest `q` down, as they stand in the header for the
@@ -9,7 +74,7 @@ use super::language::Language;
 /// 0 to 1, is none.
 ///
 /// `None` for a header that names no language of the server's.
-pub(super) fn accepted_language(header: &str) -> Option<Language> {
+fn accepted_language(header: &str) -> Option<Language> {
     let mut ranges: Vec<(&str, f32)> = header.split(',').filter_map(range_of).collect();
     // Stable: ranges of the same weight stay in the order the header gives them.
     ranges.sort_by(|(_, one), (_, other)| other.total_cmp(one));
