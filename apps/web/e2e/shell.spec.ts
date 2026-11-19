@@ -175,6 +175,107 @@ test.describe('the top bar', () => {
     await expect(page.getByTestId('container-description-field')).toHaveCount(0);
   });
 
+  test('the description is opened, written, saved and given up from the keyboard alone', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'a keyboard and a mouse');
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await openApp(page);
+    const about = topBar(page).getByTestId('container-description');
+    const field = page.getByTestId('container-description-field');
+    const done = page.getByRole('button', { name: 'Done', exact: true });
+    const openByKeys = async (): Promise<void> => {
+      await about.focus();
+      await page.keyboard.press('Enter');
+      await expect(field).toBeFocused();
+    };
+
+    // Ctrl+Enter (⌘Enter on Apple devices) saves and closes; the focus is back on "ⓘ".
+    await openByKeys();
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.type('Saved by the keys.');
+    await page.keyboard.press(await primaryKey(page, 'Enter'));
+    await expect(field).toHaveCount(0);
+    await expect(about).toBeFocused();
+    await openByKeys();
+    await expect(field).toHaveValue('Saved by the keys.');
+
+    // Tab reaches "Done", which saves and closes too.
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.type('Saved by Done.');
+    await page.keyboard.press('Tab');
+    await expect(done).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(field).toHaveCount(0);
+    await expect(about).toBeFocused();
+
+    // Escape gives up what was typed.
+    await openByKeys();
+    await expect(field).toHaveValue('Saved by Done.');
+    await page.keyboard.type(' And more.');
+    await page.keyboard.press('Escape');
+    await expect(field).toHaveCount(0);
+    await expect(about).toBeFocused();
+    await openByKeys();
+    await expect(field).toHaveValue('Saved by Done.');
+  });
+
+  test('a description being written is saved to its own board when the reader goes back, and does not open again', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'a keyboard and a mouse');
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await openApp(page);
+    await showSidebar(page);
+    await boardLink(page, 'Roadmap').click();
+    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Roadmap');
+    await boardLink(page, FIRST_BOARD).click();
+    await expect(topBar(page).getByTestId('board-title')).toHaveValue(FIRST_BOARD);
+    const first = new URL(page.url()).pathname;
+
+    const about = topBar(page).getByTestId('container-description');
+    const field = page.getByTestId('container-description-field');
+    await about.click();
+    await field.fill('Written, then left.');
+    // Back to the other board with no click outside: nothing closed the description first.
+    await page.goBack();
+    await expect(topBar(page).getByTestId('board-title')).toHaveValue('Roadmap');
+    await expect(field).toHaveCount(0);
+    const descriptions = (): Promise<Record<string, string>> =>
+      page.evaluate(async () => {
+        const { backend } = (
+          window as unknown as {
+            fvociDev: {
+              backend: {
+                workspaces: () => Promise<{ id: string }[]>;
+                boards: (id: string) => Promise<{ title: string; description: string }[]>;
+              };
+            };
+          }
+        ).fvociDev;
+        const [workspace] = await backend.workspaces();
+        const boards = workspace ? await backend.boards(workspace.id) : [];
+        return Object.fromEntries(boards.map((board) => [board.title, board.description]));
+      });
+    await expect.poll(async () => (await descriptions())[FIRST_BOARD]).toBe('Written, then left.');
+    expect((await descriptions()).Roadmap).not.toBe('Written, then left.');
+    // The bar still follows the board it shows: emptied here, its "ⓘ" offers to add one.
+    await about.click();
+    await field.fill('');
+    await page.keyboard.press(await primaryKey(page, 'Enter'));
+    await expect(about).toHaveAccessibleName('Add description');
+
+    // Forward again: the description it was open on stays closed, and keeps no focus.
+    await page.goForward();
+    await expect(page).toHaveURL((url) => url.pathname === first);
+    await expect(topBar(page).getByTestId('board-title')).toHaveValue(FIRST_BOARD);
+    await expect(about).toBeVisible();
+    await expect(field).toHaveCount(0);
+    await expect(about).not.toBeFocused();
+    await about.click();
+    await expect(field).toHaveValue('Written, then left.');
+  });
+
   test('the title of a board is changed in place', async ({ page }) => {
     await openApp(page);
     const title = topBar(page).getByTestId('board-title');

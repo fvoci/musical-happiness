@@ -91,17 +91,18 @@
       ? workspace.board
       : undefined,
   );
-  const container = $derived(store?.board ?? listed);
-  /** Sharing is for the board's admins; a template is shared as it is made, never joined. */
-  const canShare = $derived(store?.canShare === true && store.board?.isTemplate !== true);
-  /** The trash of cards is for the board's editors, as the server has it. */
-  const canRestoreCards = $derived(store?.canEdit === true);
-
   /** The open wiki, where the page is one: its admins change its description. */
   const wiki = $derived.by(() => {
     const shown = shownWiki(workspace).current;
     return shown?.wikiId === containerId ? shown : undefined;
   });
+  /** The board or wiki as it is read where it is open, else as the list has it. */
+  const container = $derived(store?.board ?? wiki?.wiki ?? listed);
+  /** Sharing is for the board's admins; a template is shared as it is made, never joined. */
+  const canShare = $derived(store?.canShare === true && store.board?.isTemplate !== true);
+  /** The trash of cards is for the board's editors, as the server has it. */
+  const canRestoreCards = $derived(store?.canEdit === true);
+
   /** Changes the description, for whoever may: a board's editors, a wiki's admins. */
   const describe = $derived.by(() => {
     if (store?.canEdit) {

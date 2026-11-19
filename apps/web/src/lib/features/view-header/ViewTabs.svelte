@@ -3,9 +3,9 @@
   to the view's address, the current one marked.
 
   Each tab keeps its whole name. As many as fit are tabs, in their order; the
-  rest are lines of a menu behind one more tab ("2 more views"). The view that
-  is shown is always a tab: where the room ends before it, it takes the place
-  of the last one that fits (`tab-fit.ts`).
+  rest are lines of a menu behind one more tab ("More views: 2"), the last in
+  the row's landmark. The view that is shown is always a tab: where the room
+  ends before it, it takes the place of the last one that fits (`tab-fit.ts`).
 
   What fits is measured: an unseen copy of every tab, and of the button of the
   rest, at its own width; and the room this part of the header has. Both are
@@ -152,23 +152,24 @@
         </a>
       {/if}
     {/each}
-  </nav>
 
-  {#if rest.length > 0}
-    <ActionMenu title={m.viewheader_views()} actions={restActions} align="start">
-      {#snippet trigger(props: Record<string, unknown>)}
-        <button
-          {...props}
-          type="button"
-          data-tool="more-views"
-          class={[TAB, 'shrink-0 border-transparent text-muted-foreground hover:text-foreground']}
-        >
-          {m.viewheader_more_views({ count: rest.length })}
-          <ChevronDownIcon class="size-4 shrink-0" aria-hidden="true" />
-        </button>
-      {/snippet}
-    </ActionMenu>
-  {/if}
+    <!-- In the row's landmark, so that a reader going by landmarks finds every view. -->
+    {#if rest.length > 0}
+      <ActionMenu title={m.viewheader_views()} actions={restActions} align="start">
+        {#snippet trigger(props: Record<string, unknown>)}
+          <button
+            {...props}
+            type="button"
+            data-tool="more-views"
+            class={[TAB, 'shrink-0 border-transparent text-muted-foreground hover:text-foreground']}
+          >
+            {m.viewheader_more_views({ count: rest.length })}
+            <ChevronDownIcon class="size-4 shrink-0" aria-hidden="true" />
+          </button>
+        {/snippet}
+      </ActionMenu>
+    {/if}
+  </nav>
 
   {#if onAddView}
     <span data-adder class="flex shrink-0 items-center">

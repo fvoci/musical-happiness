@@ -169,7 +169,8 @@ async function undo(page: Page): Promise<void> {
 
 /** Shows another view of the board: by its tab, or through the list behind the button. */
 async function showView(page: Page, name: string): Promise<void> {
-  if ((await layout(page)) === 'row') {
+  // The whole row has tabs, but while its search field is open.
+  if ((await tool(page, 'views').count()) === 0) {
     await header(page).getByRole('link', { name, exact: true }).click();
     await expect(header(page).getByRole('link', { name, exact: true })).toHaveAttribute(
       'aria-current',
@@ -178,7 +179,10 @@ async function showView(page: Page, name: string): Promise<void> {
   } else {
     await tool(page, 'views').click();
     await page.getByRole('menuitem', { name, exact: true }).click();
-    await expect(tool(page, 'views')).toContainText(name);
+    // The whole row has its tabs back: another view starts without the search.
+    await expect(
+      header(page).locator('[data-tool="views"], [aria-current="page"]').first(),
+    ).toContainText(name);
   }
 }
 
@@ -413,8 +417,9 @@ test.describe('in Korean', () => {
     await setPaneWidth(page, 704);
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
     // Icons, each named for a screen reader and by its tooltip.
-    await expect(tool(page, 'properties')).toHaveAccessibleName('속성');
-    await expect(tool(page, 'properties')).toHaveAttribute('title', '속성');
+    // With the number of properties the cards show.
+    await expect(tool(page, 'properties')).toHaveAccessibleName(/^속성 \(\d+\)$/);
+    await expect(tool(page, 'properties')).toHaveAttribute('title', /^속성 \(\d+\)$/);
     await expect(tool(page, 'group')).toHaveAccessibleName(/그룹화 기준: Status/);
     await expect(tool(page, 'filter')).toHaveAccessibleName('필터');
     await expect(tool(page, 'sort')).toHaveAccessibleName('정렬');
@@ -932,8 +937,11 @@ test.describe('search', () => {
       await expect(tool(page, 'search')).toBeFocused();
       await expect(tool(page, 'views')).toBeVisible();
     } else {
-      // In the whole row the field is where its button was; Escape gives the button back.
+      // In the whole row the field is where its button was, and the tabs are one button
+      // that names the view; Escape gives both back.
       await expect(tool(page, 'search')).toHaveCount(0);
+      await expect(header(page).getByRole('link')).toHaveCount(0);
+      await expect(tool(page, 'views')).toHaveText('Task Overview');
       await field.press('Escape');
       await expect(field).toBeHidden();
       await expect(tool(page, 'search')).toBeFocused();

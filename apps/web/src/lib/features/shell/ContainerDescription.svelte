@@ -7,19 +7,25 @@
   beside the title: the top bar opens it from its menu (`open`).
 
   A reader who may change it (`onChange`) changes it there, in a field: what
-  is typed is handed on, once, when the surface closes; Escape in the field
+  is typed is handed on, once, when the surface closes, whether by a click
+  elsewhere, by "Done" (the sheet's own, or the popover's, after the field
+  for Tab) or by Ctrl+Enter (⌘Enter on Apple devices); Escape in the field
   puts the description back first. Leaving the board while it is open hands
-  it on too. While an input method is composing (Hangul, kana) Escape is its
-  own: it neither puts the description back nor closes the surface.
+  it on too, to the board it was open on, and it does not open again when
+  the board comes back. While an input method is composing (Hangul, kana)
+  Escape and Enter are its own: they neither close the surface nor change
+  what is kept.
 -->
 <script lang="ts">
   import InfoIcon from '@lucide/svelte/icons/info';
+  import { onDestroy } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { isComposing } from '$lib/keys.ts';
+  import { isComposing, primaryModifier } from '$lib/keys.ts';
+  import { Button } from '$lib/ui/button/index.js';
   import { Textarea } from '$lib/ui/textarea/index.js';
 
   interface Props {
@@ -43,11 +49,28 @@
     if (next !== description) onChange?.(next);
   }
 
+  /** Hands on what was typed and closes: "Done", and Ctrl+Enter (⌘Enter) in the field. */
+  function done(): void {
+    commit();
+    open = false;
+  }
+
   // Gone while open (the reader went to another board, or the description was emptied
-  // elsewhere): what was typed is handed on all the same.
-  $effect(() => commit);
+  // elsewhere): what was typed is handed on all the same, to the board it was typed for
+  // (a prop read here is the one it had), and the top bar no longer counts it open.
+  // `open` is written, not read: its getter reads the top bar's state, which a read
+  // from here left stale for good (Svelte 5.57.3).
+  onDestroy(() => {
+    commit();
+    open = false;
+  });
 
   function onkeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter' && primaryModifier(event) && !isComposing(event)) {
+      event.preventDefault();
+      done();
+      return;
+    }
     if (event.key !== 'Escape') return;
     // The surface listens on the document: an input method's Escape stops here.
     if (isComposing(event)) event.stopPropagation();
@@ -97,6 +120,12 @@
         }}
         {onkeydown}
       />
+      <!-- The sheet has its own "Done" in its head. -->
+      <div class="flex justify-end pt-1 group-data-[presentation=sheet]/surface:hidden">
+        <Button size="sm" variant="ghost" data-testid="container-description-done" onclick={done}>
+          {m.ui_done()}
+        </Button>
+      </div>
     {:else}
       <p
         class="max-h-80 overflow-y-auto text-sm break-words whitespace-pre-line"

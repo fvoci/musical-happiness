@@ -11,7 +11,7 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 
 import { screensDir } from '../e2e/screens.ts';
 
-import { boardLink, boardMenu, chooseFromMenu, sidebar } from '../e2e/shell.support.ts';
+import { boardLink, boardMenu, chooseFromMenu, headCuts, sidebar } from '../e2e/shell.support.ts';
 
 import {
   boardPath,
@@ -195,6 +195,22 @@ test('the welcome board shows its five views, its pictures and its document, in 
   await expect(page.getByTestId('kanban')).toBeVisible();
   await expect(page.getByText('Open a card', { exact: true })).toBeVisible();
   await shot(page, 'welcome-en-board');
+  // A window of 1,000 cuts no name of a view: beside the sidebar as many tabs as fit, the
+  // rest behind one more; with the sidebar folded to its strip, every view a tab.
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await expect(page.getByTestId('view-header')).toHaveAttribute('data-layout', 'row');
+  expect(await headCuts(page)).toEqual({ cut: [], scroll: 0 });
+  await sidebar(page).getByRole('button', { name: 'Collapse sidebar' }).click();
+  await expect(tabs.getByRole('link')).toHaveText([
+    'Board',
+    'Calendar',
+    'Gallery',
+    'Gantt',
+    'Table',
+  ]);
+  expect(await headCuts(page)).toEqual({ cut: [], scroll: 0 });
+  await page.getByTestId('expand-sidebar').click();
+  await page.setViewportSize({ width: 1280, height: 720 });
   for (const [view, shown] of [
     ['Calendar', 'calendar'],
     ['Gallery', 'gallery'],
