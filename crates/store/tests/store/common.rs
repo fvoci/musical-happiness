@@ -4,16 +4,10 @@ use std::path::PathBuf;
 
 use fvoci_model::{Block, Container, ContainerType, User, Workspace, new_id};
 use fvoci_store::testing::TestDatabase;
-use fvoci_store::{CopyTitles, DbType, Purged, Store};
+use fvoci_store::{DbType, Purged, Store};
 use sqlx::postgres::PgConnection;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{ConnectOptions as _, Connection as _};
-
-/// The titles of copies, in English, as a caller of the store brings them.
-pub const TITLES: CopyTitles = CopyTitles {
-    copy_of: |title| format!("{title} copy"),
-    new_template: "New board template",
-};
 
 /// A store on a database that belongs to one test, reaching the rows of the one
 /// organization the test works in.

@@ -6,7 +6,7 @@ use std::fmt;
 use super::uploads::MAX_UPLOAD_NAME_CHARS;
 
 /// Why a name a client gives is not taken as the name of a file. It reads as what
-/// follows "the name": `is blank after its last `/` or `\``.
+/// follows "the name" in a sentence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UnfitName {
     /// It is longer than [`MAX_UPLOAD_NAME_CHARS`] characters.
