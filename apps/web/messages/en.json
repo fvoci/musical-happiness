@@ -279,6 +279,7 @@
   "app_problem_forbidden": "You are not allowed to do that on this board.",
   "app_problem_dismiss": "Dismiss",
   "app_problem_upload_busy": "Too many files are being uploaded. Try again once they are done.",
+  "app_problem_upload_left": "A file was still going up when you left: it was not added. Add it once more.",
   "app_problem_export": "The archive could not be made.",
   "app_problem_import": "The archive was not imported, or only in part.",
   "app_problem_import_invalid": "That file is no archive of boards or wikis this app can read.",

@@ -142,6 +142,16 @@ pub enum DuplicateAs {
     Template,
 }
 
+/// The titles a copy of a board or a wiki is given, in the language of whoever asked
+/// for it. The store has no words of its own: the caller brings them.
+#[derive(Debug, Clone, Copy)]
+pub struct CopyTitles {
+    /// The title of a copy of the same kind as the original, made of the original's.
+    pub copy_of: fn(&str) -> String,
+    /// The title of a template made from a board.
+    pub new_template: &'static str,
+}
+
 /// A block as a list gives it: without its body, with what the list says about it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListedBlock {

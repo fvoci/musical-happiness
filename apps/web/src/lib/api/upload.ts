@@ -56,9 +56,13 @@ export async function contentDigest(bytes: Blob): Promise<string> {
   return `sha-256=:${btoa(binary)}:`;
 }
 
-/** Whether a failed part is worth sending again: no answer, or the server failed. */
+/**
+ * Whether a failed part is worth sending again: no answer, the server
+ * failed, or its database did not take the part in time.
+ */
 const worthAgain = (error: unknown): boolean =>
-  error instanceof BackendError && (error.status === 0 || error.status === 500);
+  error instanceof BackendError &&
+  (error.status === 0 || error.status === 500 || error.reason === 'database_busy');
 
 /**
  * Sends `file` in parts to an upload that `open` opens, and ends it with

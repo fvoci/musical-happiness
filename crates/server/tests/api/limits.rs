@@ -30,18 +30,23 @@ fn json_of_length(length: usize) -> String {
     body
 }
 
-/// Checks the one answer to a body over its limit: 413, the code, and the limit.
+/// Checks the one answer to a body over its limit: 413, the code, the reason and the
+/// limit.
 #[track_caller]
 fn check_too_large(response: &ApiResponse, limit: usize) {
     response.check_error(
         StatusCode::PAYLOAD_TOO_LARGE,
         &format!("the request body is larger than {limit} bytes"),
     );
+    let problem = response.value();
     assert_eq!(
-        response.value()["limit"],
-        json!(limit),
-        "the answer names the limit: {}",
-        response.text()
+        (&problem["type"], &problem["reason"], &problem["limit"]),
+        (
+            &json!("/problems/request-too-large"),
+            &json!("request_too_large"),
+            &json!(limit)
+        ),
+        "the answer names the reason and the limit: {problem}"
     );
 }
 

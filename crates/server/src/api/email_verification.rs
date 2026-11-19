@@ -4,6 +4,7 @@
 use axum::body::Bytes;
 use axum::extract::{Extension, State};
 use axum::http::HeaderMap;
+use fvoci_model::ContainerKind;
 use serde::{Deserialize, Serialize};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -22,9 +23,13 @@ struct EmailVerified {
     /// The workspace: the first of the organization it started, or the one its link
     /// leads into.
     workspace_id: String,
-    /// For a guest's link: the board it was let onto.
+    /// For a guest's link: the board or the wiki it was let onto.
     #[serde(skip_serializing_if = "Option::is_none")]
     container_id: Option<String>,
+    /// For a guest's link: which of the two it is, so that they are sent to its own
+    /// address.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    container_kind: Option<ContainerKind>,
     /// Whether the registration started its organization, rather than joining one by
     /// the link of an invitation.
     organization_started: bool,
@@ -175,6 +180,7 @@ async fn complete(
     let answer = EmailVerified {
         workspace_id: signed_in.confirmed.workspace_id,
         container_id: signed_in.confirmed.container_id,
+        container_kind: signed_in.container_kind,
         organization_started: signed_in.confirmed.started_organization,
     };
     let response = with_session_cookie(&app, &signed_in.session_token, json_response(&answer));

@@ -41,9 +41,10 @@ const CONTENT_DIGEST: &str = "content-digest";
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct NewUpload {
-    /// The name of the file, 1 to 255 characters, of which what follows its last `/` is
-    /// kept: a name with nothing there (`dir/`) is refused. The stored file keeps its
-    /// extension, as `uploadFile` keeps it.
+    /// The name of the file, as `uploadFile` takes one: 1 to 255 characters, without
+    /// U+0000, of which what follows its last `/` is kept. A name whose last segment,
+    /// parted by `/` or `\`, is blank (`dir/`), `.` or `..` is refused. The stored file
+    /// keeps its extension, as `uploadFile` keeps it.
     name: String,
     /// The size of the file in bytes. More than `maxFileBytes` of `getClientConfig` is
     /// 413 (`file_too_large`).

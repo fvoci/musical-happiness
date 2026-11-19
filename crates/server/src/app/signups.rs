@@ -10,7 +10,7 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{RegisterRequest, Session, User, new_id};
+use fvoci_model::{ContainerKind, RegisterRequest, Session, User, new_id};
 use fvoci_store::{
     Accepted, Confirmed, Founding, InvitedConfirmation, Proof, SIGNUP_LIFETIME_MILLIS, Signup,
     SignupStart, StoreError,
@@ -18,7 +18,8 @@ use fvoci_store::{
 
 use super::App;
 use super::auth::{PasswordHolder, account_error, incorrect_login};
-use super::mail::{Content, Language, Letter};
+use super::language::Language;
+use super::mail::{Content, Letter};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
@@ -323,9 +324,13 @@ impl App {
                 "the account was changed in the meantime; sign in",
             ));
         }
+        let container_kind = self
+            .kind_of_admitted_in(&confirmed.org_id, confirmed.container_id.as_deref())
+            .await?;
         Ok(ConfirmedSignup {
             session_token,
             confirmed,
+            container_kind,
             made_here,
         })
     }
@@ -541,6 +546,8 @@ pub struct ConfirmedSignup {
     pub session_token: String,
     /// The account, and where it was let in.
     pub confirmed: Confirmed,
+    /// For a guest's link: whether a board or a wiki let it in.
+    pub container_kind: Option<ContainerKind>,
     /// Whether the browser was the one the registration was made from: its cookie has
     /// nothing left to show.
     pub made_here: bool,

@@ -2,7 +2,7 @@
  * The in-memory backend behaves the way the server design says the server
  * will, as far as a screen can tell.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { DocNode } from '$lib/editor/schema.ts';
 import { BackendError, isConflict, type Change } from '$lib/state/index.ts';
@@ -371,6 +371,61 @@ describe('file blocks', () => {
     expect(node?.type).toBe('file');
     expect(fileId).not.toBe(uploaded.fileId);
     expect(await backend.fileDetails(copy.id, fileId)).toEqual({ name: 'minutes.pdf', size: 4 });
+  });
+});
+
+describe('the name of an upload', () => {
+  it('is refused as the server refuses it where it names no file', async () => {
+    const { backend, boardId } = await firstBoard();
+    const longest = '가'.repeat(255);
+    // U+0085 is blank to the server and not to `trim`; U+FEFF the other way round.
+    for (const name of ['dir/', 'dir\\', ' ', '\u0085', '.', 'dir/..', 'a\0.txt', `${longest}가`]) {
+      const refused = await rejection(backend.upload(boardId, new File(['x'], name)));
+      expect(refused.status, JSON.stringify(name)).toBe(400);
+    }
+    // Kept as the server keeps it: what follows the last `/`.
+    for (const [name, kept] of [
+      ['dir/a.txt', 'a.txt'],
+      ['dir\\a.txt', 'dir\\a.txt'],
+      ['...', '...'],
+      ['\uFEFF', '\uFEFF'],
+      [longest, longest],
+    ] as const) {
+      const uploaded = await backend.upload(boardId, new File(['x'], name));
+      expect((await backend.fileDetails(boardId, uploaded.fileId)).name).toBe(kept);
+    }
+  });
+});
+
+describe('a copy of a board', () => {
+  it('is titled as the server does: in the language of the settings, or else of the browser', async () => {
+    const { backend, boardId } = await firstBoard();
+    const [workspace] = await backend.workspaces();
+    const to = workspace?.id ?? '';
+    const source = (await backend.boards(to)).find((board) => board.id === boardId)?.title;
+    expect(source).toBeTruthy();
+    const browser = vi.spyOn(navigator, 'languages', 'get');
+    try {
+      browser.mockReturnValue(['ja']);
+      expect((await backend.duplicateContainer(boardId, false, to)).title).toBe(`${source} copy`);
+      const template = await backend.duplicateContainer(boardId, true, to);
+      expect(template.title).toBe('New board template');
+      expect((await backend.duplicateContainer(template.id, false, to)).title).toBe(template.title);
+
+      browser.mockReturnValue(['ja', 'ko-KR', 'en']);
+      expect((await backend.duplicateContainer(boardId, false, to)).title).toBe(`${source} 사본`);
+      expect((await backend.duplicateContainer(boardId, true, to)).title).toBe('새 보드 템플릿');
+      await backend.patchSettings({ language: 'de' });
+      expect((await backend.duplicateContainer(boardId, false, to)).title).toBe(`${source} 사본`);
+
+      await backend.patchSettings({ language: 'en-GB' });
+      expect((await backend.duplicateContainer(boardId, false, to)).title).toBe(`${source} copy`);
+      browser.mockReturnValue(['en']);
+      await backend.patchSettings({ language: 'ko' });
+      expect((await backend.duplicateContainer(boardId, false, to)).title).toBe(`${source} 사본`);
+    } finally {
+      browser.mockRestore();
+    }
   });
 });
 

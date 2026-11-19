@@ -279,6 +279,7 @@
   "app_problem_forbidden": "이 보드에서 할 수 없는 일입니다.",
   "app_problem_dismiss": "닫기",
   "app_problem_upload_busy": "올리는 파일이 너무 많습니다. 끝난 뒤에 다시 해 보세요.",
+  "app_problem_upload_left": "떠날 때 올리고 있던 파일은 넣지 못했습니다. 다시 넣어 주세요.",
   "app_problem_export": "아카이브를 만들지 못했습니다.",
   "app_problem_import": "아카이브를 가져오지 못했거나 일부만 가져왔습니다.",
   "app_problem_import_invalid": "이 앱이 읽을 수 있는 보드나 위키의 아카이브가 아닙니다.",

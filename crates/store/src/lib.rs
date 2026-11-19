@@ -90,7 +90,9 @@ pub use account_deletion::{DeletionAsking, DeletionStanding};
 pub use account_erasure::{ErasedFrom, Erasing, ErasureEnd, ErasureStart, HandedOver};
 pub use accounts::Founding;
 pub use audit::{AuditEntry, AuditPlace};
-pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
+pub use blocks::{
+    BlockFilter, BodyPreview, CopyTitles, DuplicateAs, ListedBlock, Paging, Previews,
+};
 pub use body_digest::body_digest;
 pub use body_docs::{DocAsRead, LoggedUpdate, StoredDoc};
 pub use body_versions::{BodyBefore, DEFAULT_BODY_VERSIONS_KEPT, KeptVersion};

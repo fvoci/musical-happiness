@@ -34,6 +34,7 @@
   import type { Container } from '$lib/logic/wire.ts';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { sidebarShape } from '$lib/layout/presentation.ts';
+  import { paneCovered } from '$lib/layout/over-pane.svelte.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
   import { createWiki, whileHere, type WikiDraft, type Workspace } from '$lib/state/index.ts';
   import type { AuditRecord } from '$lib/state/organization.ts';
@@ -282,7 +283,7 @@
     {containerId}
     {containerHref}
     hidden={!layout.strip}
-    inert={drawerOut}
+    inert={drawerOut || paneCovered()}
     onOpenContainer={openContainer}
     onExpand={expand}
     onAddBoard={addBoard}
@@ -357,6 +358,7 @@
       menuButton={layout.menuButton}
       onOpenSidebar={openDrawer}
       {search}
+      inert={paneCovered()}
     />
     <div class="relative min-h-0 flex-1">
       {@render children()}

@@ -9,7 +9,7 @@ use fvoci_model::{
 };
 
 use crate::Store;
-use crate::blocks::{self, BlockFilter, DuplicateAs};
+use crate::blocks::{self, BlockFilter, CopyTitles, DuplicateAs};
 use crate::body_versions::BodyWrite;
 use crate::card_values;
 use crate::containers;
@@ -161,9 +161,10 @@ impl Store {
     /// copies and the membership that makes `user_id` an administrator of the new board.
     ///
     /// The copy is a private board created by `user_id`, in `to_workspace`
-    /// or else in the workspace of the original. A copy of the same kind as the original has
-    /// " copy" appended to its title, and a template made from a board is titled "New
-    /// board template".
+    /// or else in the workspace of the original. A copy of the same kind as the original is
+    /// titled by `titles.copy_of` from the original's title, as it stands when it is
+    /// copied; a template made from a board is titled `titles.new_template`, and a board
+    /// made from a template keeps the title.
     ///
     /// # Errors
     ///
@@ -176,9 +177,18 @@ impl Store {
         user_id: &str,
         to_workspace: Option<&str>,
         duplicate_as: DuplicateAs,
+        titles: &CopyTitles,
     ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), StoreError> {
         self.transaction(async |scope| {
-            duplicate_container(scope, container_id, user_id, to_workspace, duplicate_as).await
+            duplicate_container(
+                scope,
+                container_id,
+                user_id,
+                to_workspace,
+                duplicate_as,
+                titles,
+            )
+            .await
         })
         .await
     }
@@ -299,16 +309,17 @@ pub(crate) async fn duplicate_container(
     user_id: &str,
     to_workspace: Option<&str>,
     duplicate_as: DuplicateAs,
+    titles: &CopyTitles,
 ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), StoreError> {
     let mut container = containers::get_container(scope, container_id).await?;
 
     let as_template = duplicate_as == DuplicateAs::Template;
     if as_template == container.is_template {
         // board -> board or template -> template
-        container.title.push_str(" copy");
+        container.title = (titles.copy_of)(&container.title);
     } else if as_template {
         // template from board
-        "New board template".clone_into(&mut container.title);
+        titles.new_template.clone_into(&mut container.title);
     }
 
     // The copy is private to the user who made it.

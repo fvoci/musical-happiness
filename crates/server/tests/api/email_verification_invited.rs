@@ -419,3 +419,50 @@ async fn a_registration_by_a_link_is_finished_by_who_made_it_only() {
     );
     scene.stop().await;
 }
+
+/// A guest who confirms is told what let them in, a board or a wiki, as one who is let
+/// in at once is: each has an address of its own.
+#[tokio::test]
+async fn a_confirmed_guest_is_told_whether_a_board_or_a_wiki_let_them_in() {
+    let scene = Scene::start(None).await;
+    let onto_board = scene.link(Role::Guest).await;
+    let wiki = scene
+        .ada
+        .post(
+            &format!("/w/{}/wikis", scene.workspace_id),
+            &json!({"type": "P", "title": "Handbook"}),
+        )
+        .await;
+    wiki.check_created();
+    let onto_wiki: Invitation = scene
+        .ada
+        .post(
+            &scene.links(),
+            &json!({"role": "guest", "containerId": wiki.value()["id"], "containerRole": "viewer"}),
+        )
+        .await
+        .created_json();
+
+    for (link, username, kind) in [(&onto_board, "bo", "board"), (&onto_wiki, "wyn", "wiki")] {
+        let email = format!("{username}@example.test");
+        scene
+            .accept(link.token.as_deref().expect("its token"), username, &email)
+            .await
+            .check_status(StatusCode::ACCEPTED);
+        let sent = scene.sent().await;
+        let mail = sent
+            .iter()
+            .rev()
+            .find(|message| message.recipient == email)
+            .expect("the confirmation's mail");
+        let confirmed = confirm(&scene.th, mail).await;
+        confirmed.check_status(StatusCode::OK);
+        assert_eq!(
+            confirmed.value()["containerId"],
+            json!(link.container_id),
+            "{kind}"
+        );
+        assert_eq!(confirmed.value()["containerKind"], json!(kind));
+    }
+    scene.stop().await;
+}

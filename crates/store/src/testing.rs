@@ -332,8 +332,13 @@ impl TestDatabase {
     pub async fn remove(self) {
         match self.cleanup {
             Cleanup::SqliteFile(path) => {
-                // Journal files may or may not exist; a leftover file is harmless.
-                let _ = std::fs::remove_file(path);
+                // The log and its index are gone with the last connection that closed;
+                // a store that was not closed leaves them, and they go with the file.
+                for suffix in ["", "-wal", "-shm"] {
+                    let mut name = path.as_os_str().to_owned();
+                    name.push(suffix);
+                    let _ = std::fs::remove_file(name);
+                }
             }
             Cleanup::PostgresSchema { url, schema, role } => {
                 let mut connection = connect(&url).await;
@@ -404,6 +409,44 @@ async fn role_is_past_the_wall(connection: &mut PgConnection) -> bool {
 /// The version of the newest migration of this build.
 pub fn latest_migration() -> i64 {
     crate::schema::latest_version()
+}
+
+/// Another writer of an SQLite file, as another process with the file open would be:
+/// it holds the file for writing, with a change not yet committed, until it lets go.
+#[derive(Debug)]
+pub struct OtherWriter(sqlx::sqlite::SqliteConnection);
+
+impl OtherWriter {
+    /// Opens the file and takes it for writing, as a commit of the rollback journal
+    /// holds it: no other connection writes meanwhile.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the file does not open or is held by another writer.
+    pub async fn hold(database: &Path) -> Self {
+        let mut connection =
+            sqlx::sqlite::SqliteConnection::connect(&database.display().to_string())
+                .await
+                .unwrap_or_else(|error| panic!("opening {}: {error}", database.display()));
+        sqlx::raw_sql("BEGIN EXCLUSIVE; UPDATE workspaces SET name = name")
+            .execute(&mut connection)
+            .await
+            .unwrap_or_else(|error| panic!("holding {}: {error}", database.display()));
+        Self(connection)
+    }
+
+    /// Commits and closes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the commit fails.
+    pub async fn let_go(mut self) {
+        sqlx::raw_sql("COMMIT")
+            .execute(&mut self.0)
+            .await
+            .unwrap_or_else(|error| panic!("committing: {error}"));
+        drop(self.0.close().await);
+    }
 }
 
 /// Brings the schema that `database_connection` connects to up to the migrations up to

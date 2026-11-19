@@ -53,7 +53,7 @@ export interface Problem {
   error: BackendError | undefined;
 }
 
-export type ProblemAction = 'load' | 'save' | 'undo' | 'upload' | 'export' | 'import';
+export type ProblemAction = 'load' | 'save' | 'undo' | 'upload' | 'left' | 'export' | 'import';
 
 export interface WorkspaceOptions {
   backend: Backend;
@@ -341,8 +341,8 @@ export class Workspace {
   }
 
   /**
-   * Puts a failure where the shell shows it. Anything that is not a backend
-   * error is a bug and is logged. A 401 is no failure to show: the session
+   * Puts a failure where the shell shows it, or with no error what is only to be told.
+   * Any other error is a bug and is logged. A 401 is no failure to show: the session
    * is over (`signedOut`), or the workspace shown is closed to it (`sso`).
    */
   report(action: ProblemAction, error: unknown): void {
@@ -367,7 +367,7 @@ export class Workspace {
       ...this.problems,
       { id: this.#problemCount, action, error: isBackendError(error) ? error : undefined },
     ];
-    if (!isBackendError(error)) console.error(error);
+    if (error !== undefined && !isBackendError(error)) console.error(error);
   }
 
   dismissProblem(id: number): void {

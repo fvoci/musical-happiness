@@ -91,6 +91,12 @@ reasons! {
     FileTooLarge => "file_too_large", "File too large";
     /// The archive is larger than the largest the server imports.
     ArchiveTooLarge => "archive_too_large", "Archive too large";
+    /// An entry of the archive unpacks to more than an entry of its kind may.
+    ArchiveEntryTooLarge => "archive_entry_too_large", "Archive entry too large";
+    /// The body of the request is larger than its route reads.
+    RequestTooLarge => "request_too_large", "Request too large";
+    /// The database did not take a statement of the request in time.
+    DatabaseBusy => "database_busy", "Database busy";
     /// The body's document does not take the update.
     UpdateRefused => "update_refused", "Update refused";
     /// The update builds on changes the body's document does not have.

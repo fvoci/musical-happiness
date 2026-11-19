@@ -201,3 +201,41 @@ test('in another browser the link asks for the password the registration was mad
   await expect(page.getByTestId('verify-problem')).toContainText('invalid, has expired');
   expect((await page.request.get('/api/v1/users/me')).status()).toBe(401);
 });
+
+test('a guest of a wiki who confirms is on that wiki', async ({ page, baseURL }) => {
+  if (!baseURL || !founder) throw new Error('the server has no organization yet');
+  const api = await signedIn(baseURL, founder);
+  const [workspace] = (await (await api.get('/api/v1/users/me/workspaces')).json()) as {
+    id: string;
+  }[];
+  if (!workspace) throw new Error('the founder has no organization');
+  const wikis = await api.post(`/api/v1/w/${workspace.id}/wikis`, {
+    data: { type: 'P', title: 'Handbook' },
+  });
+  expect(wikis.ok(), await wikis.text()).toBe(true);
+  const wiki = (await wikis.json()) as { id: string };
+  const made = await api.post(`/api/v1/w/${workspace.id}/invitations`, {
+    data: { role: 'guest', containerId: wiki.id, containerRole: 'viewer' },
+  });
+  expect(made.ok(), await made.text()).toBe(true);
+  const invitation = (await made.json()) as { token?: string };
+  await api.dispose();
+
+  const who = person('wikiguest');
+  const errors = watchErrors(page);
+  await page.goto(`/invite/${invitation.token ?? ''}`);
+  await expect(page.getByTestId('invite-summary')).toContainText('Handbook');
+  await page.getByLabel('User name', { exact: true }).fill(who.username);
+  await page.getByLabel('Email address').fill(who.email);
+  await page.getByLabel('Password', { exact: true }).fill(who.password);
+  await page.getByRole('button', { name: 'Create account and join' }).click();
+  await expect(page.getByTestId('check-mail')).toContainText(who.email);
+  await expect.poll(async () => (await links(baseURL, who.email)).length).toBe(1);
+  const [link] = await links(baseURL, who.email);
+  if (!link) throw new Error('the link was mailed');
+
+  await page.goto(link);
+  await expect(page).toHaveURL(new RegExp(`/w/${workspace.id}/wikis/${wiki.id}`));
+  await expect(page.getByRole('heading', { name: 'Handbook' }).first()).toBeVisible();
+  expect(errors).toEqual([]);
+});
