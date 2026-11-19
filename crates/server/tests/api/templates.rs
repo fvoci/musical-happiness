@@ -452,13 +452,19 @@ impl Seen {
                 let block: Block =
                     serde_json::from_value(block.clone()).expect("a block of the contract");
                 for file in block.shown_files() {
-                    ts.client
-                        .get(&format!(
-                            "{ROOT_WS}/containers/{}/files/{file}/info",
-                            board.id
-                        ))
+                    let place = format!("{ROOT_WS}/containers/{}/files/{file}", board.id);
+                    let info = ts
+                        .client
+                        .get(&format!("{place}/info"))
                         .await
-                        .check_ok();
+                        .ok_json::<Value>();
+                    let read = ts.client.get(&place).await;
+                    read.check_ok();
+                    assert_eq!(
+                        Some(read.body.len()),
+                        info["size"].as_u64().and_then(|size| size.try_into().ok()),
+                        "{file} is read whole"
+                    );
                     self.shown += 1;
                 }
             }
@@ -597,6 +603,64 @@ async fn the_files_of_the_templates_are_kept(ts: &crate::common::TestServer) {
         }
     }
     assert!(new_files > 0, "the new templates show files");
+}
+
+/// On PostgreSQL an organization reads the records of the templates' files and changes
+/// none of them: its purge of the files that nothing shows passes over a file of the
+/// system organization's, also one that no body shows. (An SQLite database holds one
+/// organization besides the system's, and its purge is the database's.)
+#[tokio::test]
+async fn an_organizations_purge_leaves_the_files_of_the_templates() {
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    if fvoci_store::testing::db_type_of_the_tests() != fvoci_store::DbType::Postgres {
+        ts.teardown().await;
+        return;
+    }
+    let template = ts
+        .app
+        .store()
+        .get_builtin_templates()
+        .await
+        .expect("the built-in templates")
+        .into_iter()
+        .next()
+        .expect("a built-in template");
+    // A file of a template that no body shows: what a purge takes, of its own.
+    let unshown = fvoci_model::FileInfo {
+        id: fvoci_model::new_id(),
+        container_id: template.id.clone(),
+        stored_name: "unshown.png".to_owned(),
+        name: "unshown.png".to_owned(),
+        size: 3,
+        path: format!("{}/unshown.png", template.id),
+        create_at: 1,
+        ..fvoci_model::FileInfo::default()
+    };
+    ts.system_store()
+        .save_file_info(&unshown)
+        .await
+        .expect("the file is recorded");
+
+    let ours = ts.app.store();
+    assert_ne!(ours.tenant(), ts.system_store().tenant(), "an organization");
+    ours.get_file_info(&template.id, &unshown.stored_name)
+        .await
+        .expect("an organization reads the record");
+    let purged = ours
+        .collect_unreferenced_files(i64::MAX)
+        .await
+        .expect("the purge runs");
+    assert!(purged.is_empty(), "nothing of the system's: {purged:?}");
+    ts.system_store()
+        .get_file_info(&template.id, &unshown.stored_name)
+        .await
+        .expect("the record is still there");
+    ts.teardown().await;
 }
 
 /// Templates that are stored again take the files of the old ones with them, from the
