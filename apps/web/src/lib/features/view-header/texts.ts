@@ -128,8 +128,9 @@ const HINT_LETTERS = 20;
 
 /**
  * The lines of "…" for the tools that have no button of their own: in the
- * folded row most of them; in the whole row "dependencies" alone (a fifth
- * tool with its word would leave no room for the tabs of the views).
+ * folded row most of them; in the whole row "dependencies" alone (set once
+ * for a Gantt chart and seldom again, it does not take a place from the
+ * tabs of the views).
  */
 export function asideTools(offer: AsideOffer, open: Record<AsideTool, () => void>): MenuAction[] {
   const line = (id: AsideTool, label: string, icon: Icon, hint?: string): MenuAction => ({

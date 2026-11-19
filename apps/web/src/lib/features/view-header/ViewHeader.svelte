@@ -3,11 +3,14 @@
   properties its cards show, grouping, filter, sort, search, a new card).
 
   It looks at the width of the pane it is in, not of the window
-  (`pane.header`). With room for all of it, it is one row: the views as
-  tabs, the tools with their words, the search field, "New". In a narrower
-  pane it folds into one row of a different make: one button that names the
-  view and opens the list of views, search and filter as icons, the rest
-  behind "…", and "New" as a round button at the bottom of the board.
+  (`pane.tabs`). With room for all of it, it is one row: the views as
+  tabs (as many as fit, the rest behind one more tab: ViewTabs.svelte), the
+  tools as icons, "New". In a narrower pane it folds into one row of a
+  different make: one button that names the view and opens the list of
+  views, search and filter as icons, the rest behind "…", and "New" as a
+  round button at the bottom of the board. A tool is an icon in both rows,
+  so that the names of the views keep the room: its name is a tooltip and
+  what a screen reader hears, and what it has on (conditions, sorts) a count.
 
   The two are one component, and every tool is one element in both. A tool
   that has no button of its own (in the folded row all but search and filter;
@@ -85,7 +88,7 @@
   const pickers = new PickerPresentation();
 
   /** The pane has room for the whole header in one row. */
-  const row = $derived(pane.header);
+  const row = $derived(pane.tabs);
   const templates = $derived(board.board?.cardProperties ?? []);
   const canEdit = $derived(board.canEdit);
   const grouping = $derived(groupingOf(view.fields.viewType));
@@ -123,10 +126,12 @@
 
   // ------------------------------------------------------------ search
 
-  /** The view whose search field was opened in the folded row. Another view starts closed. */
+  /** The view whose search field was opened. Another view starts closed. */
   let searchOpenIn = $state<string | undefined>(undefined);
+  /** The search field is open: asked for, or with text. */
+  const searchShown = $derived(searchOpenIn === view.id || search !== '');
   /** The folded row shows the search field in place of everything else. */
-  const searchBar = $derived(!row && (searchOpenIn === view.id || search !== ''));
+  const searchBar = $derived(!row && searchShown);
   let searchField = $state<HTMLInputElement | null>(null);
 
   async function openSearch(): Promise<void> {
@@ -142,11 +147,14 @@
     header?.querySelector<HTMLElement>('[data-tool="search"]')?.focus();
   }
 
+  /** Escape closes the field; in the whole row, so does the focus leaving it empty. */
   function searchKeys(event: KeyboardEvent): void {
-    if (event.key !== 'Escape' || isComposing(event)) return;
-    if (row) search = '';
-    else void closeSearch();
+    if (event.key === 'Escape' && !isComposing(event)) void closeSearch();
   }
+  const searchLeft = (): void => {
+    // Not when the window lost the focus: coming back finds the field where it was.
+    if (row && search === '' && document.hasFocus()) searchOpenIn = undefined;
+  };
 
   // ------------------------------------------------------------- views
 
@@ -245,12 +253,13 @@
   /** A tool that is not drawn: an unseen element where "…" is in the row, for its popover to open at. */
   const ASIDE = 'invisible absolute top-1/2 size-8 -translate-y-1/2 roomy:size-touch';
   const asideAt = $derived([ASIDE, row ? 'right-26' : 'right-1.5']);
+  const SEARCH_BAR = 'absolute inset-0 z-10 flex items-center gap-1 bg-background px-1.5';
 </script>
 
 <!--
-  The button of a tool. In the whole row: its icon, its word, and a count.
-  In the folded row: the icon and the count, or (`aside`) nothing to see;
-  `always`: nothing to see in either row.
+  The button of a tool: its icon and a count, its name as a tooltip; or
+  (`aside`) nothing to see in the folded row; `always`: nothing to see in
+  either row.
 -->
 {#snippet tool(
   props: Record<string, unknown>,
@@ -265,25 +274,13 @@
     variant="ghost"
     data-tool={id}
     aria-label={count > 0 ? `${label} (${count})` : label}
+    title={count > 0 ? `${label} (${count})` : label}
     class={[
       'shrink-0 roomy:h-touch',
-      aside === 'always' || (aside && !row)
-        ? asideAt
-        : row
-          ? 'max-w-56'
-          : 'gap-1 px-2 roomy:min-w-touch',
+      aside === 'always' || (aside && !row) ? asideAt : 'gap-1 px-2 roomy:min-w-touch',
     ]}
   >
-    <!--
-      The whole row has the word and no icon: four icons are the width of a
-      view's tab, and a pane of 992 pixels has no tab to spare. To have both,
-      draw the icon here too, with `data-icon="inline-start"`.
-    -->
-    {#if row}
-      <span class="truncate">{label}</span>
-    {:else}
-      <ToolIcon />
-    {/if}
+    <ToolIcon />
     {#if count > 0}
       <span
         class="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-primary px-1 text-xs leading-none font-semibold text-primary-foreground"
@@ -319,17 +316,62 @@
         {onAddView}
       />
     {/if}
-    <div class="min-w-1 flex-1"></div>
+    {#if !row}<div class="min-w-1 flex-1"></div>{/if}
+  </div>
+  {#if !(row && searchShown)}
+    <IconButton
+      label={m['ViewHeader.search-text']()}
+      data-tool="search"
+      inert={searchBar}
+      onclick={() => void openSearch()}
+    >
+      <SearchIcon />
+    </IconButton>
+  {/if}
+
+  <!--
+    Search: an icon, and once pressed a field in its place in the whole row,
+    over the whole row in the folded one; open while it has text. The field
+    is one element in both rows, so that it keeps what was typed, the caret
+    and the focus when the pane changes its width. First among the tools: an
+    empty field that gives its place back as the focus leaves moves no tool
+    to its right from under the pointer pressing it.
+  -->
+  <div
+    role="search"
+    data-testid="view-search"
+    class={!searchShown ? 'hidden' : row ? 'w-48 shrink-0' : SEARCH_BAR}
+  >
     {#if !row}
       <IconButton
-        label={m['ViewHeader.search-text']()}
-        data-tool="search"
-        onclick={() => void openSearch()}
+        label={m.viewheader_search_close()}
+        data-tool="search-close"
+        onclick={() => void closeSearch()}
       >
-        <SearchIcon />
+        <ArrowLeftIcon />
       </IconButton>
     {/if}
+    <div class="relative min-w-0 flex-1">
+      <SearchIcon
+        class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+        aria-hidden="true"
+      />
+      <Input
+        bind:ref={searchField}
+        bind:value={search}
+        type="search"
+        aria-label={m['ViewHeader.search-text']()}
+        placeholder={m['ViewHeader.search-text']()}
+        autocomplete="off"
+        enterkeyhint="search"
+        class="pl-8 roomy:h-touch roomy:text-base"
+        onkeydown={searchKeys}
+        onblur={searchLeft}
+      />
+    </div>
+  </div>
 
+  <div class="contents" inert={searchBar}>
     {#if canEdit}
       <PickerSurface
         bind:open={
@@ -425,48 +467,6 @@
         </PickerSurface>
       {/if}
     {/if}
-  </div>
-
-  <!--
-    The search field is one element in both rows, so that it keeps what was
-    typed, the caret and the focus when the pane changes its width. In the
-    folded row it is either away or laid over the whole row.
-  -->
-  <div
-    role="search"
-    data-testid="view-search"
-    class={row
-      ? 'w-40 shrink-0'
-      : searchBar
-        ? 'absolute inset-0 z-10 flex items-center gap-1 bg-background px-1.5'
-        : 'hidden'}
-  >
-    {#if !row}
-      <IconButton
-        label={m.viewheader_search_close()}
-        data-tool="search-close"
-        onclick={() => void closeSearch()}
-      >
-        <ArrowLeftIcon />
-      </IconButton>
-    {/if}
-    <div class="relative min-w-0 flex-1">
-      <SearchIcon
-        class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
-        aria-hidden="true"
-      />
-      <Input
-        bind:ref={searchField}
-        bind:value={search}
-        type="search"
-        aria-label={m['ViewHeader.search-text']()}
-        placeholder={m['ViewHeader.search-text']()}
-        autocomplete="off"
-        enterkeyhint="search"
-        class="pl-8 roomy:h-touch roomy:text-base"
-        onkeydown={searchKeys}
-      />
-    </div>
   </div>
 
   {#if canEdit}

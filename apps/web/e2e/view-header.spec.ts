@@ -251,7 +251,7 @@ const ALL = [
 ];
 
 test.describe('the two rows', () => {
-  test('a pane of 992 pixels has the whole header in one row, and nothing spills', async ({
+  test('a pane of 704 pixels has the whole header in one row, and nothing spills', async ({
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'needs a window that can be this wide');
@@ -259,12 +259,30 @@ test.describe('the two rows', () => {
     // 1280 wide, the sidebar beside it: the pane is 1024.
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
 
+    // A pane of 992 has a tab for every view, each at its whole name.
+    const cut = (): Promise<number> =>
+      header(page).evaluate(
+        (element) =>
+          [...element.querySelectorAll('[data-testid="view-tabs"] a span')].filter(
+            (each) => each.scrollWidth > each.clientWidth,
+          ).length,
+      );
     await setPaneWidth(page, 992);
+    await expect(header(page).getByRole('link')).toHaveCount(4);
+    await expect(tool(page, 'more-views')).toHaveCount(0);
+    expect(await cut()).toBe(0);
+
+    await setPaneWidth(page, 704);
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
-    for (const name of ['properties', 'group', 'filter', 'sort', 'more', 'add-view']) {
+    for (const name of ['properties', 'group', 'filter', 'sort', 'search', 'more', 'add-view']) {
       await expect(tool(page, name)).toBeVisible();
     }
-    await expect(header(page).getByRole('searchbox', { name: 'Search cards' })).toBeVisible();
+    // Fewer tabs, the rest behind one more; none of them is cut.
+    const tabs = await header(page).getByRole('link').count();
+    expect(tabs).toBeGreaterThan(0);
+    if (tabs < 4)
+      await expect(tool(page, 'more-views')).toHaveText(`More views: ${String(4 - tabs)}`);
+    expect(await cut()).toBe(0);
     await expect(header(page).getByRole('link', { name: 'Progress Tracker' })).toHaveAttribute(
       'aria-current',
       'page',
@@ -284,16 +302,59 @@ test.describe('the two rows', () => {
     );
 
     // One pixel less and it folds.
-    await setPaneWidth(page, 991);
+    await setPaneWidth(page, 703);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
+  });
+
+  test('views beyond the room are behind one more tab, and the shown one is always a tab', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'needs a window that can be this wide');
+    await open(page);
+    await setPaneWidth(page, 992);
+    // Long names for all four views of the board.
+    await page.evaluate(async (boardId) => {
+      const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
+      for (const [at, view] of (await backend.views(boardId)).entries()) {
+        await backend.patchView(boardId, view.id, {
+          title: `A longer view name ${String(at + 1)}`,
+        });
+      }
+    }, placeOf(page.url()).boardId);
+    const more = tool(page, 'more-views');
+    await expect(more).toBeVisible();
+    const links = header(page).getByRole('link');
+    const tabs = await links.count();
+    expect(tabs).toBeGreaterThan(1);
+    expect(tabs).toBeLessThan(4);
+    await expect(more).toHaveText(`More views: ${String(4 - tabs)}`);
+    // No tab is cut, and nothing spills.
+    const fit = await header(page).evaluate((element) => ({
+      cut: [...element.querySelectorAll('[data-testid="view-tabs"] a span')].filter(
+        (each) => each.scrollWidth > each.clientWidth,
+      ).length,
+      scroll: element.scrollWidth - element.clientWidth,
+    }));
+    expect(fit).toEqual({ cut: 0, scroll: 0 });
+
+    // The last view, from the list: it becomes a tab, in place of the last that fitted;
+    // the first stays first.
+    await more.click();
+    await page.getByRole('menuitem', { name: 'A longer view name 4' }).click();
+    await expect(header(page).getByRole('link', { name: 'A longer view name 4' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await expect(links).toHaveCount(tabs);
+    await expect(header(page).getByRole('link').first()).toHaveText('A longer view name 1');
   });
 
   test('a narrower pane folds the header, and "New" becomes a round button at the bottom', async ({
     page,
   }, testInfo) => {
     await open(page);
-    // A window of 1100 with the sidebar beside the board: a pane of 844.
-    if (testInfo.project.name === 'desktop') await resize(page, 1100, 720);
+    // A window of 900 with the sidebar beside the board: a pane of 644.
+    if (testInfo.project.name === 'desktop') await resize(page, 900, 720);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
 
     await expect(tool(page, 'views')).toContainText('Progress Tracker');
@@ -330,13 +391,13 @@ test.describe('the two rows', () => {
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'needs a window that can be this wide');
     await open(page);
-    await resize(page, 1100, 720);
+    await resize(page, 900, 720);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
     // The sidebar cannot be folded away yet; a wider window gives the pane the same room.
     await resize(page, 1300, 720);
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
     await expect(page.getByTestId('new-card')).toHaveText(/New/);
-    await resize(page, 1100, 720);
+    await resize(page, 900, 720);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
   });
 });
@@ -344,18 +405,21 @@ test.describe('the two rows', () => {
 test.describe('in Korean', () => {
   test.use({ locale: 'ko-KR' });
 
-  test('the whole row has its words, and still does not spill at 992 pixels', async ({
+  test('the whole row has its names in Korean, and does not spill at 704 pixels', async ({
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'needs a window that can be this wide');
     await open(page);
-    await setPaneWidth(page, 992);
+    await setPaneWidth(page, 704);
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
-    await expect(tool(page, 'properties')).toHaveText('속성');
-    await expect(tool(page, 'group')).toHaveText(/그룹화 기준: Status/);
-    await expect(tool(page, 'filter')).toHaveText('필터');
-    await expect(tool(page, 'sort')).toHaveText('정렬');
-    await expect(header(page).getByRole('searchbox', { name: '카드 검색' })).toBeVisible();
+    // Icons, each named for a screen reader and by its tooltip.
+    await expect(tool(page, 'properties')).toHaveAccessibleName('속성');
+    await expect(tool(page, 'properties')).toHaveAttribute('title', '속성');
+    await expect(tool(page, 'group')).toHaveAccessibleName(/그룹화 기준: Status/);
+    await expect(tool(page, 'filter')).toHaveAccessibleName('필터');
+    await expect(tool(page, 'sort')).toHaveAccessibleName('정렬');
+    await tool(page, 'search').click();
+    await expect(header(page).getByRole('searchbox', { name: '카드 검색' })).toBeFocused();
     await expect(page.getByTestId('new-card')).toHaveText(/새로 만들기/);
     const spill = await header(page).evaluate((element) => {
       const edge = element.getBoundingClientRect().right;
@@ -551,7 +615,7 @@ test.describe('what a view shows', () => {
     ]);
     expect(after.fields.hiddenOptionIds).toEqual([]);
     if ((await layout(page)) === 'row') {
-      await expect(tool(page, 'group')).toHaveText(/Group by: Priority/);
+      await expect(tool(page, 'group')).toHaveAccessibleName(/Group by: Priority/);
     }
 
     await undo(page);
@@ -830,11 +894,12 @@ test.describe('search', () => {
     // By its element: while the folded row has it away, it has no role to be found by.
     const field = header(page).locator('input[type="search"]');
 
+    // Away until its button is pressed, in either row.
+    await expect(field).toBeHidden();
+    await tool(page, 'search').click();
+    await expect(field).toBeFocused();
     if (folded) {
-      await expect(field).toBeHidden();
-      await tool(page, 'search').click();
-      // The row is the search field now, and the field has the focus.
-      await expect(field).toBeFocused();
+      // The row is the search field now.
       await expect(header(page).getByRole('searchbox', { name: 'Search cards' })).toBeVisible();
       const covered = await header(page).evaluate((element) => {
         const search = element.querySelector('[data-testid="view-search"]');
@@ -867,13 +932,17 @@ test.describe('search', () => {
       await expect(tool(page, 'search')).toBeFocused();
       await expect(tool(page, 'views')).toBeVisible();
     } else {
+      // In the whole row the field is where its button was; Escape gives the button back.
+      await expect(tool(page, 'search')).toHaveCount(0);
       await field.press('Escape');
+      await expect(field).toBeHidden();
+      await expect(tool(page, 'search')).toBeFocused();
     }
     await expect(field).toHaveValue('');
     await expect(cards(page)).toHaveCount(5);
 
     // Another view starts without the search.
-    if (folded) await tool(page, 'search').click();
+    await tool(page, 'search').click();
     await field.fill('scope');
     await expect(cards(page)).toHaveCount(1);
     if (folded) {
@@ -973,8 +1042,8 @@ test.describe('a board the reader may only look at', () => {
       await tool(page, 'views').click();
       await expect(page.getByRole('menuitem')).toHaveCount(3);
       await closeTop(page);
-      await tool(page, 'search').click();
     }
+    await tool(page, 'search').click();
     const before = await cards(page).count();
     expect(before).toBeGreaterThan(1);
     await header(page).getByRole('searchbox', { name: 'Search cards' }).fill('backlog');
@@ -988,6 +1057,7 @@ test.describe('while the window changes size', () => {
     test.skip(testInfo.project.name !== 'desktop', 'starts wide and goes through every stage');
     await open(page);
     await showView(page, 'Task Overview');
+    await tool(page, 'search').click();
     const field = header(page).getByRole('searchbox', { name: 'Search cards' });
     await field.fill('e');
     await expect(cards(page)).toHaveCount(5);
@@ -1007,7 +1077,7 @@ test.describe('while the window changes size', () => {
     await text.evaluate((element) => {
       (window as unknown as { kept: Element }).kept = element;
     });
-    await resize(page, 1100, 720);
+    await resize(page, 900, 720);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
     await expect(filterEditor(page)).toBeVisible();
     await expect(page.locator('[data-slot="popover-content"]')).toHaveCount(1);
@@ -1065,7 +1135,7 @@ test.describe('while the window changes size', () => {
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'starts wide and goes through every stage');
     await open(page);
-    await resize(page, 1100, 720);
+    await resize(page, 900, 720);
     await openTool(page, 'sort');
     await expect(sortEditor(page)).toBeVisible();
     const anchored = (name: string): Promise<{ below: number; across: number } | undefined> =>
@@ -1179,7 +1249,7 @@ test.describe('pictures', () => {
       await expect(sortEditor(page).locator('[data-sort]')).toHaveCount(2);
     },
     search: async (page) => {
-      if ((await layout(page)) === 'folded') await tool(page, 'search').click();
+      await tool(page, 'search').click();
       await header(page).getByRole('searchbox').fill('project');
       await expect(cards(page)).toHaveCount(2);
     },

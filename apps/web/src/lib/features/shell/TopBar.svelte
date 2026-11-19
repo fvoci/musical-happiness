@@ -4,15 +4,16 @@
   motion) while one asked for waits for a write.
 
   What it shows follows the width of the pane it is in, not of the window:
-  five faces of who is here from where two kanban columns fit (two below),
-  the description of the board from where the whole header of a view fits.
-  The number of the board's members, there at every width, opens its members
+  five faces of who is here from where two kanban columns fit (two below).
+  The description is behind "ⓘ" next to the title (a line of "…" in a
+  narrow pane), so that the title keeps the room (ContainerDescription.svelte);
+  a board's editors and a wiki's admins change it there, or add one. The number of the board's members, there at every width, opens its members
   in the sharing dialog, which shows them alone to a reader who is no admin.
 
   Its editors find the board's deleted cards here ("Deleted cards").
 
-  A narrow pane (a phone) has room for the title only if undo, redo and the
-  deleted cards are lines of a menu ("…"); a phone seldom has a keyboard for
+  A narrow pane (a phone) has room for the title only if undo, redo, the
+  description and the deleted cards are lines of a menu ("…"); a phone seldom has a keyboard for
   their keys, which work all the same. From where two kanban columns fit they
   are buttons of their own.
 
@@ -23,6 +24,7 @@
 -->
 <script lang="ts">
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
+  import InfoIcon from '@lucide/svelte/icons/info';
   import MenuIcon from '@lucide/svelte/icons/menu';
   import Redo2Icon from '@lucide/svelte/icons/redo-2';
   import Share2Icon from '@lucide/svelte/icons/share-2';
@@ -36,10 +38,11 @@
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { cardTrash, type Trash, type Workspace } from '$lib/state/index.ts';
+  import { cardTrash, shownWiki, type Trash, type Workspace } from '$lib/state/index.ts';
 
   import { Button } from '$lib/ui/button/index.js';
 
+  import ContainerDescription from './ContainerDescription.svelte';
   import ContainerIcon from './ContainerIcon.svelte';
   import BoardTitle from './BoardTitle.svelte';
   import ShareDialog from './ShareDialog.svelte';
@@ -75,6 +78,8 @@
   /** The sharing dialog was opened from the number of members: it begins at them. */
   let sharingMembers = $state(false);
   let trashOpen = $state(false);
+  /** The board or wiki whose description is open (ContainerDescription.svelte): another starts closed. */
+  let describingIn = $state<string | undefined>(undefined);
   /** The deleted cards of the board, read anew each time they are shown. */
   let trash = $state.raw<Trash | undefined>(undefined);
 
@@ -91,6 +96,28 @@
   const canShare = $derived(store?.canShare === true && store.board?.isTemplate !== true);
   /** The trash of cards is for the board's editors, as the server has it. */
   const canRestoreCards = $derived(store?.canEdit === true);
+
+  /** The open wiki, where the page is one: its admins change its description. */
+  const wiki = $derived.by(() => {
+    const shown = shownWiki(workspace).current;
+    return shown?.wikiId === containerId ? shown : undefined;
+  });
+  /** Changes the description, for whoever may: a board's editors, a wiki's admins. */
+  const describe = $derived.by(() => {
+    if (store?.canEdit) {
+      const board = store;
+      return (description: string) =>
+        void board.changeBoard(
+          (current) => ({ ...current, description }),
+          'changeBoardDescription',
+        );
+    }
+    if (wiki?.canManage) {
+      const open = wiki;
+      return (description: string) => void open.changeWiki({ description });
+    }
+    return undefined;
+  });
 
   /** The narrow pane's menu: the same undo, redo and trash as the buttons it stands for. */
   const narrowActions = $derived.by<MenuAction[]>(() => {
@@ -110,6 +137,17 @@
         run: () => void workspace.redoLast(),
       },
     ];
+    if (container?.description || describe) {
+      list.push({
+        id: 'description',
+        label: container?.description ? m.shell_description() : m.shell_description_add(),
+        icon: InfoIcon,
+        separated: true,
+        run: () => {
+          describingIn = containerId;
+        },
+      });
+    }
     if (canRestoreCards) {
       list.push({
         id: 'card-trash',
@@ -171,6 +209,20 @@
         {/if}
       </h1>
     </div>
+    {#if container.description || describe}
+      {#key container.id}
+        <ContainerDescription
+          bind:open={
+            () => describingIn === container.id,
+            (open: boolean) => {
+              describingIn = open ? container.id : undefined;
+            }
+          }
+          description={container.description}
+          onChange={describe}
+        />
+      {/key}
+    {/if}
     {#if container.isTemplate}
       <span
         data-testid="template-note"
@@ -188,11 +240,6 @@
       >
         {m.shared_read_only()}
       </span>
-    {/if}
-    {#if container.description}
-      <p class="hidden min-w-0 shrink-[2] truncate text-muted-foreground @header/pane:block">
-        {container.description}
-      </p>
     {/if}
   {/if}
 
