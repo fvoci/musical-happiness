@@ -286,7 +286,7 @@ async fn a_registration_without_a_marker_is_confirmed_by_its_password_only() {
         id: fvoci_model::new_id(),
         username: "olden".to_owned(),
         email: "olden@example.test".to_owned(),
-        display_name: String::new(),
+        custom_name: String::new(),
         password_hash: fvoci_server::auth::password::hash_password(SIGNUP_PASSWORD)
             .expect("hashed"),
         language: String::new(),

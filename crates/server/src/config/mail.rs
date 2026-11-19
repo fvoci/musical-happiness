@@ -274,7 +274,8 @@ impl MailSettings {
         if self.way(smtp)?.is_none() && self.email_verification {
             bail!(
                 "email_verification is on, but this server sends no mail: set mail_transport \
-                 or smtp_host, or turn email_verification off"
+                 or smtp_host (FVOCI_MAIL_TRANSPORT, FVOCI_SMTP_HOST), or turn \
+                 email_verification (FVOCI_EMAIL_VERIFICATION) off"
             );
         }
         Ok(())

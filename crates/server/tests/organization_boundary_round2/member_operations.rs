@@ -151,7 +151,7 @@ impl Named {
             "createBlocks" | "reorderCardProperties" => json!([]),
             "importArchive" => json!({ "uploadId": self.upload }),
             "previewInvitation" => json!({ "token": self.invitation }),
-            "patchMe" => json!({ "displayName": "a member" }),
+            "patchMe" => json!({ "customName": "a member" }),
             _ => json!({}),
         }
     }

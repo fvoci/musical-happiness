@@ -59,10 +59,31 @@
 # comes from (Docker's proxy for the port): with it trusted, whatever reaches that port
 # chooses the address the limits on sign-up, login and reset count. So let nothing
 # reach the port but the host itself (FVOCI_BIND=127.0.0.1) or a reverse proxy that
-# adds the client's address to X-Forwarded-For. Without the profile nothing of it is
+# adds the client's address to X-Forwarded-For. (Connections that Docker's proxy
+# carries, from the host itself, under Docker Desktop or rootless, come from the
+# gateway; whether others keep their own address depends on Docker's setup.) Without the profile nothing of it is
 # made or needed.
 #
-# Stopping waits for fvoci to finish its requests and let go of its lock.
+# So with the profile, keep FVOCI_BIND on the loopback, as it is unless .env says
+# otherwise. FVOCI_BIND=0.0.0.0 beside the tunnel opens the port to every network of
+# the host while edge's range is trusted: anyone who reaches it writes the
+# X-Forwarded-For fvoci believes, and is counted as whoever they name.
+#
+# Mail goes the way FVOCI_MAIL_TRANSPORT names: smtp (the FVOCI_SMTP_* lines), or the
+# HTTP API of cloudflare, ses or oci (their lines of .env); empty is SMTP when
+# FVOCI_SMTP_HOST is set and no mail otherwise. A provider's secret (Cloudflare's API
+# token, SES's secret key, OCI's private key in PEM) is a Docker secret like the
+# others, and its line must be in .env, empty when unused: an .env from before they
+# were added stops compose, which names the line. The server refuses to start on a key
+# of a way it was not told to use.
+# FVOCI_EMAIL_VERIFICATION=true needs a way of sending: without one fvoci stops as it
+# starts, and again at each restart (`docker compose logs fvoci` says
+# "email_verification is on, but this server sends no mail").
+#
+# Stopping waits for fvoci to finish its requests, its mail for 10 seconds more, and to
+# let go of its lock. Mail is kept in memory: what is still waiting then (a reset link,
+# an invitation, a confirmation of a sign-up) is not sent, and fvoci's last lines count
+# it.
 
 name: fvoci
 
@@ -99,6 +120,9 @@ services:
       - s3_access_key_id
       - s3_secret_access_key
       - smtp_password
+      - cloudflare_api_token
+      - ses_secret_access_key
+      - oci_private_key
     environment:
       FVOCI_SERVER_URL: ${FVOCI_SERVER_URL:-http://localhost:8080}
       FVOCI_DATABASE_KIND: postgres
@@ -131,6 +155,30 @@ services:
       FVOCI_SMTP_USER: ${FVOCI_SMTP_USER:-}
       FVOCI_SMTP_PASSWORD_FILE: ${FVOCI_SMTP_PASSWORD:+/run/secrets/smtp_password}
       FVOCI_MAIL_FROM: ${FVOCI_MAIL_FROM:-}
+      # Without a value: passed only when .env (or the shell) sets it, so that a
+      # mounted config.json keeps what it says otherwise.
+      FVOCI_EMAIL_VERIFICATION:
+      FVOCI_MAIL_TRANSPORT:
+      FVOCI_MAIL_API_ENDPOINT:
+      FVOCI_MAIL_PER_SECOND:
+      FVOCI_MAIL_RESET_QUEUE:
+      FVOCI_MAIL_RESET_PER_ACCOUNT_HOUR:
+      FVOCI_MAIL_INVITATION_QUEUE:
+      FVOCI_INVITATION_MAIL_RECIPIENTS:
+      FVOCI_INVITATION_MAIL_PER_HOUR:
+      FVOCI_INVITATION_MAIL_PER_ORG_HOUR:
+      FVOCI_CLOUDFLARE_ACCOUNT_ID:
+      FVOCI_CLOUDFLARE_API_TOKEN_FILE: ${FVOCI_CLOUDFLARE_API_TOKEN:+/run/secrets/cloudflare_api_token}
+      FVOCI_SES_REGION:
+      FVOCI_SES_ACCESS_KEY_ID:
+      FVOCI_SES_SECRET_ACCESS_KEY_FILE: ${FVOCI_SES_SECRET_ACCESS_KEY:+/run/secrets/ses_secret_access_key}
+      FVOCI_OCI_REGION:
+      FVOCI_OCI_TENANCY:
+      FVOCI_OCI_USER:
+      FVOCI_OCI_FINGERPRINT:
+      FVOCI_OCI_COMPARTMENT:
+      # The server reads the key's file itself.
+      FVOCI_OCI_PRIVATE_KEY_FILE: ${FVOCI_OCI_PRIVATE_KEY:+/run/secrets/oci_private_key}
       FVOCI_LOG_FORMAT: ${FVOCI_LOG_FORMAT:-}
     volumes:
       - fvoci-data:/data
@@ -312,5 +360,11 @@ secrets:
     environment: FVOCI_S3_SECRET_ACCESS_KEY
   smtp_password:
     environment: FVOCI_SMTP_PASSWORD
+  cloudflare_api_token:
+    environment: FVOCI_CLOUDFLARE_API_TOKEN
+  ses_secret_access_key:
+    environment: FVOCI_SES_SECRET_ACCESS_KEY
+  oci_private_key:
+    environment: FVOCI_OCI_PRIVATE_KEY
   tunnel_token:
     environment: FVOCI_TUNNEL_TOKEN

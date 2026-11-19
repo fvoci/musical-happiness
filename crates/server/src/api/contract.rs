@@ -306,6 +306,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ReceivedPart", Members::All),
     ("UploadedFile", Members::AsWritten),
     ("User", Members::All),
+    ("PersonName", Members::All),
     ("UserSettings", Members::AsWritten),
     ("UserWorkspace", Members::All),
     ("WorkspaceMember", Members::All),
@@ -396,12 +397,15 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("CategoryType", Members::AsWritten),
     ("ContainerKind", Members::AsWritten),
     ("ContainerType", Members::AsWritten),
+    ("Credential", Members::AsWritten),
     ("Density", Members::AsWritten),
     ("HourCycle", Members::AsWritten),
     ("LinkedKind", Members::AsWritten),
     ("MinimumRole", Members::AsWritten),
+    ("NameShown", Members::AsWritten),
     ("SubscriberType", Members::AsWritten),
     ("Theme", Members::AsWritten),
+    ("Title", Members::AsWritten),
     ("WeekStart", Members::AsWritten),
 ];
 

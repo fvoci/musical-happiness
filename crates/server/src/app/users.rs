@@ -1,8 +1,8 @@
 //! Users and their preferences.
 
 use fvoci_model::{
-    ContainerKinds, ContainerMember, Session, User, UserPreferencesPatch, UserSettings,
-    UserSettingsPatch, WorkspaceRole,
+    ContainerKinds, ContainerMember, PersonNameChange, Session, User, UserPreferencesPatch,
+    UserSettings, UserSettingsPatch, WorkspaceRole,
 };
 use fvoci_store::{AdminChange, InstanceRole, Looking, Preference, Sight};
 
@@ -34,13 +34,18 @@ impl App {
             .await?)
     }
 
-    /// Sets the name the user is shown by; empty for none. Returns the user as stored.
+    /// Changes what `change` names of the user's name, and so the name they are shown
+    /// by. Returns the user as stored.
     ///
     /// # Errors
     ///
     /// Returns the store's error, a 404 if there is no such user.
-    pub async fn set_display_name(&self, user_id: &str, name: &str) -> Result<User, AppError> {
-        Ok(self.store().set_display_name(user_id, name).await?)
+    pub async fn change_person_name(
+        &self,
+        user_id: &str,
+        change: &PersonNameChange,
+    ) -> Result<User, AppError> {
+        Ok(self.store().change_person_name(user_id, change).await?)
     }
 
     /// Returns the user with the given identifier.
@@ -180,8 +185,8 @@ impl App {
     }
 
     /// The users the user `seer_id`, in `role` in the workspace, sees among its people
-    /// (`permissions::sees_person`: members of it now) whose login name or display name
-    /// matches `search_query`: at most ten, oldest account first.
+    /// (`permissions::sees_person`: members of it now) whose login name or name
+    /// (`PersonName::contains`) matches `search_query`: at most ten, oldest account first.
     ///
     /// # Errors
     ///
@@ -250,16 +255,13 @@ impl App {
         Ok(self.store().get_user_preferences(user_id).await?)
     }
 
-    /// Blanks what another user must not see of a profile: the email address and the
-    /// full name, unless the configuration shows them.
+    /// Blanks what another user must not see of a profile: the email address, unless
+    /// the configuration shows it. The name, all of its parts, is seen by whoever is
+    /// shown the user.
     pub fn sanitize_profile(&self, user: &mut User) {
         sanitize(user);
         if !self.config().show_email_addresses {
             user.email.clear();
-        }
-        if !self.config().show_full_names {
-            user.first_name.clear();
-            user.last_name.clear();
         }
     }
 }

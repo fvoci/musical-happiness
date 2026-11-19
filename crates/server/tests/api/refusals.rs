@@ -161,14 +161,14 @@ async fn the_requests_of_a_user_list_everything_they_refuse() {
         .client
         .patch(
             "/users/me",
-            &json!({"displayName": 7, "username": "other", "email": "x"}),
+            &json!({"customName": 7, "username": "other", "email": "x"}),
         )
         .await;
     response.check_bad_request();
     assert_eq!(
         refused(&response),
         pairs(&[
-            ("/displayName", "invalid"),
+            ("/customName", "invalid"),
             ("/email", "unknown"),
             ("/username", "unknown"),
         ]),

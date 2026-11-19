@@ -1216,13 +1216,18 @@ export interface paths {
         head?: never;
         /**
          * Change the user's account
-         * @description Changes what the body names of the user of the session: `displayName`, the name to
-         *     be shown by. White space around it is dropped, and empty or `null` is none. At most
-         *     64 UTF-16 code units, without control characters and without characters that show
-         *     nothing, break a line or turn the text around (U+00AD, U+200B–U+200F,
-         *     U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). Not unique. A member that is
-         *     no such thing, or a name that breaks these rules, is refused (400 naming it) and
-         *     changes nothing. Answers the user as `getMe` does.
+         * @description Changes what the body names of the user of the session's name: its parts
+         *     (`firstName`, `lastName`, `latinFirstName`, `latinLastName`), the name they wrote to
+         *     be shown by (`customName`), which of them they are shown by (`nameShown`), the title
+         *     and the credentials. White space around a part is dropped, and empty or `null` is
+         *     none. A part has at most 64 UTF-16 code units, without control characters and
+         *     without characters that show nothing, break a line or turn the text around (U+00AD,
+         *     U+200B–U+200F, U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). `title` is a
+         *     code of its list or `null`; `credentials` at most three codes of their list, each
+         *     once, in the order they are written, or `null` for none. `displayName` follows: the
+         *     server makes it from these (`contracts/name-vectors.json`). A member that is no such
+         *     thing, or a value that breaks these rules, is refused (400 naming it) and changes
+         *     nothing. Answers the user as `getMe` does.
          */
         patch: operations["patchMe"];
         trace?: never;
@@ -3868,13 +3873,28 @@ export interface components {
             /** @description The workspace. */
             workspaceId: string;
         };
-        /** @description What a user changes of their account. A member that is left out stays as it is. */
+        /** @description What a user changes of their name. A member that is left out stays as it is. */
         AccountChange: {
             /**
-             * @description The name to be shown by: at most 64 UTF-16 code units without control
-             *     characters. Empty or `null` for none, and the login name is shown.
+             * @description The degrees and qualifications written after the name: at most three, each once,
+             *     in the order they are written. `null` or empty for none.
              */
-            displayName?: string | null;
+            credentials?: components["schemas"]["Credential"][] | null;
+            /** @description The name the person wrote to be shown by; as `firstName`. */
+            customName?: string | null;
+            /**
+             * @description The given name, in the letters the person writes it in: at most 64 UTF-16 code
+             *     units without control characters. Empty or `null` for none.
+             */
+            firstName?: string | null;
+            /** @description The family name, in the letters the person writes it in; as `firstName`. */
+            lastName?: string | null;
+            /** @description The given name in Latin letters; as `firstName`. */
+            latinFirstName?: string | null;
+            /** @description The family name in Latin letters; as `firstName`. */
+            latinLastName?: string | null;
+            nameShown?: components["schemas"]["NameShown"] | null;
+            title?: components["schemas"]["Title"] | null;
         };
         /**
          * @description What deleting the account of the session comes to: what stands in its way, what
@@ -4562,6 +4582,11 @@ export interface components {
             /** @description The boards. */
             containers: components["schemas"]["Container"][];
         };
+        /**
+         * @description A degree or a professional qualification written after a person's name.
+         * @enum {string}
+         */
+        Credential: "phd" | "md" | "dds" | "jd" | "edd" | "mba" | "ms" | "ma" | "cpa" | "cfa" | "pe" | "rn" | "kr_attorney" | "kr_patent_attorney" | "kr_tax_accountant" | "kr_cpa" | "kr_architect" | "kr_professional_engineer" | "kr_pharmacist" | "kr_korean_medicine_doctor";
         /** @description A request to delete the account of the session. */
         DeleteAccountRequest: {
             /**
@@ -4944,6 +4969,12 @@ export interface components {
          * @enum {string}
          */
         MinimumRole: "viewer" | "commenter" | "editor";
+        /**
+         * @description Which name a person is shown by. When it is empty the next one down the list is
+         *     taken; the login name is the last.
+         * @enum {string}
+         */
+        NameShown: "name" | "latin_name" | "custom_name" | "username";
         /**
          * @description The account somebody asks for: who registers, and who accepts an invitation
          *     without having one.
@@ -5565,6 +5596,27 @@ export interface components {
             /** @description The board patches, one per board identifier. */
             containerPatches: components["schemas"]["ContainerPatch"][];
         };
+        /** @description A person's name, every part of which may be empty. */
+        PersonName: {
+            /**
+             * @description The degrees and qualifications written after the name, in the person's order: at
+             *     most three, each once.
+             */
+            credentials: components["schemas"]["Credential"][];
+            /** @description The name the person wrote to be shown by. */
+            customName: string;
+            /** @description The given name, in the letters the person writes it in. */
+            firstName: string;
+            /** @description The family name, in the letters the person writes it in. */
+            lastName: string;
+            /** @description The given name in Latin letters. */
+            latinFirstName: string;
+            /** @description The family name in Latin letters. */
+            latinLastName: string;
+            /** @description Which name the person is shown by. */
+            nameShown: components["schemas"]["NameShown"];
+            title: components["schemas"]["Title"] | null;
+        };
         /**
          * @description The JSON body the server sends with every error status of the API, as
          *     `application/problem+json` (RFC 9457).
@@ -5902,6 +5954,11 @@ export interface components {
          * @enum {string}
          */
         Theme: "auto" | "light" | "dark";
+        /**
+         * @description A title written before a person's name.
+         * @enum {string}
+         */
+        Title: "dr" | "prof";
         /** @description A request to remove an identity from the account of the session. */
         UnlinkRequest: {
             /** @description The issuer of the identity. */
@@ -5985,7 +6042,7 @@ export interface components {
          *     The JSON form carries only the public members. The email address, password hash and
          *     the other authentication members are never serialized and are ignored when decoding.
          */
-        User: {
+        User: components["schemas"]["PersonName"] & {
             /**
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch; zero for a deleted account
@@ -6000,8 +6057,10 @@ export interface components {
              */
             deleteAt: number;
             /**
-             * @description The name the user chose to be shown by; empty for none, and then the login name
-             *     is shown. At most 64 UTF-16 code units, not unique.
+             * @description The name the user is shown by, by the rule of `PersonName::shown`: empty when
+             *     that is the login name, which is shown then. Kept with the account and made anew
+             *     whenever its name changes; what a request says of it is not taken over. At most
+             *     129 UTF-16 code units (a name's two parts and a space), not unique.
              */
             displayName: string;
             /** @description The user's identifier. */

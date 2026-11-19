@@ -6,10 +6,18 @@
     "content_type": "application/json",
     "body": {
       "createAt": "<ts>",
+      "credentials": [],
+      "customName": "",
       "deleteAt": 0,
       "displayName": "",
+      "firstName": "",
       "id": "<id:1>",
       "isAdmin": true,
+      "lastName": "",
+      "latinFirstName": "",
+      "latinLastName": "",
+      "nameShown": "name",
+      "title": null,
       "updateAt": "<ts>",
       "username": "root"
     }
@@ -21,10 +29,18 @@
     "content_type": "application/json",
     "body": {
       "createAt": "<ts>",
+      "credentials": [],
+      "customName": "",
       "deleteAt": 0,
       "displayName": "",
+      "firstName": "",
       "id": "<id:2>",
       "isAdmin": false,
+      "lastName": "",
+      "latinFirstName": "",
+      "latinLastName": "",
+      "nameShown": "name",
+      "title": null,
       "updateAt": "<ts>",
       "username": "admins-alice"
     }
@@ -36,10 +52,18 @@
     "content_type": "application/json",
     "body": {
       "createAt": "<ts>",
+      "credentials": [],
+      "customName": "",
       "deleteAt": 0,
       "displayName": "",
+      "firstName": "",
       "id": "<id:1>",
       "isAdmin": true,
+      "lastName": "",
+      "latinFirstName": "",
+      "latinLastName": "",
+      "nameShown": "name",
+      "title": null,
       "updateAt": "<ts>",
       "username": "root"
     }
@@ -374,10 +398,18 @@
     "content_type": "application/json",
     "body": {
       "createAt": "<ts>",
+      "credentials": [],
+      "customName": "",
       "deleteAt": 0,
       "displayName": "",
+      "firstName": "",
       "id": "<id:8>",
       "isAdmin": true,
+      "lastName": "",
+      "latinFirstName": "",
+      "latinLastName": "",
+      "nameShown": "name",
+      "title": null,
       "updateAt": "<ts>",
       "username": "admins-bob"
     }
@@ -389,10 +421,18 @@
     "content_type": "application/json",
     "body": {
       "createAt": "<ts>",
+      "credentials": [],
+      "customName": "",
       "deleteAt": 0,
       "displayName": "",
+      "firstName": "",
       "id": "<id:8>",
       "isAdmin": true,
+      "lastName": "",
+      "latinFirstName": "",
+      "latinLastName": "",
+      "nameShown": "name",
+      "title": null,
       "updateAt": "<ts>",
       "username": "admins-bob"
     }
@@ -418,10 +458,18 @@
     "content_type": "application/json",
     "body": {
       "createAt": "<ts>",
+      "credentials": [],
+      "customName": "",
       "deleteAt": 0,
       "displayName": "",
+      "firstName": "",
       "id": "<id:1>",
       "isAdmin": false,
+      "lastName": "",
+      "latinFirstName": "",
+      "latinLastName": "",
+      "nameShown": "name",
+      "title": null,
       "updateAt": "<ts>",
       "username": "root"
     }
