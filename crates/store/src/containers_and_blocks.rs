@@ -33,19 +33,30 @@ impl Store {
     /// while it reads, decides, removes and stores: of two servers or requests that find
     /// the templates missing at once, the second finds them stored and keeps them.
     ///
+    /// `files` are the records of the files the new templates show, whose objects were
+    /// written at places marked with [`Store::mark_writing`]: they are recorded with the
+    /// templates, which takes their marks away, so that no template is stored whose
+    /// bodies name a file that is not there.
+    ///
     /// Returns `None` if the templates were kept, or the records of the files the
     /// removed templates had, whose records went with them and whose objects are doomed
     /// in the same transaction.
     ///
     /// # Errors
     ///
-    /// Returns the store's error, or [`StoreError::InvalidBlock`] for a block that fails
-    /// validation; nothing is removed or stored then.
+    /// Returns the store's error, [`StoreError::InvalidBlock`] for a block that fails
+    /// validation, [`StoreError::InvalidPath`] for a file at a place spelled otherwise
+    /// than the one way, or [`StoreError::NotFound`] for a file whose place is no longer
+    /// marked; nothing is removed or stored then.
     pub async fn replace_builtin_templates(
         &self,
         templates: &mut ContainersAndBlocks,
+        files: &[FileInfo],
         needed: impl FnOnce(&[Container]) -> bool + Send,
     ) -> Result<Option<Vec<FileInfo>>, StoreError> {
+        for file in files {
+            file_info::check_new_path(&file.path)?;
+        }
         self.transaction(async |scope| {
             // On SQLite the transaction holds the database from its start.
             if scope.dialect() == Dialect::Postgres {
@@ -60,17 +71,28 @@ impl Store {
             if !needed(&stored) {
                 return Ok(None);
             }
-            let mut files = Vec::new();
+            let mut removed = Vec::new();
             for container in &stored {
-                files.extend(file_info::file_infos_of_container(scope, &container.id).await?);
+                removed.extend(file_info::file_infos_of_container(scope, &container.id).await?);
             }
             // The records go with the templates; their objects are doomed now.
-            let doomed: Vec<_> = files.iter().map(|file| (file.path.clone(), None)).collect();
+            let doomed: Vec<_> = removed
+                .iter()
+                .map(|file| (file.path.clone(), None))
+                .collect();
             loose_objects::doom(scope, &doomed).await?;
             containers::remove_builtin_templates(scope).await?;
-            // Their bodies are pointed at the templates' files once those are stored.
+            // The files their bodies name are recorded just below.
             create_containers_and_blocks(scope, templates, "", NewBodyFiles::Unchecked).await?;
-            Ok(Some(files))
+            for file in files {
+                if !loose_objects::record_written(scope, file).await? {
+                    return Err(StoreError::NotFound(format!(
+                        "mark of the template file {}",
+                        file.path
+                    )));
+                }
+            }
+            Ok(Some(removed))
         })
         .await
     }

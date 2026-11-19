@@ -2716,24 +2716,6 @@
         },
         "type": "object"
       },
-      "OnboardingStart": {
-        "description": "What starting the tour answers: where the tour's board is.",
-        "properties": {
-          "boardId": {
-            "description": "The identifier of the board the tour goes through.",
-            "type": "string"
-          },
-          "workspaceId": {
-            "description": "The identifier of the workspace.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "boardId",
-          "workspaceId"
-        ],
-        "type": "object"
-      },
       "OrgMember": {
         "description": "A member of an organization, as its administrators list them.",
         "properties": {
@@ -4468,6 +4450,19 @@
           "saturday"
         ],
         "type": "string"
+      },
+      "WelcomeBoard": {
+        "description": "What asking for a first board answers: where it is.",
+        "properties": {
+          "boardId": {
+            "description": "The identifier of the new board.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId"
+        ],
+        "type": "object"
       },
       "Workspace": {
         "description": "A workspace of an organization.",
@@ -11669,7 +11664,7 @@
     },
     "/api/v1/w/{workspaceId}/onboard": {
       "post": {
-        "description": "Copies the built-in welcome board for the user, as a private board of their own,\nand notes in the client's state (`getClientState`) that the tour has begun:\n`onboardingTourStarted` is `1`, `onboardingTourStep` is `0` and `tourCategory` is\n`onboarding`. Every request makes another copy.",
+        "description": "Copies the built-in welcome board for the user, as a private board of their own in\nthe workspace: what a new account starts on. It is written in the language of the\nuser's settings; where that is left to the device, or is one the board is not\nwritten in, in `language`; failing both, in English. Every request makes another\ncopy.",
         "operationId": "onboard",
         "parameters": [
           {
@@ -11680,6 +11675,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "The language of the screen the request comes from, as a tag such as `ko` or `en-US`: what the built-in templates are written in for a user whose settings leave the language to the device.",
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -11687,11 +11691,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OnboardingStart"
+                  "$ref": "#/components/schemas/WelcomeBoard"
                 }
               }
             },
-            "description": "Where the tour's board is."
+            "description": "Where the new board is."
           },
           "default": {
             "content": {
@@ -11704,7 +11708,7 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
           }
         },
-        "summary": "Start the tour",
+        "summary": "Make the welcome board",
         "tags": [
           "workspaces"
         ]
@@ -12495,7 +12499,7 @@
     },
     "/api/v1/w/{workspaceId}/templates": {
       "get": {
-        "description": "The workspace's template boards the user may see, then the built-in templates, which\nevery workspace is offered. Each of the two oldest first.",
+        "description": "The workspace's template boards the user may see, then the built-in templates, which\nevery workspace is offered. Each of the two oldest first.\n\nThe built-in templates are written in several languages (`templateLanguage` among a\nboard's `properties`), and those of one are listed: the language of the user's\nsettings; where that is left to the device, or is one the templates are not written\nin, `language`; failing both, English.",
         "operationId": "getTemplates",
         "parameters": [
           {
@@ -12503,6 +12507,15 @@
             "in": "path",
             "name": "workspaceId",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The language of the screen the request comes from, as a tag such as `ko` or `en-US`: what the built-in templates are written in for a user whose settings leave the language to the device.",
+            "in": "query",
+            "name": "language",
+            "required": false,
             "schema": {
               "type": "string"
             }

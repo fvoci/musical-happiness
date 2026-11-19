@@ -1111,7 +1111,6 @@ version = "0.1.0"
 dependencies = [
  "fvoci-model",
  "fvoci-store",
- "md-5",
  "serde",
  "serde_json",
  "sha2 0.11.1",

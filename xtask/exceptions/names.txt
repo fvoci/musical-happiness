@@ -86,14 +86,6 @@ crates/store/tests/store/workspaces.rs | "Valid team"
 crates/store/tests/store/workspaces.rs | "No teams response"
 crates/store/tests/store/workspaces.rs | "Insert multiple team and get all teams"
 
-# The built-in templates: their texts speak of teams of people, and one is named after
-# its title, "Team Retrospective".
-crates/server/assets/templates/**
-crates/server/src/app/templates.rs | 11-team-retrospective
-crates/server/tests/api/templates.rs | Team Retrospective
-crates/server/tests/regression/golden/templates.json | "Team Retrospective"
-crates/server/tests/regression/golden/templates.json | across teams
-
 # The design record of the sixth step names the routes as they were when it was
 # written.
 docs/s6-design.md

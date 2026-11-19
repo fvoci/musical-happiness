@@ -374,8 +374,8 @@ describe('file blocks', () => {
   });
 });
 
-describe('the seed made of the built-in templates', () => {
-  it('holds every template as a board the reader is on, with documents that pass', async () => {
+describe('the seed made of the boards of `seed/`', () => {
+  it('holds every one as a board the reader is on, with its documents', async () => {
     const templates = await loadTemplates();
     expect(templates).toHaveLength(13);
     const { backend, world } = setup(templates);

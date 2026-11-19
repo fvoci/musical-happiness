@@ -2938,11 +2938,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Start the tour
-         * @description Copies the built-in welcome board for the user, as a private board of their own,
-         *     and notes in the client's state (`getClientState`) that the tour has begun:
-         *     `onboardingTourStarted` is `1`, `onboardingTourStep` is `0` and `tourCategory` is
-         *     `onboarding`. Every request makes another copy.
+         * Make the welcome board
+         * @description Copies the built-in welcome board for the user, as a private board of their own in
+         *     the workspace: what a new account starts on. It is written in the language of the
+         *     user's settings; where that is left to the device, or is one the board is not
+         *     written in, in `language`; failing both, in English. Every request makes another
+         *     copy.
          */
         post: operations["onboard"];
         delete?: never;
@@ -3249,6 +3250,11 @@ export interface paths {
          * The templates of a workspace
          * @description The workspace's template boards the user may see, then the built-in templates, which
          *     every workspace is offered. Each of the two oldest first.
+         *
+         *     The built-in templates are written in several languages (`templateLanguage` among a
+         *     board's `properties`), and those of one are listed: the language of the user's
+         *     settings; where that is left to the device, or is one the templates are not written
+         *     in, `language`; failing both, English.
          */
         get: operations["getTemplates"];
         put?: never;
@@ -5338,13 +5344,6 @@ export interface components {
              */
             linkPassword?: string;
         };
-        /** @description What starting the tour answers: where the tour's board is. */
-        OnboardingStart: {
-            /** @description The identifier of the board the tour goes through. */
-            boardId: string;
-            /** @description The identifier of the workspace. */
-            workspaceId: string;
-        };
         /** @description A member of an organization, as its administrators list them. */
         OrgMember: {
             /** @description The name the user shows; empty for none. */
@@ -6079,6 +6078,11 @@ export interface components {
          * @enum {string}
          */
         WeekStart: "auto" | "sunday" | "monday" | "saturday";
+        /** @description What asking for a first board answers: where it is. */
+        WelcomeBoard: {
+            /** @description The identifier of the new board. */
+            boardId: string;
+        };
         /** @description A workspace of an organization. */
         Workspace: {
             /** @description Whether the admins of the workspace's boards may invite guests to them. */
@@ -10735,7 +10739,10 @@ export interface operations {
     };
     onboard: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The language of the screen the request comes from, as a tag such as `ko` or `en-US`: what the built-in templates are written in for a user whose settings leave the language to the device. */
+                language?: string;
+            };
             header?: never;
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
@@ -10745,13 +10752,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Where the tour's board is. */
+            /** @description Where the new board is. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OnboardingStart"];
+                    "application/json": components["schemas"]["WelcomeBoard"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -11260,7 +11267,10 @@ export interface operations {
     };
     getTemplates: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The language of the screen the request comes from, as a tag such as `ko` or `en-US`: what the built-in templates are written in for a user whose settings leave the language to the device. */
+                language?: string;
+            };
             header?: never;
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */

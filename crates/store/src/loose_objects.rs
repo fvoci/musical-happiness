@@ -122,15 +122,11 @@ impl Store {
     pub async fn record_written_file(&self, file_info: &FileInfo) -> Result<bool, StoreError> {
         file_info::check_new_path(&file_info.path)?;
         self.transaction(async |scope| {
-            let mut sql = scope.sql("DELETE FROM loose_objects WHERE path = ");
-            sql.bind(&file_info.path)
-                .push_bind(" AND state = ", LooseState::Writing.as_str());
-            if scope.execute(sql).await? == 0 {
-                doom(scope, &[(file_info.path.clone(), None)]).await?;
-                return Ok(false);
+            if record_written(scope, file_info).await? {
+                return Ok(true);
             }
-            file_info::save_file_info(scope, file_info).await?;
-            Ok(true)
+            doom(scope, &[(file_info.path.clone(), None)]).await?;
+            Ok(false)
         })
         .await
     }
@@ -353,6 +349,23 @@ impl Store {
 
 /// How many objects one statement of [`doom`] lists.
 const DOOMED_PER_STATEMENT: usize = 500;
+
+/// Records a file whose object was written at the place it names and takes the mark of
+/// [`Store::mark_writing`] away, in the caller's transaction. Returns whether the place
+/// was still marked; if it was not, nothing is recorded.
+pub(crate) async fn record_written(
+    scope: &mut Scope<'_>,
+    file_info: &FileInfo,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("DELETE FROM loose_objects WHERE path = ");
+    sql.bind(&file_info.path)
+        .push_bind(" AND state = ", LooseState::Writing.as_str());
+    if scope.execute(sql).await? == 0 {
+        return Ok(false);
+    }
+    file_info::save_file_info(scope, file_info).await?;
+    Ok(true)
+}
 
 /// Dooms the objects of records that are being removed, in the caller's transaction,
 /// a few hundred to a statement. Each comes with the organization of its record, which

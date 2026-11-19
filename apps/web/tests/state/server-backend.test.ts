@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { serverBackend } from './support.ts';
+import { ServerBackend } from '$lib/api/backend.ts';
 import { cardOfBlock } from '$lib/api/convert.ts';
 import { isBackendError } from '$lib/state/index.ts';
 
@@ -1046,11 +1047,11 @@ describe('templates on the server', () => {
     deleteAt: 0,
   };
 
-  it('reads the templates, copies a board either way, and starts the welcome board', async () => {
+  it('reads the templates, copies a board either way, and makes the welcome board', async () => {
     const sent = serveRoutes([
       ['GET /api/v1/w/t/templates', [{ ...BOARD, id: 'tp', isTemplate: true, isBuiltin: true }]],
       ['POST /api/v1/w/w1/containers/', { containers: [BOARD], blocks: [] }, 201],
-      ['POST /api/v1/w/t/onboard', { workspaceId: 't', boardId: 'w1' }],
+      ['POST /api/v1/w/t/onboard', { boardId: 'w1' }],
     ]);
     const backend = serverBackend('');
     const [template] = await backend.templates('t');
@@ -1063,6 +1064,20 @@ describe('templates on the server', () => {
       'POST /api/v1/w/w1/containers/tp/duplicate?asTemplate=false&toWorkspace=t',
       'POST /api/v1/w/w1/containers/b2/duplicate?asTemplate=true&toWorkspace=t',
       'POST /api/v1/w/t/onboard',
+    ]);
+  });
+
+  it('asks for the templates and the welcome board in the language of the screen', async () => {
+    const sent = serveRoutes([
+      ['GET /api/v1/w/t/templates', []],
+      ['POST /api/v1/w/t/onboard', { boardId: 'w1' }],
+    ]);
+    const backend = new ServerBackend('', () => 'ko');
+    await backend.templates('t');
+    await backend.onboard('t');
+    expect(sentLines(sent)).toEqual([
+      'GET /api/v1/w/t/templates?language=ko',
+      'POST /api/v1/w/t/onboard?language=ko',
     ]);
   });
 });

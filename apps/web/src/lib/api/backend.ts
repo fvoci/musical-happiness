@@ -74,6 +74,7 @@ import { downloadWithProgress } from './download.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
 import { ServerRequests, underWorkspace } from './requests.ts';
+import { makeWelcomeBoard, templatesOf } from './templates.ts';
 import { importInParts, uploadInParts } from './upload.ts';
 
 /** How many files go up at once; the server allows a reader 8 open uploads. */
@@ -84,17 +85,19 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /** The last change of each card or view on its way, settled either way (`#inTurn`). */
   readonly #writes = new Map<string, Promise<void>>();
 
-  /** `basePath` is the path the app is served under (`<meta name="fvoci:base">`). */
+  readonly #screenLanguage: () => string;
   readonly #live: LiveChanges;
   readonly presence: Backend['presence'];
   readonly search: Backend['search'];
   /** The server's settings for clients, read once. */
   readonly #config: ClientConfig;
 
-  constructor(basePath: string) {
+  /** `basePath` is the path the app is served under; `screenLanguage` gives the tag of the language the screen is in. */
+  constructor(basePath: string, screenLanguage: () => string = () => '') {
     const http = new Http(basePath);
     super(http);
     this.#http = http;
+    this.#screenLanguage = screenLanguage;
     this.#config = new ClientConfig(http);
     this.search = new ServerContentSearch(http, this.#config);
     // The page's own origin: the browser sends the session's cookie with it.
@@ -232,11 +235,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return boards.map(containerOf);
   }
 
-  async templates(workspaceId: string): Promise<Container[]> {
-    const boards = await this.#http.request<Schemas['Container'][]>(underWorkspace('/templates'), {
-      workspaceId,
-    });
-    return boards.map(containerOf);
+  templates(workspaceId: string): Promise<Container[]> {
+    return templatesOf(this.#http, workspaceId, this.#screenLanguage());
   }
 
   /** `duplicateContainer` into the workspace `to` (`toWorkspace`). The copy is the first board of the answer. */
@@ -251,13 +251,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return containerOf(board);
   }
 
-  async onboard(workspaceId: string): Promise<string> {
-    const started = await this.#http.request<Schemas['OnboardingStart']>(
-      underWorkspace('/onboard'),
-      { workspaceId },
-      { method: 'POST' },
-    );
-    return started.boardId;
+  onboard(workspaceId: string): Promise<string> {
+    return makeWelcomeBoard(this.#http, workspaceId, this.#screenLanguage());
   }
 
   /** To the server's trash, with its blocks and members (`deleteContainer`, board admins only). */

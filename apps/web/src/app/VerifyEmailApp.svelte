@@ -10,8 +10,8 @@
 
   /**
    * Confirms, and goes to where the account was let in: the welcome board of an
-   * organization it started (its tour), the board of a guest's link, or the
-   * workspace. The token leaves the address and the history.
+   * organization it started, the board of a guest's link, or the workspace. The
+   * token leaves the address and the history.
    */
   async function complete(token: string, password?: string): Promise<Confirmed> {
     const client = await verification;
@@ -20,7 +20,7 @@
     let boardId = confirmed.containerId;
     if (confirmed.organizationStarted) {
       // The account is in: no welcome board is no reason to keep it out.
-      boardId = await client.welcome(confirmed.workspaceId).catch(() => undefined);
+      boardId = await client.welcome(confirmed.workspaceId, getLocale()).catch(() => undefined);
     }
     location.replace(router.href({ workspaceId: confirmed.workspaceId, boardId }));
     return confirmed;

@@ -82,9 +82,7 @@
           "operation": "and"
         },
         "groupById": "d777ba3b-8728-40d1-87a6-59406bbbbfb0",
-        "hiddenOptionIds": [
-          ""
-        ],
+        "hiddenOptionIds": [""],
         "kanbanCalculations": {},
         "sortOptions": [
           {
@@ -94,9 +92,7 @@
         ],
         "viewType": "board",
         "visibleOptionIds": [],
-        "visiblePropertyIds": [
-          "4cf1568d-530f-4028-8ffd-bdc65249187e"
-        ]
+        "visiblePropertyIds": ["4cf1568d-530f-4028-8ffd-bdc65249187e"]
       }
     }
   ],

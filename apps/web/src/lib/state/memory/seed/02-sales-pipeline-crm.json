@@ -259,9 +259,7 @@
           "filters": [],
           "operation": "and"
         },
-        "hiddenOptionIds": [
-          ""
-        ],
+        "hiddenOptionIds": [""],
         "kanbanCalculations": {},
         "sortOptions": [],
         "viewType": "board",
@@ -274,10 +272,7 @@
           "a5txuiubumsmrs8gsd5jz5gc1oa",
           "acm9q494bcthyoqzmfogxxy5czy"
         ],
-        "visiblePropertyIds": [
-          "aro91wme9kfaie5ceu9qasmtcnw",
-          "amahgyn9n4twaapg3jyxb6y4jic"
-        ]
+        "visiblePropertyIds": ["aro91wme9kfaie5ceu9qasmtcnw", "amahgyn9n4twaapg3jyxb6y4jic"]
       }
     },
     {
@@ -285,9 +280,7 @@
       "type": "view",
       "title": "Open Deals",
       "fields": {
-        "cardOrder": [
-          "chew1d7kc3py3pj51qyqaiz6ade"
-        ],
+        "cardOrder": ["chew1d7kc3py3pj51qyqaiz6ade"],
         "collapsedOptionIds": [],
         "columnCalculations": {},
         "columnWidths": {},

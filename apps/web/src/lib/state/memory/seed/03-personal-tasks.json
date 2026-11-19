@@ -60,10 +60,7 @@
         "sortOptions": [],
         "viewType": "table",
         "visibleOptionIds": [],
-        "visiblePropertyIds": [
-          "a9zf59u8x1rf4ywctpcqama7tio",
-          "abthng7baedhhtrwsdodeuincqy"
-        ]
+        "visiblePropertyIds": ["a9zf59u8x1rf4ywctpcqama7tio", "abthng7baedhhtrwsdodeuincqy"]
       }
     },
     {
@@ -97,9 +94,7 @@
           "aj4jyekqqssatjcq7r7chmy19ey",
           ""
         ],
-        "visiblePropertyIds": [
-          "a9zf59u8x1rf4ywctpcqama7tio"
-        ]
+        "visiblePropertyIds": ["a9zf59u8x1rf4ywctpcqama7tio"]
       }
     }
   ],

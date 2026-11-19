@@ -537,7 +537,7 @@ impl App {
 }
 
 /// The record of a file of `container_id` of `size` bytes stored at `place`, made now.
-fn file_info(container_id: &str, place: FilePlace, size: u64) -> FileInfo {
+pub(super) fn file_info(container_id: &str, place: FilePlace, size: u64) -> FileInfo {
     FileInfo {
         id: new_id(),
         container_id: container_id.to_owned(),

@@ -9,6 +9,7 @@ use std::sync::Mutex;
 use tokio::time::Instant;
 
 use super::*;
+use crate::app::language::Language;
 
 /// A way of sending that answers from a script, and the last answer once it runs out.
 struct Fake {

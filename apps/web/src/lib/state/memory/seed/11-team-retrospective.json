@@ -76,9 +76,7 @@
           "filters": [],
           "operation": "and"
         },
-        "hiddenOptionIds": [
-          ""
-        ],
+        "hiddenOptionIds": [""],
         "kanbanCalculations": {},
         "sortOptions": [],
         "viewType": "board",
@@ -88,9 +86,7 @@
           "ar87yh5xmsswqkxmjq1ipfftfpc",
           "akj3fkmxq7idma55mdt8sqpumyw"
         ],
-        "visiblePropertyIds": [
-          "aspaay76a5wrnuhtqgm97tt3rer"
-        ]
+        "visiblePropertyIds": ["aspaay76a5wrnuhtqgm97tt3rer"]
       }
     }
   ],

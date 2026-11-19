@@ -123,7 +123,7 @@ test('somebody starts an organization, and a second person comes in by its link 
 
   // Signed in at once, on a copy of the welcome board of their own, made once.
   await expect(page.getByTestId('app-shell')).toBeVisible();
-  const welcome = boardLink(page, 'Welcome to fvoci!');
+  const welcome = boardLink(page, 'Getting started with fvoci');
   await expect(welcome).toHaveAttribute('aria-current', 'page');
   await page.reload();
   await expect(welcome).toHaveCount(1);

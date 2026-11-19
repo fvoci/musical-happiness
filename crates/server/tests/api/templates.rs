@@ -1,8 +1,5 @@
-//! The built-in template boards.
-//!
-//! Ports `TestGetTemplates` (`server/integrationtests/board_test.go`),
-//! `TestGetTemplatesForWorkTemplate` (`server/integrationtests/work_template_test.go`)
-//! and `TestApp_initializeTemplates` (`server/app/templates_test.go`).
+//! The built-in template boards: listed in a language, stored once, and copied with
+//! their files.
 
 use std::time::Instant;
 
@@ -12,8 +9,12 @@ use serde_json::{Value, json};
 use crate::common::ROOT_WS;
 use crate::common::{ROOT_WORKSPACE_ID, Setup};
 
-/// `TestGetTemplates`: the built-in templates are listed, each with blocks, and each can
-/// be duplicated into a non-template board.
+/// How many built-in templates there are, and in how many languages each is written.
+const TEMPLATES: usize = 7;
+const LANGUAGES: usize = 2;
+
+/// The built-in templates are listed, each with blocks, and each can be duplicated into
+/// a non-template board.
 #[tokio::test]
 async fn get_templates_returns_the_built_in_templates() {
     let ts = Setup::native()
@@ -28,10 +29,10 @@ async fn get_templates_returns_the_built_in_templates() {
         .await
         .ok_json::<Vec<Container>>();
 
-    assert!(
-        boards.len() >= 6,
-        "at least six templates, got {}",
-        boards.len()
+    assert_eq!(
+        boards.len(),
+        TEMPLATES,
+        "every template once, in one language"
     );
     assert!(
         boards.iter().all(|board| board.is_template),
@@ -44,13 +45,13 @@ async fn get_templates_returns_the_built_in_templates() {
         "all are open"
     );
     assert!(
-        boards.iter().all(|board| board.template_version >= 7),
+        boards.iter().all(|board| board.template_version >= 8),
         "all are at least the current version"
     );
     assert!(
         boards
             .iter()
-            .any(|board| board.title == "Welcome to fvoci!"),
+            .any(|board| board.title == "Getting started with fvoci"),
         "the welcome board is present"
     );
 
@@ -88,46 +89,73 @@ async fn get_templates_returns_the_built_in_templates() {
     ts.teardown().await;
 }
 
-/// `TestGetTemplatesForWorkTemplate`: the work-template tracking identifiers are present
-/// among the templates.
+/// The titles of the built-in templates listed for the client's user when the screen
+/// says `language` (nothing when empty).
+async fn titles_listed(client: &crate::common::Client, language: &str) -> Vec<String> {
+    let query = if language.is_empty() {
+        String::new()
+    } else {
+        format!("?language={language}")
+    };
+    let boards: Vec<Container> = client
+        .get(&format!("{ROOT_WS}/templates{query}"))
+        .await
+        .ok_json();
+    boards
+        .into_iter()
+        .filter(|board| board.is_builtin)
+        .map(|board| board.title)
+        .collect()
+}
+
+/// The built-in templates are listed in one language: that of the user's settings;
+/// where the settings leave it to the device, or name a language no template is written
+/// in, that of the screen; failing both, English. Each language has every template.
 #[tokio::test]
-async fn get_templates_has_the_work_template_tracking_ids() {
+async fn the_templates_are_listed_in_the_language_of_the_settings_or_else_of_the_screen() {
     let ts = Setup::native()
         .with_templates()
         .start()
         .await
         .init_basic()
         .await;
-    let boards = ts
-        .client
-        .get(&format!("{ROOT_WS}/templates"))
-        .await
-        .ok_json::<Vec<Container>>();
+    let client = &ts.client;
+    let english = titles_listed(client, "").await;
+    let korean = titles_listed(client, "ko-KR").await;
+    assert_eq!(english.len(), TEMPLATES, "{english:?}");
+    assert_eq!(korean.len(), TEMPLATES, "{korean:?}");
+    assert_eq!(
+        english[0], "Getting started with fvoci",
+        "the first in English"
+    );
+    assert_eq!(korean[0], "fvoci 시작하기", "the first in Korean");
+    assert!(
+        english.iter().all(|title| !korean.contains(title)),
+        "no template is in both lists: {english:?} {korean:?}"
+    );
+    assert_eq!(titles_listed(client, "en").await, english, "en");
+    assert_eq!(titles_listed(client, "ja").await, english, "ja");
 
-    let tracking_ids: Vec<String> = boards
-        .iter()
-        .filter_map(|board| {
-            board
-                .properties
-                .get("trackingTemplateId")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        })
-        .collect();
-    for known in [
-        "7ba22ccfdfac391d63dea5c4b8cde0de", // Company Goals & OKRs
-        "ecc250bb7dff0fe02247f1110f097544", // Sales Pipeline CRM
-        "e4f03181c4ced8edd4d53d33d569a086", // Team Retrospective
-    ] {
-        assert!(
-            tracking_ids.iter().any(|id| id == known),
-            "the tracking id {known} is present"
-        );
-    }
+    client
+        .patch("/users/me/settings", &json!({"language": "ko"}))
+        .await
+        .check_ok();
+    assert_eq!(titles_listed(client, "").await, korean, "set to ko");
+    assert_eq!(
+        titles_listed(client, "en").await,
+        korean,
+        "set to ko, on an English screen"
+    );
+    // The other user's settings are their own.
+    assert_eq!(
+        titles_listed(&ts.client2, "").await,
+        english,
+        "another user"
+    );
     ts.teardown().await;
 }
 
-/// `GET /w/0/templates` without a session is a 401 (verified on the oracle).
+/// `GET /w/0/templates` without a session is a 401.
 #[tokio::test]
 async fn get_templates_without_a_session_is_401() {
     let ts = Setup::native()
@@ -143,9 +171,9 @@ async fn get_templates_without_a_session_is_401() {
     ts.teardown().await;
 }
 
-/// `TestApp_initializeTemplates/"Skip template init"`: a second server on a database that
-/// already has current templates does not re-import them, and starts without them when
-/// not asked for. Also measures the startup cost of template initialization.
+/// A server on a database that already has current templates does not import them
+/// again, and starts without them when not asked for. Also measures the startup cost of
+/// template initialization.
 #[tokio::test]
 async fn template_initialization_is_idempotent_and_measured() {
     // A server without templates starts quickly.
@@ -164,7 +192,11 @@ async fn template_initialization_is_idempotent_and_measured() {
     let ts = Setup::native().with_templates().start().await;
     let with_cost = with.elapsed();
     let first = ts_template_count(&ts).await;
-    assert!(first >= 6, "templates were imported, got {first}");
+    assert_eq!(
+        first,
+        TEMPLATES * LANGUAGES,
+        "every template was imported in every language"
+    );
 
     // Re-running initialization on the same, already-current database is a no-op.
     let done = ts.app.init_templates().await.expect("init is idempotent");
@@ -182,18 +214,19 @@ async fn template_initialization_is_idempotent_and_measured() {
     ts.teardown().await;
 }
 
-/// The number of template boards the root workspace is offered.
+/// The number of built-in templates that are stored, each language counted.
 async fn ts_template_count(ts: &crate::common::TestServer) -> usize {
     ts.app
-        .template_boards(ROOT_WORKSPACE_ID, "", fvoci_model::WorkspaceRole::Member)
+        .store()
+        .get_builtin_templates()
         .await
-        .expect("the template boards")
+        .expect("the built-in templates")
         .len()
 }
 
-/// Built-in templates that were imported before the onboarding mark existed are imported
-/// again at the next start, so that the tour finds its board. Once there is a marked
-/// one, nothing is imported.
+/// Built-in templates among which a language has no marked welcome board are imported
+/// again at the next start, so that a new account finds its first board. Once each
+/// language has a marked one, nothing is imported.
 #[tokio::test]
 async fn templates_without_the_onboarding_mark_are_imported_again() {
     let ts = Setup::native()
@@ -225,7 +258,7 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
         "current templates are not imported again"
     );
 
-    // As a database looked before the mark existed.
+    // As a database looks whose welcome board lost its mark.
     let unmark = fvoci_model::ContainerPatch {
         deleted_properties: vec!["onboarding".to_owned()],
         ..fvoci_model::ContainerPatch::default()
@@ -255,10 +288,10 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     ts.teardown().await;
 }
 
-/// Security fix. The built-in templates are open boards of the workspace every user is in,
-/// so in the original anyone could join one, become its editor, and change what every
-/// new user's first board is copied from. A template is not joined, and so nobody
-/// becomes a member of a built-in one.
+/// The built-in templates are open boards that every user is offered. Could one be
+/// joined, anyone would become its editor and change what every new user's first board
+/// is copied from. A template is not joined, and so nobody becomes a member of a
+/// built-in one.
 #[tokio::test]
 async fn a_built_in_template_cannot_be_joined_or_changed() {
     let ts = Setup::native()
@@ -274,7 +307,7 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
         .ok_json::<Vec<Container>>();
     let welcome = templates
         .iter()
-        .find(|board| board.title.starts_with("Welcome"))
+        .find(|board| board.properties.get("onboarding") == Some(&json!(true)))
         .expect("the welcome template is built in");
 
     let response = ts
@@ -371,10 +404,10 @@ fn bodies_and_dates(files: &[Value]) -> (usize, usize) {
     (bodies, dates)
 }
 
-/// The built-in templates are the files of `assets/templates/` (`docs/s6-design.md`
-/// 3.10), every one of them: thirteen, one marked for the onboarding tour, each with its
-/// key, the cards' bodies as documents, no pictures, dates in the shape of 5.7, and views
-/// whose card order names cards of their board.
+/// The built-in templates listed in English are the English files of `assets/templates/`
+/// (`docs/s6-design.md` 3.10), every one of them: one marked as the welcome board, each
+/// with its key, the cards' bodies as documents whose files are files of the board,
+/// dates in the shape of 5.7, and views whose card order names cards of their board.
 #[tokio::test]
 async fn the_built_in_templates_are_the_template_files() {
     let ts = Setup::native()
@@ -388,7 +421,10 @@ async fn the_built_in_templates_are_the_template_files() {
         .get(&format!("{ROOT_WS}/templates"))
         .await
         .ok_json::<Vec<Container>>();
-    let files = template_files();
+    let files: Vec<Value> = template_files()
+        .into_iter()
+        .filter(|template| template["language"] == json!("en"))
+        .collect();
     let mut keys: Vec<&str> = boards
         .iter()
         .filter_map(|board| board.properties.get("templateKey").and_then(Value::as_str))
@@ -399,7 +435,7 @@ async fn the_built_in_templates_are_the_template_files() {
         .filter_map(|template| template["key"].as_str())
         .collect();
     expected.sort_unstable();
-    assert_eq!(keys.len(), 13, "{keys:?}");
+    assert_eq!(keys.len(), TEMPLATES, "{keys:?}");
     assert_eq!(keys, expected, "the templates of the files, each once");
     assert_eq!(
         boards
@@ -407,10 +443,10 @@ async fn the_built_in_templates_are_the_template_files() {
             .filter(|board| board.properties.get("onboarding") == Some(&json!(true)))
             .count(),
         1,
-        "one is marked for the tour"
+        "one is marked as the welcome board"
     );
 
-    let (mut bodies, mut dates, mut ordered) = (0, 0, 0);
+    let (mut bodies, mut dates, mut ordered, mut shown) = (0, 0, 0, 0);
     for board in &boards {
         let blocks = ts
             .client
@@ -425,11 +461,18 @@ async fn the_built_in_templates_are_the_template_files() {
         for block in &blocks {
             if block["body"].is_object() {
                 bodies += 1;
-                assert!(
-                    !block["body"].to_string().contains(r#""type":"image""#),
-                    "no picture: {}",
-                    block["title"]
-                );
+                let block: Block =
+                    serde_json::from_value(block.clone()).expect("a block of the contract");
+                for file in block.shown_files() {
+                    ts.client
+                        .get(&format!(
+                            "{ROOT_WS}/containers/{}/files/{file}/info",
+                            board.id
+                        ))
+                        .await
+                        .check_ok();
+                    shown += 1;
+                }
             }
             for value in block["fields"]["properties"]
                 .as_object()
@@ -465,6 +508,7 @@ async fn the_built_in_templates_are_the_template_files() {
         "the dates of the templates, in the new shape"
     );
     assert!(ordered > 0, "the views have card orders");
+    assert!(shown > 0, "the bodies show files");
     ts.teardown().await;
 }
 
@@ -591,4 +635,130 @@ async fn a_guest_uses_templates_in_the_workspace_where_they_are_a_member() {
         .await
         .check_created();
     ts.teardown().await;
+}
+
+/// The cards of a board, by title.
+async fn cards_by_title(
+    client: &crate::common::Client,
+    workspace: &str,
+    board_id: &str,
+) -> std::collections::BTreeMap<String, Block> {
+    client
+        .get(&format!("{workspace}/boards/{board_id}/blocks?type=card"))
+        .await
+        .ok_json::<Vec<Block>>()
+        .into_iter()
+        .map(|card| (card.title.clone(), card))
+        .collect()
+}
+
+/// A board made from a built-in template has files of its own, with the bytes of the
+/// template's: the picture and the document of the welcome board are copied from the
+/// system's organization into the user's. What its cards name, by a card relation and
+/// in their bodies, are the cards of the copy.
+#[tokio::test]
+async fn a_board_made_from_a_template_has_its_own_files_and_names_its_own_cards() {
+    use crate::common::TEST_WS;
+
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let templates = ts
+        .client
+        .get(&format!("{TEST_WS}/templates"))
+        .await
+        .ok_json::<Vec<Container>>();
+    let welcome = templates
+        .iter()
+        .find(|board| board.properties.get("onboarding") == Some(&json!(true)))
+        .expect("the welcome template is built in");
+    let of_template = cards_by_title(&ts.client, TEST_WS, &welcome.id).await;
+
+    let made = ts
+        .client
+        .post_empty(&format!("{TEST_WS}/onboard"))
+        .await
+        .ok_json::<Value>();
+    let board_id = made["boardId"].as_str().expect("a board id");
+    let cards = cards_by_title(&ts.client, TEST_WS, board_id).await;
+    assert_eq!(
+        cards.keys().collect::<Vec<_>>(),
+        of_template.keys().collect::<Vec<_>>(),
+        "the cards of the template"
+    );
+    let ids: Vec<&str> = cards.values().map(|card| card.id.as_str()).collect();
+
+    // The files: the document of one card, the pictures of another.
+    let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/templates/files");
+    for (title, assets) in [
+        (
+            "Attach files and open them right here",
+            vec!["viewer-sample.en.docx"],
+        ),
+        (
+            "See the same cards five ways",
+            vec!["board.png", "timeline.png"],
+        ),
+    ] {
+        let files = cards[title].shown_files();
+        assert_eq!(files.len(), assets.len(), "the files of {title}");
+        assert!(
+            files
+                .iter()
+                .all(|file| !of_template[title].shown_files().contains(file)),
+            "{title} shows files of its own, not the template's"
+        );
+        for (file, asset) in files.iter().zip(assets) {
+            let response = ts
+                .client
+                .get(&format!("{TEST_WS}/containers/{board_id}/files/{file}"))
+                .await;
+            response.check_ok();
+            let expected = std::fs::read(folder.join(asset)).expect("the asset is in the folder");
+            assert_eq!(response.body, expected, "the bytes of {asset}");
+        }
+    }
+
+    // A card relation names cards of the copy, and so does a body.
+    let relation = welcome
+        .card_properties
+        .iter()
+        .find(|property| property.get("type") == Some(&json!("relation")))
+        .and_then(|property| property.get("id"))
+        .and_then(Value::as_str)
+        .expect("the welcome board has a card relation");
+    let arranging = &cards["Filter, sort and group"];
+    let named: Vec<&str> = arranging.fields["properties"][relation]
+        .as_array()
+        .expect("a relation value")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert_eq!(named.len(), 2, "the two cards it comes after");
+    assert!(
+        named.iter().all(|id| ids.contains(id)),
+        "the relation names cards of the copy: {named:?}"
+    );
+    let writing = serde_json::to_value(&cards["Write in the body"].body).expect("a body");
+    let mut referred = Vec::new();
+    references(&writing, &mut referred);
+    assert_eq!(
+        referred,
+        [cards["Open a card"].id.as_str()],
+        "the body names the copy of the card it named"
+    );
+    ts.teardown().await;
+}
+
+/// The identifiers that the references of a body name, in the order they are written in.
+fn references<'b>(node: &'b Value, named: &mut Vec<&'b str>) {
+    if node["type"] == json!("reference") {
+        named.extend(node["attrs"]["id"].as_str());
+    }
+    for child in node["content"].as_array().into_iter().flatten() {
+        references(child, named);
+    }
 }

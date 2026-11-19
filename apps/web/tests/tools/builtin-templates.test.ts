@@ -1,26 +1,33 @@
 /**
  * The built-in templates (`crates/server/assets/templates/`): what has to
- * hold of the files that are edited by hand. Their bodies pass the editor's
- * validator, they name neither the original nor an address outside the app
- * (the decision on links: none in a body, only example addresses as the value
- * of a link property), dates have the shape of the wire, and every reference
- * inside a template leads somewhere.
+ * hold of the files, which are written by hand. Each is written in every
+ * language and whole in it, their bodies pass the editor's validator, they
+ * name no address outside the app (none in a body, only example addresses as
+ * the value of a link or mail property), dates have the shape of the wire,
+ * every reference inside a template leads somewhere, and between them they
+ * show every kind of view, property and node there is.
  */
 import { describe, expect, it } from 'vitest';
 
-import { validateDoc, type DocNode } from '$lib/editor/schema.ts';
-import type { SeedTemplate } from '$lib/state/memory/seed.ts';
-import { parseDateValue } from '$lib/logic/wire.ts';
+import { MARK_SPECS, NODE_SPECS, validateDoc, type DocNode } from '$lib/editor/schema.ts';
+import { ADDABLE_VIEW_TYPES } from '$lib/features/view-header/view-fields.ts';
+import { CALCULATION_IDS } from '$lib/logic/calculations.ts';
+import { PROPERTY_BEHAVIORS } from '$lib/logic/properties.ts';
+import { parseDateValue, parseRelationValue, type BoardView } from '$lib/logic/wire.ts';
+import { orderViews } from '$lib/state/order.ts';
 
-import { readTemplates, templateDocuments } from '../support/templates.ts';
+import { readTemplates, templateAssets, type BuiltinTemplate } from '../support/templates.ts';
 
-/** The values of the link properties of a template's cards. */
-function linkValues(template: SeedTemplate): string[] {
-  const linkIds = template.board.cardProperties
-    .filter((property) => property.type === 'url')
+const LANGUAGES = ['en', 'ko'];
+const HANGUL = /[가-힣]/;
+
+/** The values of the properties of the given kinds of a template's cards. */
+function valuesOf(template: BuiltinTemplate, kinds: readonly string[]): string[] {
+  const ids = template.board.cardProperties
+    .filter((property) => kinds.includes(property.type))
     .map((property) => property.id);
   return template.cards.flatMap((card) =>
-    linkIds.flatMap((id) => {
+    ids.flatMap((id) => {
       const value = card.fields.properties[id];
       return typeof value === 'string' ? [value] : [];
     }),
@@ -48,7 +55,7 @@ function isExampleAddress(value: string): boolean {
 }
 
 /** One line per address that leads outside and may not; none when there is none. */
-function addressProblems(templates: readonly SeedTemplate[]): string[] {
+function addressProblems(templates: readonly BuiltinTemplate[]): string[] {
   const problems: string[] = [];
   // The values of link properties are judged one by one, then left out of the
   // search through everything else.
@@ -76,61 +83,160 @@ function addressProblems(templates: readonly SeedTemplate[]): string[] {
   return problems;
 }
 
+/** Every node of a body, the body itself first. */
+function nodesOf(node: DocNode): DocNode[] {
+  return [node, ...(node.content ?? []).flatMap(nodesOf)];
+}
+
+/** Every node of every body of the templates. */
+function allNodes(templates: readonly BuiltinTemplate[]): DocNode[] {
+  return templates.flatMap((template) =>
+    template.cards.flatMap((card) => (card.body ? nodesOf(card.body) : [])),
+  );
+}
+
+/** Every text a person reads in a template, each with where it is. */
+function texts(template: BuiltinTemplate): [where: string, text: string][] {
+  return [
+    ['the title', template.board.title],
+    ['the description', template.board.description],
+    ...template.board.cardProperties.flatMap((property): [string, string][] => [
+      [`the property ${property.id}`, property.name],
+      ...property.options.map((option): [string, string] => [
+        `the option ${option.id}`,
+        option.value,
+      ]),
+    ]),
+    ...template.views.map((view): [string, string] => [`the view ${view.id}`, view.title]),
+    ...template.cards.map((card): [string, string] => [`the card ${card.id}`, card.title]),
+    ...template.files.map((file): [string, string] => [`the file ${file.asset}`, file.name]),
+  ];
+}
+
+const templates = readTemplates();
+const byLanguage = (language: string): BuiltinTemplate[] =>
+  templates.filter((template) => template.language === language);
+
 describe('the built-in templates', () => {
-  const templates = readTemplates();
   const everything = JSON.stringify(templates);
 
-  it('are thirteen, one of them for onboarding', () => {
-    expect(templates.map((template) => template.key)).toEqual([
-      'meeting-agenda',
-      'sales-pipeline-crm',
-      'personal-tasks',
-      'project-tasks',
-      'company-goals-okrs',
-      'personal-goals',
-      'sprint-planner',
-      'user-research-sessions',
-      'competitive-analysis',
-      'content-calendar',
-      'team-retrospective',
-      'roadmap',
-      'welcome',
-    ]);
-    expect(templates.filter((template) => template.onboarding).map((t) => t.key)).toEqual([
-      'welcome',
-    ]);
+  it('are seven in each language, the first of them the welcome board', () => {
+    for (const language of LANGUAGES) {
+      const written = byLanguage(language);
+      expect(written.map((template) => template.key)).toEqual([
+        'welcome',
+        'project-schedule',
+        'issue-tracker',
+        'meeting-notes',
+        'content-calendar',
+        'customer-contacts',
+        'study-notes',
+      ]);
+      expect(written.filter((template) => template.onboarding).map((t) => t.key)).toEqual([
+        'welcome',
+      ]);
+    }
+    expect(templates).toHaveLength(7 * LANGUAGES.length);
   });
 
-  it('hold 77 cards, 58 of them with a body that the validator accepts, and 38 views', () => {
-    const cards = templates.flatMap((template) => template.cards);
-    expect(cards).toHaveLength(77);
-    const bodies = cards.filter((card) => card.body !== null);
-    expect(bodies).toHaveLength(58);
-    expect(templateDocuments()).toHaveLength(58);
-    for (const card of bodies) expect(validateDoc(card.body), card.title).toEqual([]);
-    expect(templates.flatMap((template) => template.views)).toHaveLength(38);
+  it('hold 41 cards in each language, each with a body that the validator accepts, and 31 views', () => {
+    for (const language of LANGUAGES) {
+      const cards = byLanguage(language).flatMap((template) => template.cards);
+      expect(cards).toHaveLength(41);
+      for (const card of cards) expect(validateDoc(card.body), card.title).toEqual([]);
+      expect(byLanguage(language).flatMap((template) => template.views)).toHaveLength(31);
+    }
   });
 
-  it('name no address outside, but for example addresses in link values', () => {
+  it('are the same template in each language: the same properties, views and cards', () => {
+    const shape = (template: BuiltinTemplate): unknown => ({
+      board: template.board.id,
+      properties: template.board.cardProperties.map((property) => [
+        property.id,
+        property.type,
+        property.options.map((option) => [option.id, option.color]),
+      ]),
+      views: template.views.map((view) => [view.id, view.fields]),
+      cards: template.cards.map((card) => [
+        card.id,
+        card.fields.icon,
+        // The words are cut into texts where a language marks them.
+        card.body
+          ? nodesOf(card.body)
+              .map((node) => node.type)
+              .filter((type) => type !== 'text')
+          : null,
+      ]),
+      files: template.files.length,
+    });
+    for (const template of byLanguage('en')) {
+      const korean = byLanguage('ko').find((other) => other.key === template.key);
+      if (!korean) throw new Error(`${template.key} is not written in Korean`);
+      expect(shape(korean), template.key).toEqual(shape(template));
+    }
+  });
+
+  it('are whole in their language: Korean in every text of one, none in the other', () => {
+    for (const template of byLanguage('ko')) {
+      for (const [where, text] of texts(template)) {
+        expect(HANGUL.test(text), `${template.key}, ${where}: ${text}`).toBe(true);
+      }
+      for (const card of template.cards) {
+        const body = allNodes([{ ...template, cards: [card] }])
+          .map((node) => node.text ?? '')
+          .join('');
+        expect(HANGUL.test(body), `${template.key}, the body of ${card.title}`).toBe(true);
+      }
+    }
+    expect(HANGUL.test(JSON.stringify(byLanguage('en')))).toBe(false);
+  });
+
+  it('open on the view meant to be seen first: the tabs are in the order of their titles', () => {
+    // A board opens on its first tab, and the tabs are sorted by title in the
+    // reader's language: the titles of a template's views decide.
+    const first: Record<string, string> = {
+      welcome: 'board',
+      'project-schedule': 'gantt',
+      'issue-tracker': 'board',
+      'meeting-notes': 'table',
+      'content-calendar': 'calendar',
+      'customer-contacts': 'table',
+      'study-notes': 'board',
+    };
+    for (const template of templates) {
+      const views = template.views.map(
+        (view) => ({ ...view, createAt: 0 }) as unknown as BoardView,
+      );
+      const [opened] = orderViews(views, template.language);
+      expect(opened?.fields.viewType, `${template.key} (${template.language})`).toBe(
+        first[template.key],
+      );
+    }
+  });
+
+  it('name no address outside, but for example addresses in link and mail values', () => {
     expect(addressProblems(templates)).toEqual([]);
-    const values = templates.flatMap(linkValues).filter(valueLeadsOutside);
-    expect(values).toHaveLength(10);
-    for (const value of values) expect(isExampleAddress(value), value).toBe(true);
+    const links = templates.flatMap((template) => valuesOf(template, ['url']));
+    expect(links.length).toBeGreaterThan(0);
+    for (const value of links) expect(isExampleAddress(value), value).toBe(true);
+    const mail = templates.flatMap((template) => valuesOf(template, ['email']));
+    expect(mail.length).toBeGreaterThan(0);
+    for (const value of mail) expect(value).toMatch(/^[a-z0-9.]+@example\.com$/);
     const bodies = JSON.stringify(templates.flatMap((t) => t.cards.map((card) => card.body)));
-    expect(bodies).not.toMatch(/https?:\/\/|\bwww\./i);
+    expect(bodies).not.toMatch(/https?:\/\/|\bwww\.|@[a-z0-9-]+\.[a-z]/i);
   });
 
   it('would be found out with an address that is not an example, or one outside a link value', () => {
-    const copy = (): SeedTemplate[] => JSON.parse(everything) as SeedTemplate[];
+    const copy = (): BuiltinTemplate[] => JSON.parse(everything) as BuiltinTemplate[];
 
     const real = copy();
-    const template = real.find((one) => linkValues(one).length > 0);
+    const template = real.find((one) => valuesOf(one, ['url']).length > 0);
     const linkId = template?.board.cardProperties.find((property) => property.type === 'url')?.id;
     const card = template?.cards.find(
       (one) => typeof one.fields.properties[linkId ?? ''] === 'string',
     );
     if (!card || linkId === undefined) throw new Error('no card with a link value');
-    card.fields.properties[linkId] = 'liminarycorp.com';
+    card.fields.properties[linkId] = 'example.org';
     expect(addressProblems(real)).toHaveLength(1);
     card.fields.properties[linkId] = 'https://www.example.com.evil.test/';
     expect(addressProblems(real)).toHaveLength(1);
@@ -155,37 +261,223 @@ describe('the built-in templates', () => {
           const value = card.fields.properties[id];
           if (value === undefined) continue;
           dates += 1;
-          expect(parseDateValue(value).from?.date, card.title).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+          const { from, to } = parseDateValue(value);
+          expect(from?.date, card.title).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+          if (to) expect((to.date ?? '') >= (from?.date ?? ''), card.title).toBe(true);
         }
       }
     }
-    expect(dates).toBe(19);
+    expect(dates).toBeGreaterThan(0);
   });
 
-  it('keep every reference inside a template whole, and carry no pictures', () => {
-    const images = (node: DocNode): number =>
-      (node.type === 'image' ? 1 : 0) +
-      (node.content ?? []).reduce((sum, child) => sum + images(child), 0);
+  it('keep every reference inside a template whole', () => {
     for (const template of templates) {
+      const where = `${template.key} (${template.language})`;
       const cardIds = new Set(template.cards.map((card) => card.id));
+      const cardTemplates = new Set(
+        template.cards.filter((card) => card.fields.isTemplate).map((card) => card.id),
+      );
       const properties = new Map(
         template.board.cardProperties.map((property) => [property.id, property]),
       );
+      const optionsOf = (id: unknown): string[] =>
+        (properties.get(String(id))?.options ?? []).map((option) => option.id);
       for (const view of template.views) {
-        for (const id of view.fields.cardOrder as string[]) expect(cardIds.has(id)).toBe(true);
+        const fields = view.fields as Record<string, unknown> & {
+          cardOrder: string[];
+          visiblePropertyIds: string[];
+          hiddenOptionIds: string[];
+          visibleOptionIds: string[];
+          collapsedOptionIds: string[];
+          sortOptions: { propertyId: string }[];
+          filter: { filters: { propertyId: string }[] };
+          columnCalculations: Record<string, string>;
+          columnWidths: Record<string, number>;
+        };
+        // The order names every card that is no card template, once.
+        expect([...fields.cardOrder].sort(), `${where}, ${view.title}`).toEqual(
+          [...cardIds].filter((id) => !cardTemplates.has(id)).sort(),
+        );
+        const named = [
+          ...fields.visiblePropertyIds,
+          ...fields.sortOptions.map((sort) => sort.propertyId),
+          ...fields.filter.filters.map((filter) => filter.propertyId),
+          ...Object.keys(fields.columnCalculations),
+          ...Object.keys(fields.columnWidths),
+          ...['groupById', 'dateDisplayPropertyId', 'dependencyPropertyId'].flatMap((member) =>
+            member in fields ? [String(fields[member])] : [],
+          ),
+        ].filter((id) => id !== '__title');
+        for (const id of named) expect(properties.has(id), `${where}, ${view.title}`).toBe(true);
+        const options = optionsOf(fields.groupById);
+        for (const id of [
+          ...fields.visibleOptionIds,
+          ...fields.hiddenOptionIds,
+          ...fields.collapsedOptionIds,
+        ]) {
+          expect(id === '' || options.includes(id), `${where}, ${view.title}`).toBe(true);
+        }
+        const starting = String(fields.defaultTemplateId);
+        expect(starting === '' || cardTemplates.has(starting), `${where}, ${view.title}`).toBe(
+          true,
+        );
       }
       for (const card of template.cards) {
         for (const [id, value] of Object.entries(card.fields.properties)) {
           const property = properties.get(id);
-          if (property?.type !== 'select') continue;
-          expect(
-            property.options.some((option) => option.id === value),
-            `${template.key} / ${card.title}`,
-          ).toBe(true);
+          expect(property, `${where} / ${card.title}: a value of no property`).toBeDefined();
+          const chosen =
+            property?.type === 'select' || property?.type === 'multiSelect'
+              ? [value].flat().filter((option) => typeof option === 'string')
+              : [];
+          for (const option of chosen) {
+            expect(optionsOf(id).includes(option), `${where} / ${card.title}`).toBe(true);
+          }
+          if (property?.type === 'relation') {
+            for (const other of parseRelationValue(value)) {
+              expect(cardIds.has(other), `${where} / ${card.title}`).toBe(true);
+            }
+          }
         }
-        expect(card.body ? images(card.body) : 0, card.title).toBe(0);
+        for (const node of card.body ? nodesOf(card.body) : []) {
+          if (node.type === 'reference') {
+            expect(cardIds.has(String(node.attrs?.id)), `${where} / ${card.title}`).toBe(true);
+          }
+        }
       }
-      expect(template.files).toEqual([]);
+    }
+  });
+
+  it('show the files they name, each a small file of `files/`, and name the files they show', () => {
+    const assets = templateAssets();
+    const used = new Set<string>();
+    for (const template of templates) {
+      const named = template.files.map((file) => file.asset).sort();
+      const shown = allNodes([template])
+        .filter((node) => node.type === 'image' || node.type === 'file')
+        .map((node) => String(node.attrs?.fileId));
+      expect([...new Set(shown)].sort(), `${template.key} (${template.language})`).toEqual(named);
+      for (const asset of named) {
+        expect(assets, asset).toContain(asset);
+        used.add(asset);
+      }
+    }
+    expect([...used].sort()).toEqual(assets);
+  });
+});
+
+/**
+ * What no template shows, each with why. Every other kind the code knows has
+ * to be in a template of each language: a kind that is added to the code
+ * fails these tests until a template shows it or it is listed here.
+ */
+const NOT_SHOWN: Record<
+  'views' | 'properties' | 'nodes' | 'marks' | 'calculations',
+  Record<string, string>
+> = {
+  views: {},
+  properties: {
+    unknown: 'what a property of a kind this app does not know is read as, not a kind to choose',
+    file: 'has no editor and no value of its own yet: it is shown as an unknown kind',
+    // A person property is there, without a value: see the test of the people.
+  },
+  nodes: {
+    mention: 'names a user, and a template is copied to people it knows nothing of',
+  },
+  marks: {
+    link: 'a link leads to an address, and the templates name none',
+  },
+  calculations: {},
+};
+
+/** Fails unless each of `kinds` is either among `shown` or listed in `left`, and not both. */
+function expectCovered(
+  kinds: readonly string[],
+  shown: ReadonlySet<string>,
+  left: Record<string, string>,
+  language: string,
+): void {
+  for (const kind of kinds) {
+    expect(
+      shown.has(kind) !== kind in left,
+      `${kind} (${language}) is shown by a template, or listed as not shown, and not both`,
+    ).toBe(true);
+  }
+  for (const kind of Object.keys(left)) {
+    expect(kinds, `${kind} is listed as not shown and is no kind`).toContain(kind);
+  }
+}
+
+describe.each(LANGUAGES)('what the built-in templates show between them, in %s', (language) => {
+  const written = byLanguage(language);
+  const views = written.flatMap((template) => template.views.map((view) => view.fields));
+  const nodes = allNodes(written);
+
+  it('is every kind of view', () => {
+    const shown = new Set(views.map((fields) => String(fields.viewType)));
+    expectCovered(ADDABLE_VIEW_TYPES, shown, NOT_SHOWN.views, language);
+  });
+
+  it('is every kind of property', () => {
+    const shown = new Set(
+      written.flatMap((template) => template.board.cardProperties.map((property) => property.type)),
+    );
+    expectCovered(Object.keys(PROPERTY_BEHAVIORS), shown, NOT_SHOWN.properties, language);
+  });
+
+  it('is every node and mark of a body', () => {
+    expectCovered(
+      Object.keys(NODE_SPECS),
+      new Set(nodes.map((node) => node.type)),
+      NOT_SHOWN.nodes,
+      language,
+    );
+    expectCovered(
+      Object.keys(MARK_SPECS),
+      new Set(nodes.flatMap((node) => (node.marks ?? []).map((mark) => mark.type))),
+      NOT_SHOWN.marks,
+      language,
+    );
+    const code = nodes.filter((node) => node.type === 'codeBlock');
+    expect(code.some((node) => node.attrs?.language === 'mermaid')).toBe(true);
+    expect(code.some((node) => node.attrs?.language !== 'mermaid')).toBe(true);
+    const levels = nodes.filter((n) => n.type === 'heading').map((n) => Number(n.attrs?.level));
+    expect([...new Set(levels)].sort()).toEqual([1, 2, 3]);
+  });
+
+  it('is what a view does with its cards: groups, filters, sorts, calculates, hides', () => {
+    const some = (holds: (fields: Record<string, unknown>) => boolean): boolean =>
+      views.some(holds);
+    const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+    expect(some((fields) => typeof fields.groupById === 'string')).toBe(true);
+    expect(some((f) => list((f.filter as { filters: unknown[] }).filters).length > 0)).toBe(true);
+    expect(some((fields) => list(fields.sortOptions).length > 0)).toBe(true);
+    expect(some((fields) => list(fields.hiddenOptionIds).some((id) => id !== ''))).toBe(true);
+    expect(some((fields) => list(fields.collapsedOptionIds).length > 0)).toBe(true);
+    expect(some((fields) => Object.keys(fields.columnWidths as object).length > 0)).toBe(true);
+    expect(some((fields) => typeof fields.dateDisplayPropertyId === 'string')).toBe(true);
+    // A gantt view draws what a card comes after from a card relation.
+    expect(some((f) => f.viewType === 'gantt' && typeof f.dependencyPropertyId === 'string')).toBe(
+      true,
+    );
+    // A view starts a new card from a card template of its board.
+    expect(some((fields) => fields.defaultTemplateId !== '')).toBe(true);
+    const calculations = views.flatMap((fields) =>
+      Object.values(fields.columnCalculations as Record<string, string>),
+    );
+    expect(calculations.length).toBeGreaterThan(0);
+    for (const calculation of calculations) expect(CALCULATION_IDS).toContain(calculation);
+    expectCovered([], new Set(), NOT_SHOWN.calculations, language);
+  });
+
+  it('is nobody: the properties for people are there, and theirs to fill', () => {
+    for (const template of written) {
+      const people = template.board.cardProperties
+        .filter((property) => ['person', 'multiPerson'].includes(property.type))
+        .map((property) => property.id);
+      for (const card of template.cards) {
+        for (const id of people) expect(card.fields.properties[id], card.title).toBeUndefined();
+      }
     }
   });
 });

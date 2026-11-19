@@ -139,9 +139,7 @@
         "sortOptions": [],
         "viewType": "calendar",
         "visibleOptionIds": [],
-        "visiblePropertyIds": [
-          "__title"
-        ]
+        "visiblePropertyIds": ["__title"]
       }
     },
     {
@@ -170,9 +168,7 @@
           "d5371c63-66bf-4468-8738-c4dc4bea4843",
           ""
         ],
-        "visiblePropertyIds": [
-          "d9725d14-d5a8-48e5-8de1-6f8c004a9680"
-        ]
+        "visiblePropertyIds": ["d9725d14-d5a8-48e5-8de1-6f8c004a9680"]
       }
     }
   ],

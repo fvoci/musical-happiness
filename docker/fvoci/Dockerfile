@@ -45,9 +45,7 @@ COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,id=fvoci-pnpm-store,target=/root/.cache/pnpm-store \
     pnpm install --frozen-lockfile --store-dir /root/.cache/pnpm-store
 COPY apps/web apps/web
-# The board templates, which the web app's in-memory server reads at build time, and
-# the licences the bundle may ship under.
-COPY crates/server/assets/templates crates/server/assets/templates
+# The licences the bundle may ship under.
 COPY deny.toml ./
 RUN --mount=type=cache,id=fvoci-web-fonts,target=/src/target/web-fonts \
     pnpm --filter web run build

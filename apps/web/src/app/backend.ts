@@ -88,7 +88,7 @@ async function startServer(): Promise<StartedBackend> {
   ]);
   const base = readBasePath(document);
   const path = base === '' ? '' : `/${base}`;
-  const backend = new ServerBackend(path);
+  const backend = new ServerBackend(path, getLocale);
   return {
     backend,
     account: backend,

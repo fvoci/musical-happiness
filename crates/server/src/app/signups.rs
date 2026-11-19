@@ -18,7 +18,8 @@ use fvoci_store::{
 
 use super::App;
 use super::auth::{PasswordHolder, account_error, incorrect_login};
-use super::mail::{Content, Language, Letter};
+use super::language::Language;
+use super::mail::{Content, Letter};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};

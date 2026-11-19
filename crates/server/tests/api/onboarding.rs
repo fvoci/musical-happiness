@@ -1,7 +1,4 @@
-//! The onboarding tour.
-//!
-//! Ports `TestPrepareOnboardingTour` and `TestCreateWelcomeBoard`
-//! (`server/app/onboarding_test.go`).
+//! A new account's first board: a copy of the built-in welcome board.
 
 use fvoci_model::{Block, BlockType, Container, ContainerType, new_id};
 use serde_json::{Value, json};
@@ -10,8 +7,9 @@ use crate::common::ROOT_WS;
 use crate::common::TEST_WS;
 use crate::common::{Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
 
-/// The title of the built-in welcome board.
-const WELCOME_TITLE: &str = "Welcome to fvoci!";
+/// The title of the built-in welcome board, in English and in Korean.
+const WELCOME_TITLE: &str = "Getting started with fvoci";
+const WELCOME_TITLE_KO: &str = "fvoci 시작하기";
 
 /// Makes an open template in the global workspace, as any signed-in user can, that looks as
 /// much like the built-in welcome board as a client can make it: the same title and the
@@ -54,7 +52,8 @@ async fn card_titles(ts: &TestServer, client: &Client, board_id: &str) -> Vec<St
     blocks.into_iter().map(|block| block.title).collect()
 }
 
-/// The built-in template that carries the onboarding mark.
+/// The built-in template that carries the onboarding mark, in the language the
+/// templates are listed in for the client's user: English, here.
 async fn marked_template(client: &Client) -> Container {
     let templates: Vec<Container> = client.get(&format!("{ROOT_WS}/templates")).await.ok_json();
     let marked: Vec<Container> = templates
@@ -67,12 +66,11 @@ async fn marked_template(client: &Client) -> Container {
     marked.into_iter().next().expect("checked just above")
 }
 
-/// Not in the original, which takes the first open template of the global workspace that has
-/// the welcome board's title, whoever made it. On a server without the built-in
-/// templates that handed a user's template to every new user (this test, before the
-/// change, got the card `hijacked`). The tour copies the template the system made and
-/// marked, and nothing else: here there is none, so the built-in templates are stored
-/// and their welcome board is copied.
+/// A first board is never copied from a template that a user made, whatever its title
+/// and properties say: taking the first open template with the welcome board's title
+/// would hand a user's template to every new user. What is copied is the template the
+/// system made and marked, and nothing else: here there is none, so the built-in
+/// templates are stored and their welcome board is copied.
 #[tokio::test]
 async fn onboarding_without_the_built_in_templates_does_not_copy_a_user_template() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -103,7 +101,7 @@ async fn onboarding_without_the_built_in_templates_does_not_copy_a_user_template
     ts.teardown().await;
 }
 
-/// With the built-in templates, the tour copies the marked one however many templates
+/// With the built-in templates, the marked one is copied however many templates
 /// users made to look like it: the same title, the mark as a property, `createdBy` in
 /// the request.
 #[tokio::test]
@@ -150,8 +148,8 @@ async fn onboarding_copies_the_built_in_board_whatever_users_made() {
     ts.teardown().await;
 }
 
-/// The mark, not the title, is what the tour goes by: the built-in board is still found
-/// after its title changed.
+/// The mark, not the title, is what the welcome board is found by: the built-in board is
+/// still found after its title changed.
 #[tokio::test]
 async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
     let ts = Setup::native()
@@ -161,7 +159,7 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
         .init_basic()
         .await;
     let built_in = marked_template(&ts.client).await;
-    assert_eq!(built_in.title, WELCOME_TITLE, "as the converter wrote it");
+    assert_eq!(built_in.title, WELCOME_TITLE, "as its file has it");
     let rename = fvoci_model::ContainerPatch {
         title: Some("Bienvenue".to_owned()),
         ..fvoci_model::ContainerPatch::default()
@@ -190,10 +188,10 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
     ts.teardown().await;
 }
 
-/// `TestPrepareOnboardingTour/"base case"`: onboarding answers the workspace and a new board,
-/// makes the board private, and records the tour preferences.
+/// `onboard` answers a new board, which is private and the welcome board, and writes
+/// nothing into the client's state.
 #[tokio::test]
-async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
+async fn onboard_copies_the_welcome_board_as_a_private_board() {
     let ts = Setup::native()
         .with_templates()
         .start()
@@ -204,9 +202,9 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
     let response = ts.client.post_empty(&format!("{ROOT_WS}/onboard")).await;
     let value = response.ok_json::<Value>();
     assert_eq!(
-        value["workspaceId"],
-        Value::String(ROOT_WORKSPACE_ID.to_owned()),
-        "the workspace"
+        value,
+        json!({"boardId": value["boardId"]}),
+        "the board, and nothing else"
     );
     let board_id = value["boardId"].as_str().expect("a board id").to_owned();
     assert!(!board_id.is_empty(), "a board id is returned");
@@ -221,11 +219,7 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
         ContainerType::Private,
         "the new board is private"
     );
-    assert!(
-        board.title.contains("Welcome to fvoci"),
-        "it is the welcome board: {}",
-        board.title
-    );
+    assert_eq!(board.title, WELCOME_TITLE, "it is the welcome board");
 
     let user_id = ts.client.me().await.id;
     let preferences = ts
@@ -233,34 +227,16 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
         .user_preferences(&user_id)
         .await
         .expect("the preferences");
-    let find = |name: &str| {
-        preferences
-            .iter()
-            .find(|preference| preference.name == name)
-            .map(|preference| preference.value.clone())
-    };
-    assert_eq!(
-        find("onboardingTourStarted"),
-        Some("1".to_owned()),
-        "tour started"
-    );
-    assert_eq!(
-        find("onboardingTourStep"),
-        Some("0".to_owned()),
-        "the first step"
-    );
-    assert_eq!(
-        find("tourCategory"),
-        Some("onboarding".to_owned()),
-        "the tour category"
+    assert!(
+        preferences.is_empty(),
+        "nothing is noted in the client's state: {preferences:?}"
     );
     ts.teardown().await;
 }
 
-/// Onboarding answers for any workspace identifier, echoing the workspace back (verified on the
-/// oracle).
+/// The welcome board is made in the workspace of the path.
 #[tokio::test]
-async fn onboard_echoes_the_workspace_identifier() {
+async fn onboard_makes_the_board_in_the_workspace_of_the_path() {
     let ts = Setup::native()
         .with_templates()
         .start()
@@ -272,14 +248,100 @@ async fn onboard_echoes_the_workspace_identifier() {
         .post_empty(&format!("{TEST_WS}/onboard"))
         .await
         .ok_json::<Value>();
+    let board_id = value["boardId"].as_str().expect("a board id");
+    let board: Container = ts
+        .client
+        .get(&format!("{TEST_WS}/containers/{board_id}"))
+        .await
+        .ok_json();
+    assert_eq!(board.workspace_id, TEST_WORKSPACE_ID, "the workspace");
+    ts.teardown().await;
+}
+
+/// The title of the board that `onboard` makes for the client's user when the screen
+/// says `language` (nothing when empty).
+async fn welcome_title(client: &Client, language: &str) -> String {
+    let query = if language.is_empty() {
+        String::new()
+    } else {
+        format!("?language={language}")
+    };
+    let value = client
+        .post_empty(&format!("{ROOT_WS}/onboard{query}"))
+        .await
+        .ok_json::<Value>();
+    let board_id = value["boardId"].as_str().expect("a board id");
+    let board: Container = client
+        .get(&format!("{ROOT_WS}/containers/{board_id}"))
+        .await
+        .ok_json();
+    board.title
+}
+
+/// The welcome board is written in the language of the user's settings; where the
+/// settings leave the language to the device, or name one the board is not written in,
+/// in the language of the screen; failing both, in English.
+#[tokio::test]
+async fn the_welcome_board_is_in_the_language_of_the_settings_or_else_of_the_screen() {
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let client = &ts.client;
+    let set = async |language: Value| {
+        client
+            .patch("/users/me/settings", &json!({"language": language}))
+            .await
+            .check_ok();
+    };
+
+    // The settings leave it to the device: the screen says.
     assert_eq!(
-        value["workspaceId"],
-        Value::String(TEST_WORKSPACE_ID.to_owned()),
-        "the workspace is echoed"
+        welcome_title(client, "").await,
+        WELCOME_TITLE,
+        "nothing said"
     );
-    assert!(
-        value["boardId"].as_str().is_some_and(|id| !id.is_empty()),
-        "a board id"
+    assert_eq!(welcome_title(client, "ko").await, WELCOME_TITLE_KO, "ko");
+    assert_eq!(
+        welcome_title(client, "ko-KR").await,
+        WELCOME_TITLE_KO,
+        "ko-KR"
+    );
+    assert_eq!(welcome_title(client, "en-GB").await, WELCOME_TITLE, "en-GB");
+    assert_eq!(welcome_title(client, "ja").await, WELCOME_TITLE, "ja");
+
+    // The settings say: the screen is not asked.
+    set(json!("ko")).await;
+    assert_eq!(
+        welcome_title(client, "").await,
+        WELCOME_TITLE_KO,
+        "set to ko"
+    );
+    assert_eq!(
+        welcome_title(client, "en").await,
+        WELCOME_TITLE_KO,
+        "set to ko, on an English screen"
+    );
+    set(json!("en-US")).await;
+    assert_eq!(
+        welcome_title(client, "ko").await,
+        WELCOME_TITLE,
+        "set to en-US, on a Korean screen"
+    );
+
+    // A language the board is not written in: the screen says again.
+    set(json!("ja")).await;
+    assert_eq!(
+        welcome_title(client, "ko").await,
+        WELCOME_TITLE_KO,
+        "set to ja, on a Korean screen"
+    );
+    assert_eq!(
+        welcome_title(client, "ja").await,
+        WELCOME_TITLE,
+        "ja and ja"
     );
     ts.teardown().await;
 }
@@ -365,7 +427,7 @@ async fn concurrent_onboarding_stores_the_templates_once() {
         .expect("the built-in templates are read");
     assert_eq!(
         templates.len(),
-        13,
+        14,
         "not stored twice over, and every onboarding found its welcome board"
     );
     ts.teardown().await;
