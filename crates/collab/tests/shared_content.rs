@@ -449,9 +449,10 @@ fn a_document_past_a_limit_is_refused_and_no_repair_deletes_from_it() {
 #[test]
 fn a_repair_that_would_leave_too_much_deletes_nothing() {
     let doc = written(|txn, root| {
-        paragraph(txn, root, &"a".repeat(600_000));
+        // Two texts that are more than a body together, and neither alone.
+        paragraph(txn, root, &"a".repeat(BODY_MAX_BYTES * 3 / 5));
         root.push_back(txn, XmlElementPrelim::empty("bulletList"));
-        paragraph(txn, root, &"b".repeat(600_000));
+        paragraph(txn, root, &"b".repeat(BODY_MAX_BYTES * 3 / 5));
     });
     let before = state_of(&doc);
     assert_eq!(repair(&doc), Err(BodyError::TooLarge));
@@ -462,12 +463,14 @@ fn a_repair_that_would_leave_too_much_deletes_nothing() {
 /// is repaired, as an editor repairs it.
 #[test]
 fn nodes_that_go_do_not_count_towards_the_limit() {
+    const STAYING: usize = BODY_MAX_NODES * 3 / 4;
     let doc = written(|txn, root| {
         let unknown = root.push_front(txn, XmlElementPrelim::empty("video"));
-        for _ in 0..6000 {
+        // More nodes than a body has with the node that goes, and fewer without it.
+        for _ in 0..BODY_MAX_NODES * 3 / 10 {
             unknown.push_front(txn, XmlElementPrelim::empty("paragraph"));
         }
-        for _ in 0..15_000 {
+        for _ in 0..STAYING {
             root.push_front(txn, XmlElementPrelim::empty("horizontalRule"));
         }
     });
@@ -477,7 +480,7 @@ fn nodes_that_go_do_not_count_towards_the_limit() {
     let blocks = json_of(repair.body.as_ref())["content"]
         .as_array()
         .map(Vec::len);
-    assert_eq!(blocks, Some(15_000));
+    assert_eq!(blocks, Some(STAYING));
 }
 
 /// An editor leaves an empty text in a paragraph it emptied. It is no node, also at

@@ -16,10 +16,11 @@ use serde_json::{Map, Value};
 /// The prefix of the environment variables that override configuration keys.
 pub const ENV_PREFIX: &str = "FVOCI_";
 
-/// The default of `max_request_bytes`: 4 MiB. The largest block the model accepts, a
+/// The default of `max_request_bytes`: 8 MiB. The largest block the model accepts, a
 /// title of 16,383 characters and fields of 800,000, takes up to about 3.3 MB as UTF-8,
-/// so every single valid block fits. Requests of the web app measured below 1 kB.
-pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
+/// and a card's body up to 4 MiB with it, so every single valid block fits. Requests of
+/// the web app that write no body measured below 1 kB.
+pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 8 * 1024 * 1024;
 
 pub mod collab;
 mod environment;

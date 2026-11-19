@@ -339,24 +339,36 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
 /// told, for the card's organization.
 #[tokio::test]
 async fn a_document_past_a_lowered_state_limit_is_written_before_it_is_made_again() {
-    let th = Setup::native().start().await.init_basic().await;
+    const LOWER: u64 = 8 * 1024 * 1024;
+    let th = Setup::native()
+        .configure(|config| {
+            // Four times the limit it is lowered to; a worker's memory has room for it.
+            config.collab.collab_state_bytes = 4 * LOWER;
+            // Large updates, so that few of them bring the document past the lower
+            // limit: every update is paid for by the size of the document.
+            config.collab.collab_update_bytes = 1024 * 1024;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
     // The two hundred updates below may take a loaded machine longer than a body
     // waits to be written: the server is killed before it writes this one.
     collab.leave_due_writes();
     let (editor, epoch) = joined(collab, &e.app, &e.card_id, 101).await;
-    let line = "d".repeat(24 * 1024);
     let take = async |update: Vec<u8>| {
         collab
             .take(&e.app, &e.card_id, epoch, &e.user1, &update)
             .await
             .expect("taken")
     };
-    // What is deleted stays in the state: past 2 MiB, under the 6 MiB of a remake, and
-    // folded into the stored state at the two hundredth update.
-    for _ in 0..100 {
-        take(editor.append_paragraph(&line)).await;
+    // What is deleted stays in the state: past the lower limit, under the 24 MiB of a
+    // remake, and folded into the stored state at the two hundredth update.
+    let line = "d".repeat(960 * 1024);
+    for round in 0..100 {
+        take(editor.append_paragraph(if round < 91 { "d" } else { &line })).await;
         take(editor.delete_last()).await;
     }
     take(editor.append_paragraph("the last word")).await;
@@ -368,7 +380,8 @@ async fn a_document_past_a_lowered_state_limit_is_written_before_it_is_made_agai
         .expect("read")
         .expect("a document");
     assert!(
-        stored.state_seq == 200 && stored.state.len() > 2 * 1024 * 1024,
+        stored.state_seq == 200
+            && u64::try_from(stored.state.len()).is_ok_and(|bytes| bytes > LOWER),
         "a stored state past the lower limit: {} bytes through {}",
         stored.state.len(),
         stored.state_seq
@@ -381,7 +394,7 @@ async fn a_document_past_a_lowered_state_limit_is_written_before_it_is_made_agai
     );
     let card_id = e.card_id.clone();
     let mut th = th;
-    th.config.collab.collab_state_bytes = 2 * 1024 * 1024;
+    th.config.collab.collab_state_bytes = LOWER;
     let th = th
         .killed_and_started_again(async |app| app.collab().abandon().await)
         .await;

@@ -123,7 +123,8 @@ describe('writing a body', () => {
     const card = await backend.card(boardId, byTitle('Alpha').id);
     const error = await rejection(
       backend.writeCardBody(boardId, card.id, {
-        body: text('가'.repeat(400_000)),
+        // Three bytes a letter: a letter past the limit.
+        body: text('가'.repeat(Math.floor(LIMITS.bodyBytes / 3) + 1)),
         readAt: card.updateAt,
       }),
     );

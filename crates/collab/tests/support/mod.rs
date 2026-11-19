@@ -14,17 +14,18 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use fvoci_collab::testing::with_update;
-use fvoci_collab::{UpdateLimits, new_doc};
+use fvoci_collab::testing::{copy_of, with_update};
+use fvoci_collab::{FIELD, UpdateLimits, new_doc};
 use fvoci_model::Body;
 use serde_json::Value;
-use yrs::Doc;
+use yrs::{Doc, ReadTxn as _, Transact as _, TransactionMut, XmlFragmentRef};
 
 /// Limits no vector comes near.
 pub(crate) const ROOMY: UpdateLimits = UpdateLimits {
     update_bytes: 64 * 1024 * 1024,
     state_bytes: 64 * 1024 * 1024,
     body_bytes: 64 * 1024 * 1024,
+    placing_steps: fvoci_collab::PLACING_STEPS,
 };
 
 /// A file of the contracts both sides read.
@@ -169,4 +170,20 @@ pub(crate) fn body_of(document: &Value) -> Body {
     Body::parse(document.clone())
         .unwrap_or_else(|error| panic!("{document}: {error}"))
         .unwrap_or_else(|| panic!("{document}: no body"))
+}
+
+/// What a client that holds `doc` sends after it made the changes of `edit` to the
+/// root of its copy: the update of those changes alone, as the Y library writes them.
+pub(crate) fn edited(
+    doc: &Doc,
+    edit: impl FnOnce(&XmlFragmentRef, &mut TransactionMut<'_>),
+) -> Vec<u8> {
+    let client = copy_of(doc).expect("the document can be read again");
+    let before = client.transact().state_vector();
+    {
+        let root = client.get_or_insert_xml_fragment(FIELD);
+        let mut txn = client.transact_mut();
+        edit(&root, &mut txn);
+    }
+    client.transact().encode_diff_v1(&before)
 }

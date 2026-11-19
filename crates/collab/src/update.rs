@@ -6,6 +6,7 @@ use yrs::{ClientID, Doc, Out, ReadTxn, StateVector, Transact, Update};
 
 use crate::FIELD;
 use crate::build::doc_of_client;
+use crate::placing::{self, Held, Sent};
 use crate::scan;
 
 /// The sizes an update may have and leave.
@@ -21,7 +22,20 @@ pub struct UpdateLimits {
     /// The largest body an update may leave, in bytes of its stored JSON. Every body is
     /// held to [`fvoci_model::BODY_MAX_BYTES`] as well, so a larger value is that.
     pub body_bytes: usize,
+    /// How many changes of the document the Y library may have to walk past to place
+    /// the changes of one update ([`PLACING_STEPS`] for what a client sends).
+    /// `u64::MAX` leaves the count out, for what was taken before and is read again.
+    pub placing_steps: u64,
 }
+
+/// How many changes of a document the changes of one update a client sends may be
+/// placed past ([`UpdateLimits::placing_steps`]): the Y library walks 16 million in
+/// under a second (43 ns each, release build), and an update placed past as many is
+/// taken in a fifth of the time a worker has for its answer. An editor's update is
+/// placed past a handful. Past it are updates of hundreds of changes that each go
+/// into a list of tens of thousands: 500 separate insertions among 33,000 children
+/// of one node, sent as one update.
+pub const PLACING_STEPS: u64 = 16 * 1024 * 1024;
 
 /// Why an update is refused.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -50,6 +64,20 @@ pub enum UpdateError {
     /// The update writes outside the fragment that holds the body.
     #[error("the update writes to the root {0:?}, which is not the body's")]
     UnexpectedRoot(String),
+    /// The changes of the update would be placed past more changes of the document
+    /// than [`UpdateLimits::placing_steps`]: each change that names a neighbour the
+    /// document has to its left, or none, is counted the list it goes into.
+    #[error(
+        "the changes of the update would be placed past {steps} changes of the document, \
+         more than the {limit} allowed"
+    )]
+    PlacedPastTooMany {
+        /// The changes of the document its changes may be placed past, counted no
+        /// further than is needed to know that they are more than the limit.
+        steps: u64,
+        /// The limit.
+        limit: u64,
+    },
     /// With the update the document would be larger than [`UpdateLimits::state_bytes`].
     #[error("with the update the document would be {size} bytes, more than the {limit} allowed")]
     DocumentTooLarge {
@@ -94,8 +122,13 @@ pub(crate) fn copy_of(doc: &Doc) -> Result<Doc, UpdateError> {
 ///
 /// Returns why the state is no whole document.
 fn doc_of_state(state: &[u8]) -> Result<Doc, String> {
-    let begins = scan::check(state).map_err(|refusal| refusal.reason().to_owned())?;
-    if begins.iter().any(|(_, clock)| *clock > 0) {
+    read_state(state).map(|(doc, _)| doc)
+}
+
+/// [`doc_of_state`], with how many changes the state holds.
+fn read_state(state: &[u8]) -> Result<(Doc, u64), String> {
+    let walked = scan::check(state).map_err(|refusal| refusal.reason().to_owned())?;
+    if walked.begins.iter().any(|(_, clock)| *clock > 0) {
         return Err(UpdateError::MissingChanges.to_string());
     }
     let update = Update::decode_v1(state).map_err(|error| error.to_string())?;
@@ -108,14 +141,15 @@ fn doc_of_state(state: &[u8]) -> Result<Doc, String> {
             return Err(UpdateError::MissingChanges.to_string());
         }
     }
-    Ok(doc)
+    Ok((doc, walked.changes))
 }
 
 /// Reads the bytes of an update for a document, after the walk that keeps from the
 /// library what it does not survive (`scan`).
 fn read(doc: &Doc, update: &[u8]) -> Result<Update, UpdateError> {
     let begins = scan::check(update)
-        .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))?;
+        .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))?
+        .begins;
     // A client's changes go on from where the document has them: the library would
     // take changes that begin later and leave a hole before them.
     let known = doc.transact().state_vector();
@@ -167,8 +201,25 @@ pub(crate) fn with_update_sized(
             limit: limits.update_bytes,
         });
     }
-    let update = read(doc, update)?;
-    let copy = copy_of(doc)?;
+    let sent = read(doc, update)?;
+    let state = state_of(doc);
+    let (copy, changes) = read_state(&state).map_err(UpdateError::DocumentUnreadable)?;
+    if limits.placing_steps < u64::MAX {
+        let steps = charged(
+            &copy,
+            (&state, changes),
+            (update, &sent),
+            limits.placing_steps,
+        )?;
+        if steps > limits.placing_steps {
+            return Err(UpdateError::PlacedPastTooMany {
+                steps,
+                limit: limits.placing_steps,
+            });
+        }
+    }
+    drop(state);
+    let update = sent;
     {
         let mut txn = copy.transact_mut();
         txn.apply_update(update)
@@ -186,6 +237,39 @@ pub(crate) fn with_update_sized(
         }
     }
     settled_sized(&copy, limits)
+}
+
+/// What the changes of an update are charged for the document of a state
+/// ([`placing::charge`]): `copy` is the document as the library read it from `state`,
+/// which holds `changes`, and `sent` the update as the library read it from `update`.
+fn charged(
+    copy: &Doc,
+    (state, changes): (&[u8], u64),
+    (update, sent): (&[u8], &Update),
+    limit: u64,
+) -> Result<u64, UpdateError> {
+    let held = Held {
+        state,
+        changes,
+        ends: &copy.transact().state_vector(),
+    };
+    let sent = Sent {
+        update,
+        covered: &sent.insertions(true),
+    };
+    placing::charge(&held, &sent, limit)
+        .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))
+}
+
+/// What the changes of `update` are charged for `doc`, counted list by list whatever
+/// the update holds.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) fn placing_steps(doc: &Doc, update: &[u8]) -> Result<u64, UpdateError> {
+    let sent = read(doc, update)?;
+    let state = state_of(doc);
+    let (copy, changes) = read_state(&state).map_err(UpdateError::DocumentUnreadable)?;
+    // Past a limit of nothing every update is counted list by list.
+    charged(&copy, (&state, changes), (update, &sent), 0)
 }
 
 /// A document as a server that stored it reads it: its state within the limit of
@@ -251,6 +335,7 @@ mod tests {
         update_bytes: 1024,
         state_bytes: 1024,
         body_bytes: 1024,
+        placing_steps: PLACING_STEPS,
     };
 
     /// A document that holds what the library writes in a form the walk refuses: a

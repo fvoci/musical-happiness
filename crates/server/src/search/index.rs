@@ -14,8 +14,8 @@ use serde_json::{Value, json};
 /// of which blocks have a document (2: the pages of wikis beside the cards; 3: the
 /// highlighter reads a whole body; 4: no card that is a template of its board; 5:
 /// documents are written with versions of their own, kept in `sent`, and removals are
-/// remembered longer).
-pub(crate) const VERSION: i64 = 5;
+/// remembered longer; 6: the highlighter reads a body of 4 MiB).
+pub(crate) const VERSION: i64 = 6;
 
 /// How long the search server remembers the version of a document it removed: a put
 /// of a lower version that lands within that time is refused, and one that lands later
@@ -25,9 +25,9 @@ pub(crate) const VERSION: i64 = 5;
 const REMOVALS_KEPT: &str = "10m";
 
 /// How many characters of a text the highlighter reads to find the piece it shows:
-/// more than the longest body there is (a megabyte as it is stored). Both search
-/// servers read a million by default, and fail the whole search over a longer text.
-const HIGHLIGHTED_CHARS: u32 = 2_000_000;
+/// more than the longest body there is (4 MiB as it is stored). Both search servers
+/// read a million by default, and fail the whole search over a longer text.
+const HIGHLIGHTED_CHARS: u32 = 5_000_000;
 
 /// The name of the analyser of Korean text.
 const KOREAN: &str = "fvoci_korean";

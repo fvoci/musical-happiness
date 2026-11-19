@@ -169,7 +169,7 @@ fn empty_attributes() -> Any {
     Any::Map(Arc::default())
 }
 
-/// The length of a text in UTF-16 code units. A body is at most 1 MiB, so it fits.
+/// The length of a text in UTF-16 code units. A body is at most 4 MiB, so it fits.
 fn utf16_length(text: &str) -> u32 {
     u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
 }

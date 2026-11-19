@@ -213,7 +213,8 @@ async fn what_is_past_the_limits_of_a_document_is_refused() {
     let editor = Editor::join(102, &loaded.state);
     let mut refused = None;
     let mut taken = 0;
-    for _ in 0..40 {
+    // As many as a body has room for, and one more.
+    for _ in 0..=fvoci_model::BODY_MAX_BYTES / (60 * 1024) {
         let update = editor.append_paragraph(&"y".repeat(60 * 1024));
         match collab
             .take(

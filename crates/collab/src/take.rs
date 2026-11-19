@@ -54,19 +54,22 @@ pub enum TakeError {
 /// document, the one that sent the update too: they did not make them.
 ///
 /// How long this takes grows with the document as well as with the update: the copy
-/// and the reading again each read the whole state (17 ms for 20,000 nodes, release
-/// build), and the walk refuses the known ways to make that reading cost the square of
-/// the state (a member written over and over). And the Y library places a change among
-/// the others that claim the same place by looking at each of them, so that an update
-/// made for it can take the square of its size (112 kB of changes that all claim the
-/// end of a parent of 16,000 children took 29 seconds). What calls this keeps
+/// and the reading again each read the whole state (a paragraph typed into 50,000
+/// nodes is taken in 0.15 s, and a repair there in up to 1.2 s, release build), and
+/// the walk refuses the known ways to make that reading cost the square of the state
+/// (a member written over and over). And the Y library places a change among the
+/// others of its list by walking past them, so that an update made for it has every
+/// change walk a long list (59 kB of changes that each named the root of 50,000
+/// children took 12 seconds): [`UpdateLimits::placing_steps`] is what an update may
+/// be made to walk, and the most it takes is under a second. What calls this keeps
 /// [`UpdateLimits::update_bytes`] and [`UpdateLimits::state_bytes`] small and does not
 /// hold anything others wait for while it runs.
 ///
 /// # Errors
 ///
 /// Returns [`TakeError::Update`] if the update cannot be taken at all (see
-/// [`UpdateError`]), [`TakeError::Body`] if the document with it is no body and a
+/// [`UpdateError`]: among them one whose changes would be placed past more of the
+/// document than [`UpdateLimits::placing_steps`]), [`TakeError::Body`] if the document with it is no body and a
 /// repair does not make it one, and [`TakeError::BodyTooLarge`] if its body is past
 /// [`UpdateLimits::body_bytes`].
 ///
@@ -85,8 +88,8 @@ pub fn take_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Ta
 
 /// Opens the document of a stored state ([`crate::state_of`]), as an update to an
 /// empty document is taken: with the same checks and repair, and the update's own
-/// limit of size left out, as a state may be as large as
-/// [`UpdateLimits::state_bytes`].
+/// limits left out, as a state may be as large as [`UpdateLimits::state_bytes`] and
+/// its changes were placed when they were taken.
 ///
 /// # Errors
 ///
@@ -101,6 +104,7 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
     }
     let limits = UpdateLimits {
         update_bytes: state.len(),
+        placing_steps: u64::MAX,
         ..*limits
     };
     take_update(&new_doc(), state, &limits)

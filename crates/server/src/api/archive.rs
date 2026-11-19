@@ -200,7 +200,7 @@ async fn handle_export_workspace(
 /// original (the line-based version 1 and the ZIP of version 2) and a ZIP without
 /// `version.json` are 400, and nothing of them is stored. An archive of more than
 /// 10,000 entries, whose entries unpack to more than 1 GiB together, or with a
-/// `board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with
+/// `board.jsonl` of more than 256 MiB or a file larger than `maxFileBytes` is 413 with
 /// the `limit` passed, and nothing of it is stored; for the entry that is too large the
 /// reason is `archive_entry_too_large`. The blocks that show files are
 /// pointed at the board's new copies of them, the images and file blocks of bodies

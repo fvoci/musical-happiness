@@ -264,7 +264,7 @@ fn a_document_may_cross_threads() {
 }
 
 /// What the room that holds a document pays for each update, measured on bodies of
-/// text and of nodes up to the largest (1 MiB of text, and the most nodes), each with
+/// text and of nodes up to the largest (the most text, and the most nodes), each with
 /// room left for a paragraph more, and printed: run with
 /// `--release -- --nocapture` to read it. Nothing is asserted about the times.
 #[test]
@@ -285,9 +285,9 @@ fn the_cost_of_taking_an_update_into_the_largest_bodies() {
     for (name, document) in [
         ("4 KiB of text", of_text(4 * 1024)),
         ("64 KiB of text", of_text(64 * 1024)),
-        ("1 MiB of text", of_text(BODY_MAX_BYTES)),
+        ("the most text", of_text(BODY_MAX_BYTES)),
         ("1,000 nodes", paragraphs(1000)),
-        ("20,000 nodes", paragraphs(BODY_MAX_NODES - 3)),
+        ("the most nodes", paragraphs(BODY_MAX_NODES - 3)),
     ] {
         let body = body_of(&document);
         let timed = Instant::now();

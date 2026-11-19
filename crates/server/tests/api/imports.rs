@@ -16,6 +16,9 @@ use crate::export::{boards_of, import, import_upload, put_part};
 /// The smallest part size, so that an archive of two parts stays small.
 const PART: usize = 5 * 1024 * 1024;
 
+/// The largest `board.jsonl` an import reads.
+const JSONL_LIMIT: usize = 256 * 1024 * 1024;
+
 /// The directory under which the parts of uploads are kept.
 fn uploads_dir(ts: &TestServer) -> PathBuf {
     ts.app.config().tmp_dir().join("uploads")
@@ -410,7 +413,7 @@ async fn an_archive_over_its_limits_stores_nothing() {
         .start_file("b1/board.jsonl", deflated)
         .expect("start");
     writer
-        .write_all(&vec![b' '; 64 * 1024 * 1024 + 1])
+        .write_all(&vec![b' '; JSONL_LIMIT + 1])
         .expect("write");
     let large_jsonl = writer.finish().expect("finish").into_inner();
     let response = import(&ts.client, TEST_WORKSPACE_ID, &large_jsonl).await;
@@ -418,7 +421,7 @@ async fn an_archive_over_its_limits_stores_nothing() {
     let problem = response.check_problem();
     assert_eq!(
         (&problem["reason"], &problem["limit"]),
-        (&json!("archive_entry_too_large"), &json!(64 * 1024 * 1024)),
+        (&json!("archive_entry_too_large"), &json!(JSONL_LIMIT)),
         "{problem}"
     );
 

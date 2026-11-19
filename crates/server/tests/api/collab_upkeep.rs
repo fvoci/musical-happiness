@@ -109,7 +109,9 @@ async fn a_thousand_updates_are_folded_into_the_state_and_the_document_stays_the
 #[tokio::test]
 async fn a_document_near_its_limit_is_made_again_from_its_body() {
     let th = Setup::native()
-        .configure(|config| config.collab.collab_state_bytes = 2 * 1024 * 1024)
+        // Large updates, so that few of them bring the document near its limit: every
+        // update is paid for by the size of the document.
+        .configure(|config| config.collab.collab_update_bytes = 1024 * 1024)
         .start()
         .await
         .init_basic()
@@ -121,10 +123,10 @@ async fn a_document_near_its_limit_is_made_again_from_its_body() {
     let editor = Editor::join(101, &loaded.state);
     let idle = Editor::join(105, &loaded.state);
     let round = rounds_until_remade(&e, &editor, loaded.epoch).await;
-    // Each round leaves 60 KiB deleted in the state: three quarters of 2 MiB is reached
-    // in the twenty-sixth.
+    // Each round leaves 480 KiB deleted in the state: three quarters of the 8 MiB a
+    // state may be is reached in the thirteenth.
     assert!(
-        round >= 24,
+        round >= 12,
         "only once it was near the limit: round {round}"
     );
     let event = events.try_recv().expect("an event");
@@ -140,8 +142,9 @@ async fn a_document_near_its_limit_is_made_again_from_its_body() {
         .await
         .expect("read")
         .expect("a document");
+    // At most the paragraph of the round, not the megabytes that were deleted.
     assert!(
-        stored.state.len() < 64 * 1024,
+        stored.state.len() < 1024 * 1024,
         "small again: {} bytes",
         stored.state.len()
     );
@@ -192,13 +195,13 @@ async fn a_document_near_its_limit_is_made_again_from_its_body() {
     th.teardown().await;
 }
 
-/// Adds a paragraph of 60 KiB and deletes it again, round after round, until the
+/// Adds a paragraph of 480 KiB and deletes it again, round after round, until the
 /// document is made again; the round it was.
 async fn rounds_until_remade(e: &crate::collab::Editing, editor: &Editor, epoch: i64) -> usize {
     let collab = e.app.collab();
-    let line = "z".repeat(60 * 1024);
+    let line = "z".repeat(480 * 1024);
     let mut remade = None;
-    for round in 0..60 {
+    for round in 0..30 {
         let added = collab
             .take(
                 &e.app,

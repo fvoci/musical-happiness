@@ -29,6 +29,7 @@
 
 mod build;
 mod doc;
+mod placing;
 mod project;
 mod read;
 mod repair;
@@ -41,7 +42,7 @@ pub use build::{from_body, from_body_by, new_doc};
 pub use doc::{BodyDoc, Changed};
 pub use repair::Repair;
 pub use take::{TakeError, Taken, from_state, take_update};
-pub use update::{UpdateError, UpdateLimits, state_of};
+pub use update::{PLACING_STEPS, UpdateError, UpdateLimits, state_of};
 pub use yrs;
 
 /// The steps of [`take_update`] one by one, for this crate's tests: what each does
@@ -107,6 +108,29 @@ pub mod testing {
     /// Returns why the document cannot be read again from its state.
     pub fn copy_of(doc: &Doc) -> Result<Doc, UpdateError> {
         crate::update::copy_of(doc)
+    }
+
+    /// How many changes of a document the changes of an update may be placed past,
+    /// counted list by list whatever the update holds
+    /// ([`UpdateLimits::placing_steps`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns why the update, or the document, cannot be read.
+    pub fn placing_steps(doc: &Doc, update: &[u8]) -> Result<u64, UpdateError> {
+        crate::update::placing_steps(doc, update)
+    }
+
+    /// How many changes a state or an update holds.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the bytes are none the walk takes.
+    #[must_use]
+    pub fn changes_of(update: &[u8]) -> u64 {
+        crate::scan::check(update)
+            .expect("an update the walk takes")
+            .changes
     }
 
     /// An editor that holds a body's document, as a client of the server does: it

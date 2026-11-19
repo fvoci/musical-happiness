@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 #[cfg(feature = "test-util")]
 use std::time::Duration;
 
-use fvoci_collab::{BodyDoc, TakeError, UpdateError, UpdateLimits};
+use fvoci_collab::{BodyDoc, PLACING_STEPS, TakeError, UpdateError, UpdateLimits};
 use fvoci_model::{Body, BodyError};
 
 use super::frame::{FrameError, read_frame, write_frame};
@@ -80,6 +80,7 @@ impl Worker {
                 update_bytes: size(limits.update_bytes),
                 state_bytes: size(limits.state_bytes),
                 body_bytes: size(limits.body_bytes),
+                placing_steps: PLACING_STEPS,
             },
             docs: HashMap::new(),
             held_bytes: 0,
@@ -146,13 +147,15 @@ impl Worker {
     }
 
     /// The limits of what the server stored and logged before: an update and a state
-    /// as large as the worker's memory for documents, a body as large as a body may be.
+    /// as large as the worker's memory for documents, a body as large as a body may
+    /// be, and its changes placed past as many as they are.
     fn logged_limits(&self) -> UpdateLimits {
         let held = usize::try_from(self.limits.held_bytes).unwrap_or(usize::MAX);
         UpdateLimits {
             update_bytes: held,
             state_bytes: held,
             body_bytes: self.update_limits.body_bytes,
+            placing_steps: u64::MAX,
         }
     }
 

@@ -518,7 +518,7 @@ fn the_request_limit_defaults_to_four_mebibytes_and_can_be_set() {
     let parse = |text: &str| Configuration::parse(text, no_env).expect("valid JSON");
     assert_eq!(
         parse("{}").max_request_bytes,
-        4 * 1024 * 1024,
+        8 * 1024 * 1024,
         "the default"
     );
     assert_eq!(
