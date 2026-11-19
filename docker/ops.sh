@@ -7,6 +7,7 @@
 project=""
 compose_files=""
 env_file=""
+profiles=""
 # Where backups go, and how many days they are kept.
 backup_dir=${FVOCI_BACKUP_DIR:-${HOME:-.}/fvoci-backups}
 keep_days=14
@@ -25,6 +26,7 @@ shared_option() {
     -p | --project-name) project=${2:?$1 needs a value} ;;
     -f | --file) compose_files="$compose_files${compose_files:+:}${2:?$1 needs a value}" ;;
     --env-file) env_file=${2:?$1 needs a value} ;;
+    --profile) profiles="$profiles${profiles:+,}${2:?$1 needs a value}" ;;
     --dir) backup_dir=${2:?$1 needs a value} ;;
     --keep-days) keep_days=${2:?$1 needs a value} ;;
     *) shift_by=0 ;;
@@ -52,6 +54,11 @@ check_shared_options() {
     esac
     COMPOSE_FILE=$compose_files
     COMPOSE_PROJECT_NAME=$project
+    # --profile, else COMPOSE_PROFILES of the environment or the .env, as compose reads.
+    if [ -n "$profiles" ]; then
+        COMPOSE_PROFILES=$profiles
+        export COMPOSE_PROFILES
+    fi
     # compose's own separator of COMPOSE_FILE is ':' here: a file whose name holds one
     # cannot be given.
     COMPOSE_PATH_SEPARATOR=:
@@ -78,17 +85,54 @@ running() {
     [ -n "$containers" ]
 }
 
+# Prints `compose config "$@"`, or fails showing compose's complaint with its quoted
+# words hidden: what it quotes of a value pasted wrong (a key's lines) may be secret.
+checked_config() {
+    complaint=$(mktemp)
+    if ! compose config "$@" 2>"$complaint"; then
+        sed 's/"[^"]*"/"..."/g' "$complaint" >&2
+        rm -f -- "$complaint"
+        fail "compose refuses its files or .env (above, its quoted words hidden). Nothing was changed"
+    fi
+    rm -f -- "$complaint"
+}
+
 # A setting of the service fvoci as compose reads its files and .env: "image", or a
 # variable of its environment. Empty when it has none.
 fvoci_setting() {
-    config=$(compose config) || fail "compose cannot read its files and .env"
+    config=$(checked_config --format yaml) || exit 1
     printf '%s\n' "$config" | awk -v key="$1:" '
         /^[^ ]/ { top = $1 }
         /^  [^ ]/ { service = $1 }
         top == "services:" && service == "fvoci:" && $1 == key {
-            value = $2; gsub(/["\047]/, "", value); print value; exit
+            value = $0; sub(/^[^:]*:[ ]*/, "", value); gsub(/["\047]/, "", value)
+            print value; exit
         }'
     unset config
+}
+
+# The value the .env file "$1" gives the variable "$2" (the last line of it; `export`,
+# spaces and quotes taken off). Empty when it has none.
+env_value() {
+    sed -n "s/^[[:space:]]*\(export[[:space:]][[:space:]]*\)\{0,1\}$2[[:space:]]*=[[:space:]]*//p" "$1" |
+        tail -n 1 | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+}
+
+# Warns when the project runs cloudflared and the range of its network edge is not
+# among FVOCI_TRUSTED_PROXIES: a new network (after `down`) may have another, and every
+# person behind the tunnel would then be counted as cloudflared's one address.
+check_trusted_edge() {
+    services=$(compose config --services) || return 0
+    printf '%s\n' "$services" | grep -qx cloudflared || return 0
+    ranges=$(docker network inspect "${project}_edge" \
+        --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null) || return 0
+    trusted=$(fvoci_setting FVOCI_TRUSTED_PROXIES | tr -d ' ')
+    for range in $ranges; do
+        case ",$trusted," in
+        *",$range,"*) ;;
+        *) say "warning: the network edge is $range, which FVOCI_TRUSTED_PROXIES lacks: set it to $range in the .env and docker compose up -d" ;;
+        esac
+    done
 }
 
 # Which storage fvoci's files are in (local or s3), as compose gives it fvoci.

@@ -6,7 +6,7 @@
 # backups older than --keep-days. compose.yaml's header says more.
 #
 #   docker/backup.sh [-p project] [-f compose.yaml]... [--env-file .env]
-#                    [--dir folder] [--keep-days 14]
+#                    [--profile name]... [--dir folder] [--keep-days 14]
 set -eu
 script=backup
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -48,14 +48,18 @@ trap 'exit 143' TERM
 compose exec -T postgres pg_dump --username=postgres --dbname=fvoci --format=custom \
     >"$work/db.dump"
 if [ "$storage" = local ]; then
-    set -- --create --file=- --directory=/data \
+    # GNU tar ends with 1 when a file changed or went while it was read (an upload, a
+    # purge): what it wrote is whole, and the database tells what the files must be.
+    # shellcheck disable=SC2016 # the container's shell expands it.
+    set -- -c 'tar "$@"; status=$?; [ "$status" -le 1 ]' tar --create --file=- --directory=/data \
+        --warning=no-file-changed --warning=no-file-removed \
         --exclude=files/.tmp --exclude=files/.fvoci-ready files
     if running fvoci; then
-        compose exec -T fvoci tar "$@" >"$work/files.tar"
+        compose exec -T fvoci sh "$@" >"$work/files.tar"
     else
         # The volume through fvoci's image and user, as it is here: nothing is pulled
         # or built.
-        compose run --rm --no-deps -T --pull never --entrypoint tar fvoci "$@" >"$work/files.tar"
+        compose run --rm --no-deps -T --pull never --entrypoint sh fvoci "$@" >"$work/files.tar"
     fi
     files_said="its files"
 else

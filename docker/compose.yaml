@@ -87,7 +87,10 @@
 #
 # Backups and updates: the scripts beside this file take the project (-p; fvoci, or
 # COMPOSE_PROJECT_NAME), the compose files (-f, repeated for an override; this one
-# unless named) and the .env (--env-file; the one beside the first file).
+# unless named), the .env (--env-file; the one beside the first file) and the profiles
+# (--profile, repeated; or COMPOSE_PROFILES in the .env, which plain compose commands
+# read too). update.sh refuses a running service whose profile is off; with cloudflared
+# they warn when the range of edge, which `down` may change, is not trusted.
 #   docker/backup.sh [--dir ~/fvoci-backups] [--keep-days 14]
 #     while fvoci runs or not: the database (pg_dump -Fc), the files of the volume (not
 #     S3's: the bucket is yours to back up, and it says so), copies of the .env and

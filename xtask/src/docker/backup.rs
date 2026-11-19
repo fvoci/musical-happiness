@@ -58,11 +58,10 @@ pub(super) fn round_trip(trial: &Trial, directory: &Path) -> Result<()> {
     check_private(&backups, &backup, trial)?;
     say(&format!("    {}", last_said(&made, "backup")));
     backs_up_no_files_from_s3(trial, directory)?;
-    refuses_a_full_installation(trial, &backup, &rows)?;
+    refuses_a_full_installation(trial, directory, &backup, &rows)?;
 
-    super::mail::remove_fake(trial)?;
-    let down = trial.compose(&["down", "--volumes", "--timeout", super::STOP_SECONDS])?;
-    ensure!(down.succeeded, "docker compose down failed: {}", down.error);
+    take_volumes_away(trial)?;
+    refuses_a_volume_with_files(trial, &backup)?;
     let restored = run_script(trial, "restore.sh", &[&backup.to_string_lossy()])?;
     ensure!(
         restored.contains("made anew from") && !restored.contains("made anew from 0 "),
@@ -92,28 +91,64 @@ pub(super) fn round_trip(trial: &Trial, directory: &Path) -> Result<()> {
     updates(trial, &backups)
 }
 
-/// `restore.sh` refuses an installation with a container of fvoci, then, the container
-/// removed, a database that holds tables; and changes nothing.
-fn refuses_a_full_installation(trial: &Trial, backup: &Path, rows: &str) -> Result<()> {
+/// What is done before one run of `restore.sh` that must be refused.
+enum Before {
+    /// Nothing: fvoci's container is there.
+    Nothing,
+    /// The `.env` given has another `FVOCI_SECRET_KEY`.
+    AnotherKey,
+    /// fvoci's container is removed: the database is the full one.
+    RemoveFvoci,
+}
+
+/// `restore.sh` refuses an `.env` with another secret key, then an installation with a
+/// container of fvoci, then, the container removed, a database that holds tables; and
+/// changes nothing.
+fn refuses_a_full_installation(
+    trial: &Trial,
+    directory: &Path,
+    backup: &Path,
+    rows: &str,
+) -> Result<()> {
     let backup = backup.to_string_lossy();
+    let other_env = directory.join("another-key.env");
     let refusals = [
-        ("fvoci has a container", None),
-        (
-            "the database holds",
-            Some(["rm", "--stop", "--force", "fvoci"]),
-        ),
+        ("FVOCI_SECRET_KEY is not the backup's", Before::AnotherKey),
+        ("fvoci has a container", Before::Nothing),
+        ("the database holds", Before::RemoveFvoci),
     ];
-    for (refusal, first) in refusals {
-        if let Some(first) = first {
-            let removed = trial.compose(&first)?;
-            ensure!(
-                removed.succeeded,
-                "removing fvoci failed: {}",
-                removed.error
-            );
+    for (refusal, before) in refusals {
+        let other_env_text = other_env.to_string_lossy();
+        let mut arguments = vec![backup.as_ref()];
+        match before {
+            Before::Nothing => {}
+            Before::AnotherKey => {
+                let text =
+                    std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
+                let mut lines: Vec<String> = text
+                    .lines()
+                    .filter(|line| !line.starts_with("FVOCI_SECRET_KEY="))
+                    .map(str::to_owned)
+                    .collect();
+                lines.push(format!(
+                    "FVOCI_SECRET_KEY={}",
+                    super::base64(&super::random::<32>()?)
+                ));
+                super::write_private(&other_env, &lines.join("\n"))?;
+                arguments.extend(["--env-file", other_env_text.as_ref()]);
+            }
+            Before::RemoveFvoci => {
+                let removed = trial.compose(&["rm", "--stop", "--force", "fvoci"])?;
+                ensure!(
+                    removed.succeeded,
+                    "removing fvoci failed: {}",
+                    removed.error
+                );
+            }
         }
-        let (succeeded, said) =
-            script_output(trial.script("restore.sh", &[&backup]), "restore.sh")?;
+        let outcome = script_output(trial.script("restore.sh", &arguments), "restore.sh");
+        let _ = std::fs::remove_file(&other_env);
+        let (succeeded, said) = outcome?;
         no_secret_in(trial, "restore.sh", &said)?;
         ensure!(
             !succeeded && said.contains(refusal) && said.contains("Nothing was changed"),
@@ -122,7 +157,50 @@ fn refuses_a_full_installation(trial: &Trial, backup: &Path, rows: &str) -> Resu
         let rows_now = counted_rows(trial)?;
         ensure!(rows_now == rows, "restore.sh refused but the rows changed");
     }
-    say("    restore.sh refuses fvoci's container and a database that holds tables");
+    say("    restore.sh refuses another secret key, fvoci's container and a full database");
+    Ok(())
+}
+
+/// On new volumes, `restore.sh` refuses a files' volume that holds a file; the volumes
+/// are taken away again.
+fn refuses_a_volume_with_files(trial: &Trial, backup: &Path) -> Result<()> {
+    let stray = trial.compose(&[
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        "--entrypoint",
+        "sh",
+        "fvoci",
+        "-c",
+        "mkdir -p /data/files/stray && echo stray > /data/files/stray/file",
+    ])?;
+    ensure!(
+        stray.succeeded,
+        "writing a stray file failed: {}",
+        stray.error
+    );
+    let (succeeded, said) = script_output(
+        trial.script("restore.sh", &[&backup.to_string_lossy()]),
+        "restore.sh",
+    )?;
+    no_secret_in(trial, "restore.sh", &said)?;
+    ensure!(
+        !succeeded
+            && said.contains("the files' volume holds files")
+            && said.contains("Nothing was changed"),
+        "restore.sh did not refuse a volume with a file: {said}"
+    );
+    take_volumes_away(trial)?;
+    say("    restore.sh refuses a files' volume that holds a file");
+    Ok(())
+}
+
+/// `docker compose down --volumes`, the fake mail provider first.
+fn take_volumes_away(trial: &Trial) -> Result<()> {
+    super::mail::remove_fake(trial)?;
+    let down = trial.compose(&["down", "--volumes", "--timeout", super::STOP_SECONDS])?;
+    ensure!(down.succeeded, "docker compose down failed: {}", down.error);
     Ok(())
 }
 

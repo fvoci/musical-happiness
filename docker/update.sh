@@ -1,13 +1,14 @@
 #!/bin/sh
 # Brings the installation of docker/compose.yaml to the version its files and .env now
 # name (the new docker/ in place, FVOCI_IMAGE set): checks them before anything
-# changes, backs up (backup.sh), pulls the images, stops fvoci, starts everything
+# changes, pulls the images, backs up (backup.sh), stops fvoci, starts everything
 # (`up`, whose migrate brings the schema up), and checks that fvoci is ready and runs
 # the commit expected. Says how long fvoci was down, and, when it fails after the
 # stop, what is left and how to go back. compose.yaml's header says more.
 #
 #   docker/update.sh [-p project] [-f compose.yaml]... [--env-file .env]
-#                    [--dir folder] [--keep-days 14] [--no-pull] [--commit sha]
+#                    [--profile name]... [--dir folder] [--keep-days 14]
+#                    [--no-pull] [--commit sha]
 #
 # --no-pull: the images are on this machine already (built here, or loaded).
 # --commit: the commit fvoci must say it is; else the image's label says it.
@@ -44,8 +45,7 @@ check_shared_options
 # The new files and .env, before anything changes: compose reads the variable of an
 # environment secret only when it starts the service, so `config` passes a .env that
 # lacks one, and `up` would stop half-way.
-compose config --quiet || fail "compose refuses its files or .env (above); nothing was changed"
-config=$(compose config)
+config=$(checked_config)
 needed=$(printf '%s\n' "$config" | awk '
     /^[^ ]/ { secrets = ($1 == "secrets:") }
     secrets && $1 == "environment:" { print $2 }')
@@ -64,30 +64,42 @@ unset defined
     fail "the .env ($env_file) lacks$lacking: add the line (empty when unused; .env.example says what each is). Nothing was changed"
 
 running fvoci || fail "fvoci does not run: start it first (docker compose up -d), or restore. Nothing was changed"
+# A service that runs and that compose does not see has its profile off here: `up`
+# would leave it on its old image.
+seen=$(checked_config --services)
+runs=$(docker ps --filter "label=com.docker.compose.project=$project" \
+    --format '{{.Label "com.docker.compose.service"}}')
+for service in $runs; do
+    printf '%s\n' "$seen" | grep -qx -- "$service" ||
+        fail "$service runs, but its profile is off here: give --profile (or COMPOSE_PROFILES in the .env). Nothing was changed"
+done
 image=$(fvoci_setting image)
 old_container=$(compose ps --quiet fvoci)
 old_image=$(docker inspect --format '{{.Image}}' "$old_container")
-# The image that runs now keeps a name of its own: a pull may move its tag to the new.
-kept_tag="fvoci-server:before-update-$project"
-docker tag "$old_image" "$kept_tag"
 schema_before=$(schema_version)
 rows_before=$(row_counts)
 
-backup_said=$("$here/backup.sh" --env-file "$env_file" --dir "$backup_dir" --keep-days "$keep_days") ||
-    fail "the backup failed: nothing was changed"
-printf '%s\n' "$backup_said"
-backup=$(printf '%s\n' "$backup_said" | sed -n 's/^backup: made \(.*\) ([0-9]* KiB: .*/\1/p')
-
+# The images first: a slow pull does not stand between the backup and the stop.
 if [ "$pull" = yes ]; then
     compose pull ||
         fail "the images were not pulled (--no-pull if they are on this machine): fvoci still runs, nothing was changed"
 fi
 # Every image `up` will start must be here before fvoci stops.
-images=$(compose config --images) || fail "compose cannot list its images"
+images=$(checked_config --images)
 for wanted in $images; do
     docker image inspect "$wanted" >/dev/null 2>&1 ||
         fail "the image $wanted is not on this machine: fvoci still runs, nothing was changed"
 done
+# The image that runs now keeps a name of its own: the pull may have moved its tag.
+kept_tag="fvoci-server:before-update-$project"
+docker tag "$old_image" "$kept_tag"
+
+backup_said=$("$here/backup.sh" --env-file "$env_file" --dir "$backup_dir" --keep-days "$keep_days") ||
+    fail "the backup failed: fvoci still runs, nothing was changed"
+printf '%s\n' "$backup_said"
+backup=$(printf '%s\n' "$backup_said" | sed -n 's/^backup: made \(.*\) ([0-9]* KiB: .*/\1/p')
+backed_up=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
 if [ -z "$expected" ]; then
     expected=$(docker image inspect --format \
         '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
@@ -101,8 +113,9 @@ after_the_stop() {
     [ "$status" -ne 0 ] || return 0
     printf '%s\n' \
         "update: failed after fvoci was stopped ($since), before it was ready. What is left:" \
-        "  - the backup $backup, made before the stop (its env and compose copies are" \
-        "    the new version's: going back needs the docker/ and .env that ran before)" \
+        "  - the backup $backup, made at $backed_up: what was written between it and the" \
+        "    stop is not in it, and its env and compose copies are the new version's" \
+        "    (going back needs the docker/ and .env that ran before)" \
         "  - the image that ran before: $old_image, tagged $kept_tag" \
         "  - the schema: $(schema_version) (it was $schema_before)" \
         "  docker compose logs migrate fvoci says why. There are no migrations down: if the" \
@@ -129,6 +142,7 @@ down=$(($(now_ms) - stopped))
 # fvoci serves people again: what goes wrong now is not undone by a restore, which
 # would lose what they write.
 trap - EXIT
+check_trusted_edge
 
 ping=$(fvoci_request http GET /api/v1/ping) || ping=""
 commit=$(printf '%s' "$ping" | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p')

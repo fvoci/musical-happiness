@@ -6,7 +6,8 @@
 # migrates a backup of an older version), makes the search index anew and compares the
 # files with the records. compose.yaml's header says more.
 #
-#   docker/restore.sh [-p project] [-f compose.yaml]... [--env-file .env] <backup folder>
+#   docker/restore.sh [-p project] [-f compose.yaml]... [--env-file .env]
+#                     [--profile name]... <backup folder>
 set -eu
 script=restore
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -42,11 +43,18 @@ elif [ -f "$backup/files.tar" ]; then
     say "the files of $backup/files.tar are not restored: this installation keeps its files in S3"
 fi
 # The key that seals the sign-in providers' secrets must be the backup's, or they do
-# not open. Compared here, printed nowhere.
-backup_key=$(sed -n 's/^FVOCI_SECRET_KEY=//p' "$backup/env" 2>/dev/null | tail -n 1)
-current_key=$(sed -n 's/^FVOCI_SECRET_KEY=//p' "$env_file" | tail -n 1)
-if [ -n "$backup_key" ] && [ "$backup_key" != "$current_key" ]; then
-    fail "the .env's FVOCI_SECRET_KEY is not the backup's ($backup/env has it): the sign-in providers' secrets would not open. Nothing was changed"
+# not open: the backup's .env against the value compose gives fvoci (the shell's wins
+# over the .env's). Compared here, printed nowhere.
+current_key=$(compose config --environment) ||
+    fail "compose cannot list the variables it sees (config --environment needs a newer compose). Nothing was changed"
+current_key=$(printf '%s\n' "$current_key" | sed -n 's/^FVOCI_SECRET_KEY=//p' | tail -n 1)
+if [ -f "$backup/env" ] &&
+    grep -q '^[[:space:]]*\(export[[:space:]][[:space:]]*\)\{0,1\}FVOCI_SECRET_KEY[[:space:]]*=' "$backup/env"; then
+    backup_key=$(env_value "$backup/env" FVOCI_SECRET_KEY)
+    [ "$backup_key" = "$current_key" ] ||
+        fail "FVOCI_SECRET_KEY is not the backup's ($backup/env has it): the sign-in providers' secrets would not open. Nothing was changed"
+else
+    say "warning: $backup/env does not say FVOCI_SECRET_KEY: the .env's must be the one the backup was made with"
 fi
 unset backup_key current_key
 fvoci_containers=$(compose ps --all --quiet fvoci) || fail "compose cannot list the containers of $project"
@@ -97,6 +105,7 @@ say "starting the installation (migrate brings an older backup's schema up to da
 stage="starting the installation: the database and files are restored (docker compose logs migrate fvoci)"
 compose up --detach --no-build --wait --wait-timeout 300
 say "schema $(schema_version), $(row_counts)"
+check_trusted_edge
 
 # The search server's index is not in the backup: it is made anew from the database.
 stage="making the search index anew: all else is restored (POST /api/v1/admin/search/reindex on the admin socket)"

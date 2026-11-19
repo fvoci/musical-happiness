@@ -506,7 +506,7 @@ impl App {
 
     /// Logs how much mail still holds a place in its queue, if any: once the shutdown
     /// stops waiting for it, it is not sent.
-    pub fn warn_of_unsent_mail(&self) {
+    pub(crate) fn warn_of_unsent_mail(&self) {
         let unsent = self.unsent_mail();
         if !unsent.is_empty() {
             tracing::warn!(
