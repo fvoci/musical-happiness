@@ -371,10 +371,7 @@ describe('the built-in templates', () => {
  * to be in a template of each language: a kind that is added to the code
  * fails these tests until a template shows it or it is listed here.
  */
-const NOT_SHOWN: Record<
-  'views' | 'properties' | 'nodes' | 'marks' | 'calculations',
-  Record<string, string>
-> = {
+const NOT_SHOWN: Record<'views' | 'properties' | 'nodes' | 'marks', Record<string, string>> = {
   views: {},
   properties: {
     unknown: 'what a property of a kind this app does not know is read as, not a kind to choose',
@@ -387,7 +384,6 @@ const NOT_SHOWN: Record<
   marks: {
     link: 'a link leads to an address, and the templates name none',
   },
-  calculations: {},
 };
 
 /** Fails unless each of `kinds` is either among `shown` or listed in `left`, and not both. */
@@ -465,9 +461,11 @@ describe.each(LANGUAGES)('what the built-in templates show between them, in %s',
     const calculations = views.flatMap((fields) =>
       Object.values(fields.columnCalculations as Record<string, string>),
     );
+    // A column is calculated in the ways the code knows. Which of them the templates
+    // show is theirs to choose: a foot for each of the twenty would be there for the
+    // test, not for a reader.
     expect(calculations.length).toBeGreaterThan(0);
     for (const calculation of calculations) expect(CALCULATION_IDS).toContain(calculation);
-    expectCovered([], new Set(), NOT_SHOWN.calculations, language);
   });
 
   it('is nobody: the properties for people are there, and theirs to fill', () => {

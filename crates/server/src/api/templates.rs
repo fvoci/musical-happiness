@@ -9,8 +9,9 @@ use super::contract::params::{ScreenLanguage, WorkspaceId};
 use super::contract::tag;
 
 use super::workspace::TextInWorkspace;
-use super::{ApiResult, json_response, query_param};
+use super::{ApiResult, json_response};
 use crate::app::{App, as_managed};
+use crate::auth::token::query_value;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(handle_get_templates))
@@ -39,9 +40,11 @@ async fn handle_get_templates(
 ) -> ApiResult {
     let ws = ws.require_no_guest()?;
     let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
-    let screen_language = query_param(query.as_deref(), "language");
+    let screen_language = query
+        .as_deref()
+        .and_then(|query| query_value(query, "language"));
     let containers = app
-        .template_boards(workspace_id, user_id, ws.role, Some(&screen_language))
+        .template_boards(workspace_id, user_id, ws.role, screen_language.as_deref())
         .await?;
     let mut results: Vec<Container> = Vec::with_capacity(containers.len());
     for container in containers {

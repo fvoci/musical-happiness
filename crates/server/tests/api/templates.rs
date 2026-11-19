@@ -416,38 +416,26 @@ async fn the_built_in_templates_are_the_template_files() {
         .await
         .init_basic()
         .await;
-    let boards = ts
-        .client
-        .get(&format!("{ROOT_WS}/templates"))
-        .await
-        .ok_json::<Vec<Container>>();
-    let files: Vec<Value> = template_files()
-        .into_iter()
-        .filter(|template| template["language"] == json!("en"))
-        .collect();
-    let mut keys: Vec<&str> = boards
-        .iter()
-        .filter_map(|board| board.properties.get("templateKey").and_then(Value::as_str))
-        .collect();
-    keys.sort_unstable();
-    let mut expected: Vec<&str> = files
-        .iter()
-        .filter_map(|template| template["key"].as_str())
-        .collect();
-    expected.sort_unstable();
-    assert_eq!(keys.len(), TEMPLATES, "{keys:?}");
-    assert_eq!(keys, expected, "the templates of the files, each once");
-    assert_eq!(
-        boards
-            .iter()
-            .filter(|board| board.properties.get("onboarding") == Some(&json!(true)))
-            .count(),
-        1,
-        "one is marked as the welcome board"
-    );
+    for language in ["en", "ko"] {
+        the_templates_listed_are_the_files_of(&ts, language).await;
+    }
+    ts.teardown().await;
+}
 
-    let (mut bodies, mut dates, mut ordered, mut shown) = (0, 0, 0, 0);
-    for board in &boards {
+/// What the blocks of templates held between them: bodies, dates, cards that a view
+/// orders, and files that a body shows.
+#[derive(Default)]
+struct Seen {
+    bodies: usize,
+    dates: usize,
+    ordered: usize,
+    shown: usize,
+}
+
+impl Seen {
+    /// Counts the blocks of `board` in, reading each file a body shows and holding each
+    /// card a view orders to the cards of the board.
+    async fn read(&mut self, ts: &crate::common::TestServer, board: &Container) {
         let blocks = ts
             .client
             .get(&format!("{ROOT_WS}/boards/{}/blocks", board.id))
@@ -460,7 +448,7 @@ async fn the_built_in_templates_are_the_template_files() {
             .collect();
         for block in &blocks {
             if block["body"].is_object() {
-                bodies += 1;
+                self.bodies += 1;
                 let block: Block =
                     serde_json::from_value(block.clone()).expect("a block of the contract");
                 for file in block.shown_files() {
@@ -471,18 +459,15 @@ async fn the_built_in_templates_are_the_template_files() {
                         ))
                         .await
                         .check_ok();
-                    shown += 1;
+                    self.shown += 1;
                 }
             }
-            for value in block["fields"]["properties"]
+            self.dates += block["fields"]["properties"]
                 .as_object()
                 .into_iter()
                 .flat_map(serde_json::Map::values)
-            {
-                if value.is_object() {
-                    dates += 1;
-                }
-            }
+                .filter(|value| value.is_object())
+                .count();
             for card in block["fields"]["cardOrder"]
                 .as_array()
                 .into_iter()
@@ -493,23 +478,125 @@ async fn the_built_in_templates_are_the_template_files() {
                     "{card} in the order of {}",
                     block["title"]
                 );
-                ordered += 1;
+                self.ordered += 1;
             }
         }
     }
+}
+
+/// Holds the templates listed on a screen in `language` to the files written in it.
+async fn the_templates_listed_are_the_files_of(ts: &crate::common::TestServer, language: &str) {
+    let boards = ts
+        .client
+        .get(&format!("{ROOT_WS}/templates?language={language}"))
+        .await
+        .ok_json::<Vec<Container>>();
+    let files: Vec<Value> = template_files()
+        .into_iter()
+        .filter(|template| template["language"] == json!(language))
+        .collect();
+    let mut keys: Vec<&str> = boards
+        .iter()
+        .filter_map(|board| board.properties.get("templateKey").and_then(Value::as_str))
+        .collect();
+    keys.sort_unstable();
+    let mut expected: Vec<&str> = files
+        .iter()
+        .filter_map(|template| template["key"].as_str())
+        .collect();
+    expected.sort_unstable();
+    assert_eq!(keys.len(), TEMPLATES, "{language}: {keys:?}");
+    assert_eq!(
+        keys, expected,
+        "{language}: the templates of the files, each once"
+    );
+    assert_eq!(
+        boards
+            .iter()
+            .filter(|board| board.properties.get("onboarding") == Some(&json!(true)))
+            .count(),
+        1,
+        "{language}: one is marked as the welcome board"
+    );
+
+    let mut seen = Seen::default();
+    for board in &boards {
+        seen.read(ts, board).await;
+    }
+    let Seen {
+        bodies,
+        dates,
+        ordered,
+        shown,
+    } = seen;
     let (files_bodies, files_dates) = bodies_and_dates(&files);
     assert!(
         files_bodies > 0 && files_dates > 0,
         "the files have bodies and dates"
     );
-    assert_eq!(bodies, files_bodies, "the cards have their bodies");
+    assert_eq!(
+        bodies, files_bodies,
+        "{language}: the cards have their bodies"
+    );
     assert_eq!(
         dates, files_dates,
-        "the dates of the templates, in the new shape"
+        "{language}: the dates of the templates, in the new shape"
     );
     assert!(ordered > 0, "the views have card orders");
-    assert!(shown > 0, "the bodies show files");
-    ts.teardown().await;
+    let named: usize = files
+        .iter()
+        .map(|template| template["files"].as_array().map_or(0, Vec::len))
+        .sum();
+    assert!(named > 0, "the files of the templates name files");
+    assert_eq!(
+        shown, named,
+        "{language}: every file named is shown and read"
+    );
+}
+
+/// The files of the stored templates are there, each at the place of its record: files
+/// that bodies show, which a purge of the files that nothing shows leaves.
+async fn the_files_of_the_templates_are_kept(ts: &crate::common::TestServer) {
+    let purged = ts
+        .system_store()
+        .collect_unreferenced_files(i64::MAX)
+        .await
+        .expect("the purge runs");
+    assert!(purged.is_empty(), "no file of a template: {purged:?}");
+    let mut new_files = 0;
+    for board in ts
+        .app
+        .store()
+        .get_builtin_templates()
+        .await
+        .expect("the built-in templates")
+    {
+        for block in ts
+            .system_store()
+            .get_blocks(&fvoci_store::BlockFilter::container(&board.id))
+            .await
+            .expect("the blocks of a template")
+        {
+            for file in block.shown_files() {
+                let record = ts
+                    .system_store()
+                    .get_file_info(&board.id, &file)
+                    .await
+                    .expect("a file a template shows is recorded");
+                assert!(
+                    ts.app
+                        .files()
+                        .exists(&record.path)
+                        .await
+                        .expect("the storage answers"),
+                    "{file} of {} is stored",
+                    board.title
+                );
+                new_files += 1;
+            }
+        }
+    }
+    assert!(new_files > 0, "the new templates show files");
 }
 
 /// Templates that are stored again take the files of the old ones with them, from the
@@ -582,6 +669,55 @@ async fn templates_stored_again_remove_the_old_files() {
             .expect("the storage answers"),
         "the old template's file is gone"
     );
+    the_files_of_the_templates_are_kept(&ts).await;
+    ts.teardown().await;
+}
+
+/// Templates whose files cannot be written are not stored: no template is offered
+/// without its file. What was being written is given up and left to the housekeeping,
+/// and the next attempt stores them.
+#[cfg(unix)]
+#[tokio::test]
+async fn templates_whose_files_cannot_be_written_are_not_stored() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    use fvoci_store::LooseState;
+
+    let ts = Setup::native().start().await;
+    let directory = std::path::Path::new(&ts.app.config().file_storage_path);
+    std::fs::create_dir_all(directory).expect("the test's directory exists");
+    let permissions = std::fs::metadata(directory)
+        .expect("the original permissions")
+        .permissions();
+    std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o555))
+        .expect("the test removes write permission");
+    let stored = ts.app.init_templates().await;
+    std::fs::set_permissions(directory, permissions).expect("restore before cleanup");
+
+    assert!(
+        stored.is_err(),
+        "run as an unprivileged user so the write fails"
+    );
+    assert_eq!(ts_template_count(&ts).await, 0, "no template is stored");
+    let left = ts
+        .system_store()
+        .loose_objects()
+        .await
+        .expect("the listed objects");
+    assert!(!left.is_empty(), "the place of the failed write is listed");
+    assert!(
+        left.iter().all(|object| object.state == LooseState::Doomed),
+        "nothing is left as being written: {left:?}"
+    );
+
+    assert!(
+        ts.app
+            .init_templates()
+            .await
+            .expect("the templates are stored"),
+        "with a storage that takes them, they are stored"
+    );
+    assert_eq!(ts_template_count(&ts).await, TEMPLATES * LANGUAGES);
     ts.teardown().await;
 }
 

@@ -1,8 +1,9 @@
 /**
  * Templates on the real server: a board made from a built-in template, a
  * template made from a board and changed on its own page, the workspace's
- * template offered to be changed again from "Add board", and the welcome
- * board with its views, its pictures and its document, in either language.
+ * template offered to be changed again from "Add board", the welcome
+ * board with its views, its pictures and its document, in either language,
+ * and a board from each of the other templates, opened on its first view.
  */
 import path from 'node:path';
 
@@ -26,8 +27,10 @@ import {
 
 test.use({ locale: 'en-US' });
 
-async function templates(api: APIRequestContext, workspaceId: string) {
-  const answer = await api.get(`/api/v1/w/${workspaceId}/templates`);
+async function templates(api: APIRequestContext, workspaceId: string, language?: string) {
+  const answer = await api.get(`/api/v1/w/${workspaceId}/templates`, {
+    params: language === undefined ? {} : { language },
+  });
   expect(answer.ok()).toBe(true);
   return (await answer.json()) as Schemas['Container'][];
 }
@@ -122,6 +125,9 @@ async function shot(page: Page, name: string): Promise<void> {
   const wide = page.viewportSize() ?? { width: 1280, height: 720 };
   await page.screenshot({ path: path.join(folder, `${name}-wide.png`) });
   await page.setViewportSize({ width: 390, height: 844 });
+  // A narrow screen has the sidebar in a drawer, which is shut: the picture waits
+  // for the sidebar that stood beside the page to slide away.
+  await expect(page.getByTestId('sidebar')).not.toBeInViewport();
   await page.screenshot({ path: path.join(folder, `${name}-390.png`) });
   await page.setViewportSize(wide);
 }
@@ -230,6 +236,77 @@ test('the welcome board shows its five views, its pictures and its document, in 
   await koreanPage.getByText('파일을 올리고 그 자리에서 여세요', { exact: true }).click();
   await expect(koreanPage.locator('[data-file-block]')).toHaveAttribute('data-state', 'shown');
   await shot(koreanPage, 'welcome-ko-card');
+  expect(koreanErrors).toEqual([]);
+  await context.close();
+  await api.dispose();
+});
+
+/** The view each of the other templates opens on: the test id of what it draws. */
+const OPENS_ON: Record<string, string> = {
+  'project-schedule': 'gantt',
+  'issue-tracker': 'kanban',
+  'meeting-notes': 'table-view',
+  'content-calendar': 'calendar',
+  'customer-contacts': 'table-view',
+  'study-notes': 'kanban',
+};
+
+test('a board from each of the other templates opens on the view meant for it, in English and in Korean', async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('browsing');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const { workspaceId } = await makeBoard(api, { title: 'Before the templates' });
+
+  /** A board of the account's own from each template written in `language`, by key. */
+  const boardsFrom = async (language: string): Promise<[string, string][]> => {
+    const made: [string, string][] = [];
+    for (const template of await templates(api, workspaceId, language)) {
+      const key = template.properties.templateKey;
+      if (!template.isBuiltin || typeof key !== 'string' || !(key in OPENS_ON)) continue;
+      const copied = await api.post(
+        `/api/v1/w/${workspaceId}/containers/${template.id}/duplicate`,
+        {
+          params: { toWorkspace: workspaceId },
+        },
+      );
+      expect(copied.ok()).toBe(true);
+      const copy = ((await copied.json()) as Schemas['ContainersAndBlocks']).containers[0];
+      made.push([key, copy?.id ?? '']);
+    }
+    expect(made.map(([key]) => key).sort()).toEqual(Object.keys(OPENS_ON).sort());
+    return made;
+  };
+
+  const errors = watchErrors(page);
+  let signedInOnPage = false;
+  for (const [key, boardId] of await boardsFrom('en')) {
+    await page.goto(boardPath({ workspaceId, boardId }));
+    if (!signedInOnPage) await signInOnPage(page, owner);
+    signedInOnPage = true;
+    await expect(page.getByTestId(OPENS_ON[key] ?? ''), key).toBeVisible();
+    await expect(page.locator('[data-problem]')).toHaveCount(0);
+    await shot(page, `${key}-en`);
+  }
+  expect(errors).toEqual([]);
+
+  const context = await browser.newContext({
+    locale: 'ko-KR',
+    baseURL: base,
+    storageState: await page.context().storageState(),
+  });
+  const koreanPage = await context.newPage();
+  const koreanErrors = watchErrors(koreanPage);
+  for (const [key, boardId] of await boardsFrom('ko')) {
+    await koreanPage.goto(boardPath({ workspaceId, boardId }));
+    await expect(koreanPage.getByTestId(OPENS_ON[key] ?? ''), key).toBeVisible();
+    await expect(koreanPage.locator('[data-problem]')).toHaveCount(0);
+    await shot(koreanPage, `${key}-ko`);
+  }
   expect(koreanErrors).toEqual([]);
   await context.close();
   await api.dispose();

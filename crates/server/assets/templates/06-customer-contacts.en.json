@@ -67,7 +67,7 @@
       },
       {
         "id": "06a33a0e-b88f-5e48-9e8a-683f27986949",
-        "name": "Expected amount",
+        "name": "Expected amount (thousands)",
         "type": "number",
         "options": []
       },

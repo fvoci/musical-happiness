@@ -5,7 +5,8 @@
 //! and documents its bodies show (`assets/templates/files/`). They are stored once,
 //! when a database has none or an older version of them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 use fvoci_model::{
     Block, BlockType, Container, ContainerType, ContainersAndBlocks, FileInfo, WorkspaceRole,
@@ -18,11 +19,17 @@ use serde_json::Value;
 use super::App;
 use super::files::{FilePlace, file_info};
 use super::language::Language;
-use super::loose_objects::{WRITE_TIMEOUT, Written};
+use super::loose_objects::Written;
 use crate::error::AppError;
 
 /// The current version of the built-in templates. Raising it stores them again.
 const DEFAULT_TEMPLATE_VERSION: i64 = 8;
+
+/// The longest the storing of one file of the templates may take. The files are a few
+/// kilobytes each and a server does not start before they are stored, so a file storage
+/// that does not answer fails the start within this instead of holding it for as long
+/// as an upload may take.
+const TEMPLATE_FILE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The board property that marks the built-in template a new account's first board is
 /// copied from: the welcome board, once in each language.
@@ -327,27 +334,38 @@ fn place_assets<'b>(
             )
         })?;
         let info = file_info(board_id, place, size);
-        stored_names.insert(&asset.asset, info.stored_name.clone());
+        if stored_names
+            .insert(&asset.asset, info.stored_name.clone())
+            .is_some()
+        {
+            return Err(mistake(
+                name,
+                format_args!("names the file {} twice", asset.asset),
+            ));
+        }
         stored.push(StoredAsset { info, bytes });
     }
 
-    let mut shown: Vec<String> = Vec::new();
+    let mut shown: HashSet<&str> = HashSet::with_capacity(assets.len());
     for block in blocks {
         let Some(body) = block.body.take() else {
             continue;
         };
         for file in body.file_ids() {
-            if !stored_names.contains_key(file) {
+            let Some((asset, _)) = stored_names.get_key_value(file) else {
                 return Err(mistake(
                     name,
                     format_args!("shows the file {file}, which it does not name"),
                 ));
-            }
-            shown.push(file.to_owned());
+            };
+            shown.insert(asset);
         }
         block.body = body.with_files_renamed(|asset| stored_names.get(asset).cloned());
     }
-    if let Some(unused) = assets.iter().find(|asset| !shown.contains(&asset.asset)) {
+    if let Some(unused) = assets
+        .iter()
+        .find(|asset| !shown.contains(asset.asset.as_str()))
+    {
         return Err(mistake(
             name,
             format_args!("names the file {}, which no body shows", unused.asset),
@@ -382,7 +400,10 @@ impl App {
             files,
         } = builtin_templates(SYSTEM_WORKSPACE_ID)?;
         if let Err(error) = system.write_template_files(&files).await {
-            system.give_up_template_files(&files).await;
+            // The write that failed may yet appear, its answer lost.
+            system
+                .give_up_template_files(&files, Written::Unsettled)
+                .await;
             return Err(error);
         }
         let records: Vec<FileInfo> = files.iter().map(|file| file.info.clone()).collect();
@@ -404,12 +425,17 @@ impl App {
                 system.announce_created(&templates, &[]).await;
                 Ok(true)
             }
+            // Every write is over: what was written is removed now.
             Ok(None) => {
-                system.give_up_template_files(&files).await;
+                system
+                    .give_up_template_files(&files, Written::Settled)
+                    .await;
                 Ok(false)
             }
             Err(error) => {
-                system.give_up_template_files(&files).await;
+                system
+                    .give_up_template_files(&files, Written::Settled)
+                    .await;
                 Err(AppError::from(error).context("cannot store the built-in templates"))
             }
         }
@@ -422,7 +448,7 @@ impl App {
             self.mark_writing(path).await?;
             let mut bytes = file.bytes;
             let write = self.files().write(path, &mut bytes);
-            match tokio::time::timeout(WRITE_TIMEOUT, write).await {
+            match tokio::time::timeout(TEMPLATE_FILE_TIMEOUT, write).await {
                 Ok(Ok(_)) => {}
                 Ok(Err(error)) => {
                     return Err(AppError::internal(format_args!(
@@ -431,7 +457,7 @@ impl App {
                 }
                 Err(_) => {
                     return Err(AppError::internal(
-                        "storing a file of the built-in templates took longer than a write may take",
+                        "storing a file of the built-in templates took too long",
                     ));
                 }
             }
@@ -439,13 +465,12 @@ impl App {
         Ok(())
     }
 
-    /// Gives up the files of templates that are not stored after all. A write may have
-    /// been cut short, so each is left to the housekeeping; one that was never marked,
-    /// or is recorded, is left alone.
-    async fn give_up_template_files(&self, files: &[StoredAsset]) {
+    /// Gives up the files of templates that are not stored after all, `written` saying
+    /// whether a write of theirs may yet appear. One that was never marked, or is
+    /// recorded (the templates were stored, with the answer lost), is left alone.
+    async fn give_up_template_files(&self, files: &[StoredAsset], written: Written) {
         for file in files {
-            self.give_up_writing(&file.info.path, Written::Unsettled)
-                .await;
+            self.give_up_writing(&file.info.path, written).await;
         }
     }
 

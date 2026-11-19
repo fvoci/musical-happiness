@@ -687,7 +687,7 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "Text, number, email, phone and link"
+                        "text": "Text, number, email, phone and URL"
                       }
                     ]
                   }
@@ -701,7 +701,7 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "Select and multi select, with a colour for each option"
+                        "text": "Select and multi select, with a color for each option"
                       }
                     ]
                   }
@@ -1599,7 +1599,7 @@
                     "content": [
                       {
                         "type": "text",
-                        "text": "Press “+ Add board” in the sidebar and choose “New wiki”"
+                        "text": "Press “Add board or wiki” in the sidebar and choose “New wiki”"
                       }
                     ]
                   }
@@ -1654,7 +1654,7 @@
             "content": [
               {
                 "type": "text",
-                "text": "“+ Add board” offers an empty board and the templates. Each template shows another side of fvoci."
+                "text": "“Add board or wiki” in the sidebar offers an empty board and the templates. Each template shows another side of fvoci."
               }
             ]
           },
