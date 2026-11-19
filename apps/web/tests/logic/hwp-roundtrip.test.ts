@@ -12,7 +12,7 @@
  * same way, and what became of each is written, in numbers, to
  * `FVOCI_HWP_ROUNDTRIP_REPORT`. The folder is read, never run.
  */
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { HwpDocument } from '@rhwp/core';
@@ -23,7 +23,7 @@ import { examine } from '../../src/lib/file-viewer/formats.ts';
 import { HwpReader } from '../../src/viewer-frame/hwp-document.ts';
 import type { HwpFormat } from '../../src/viewer-frame/hwp-messages.ts';
 
-import { contentOf, differences, type Content } from '../support/hwp-content.ts';
+import { contentOf, differences, lost, type Content } from '../support/hwp-content.ts';
 import {
   compoundStreams,
   koreanHwp,
@@ -35,6 +35,10 @@ import type { ZipMember } from '../support/viewer-files.ts';
 
 const FOLDER = process.env.FVOCI_HWP_SAMPLES;
 const REPORT = process.env.FVOCI_HWP_ROUNDTRIP_REPORT;
+/** "2/8": the second of eight parts of the samples, for runs side by side. */
+const PART = /^(\d+)\/(\d+)$/.exec(process.env.FVOCI_HWP_ROUNDTRIP_PART ?? '');
+/** Samples left out, by their paths from the folder, one a line: those a run does not come back from. */
+const LEFT_OUT = new Set((process.env.FVOCI_HWP_ROUNDTRIP_LEAVE ?? '').split('\n').filter(Boolean));
 
 /** The line typed into a document: no white space, and nothing a document is likely to say. */
 const TYPED = 'FVOCI편집확인';
@@ -88,6 +92,7 @@ function type(document: HwpDocument): void {
 const untyped = (content: Content): Content => ({
   ...content,
   text: content.text.replace(TYPED, ''),
+  words: content.words.replace(TYPED, ''),
 });
 
 const members = (archive: Uint8Array): ZipMember[] => {
@@ -127,9 +132,13 @@ describe.each(SAMPLES)('a document of %s saved by rhwp', (format, sample) => {
     const given = await checked(format, sample());
     const before = reading(given, contentOf);
     expect(before.pages).toBe(2);
-    expect(before.tables).toEqual(['2x3']);
+    expect(before.tables).toHaveLength(1);
     expect(before.pictures).toHaveLength(1);
     expect(before.pictures[0]).not.toContain('not-read');
+    // The picture is among what the pages draw, read by its bytes.
+    expect(before.drawn.flat()).toHaveLength(1);
+    expect(before.drawn.flat()).not.toContain('not-read');
+    expect(before.tables[0]).toMatch(/^2x3:6:/);
 
     const { bytes, losses } = reading(given, (document) => saved(document, format));
     expect(losses).toBe(0);
@@ -153,6 +162,9 @@ describe.each(SAMPLES)('a document of %s saved by rhwp', (format, sample) => {
     expect(after.text).toContain(TYPED);
     expect(after.text).not.toBe(before.text);
     expect(untyped(after)).toEqual(before);
+    expect(after.words).toContain(TYPED);
+    expect(lost(before, untyped(after))).toEqual([]);
+    expect(lost(before, after)).toEqual(['text']);
   });
 
   it('saved twice over, is still the document', async () => {
@@ -177,6 +189,10 @@ describe('the comparison of a document with what was saved', () => {
       // Through a save, as a loss would come about.
       return reading(saved(document, 'hwpx').bytes, contentOf);
     });
+    // Found whatever the pages too, as in a document whose lines an edit moved.
+    const whatever = lost(before, after);
+    expect(whatever.length).toBeGreaterThan(0);
+    expect(differences(before, after)).toEqual(expect.arrayContaining(whatever));
     return differences(before, after);
   };
 
@@ -220,6 +236,17 @@ describe('the comparison of a document with what was saved', () => {
     const before = reading(await checked('hwpx', original), contentOf);
     const after = reading(await checked('hwpx', other), contentOf);
     expect(differences(before, after)).toEqual(['pictures']);
+    // By the bytes the page draws alone, as a picture inside a table's cell is known.
+    expect(differences({ ...before, pictures: [] }, { ...after, pictures: [] })).toEqual([
+      'pictures',
+    ]);
+  });
+
+  it('finds a table whose cells are merged otherwise', async () => {
+    const before = reading(await checked('hwpx', koreanHwpx()), contentOf);
+    const [table = ''] = before.tables;
+    const merged = { ...before, tables: [table.replace(/:[0-9a-f]+$/, ':0000000000000000')] };
+    expect(differences(before, merged)).toEqual(['tables']);
   });
 });
 
@@ -305,14 +332,24 @@ interface Outcome {
 interface Saved {
   bytes?: number;
   losses?: number;
-  /** What differs from the document, none when it is the document. */
+  /**
+   * What of the saved file differs from the document: saved as it was read, anything (its
+   * pages and what each draws too); saved with a line typed, what the document held whatever
+   * the pages (the line moves what follows it), and the line itself. None when it is it.
+   */
   differs?: string[];
+  /** With a line typed, what else differs in the pages and what they draw: the lines moved. */
+  moved?: string[];
   /** What failed, when the save or the reading back did. */
   failed?: string;
 }
 
 const said = (error: unknown): string =>
   (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).slice(0, 120);
+
+/** Whether a save differs from the document without rhwp having reported a loss. */
+const summaryUnreported = (save?: Saved): boolean =>
+  (save?.differs?.length ?? 0) > 0 && save?.losses === 0;
 
 function samplesUnder(folder: string): string[] {
   const found: string[] = [];
@@ -341,9 +378,11 @@ async function savedAndRead(
       return { bytes: bytes.length, losses, failed: `examined as ${JSON.stringify(examined)}` };
     }
     const after = reading(await checked(format, bytes), contentOf);
-    const differs = differences(before, edit ? untyped(after) : after);
-    if (edit && !after.text.includes(TYPED)) differs.push('typed');
-    return { bytes: bytes.length, losses, differs };
+    if (!edit) return { bytes: bytes.length, losses, differs: differences(before, after) };
+    const differs = lost(before, untyped(after));
+    if (!after.words.includes(TYPED)) differs.push('typed');
+    const moved = differences(before, untyped(after)).filter((what) => !differs.includes(what));
+    return { bytes: bytes.length, losses, differs, moved };
   } catch (error) {
     if (error instanceof WebAssembly.RuntimeError) throw error;
     return { failed: said(error) };
@@ -378,14 +417,23 @@ async function roundTrip(file: string): Promise<Outcome> {
 
 describe.skipIf(!FOLDER)('real documents saved by rhwp', () => {
   it(
-    'are read back by the viewer’s check, and what differs of each is written down',
+    'are read back by the viewer’s check, none differing unless rhwp said what it lost',
     async () => {
       const folder = FOLDER ?? '';
       expect(statSync(folder).isDirectory(), folder).toBe(true);
       startRhwp();
       const outcomes: Outcome[] = [];
-      for (const file of samplesUnder(folder)) {
-        outcomes.push({ ...(await roundTrip(file)), file: path.relative(folder, file) });
+      const [part, parts] = PART ? [Number(PART[1]), Number(PART[2])] : [1, 1];
+      for (const [at, file] of samplesUnder(folder).entries()) {
+        const name = path.relative(folder, file);
+        if (at % parts !== part - 1) continue;
+        if (LEFT_OUT.has(name)) {
+          outcomes.push({ file: name, bytes: statSync(file).size, skipped: 'left out' });
+          continue;
+        }
+        // Written before each: a run that does not come back says where it stayed.
+        if (REPORT) appendFileSync(`${REPORT}.progress`, `${new Date().toISOString()} ${name}\n`);
+        outcomes.push({ ...(await roundTrip(file)), file: name });
       }
       const through = outcomes.filter((one) => !one.skipped);
       const count = (pick: (one: Outcome) => boolean): number => through.filter(pick).length;
@@ -403,6 +451,7 @@ describe.skipIf(!FOLDER)('real documents saved by rhwp', () => {
         editedDiffers: count((one) => (one.edited?.differs?.length ?? 0) > 0),
         editedFailed: count((one) => one.edited?.failed !== undefined),
         editedWithLosses: count((one) => (one.edited?.losses ?? 0) > 0),
+        editedMoved: count((one) => (one.edited?.moved?.length ?? 0) > 0),
         // A difference rhwp's report did not tell of: the loss nobody is asked about.
         uneditedDiffersUnreported: count(
           (one) => (one.unedited?.differs?.length ?? 0) > 0 && one.unedited?.losses === 0,
@@ -413,6 +462,19 @@ describe.skipIf(!FOLDER)('real documents saved by rhwp', () => {
       };
       if (REPORT) writeFileSync(REPORT, `${JSON.stringify({ summary, outcomes }, null, 1)}\n`);
       expect(through.length).toBeGreaterThan(0);
+      // What a save loses is what the writer is asked about: a difference rhwp did not report,
+      // or a save that fails, is nobody's question. The files are named in the report.
+      expect(
+        through
+          .filter(
+            (one) =>
+              summaryUnreported(one.unedited) ||
+              summaryUnreported(one.edited) ||
+              one.unedited?.failed !== undefined ||
+              one.edited?.failed !== undefined,
+          )
+          .map((one) => one.file),
+      ).toEqual([]);
     },
     4 * 60 * 60 * 1000,
   );

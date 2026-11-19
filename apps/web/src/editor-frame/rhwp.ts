@@ -23,8 +23,9 @@ export const PDF_IMPORT_STATICS = ['importPdf', 'supportsPdfImport'] as const;
 
 for (const name of PDF_IMPORT_STATICS) Reflect.deleteProperty(rhwp.HwpDocument, name);
 
-/** The class that reopens an imported PDF: none here (this name hides the engine's). */
+/** The classes of the PDF import: none here (these names hide the engine's). */
 export const PdfEditorReopen = undefined;
+export const PdfImportRequest = undefined;
 
 let bytes: ArrayBuffer | undefined;
 let started: ReturnType<typeof init> | undefined;

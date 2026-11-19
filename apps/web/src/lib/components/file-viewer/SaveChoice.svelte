@@ -23,8 +23,13 @@
   let { session }: Props = $props();
 
   const saving = $derived(session.saving);
-  /** The report shown: kept while the dialog closes, so that it does not empty as it goes. */
-  const lossy = $derived(saving.name === 'lossy' ? saving : undefined);
+  type Lossy = Extract<EditingSession['saving'], { name: 'lossy' }>;
+  /** The report asked about; the last one stays while its dialog closes, not to empty as it goes. */
+  let last: Lossy | undefined;
+  const lossy = $derived.by(() => {
+    if (saving.name === 'lossy') last = saving;
+    return last;
+  });
 
   const WHAT: Record<Loss['code'], () => string> = {
     binaryContentEmptied: m.file_editor_loss_binary,
@@ -40,7 +45,7 @@
 </script>
 
 <AlertDialog.Root
-  open={lossy !== undefined}
+  open={saving.name === 'lossy'}
   onOpenChange={(open) => {
     if (!open) session.dismiss();
   }}
@@ -53,7 +58,7 @@
       </AlertDialog.Description>
     </AlertDialog.Header>
     {#if lossy}
-      <ul class="max-h-64 overflow-y-auto rounded-md border text-sm" tabindex="-1">
+      <ul class="max-h-64 overflow-y-auto rounded-md border text-sm">
         {#each lossy.losses as loss, at (at)}
           <li class="border-b px-3 py-2 last:border-b-0">
             <p>{WHAT[loss.code]()}: {WHY[loss.reason]()}</p>

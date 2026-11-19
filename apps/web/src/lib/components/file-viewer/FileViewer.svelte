@@ -149,9 +149,10 @@
   /**
    * What "Edit" opens the editor on: the Hangul document on screen, for who may write its
    * versions, once it is shown and its version is known (a new version is written from it).
+   * Not an earlier version: an edit of one could not become a version.
    */
   const editable = $derived.by(() => {
-    if (!onEdit || !versions?.canWrite || status.name !== 'shown') return undefined;
+    if (!onEdit || !versions?.canWrite || status.name !== 'shown' || older) return undefined;
     const { format } = status;
     if ((format !== 'hwp' && format !== 'hwpx') || shownVersion === undefined) return undefined;
     return session.blob ? { format, blob: session.blob, version: shownVersion } : undefined;

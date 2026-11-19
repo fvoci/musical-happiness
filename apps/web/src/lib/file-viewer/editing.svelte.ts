@@ -133,6 +133,7 @@ export class EditingSession {
   /** The name a file of its own is kept under, from the edited file's. */
   readonly #apartName: (name: string) => string;
   readonly #engine: () => Promise<ArrayBuffer>;
+  readonly #onLeave: () => void;
   /** The version a new one is written from: the one opened, then each one written here. */
   #base: number;
   #bytes: ArrayBuffer | undefined;
@@ -151,6 +152,8 @@ export class EditingSession {
       limits?: EditLimits;
       /** rhwp's engine, a copy to hand over; the app's own fetch of it unless given. */
       engine?: () => Promise<ArrayBuffer>;
+      /** The writer asked, in the document, for the app's controls (F6). */
+      onLeave?: () => void;
     },
   ) {
     this.file = file;
@@ -162,6 +165,7 @@ export class EditingSession {
     this.#apartName = options.apartName;
     this.#limits = options.limits ?? EDIT_LIMITS;
     this.#engine = options.engine ?? engineBytes;
+    this.#onLeave = options.onLeave ?? (() => undefined);
   }
 
   /** A save is under way or waits for a choice: the editor is not closed over it. */
@@ -241,6 +245,9 @@ export class EditingSession {
         break;
       case 'save-asked':
         this.save();
+        break;
+      case 'leave':
+        this.#onLeave();
         break;
       case 'exported':
         if (this.saving.name === 'exporting' && message.request === this.#request) {

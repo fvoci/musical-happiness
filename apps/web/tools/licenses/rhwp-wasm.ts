@@ -26,8 +26,8 @@
  * version (the build fails until it names that version), from the repository
  * root, in a folder of rhwp's source alone, in which nothing is run:
  *
- *   git clone --depth 1 --branch v<version> https://github.com/edwardkim/rhwp.git target/rhwp-src
- *   RUSTUP_TOOLCHAIN=stable cargo about generate -m target/rhwp-src/Cargo.toml \
+ *   git clone --depth 1 --branch v<version> https://github.com/edwardkim/rhwp.git target/rhwp-whole
+ *   RUSTUP_TOOLCHAIN=stable cargo about generate -m target/rhwp-whole/Cargo.toml \
  *     -c apps/web/tools/licenses/rhwp-about.toml \
  *     --target wasm32-unknown-unknown --locked --fail \
  *     apps/web/tools/licenses/rhwp-wasm.hbs -o apps/web/tools/licenses/rhwp-wasm-crates.txt

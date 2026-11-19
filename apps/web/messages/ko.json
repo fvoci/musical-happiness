@@ -383,7 +383,7 @@
   "file_version_failed": "판을 쓰지 못했습니다.",
   "viewer_page_too_large": "이 쪽은 너무 커서 보이지 않습니다.",
   "viewer_edit": "편집",
-  "file_editor_description": "한글 문서 편집",
+  "file_editor_description": "한글 문서 편집. 문서 안에서 F6을 누르면 저장과 닫기로 갑니다.",
   "file_editor_frame_title": "{name} 편집기",
   "file_editor_opening": "편집기를 여는 중…",
   "file_editor_save": "저장",

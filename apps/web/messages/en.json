@@ -383,7 +383,7 @@
   "file_version_failed": "The version could not be written.",
   "viewer_page_too_large": "This page is too large to show.",
   "viewer_edit": "Edit",
-  "file_editor_description": "Editing a Hangul document",
+  "file_editor_description": "Editing a Hangul document. In the document, F6 moves to Save and Close.",
   "file_editor_frame_title": "Editor of {name}",
   "file_editor_opening": "Opening the editor…",
   "file_editor_save": "Save",

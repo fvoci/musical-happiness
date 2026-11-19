@@ -55,6 +55,12 @@ interface Host {
   notifySaved(): Promise<unknown>;
 }
 
+/** The editor's page: its hook for the host, and its answer to links that lead out of a document. */
+interface Studio {
+  host?: Host;
+  links?: { setHandler(handler: () => boolean): void };
+}
+
 function tell(message: FromEditor, transfer: Transferable[] = []): void {
   // The parent's origin is not known here (ours is opaque); the parent checks
   // that a message came from this frame.
@@ -105,14 +111,40 @@ async function startEditor(theme: string, lang: string): Promise<Host> {
   await import('rhwp-studio:theme-init');
   await import('rhwp-studio:locale-init');
   await import('rhwp-studio:main');
-  const host = (window as unknown as { rhwpStudio?: { host?: Host } }).rhwpStudio?.host;
-  if (!host) throw new Error('the editor has no hook for its host');
+  const studio = (window as unknown as { rhwpStudio?: Studio }).rhwpStudio;
+  const host = studio?.host;
+  if (!host || !studio.links) throw new Error('the editor has no hook for its host');
+  // A link to another file, a program or an address of mail leads nowhere from here: the
+  // editor would ask for a file to open in the document's place.
+  studio.links.setHandler(() => true);
   await host.ready();
   return host;
 }
 
+/**
+ * Whether the bytes to save are a document the viewer opens: checked as the
+ * viewer checks a file, and read by rhwp in a worker of their own, apart from
+ * the document being edited. What is not is not handed to the app.
+ */
+async function opens(
+  format: EditFormat,
+  bytes: ArrayBuffer,
+  engine: ArrayBuffer,
+): Promise<boolean> {
+  const client = new WorkerClient(new HwpWorker(), CHECK_LIMIT);
+  try {
+    const message: ToWorker = { kind: 'open', format, bytes, wasm: engine };
+    const answer = (await client.request(message, [bytes, engine])) as FromWorker;
+    return answer.kind === 'opened';
+  } catch {
+    return false;
+  } finally {
+    client.close();
+  }
+}
+
 /** The editor at work on one document: answers the app's requests to export and to mark it stored. */
-function serve(host: Host, format: EditFormat): (message: ToEditor) => void {
+function serve(host: Host, format: EditFormat, engine: ArrayBuffer): (message: ToEditor) => void {
   host.onDirtyChanged((dirty) => {
     tell({ kind: 'changed', dirty });
   });
@@ -130,28 +162,38 @@ function serve(host: Host, format: EditFormat): (message: ToEditor) => void {
   });
   if (document.hasFocus()) host.focus();
   // Ctrl+S (Cmd+S) is the app's to answer. The editor's host profile swallows the key itself.
+  // F6 leaves the document for the app's controls: the editor keeps Tab and Escape to itself.
   document.addEventListener(
     'keydown',
     (event) => {
       const key = event.key.toLowerCase();
-      if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey) {
+      const plain = !event.altKey && !event.shiftKey;
+      if ((event.ctrlKey || event.metaKey) && plain) {
         if (key === 's' || key === 'ㄴ') tell({ kind: 'save-asked' });
+      } else if (event.key === 'F6' && plain) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        tell({ kind: 'leave' });
       }
     },
     true,
   );
+  const exportFor = async (request: number): Promise<void> => {
+    try {
+      const exported = host.exportWithReport(format);
+      const { count, losses } = lossesOf(exported.contentLoss);
+      const bytes = exported.bytes.slice().buffer;
+      const at = changes;
+      if (!(await opens(format, bytes.slice(0), engine.slice(0)))) throw new Error('not opened');
+      exportedAt.set(request, at);
+      tell({ kind: 'exported', request, bytes, count, losses }, [bytes]);
+    } catch {
+      tell({ kind: 'export-failed', request });
+    }
+  };
   return (message) => {
     if (message.kind === 'export') {
-      const { request } = message;
-      try {
-        const exported = host.exportWithReport(format);
-        const { count, losses } = lossesOf(exported.contentLoss);
-        const bytes = exported.bytes.slice().buffer;
-        exportedAt.set(request, changes);
-        tell({ kind: 'exported', request, bytes, count, losses }, [bytes]);
-      } catch {
-        tell({ kind: 'export-failed', request });
-      }
+      void exportFor(message.request);
     } else if (message.kind === 'stored' && exportedAt.get(message.request) === changes) {
       // Only what was exported is stored: a change made since keeps the document changed.
       void host.notifySaved().catch(() => undefined);
@@ -167,7 +209,8 @@ function holdNavigation(): void {
   };
   document.addEventListener('click', holdLink, true);
   document.addEventListener('auxclick', holdLink, true);
-  // A file dropped on the editor would be opened in place of the document being edited.
+  // A file dropped on the editor would be opened in place of the document being edited (which
+  // the editor refuses once it has the app's document: our change in its main.ts).
   for (const type of ['dragover', 'drop'] as const) {
     document.addEventListener(
       type,
@@ -202,10 +245,11 @@ function listen(): void {
         return;
       }
       try {
+        // The loader reads the bytes and leaves them whole: saves are read back with them.
         provide(engine);
         const host = await startEditor(theme, lang);
         const { pageCount } = await host.load(new Uint8Array(file), name);
-        serving = serve(host, format);
+        serving = serve(host, format, engine);
         tell({ kind: 'opened', pages: pageCount });
       } catch {
         tell({ kind: 'failed', reason: 'editor' });
@@ -215,9 +259,11 @@ function listen(): void {
   tell({ kind: 'ready' });
 }
 
-// Only in a document without an origin: opened as a page of its own, with the
-// app's origin, the editor would run beside the app's session.
-if (self.origin === 'null') {
+// Only as somebody's frame, in a document without an origin. Opened as a page of its own it
+// has nobody to hear (the server's sandbox leaves it without an origin there too, so nothing
+// of the app's session is in its reach), and with the app's origin the editor would run
+// beside the app's session.
+if (self.origin === 'null' && window.parent !== window) {
   holdNavigation();
   listen();
 }

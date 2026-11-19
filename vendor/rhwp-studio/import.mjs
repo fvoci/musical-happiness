@@ -128,6 +128,13 @@ export function chosen(source, assets) {
       `files that are not code and that assets.json does not name (give each its origin and licence, or leave it out):\n  ${unnamed.join('\n  ')}`,
     );
   }
+  const said = (value) => typeof value === 'string' && value.trim() !== '';
+  const bare = Object.entries(assets)
+    .filter(([, asset]) => !said(asset?.origin) || !said(asset?.license))
+    .map(([file]) => file);
+  if (bare.length > 0) {
+    throw new Error(`assets.json names files without their origin or licence: ${bare.join(', ')}`);
+  }
   const gone = Object.keys(assets).filter((file) => !files.includes(file));
   if (gone.length > 0) throw new Error(`assets.json names files that are not brought: ${gone.join(', ')}`);
   return files.sort();
@@ -138,7 +145,25 @@ function main() {
   if (!version || !/^\d+\.\d+\.\d+$/.test(version)) fail('usage: node vendor/rhwp-studio/import.mjs <version>');
   const source = path.join(ROOT, 'target/rhwp-src', `v${version}`);
   if (!existsSync(source)) clone(version, source);
-  const commit = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const at = (name) => {
+    try {
+      return execFileSync('git', ['-C', source, 'rev-parse', '--verify', `${name}^{commit}`], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      return undefined;
+    }
+  };
+  const commit = at('HEAD');
+  // A folder left from before is used only as the tag has it.
+  if (!commit || commit !== at(`refs/tags/v${version}`)) {
+    fail(`target/rhwp-src/v${version} is not at the tag v${version}: remove it and import again`);
+  }
+  const recorded = JSON.parse(readFileSync(path.join(HERE, 'package.json'), 'utf8')).rhwp;
+  if (recorded?.tag === `v${version}` && recorded.commit && recorded.commit !== commit) {
+    fail(`the tag v${version} is now ${commit}, and was ${recorded.commit} when it was brought`);
+  }
   const theirs = JSON.parse(readFileSync(path.join(source, 'rhwp-studio/package.json'), 'utf8'));
   if (theirs.version !== version) fail(`the tag's rhwp-studio is ${theirs.version}, not ${version}`);
 

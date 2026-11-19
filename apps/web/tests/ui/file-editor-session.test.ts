@@ -94,6 +94,7 @@ function editing(
   file: Partial<EditedFile> = {},
   engine = () => Promise.resolve(new ArrayBuffer(8)),
 ) {
+  const left = vi.fn();
   const { made, source } = versions();
   const edited: EditedFile = {
     name: '회의록.hwpx',
@@ -108,6 +109,7 @@ function editing(
     apartName: (name) => `copy of ${name}`,
     limits: LIMITS,
     engine,
+    onLeave: left,
   });
   const frame = document.createElement('iframe');
   document.body.append(frame);
@@ -144,7 +146,20 @@ function editing(
     });
   };
   const kinds = (): string[] => sent.map(({ message }) => message.kind);
-  return { session, made, frame, sent, says, settled, opened, exports, kinds, detach, edited };
+  return {
+    session,
+    made,
+    frame,
+    sent,
+    says,
+    settled,
+    opened,
+    exports,
+    kinds,
+    detach,
+    edited,
+    left,
+  };
 }
 
 beforeEach(() => {
@@ -244,6 +259,14 @@ describe('a document handed to the editor’s frame', () => {
     await settled();
     expect(sent).toEqual([]);
     expect(session.status).toEqual({ name: 'opening' });
+  });
+
+  it('lets the writer out to the app’s controls when the frame says they asked (F6)', async () => {
+    const { opened, says, left } = editing();
+    await opened();
+    expect(left).not.toHaveBeenCalled();
+    says({ kind: 'leave' });
+    expect(left).toHaveBeenCalledOnce();
   });
 
   it('is at the editor’s address, with the profile of a host that saves', () => {

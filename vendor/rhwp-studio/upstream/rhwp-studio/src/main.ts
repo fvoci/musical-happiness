@@ -195,6 +195,12 @@ async function completeHostSave(fileName?: string): Promise<{ ok: true; wasDirty
 const isLayoutOnly = (reason: unknown): boolean =>
   typeof reason === 'string' && reason.includes('pagination');
 
+// [fvoci] The document the host gives is the only one this editor opens: once it is given,
+// every other way to open one (the file dialog a link to another file leads to, a file
+// dropped, a recovered draft) is refused in `loadBytes`, through which all of them go. What
+// is saved as the host's file is then the document the host gave, edited.
+let hostDocument: 'none' | 'loading' | 'given' = 'none';
+
 // [fvoci] The hook of the page this editor is built into (apps/web/src/editor-frame): it hands
 // the document's bytes in, takes the saved bytes together with rhwp's report of what they
 // lose, and hears when the document changes. No other way gives the bytes out: the embed
@@ -203,11 +209,23 @@ const isLayoutOnly = (reason: unknown): boolean =>
   ready: () => initPromise,
   load: async (data: Uint8Array, fileName: string) => {
     await initPromise;
-    await loadBytes(data, fileName, null, undefined, { suppressDialogs: true, skipRecent: true });
+    hostDocument = 'loading';
+    try {
+      await loadBytes(data, fileName, null, undefined, { suppressDialogs: true, skipRecent: true });
+    } finally {
+      hostDocument = 'given';
+    }
     return { pageCount: wasm.pageCount, sourceFormat: wasm.getSourceFormat() };
   },
-  exportWithReport: (format: 'hwp' | 'hwpx') =>
-    format === 'hwpx' ? wasm.exportHwpxWithReport() : wasm.exportHwpWithReport(),
+  exportWithReport: (format: 'hwp' | 'hwpx') => {
+    // As the editor's own save does (commands/file.ts): the pages are laid out to the end
+    // first, and nothing is exported while they are not.
+    if (inputHandler) {
+      inputHandler.flushDeferredPaginationIfNeeded('host-save');
+      if (inputHandler.hasDeferredPaginationPending()) throw new Error('PAGINATION_PENDING');
+    }
+    return format === 'hwpx' ? wasm.exportHwpxWithReport() : wasm.exportHwpWithReport();
+  },
   isDirty: () => documentState.isDirty(),
   onDirtyChanged: (listener: (dirty: boolean) => void) =>
     eventBus.on('document-dirty-changed', (change) => {
@@ -1797,6 +1815,7 @@ async function loadBytes(
   options: { dataReadProgressShown?: boolean; skipRecent?: boolean; suppressDialogs?: boolean; pdfSource?: PdfInputSource; recoveryCipher?: RecoveryCipher; validateBeforeOpen?: () => Promise<void> } = {},
 ): Promise<void> {
   // 바이트로 여는 모든 경로(파일 열기 · ?url= · 자동저장 복구 · 호스트 API)의 공통 깔때기다.
+  if (hostDocument === 'given') throw new Error('HOST_OWNS_DOCUMENT'); // [fvoci]
   const pdf = Boolean(options.pdfSource) || isPdfInput(data, fileName);
   cancelPdfImport();
   let imported: DocumentInfo | undefined;

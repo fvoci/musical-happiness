@@ -58,12 +58,22 @@
     return `${m.file_editor_apart_name({ stem })}${extension}`;
   }
 
+  /** The header: where the focus goes when the writer asks out of the document (F6). */
+  let header: HTMLElement | undefined;
+  function asHeader(node: HTMLElement): () => void {
+    header = node;
+    return () => {
+      header = undefined;
+    };
+  }
   const session = untrack(
     () =>
       new EditingSession(file, versions, {
         theme: () => display.resolved.theme,
         lang: getLocale,
         apartName,
+        // Out of the document, which keeps Tab and Escape to itself: to the first control.
+        onLeave: () => header?.querySelector<HTMLElement>('button:not(:disabled)')?.focus(),
       }),
   );
   onDestroy(() => {
@@ -146,7 +156,7 @@
     ]}
     interactOutsideBehavior="ignore"
   >
-    <header class="flex min-h-12 items-center gap-2 border-b py-1 pr-1 pl-4">
+    <header {@attach asHeader} class="flex min-h-12 items-center gap-2 border-b py-1 pr-1 pl-4">
       <Dialog.Title class="min-w-0 flex-1 truncate text-base font-semibold"
         >{file.name}</Dialog.Title
       >

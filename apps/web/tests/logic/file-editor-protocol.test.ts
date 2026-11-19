@@ -38,6 +38,7 @@ describe('a message from the editor’s frame, in the app', () => {
       { kind: 'changed', dirty: true },
       { kind: 'changed', dirty: false },
       { kind: 'save-asked' },
+      { kind: 'leave' },
       { kind: 'exported', request: 1, bytes, count: 0, losses: [] },
       { kind: 'exported', request: REQUEST_LIMIT, bytes, count: 1, losses: [LOSS] },
       { kind: 'export-failed', request: 3 },
@@ -103,6 +104,7 @@ describe('a message from the editor’s frame, in the app', () => {
       { kind: 'changed', dirty: 1 },
       { kind: 'changed' },
       { kind: 'save-asked', as: 'copy' },
+      { kind: 'leave', to: 'https://example.invalid/' },
       { kind: 'export-failed' },
       { kind: 'export-failed', request: 0 },
       // What the app says to the frame is not what the frame says to the app.

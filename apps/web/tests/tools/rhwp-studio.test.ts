@@ -110,6 +110,10 @@ describe('rhwp’s import of PDF, which this editor does not have', () => {
       expect(name in given.HwpDocument, name).toBe(false);
     }
     expect(given.PdfEditorReopen).toBeUndefined();
+    expect(given.PdfImportRequest).toBeUndefined();
+    // Nothing else the editor is handed names the import.
+    const named = Object.keys(given).filter((name) => /pdf/i.test(name));
+    expect(named.sort()).toEqual(['PDF_IMPORT_STATICS', 'PdfEditorReopen', 'PdfImportRequest']);
   });
 });
 
@@ -142,7 +146,8 @@ describe('the import of the editor’s source', () => {
     }
     return root;
   }
-  const ASSETS = { 'assets/fonts/enclosed-pua-metrics.json': {} };
+  const NAMED = { origin: 'rhwp’s own data', license: 'MIT' };
+  const ASSETS = { 'assets/fonts/enclosed-pua-metrics.json': NAMED };
 
   it('takes code by its kind and the assets it was told of, and leaves tests and documents', () => {
     expect(chosen(checkout(), ASSETS)).toEqual([
@@ -167,13 +172,23 @@ describe('the import of the editor’s source', () => {
     expect(() => chosen(checkout({ [file]: 'x' }), ASSETS)).toThrow(
       new RegExp(`assets\\.json does not name[\\s\\S]*${file.replaceAll('.', '\\.')}`),
     );
-    // Named with its origin and licence, it is brought.
-    expect(chosen(checkout({ [file]: 'x' }), { ...ASSETS, [file]: {} })).toContain(file);
+    // Named with its origin and licence, it is brought; named without either, it is not.
+    expect(chosen(checkout({ [file]: 'x' }), { ...ASSETS, [file]: NAMED })).toContain(file);
+    for (const bare of [
+      {},
+      { origin: 'somewhere' },
+      { license: 'MIT' },
+      { ...NAMED, license: ' ' },
+    ]) {
+      expect(() => chosen(checkout({ [file]: 'x' }), { ...ASSETS, [file]: bare })).toThrow(
+        /without their origin or licence/,
+      );
+    }
   });
 
   it('stops when an asset it was told of is not there, and when the list of assets is not used', () => {
     expect(() => chosen(checkout(), {})).toThrow(/does not name/);
-    expect(() => chosen(checkout(), { ...ASSETS, 'assets/fonts/gone.json': {} })).toThrow(
+    expect(() => chosen(checkout(), { ...ASSETS, 'assets/fonts/gone.json': NAMED })).toThrow(
       /names files that are not brought: assets\/fonts\/gone\.json/,
     );
   });

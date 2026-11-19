@@ -82,6 +82,8 @@ export type FromEditor =
   | { kind: 'changed'; dirty: boolean }
   /** The writer asked, in the frame, to save (Ctrl+S). */
   | { kind: 'save-asked' }
+  /** The writer asked, in the frame, to go to the app's controls (F6): the frame keeps the keys. */
+  | { kind: 'leave' }
   | { kind: 'exported'; request: number; bytes: ArrayBuffer; count: number; losses: Loss[] }
   | { kind: 'export-failed'; request: number };
 
@@ -158,7 +160,10 @@ export function readFromEditor(data: unknown): FromEditor | undefined {
       return typeof dirty === 'boolean' ? { kind: 'changed', dirty } : undefined;
     }
     case 'save-asked':
-      return exactly(data, ['kind']) ? { kind: 'save-asked' } : undefined;
+    case 'leave': {
+      const kind = kindOf(data) as 'save-asked' | 'leave';
+      return exactly(data, ['kind']) ? { kind } : undefined;
+    }
     case 'exported':
       return exportedOf(data);
     case 'export-failed': {

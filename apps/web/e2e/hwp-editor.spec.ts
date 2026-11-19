@@ -138,9 +138,23 @@ for (const [name, sample, mimeType] of [
     await page.getByTestId('file-viewer-versions').click();
     await expect(page.getByTestId('file-versions-list').locator('li')).toHaveCount(3);
 
+    // An earlier version is shown, not edited: an edit of one could not become a version.
+    await expect(page.getByTestId('file-viewer-edit')).toHaveCount(1);
+    await page
+      .getByTestId('file-versions-list')
+      .locator('li[data-version="1"]')
+      .getByTestId('file-version-view')
+      .click();
+    await expect(page.getByTestId('file-viewer-older')).toHaveCount(1);
+    await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+    await expect(page.getByTestId('file-viewer-edit')).toHaveCount(0);
+
     // And so does the card, opened again.
-    await page.keyboard.press('Escape');
-    if (await viewer(page).isVisible()) await page.keyboard.press('Escape');
+    // Narrow, the list closed when the version was shown.
+    const list = page.getByTestId('file-versions');
+    if (await list.isVisible()) await page.getByTestId('file-versions-close').click();
+    await expect(list).toHaveCount(0);
+    await page.getByTestId('file-viewer-close').click();
     await expect(viewer(page)).toHaveCount(0);
     await row.getByRole('link', { name }).click();
     await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
@@ -326,12 +340,85 @@ test('the frame the editor runs in reaches no network, no storage and nothing of
   expect(fromFrame.filter((address) => !/^(blob|data):/.test(address))).toEqual([]);
 });
 
+test('the keyboard leaves the document for Save and Close with F6', async ({ page }) => {
+  await openCard(page);
+  await edit(page, '안건.hwpx', koreanHwpx(), HWPX_TYPE);
+  await type(page, TYPED);
+  // The editor keeps Tab and Escape for the document; F6 goes out, to the first control.
+  await page.keyboard.press('F6');
+  await expect(page.getByTestId('file-editor-save')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(said(page)).toHaveText('Saved as version 2.');
+  // Saved, what is typed goes to the document again; out once more, on to Close.
+  await expect(page.getByTestId('file-editor-frame')).toBeFocused();
+  await page.keyboard.press('F6');
+  await expect(page.getByTestId('file-editor-save')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByTestId('file-editor-close')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(editor(page)).toHaveCount(0);
+});
+
+test('no other file is opened in the place of the document being edited', async ({ page }) => {
+  await openCard(page);
+  const name = '안건.hwpx';
+  const row = await edit(page, name, koreanHwpx(), HWPX_TYPE);
+  const inside = editorFrame(page);
+  // The editor's own "open a file", which a link to another file in a document leads to: a
+  // file nobody checked would be saved as this file's next version.
+  await inside.locator('#file-input').setInputFiles({
+    name: '다른 문서.hwp',
+    mimeType: HWP_TYPE,
+    buffer: koreanHwp(),
+  });
+  // Said in the editor's status line, which the smaller screens do not show.
+  await expect(inside.getByText(/HOST_OWNS_DOCUMENT/).first()).toBeAttached();
+
+  // The document is still the one the app gave: edited and saved, it is the file's next version.
+  await page.getByTestId('file-editor-frame').focus();
+  await type(page, TYPED);
+  await page.getByTestId('file-editor-save').click();
+  await expect(said(page)).toHaveText('Saved as version 2.');
+  await page.getByTestId('file-editor-close').click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await expect(frameOf(page).locator('.page[data-page="1"] .hwp-text')).toContainText(TYPED);
+  await expect(row).toContainText(name);
+});
+
 test('the editor’s page, opened as a page of the app, runs nothing', async ({ page }) => {
+  // Its own parent when it is nobody's frame: what it would say to the app, it would say here.
+  // (The server sends every page under /static/ sandboxed, so it has no origin here either.)
+  await page.addInitScript(() => {
+    const heard: unknown[] = [];
+    Object.assign(window, { heard });
+    window.addEventListener('message', (event) => heard.push(event.data));
+  });
   await page.goto('/static/editor-frame.html?chrome=embed');
   await page.waitForLoadState('networkidle');
+  // Asked to open a document as the app asks, by the only sender it would hear.
+  await page.evaluate(() => {
+    window.postMessage(
+      {
+        kind: 'open',
+        format: 'hwpx',
+        name: 'a.hwpx',
+        bytes: new ArrayBuffer(8),
+        engine: new ArrayBuffer(8),
+        theme: 'light',
+        lang: 'en',
+      },
+      '*',
+    );
+  });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)));
   const found = await page.evaluate(() => ({
+    origin: self.origin,
+    // Not even "ready": it does not listen.
+    said: (window as unknown as { heard: { kind?: string }[] }).heard
+      .map((message) => message.kind)
+      .filter((kind) => kind !== 'open'),
     studio: 'rhwpStudio' in window,
     body: document.body.childElementCount,
   }));
-  expect(found).toEqual({ studio: false, body: 0 });
+  expect(found).toEqual({ origin: 'null', said: [], studio: false, body: 0 });
 });
