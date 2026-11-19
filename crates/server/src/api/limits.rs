@@ -225,7 +225,8 @@ mod tests {
         let (status, body) = answer(limited(16), request).await;
         assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
         let error: fvoci_model::Problem = serde_json::from_str(&body).expect("an error body");
-        assert_eq!(error.problem_type, "/problems/payload-too-large");
+        assert_eq!(error.problem_type, "/problems/request-too-large");
+        assert_eq!(error.reason.as_deref(), Some("request_too_large"));
         assert_eq!(error.limit, Some(16), "the answer names the limit");
     }
 

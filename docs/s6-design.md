@@ -102,7 +102,7 @@
 | 405 | `method-not-allowed` | 아는 경로에 다른 메서드. `Allow` 머리글 포함 | 결정 전에는 200과 `index.html` |
 | 409 | `conflict` | 이미 있음(사용자 이름·이메일), 마지막 관리자를 빼려 함(`reason: last_admin`), 저장된 판과 요청의 판이 다름(3.7) | 결정 전에는 이름이 이미 있는 가입이 500, 마지막 관리자가 400 |
 | 412, 416 | `precondition-failed`, `range-not-satisfiable` | 파일 내려받기(`getFile`)의 조건과 범위가 맞지 않음 | 본문이 없거나 `text/plain`이던 것 |
-| 413 | `payload-too-large` | 본문이 한도를 넘음. `limit` 포함 | 4절 |
+| 413 | `payload-too-large` | 본문이 한도를 넘음. `limit` 포함. 어느 한도인지 `reason`이 말하면 type도 그 이름이다(요청 본문은 `request-too-large`) | 4절 |
 | 429 | `rate-limited` | 로그인·가입 시도가 제한에 걸림. `Retry-After` 머리글과 본문의 `retryAfter`(초). 한꺼번에 지닐 수 있는 양(열린 업로드, 내보내기·가져오기)을 넘은 것도 429이고 `reason`이 따로 있으며 기다릴 시간은 없다 | 5.2에서 더했다 |
 | 500, 503 | `internal`, `service-unavailable` | 서버의 잘못뿐. `detail`은 고정 문구, 원인은 로그에만. 503은 준비 상태(`GET /api/v1/ready`)가 아닐 때 | 위로 옮겨 간 것들이 빠진다 |
 
@@ -399,7 +399,7 @@ JSON 본문, 세션 없는 요청, WebSocket 메시지의 한도는 구현됐다
 | 가져오기: 파일 항목 하나 | `max_file_bytes`와 같다 | | 가져오기로 업로드 한도를 넘지 못하게 |
 | WebSocket으로 받는 메시지 | (고정) | 64 KiB | 명령(AUTH, SUBSCRIBE)은 수백 바이트다 |
 
-- 넘으면 413 `payload_too_large`와 `limit`다. 가져오기의 오류가 200의 본문으로 나가던 것도 표준 오류 응답이 됐다.
+- 넘으면 413, `reason`이 `request_too_large`이고 `limit`가 있다. 가져오기의 오류가 200의 본문으로 나가던 것도 표준 오류 응답이 됐다.
 - 구현하며 달라진 것: 64 KiB는 로그인과 가입만이 아니라 세션 토큰을 싣지 않은 모든 요청의 한도다.
 - **0은 "제한 없음"이 아니게 한다.** 지금 `max_file_bytes: 0`이 그 뜻인데, 실수로 무제한이 되기 쉽다. 값이 없으면 기본값, 0이나 음수면 시작 오류로 한다. 파일 한도와 함께 구현한다. **구현됨(tracer-bullet 8).**
 
