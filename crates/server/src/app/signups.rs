@@ -325,9 +325,8 @@ impl App {
             ));
         }
         let container_kind = self
-            .in_organization(&confirmed.org_id)?
-            .kind_of_admitted(confirmed.container_id.as_deref())
-            .await;
+            .kind_of_admitted_in(&confirmed.org_id, confirmed.container_id.as_deref())
+            .await?;
         Ok(ConfirmedSignup {
             session_token,
             confirmed,

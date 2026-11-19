@@ -57,6 +57,7 @@ mod setup;
 mod sharing;
 mod signup_lock_order;
 mod signups;
+mod sqlite_wal;
 mod subscriptions;
 mod table_owner;
 mod tenancy;

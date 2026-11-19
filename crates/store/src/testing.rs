@@ -332,8 +332,13 @@ impl TestDatabase {
     pub async fn remove(self) {
         match self.cleanup {
             Cleanup::SqliteFile(path) => {
-                // Journal files may or may not exist; a leftover file is harmless.
-                let _ = std::fs::remove_file(path);
+                // The log and its index are gone with the last connection that closed;
+                // a store that was not closed leaves them, and they go with the file.
+                for suffix in ["", "-wal", "-shm"] {
+                    let mut name = path.as_os_str().to_owned();
+                    name.push(suffix);
+                    let _ = std::fs::remove_file(name);
+                }
             }
             Cleanup::PostgresSchema { url, schema, role } => {
                 let mut connection = connect(&url).await;
