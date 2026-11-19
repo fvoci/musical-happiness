@@ -10,10 +10,16 @@ import type { Workspace } from './workspace.svelte.ts';
  * field to say what is wrong (`errors` at the member, `/firstName`).
  */
 export async function changeName(workspace: Workspace, patch: NameChange): Promise<void> {
-  const changed = await workspace.backend.patchMe(patch);
+  takeUser(workspace, await workspace.backend.patchMe(patch));
+}
+
+/** Puts the user as they are now wherever the workspace holds them. */
+export function takeUser(workspace: Workspace, changed: User): void {
   const replace = (users: User[]): User[] =>
     users.map((user) => (user.id === changed.id ? changed : user));
-  workspace.me = changed;
+  // Another's reading of the reader does not say whether they administer the server.
+  const me = workspace.me;
+  if (me?.id === changed.id) workspace.me = { ...changed, isAdmin: changed.isAdmin ?? me.isAdmin };
   workspace.users = workspace.user(changed.id)
     ? replace(workspace.users)
     : [...workspace.users, changed];

@@ -15,7 +15,7 @@
   import { CREDENTIALS, MAX_CREDENTIALS, type Credential } from '$lib/logic/person-names.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { CREDENTIAL_LABELS } from './name-labels.ts';
+  import { CREDENTIAL_LABELS } from '$lib/components/person/name-labels.ts';
 
   let {
     value = $bindable(),

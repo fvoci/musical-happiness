@@ -57,6 +57,7 @@
 | `UPDATE_BLOCK` | `workspaceId`, `block`(`Block` 전체) | 위와 같은 연결, 그리고 그 블록이나 그 블록의 부모를 `SUBSCRIBE_BLOCKS`로 따라가는 연결 |
 | `UPDATE_MEMBER` | `workspaceId`, `member`(`ContainerMember`) | 그 워크스페이스를 구독한 연결 가운데 사용자가 보드를 읽는 사람인 것 |
 | `DELETE_MEMBER` | `workspaceId`, `member`(`containerId`, `userId`만 뜻이 있고 역할은 모두 `false`) | 위와 같은 연결, 그리고 빠진 사용자의 연결 |
+| `UPDATE_USER` | `workspaceId`, `userId`. 이름은 싣지 않는다: 받은 클라이언트가 그 사람을 다시 읽는다(`getWorkspaceUsersById`) | 그 워크스페이스를 구독한 연결 가운데 사용자가 그 사람을 이름으로 보는 것(`permissions::sees_person`: 구성원은 모두, 손님은 같은 보드에 있는 사람). 그 사람 자신의 연결도 |
 | `UPDATE_CATEGORY` | `workspaceId`, `category`(`Category`) | 카테고리 주인의, 그 워크스페이스를 구독한 연결 모두(아래) |
 | `UPDATE_CONTAINER_CATEGORY` | `workspaceId`, `containerCategories`(`{containerId, categoryId, hidden}`의 목록). **목록은 바꾼 항목들이지 전체가 아니다**: `setContainerCategory`와 보드를 기본 카테고리에 넣는 조작은 그 카테고리의 보드 전부를, `hideContainer`·`unhideContainer`·`undeleteContainer`는 항목 하나를 싣는다. 받는 쪽은 항목마다 덮어쓴다(목록으로 갈아 끼우면 보드를 잃는다) | 그 사용자의 연결 모두 |
 | `REORDER_CATEGORIES` | `workspaceId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 모두 |
@@ -100,6 +101,7 @@
 | `setContainerCategory`, `hideContainer`, `unhideContainer` | `UPDATE_CONTAINER_CATEGORY` |
 | `reorderCategoryContainers` | `REORDER_CATEGORY_CONTAINERS` |
 | `setSharing`(끄기, 새 토큰) | 옛 토큰으로 따라가던 연결에 `UNSUBSCRIBED_BLOCKS` |
+| `patchMe` | 이름이 바뀌면 그 사람이 구성원인(손님 포함) 워크스페이스마다 `UPDATE_USER`. 바꾸는 것이 없는 요청은 아무것도 내지 않는다 |
 | `patchUserSettings`, `patchClientState` | 메시지 없음 |
 
 메시지는 쓰기가 끝난 뒤 보낸다. 어떤 조작은 답하기 전에 보내고(`createBoardsAndBlocks`, `createBlocks`, `createCard`, `deleteContainer`, `deleteBoardsAndBlocks`, 카테고리의 메시지 모두), 나머지는 따로 돌며 보낸다. 클라이언트는 HTTP의 답과 메시지의 순서에 기대지 않는다.

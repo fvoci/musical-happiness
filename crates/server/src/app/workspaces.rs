@@ -1,6 +1,6 @@
-//! Workspaces: which a user is a member of and the way into one. And the way
-//! into an organization: for its administrators, and for a sign-in through its
-//! provider.
+//! Workspaces: which a user is a member of and the way into one, and what is told in
+//! each of a user's. And the way into an organization: for its administrators, and for
+//! a sign-in through its provider.
 
 use std::collections::HashSet;
 
@@ -153,6 +153,32 @@ impl App {
                     .reaching(shared.kind.into()))
             })
             .transpose()
+    }
+
+    /// Tells, in each workspace the user is a member of in any organization, whoever
+    /// follows it and sees the user that their name changed.
+    pub(super) fn broadcast_person_change_in_background(&self, user_id: String) {
+        let app = self.clone();
+        self.spawn_background(async move {
+            let workspaces = match app.store().workspaces_of_user(&user_id, None).await {
+                Ok(workspaces) => workspaces,
+                Err(error) => {
+                    tracing::error!(%error, "reading the workspaces of a renamed user failed");
+                    return;
+                }
+            };
+            for workspace in workspaces {
+                match app.in_organization(&workspace.org_id) {
+                    Ok(scoped) => {
+                        scoped
+                            .ws()
+                            .broadcast_person_change(&workspace.id, &user_id)
+                            .await;
+                    }
+                    Err(error) => tracing::error!(%error, "a renamed user's organization"),
+                }
+            }
+        });
     }
 
     /// The application behind the wall of the organization the store named.

@@ -10,6 +10,7 @@ import { cardPreviewOf, type CardPreview } from '../editor/card-preview.ts';
 import { countTasks, type DocNode } from '../editor/schema.ts';
 import { readDisplaySettings } from '../logic/display.ts';
 import { readLanguageSettings } from '../logic/language.ts';
+import type { PersonName } from '../logic/person-names.ts';
 import { readRegionalSettings } from '../logic/regional.ts';
 import {
   createBoardView,
@@ -46,6 +47,20 @@ import type { components } from './contract.ts';
 
 export type Schemas = components['schemas'];
 
+/** The parts of a name, its choice, title and credentials, of whatever carries them. */
+export function personNameOf(name: Schemas['PersonName']): PersonName {
+  return {
+    firstName: name.firstName,
+    lastName: name.lastName,
+    latinFirstName: name.latinFirstName,
+    latinLastName: name.latinLastName,
+    customName: name.customName,
+    nameShown: name.nameShown,
+    title: name.title,
+    credentials: name.credentials,
+  };
+}
+
 /**
  * A user: a name to log in with, the one to be shown by and the parts it is
  * made of, and no email address (it is never answered).
@@ -55,16 +70,7 @@ export function userOf(user: Schemas['User']): User {
     id: user.id,
     username: user.username,
     displayName: user.displayName,
-    name: {
-      firstName: user.firstName,
-      lastName: user.lastName,
-      latinFirstName: user.latinFirstName,
-      latinLastName: user.latinLastName,
-      customName: user.customName,
-      nameShown: user.nameShown,
-      title: user.title,
-      credentials: user.credentials,
-    },
+    name: personNameOf(user),
     email: '',
     isAdmin: user.isAdmin,
     createAt: user.createAt,

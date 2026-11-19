@@ -2832,32 +2832,40 @@
         "type": "object"
       },
       "OrgMember": {
-        "description": "A member of an organization, as its administrators list them.",
-        "properties": {
-          "displayName": {
-            "description": "The name the user shows; empty for none.",
-            "type": "string"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PersonName",
+            "description": "The parts of the user's name, and their title and credentials: the\nadministrators see the user's name."
           },
-          "role": {
-            "$ref": "#/components/schemas/OrgRole",
-            "description": "What the user is in the organization."
-          },
-          "userId": {
-            "description": "The user's identifier.",
-            "type": "string"
-          },
-          "username": {
-            "description": "The user's login name.",
-            "type": "string"
+          {
+            "properties": {
+              "displayName": {
+                "description": "The name the user shows; empty for none.",
+                "type": "string"
+              },
+              "role": {
+                "$ref": "#/components/schemas/OrgRole",
+                "description": "What the user is in the organization."
+              },
+              "userId": {
+                "description": "The user's identifier.",
+                "type": "string"
+              },
+              "username": {
+                "description": "The user's login name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "displayName",
+              "role",
+              "userId",
+              "username"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "displayName",
-          "role",
-          "userId",
-          "username"
         ],
-        "type": "object"
+        "description": "A member of an organization, as its administrators list them."
       },
       "OrgRole": {
         "description": "What a member of an organization is in it.",
@@ -4681,43 +4689,51 @@
         "type": "object"
       },
       "WorkspaceMember": {
-        "description": "A member of a workspace, as its administrators list them.",
-        "properties": {
-          "createAt": {
-            "description": "When the user became a member, in milliseconds since the Unix epoch.",
-            "format": "int64",
-            "type": "integer"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PersonName",
+            "description": "The parts of the user's name, and their title and credentials: the\nadministrators see the user's name."
           },
-          "displayName": {
-            "description": "The name the user is shown by; empty if they have none.",
-            "type": "string"
-          },
-          "joinedAsOrgAdmin": {
-            "description": "Whether this membership is a temporary joining as organization administrator.",
-            "type": "boolean"
-          },
-          "role": {
-            "$ref": "#/components/schemas/WorkspaceRole",
-            "description": "What the user is in the workspace."
-          },
-          "userId": {
-            "description": "The identifier of the user.",
-            "type": "string"
-          },
-          "username": {
-            "description": "The user's login name.",
-            "type": "string"
+          {
+            "properties": {
+              "createAt": {
+                "description": "When the user became a member, in milliseconds since the Unix epoch.",
+                "format": "int64",
+                "type": "integer"
+              },
+              "displayName": {
+                "description": "The name the user is shown by; empty if they have none.",
+                "type": "string"
+              },
+              "joinedAsOrgAdmin": {
+                "description": "Whether this membership is a temporary joining as organization administrator.",
+                "type": "boolean"
+              },
+              "role": {
+                "$ref": "#/components/schemas/WorkspaceRole",
+                "description": "What the user is in the workspace."
+              },
+              "userId": {
+                "description": "The identifier of the user.",
+                "type": "string"
+              },
+              "username": {
+                "description": "The user's login name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "createAt",
+              "displayName",
+              "joinedAsOrgAdmin",
+              "role",
+              "userId",
+              "username"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "createAt",
-          "displayName",
-          "joinedAsOrgAdmin",
-          "role",
-          "userId",
-          "username"
         ],
-        "type": "object"
+        "description": "A member of a workspace, as its administrators list them."
       },
       "WorkspaceName": {
         "additionalProperties": false,

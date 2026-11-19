@@ -23,7 +23,7 @@
   import { Label } from '$lib/ui/label/index.js';
 
   import CredentialPicker from './CredentialPicker.svelte';
-  import { NAME_SHOWN_LABELS, TITLE_LABELS } from './name-labels.ts';
+  import { NAME_SHOWN_LABELS, TITLE_LABELS } from '$lib/components/person/name-labels.ts';
 
   type Part = 'lastName' | 'firstName' | 'latinFirstName' | 'latinLastName' | 'customName';
 

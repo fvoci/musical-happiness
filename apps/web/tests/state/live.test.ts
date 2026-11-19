@@ -233,6 +233,16 @@ describe('changes from the server', () => {
     members.mockRestore();
   });
 
+  it("tells the reader's own listeners whose name changed, and the board nothing", async () => {
+    const { socket, self, board } = await connected();
+    socket.message({ action: 'UPDATE_USER', workspaceId: 't', userId: 'u2' });
+    // Of a workspace that was left: not told.
+    socket.message({ action: 'UPDATE_USER', workspaceId: 'gone', userId: 'u3' });
+    await settle();
+    expect(self).toEqual([{ kind: 'user', userId: 'u2' }]);
+    expect(board).toEqual([]);
+  });
+
   it('reads the sidebar again on a message of the categories', async () => {
     const { socket, self, board } = await connected();
     socket.message({ action: 'UPDATE_CATEGORY', workspaceId: 't', category: {} });

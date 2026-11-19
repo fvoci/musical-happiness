@@ -5377,7 +5377,7 @@ export interface components {
             workspaceId: string;
         };
         /** @description A member of an organization, as its administrators list them. */
-        OrgMember: {
+        OrgMember: components["schemas"]["PersonName"] & {
             /** @description The name the user shows; empty for none. */
             displayName: string;
             /** @description What the user is in the organization. */
@@ -6159,7 +6159,7 @@ export interface components {
             updateAt: number;
         };
         /** @description A member of a workspace, as its administrators list them. */
-        WorkspaceMember: {
+        WorkspaceMember: components["schemas"]["PersonName"] & {
             /**
              * Format: int64
              * @description When the user became a member, in milliseconds since the Unix epoch.

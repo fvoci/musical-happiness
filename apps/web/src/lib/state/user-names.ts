@@ -2,6 +2,7 @@
 import type { DocNode } from '../editor/schema.ts';
 import { isGone, userDisplayName } from '../logic/users.ts';
 
+import { takeUser } from './account.ts';
 import { isBackendError, type User, type WorkspaceInfo } from './backend.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
@@ -121,6 +122,24 @@ export class UserNames {
       for (const id of ids) pending.set(id, reading);
     }
     await Promise.all(missing.flatMap((id) => pending.get(id) ?? []));
+  }
+
+  /**
+   * Reads again somebody whose name changed (a `user` change), as any reading
+   * of them: whom the reader sees is the backend's rule. Somebody it leaves
+   * out stays as they were.
+   */
+  async reread(userId: string): Promise<void> {
+    const workspace = this.#workspace;
+    const visit = workspace.info;
+    if (!visit) return;
+    try {
+      const found = await workspace.backend.usersById(visit.id, [userId]);
+      const user = found.find((one) => one.id === userId);
+      if (user && workspace.info === visit) takeUser(workspace, user);
+    } catch {
+      // The next change, or the next reading of the workspace, brings them.
+    }
   }
 
   async #read(visit: WorkspaceInfo, ids: string[], answered: Set<string>): Promise<void> {

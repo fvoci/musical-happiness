@@ -11,6 +11,7 @@
 -->
 <script lang="ts">
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
+  import PersonProfile from '$lib/components/person/PersonProfile.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDate } from '$lib/logic/format.ts';
   import { userDisplayName } from '$lib/logic/users.ts';
@@ -296,11 +297,21 @@
         {#each members as member (member.userId)}
           {@const name = userDisplayName(member)}
           {@const self = member.userId === workspace.me?.id}
+          {@const person = workspace.user(member.userId) ?? member}
           <li
             class="flex min-h-8 flex-wrap items-center gap-2 roomy:min-h-touch"
             data-member={member.username}
           >
-            <span class="min-w-0 flex-1 truncate" translate="no">{name}</span>
+            <!-- As the workspace holds them now: a change of their name shows at once. -->
+            <span class="flex min-w-0 flex-1">
+              <PersonProfile
+                userId={member.userId}
+                username={person.username}
+                displayName={person.displayName}
+                name={person.name ?? member.name}
+                locale={workspace.locale}
+              />
+            </span>
             <!-- Their own role is changed by another admin, as on a board. -->
             {#key version}
               <select

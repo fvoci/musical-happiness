@@ -29,6 +29,8 @@ export type Change =
   | { kind: 'members'; containerId: string; members: ContainerMember[] }
   | { kind: 'categories'; categories: Category[] }
   | { kind: 'settings'; settings: AccountSettings }
+  /** Somebody's name changed: whoever holds them reads them again. */
+  | { kind: 'user'; userId: string }
   /**
    * Changes may have been missed (the connection to the server dropped and
    * is back): read again what is shown. The memory backend never sends it.

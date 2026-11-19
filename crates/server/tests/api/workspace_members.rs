@@ -171,13 +171,21 @@ async fn the_administrators_of_a_workspace_list_its_members() {
         keys,
         [
             "createAt",
+            "credentials",
+            "customName",
             "displayName",
+            "firstName",
             "joinedAsOrgAdmin",
+            "lastName",
+            "latinFirstName",
+            "latinLastName",
+            "nameShown",
             "role",
+            "title",
             "userId",
             "username"
         ],
-        "no address, and nothing of the password"
+        "the name whole, no address, and nothing of the password"
     );
 
     th.client2

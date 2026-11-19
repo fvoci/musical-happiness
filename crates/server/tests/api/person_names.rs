@@ -1,10 +1,13 @@
 //! A person's name: its parts, which of them they are shown by, their title and
 //! credentials, changed by them (`patchMe`) and seen by whoever sees them.
 
-use fvoci_model::{Credential, NameShown, Title, User};
+use fvoci_model::{ContainerType, Credential, NameShown, OrgMember, Title, User, WorkspaceMember};
 use serde_json::{Value, json};
 
-use crate::common::{ROOT_WS, Setup};
+use crate::board_broadcasts::WorkspaceSocket;
+use crate::boards::{add_member, board_with_admin, editor, new_board};
+use crate::common::{ROOT_WORKSPACE_ID, ROOT_WS, Setup, TEST_WORKSPACE_ID};
+use crate::org_admin::org_of;
 
 /// A person writes the parts of their name and chooses one to be shown by; whoever sees
 /// them sees every part, and the name they chose.
@@ -130,5 +133,138 @@ async fn codes_off_their_lists_are_refused() {
         );
     }
     assert_eq!(th.client2.me().await, before, "nothing changed");
+    th.teardown().await;
+}
+
+/// The administrators' lists of the members of the organization and of the workspace
+/// carry each member's name whole, with the title and credentials, as they are now.
+#[tokio::test]
+async fn the_lists_of_members_carry_the_title_and_credentials() {
+    let th = Setup::native().start().await.init_basic().await;
+    let kim: User = th
+        .client2
+        .patch(
+            "/users/me",
+            &json!({
+                "firstName": "영환", "lastName": "김", "latinFirstName": "Younghwan",
+                "title": "prof", "credentials": ["md", "phd"],
+            }),
+        )
+        .await
+        .ok_json();
+    let org_id = org_of(&th).await;
+    let org: Vec<OrgMember> = th
+        .client
+        .get(&format!("/org/{org_id}/members"))
+        .await
+        .ok_json();
+    let workspace: Vec<WorkspaceMember> = th
+        .client
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/members"))
+        .await
+        .ok_json();
+    let in_org = org
+        .iter()
+        .find(|member| member.user_id == kim.id)
+        .expect("a member of the organization");
+    let in_workspace = workspace
+        .iter()
+        .find(|member| member.user_id == kim.id)
+        .expect("a member of the workspace");
+    for (list, display_name, name) in [
+        ("organization", &in_org.display_name, &in_org.name),
+        ("workspace", &in_workspace.display_name, &in_workspace.name),
+    ] {
+        assert_eq!(display_name, "김영환", "{list}");
+        assert_eq!(name, &kim.name, "{list}");
+        assert_eq!(name.title, Some(Title::Prof), "{list}");
+        assert_eq!(
+            name.credentials,
+            [Credential::Md, Credential::Phd],
+            "{list}"
+        );
+    }
+    th.teardown().await;
+}
+
+/// The `UPDATE_USER` messages among `messages`.
+fn renames(messages: &[Value]) -> Vec<&Value> {
+    messages
+        .iter()
+        .filter(|message| message["action"] == "UPDATE_USER")
+        .collect()
+}
+
+/// A change of a name is told to whoever follows a workspace of the person: who they
+/// are, not what their name is now, which the page reads by the rule of any reading.
+#[tokio::test]
+async fn a_change_of_a_name_is_told_to_the_members_who_follow_the_workspace() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let user2 = th.client2.me().await;
+    let mut watching =
+        WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &user1.id).await;
+    let mut own = WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &user2.id).await;
+    th.client2
+        .patch("/users/me", &json!({"title": "dr"}))
+        .await
+        .check_ok();
+    let told = watching.expect("UPDATE_USER", "/userId", &user2.id).await;
+    assert_eq!(
+        told,
+        json!({"action": "UPDATE_USER", "workspaceId": TEST_WORKSPACE_ID, "userId": user2.id}),
+        "who, and nothing of the name"
+    );
+    own.expect("UPDATE_USER", "/userId", &user2.id).await;
+    // A request that changes nothing tells nothing.
+    th.client2.patch("/users/me", &json!({})).await.check_ok();
+    assert_eq!(
+        renames(&watching.drain().await),
+        Vec::<&Value>::new(),
+        "nothing changed"
+    );
+    th.teardown().await;
+}
+
+/// A guest of the workspace is told of the people they see there, who are on a board
+/// with them, and not of the others.
+#[tokio::test]
+async fn a_guest_is_told_only_of_whom_they_see() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let user2 = th.client2.me().await;
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = 'guest' WHERE user_id = '{}' \
+             AND workspace_id = '{TEST_WORKSPACE_ID}'",
+            user2.id
+        ))
+        .await
+        .expect("the second user is made a guest");
+    let mut guest =
+        WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &user2.id).await;
+    th.client
+        .patch("/users/me", &json!({"credentials": ["phd"]}))
+        .await
+        .check_ok();
+    assert_eq!(
+        renames(&guest.drain().await),
+        Vec::<&Value>::new(),
+        "not on a board with the guest"
+    );
+    let board = board_with_admin(
+        &th,
+        new_board(TEST_WORKSPACE_ID, ContainerType::Private, "Shared"),
+        &user1.id,
+    )
+    .await;
+    add_member(&th, &editor(&board.id, &user2.id)).await;
+    guest.drain().await;
+    th.client
+        .patch("/users/me", &json!({"credentials": ["phd", "md"]}))
+        .await
+        .check_ok();
+    guest.expect("UPDATE_USER", "/userId", &user1.id).await;
     th.teardown().await;
 }

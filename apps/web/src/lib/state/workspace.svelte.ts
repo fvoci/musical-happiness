@@ -170,9 +170,7 @@ export class Workspace {
       this.workspaces = workspaces;
       this.#takeSettings(settings);
       this.#stopWatching?.();
-      this.#stopWatching = this.backend.watchSelf((change) => {
-        this.#apply(change);
-      });
+      this.#stopWatching = this.backend.watchSelf(this.#apply.bind(this));
       const chosen = workspaceId ?? this.firstChoice();
       if (chosen === undefined) this.#leave(undefined);
       else await this.#enter(chosen);
@@ -242,8 +240,7 @@ export class Workspace {
     this.asked = asked;
     [this.info, this.closed] = [undefined, undefined];
     this.entered = 'none';
-    this.users = [];
-    this.workspaceUsers = [];
+    [this.users, this.workspaceUsers] = [[], []];
     this.containers = [];
     this.categories = [];
   }
@@ -301,6 +298,9 @@ export class Workspace {
         break;
       case 'resync':
         void this.#refresh();
+        break;
+      case 'user':
+        void this.#userNames.reread(change.userId);
         break;
       default:
         break;

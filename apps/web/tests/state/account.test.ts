@@ -64,6 +64,35 @@ describe('the display name, in memory', () => {
   });
 });
 
+describe('a change of a name, told', () => {
+  it("shows another person's new name without reading the workspace again", async () => {
+    const { workspace, other } = setup();
+    await workspace.load();
+    const them = await other.me();
+    await other.patchMe({ customName: 'Grace', title: 'dr', credentials: ['phd'] });
+    await vi.waitFor(() => {
+      expect(workspace.user(them.id)?.name?.title).toBe('dr');
+    });
+    expect(workspace.userName(them.id)).toBe(`Grace (@${them.username})`);
+    expect(workspace.user(them.id)?.name?.credentials).toEqual(['phd']);
+  });
+
+  it("follows the reader's own change made in another tab, and nothing tells nothing", async () => {
+    const { workspace, backend } = setup();
+    await workspace.load();
+    const told = vi.fn();
+    const stop = backend.watchSelf(told);
+    await backend.patchMe({});
+    expect(told).not.toHaveBeenCalled();
+    await backend.patchMe({ customName: 'Ada' });
+    await vi.waitFor(() => {
+      expect(workspace.me?.displayName).toBe('Ada');
+    });
+    expect(told).toHaveBeenCalledWith({ kind: 'user', userId: workspace.me?.id });
+    stop();
+  });
+});
+
 describe('the name, in memory', () => {
   it('is shown by the choice, down the list when it is empty, as the server shows it', async () => {
     const { backend } = setup();

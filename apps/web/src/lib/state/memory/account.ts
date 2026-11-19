@@ -84,5 +84,9 @@ export function changeName(world: World, userId: string, patch: NameChange): Use
   user.name = name;
   user.displayName = shownName(name);
   user.updateAt = world.now();
+  // As the server tells it: whoever is told reads the person again, by the rule of who sees whom.
+  if (Object.values(patch as Record<string, unknown>).some((value) => value !== undefined)) {
+    world.tellUsers([...world.users.keys()], { kind: 'user', userId });
+  }
   return user;
 }

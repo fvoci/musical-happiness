@@ -16,7 +16,7 @@ use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::trash::{self, Purged, Trashed};
-use crate::{Paging, Store, directory, joinings, users, workspaces};
+use crate::{Paging, Store, directory, joinings, person_names, users, workspaces};
 
 /// What became of a change of a member's role in the organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,12 +115,14 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn org_members(&self, paging: Paging) -> Result<Vec<OrgMember>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(
-                "SELECT om.user_id, u.username, u.display_name, om.role \
-                 FROM organization_members AS om JOIN users AS u ON u.id = om.user_id \
+            // The name's columns are the user's alone: no other table has them.
+            let mut sql = scope.sql(concat!(
+                "SELECT om.user_id, u.username, u.display_name, om.role, ",
+                person_names::name_columns!(),
+                " FROM organization_members AS om JOIN users AS u ON u.id = om.user_id \
                  WHERE (u.delete_at = 0 OR (u.delete_after > 0 AND u.erase_started_at = 0)) \
                  AND om.org_id = ",
-            );
+            ));
             sql.bind(scope.org()?)
                 .push(" ORDER BY om.create_at, om.user_id");
             push_page(&mut sql, paging);
@@ -133,6 +135,7 @@ impl Store {
                         user_id: row.id(0)?,
                         username: row.text(1)?,
                         display_name: row.text(2)?,
+                        name: person_names::name_from_row(row, 4)?,
                         role: role(row, 3)?,
                     })
                 })

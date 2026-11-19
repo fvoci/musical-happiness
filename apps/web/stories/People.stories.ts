@@ -14,7 +14,17 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Members: Story = {};
+export const Members: Story = {
+  play: async ({ canvasElement }) => {
+    const list = await storyElement(canvasElement, '[data-testid="people-members"]');
+    // A title and credentials are written with the name, which opens the profile.
+    await expect(
+      within(list).getByRole('button', {
+        name: 'Prof. Example member 1 · 이름이 긴 예시 구성원, PhD @example-member-1',
+      }),
+    ).toHaveAttribute('aria-haspopup', 'dialog');
+  },
+};
 export const Empty: Story = { args: { count: 0 } };
 export const ThreeHundredMembers: Story = {
   args: { count: 300 },
