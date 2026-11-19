@@ -346,9 +346,10 @@ async fn handle_get_workspace(TextInWorkspace(ws): TextInWorkspace) -> ApiResult
 ///
 /// Up to ten of the users the user sees in the workspace: whoever works there sees its
 /// members and who is on a board of it with them, a guest only who is on a board of it
-/// with them; and the user. With `search` those whose login name or display name has
-/// that text in it, whatever the case of the letters, without it the ten oldest
-/// accounts. Oldest account first.
+/// with them; and the user. With `search` those whose login name, display name or a
+/// part of whose name (either way round, and the name they wrote) has that text in it,
+/// whatever the case of the letters, without it the ten oldest accounts. Oldest account
+/// first.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/users",
@@ -384,7 +385,8 @@ async fn handle_get_workspace_users(ws: InWorkspace, RawQuery(query): RawQuery) 
 ///
 /// An account that was deleted is answered to whoever asks by its identifier, seen
 /// before or not, as what is left of it: the identifier, an empty `username`, `email`
-/// and `displayName`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
+/// and `displayName`, every part of the name empty, no title nor credentials,
+/// `nameShown` `name`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
 /// the account is answered, neither when it went nor when it was asked to (the
 /// identifier is kept as it was made). The empty `username` is what tells it, not a
 /// time: a page shows a deleted user where it wrote or is mentioned.

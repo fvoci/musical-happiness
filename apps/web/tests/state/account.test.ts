@@ -160,8 +160,14 @@ describe('the name, in memory', () => {
       [{ credentials: ['phd', 'phd'] }, '/credentials/1'],
       [{ credentials: ['phd', 'md', 'mba', 'ms'] }, '/credentials'],
       [{ nameShown: 'nickname' as 'name' }, '/nameShown'],
-      // A Hangul filler is a letter that shows nothing: refused like U+200B.
-      [{ firstName: '\u3164' }, '/firstName'],
+      // A Hangul filler, the blank Braille pattern and the like show nothing, or turn
+      // the text: refused like U+200B, as the server refuses them.
+      ...['\u3164', '\u2800', '\u034f', '\u180e', '\u061c'].map(
+        (blank): [Parameters<typeof backend.patchMe>[0], string] => [
+          { firstName: blank },
+          '/firstName',
+        ],
+      ),
     ];
     for (const [patch, pointer] of refusals) {
       const refused = await rejection(backend.patchMe(patch));

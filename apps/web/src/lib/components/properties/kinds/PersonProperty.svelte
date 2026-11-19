@@ -14,6 +14,7 @@
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { searchedNames } from '$lib/logic/person-names.ts';
   import { isGone, userDisplayName } from '$lib/logic/users.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { cn } from '$lib/utils.js';
@@ -63,7 +64,12 @@
     return isGone(user) ? m.people_deleted_user() : userDisplayName(user);
   };
 
-  const searchTexts = (user: PropertyUser): string[] => [user.username, user.displayName];
+  /** Found by the login name, the name shown and every part of the name. */
+  const searchTexts = (user: PropertyUser): string[] => [
+    user.username,
+    user.displayName,
+    ...(user.name ? searchedNames(user.name) : []),
+  ];
 
   function pick(user: PropertyUser): void {
     if (!multiple) {

@@ -165,8 +165,9 @@ async fn people_are_found_by_every_part_of_their_name() {
     test.teardown().await;
 }
 
-/// Migration 0045: an account is shown by the name it had, which becomes the name it
-/// wrote; one without is shown by its login name still.
+/// Migrations 0045 and 0046: an account is shown by the name it had, which becomes the
+/// name it wrote; one without is shown by its login name still, and by the parts of a
+/// name it gives later, as a new account is.
 #[tokio::test]
 async fn the_migration_keeps_the_name_every_account_is_shown_by() {
     let database = common::empty_database().await;
@@ -208,4 +209,9 @@ async fn the_migration_keeps_the_name_every_account_is_shown_by() {
     );
     assert_eq!(unnamed.display_name, "");
     assert_eq!(unnamed.name.shown(), "");
+    assert_eq!(
+        unnamed.name,
+        PersonName::default(),
+        "as a new account, and as an erased one"
+    );
 }

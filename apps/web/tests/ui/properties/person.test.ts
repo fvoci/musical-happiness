@@ -1,6 +1,8 @@
 /** The value of a person property: one person, picked from the people the caller passes. */
 import { describe, expect, it } from 'vitest';
 
+import { emptyName } from '$lib/logic/person-names.ts';
+
 import {
   closePicker,
   fireEvent,
@@ -102,6 +104,31 @@ describe('a person property, opened', () => {
     expect(names()).toEqual(['Mino (@minho)']);
     await type(search(), 'JIS');
     expect(names()).toEqual(['jisoo']);
+  });
+
+  it('finds a person by any part of their name, though shown by another', async () => {
+    mount('person', '', {
+      users: [
+        {
+          id: 'user-4',
+          username: 'ykim',
+          displayName: '김영환',
+          name: {
+            ...emptyName(),
+            lastName: '김',
+            firstName: '영환',
+            latinFirstName: 'Younghwan',
+            latinLastName: 'Kim',
+          },
+        },
+        ...USERS,
+      ],
+    });
+    await open();
+    for (const wanted of ['younghwan', 'Kim Young', '영환']) {
+      await type(search(), wanted);
+      expect(names(), wanted).toEqual(['김영환 (@ykim)']);
+    }
   });
 
   it('says so when nobody matches, and offers nothing to create', async () => {

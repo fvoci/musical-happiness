@@ -77,7 +77,8 @@ async fn handle_get_me(
 /// and the credentials. White space around a part is dropped, and empty or `null` is
 /// none. A part has at most 64 UTF-16 code units, without control characters and
 /// without characters that show nothing, break a line or turn the text around (U+00AD,
-/// U+200B–U+200F, U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). `title` is a
+/// U+034F, U+061C, U+115F, U+1160, U+180E, U+200B–U+200F, U+2028–U+202E, U+2060–U+206F,
+/// U+2800, U+3164, U+FEFF, U+FFA0, U+FFF9–U+FFFB). `title` is a
 /// code of its list or `null`; `credentials` at most three codes of their list, each
 /// once, in the order they are written, or `null` for none. `displayName` follows: the
 /// server makes it from these (`contracts/name-vectors.json`). A member that is no such
