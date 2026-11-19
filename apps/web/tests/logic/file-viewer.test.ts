@@ -11,6 +11,8 @@ import {
   LABEL_LIMIT,
   PAGE_LIMIT,
   readFromFrame,
+  SHEET_LIMIT,
+  SHEET_NAME_LENGTH,
   readToFrame,
   VIEWER_KEYS,
   ZOOM_MAX,
@@ -21,6 +23,7 @@ import { UnreadableFile } from '../../src/viewer-frame/renderer.ts';
 import { MarkupSniffer, repack } from '../../src/viewer-frame/zip-guard.ts';
 
 import { blankPaddedDocx, koreanDocx, koreanPdf, png, zip } from '../support/viewer-files.ts';
+import { koreanXlsx } from '../support/viewer-xlsx.ts';
 
 const bytes = (buffer: Buffer): Uint8Array =>
   new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -47,9 +50,16 @@ describe('a file is told apart by its first bytes, not by its name', () => {
     expect(sniffFormat(bytes(koreanDocx()))).toBe('docx');
   });
 
+  it('a workbook: a ZIP archive with xl/workbook.xml', () => {
+    expect(sniffFormat(bytes(koreanXlsx()))).toBe('xlsx');
+  });
+
   it('another ZIP archive, a picture, text and nothing are none of them', () => {
+    // An OpenDocument spreadsheet, and parts named nearly as the Office ones are.
     const archive = zip([
-      { name: 'xl/workbook.xml', data: Buffer.from('<workbook/>') },
+      { name: 'mimetype', data: Buffer.from('application/vnd.oasis.opendocument.spreadsheet') },
+      { name: 'content.xml', data: Buffer.from('<office:document-content/>') },
+      { name: 'xl/workbook.xml.bak', data: Buffer.from('x') },
       { name: 'word/document.xml.bak', data: Buffer.from('x') },
     ]);
     expect(sniffFormat(bytes(archive))).toBeUndefined();
@@ -265,6 +275,36 @@ describe('a message from the frame is taken only in one of its shapes', () => {
       expect(readFromFrame({ kind: 'key', key })).toEqual({ kind: 'key', key });
     }
     expect(readFromFrame({ kind: 'download' })).toEqual({ kind: 'download' });
+    const sheets = [
+      { name: '매출', drawings: false },
+      { name: '일정', drawings: true },
+    ];
+    expect(readFromFrame({ kind: 'sheets', sheets })).toEqual({ kind: 'sheets', sheets });
+  });
+
+  it("a workbook's sheets: one to a thousand, each named, its name at most 100 long", () => {
+    const sheet = (name: string, drawings: unknown = false) => ({ name, drawings });
+    const most = Array.from({ length: SHEET_LIMIT }, (_, index) => sheet(`Sheet${index + 1}`));
+    expect(readFromFrame({ kind: 'sheets', sheets: most })).toBeDefined();
+    expect(
+      readFromFrame({ kind: 'sheets', sheets: [sheet('가'.repeat(SHEET_NAME_LENGTH))] }),
+    ).toBeDefined();
+    for (const sheets of [
+      [],
+      [...most, sheet('one more')],
+      [sheet('')],
+      [sheet('가'.repeat(SHEET_NAME_LENGTH + 1))],
+      [sheet('a', 'yes')],
+      [{ name: 'a', drawings: false, hidden: true }],
+      [{ name: 'a' }],
+      ['a'],
+      'a',
+    ]) {
+      expect(readFromFrame({ kind: 'sheets', sheets }), JSON.stringify(sheets).slice(0, 80)).toBe(
+        undefined,
+      );
+    }
+    expect(readFromFrame({ kind: 'sheets', sheets: [sheet('a')], pages: 1 })).toBeUndefined();
   });
 
   it('not with a field more, a field less, or a value out of range', () => {

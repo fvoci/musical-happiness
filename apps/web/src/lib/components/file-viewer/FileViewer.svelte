@@ -1,8 +1,9 @@
 <!--
   A file shown in the app instead of downloaded: a PDF, a Word document, a
-  PowerPoint deck (its slides are its pages) or a Hangul (HWP, HWPX) document,
-  drawn in a frame that has no origin and no network
-  (lib/file-viewer/session.svelte.ts, src/viewer-frame/).
+  workbook, a PowerPoint deck or a Hangul (HWP, HWPX) document, drawn in a
+  frame that has no origin and no network (lib/file-viewer/session.svelte.ts,
+  src/viewer-frame/). A workbook's pages are its sheets, named in tabs under
+  it and in what is announced; a deck's are its slides.
 
   A dialog over the page on a wide screen, the whole screen on a narrow one.
   Pages and zoom are at the bottom, within reach of a thumb. The keys, while
@@ -24,6 +25,8 @@
   import { untrack } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
+
+  import SheetTabs from './SheetTabs.svelte';
   import { display } from '$lib/display.svelte.ts';
   import {
     frameAddress,
@@ -44,9 +47,14 @@
     /** The file; the viewer is made for one and is not handed another. */
     file: ViewedFile;
     onClose: () => void;
+    /**
+     * Gives the focus back as the viewer goes, once its hold on the focus is let go of; without
+     * it, the focus goes back to what had it when the viewer opened.
+     */
+    returnFocus?: () => void;
   }
 
-  let { file, onClose }: Props = $props();
+  let { file, onClose, returnFocus }: Props = $props();
 
   const session = untrack(
     () =>
@@ -65,10 +73,26 @@
   const compact = $derived(page.stage === 'compact');
   const status = $derived(session.status);
   const framed = $derived(status.name === 'opening' || status.name === 'shown');
+  /** The sheet shown, when the file is a workbook. */
+  const sheet = $derived(session.sheets[session.page - 1]);
   /** A deck's pages are its slides, and are called so. */
   const slides = $derived(status.name === 'shown' && status.format === 'pptx');
-  const pageLabel = $derived(
-    (slides ? m.viewer_slide : m.viewer_page)({ page: session.page, pages: session.pages }),
+  const where = $derived(
+    sheet
+      ? m.viewer_sheet({ page: session.page, pages: session.pages, name: sheet.name })
+      : (slides ? m.viewer_slide : m.viewer_page)({ page: session.page, pages: session.pages }),
+  );
+  /** What is said of the page turned to: of a sheet with drawings, that they are not shown. */
+  const announced = $derived(sheet?.drawings ? `${where} ${m.viewer_sheet_drawings()}` : where);
+  const previous = $derived(
+    sheet
+      ? m.viewer_previous_sheet()
+      : slides
+        ? m.viewer_previous_slide()
+        : m.viewer_previous_page(),
+  );
+  const next = $derived(
+    sheet ? m.viewer_next_sheet() : slides ? m.viewer_next_slide() : m.viewer_next_page(),
   );
 
   closeOnBack(
@@ -150,6 +174,9 @@
   function onkeydown(event: KeyboardEvent): void {
     // Escape is the dialog's own; keys typed into a control are the control's.
     if (event.key === 'Escape' || event.ctrlKey || event.metaKey || event.altKey) return;
+    // With Shift, the arrows across are the frame's, which scrolls across with them where it has
+    // the focus: they turn no page from the viewer's buttons either.
+    if (event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) return;
     if (command(event.key)) event.preventDefault();
   }
 </script>
@@ -172,6 +199,11 @@
         : 'h-[min(calc(100dvh-4rem),64rem)] max-w-[min(64rem,calc(100%-2rem))] sm:max-w-[min(64rem,calc(100%-2rem))]',
     ]}
     {onkeydown}
+    onCloseAutoFocus={(event: Event) => {
+      if (!returnFocus) return;
+      event.preventDefault();
+      returnFocus();
+    }}
   >
     <header class="flex min-h-12 items-center gap-1 border-b py-1 pr-1 pl-4">
       <Dialog.Title class="min-w-0 flex-1 truncate text-base font-semibold"
@@ -227,13 +259,22 @@
 
     <!-- In the page from the start, so that the first page is announced as well as the next. -->
     <p class="sr-only" aria-live="polite" data-testid="file-viewer-announce">
-      {status.name === 'shown' ? pageLabel : ''}
+      {status.name === 'shown' ? announced : ''}
     </p>
 
+    {#if status.name === 'shown' && session.sheets.length > 0}
+      <SheetTabs
+        sheets={session.sheets}
+        current={session.page}
+        onPick={(picked: number) => {
+          session.goTo(picked);
+        }}
+      />
+    {/if}
     {#if status.name === 'shown'}
       <footer class="flex min-h-12 items-center justify-center gap-1 border-t p-1">
         <IconButton
-          label={slides ? m.viewer_previous_slide() : m.viewer_previous_page()}
+          label={previous}
           disabled={session.page <= 1}
           onclick={() => {
             session.goTo(session.page - 1);
@@ -243,10 +284,10 @@
         </IconButton>
         <p class="min-w-16 text-center text-sm tabular-nums" data-testid="file-viewer-page">
           <span aria-hidden="true">{session.page} / {session.pages}</span>
-          <span class="sr-only">{pageLabel}</span>
+          <span class="sr-only">{where}</span>
         </p>
         <IconButton
-          label={slides ? m.viewer_next_slide() : m.viewer_next_page()}
+          label={next}
           disabled={session.page >= session.pages}
           onclick={() => {
             session.goTo(session.page + 1);

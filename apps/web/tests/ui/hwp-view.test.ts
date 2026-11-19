@@ -45,6 +45,7 @@ class FakeObserver {
 
 const report = () =>
   ({
+    sheets: vi.fn<Report['sheets']>(),
     shown: vi.fn<Report['shown']>(),
     page: vi.fn<Report['page']>(),
     failed: vi.fn<Report['failed']>(),

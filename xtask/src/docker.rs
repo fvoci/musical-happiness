@@ -1,18 +1,24 @@
-//! `cargo xtask docker`: builds the two images of `docker/`, starts them with
-//! `docker/compose.yaml` as an installation would, and tries them from outside: sign
-//! up, a board, a card, words in its body, and a search that finds them. Then it looks
-//! at what the installation must not do (secrets in the images, a database role past
-//! the wall, ports open to the host, processes as root) and takes everything down with
-//! its volumes, whatever happened. `--push-plan` prints how the images go to GHCR.
+//! `cargo xtask docker`: builds the two images of `docker/`, and the server's once more
+//! from a source older than the build cache, which must still be what is built. Then it
+//! starts them with `docker/compose.yaml` as an installation would, and tries them from
+//! outside: ping names the commit, sign up, a board, a card, words in its body, and a
+//! search that finds them; a reset link mailed by each provider's settings to a fake
+//! provider, and no start with `email_verification` and no mail. Then it looks at what
+//! the installation must not do (secrets in the images, a database role past the wall,
+//! ports open to the host, processes as root), reads the profile `tunnel` without starting it, and takes everything down
+//! with its volumes, whatever happened. `--push-plan` prints how the images go to GHCR.
 //!
-//! It needs `docker` with compose 2.24 or newer, `curl` and `git`. The images are built
+//! It needs `docker` with compose 2.24 or newer, `curl`, `git` and `tar`. The images are built
 //! natively, for the processor of the machine; the other one is built on a machine of
 //! that kind. The images stay, to be pushed (`--push-plan`); `docker image rm` removes
 //! them.
 
 mod checks;
+mod freshness;
 mod images;
+mod mail;
 mod scenario;
+mod tunnel;
 
 use std::fs;
 use std::net::{Ipv4Addr, TcpListener};
@@ -66,6 +72,8 @@ pub(crate) struct Trial {
     /// The password of the role fvoci, one of them.
     role_password: String,
     pub(crate) images: images::Names,
+    /// The mail providers' keys the trial hands fvoci.
+    mail: mail::Keys,
 }
 
 impl std::fmt::Debug for Trial {
@@ -182,13 +190,16 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     check_compose()?;
     let names = images::Names::of_checkout(root)?;
     images::build(root, &names)?;
+    freshness::probe(root)?;
     let built = started.elapsed();
 
     let directory = root.join("target/docker-smoke");
     fs::create_dir_all(&directory).with_context(|| format!("creating {}", directory.display()))?;
     let port = free_port()?;
     let secrets = Secrets::new()?;
-    let env_text = secrets.env_file(&names, port);
+    let mail_keys = mail::Keys::new(root)?;
+    let mut env_text = secrets.env_file(&names, port);
+    env_text.push_str(&mail_keys.env_lines());
     let env_file = directory.join("smoke.env");
     let trial = Trial {
         root: root.to_owned(),
@@ -199,9 +210,14 @@ pub(crate) fn run(root: &Path) -> Result<()> {
             .collect(),
         env_file,
         base: format!("http://localhost:{port}"),
-        secrets: secrets.values(),
+        secrets: secrets
+            .values()
+            .into_iter()
+            .chain(mail_keys.secrets())
+            .collect(),
         role_password: secrets.database,
         images: names,
+        mail: mail_keys,
     };
     let teardown = Teardown {
         trial: &trial,
@@ -286,6 +302,10 @@ fn try_installation(trial: &Trial, directory: &Path) -> Result<()> {
             steps::Step::new("sign up, board, card, body, search", || {
                 scenario::run(trial, directory)
             }),
+            steps::Step::new(
+                "mail by each provider, and none refused at the start",
+                || mail::providers(trial, directory),
+            ),
             steps::Step::new("the server's database role", || {
                 checks::database_role(trial)
             }),
@@ -298,6 +318,9 @@ fn try_installation(trial: &Trial, directory: &Path) -> Result<()> {
             }),
             steps::Step::new("no secret in the images, containers or logs", || {
                 checks::secrets(trial)
+            }),
+            steps::Step::new("the profile tunnel, and nothing of it without", || {
+                tunnel::profile(trial)
             }),
         ],
     );
@@ -314,12 +337,17 @@ fn try_installation(trial: &Trial, directory: &Path) -> Result<()> {
 fn take_down(trial: &Trial) -> Result<()> {
     use std::os::unix::process::CommandExt as _;
 
+    // It shares fvoci's network, which goes with fvoci; what is left of it is said
+    // once the rest is down.
+    let fake_left = mail::remove_fake(trial);
     let status = trial
         .command(&[
             "--profile",
             "s3",
             "--profile",
             "mail",
+            "--profile",
+            "tunnel",
             "down",
             "--volumes",
             "--remove-orphans",
@@ -351,7 +379,7 @@ fn take_down(trial: &Trial) -> Result<()> {
             bail!("the trial left a {}: {}", listing[0], left.output);
         }
     }
-    Ok(())
+    fake_left
 }
 
 /// A port of the loopback interface that nothing listens on now.
@@ -500,6 +528,7 @@ mod tests {
             secrets: vec!["a-secret-value".to_owned()],
             role_password: "a-secret-value".to_owned(),
             images: images::Names::for_tests(),
+            mail: mail::Keys::for_tests(),
         };
         let shown = format!("{trial:?}");
         assert!(!shown.contains("a-secret-value"), "{shown}");
