@@ -49,7 +49,7 @@ function countChanges(editor: Editor): { count: number } {
 }
 
 describe('the box of a task', () => {
-  it('changes the task in one step without focusing the editor, and one undo takes it back', () => {
+  it('changes the task in one step without focusing the editor, and one undo takes it back', async () => {
     const { container } = render(BodyEditor, { doc: BODY });
     const editor = editorIn(container);
     const { label, box } = partsOf(container);
@@ -61,10 +61,13 @@ describe('the box of a task', () => {
     expect(label.dispatchEvent(pressed)).toBe(false);
     box.click();
 
+    // The library asks for the focus a frame later; jsdom gives a contenteditable none, so the
+    // asking is what is seen.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(focus).not.toHaveBeenCalled();
     expect(checkedIn(editor)).toEqual([true]);
     expect(box.checked).toBe(true);
     expect(changes.count).toBe(1);
-    expect(focus).not.toHaveBeenCalled();
     expect(editor.isFocused).toBe(false);
     expect(document.activeElement).not.toBe(editor.view.dom);
 
