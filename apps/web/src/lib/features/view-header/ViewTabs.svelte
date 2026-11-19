@@ -17,7 +17,6 @@
 <script lang="ts">
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import PlusIcon from '@lucide/svelte/icons/plus';
-  import type { Attachment } from 'svelte/attachments';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
@@ -37,21 +36,9 @@
     onOpenView: (viewId: string) => void;
     /** Without it there is no "+": the reader may not add views. */
     onAddView?: (viewType: AddableViewType) => void;
-    /** The view whose tab is to take the focus once it is there; told by `onFocused`. */
-    focusId?: string;
-    onFocused?: () => void;
   }
 
-  let { views, currentId, viewHref, onOpenView, onAddView, focusId, onFocused }: Props = $props();
-
-  /** For `{@attach}` on the tab of `viewId`: it takes the focus when asked to. */
-  function focusWhenAsked(viewId: string): Attachment<HTMLElement> {
-    return (tab) => {
-      if (focusId !== viewId) return;
-      tab.focus();
-      onFocused?.();
-    };
-  }
+  let { views, currentId, viewHref, onOpenView, onAddView }: Props = $props();
 
   /** A tab and the button of the rest look alike: the copies that are measured have these too. */
   const TAB =
@@ -150,7 +137,6 @@
           aria-current={current ? 'page' : undefined}
           title={viewTitle(each)}
           data-view={each.id}
-          {@attach focusWhenAsked(each.id)}
           class={[
             TAB,
             current

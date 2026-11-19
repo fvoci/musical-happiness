@@ -224,6 +224,17 @@ describe('the whole row', () => {
     await tick();
     expect(header().querySelector('[data-testid="view-search"]')).not.toHaveClass('hidden');
     expect(toolButton('views')).toBeInTheDocument();
+    // A press on it keeps the field where the browser does not focus a pressed button.
+    field.focus();
+    await fireEvent.pointerDown(toolButton('views'));
+    await fireEvent.blur(field, { relatedTarget: null });
+    await tick();
+    expect(header().querySelector('[data-testid="view-search"]')).not.toHaveClass('hidden');
+    // Going on from the button elsewhere, the empty field closes and the tabs are back.
+    await fireEvent.focusOut(toolButton('views'), { relatedTarget: document.body });
+    await tick();
+    expect(header().querySelector('[data-testid="view-search"]')).toHaveClass('hidden');
+    expect(within(header()).getAllByRole('link')).toHaveLength(2);
     vi.restoreAllMocks();
   });
 

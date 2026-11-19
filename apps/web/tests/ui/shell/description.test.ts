@@ -57,6 +57,28 @@ describe('the description, for whoever may change it', () => {
     expect(isOpen()).toBe('true');
   });
 
+  it('leaves Escape to an input method that is composing: the surface stays and so does the text', async () => {
+    const { onChange } = mount();
+    await type('출시');
+    await fireEvent.keyDown(field(), { key: 'Escape', isComposing: true });
+    await fireEvent.keyDown(field(), { key: 'Escape', keyCode: 229 });
+    await tick();
+    expect(isOpen()).toBe('true');
+    expect(field()).toHaveValue('출시');
+    await fireEvent.keyDown(field(), { key: 'Enter', ctrlKey: true });
+    await tick();
+    expect(onChange).toHaveBeenCalledExactlyOnceWith('출시');
+  });
+
+  it('gives up what was typed with Escape, from the field and from "Done"', async () => {
+    const { onChange } = mount();
+    await type('Not kept.');
+    await fireEvent.keyDown(screen.getByTestId('container-description-done'), { key: 'Escape' });
+    await tick();
+    expect(isOpen()).toBe('false');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('takes a plain Enter as a new line, not as saving', async () => {
     const { onChange } = mount();
     await type('One line');
@@ -84,10 +106,17 @@ describe('the description, for whoever may change it', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('hands on what was typed when it goes while open', async () => {
-    const { onChange, unmount } = mount();
+  it('hands on what was typed when it goes while open, to the change it was typed for', async () => {
+    const onChange = vi.fn<(description: string) => void>();
+    const { rerender, unmount } = render(ContainerDescription, {
+      props: { open: true, description: 'Where things stand.', onChange },
+    });
     await type('Left while typing.');
+    // The page goes on to another board before this goes: its change is not the one.
+    const another = vi.fn<(description: string) => void>();
+    await rerender({ open: true, description: 'Another board.', onChange: another });
     unmount();
     expect(onChange).toHaveBeenCalledExactlyOnceWith('Left while typing.');
+    expect(another).not.toHaveBeenCalled();
   });
 });

@@ -39,14 +39,20 @@
   let { open = $bindable(false), description, onChange }: Props = $props();
 
   const presentation = new PickerPresentation();
-  /** What the reader has typed and not yet handed on. */
-  let draft = $state<string | undefined>(undefined);
+  /**
+   * What the reader has typed and not yet handed on, with the description it
+   * began from and the change it goes to, both taken as the typing began: the
+   * board or wiki it was typed on, and handing it on reads nothing of the
+   * page (it may be going, and the top bar with what it shows).
+   */
+  let draft = $state.raw<{ text: string; from: string; save?: Props['onChange'] }>();
 
   function commit(): void {
-    if (draft === undefined) return;
-    const next = draft.trim();
+    if (!draft) return;
+    const { text, from, save } = draft;
     draft = undefined;
-    if (next !== description) onChange?.(next);
+    const next = text.trim();
+    if (next !== from) save?.(next);
   }
 
   /** Hands on what was typed and closes: "Done", and Ctrl+Enter (⌘Enter) in the field. */
@@ -56,10 +62,9 @@
   }
 
   // Gone while open (the reader went to another board, or the description was emptied
-  // elsewhere): what was typed is handed on all the same, to the board it was typed for
-  // (a prop read here is the one it had), and the top bar no longer counts it open.
-  // `open` is written, not read: its getter reads the top bar's state, which a read
-  // from here left stale for good (Svelte 5.57.3).
+  // elsewhere): what was typed is handed on all the same, and the top bar no longer
+  // counts it open. Nothing of the top bar is read here: its state read from here was
+  // left stale for good (Svelte 5.57.3), so `open` is only written.
   onDestroy(() => {
     commit();
     open = false;
@@ -119,7 +124,7 @@
   >
     {#if onChange}
       <Textarea
-        value={draft ?? description}
+        value={draft?.text ?? description}
         aria-label={m.shell_description()}
         maxlength={2000}
         rows={3}
@@ -127,7 +132,8 @@
         data-testid="container-description-field"
         class="max-h-80 roomy:text-base"
         oninput={(event: Event & { currentTarget: HTMLTextAreaElement }) => {
-          draft = event.currentTarget.value;
+          const text = event.currentTarget.value;
+          draft = { text, from: draft?.from ?? description, save: draft?.save ?? onChange };
         }}
       />
       <!-- The sheet has its own "Done" in its head. -->

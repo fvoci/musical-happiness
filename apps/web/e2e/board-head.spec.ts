@@ -137,6 +137,16 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(calendar).toHaveAttribute('aria-current', 'page');
       await expect(calendar).toBeFocused();
 
+      // A view added from that button: its tab has the focus, as the new view is shown.
+      await openSearch(page);
+      await page.keyboard.press('Shift+Tab');
+      await page.keyboard.press('Enter');
+      await page.getByRole('menuitem', { name: 'Add table view' }).focus();
+      await page.keyboard.press('Enter');
+      const added = page.getByTestId('view-tabs').locator('[aria-current="page"]');
+      await expect(added).toHaveText('Table view');
+      await expect(added).toBeFocused();
+
       // By the pointer: the list opens where the button was pressed, and another view
       // brings the tabs back, that view's the current one.
       await openSearch(page);

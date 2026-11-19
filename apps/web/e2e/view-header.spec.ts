@@ -177,12 +177,17 @@ async function showView(page: Page, name: string): Promise<void> {
       'page',
     );
   } else {
+    const folded = (await layout(page)) === 'folded';
     await tool(page, 'views').click();
     await page.getByRole('menuitem', { name, exact: true }).click();
+    if (folded) await expect(tool(page, 'views')).toContainText(name);
     // The whole row has its tabs back: another view starts without the search.
-    await expect(
-      header(page).locator('[data-tool="views"], [aria-current="page"]').first(),
-    ).toContainText(name);
+    else {
+      await expect(header(page).getByRole('link', { name, exact: true })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+    }
   }
 }
 
@@ -417,9 +422,14 @@ test.describe('in Korean', () => {
     await setPaneWidth(page, 704);
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
     // Icons, each named for a screen reader and by its tooltip.
-    // With the number of properties the cards show.
-    await expect(tool(page, 'properties')).toHaveAccessibleName(/^속성 \(\d+\)$/);
-    await expect(tool(page, 'properties')).toHaveAttribute('title', /^속성 \(\d+\)$/);
+    // With the number of properties the cards show (of the board's: none is a relation).
+    const known = new Set(Object.values(await properties(page)).map((property) => property.id));
+    const shownCount = (await storedView(page)).fields.visiblePropertyIds.filter((id) =>
+      known.has(id),
+    ).length;
+    expect(shownCount).toBeGreaterThan(0);
+    await expect(tool(page, 'properties')).toHaveAccessibleName(`속성 (${String(shownCount)})`);
+    await expect(tool(page, 'properties')).toHaveAttribute('title', `속성 (${String(shownCount)})`);
     await expect(tool(page, 'group')).toHaveAccessibleName(/그룹화 기준: Status/);
     await expect(tool(page, 'filter')).toHaveAccessibleName('필터');
     await expect(tool(page, 'sort')).toHaveAccessibleName('정렬');

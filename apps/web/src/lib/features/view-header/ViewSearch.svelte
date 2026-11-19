@@ -8,8 +8,8 @@
 
   While it is open in the whole row the tabs of the views are one button that
   names the view shown (ViewHeader.svelte); the focus going from an empty
-  field to that button keeps the field, so that the button stays where it was
-  pressed.
+  field to what `keeps` names (that button) keeps the field, so that the
+  button stays where it was pressed.
 -->
 <script lang="ts">
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
@@ -29,9 +29,11 @@
     viewId: string;
     /** The header is one whole row. */
     row: boolean;
+    /** Whether the focus going there (or nowhere, `null`) keeps an empty field open. */
+    keeps?: (to: EventTarget | null) => boolean;
   }
 
-  let { search = $bindable(), openIn = $bindable(), viewId, row }: Props = $props();
+  let { search = $bindable(), openIn = $bindable(), viewId, row, keeps }: Props = $props();
 
   /** The search field is open: asked for, or with text. */
   const shown = $derived(openIn === viewId || search !== '');
@@ -63,9 +65,7 @@
     if (!row || search !== '') return;
     // Not when the window lost the focus: coming back finds the field where it was.
     if (!document.hasFocus()) return;
-    // Nor for the button of the views it folded the tabs into, which would go from under the pointer.
-    const to = event.relatedTarget;
-    if (to instanceof Element && to.closest('[data-tool="views"]')) return;
+    if (keeps?.(event.relatedTarget)) return;
     openIn = undefined;
   }
 

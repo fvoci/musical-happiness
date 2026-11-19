@@ -138,13 +138,30 @@
   const searchBar = $derived(!row && searchShown);
   /** The tabs, but for an open search field: then the view is named on one button, cut nowhere. */
   const tabs = $derived(row && !searchShown);
-  /** A view picked from that button: its tab takes the focus as the tabs come back. */
-  let focusTab = $state<string | undefined>(undefined);
-
-  function openFolded(viewId: string): void {
-    if (row) focusTab = viewId;
-    onOpenView(viewId);
+  /** The tab of a view takes the focus once it is drawn: the button it was opened from goes. */
+  function focusTab(viewId: string): void {
+    void tick().then(() =>
+      header?.querySelector<HTMLElement>(`[data-view="${CSS.escape(viewId)}"]`)?.focus(),
+    );
   }
+
+  /** A view picked from that button: the tabs come back, and its tab takes the focus. */
+  function openFolded(viewId: string): void {
+    const folded = row && !tabs;
+    onOpenView(viewId);
+    if (folded) focusTab(viewId);
+  }
+
+  /** That button is being pressed: not every browser focuses a button it presses. */
+  let pressing = false;
+  function pressed(): void {
+    pressing = true;
+    // The field's blur comes in the same task as the press.
+    setTimeout(() => (pressing = false));
+  }
+  /** The focus leaving an empty field for that button keeps the field, and the button with it. */
+  const keepsSearch = (to: EventTarget | null): boolean =>
+    pressing || (to instanceof Element && to.closest('[data-tool="views"]') !== null);
 
   /** An empty field kept for that button closes as the focus goes on from the button too. */
   function switcherLeft(event: FocusEvent & { currentTarget: HTMLElement }): void {
@@ -162,7 +179,7 @@
     const made = await whileHere(board, () =>
       board.createView({ title, fields: newViewFields(viewType, templates) }),
     );
-    if (made) onOpenView(made.id);
+    if (made) openFolded(made.id);
   }
 
   const onAddView = $derived(
@@ -304,11 +321,14 @@
         {viewHref}
         {onOpenView}
         {onAddView}
-        focusId={focusTab}
-        onFocused={() => (focusTab = undefined)}
       />
     {:else}
-      <nav aria-label={m.viewheader_views()} class="flex min-w-0 shrink" onfocusout={switcherLeft}>
+      <nav
+        aria-label={m.viewheader_views()}
+        class="flex min-w-0 shrink"
+        onpointerdown={pressed}
+        onfocusout={switcherLeft}
+      >
         <ViewSwitcher
           views={board.orderedViews}
           current={view}
@@ -320,7 +340,7 @@
       <div class="min-w-1 flex-1"></div>
     {/if}
   </div>
-  <ViewSearch bind:search bind:openIn={searchOpenIn} viewId={view.id} {row} />
+  <ViewSearch bind:search bind:openIn={searchOpenIn} viewId={view.id} {row} keeps={keepsSearch} />
   <div class="contents" inert={searchBar}>
     {#if canEdit}
       <PickerSurface
