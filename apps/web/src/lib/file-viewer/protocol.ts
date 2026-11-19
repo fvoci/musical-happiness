@@ -15,7 +15,7 @@
  * a message came from its own frame (`event.source`); the frame that it came
  * from its parent. Their origins say nothing: the frame's is `"null"`.
  */
-import { isFormatId, type FormatId } from './formats.ts';
+import { isFormatId, needsEngine, type FormatId } from './formats.ts';
 
 export type Theme = 'light' | 'dark';
 
@@ -66,6 +66,11 @@ export type ToFrame =
       kind: 'open';
       format: FormatId;
       bytes: ArrayBuffer;
+      /**
+       * rhwp's WebAssembly, for the formats it reads (engine.ts); `null` for the others. The
+       * frame cannot fetch it, so the app does.
+       */
+      engine: ArrayBuffer | null;
       theme: Theme;
       lang: string;
       labels: Labels;
@@ -176,13 +181,26 @@ export function readFromFrame(data: unknown): FromFrame | undefined {
 export function readToFrame(data: unknown): ToFrame | undefined {
   switch (kindOf(data)) {
     case 'open': {
-      const fields = exactly(data, ['kind', 'format', 'bytes', 'theme', 'lang', 'labels']);
+      const keys = ['kind', 'format', 'bytes', 'engine', 'theme', 'lang', 'labels'];
+      const fields = exactly(data, keys);
       if (!fields || !isFormatId(fields.format) || !isTheme(fields.theme)) return undefined;
       if (!(fields.bytes instanceof ArrayBuffer) || !isLanguage(fields.lang)) return undefined;
+      const { format, bytes, engine, theme, lang } = fields;
+      // The engine comes with the formats it reads, and with no other.
+      if (needsEngine(format) ? !(engine instanceof ArrayBuffer) : engine !== null) {
+        return undefined;
+      }
       const labels = readLabels(fields.labels);
       if (!labels) return undefined;
-      const { format, bytes, theme, lang } = fields;
-      return { kind: 'open', format, bytes, theme, lang, labels };
+      return {
+        kind: 'open',
+        format,
+        bytes,
+        engine: engine as ArrayBuffer | null,
+        theme,
+        lang,
+        labels,
+      };
     }
     case 'page': {
       const page = exactly(data, ['kind', 'page'])?.page;

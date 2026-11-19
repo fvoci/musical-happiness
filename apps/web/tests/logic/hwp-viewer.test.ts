@@ -6,7 +6,7 @@ import { compoundFile as readCompound } from '$lib/file-viewer/compound-file.ts'
 import { examine, type FormatId } from '$lib/file-viewer/formats.ts';
 import { readFromFrame } from '$lib/file-viewer/protocol.ts';
 import { checkCompound } from '../../src/viewer-frame/compound-guard.ts';
-import { fromHex, HwpReader } from '../../src/viewer-frame/hwp-document.ts';
+import { HwpReader } from '../../src/viewer-frame/hwp-document.ts';
 import type { FromWorker, HwpFormat } from '../../src/viewer-frame/hwp-messages.ts';
 import { SlowRenderer } from '../../src/viewer-frame/renderer.ts';
 import {
@@ -29,7 +29,7 @@ import {
   rewriteArchive,
 } from '../support/hwp-files.ts';
 import { zip } from '../support/viewer-files.ts';
-import { rhwpWasmHex } from '../../tools/build/rhwp-wasm.ts';
+import { rhwpWasmBytes } from '../../tools/build/rhwp-wasm.ts';
 
 const bytes = (buffer: Buffer): Uint8Array =>
   new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -83,7 +83,7 @@ describe('HWPX is told apart by its parts', () => {
 });
 
 /** rhwp's WebAssembly, as the build hands it to the frame. */
-const WASM = rhwpWasmHex();
+const WASM = rhwpWasmBytes().buffer;
 
 const open = (reader: HwpReader, format: HwpFormat, data: Buffer): Promise<FromWorker> =>
   reader.answer({ kind: 'open', format, bytes: buffer(data), wasm: WASM });
@@ -326,21 +326,6 @@ describe("the frame's client of a renderer's worker", () => {
     failing.fail();
     expect(failing.terminated).toBe(true);
     await expect(pending).rejects.toBeInstanceOf(WorkerFailed);
-  });
-});
-
-describe("rhwp's WebAssembly, as the build writes it", () => {
-  it("is read back from its hexadecimal text, with or without the browser's own reader", () => {
-    const all = Uint8Array.from({ length: 256 }, (_, index) => index);
-    const text = Buffer.from(all).toString('hex');
-    expect(fromHex(text)).toEqual(all);
-    const own = Object.getOwnPropertyDescriptor(Uint8Array, 'fromHex');
-    Reflect.deleteProperty(Uint8Array, 'fromHex');
-    try {
-      expect(fromHex(text)).toEqual(all);
-    } finally {
-      if (own) Object.defineProperty(Uint8Array, 'fromHex', own);
-    }
   });
 });
 

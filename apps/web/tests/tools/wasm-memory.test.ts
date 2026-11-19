@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { rhwpWasmHex, RHWP_MEMORY_LIMIT_BYTES } from '../../tools/build/rhwp-wasm.ts';
+import { rhwpWasmBytes, RHWP_MEMORY_LIMIT_BYTES } from '../../tools/build/rhwp-wasm.ts';
 import { WASM_PAGE, withMemoryLimit } from '../../tools/build/wasm-memory.ts';
 
 /** A module of one memory of `pages` pages at least, exported as `memory`. */
@@ -36,7 +36,7 @@ describe("a WebAssembly module's memory given a maximum", () => {
   it("rhwp's, as the build hands it to the frame, may take 1 GiB", () => {
     const pages = RHWP_MEMORY_LIMIT_BYTES / WASM_PAGE;
     expect(pages).toBe(16_384);
-    // The memory section: one memory, a minimum (45 pages in rhwp 0.8.7) and 16384 at most.
-    expect(rhwpWasmHex()).toContain('050601012d808001');
+    // The memory section: one memory, a minimum (79 pages in rhwp 0.9.0) and 16384 at most.
+    expect(Buffer.from(rhwpWasmBytes()).toString('hex')).toContain('050601014f808001');
   });
 });

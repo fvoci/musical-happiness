@@ -351,8 +351,17 @@ describe('a message from the app, in the frame', () => {
       pageTooLarge: '이 쪽은 너무 커서 보이지 않습니다.',
       download: '다운로드',
     };
-    const open = { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko', labels };
+    const rest = { theme: 'dark', lang: 'ko', labels };
+    const open = { kind: 'open', format: 'docx', bytes: buffer, engine: null, ...rest };
     expect(readToFrame(open)).toEqual(open);
+    // A Hangul document comes with rhwp's engine, and no other kind does.
+    const hangul = { ...open, format: 'hwpx', engine: new ArrayBuffer(8) };
+    expect(readToFrame(hangul)).toEqual(hangul);
+    expect(readToFrame({ ...hangul, format: 'hwp' })).toEqual({ ...hangul, format: 'hwp' });
+    expect(readToFrame({ ...hangul, engine: null })).toBeUndefined();
+    expect(readToFrame({ ...hangul, engine: new Uint8Array(8) })).toBeUndefined();
+    expect(readToFrame({ ...open, engine: new ArrayBuffer(8) })).toBeUndefined();
+    expect(readToFrame({ kind: 'open', format: 'docx', bytes: buffer, ...rest })).toBeUndefined();
     expect(readToFrame({ ...open, format: 'pptx' })).toEqual({ ...open, format: 'pptx' });
     expect(readToFrame({ ...open, lang: 'zh-Hans' })).toEqual({ ...open, lang: 'zh-Hans' });
     const long = 'x'.repeat(LABEL_LIMIT);
@@ -363,7 +372,7 @@ describe('a message from the app, in the frame', () => {
       { ...open, bytes: new Uint8Array(4) },
       { ...open, lang: 'ko"><script>' },
       { ...open, lang: '' },
-      { kind: 'open', format: 'docx', bytes: buffer, theme: 'dark', lang: 'ko' },
+      { kind: 'open', format: 'docx', bytes: buffer, engine: null, theme: 'dark', lang: 'ko' },
       { ...open, labels: {} },
       { ...open, labels: { chart: labels.chart } },
       { ...open, labels: { ...labels, chart: '' } },

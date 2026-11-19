@@ -23,7 +23,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { examine, VIEW_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
 
 import type { FromWorker, HwpFormat } from '../../src/viewer-frame/hwp-messages.ts';
-import { rhwpWasmHex } from '../../tools/build/rhwp-wasm.ts';
+import { rhwpWasmBytes } from '../../tools/build/rhwp-wasm.ts';
 
 const FOLDER = process.env.FVOCI_HWP_SAMPLES;
 const REPORT = process.env.FVOCI_HWP_SAMPLES_REPORT;
@@ -65,7 +65,7 @@ const copyOf = (data: Buffer): ArrayBuffer => {
 const said = (error: unknown): string =>
   (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).slice(0, 120);
 
-async function tryOne(file: string, wasm: string): Promise<Outcome> {
+async function tryOne(file: string, wasm: ArrayBuffer): Promise<Outcome> {
   const data = readFileSync(file);
   const outcome: Outcome = {
     file,
@@ -111,8 +111,7 @@ async function tryOne(file: string, wasm: string): Promise<Outcome> {
   vi.resetModules();
   const alone = await import('@rhwp/core');
   try {
-    const { fromHex } = await import('../../src/viewer-frame/hwp-document.ts');
-    await alone.default({ module_or_path: fromHex(wasm) });
+    await alone.default({ module_or_path: wasm });
     const document = new alone.HwpDocument(new Uint8Array(copyOf(data)));
     outcome.alone = document.pageCount();
     document.free();
@@ -131,7 +130,7 @@ describe.skipIf(!FOLDER)('real documents through the viewer’s check', () => {
     async () => {
       const folder = FOLDER ?? '';
       expect(statSync(folder).isDirectory(), folder).toBe(true);
-      const wasm = rhwpWasmHex();
+      const wasm = rhwpWasmBytes().buffer;
       const outcomes: Outcome[] = [];
       for (const file of samplesUnder(folder)) outcomes.push(await tryOne(file, wasm));
 

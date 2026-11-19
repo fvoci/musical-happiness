@@ -126,7 +126,7 @@ function start(): void {
         setTheme(message.theme);
         // The language of the app: what a screen reader reads the document's text in.
         document.documentElement.lang = message.lang;
-        RENDERERS[message.format]()
+        RENDERERS[message.format](message.engine)
           .then(async (render) => {
             // An archive's renderer gets it anew, of only the parts counted here (or in its worker).
             const here = isPackaged(message.format) && !CHECKED_IN_WORKER.has(message.format);

@@ -6,14 +6,15 @@ import { HwpReader } from '../../src/viewer-frame/hwp-document.ts';
 import {
   checkHwpxPackage,
   listed,
+  LOOKUP_LIMIT,
   masterPagesOf,
   sectionsOf,
 } from '../../src/viewer-frame/hwpx-package.ts';
 import { TooLargeFile, UnreadableFile } from '../../src/viewer-frame/renderer.ts';
 
-import { koreanHwpx, rewriteArchive } from '../support/hwp-files.ts';
+import { declaringSections, koreanHwpx, rewriteArchive } from '../support/hwp-files.ts';
 import { zip, type ZipMember } from '../support/viewer-files.ts';
-import { rhwpWasmHex } from '../../tools/build/rhwp-wasm.ts';
+import { rhwpWasmBytes } from '../../tools/build/rhwp-wasm.ts';
 
 const buffer = (data: Buffer): ArrayBuffer => Uint8Array.from(data).buffer;
 
@@ -111,6 +112,59 @@ describe("an HWPX package's list, read as rhwp reads it", () => {
   });
 });
 
+describe("a list's spine is looked up without going through the items for each name", () => {
+  /** A list of `count` items and a spine that names them from the last: the worst order for rhwp. */
+  const long = (count: number): { items: [string, string][]; spine: string[] } => {
+    const items = Array.from({ length: count }, (_, at): [string, string] => [
+      `s${at}`,
+      `Contents/section${at}.xml`,
+    ]);
+    return { items, spine: items.map(([id]) => id).reverse() };
+  };
+
+  it('an id two items have names the first, as rhwp finds it', () => {
+    const list = listed(
+      contentHpf(
+        [
+          ['s0', 'Contents/section0.xml'],
+          ['s0', 'Contents/section9.xml'],
+        ],
+        ['s0'],
+      ),
+    );
+    expect(sectionsOf(list)).toEqual(['Contents/section0.xml']);
+  });
+
+  it('a spine and a manifest at the limit are read in one pass; past it the file is too large', () => {
+    const side = Math.sqrt(LOOKUP_LIMIT);
+    const { items, spine } = long(side);
+    const list = listed(contentHpf(items, spine));
+    // Each item's id is read as the items are gone through once, not once for each name of the
+    // spine (which took over two seconds at a fifth of this).
+    let reads = 0;
+    const counted = list.items.map((item) => ({
+      ...item,
+      get id() {
+        reads += 1;
+        return item.id;
+      },
+    }));
+    const sections = sectionsOf({ items: counted, spine: list.spine });
+    expect(reads).toBeLessThanOrEqual(2 * side);
+    expect(sections).toHaveLength(side);
+    expect(sections[0]).toBe(`Contents/section${side - 1}.xml`);
+
+    const more = long(side + 1);
+    expect(() => sectionsOf(listed(contentHpf(more.items, more.spine)))).toThrow(TooLargeFile);
+  });
+
+  it('the worker refuses a package whose list is past the limit', async () => {
+    const { items, spine } = long(Math.sqrt(LOOKUP_LIMIT) + 1);
+    const archive = hwpx(contentHpf(items, spine), []);
+    await expect(checkHwpxPackage(buffer(archive))).rejects.toBeInstanceOf(TooLargeFile);
+  });
+});
+
 describe('in the worker, what rhwp parses of an HWPX as XML is held to the limit', () => {
   it('the sample passes', async () => {
     await expect(checkHwpxPackage(buffer(koreanHwpx()))).resolves.toBeUndefined();
@@ -186,7 +240,7 @@ describe('in the worker, what rhwp parses of an HWPX as XML is held to the limit
 });
 
 /** rhwp's WebAssembly, as the build hands it to the frame. */
-const WASM = rhwpWasmHex();
+const WASM = rhwpWasmBytes().buffer;
 
 describe("the worker's reader holds an HWPX to the limits before rhwp reads it", () => {
   const open = (data: Buffer) =>
@@ -240,7 +294,9 @@ describe('what the check reads of the spine is what rhwp reads', () => {
   /**
    * Markup put after the sample's own reference to its section, and how many
    * pages rhwp opens it with: 2 when it reads the section once, 4 when it
-   * reads it twice, or none when it refuses the file.
+   * reads it twice, or none when it refuses the file. The sample's header is
+   * made to say two sections: rhwp (from 0.9.0) reads no more of the spine's
+   * than the header says, and the sample's own says one.
    */
   const cases: [string, string, 2 | 4 | 'refused'][] = [
     ['nothing', '', 2],
@@ -267,14 +323,34 @@ describe('what the check reads of the spine is what rhwp reads', () => {
     ['an "&" that is no reference', `& ${REF}`, 'refused'],
   ];
 
-  it.each(cases)('%s', async (_, markup, pages) => {
-    const file = rewriteArchive(koreanHwpx(), (member) => {
+  /** The sample, its header saying `declared` sections, with `markup` after its reference. */
+  const withMarkup = (markup: string, declared: number): Buffer =>
+    rewriteArchive(declaringSections(koreanHwpx(), declared), (member) => {
       if (member.name !== 'Contents/content.hpf') return member;
       const text = member.data.toString('utf8');
       const ref = /<opf:itemref idref="section0"[^>]*\/>/.exec(text)?.[0] ?? '';
       expect(ref).not.toBe('');
       return { ...member, data: Buffer.from(text.replace(ref, ref + markup)) };
     });
+
+  it('a header that says fewer sections than the spine names stops rhwp at that many; the check counts them all', async () => {
+    // The spine names the section twice. rhwp reads it once where the header says one
+    // section and twice where it says two, or none (0), or more than the spine has.
+    for (const [declared, pages] of [
+      [1, 2],
+      [2, 4],
+      [0, 4],
+      [9, 4],
+    ] as const) {
+      const file = withMarkup(REF, declared);
+      expect(rhwpPages(file), `secCnt ${declared}`).toBe(pages);
+      // What the header says is the file's to say: the check goes by the spine.
+      await expect(checkHwpxPackage(buffer(file))).rejects.toBeInstanceOf(UnreadableFile);
+    }
+  });
+
+  it.each(cases)('%s', async (_, markup, pages) => {
+    const file = withMarkup(markup, 2);
     expect(rhwpPages(file)).toBe(pages);
     const checked = await checkHwpxPackage(buffer(file)).then(
       () => 'passes',
@@ -287,7 +363,8 @@ describe('what the check reads of the spine is what rhwp reads', () => {
 describe('the list the check reads is the one rhwp reads', () => {
   it('an archive that holds a part twice is refused: rhwp reads the last, in either order', async () => {
     const members: ZipMember[] = [];
-    rewriteArchive(koreanHwpx(), (member) => {
+    // Its header says two sections, so that rhwp reads the spine's two (see above).
+    rewriteArchive(declaringSections(koreanHwpx(), 2), (member) => {
       members.push(member);
       return member;
     });

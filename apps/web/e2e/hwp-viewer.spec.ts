@@ -34,8 +34,8 @@ const SCREENS = process.env.FVOCI_SCREENS === '1';
 const SCREENS_DIR = path.resolve(import.meta.dirname, '../../../target/viewer-h1');
 const HWPX_TYPE = 'application/hwp+zip';
 const HWP_TYPE = 'application/x-hwp';
-/** How long the viewer gives a file to be drawn (LIMITS.draw in lib/file-viewer/session.svelte.ts). */
-const DRAW_LIMIT = 30_000;
+/** How long the app gives rhwp's engine to arrive (ENGINE_FETCH_LIMIT in lib/file-viewer/engine.ts). */
+const ENGINE_LIMIT = 120_000;
 
 async function view(page: Page, name: string, buffer: Buffer, mimeType: string): Promise<void> {
   const row = await attach(page, name, buffer, mimeType);
@@ -87,8 +87,7 @@ test('an HWPX document opens in the viewer, and its pages are turned with the bu
   // The renderer and its WebAssembly are fetched when an HWP document is first opened.
   const fetched: string[] = [];
   page.on('request', (request) => fetched.push(new URL(request.url()).pathname));
-  const hwpFiles = (): string[] =>
-    fetched.filter((file) => /\/(hwp|_virtual_rhwp-wasm)-/.test(file));
+  const hwpFiles = (): string[] => fetched.filter((file) => /\/(hwp|rhwp-wasm)-/.test(file));
   await openCard(page);
   const worker = nextWorker(page);
   await view(page, '회의록.hwpx', koreanHwpx(), HWPX_TYPE);
@@ -304,24 +303,34 @@ test('a document locked with a password says so', async ({ page }) => {
   await expect(notice(page)).toContainText('protected with a password');
 });
 
-test('past the time limit the viewer gives up, and the worker is stopped', async ({ page }) => {
+test('an engine that does not arrive is given up past its time, and asked for again by the next file', async ({
+  page,
+}) => {
   await page.clock.install();
   await openCard(page);
-  // The WebAssembly never arrives: the worker waits for it, started, until the limit.
+  // rhwp's WebAssembly, which the app fetches for the frame, never arrives.
   const held: (() => Promise<void>)[] = [];
   await page.route(/rhwp-wasm/, (route) => {
     held.push(() => route.abort());
   });
-  const started = nextWorker(page);
+  const workers: Worker[] = [];
+  page.on('worker', (worker) => workers.push(worker));
   await view(page, 'slow.hwpx', koreanHwpx(), HWPX_TYPE);
-  const { ended } = await started;
   await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
-  await page.clock.fastForward(DRAW_LIMIT + 1000);
+  await expect.poll(() => held.length).toBe(1);
+  await page.clock.fastForward(ENGINE_LIMIT + 1000);
   await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
   await expect(notice(page)).toContainText('The file took too long to show.');
   await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
-  await ended;
-  for (const release of held) await release().catch(() => undefined);
+  // The frame was never handed the document: nothing of it was read.
+  expect(workers).toEqual([]);
+
+  // The fetch given up is not kept: the next file asks for the engine again, and is shown.
+  await page.unroute(/rhwp-wasm/);
+  await page.keyboard.press('Escape');
+  await expect(viewer(page)).toHaveCount(0);
+  await page.getByRole('link', { name: 'slow.hwpx' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
 });
 
 test('the notice in place of a page fits in the page, however it is drawn', async ({ page }) => {

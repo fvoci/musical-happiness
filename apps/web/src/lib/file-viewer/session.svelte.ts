@@ -16,7 +16,8 @@ import { tick } from 'svelte';
 import { m } from '$lib/i18n/paraglide/messages.js';
 import { buildUrl, normalizeBasePath } from '$lib/logic/urls.ts';
 
-import { examine, VIEW_LIMIT_BYTES, type FormatId } from './formats.ts';
+import { ENGINE_FETCH_LIMIT, engineBytes } from './engine.ts';
+import { examine, needsEngine, VIEW_LIMIT_BYTES, type FormatId } from './formats.ts';
 import {
   readFromFrame,
   ZOOM_MAX,
@@ -47,9 +48,19 @@ export interface Limits {
   ready: number;
   /** How long it may take to draw the file once it has it. */
   draw: number;
+  /**
+   * How long the app may take to fetch rhwp's engine for a Hangul document, the first of a
+   * visit (7 MB on the wire): its own time, before the frame's time to draw starts.
+   */
+  engine: number;
 }
 
-export const LIMITS: Limits = { bytes: VIEW_LIMIT_BYTES, ready: 15_000, draw: 30_000 };
+export const LIMITS: Limits = {
+  bytes: VIEW_LIMIT_BYTES,
+  ready: 15_000,
+  draw: 30_000,
+  engine: ENGINE_FETCH_LIMIT,
+};
 
 export type Status =
   | { name: 'reading' }
@@ -87,6 +98,7 @@ export class ViewerSession {
   readonly #lang: () => string;
   readonly #onKey: (key: ViewerKey) => void;
   readonly #onDownload: () => void;
+  readonly #engine: () => Promise<ArrayBuffer>;
   /** Gives up the reading, and stands for "closed". */
   readonly #abort = new AbortController();
   #bytes: ArrayBuffer | undefined;
@@ -103,6 +115,8 @@ export class ViewerSession {
       /** The reader asked, in the frame, for the file to download. */
       onDownload: () => void;
       limits?: Limits;
+      /** rhwp's engine, a copy to hand over; the app's own fetch of it unless given. */
+      engine?: () => Promise<ArrayBuffer>;
     },
   ) {
     this.file = file;
@@ -111,6 +125,7 @@ export class ViewerSession {
     this.#onKey = options.onKey;
     this.#onDownload = options.onDownload;
     this.#limits = options.limits ?? LIMITS;
+    this.#engine = options.engine ?? engineBytes;
     this.#read().catch(() => {
       // A reader of the bytes that threw rather than answering undefined.
       if (!this.#gone()) this.#fail('unread');
@@ -203,14 +218,7 @@ export class ViewerSession {
         if (status.name !== 'opening' || !bytes) return;
         // Handed over, not copied: the app keeps the blob for "Download".
         this.#bytes = undefined;
-        const open = { format: status.format, bytes, theme: this.#theme(), lang: this.#lang() };
-        const labels = {
-          chart: m.viewer_chart_not_drawn(),
-          pageTooLarge: m.viewer_page_too_large(),
-          download: m.viewer_download(),
-        };
-        this.#send({ kind: 'open', ...open, labels }, [bytes]);
-        this.#wait(this.#limits.draw);
+        void this.#open(status.format, bytes);
         break;
       }
       case 'sheets':
@@ -243,6 +251,33 @@ export class ViewerSession {
         if (status.name === 'shown') this.#onDownload();
         break;
     }
+  }
+
+  /**
+   * Hands the frame the file, and with a Hangul document rhwp's engine, which the app fetches
+   * first; the frame's time to draw starts when it has both.
+   */
+  async #open(format: FormatId, bytes: ArrayBuffer): Promise<void> {
+    let engine: ArrayBuffer | null = null;
+    if (needsEngine(format)) {
+      this.#wait(this.#limits.engine);
+      try {
+        engine = await this.#engine();
+      } catch {
+        if (this.status.name === 'opening') this.#fail('renderer');
+        return;
+      }
+      // Closed, or given up on, while the engine was on its way.
+      if (this.#gone() || this.status.name !== 'opening') return;
+    }
+    const open = { format, bytes, engine, theme: this.#theme(), lang: this.#lang() };
+    const labels = {
+      chart: m.viewer_chart_not_drawn(),
+      pageTooLarge: m.viewer_page_too_large(),
+      download: m.viewer_download(),
+    };
+    this.#send({ kind: 'open', ...open, labels }, engine ? [bytes, engine] : [bytes]);
+    this.#wait(this.#limits.draw);
   }
 
   goTo(page: number): void {

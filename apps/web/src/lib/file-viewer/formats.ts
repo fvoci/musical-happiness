@@ -196,3 +196,7 @@ export function examine(bytes: Uint8Array): Examined {
 export function isFormatId(value: unknown): value is FormatId {
   return typeof value === 'string' && (FORMAT_IDS as string[]).includes(value);
 }
+
+/** The formats read by rhwp's engine, which the app hands to the frame with the file (engine.ts). */
+export const needsEngine = (format: FormatId): format is 'hwp' | 'hwpx' =>
+  format === 'hwp' || format === 'hwpx';

@@ -11,6 +11,7 @@
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
 !apps/web/
+!vendor/
 !docker/fvoci/config.json
 !docker/fvoci/entrypoint.sh
 
