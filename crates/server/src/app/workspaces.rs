@@ -4,7 +4,9 @@
 
 use std::collections::HashSet;
 
-use fvoci_model::{Container, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole};
+use fvoci_model::{
+    Container, ContainerKind, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole,
+};
 use fvoci_store::{PublicContainers, Tenant};
 
 use super::{App, Asker, as_managed, sso};
@@ -195,6 +197,21 @@ impl App {
                 .context("the organization of a row as the store has it")
         })?;
         Ok(self.scoped(tenant))
+    }
+
+    /// [`App::kind_of_admitted`] asked behind the wall of `org_id`, the organization the
+    /// store said an account just confirmed is of.
+    ///
+    /// # Errors
+    ///
+    /// Returns an internal error if `org_id` is no identifier.
+    pub(super) async fn kind_of_admitted_in(
+        &self,
+        org_id: &str,
+        container_id: Option<&str>,
+    ) -> Result<Option<ContainerKind>, AppError> {
+        let within = self.in_organization(org_id)?;
+        Ok(within.kind_of_admitted(container_id).await)
     }
 
     /// Whether the user works in the workspace: a member of the workspace who is no guest.

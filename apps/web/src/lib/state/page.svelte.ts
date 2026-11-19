@@ -15,6 +15,7 @@
  */
 import type { DocNode } from '../editor/schema.ts';
 import { isBackendError, type BodyDoc, type BodyDocState, type WikiPage } from './backend.ts';
+import { BodyUploads } from './body-uploads.svelte.ts';
 import { REJOIN_SPACING, afterPutOut } from './card-parts.ts';
 import { PageComments } from './page-comments.svelte.ts';
 import { mentionedIn } from './user-names.ts';
@@ -115,7 +116,7 @@ export class PageStore {
     this.#closed = true;
     this.comments.close();
     this.closeBody();
-    for (const upload of this.#bodyUploads) upload.abort();
+    this.#bodyUploads.giveUp();
   }
 
   /**
@@ -224,19 +225,13 @@ export class PageStore {
    * its image or file block names. Closing the page gives it up.
    */
   async uploadFile(file: File): Promise<string> {
-    const controller = new AbortController();
-    this.#bodyUploads.push(controller);
-    try {
-      const options = { signal: controller.signal };
-      return (await this.wiki.workspace.backend.upload(this.#wikiId, file, options)).fileId;
-    } catch (error) {
-      if (!controller.signal.aborted) this.wiki.workspace.report('upload', error);
-      throw error;
-    } finally {
-      this.#bodyUploads = this.#bodyUploads.filter((other) => other !== controller);
-    }
+    const going = (signal: AbortSignal) =>
+      this.wiki.workspace.backend.upload(this.#wikiId, file, { signal });
+    return (await this.#bodyUploads.run(going)).fileId;
   }
 
   /** The uploads of files for the body under way, given up when the page closes. */
-  #bodyUploads: AbortController[] = [];
+  readonly #bodyUploads = new BodyUploads((action, error) => {
+    this.wiki.workspace.report(action, error);
+  });
 }

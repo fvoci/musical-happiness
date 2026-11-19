@@ -73,13 +73,25 @@ async fn a_wiki_is_copied_by_its_own_organization_and_into_none_other() {
     let from_a = scene
         .ts
         .app
-        .duplicate_container(&wiki.id, &scene.user, ROOT_WORKSPACE_ID, DuplicateAs::Copy)
+        .duplicate_container(
+            &wiki.id,
+            &scene.user,
+            ROOT_WORKSPACE_ID,
+            DuplicateAs::Copy,
+            None,
+        )
         .await
         .expect_err("A's service does not find B's wiki");
     assert!(from_a.is_not_found(), "{from_a}");
     let into_a = scene
         .b_app
-        .duplicate_container(&wiki.id, &scene.user, ROOT_WORKSPACE_ID, DuplicateAs::Copy)
+        .duplicate_container(
+            &wiki.id,
+            &scene.user,
+            ROOT_WORKSPACE_ID,
+            DuplicateAs::Copy,
+            None,
+        )
         .await
         .expect_err("B's service does not copy into A's workspace");
     assert!(into_a.is_not_found(), "{into_a}");
@@ -91,6 +103,7 @@ async fn a_wiki_is_copied_by_its_own_organization_and_into_none_other() {
             &scene.user,
             &scene.b.workspace_id,
             DuplicateAs::Copy,
+            None,
         )
         .await
         .expect("B copies its own wiki");

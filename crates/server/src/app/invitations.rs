@@ -14,7 +14,7 @@ use std::net::IpAddr;
 
 use fvoci_model::User;
 use fvoci_model::{
-    AcceptedInvitation, ContainerMember, ContainerRole, GUEST_INVITATION_USES,
+    AcceptedInvitation, ContainerKind, ContainerMember, ContainerRole, GUEST_INVITATION_USES,
     GuestInvitationsChange, INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount,
     Workspace, WorkspaceRole,
 };
@@ -484,28 +484,35 @@ impl App {
             used = accepted.used,
             "an invitation was accepted"
         );
-        // Which address the guest goes to: a board gone meanwhile has none, and the
-        // board's address tells them so.
-        let container_kind = match &accepted.container_id {
-            Some(container_id) => match app.store().get_container(container_id).await {
-                Ok(container) => Some(container.kind),
-                Err(error) if error.is_not_found() => None,
-                Err(error) => {
-                    tracing::warn!(
-                        %container_id,
-                        %error,
-                        "the kind of an accepted invitation's board was not read"
-                    );
-                    None
-                }
-            },
-            None => None,
-        };
+        let container_kind = app.kind_of_admitted(accepted.container_id.as_deref()).await;
         Ok(Admission::LetIn(AcceptedInvitation {
             workspace_id: accepted.workspace_id,
             container_id: accepted.container_id,
             container_kind,
         }))
+    }
+
+    /// Whether what a guest was let onto is a board or a wiki, which says the address
+    /// they go to; asked of the organization this handle is of. One gone meanwhile has
+    /// no kind, and neither has one that could not be read: the board's address tells
+    /// them so.
+    pub(super) async fn kind_of_admitted(
+        &self,
+        container_id: Option<&str>,
+    ) -> Option<ContainerKind> {
+        let container_id = container_id?;
+        match self.store().get_container(container_id).await {
+            Ok(container) => Some(container.kind),
+            Err(error) if error.is_not_found() => None,
+            Err(error) => {
+                tracing::warn!(
+                    %container_id,
+                    %error,
+                    "the kind of the board or wiki somebody was let onto was not read"
+                );
+                None
+            }
+        }
     }
 
     /// One attempt of [`App::accept_invitation`]: settled, or to be tried again for a

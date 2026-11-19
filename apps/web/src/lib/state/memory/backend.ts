@@ -77,7 +77,7 @@ import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
-import { copiedBlocks, giveCopiesFiles } from './copies.ts';
+import { copiedBlocks, copyTitle, giveCopiesFiles } from './copies.ts';
 import { memberRole, memberFileUrl } from './container-access.ts';
 import { readableFile, storeUpload } from './files.ts';
 import { userFound, usersAmong, usersNamed } from './users.ts';
@@ -462,14 +462,7 @@ export class MemoryBackend implements Backend {
 
   /** A copy of a board or a wiki with its blocks but the comments, every identifier new. */
   #copyContainer(source: Container, asTemplate: boolean): Container {
-    // The server's titles: a copy of the same kind is "… copy", a template
-    // made from a board "New board template", a board from a template keeps it.
-    const title =
-      source.isTemplate === asTemplate
-        ? `${source.title} copy`
-        : asTemplate
-          ? 'New board template'
-          : source.title;
+    const title = copyTitle(source, asTemplate, this.#settings().language);
     const blocks = copiedBlocks(this.world, source);
     return this.#insertContainer({ ...source, isTemplate: asTemplate, title }, blocks);
   }

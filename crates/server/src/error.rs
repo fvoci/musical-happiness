@@ -266,6 +266,13 @@ impl AppError {
         Self::new(ErrorKind::ServiceUnavailable, message)
     }
 
+    /// A 503 error for a statement the database did not take in its time
+    /// ([`StoreError::is_busy`]).
+    fn database_busy() -> Self {
+        Self::service_unavailable("the database is busy; try again")
+            .with_reason(Reason::DatabaseBusy)
+    }
+
     /// A 429 error: too many attempts, try again after `wait`. The wait is told in
     /// whole seconds, rounded up, in the `Retry-After` header and in the body.
     pub fn rate_limited(wait: std::time::Duration) -> Self {
@@ -576,7 +583,12 @@ impl AppError {
     /// who debugs.
     pub(crate) fn log(&self) {
         if let Some(cause) = &self.cause {
-            tracing::error!(error = %format!("{cause:#}"), "API error");
+            if self.reason == Some(Reason::DatabaseBusy) {
+                // Of the moment, not of the server: told, and not as a failure.
+                tracing::warn!(error = %format!("{cause:#}"), "the database was busy");
+            } else {
+                tracing::error!(error = %format!("{cause:#}"), "API error");
+            }
         } else {
             tracing::debug!(status = self.status(), error = %self.message, "API error");
         }
@@ -627,6 +639,20 @@ impl AppError {
 
 impl From<anyhow::Error> for AppError {
     fn from(cause: anyhow::Error) -> Self {
+        // Nothing was wrong with the request, and nothing with the server but the
+        // moment: the statement did nothing, and the next try may find the database
+        // free. The store's error may have come the long way round, with words about
+        // where.
+        let busy = cause
+            .chain()
+            .filter_map(|cause| cause.downcast_ref::<StoreError>())
+            .any(StoreError::is_busy);
+        if busy {
+            return Self {
+                cause: Some(cause),
+                ..Self::database_busy()
+            };
+        }
         Self {
             cause: Some(cause),
             ..Self::new(ErrorKind::Internal, INTERNAL_MESSAGE)
@@ -728,6 +754,7 @@ impl From<StoreError> for AppError {
             )
             .with_reason(Reason::DocumentUnavailable)
             .context(error),
+            // A statement the database did not take in time is told apart there too.
             other => Self::from(anyhow::Error::from(other)),
         }
     }

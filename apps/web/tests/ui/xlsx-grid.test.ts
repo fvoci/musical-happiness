@@ -33,8 +33,18 @@ afterEach(() => {
   Reflect.deleteProperty(document.documentElement, 'clientHeight');
 });
 
-/** The first sheet of the workbook, read as the worker reads it and drawn in a view of 1000 by 600. */
-async function drawn(bytes: Buffer): Promise<SheetView> {
+/**
+ * A budget a tenth of the frame's: what a drawing does once its budget is
+ * spent is the same at any budget, and jsdom takes seconds to make the 8,000
+ * cells of the frame's.
+ */
+const SMALL_BUDGET = CELL_BUDGET / 10;
+
+/**
+ * The first sheet of the workbook, read as the worker reads it and drawn in a view of 1000 by
+ * 600, looking at `cells` cells (the frame's budget, left out).
+ */
+async function drawn(bytes: Buffer, cells?: number): Promise<SheetView> {
   // jsdom's Blob cannot stream, the worker's can.
   vi.stubGlobal('Blob', NodeBlob);
   const book = await readWorkbook(await repack(new Uint8Array(bytes).buffer));
@@ -50,7 +60,7 @@ async function drawn(bytes: Buffer): Promise<SheetView> {
     value: 600,
     configurable: true,
   });
-  const view = new SheetView(sheet, new Looks(book, 'ko'));
+  const view = new SheetView(sheet, new Looks(book, 'ko'), cells);
   document.body.append(view.element);
   view.draw();
   return view;
@@ -105,32 +115,34 @@ describe('what a sheet says', () => {
 
 describe('a sheet too dense to draw all of', () => {
   it('draws its frozen headings first, and the rest with what the budget leaves', async () => {
-    // 101 rows of 100 cells in view, the first frozen: more cells than the budget.
+    // 11 rows of 100 cells in view, the first frozen: more cells than the budget.
     const pane = `<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" state="frozen"/></sheetView></sheetViews>`;
     const view = await drawn(
       workbook({
-        sheets: [
-          { name: 'dense', xml: `${pane}${TINY}<sheetData>${rowsOf(101, 100)}</sheetData>` },
-        ],
+        sheets: [{ name: 'dense', xml: `${pane}${TINY}<sheetData>${rowsOf(11, 100)}</sheetData>` }],
       }),
+      SMALL_BUDGET,
     );
     const heading = view.element.querySelectorAll('[role="row"][aria-rowindex="1"] [role="cell"]');
     expect(heading).toHaveLength(100);
     const all = view.element.querySelectorAll('[role="cell"]');
-    expect(all.length).toBeLessThanOrEqual(CELL_BUDGET);
-    expect(all.length).toBeGreaterThan(CELL_BUDGET - 100);
+    expect(all.length).toBeLessThanOrEqual(SMALL_BUDGET);
+    expect(all.length).toBeGreaterThan(SMALL_BUDGET - 100);
   });
 
   it('spends the budget on the cells under a merge too, which are looked at though not drawn', async () => {
-    // 100 rows of 100 cells in view, the left half of them under one merge.
-    const xml = `${TINY}<sheetData>${rowsOf(100, 100)}</sheetData><mergeCells count="1"><mergeCell ref="A1:AX100"/></mergeCells>`;
+    // 100 rows of 100 cells in view, all but the last of each under one merge: the frame's own
+    // budget is spent on cells that are looked at and make no element.
+    const xml = `${TINY}<sheetData>${rowsOf(100, 100)}</sheetData><mergeCells count="1"><mergeCell ref="A1:CU100"/></mergeCells>`;
     const view = await drawn(workbook({ sheets: [{ name: 'merged', xml }] }));
     const rows = view.element.querySelectorAll('[role="row"]').length;
     // The merge, and the cells right of it.
     const plain = view.element.querySelectorAll('[role="cell"]').length - 1;
-    // Each row walked looks at its 50 cells under the merge and draws up to 50 more.
-    expect(plain + 50 * rows).toBeLessThanOrEqual(CELL_BUDGET + 50);
-    expect(plain).toBeLessThan(100 * 50);
+    // Each row walked looks at its 99 cells under the merge and draws the one after them.
+    expect(plain + 99 * rows).toBeLessThanOrEqual(CELL_BUDGET + 99);
+    // The budget is the frame's: all of it is spent but less than two rows' worth.
+    expect(plain + 99 * rows).toBeGreaterThan(CELL_BUDGET - 200);
+    expect(plain).toBeLessThan(100);
     expect(plain).toBeGreaterThan(0);
   });
 });
@@ -203,41 +215,29 @@ describe('rows and columns of a style of their own', () => {
     expect(second.every((each) => !each.hasAttribute('role'))).toBe(true);
   });
 
-  /**
-   * The two below make the whole budget of cells, each bordered (two elements): 1.5 seconds
-   * alone, past 5 under the load of the whole check (6.7 at a load of 36).
-   */
-  const FULL_BUDGET_TIME = 15_000;
+  it('a styled column across the whole sheet spends the budget like any cell', async () => {
+    // Every column bordered (each cell drawn alone), 1-pixel columns and rows: far more empty
+    // cells in view than the budget.
+    const xml = `<sheetFormatPr defaultRowHeight="0.75"/><cols><col min="1" max="16384" width="0.1" style="4" customWidth="1"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>`;
+    const view = await drawn(
+      workbook({ sheets: [{ name: 'bordered', xml }], stylesXml: ROW_COLUMN_STYLES }),
+      SMALL_BUDGET,
+    );
+    const drawnBlanks = view.element.querySelectorAll('.xlsx-cell[aria-hidden="true"]').length;
+    expect(drawnBlanks).toBeLessThanOrEqual(SMALL_BUDGET);
+    expect(drawnBlanks).toBeGreaterThan(SMALL_BUDGET / 2);
+  });
 
-  it(
-    'a styled column across the whole sheet spends the budget like any cell',
-    async () => {
-      // Every column bordered (each cell drawn alone), 1-pixel columns and rows: far more empty
-      // cells in view than the budget.
-      const xml = `<sheetFormatPr defaultRowHeight="0.75"/><cols><col min="1" max="16384" width="0.1" style="4" customWidth="1"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>`;
-      const view = await drawn(
-        workbook({ sheets: [{ name: 'bordered', xml }], stylesXml: ROW_COLUMN_STYLES }),
-      );
-      const drawnBlanks = view.element.querySelectorAll('.xlsx-cell[aria-hidden="true"]').length;
-      expect(drawnBlanks).toBeLessThanOrEqual(CELL_BUDGET);
-      expect(drawnBlanks).toBeGreaterThan(CELL_BUDGET / 2);
-    },
-    FULL_BUDGET_TIME,
-  );
-
-  it(
-    'the written cells are drawn before any empty one: a styled sheet loses no value',
-    async () => {
-      // As dense as the sheet above that fills the budget with values, every column bordered.
-      const xml = `<sheetFormatPr defaultRowHeight="0.75"/><cols><col min="1" max="16384" width="0.1" style="4" customWidth="1"/></cols><sheetData>${rowsOf(70, 100)}</sheetData>`;
-      const view = await drawn(
-        workbook({ sheets: [{ name: 'dense', xml }], stylesXml: ROW_COLUMN_STYLES }),
-      );
-      // Every value in view, though the empty cells around them are more than the budget.
-      expect(view.element.querySelectorAll('[role="cell"]')).toHaveLength(70 * 100);
-      const empty = view.element.querySelectorAll('.xlsx-cell[aria-hidden="true"]').length;
-      expect(empty).toBe(CELL_BUDGET - 70 * 100);
-    },
-    FULL_BUDGET_TIME,
-  );
+  it('the written cells are drawn before any empty one: a styled sheet loses no value', async () => {
+    // As dense as the sheet above that fills the budget with values, every column bordered.
+    const xml = `<sheetFormatPr defaultRowHeight="0.75"/><cols><col min="1" max="16384" width="0.1" style="4" customWidth="1"/></cols><sheetData>${rowsOf(7, 100)}</sheetData>`;
+    const view = await drawn(
+      workbook({ sheets: [{ name: 'dense', xml }], stylesXml: ROW_COLUMN_STYLES }),
+      SMALL_BUDGET,
+    );
+    // Every value in view, though the empty cells around them are more than the budget.
+    expect(view.element.querySelectorAll('[role="cell"]')).toHaveLength(7 * 100);
+    const empty = view.element.querySelectorAll('.xlsx-cell[aria-hidden="true"]').length;
+    expect(empty).toBe(SMALL_BUDGET - 7 * 100);
+  });
 });

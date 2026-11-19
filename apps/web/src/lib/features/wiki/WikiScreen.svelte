@@ -22,6 +22,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
+  import { coverPane } from '$lib/layout/over-pane.svelte.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
   import type { PagePlace } from '$lib/logic/page-moves.ts';
   import { ancestorsOf, PAGE_TITLE_MAX } from '$lib/logic/page-tree.ts';
@@ -104,8 +105,19 @@
   let made = $state<string | undefined>(undefined);
   /** The tree is a drawer over the page: a narrow pane. */
   const narrow = $derived(pane.measured && !pane.columns);
-  let drawer = $state(false);
+  /** The wiki and the page on the screen, as one key. */
+  const place = $derived(`${wiki.wikiId} ${page?.pageId ?? ''}`);
+  /**
+   * Whether the drawer was asked out. It is out over the place it was opened over
+   * only: when the screen shows another (a page that was deleted elsewhere, an
+   * address followed), the drawer is away, and stays away when that place is back.
+   */
+  // Away over every place: a function of the place only so that the derived, which is
+  // written when the drawer is asked out, is made anew (away) when the place changes.
+  const away = (_over: string): boolean => false;
+  let drawer = $derived(away(place));
   const drawerOut = $derived(narrow && drawer);
+  coverPane(() => drawerOut);
   let panel = $state<HTMLElement>();
   let opener = $state<HTMLElement | null>(null);
 

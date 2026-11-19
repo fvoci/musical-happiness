@@ -22,8 +22,8 @@ use tokio::fs;
 use super::App;
 use super::container_copies::counted_as;
 use super::export::ARCHIVE_VERSION;
-use super::files::{names_a_file, stored_extension};
-use super::uploads::MAX_UPLOAD_NAME_CHARS;
+use super::file_name::check_file_name;
+use super::files::stored_extension;
 use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
 use crate::metrics::ContainerWork;
@@ -585,9 +585,8 @@ fn drop_orphans(containers_and_blocks: &mut ContainersAndBlocks) -> usize {
 }
 
 /// The names a board line gives the files of its directory (`fileNames`, by the names
-/// of their entries), as an upload's name may be: not blank (the part after the last
-/// `/`, which is what a record keeps), without U+0000, at most
-/// [`MAX_UPLOAD_NAME_CHARS`] characters, and with the extension of the entry's name.
+/// of their entries), as an upload's name may be ([`check_file_name`]), and with the
+/// extension of the entry's name.
 /// Any other is left out, and that file keeps the name of its entry, as before the
 /// names were written.
 fn file_names_of(board: &Value) -> FileNames {
@@ -598,10 +597,8 @@ fn file_names_of(board: &Value) -> FileNames {
         .iter()
         .filter_map(|(entry, name)| {
             let name = name.as_str()?;
-            let fits = names_a_file(name)
-                && !name.contains('\0')
-                && name.chars().count() <= MAX_UPLOAD_NAME_CHARS
-                && stored_extension(name) == stored_extension(entry);
+            let fits =
+                check_file_name(name).is_ok() && stored_extension(name) == stored_extension(entry);
             fits.then(|| (entry.clone(), name.to_owned()))
         })
         .collect()

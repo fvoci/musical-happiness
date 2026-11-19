@@ -3,9 +3,11 @@
 use fvoci_model::{
     ContainerError, ContainerKind, ContainerMember, ContainersAndBlocks, DeleteContainersAndBlocks,
 };
-use fvoci_store::DuplicateAs;
+use fvoci_store::{CopyTitles, DuplicateAs};
 
 use super::App;
+use super::accept_language::accepted_language;
+use super::language::Language;
 use super::pages::refused_without_member;
 use crate::error::AppError;
 use crate::metrics::{ContainerWork, Module};
@@ -20,6 +22,12 @@ impl App {
     /// template is filed under the category the user has filed the source under, or
     /// else under the default category.
     ///
+    /// The titles the copy is given (the original's with `copy` after it, `New board
+    /// template`) are in the language of the user's settings; where those leave it to
+    /// the device, or name a language the server writes nothing in, in the first
+    /// language of the server's that `accept_language` (the request's `Accept-Language`)
+    /// prefers; failing both, in English.
+    ///
     /// # Errors
     ///
     /// Returns a not-found error if there is no such board, a bad request for a wiki
@@ -31,26 +39,36 @@ impl App {
         user_id: &str,
         to_workspace: &str,
         duplicate_as: DuplicateAs,
+        accept_language: Option<&str>,
     ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), AppError> {
+        let settings = self.user_settings(user_id).await?;
+        let language = Language::first_of([
+            Language::written_in(settings.language.as_str()),
+            accept_language.and_then(accepted_language),
+        ]);
         self.copy_container(
             container_id,
             user_id,
             to_workspace,
             duplicate_as,
+            language,
             ContainerWork::Duplicate,
         )
         .await
     }
 
-    /// [`App::duplicate_container`], counted among the boards copied whole as `work`.
+    /// [`App::duplicate_container`] with its titles in `language`, counted among the
+    /// boards copied whole as `work`.
     pub(super) async fn copy_container(
         &self,
         container_id: &str,
         user_id: &str,
         to_workspace: &str,
         duplicate_as: DuplicateAs,
+        language: Language,
         work: ContainerWork,
     ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), AppError> {
+        let titles = titles_in(language);
         let kind = self.container(container_id).await?.kind;
         if kind == ContainerKind::Wiki && duplicate_as == DuplicateAs::Template {
             return Err(
@@ -62,7 +80,13 @@ impl App {
         let (mut copies, members) = match kind {
             ContainerKind::Board => {
                 self.store()
-                    .duplicate_container(container_id, user_id, to_workspace_named, duplicate_as)
+                    .duplicate_container(
+                        container_id,
+                        user_id,
+                        to_workspace_named,
+                        duplicate_as,
+                        &titles,
+                    )
                     .await?
             }
             ContainerKind::Wiki => self
@@ -72,6 +96,7 @@ impl App {
                     user_id,
                     to_workspace_named,
                     self.limits().pages,
+                    &titles,
                 )
                 .await
                 .map_err(refused_without_member)?,
@@ -82,18 +107,7 @@ impl App {
             .copy_and_update_card_files(container_id, user_id, &mut copies.blocks)
             .await
         {
-            let delete = DeleteContainersAndBlocks::from(&copies);
-            if let Err(delete_error) = self
-                .store()
-                .delete_containers_and_blocks(&delete, user_id)
-                .await
-            {
-                tracing::error!(
-                    container_id,
-                    error = %delete_error,
-                    "Cannot delete board after duplication error when updating block's file info"
-                );
-            }
+            self.take_back(&copies, container_id, user_id).await;
             return Err(error.context(format_args!(
                 "could not patch file IDs while duplicating board {container_id}"
             )));
@@ -137,6 +151,23 @@ impl App {
         Ok((copies, members))
     }
 
+    /// Deletes the copies of `container_id` whose files could not be copied; a failure
+    /// to is logged, and the copies stay.
+    async fn take_back(&self, copies: &ContainersAndBlocks, container_id: &str, user_id: &str) {
+        let delete = DeleteContainersAndBlocks::from(copies);
+        if let Err(error) = self
+            .store()
+            .delete_containers_and_blocks(&delete, user_id)
+            .await
+        {
+            tracing::error!(
+                container_id,
+                %error,
+                "Cannot delete board after duplication error when updating block's file info"
+            );
+        }
+    }
+
     /// Files a copy of a board under the category its source is filed under for the
     /// user in the workspace, or else under the default category.
     async fn set_container_category_from_source(
@@ -177,5 +208,19 @@ pub(super) fn counted_as(kind: ContainerKind) -> Module {
     match kind {
         ContainerKind::Board => Module::Board,
         ContainerKind::Wiki => Module::Wiki,
+    }
+}
+
+/// The titles of a copy in a language the server writes in.
+fn titles_in(language: Language) -> CopyTitles {
+    match language {
+        Language::English => CopyTitles {
+            copy_of: |title| format!("{title} copy"),
+            new_template: "New board template",
+        },
+        Language::Korean => CopyTitles {
+            copy_of: |title| format!("{title} 사본"),
+            new_template: "새 보드 템플릿",
+        },
     }
 }

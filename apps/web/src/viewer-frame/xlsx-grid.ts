@@ -117,10 +117,14 @@ export class SheetView {
   readonly #panes: [Pane, Pane, Pane, Pane];
   /** The letters of the frozen columns and the rest's, the numbers of the frozen rows and the rest's. */
   readonly #rulers: [Ruler, Ruler, Ruler, Ruler];
+  /** How many cells one drawing looks at. */
+  readonly #cells: number;
   #zoom = 1;
 
-  constructor(sheet: Sheet, looks: Looks) {
+  /** `cells` is the budget of one drawing: the frame leaves it at `CELL_BUDGET`. */
+  constructor(sheet: Sheet, looks: Looks, cells = CELL_BUDGET) {
     this.#sheet = sheet;
+    this.#cells = cells;
     const { rows, columns } = axesOf(sheet);
     this.#rows = rows;
     this.#columns = columns;
@@ -201,7 +205,7 @@ export class SheetView {
     this.#layer.style.setProperty('--xlsx-ruler-font', `${(11 * zoom).toFixed(2)}px`);
     const [frozenDown, down] = this.#bandsDown(layout);
     const [frozenAcross, across] = this.#bandsAcross(layout);
-    const budget = { cells: CELL_BUDGET };
+    const budget = { cells: this.#cells };
     // The frozen parts first: each is at most half the view, and they are the headings that say
     // what the rest is; on a sheet too dense for the budget, the rest's far side goes blank first.
     const [corner, frozenRows, frozenColumns, rest] = this.#panes;

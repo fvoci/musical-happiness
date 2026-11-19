@@ -1,7 +1,7 @@
 //! Limits on the size of request bodies.
 //!
-//! A body over the limit is refused with 413 and the limit, before any handler runs and
-//! without being kept in memory.
+//! A body over the limit is refused with 413, the limit and the reason
+//! `request_too_large`, before any handler runs and without being kept in memory.
 
 use std::time::Duration;
 
@@ -15,7 +15,7 @@ use futures_util::StreamExt as _;
 
 use super::session::{claims_session, session_of};
 use crate::app::App;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 /// The largest body of a request to a route that needs no session: the login and the
 /// registration. Anyone can send these, so they get no more room than they need; the
@@ -117,7 +117,7 @@ pub(crate) async fn limit_request_body(
         if !parts.headers.contains_key(EXPECT) {
             discard(stream, 0).await;
         }
-        return AppError::payload_too_large(limit).into_response();
+        return too_large(limit).into_response();
     }
 
     let capacity = usize::try_from(declared.unwrap_or(0).min(limit)).unwrap_or(0);
@@ -133,12 +133,17 @@ pub(crate) async fn limit_request_body(
         if byte_count(read.len()).saturating_add(byte_count(chunk.len())) > limit {
             drop(read);
             discard(stream, byte_count(chunk.len())).await;
-            return AppError::payload_too_large(limit).into_response();
+            return too_large(limit).into_response();
         }
         read.extend_from_slice(&chunk);
     }
     next.run(Request::from_parts(parts, Body::from(read.freeze())))
         .await
+}
+
+/// The refusal of a body of more than `limit` bytes.
+fn too_large(limit: u64) -> AppError {
+    AppError::payload_too_large(limit).with_reason(Reason::RequestTooLarge)
 }
 
 /// A length in memory as a number of bytes of a body. A `usize` fits everywhere this
@@ -220,7 +225,8 @@ mod tests {
         let (status, body) = answer(limited(16), request).await;
         assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
         let error: fvoci_model::Problem = serde_json::from_str(&body).expect("an error body");
-        assert_eq!(error.problem_type, "/problems/payload-too-large");
+        assert_eq!(error.problem_type, "/problems/request-too-large");
+        assert_eq!(error.reason.as_deref(), Some("request_too_large"));
         assert_eq!(error.limit, Some(16), "the answer names the limit");
     }
 

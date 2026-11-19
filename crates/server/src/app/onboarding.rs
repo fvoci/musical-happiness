@@ -38,6 +38,9 @@ impl App {
                 user_id,
                 workspace_id,
                 DuplicateAs::Copy,
+                // A board made from a template keeps the template's title: no title is
+                // written in this language.
+                Language::English,
                 ContainerWork::Welcome,
             )
             .await?;

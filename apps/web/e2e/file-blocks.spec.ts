@@ -9,7 +9,7 @@
 import { expect, test, type Download, type Locator, type Page } from '@playwright/test';
 
 import { hideSidebar, openApp } from './shell.support.ts';
-import { nameThePage, newWiki, pageBody } from './wiki.support.ts';
+import { nameThePage, newWiki, pageAction, pageBody, showTree, treeItem } from './wiki.support.ts';
 
 const PDF = '%PDF-1.4\n% a file block\n%%EOF\n';
 const NAME = '2026-11 회의록 of the steering committee and of everybody else who came.pdf';
@@ -129,4 +129,57 @@ test('files chosen together become file blocks in the order chosen', async ({ pa
   await expect(blocks).toHaveCount(2);
   await expect(blocks.locator('.doc-file-name')).toHaveText(['first.pdf', 'second.zip']);
   await expect(page.getByTestId('page-body').locator('.doc-upload')).toHaveCount(0);
+});
+
+/** Sets how long the backend in memory takes over each request, in milliseconds. */
+async function latency(page: Page, milliseconds: number): Promise<void> {
+  await page.evaluate((ms) => {
+    (window as unknown as { fvociDev: { backend: { latency: number } } }).fvociDev.backend.latency =
+      ms;
+  }, milliseconds);
+}
+
+test('a file still going up when the page is left is given up, and the reader is told so', async ({
+  page,
+}) => {
+  const body = await newPage(page);
+  await pageAction(page, 'Minutes', 'add-after');
+  await nameThePage(page, 'Agenda');
+  await showTree(page);
+  await treeItem(page, 'Minutes').click();
+  await expect(page.getByTestId('page-title')).toHaveValue('Minutes');
+  await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', 'ready');
+
+  await body.click();
+  await page.keyboard.type('/');
+  await expect(page.locator('[data-suggestions="slash"]').getByRole('option')).toHaveText(['File']);
+  // Slow enough to be left on its way.
+  await latency(page, 5000);
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    page.keyboard.press('Enter'),
+  ]);
+  await chooser.setFiles({
+    name: 'slow.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(PDF),
+  });
+  await expect(page.getByTestId('page-body').locator('.doc-upload')).toHaveCount(1);
+  await latency(page, 40);
+
+  const told = page.getByTestId('problems').locator('[data-problem="left"]');
+  await expect(told).toHaveCount(0);
+  await showTree(page);
+  await treeItem(page, 'Agenda').click();
+  await expect(page.getByTestId('page-title')).toHaveValue('Agenda');
+  await expect(told).toHaveText(/A file was still going up when you left: it was not added\./);
+
+  // Nothing of it is on the page it was going up for.
+  await showTree(page);
+  await treeItem(page, 'Minutes').click();
+  await expect(page.getByTestId('page-title')).toHaveValue('Minutes');
+  await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', 'ready');
+  await expect(page.getByTestId('page-body').locator('[data-file-block], .doc-upload')).toHaveCount(
+    0,
+  );
 });

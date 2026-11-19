@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { acceptedRoute } from './accepted-route.ts';
   import { startEmailVerification } from './backend.ts';
   import VerifyEmailPage from '$lib/features/account/VerifyEmailPage.svelte';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
@@ -10,19 +11,22 @@
 
   /**
    * Confirms, and goes to where the account was let in: the welcome board of an
-   * organization it started, the board of a guest's link, or the workspace. The
-   * token leaves the address and the history.
+   * organization it started, the board or the wiki of a guest's link, or the
+   * workspace. The token leaves the address and the history.
    */
   async function complete(token: string, password?: string): Promise<Confirmed> {
     const client = await verification;
     const confirmed = await client.complete(token, password);
     history.replaceState(null, '', location.pathname);
-    let boardId = confirmed.containerId;
+    let route = acceptedRoute(confirmed);
     if (confirmed.organizationStarted) {
       // The account is in: no welcome board is no reason to keep it out.
-      boardId = await client.welcome(confirmed.workspaceId, getLocale()).catch(() => undefined);
+      const boardId = await client
+        .welcome(confirmed.workspaceId, getLocale())
+        .catch(() => undefined);
+      route = { workspaceId: confirmed.workspaceId, boardId };
     }
-    location.replace(router.href({ workspaceId: confirmed.workspaceId, boardId }));
+    location.replace(router.href(route));
     return confirmed;
   }
 
