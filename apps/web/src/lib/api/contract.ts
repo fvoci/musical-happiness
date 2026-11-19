@@ -55,7 +55,9 @@ export interface paths {
          *     Where nothing is carried over it goes to the login page with
          *     `oidc_carry_over_refused`, and where the sign-in itself failed (refused by the
          *     former provider, its token not taken, not this browser's) with that reason, as
-         *     any sign-in does.
+         *     any sign-in does. An account that comes into the organization by the sign-in, as a
+         *     member, is given its welcome board unless it has one (`onboard` says more): in the
+         *     language of its settings, or else in the one `Accept-Language` prefers.
          */
         get: operations["finishOidcLogin"];
         put?: never;
@@ -131,6 +133,10 @@ export interface paths {
          *     sign-in is refused with otherwise (`oidc_join_closed`, `oidc_email_missing`,
          *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_unavailable`); 429 when this
          *     address made too many sign-ins of late.
+         *
+         *     An account that comes into the organization by this, as a member, is given its
+         *     welcome board unless it has one (`onboard` says more): in the language of its
+         *     settings, or else in the one `Accept-Language` prefers.
          */
         post: operations["finishHeldOidcLogin"];
         delete?: never;
@@ -241,6 +247,10 @@ export interface paths {
          *     (revoked, or who made it may no longer invite), the registration is removed and the
          *     answer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as
          *     registrations are, and too many are 429.
+         *
+         *     An account that a link for members lets in so is given its welcome board in the
+         *     workspace, unless it has one (`onboard` says more): written in the `language` of
+         *     the acceptance if that was English or Korean, or else in English.
          */
         post: operations["completeEmailVerification"];
         delete?: never;
@@ -350,6 +360,13 @@ export interface paths {
          *     whatever is wrong with it: there is no such link, it ended, it was used as often as
          *     it may be, it was revoked, or who made it may no longer invite. Requests are counted
          *     by where they come from, and too many are 429.
+         *
+         *     An account that a link for members lets in is given its welcome board in the
+         *     workspace, a private board of its own, unless it has one (`onboard` says more):
+         *     written in the language of the account's settings, or else in `language` for an
+         *     account made here, if that is English or Korean, or else in the one
+         *     `Accept-Language` prefers. An account whose address is confirmed first is given
+         *     it then (`completeEmailVerification`).
          */
         post: operations["acceptInvitation"];
         delete?: never;
@@ -2954,11 +2971,18 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Start the tour
-         * @description Copies the built-in welcome board for the user, as a private board of their own,
-         *     and notes in the client's state (`getClientState`) that the tour has begun:
-         *     `onboardingTourStarted` is `1`, `onboardingTourStep` is `0` and `tourCategory` is
-         *     `onboarding`. Every request makes another copy.
+         * Make the welcome board
+         * @description Copies the built-in welcome board for the user, as a private board of their own in
+         *     the workspace: what a new account starts on. It is written in the language of the
+         *     user's settings; where that is left to the device, or is one the board is not
+         *     written in, in the one `Accept-Language` prefers; failing both, in English. Every
+         *     request makes another copy.
+         *
+         *     Whoever starts an organization asks for it. An account that comes into an
+         *     organization as a member (by a link, by a registration made by a link, or by
+         *     signing in through the organization's provider) is given one without asking, in
+         *     the workspace it comes into, unless it has one: an account is given one once,
+         *     whatever it comes into after, and a guest none.
          */
         post: operations["onboard"];
         delete?: never;
@@ -3265,6 +3289,11 @@ export interface paths {
          * The templates of a workspace
          * @description The workspace's template boards the user may see, then the built-in templates, which
          *     every workspace is offered. Each of the two oldest first.
+         *
+         *     The built-in templates are written in several languages (`templateLanguage` among a
+         *     board's `properties`), and those of one are listed: the language of the user's
+         *     settings; where that is left to the device, or is one the templates are not written
+         *     in, the one `Accept-Language` prefers; failing both, English.
          */
         get: operations["getTemplates"];
         put?: never;
@@ -3868,7 +3897,8 @@ export interface components {
             /**
              * @description The language tag of the screen the request comes from (`ko`, `en-GB`): the
              *     language of the mail that confirms a new account's address, where the server asks
-             *     for that (English, Korean); English for any other.
+             *     for that (English, Korean); English for any other. A new account's welcome
+             *     board is written in it too, if it is English or Korean.
              */
             language?: string;
             /** @description The token of the link. */
@@ -5385,13 +5415,6 @@ export interface components {
              */
             linkPassword?: string;
         };
-        /** @description What starting the tour answers: where the tour's board is. */
-        OnboardingStart: {
-            /** @description The identifier of the board the tour goes through. */
-            boardId: string;
-            /** @description The identifier of the workspace. */
-            workspaceId: string;
-        };
         /** @description A member of an organization, as its administrators list them. */
         OrgMember: components["schemas"]["PersonName"] & {
             /** @description The name the user shows; empty for none. */
@@ -6154,6 +6177,11 @@ export interface components {
          * @enum {string}
          */
         WeekStart: "auto" | "sunday" | "monday" | "saturday";
+        /** @description What asking for a first board answers: where it is. */
+        WelcomeBoard: {
+            /** @description The identifier of the new board. */
+            boardId: string;
+        };
         /** @description A workspace of an organization. */
         Workspace: {
             /** @description Whether the admins of the workspace's boards may invite guests to them. */
@@ -6231,7 +6259,10 @@ export interface operations {
                 /** @description The issuer that answered (RFC 9207), if the provider says: it must be the provider's. */
                 iss?: string;
             };
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path: {
                 /** @description The organization the sign-in was started for: each has an address of its own to come back to (its provider's `redirectUri`). */
                 orgId: string;
@@ -6331,7 +6362,10 @@ export interface operations {
                 /** @description The identifier of the organization whose provider the person signs in through. */
                 org: string;
             };
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -6594,7 +6628,10 @@ export interface operations {
     acceptInvitation: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10814,7 +10851,10 @@ export interface operations {
     onboard: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
@@ -10823,13 +10863,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Where the tour's board is. */
+            /** @description Where the new board is. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OnboardingStart"];
+                    "application/json": components["schemas"]["WelcomeBoard"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -11339,7 +11379,10 @@ export interface operations {
     getTemplates: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;

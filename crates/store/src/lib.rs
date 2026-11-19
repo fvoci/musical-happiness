@@ -76,6 +76,7 @@ mod uploads;
 mod users;
 mod users_by_id;
 mod visibility;
+mod welcome;
 mod workspace_membership;
 mod workspaces;
 
@@ -91,7 +92,7 @@ pub use account_erasure::{ErasedFrom, Erasing, ErasureEnd, ErasureStart, HandedO
 pub use accounts::Founding;
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{
-    BlockFilter, BodyPreview, CopyTitles, DuplicateAs, ListedBlock, Paging, Previews,
+    BlockFilter, BodyPreview, CopyChanges, CopyTitles, DuplicateAs, ListedBlock, Paging, Previews,
 };
 pub use body_digest::body_digest;
 pub use body_docs::{DocAsRead, LoggedUpdate, StoredDoc};

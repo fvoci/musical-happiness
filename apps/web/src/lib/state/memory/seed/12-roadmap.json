@@ -143,9 +143,7 @@
         "sortOptions": [],
         "viewType": "calendar",
         "visibleOptionIds": [],
-        "visiblePropertyIds": [
-          "__title"
-        ]
+        "visiblePropertyIds": ["__title"]
       }
     },
     {
@@ -209,9 +207,7 @@
             {
               "condition": "includes",
               "propertyId": "20717ad3-5741-4416-83f1-6f133fff3d11",
-              "values": [
-                "6eea96c9-4c61-4968-8554-4b7537e8f748"
-              ]
+              "values": ["6eea96c9-4c61-4968-8554-4b7537e8f748"]
             }
           ],
           "operation": "and"
@@ -239,9 +235,7 @@
       "type": "view",
       "title": "Board: Status",
       "fields": {
-        "cardOrder": [
-          "c3jawn6e4fbr3jctthy9xxkdsqe"
-        ],
+        "cardOrder": ["c3jawn6e4fbr3jctthy9xxkdsqe"],
         "collapsedOptionIds": [],
         "columnCalculations": {},
         "columnWidths": {},
@@ -291,9 +285,7 @@
             {
               "condition": "includes",
               "propertyId": "20717ad3-5741-4416-83f1-6f133fff3d11",
-              "values": [
-                "1fdbb515-edd2-4af5-80fc-437ed2211a49"
-              ]
+              "values": ["1fdbb515-edd2-4af5-80fc-437ed2211a49"]
             }
           ],
           "operation": "and"

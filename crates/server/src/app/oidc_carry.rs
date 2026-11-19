@@ -241,12 +241,16 @@ impl App {
     /// 409 with the reason a first sign-in is refused with (`oidc_join_closed`,
     /// `oidc_email_missing`, `oidc_email_unverified`, `oidc_email_taken`,
     /// `oidc_unavailable`); and 429 for too many sign-ins from `address`.
+    ///
+    /// The account that is made comes into the organization and is given its welcome
+    /// board (`App::welcome_member`, by `accept_language`).
     pub async fn finish_held_oidc_login(
         &self,
         org_id: &str,
         held_secret: &str,
         address: Option<IpAddr>,
         user_agent: &str,
+        accept_language: Option<&str>,
     ) -> Result<String, AppError> {
         drop(
             self.login_limiter()
@@ -288,7 +292,7 @@ impl App {
         };
         let token = new_secret();
         let mut session = self.new_session(user_agent, now);
-        Box::pin(org.sign_in_through(
+        let ended = Box::pin(org.sign_in_through(
             &claims,
             &stored,
             Ending::SignIn,
@@ -300,6 +304,10 @@ impl App {
             tracing::info!(org_id, failure = %reason.name(), "a held sign-in did not end in an account");
             AppError::conflict("the sign-in did not end in an account").with_reason(reason)
         })?;
+        if ended.joined {
+            org.welcome_newcomer(&session.user_id, accept_language)
+                .await;
+        }
         Ok(token)
     }
 }

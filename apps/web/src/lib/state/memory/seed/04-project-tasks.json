@@ -272,9 +272,7 @@
         "sortOptions": [],
         "viewType": "calendar",
         "visibleOptionIds": [],
-        "visiblePropertyIds": [
-          "__title"
-        ]
+        "visiblePropertyIds": ["__title"]
       }
     }
   ],

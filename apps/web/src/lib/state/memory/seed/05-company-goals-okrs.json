@@ -217,9 +217,7 @@
           "operation": "and"
         },
         "groupById": "aqxyzkdrs4egqf7yk866ixkaojc",
-        "hiddenOptionIds": [
-          ""
-        ],
+        "hiddenOptionIds": [""],
         "kanbanCalculations": {},
         "sortOptions": [],
         "viewType": "table",
@@ -259,9 +257,7 @@
           "operation": "and"
         },
         "groupById": "a6amddgmrzakw66cidqzgk6p4ge",
-        "hiddenOptionIds": [
-          ""
-        ],
+        "hiddenOptionIds": [""],
         "kanbanCalculations": {},
         "sortOptions": [],
         "viewType": "table",
@@ -286,9 +282,7 @@
       "type": "view",
       "title": "Departments",
       "fields": {
-        "cardOrder": [
-          "cpa534b5natgmunis8u1ixb55pw"
-        ],
+        "cardOrder": ["cpa534b5natgmunis8u1ixb55pw"],
         "collapsedOptionIds": [],
         "columnCalculations": {},
         "columnWidths": {},
@@ -298,9 +292,7 @@
           "operation": "and"
         },
         "groupById": "azzbawji5bksj69sekcs4srm1ky",
-        "hiddenOptionIds": [
-          ""
-        ],
+        "hiddenOptionIds": [""],
         "kanbanCalculations": {},
         "sortOptions": [],
         "viewType": "board",

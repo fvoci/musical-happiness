@@ -8,7 +8,7 @@ export interface WaitingAccount {
 
 /** Where a confirmed registration's account was let in. */
 export interface Confirmed extends AcceptedInvitation {
-  /** Whether it started its organization (its tour starts), or joined one by a link. */
+  /** Whether it started its organization (it gets a welcome board), or joined one by a link. */
   organizationStarted: boolean;
 }
 
@@ -33,8 +33,8 @@ export interface EmailVerification {
    */
   complete(token: string, password?: string): Promise<Confirmed>;
   /**
-   * Starts the tour of the first workspace of an organization the confirmation
-   * started, as a new account's first sign-in does: its welcome board.
+   * Makes the welcome board of the first workspace of an organization the
+   * confirmation started, as a new account's first sign-in does.
    */
   welcome(workspaceId: string): Promise<string>;
 }

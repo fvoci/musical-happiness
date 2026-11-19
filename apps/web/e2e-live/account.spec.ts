@@ -4,6 +4,8 @@
  */
 import { expect, test } from '@playwright/test';
 
+import { boardLink } from '../e2e/shell.support.ts';
+
 import {
   ADMIN,
   ORG_NAME,
@@ -15,6 +17,7 @@ import {
   signedIn,
   signInOnPage,
   watchErrors,
+  WELCOME_TITLE,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -40,7 +43,8 @@ test('somebody invited makes an account on the page of the invitation, and signs
   // Signed in at once, in the organization of the invitation; the address is the organization's.
   await expect(page.getByTestId('app-shell')).toBeVisible();
   await expect(page).toHaveURL(/\/w\/[^/]+/);
-  await expect(page.getByText('You have no boards yet.')).toBeVisible();
+  // A member starts with a board of their own: the welcome board, which the app opens.
+  await expect(boardLink(page, WELCOME_TITLE)).toBeVisible();
 
   // The session outlives a reload: it is the server's cookie.
   await page.reload();
@@ -160,7 +164,7 @@ test('the email address signs in as well as the name, and a name may have an @ i
   await register(baseURL ?? '', byEmail);
   await page.goto('/');
   await signInOnPage(page, { ...byEmail, username: byEmail.email });
-  await expect(page.getByText('You have no boards yet.')).toBeVisible();
+  await expect(boardLink(page, WELCOME_TITLE)).toBeVisible();
 
   // A second person, on a page of their own, whose name looks like an address.
   const context = await page.context().browser()?.newContext({ locale: 'en-US' });
@@ -170,7 +174,7 @@ test('the email address signs in as well as the name, and a name may have an @ i
   await register(baseURL ?? '', { ...odd, username: `${odd.username}@home` });
   await other.goto(page.url());
   await signInOnPage(other, { ...odd, username: `${odd.username}@home` });
-  await expect(other.getByText('You have no boards yet.')).toBeVisible();
+  await expect(boardLink(other, WELCOME_TITLE)).toBeVisible();
   await context.close();
 });
 

@@ -377,14 +377,15 @@ async fn every_table_is_no_organizations_or_behind_the_wall() {
         assert_behind_the_wall(&mut conn, table, &wall, &policies).await;
     }
 
-    // Besides the wall, only the reading of the system organization's templates.
+    // Besides the wall, only the reading of the system organization's templates: their
+    // boards, their blocks and the records of the files they show.
     for ((table, policy), (command, permissive, using, _)) in &policies {
         if policy == "org_wall" {
             continue;
         }
         assert_eq!(policy, "org_templates", "{table} has the policy {policy}");
         assert!(
-            ["containers", "blocks"].contains(&table.as_str()),
+            ["containers", "blocks", "file_info"].contains(&table.as_str()),
             "{table} lets the templates be read"
         );
         assert_eq!(
@@ -1300,7 +1301,7 @@ async fn assert_every_row_is_behind_the_wall(unset: &Store, ours: &Store) {
     ];
     for (table, of_ours, of_the_system) in expected {
         let count = async |store: &Store| store.count_rows(table).await.expect("counted");
-        let read_besides = if ["containers", "blocks"].contains(&table) {
+        let read_besides = if ["containers", "blocks", "file_info"].contains(&table) {
             of_the_system
         } else {
             0

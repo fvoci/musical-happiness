@@ -147,9 +147,7 @@
         "sortOptions": [],
         "viewType": "calendar",
         "visibleOptionIds": [],
-        "visiblePropertyIds": [
-          "__title"
-        ]
+        "visiblePropertyIds": ["__title"]
       }
     },
     {
@@ -171,9 +169,7 @@
         "sortOptions": [],
         "viewType": "gallery",
         "visibleOptionIds": [],
-        "visiblePropertyIds": [
-          "__title"
-        ]
+        "visiblePropertyIds": ["__title"]
       }
     },
     {
@@ -202,9 +198,7 @@
           "operation": "and"
         },
         "groupById": "a972dc7a-5f4c-45d2-8044-8c28c69717f1",
-        "hiddenOptionIds": [
-          ""
-        ],
+        "hiddenOptionIds": [""],
         "kanbanCalculations": {},
         "sortOptions": [],
         "viewType": "board",

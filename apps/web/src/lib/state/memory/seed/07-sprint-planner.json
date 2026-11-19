@@ -190,9 +190,7 @@
           "operation": "and"
         },
         "groupById": "60985f46-3e41-486e-8213-2b987440ea1c",
-        "hiddenOptionIds": [
-          ""
-        ],
+        "hiddenOptionIds": [""],
         "kanbanCalculations": {},
         "sortOptions": [],
         "viewType": "table",
@@ -233,9 +231,7 @@
           "operation": "and"
         },
         "groupById": "50117d52-bcc7-4750-82aa-831a351c44a0",
-        "hiddenOptionIds": [
-          ""
-        ],
+        "hiddenOptionIds": [""],
         "kanbanCalculations": {},
         "sortOptions": [
           {
@@ -282,9 +278,7 @@
           "operation": "and"
         },
         "groupById": "20717ad3-5741-4416-83f1-6f133fff3d11",
-        "hiddenOptionIds": [
-          ""
-        ],
+        "hiddenOptionIds": [""],
         "kanbanCalculations": {},
         "sortOptions": [
           {

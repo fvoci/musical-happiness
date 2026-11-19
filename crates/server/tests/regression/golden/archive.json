@@ -312,7 +312,7 @@
     "name": "workspace export entries",
     "request": "(observation)",
     "status": 0,
-    "body": 3
+    "body": 7
   },
   {
     "name": "import",
@@ -374,6 +374,100 @@
       {
         "cardProperties": [
           {
+            "id": "<id:8>",
+            "name": "Progress",
+            "options": [
+              {
+                "color": "propColorGray",
+                "id": "<id:9>",
+                "value": "To read"
+              },
+              {
+                "color": "propColorBlue",
+                "id": "<id:10>",
+                "value": "Trying it"
+              },
+              {
+                "color": "propColorGreen",
+                "id": "<id:11>",
+                "value": "Done it"
+              }
+            ],
+            "type": "select"
+          },
+          {
+            "id": "<id:12>",
+            "name": "Topic",
+            "options": [
+              {
+                "color": "propColorBlue",
+                "id": "<id:13>",
+                "value": "Boards"
+              },
+              {
+                "color": "propColorPurple",
+                "id": "<id:14>",
+                "value": "Writing"
+              },
+              {
+                "color": "propColorOrange",
+                "id": "<id:15>",
+                "value": "Files"
+              },
+              {
+                "color": "propColorGreen",
+                "id": "<id:16>",
+                "value": "Wiki"
+              },
+              {
+                "color": "propColorPink",
+                "id": "<id:17>",
+                "value": "Together"
+              }
+            ],
+            "type": "select"
+          },
+          {
+            "id": "<id:18>",
+            "name": "Day",
+            "options": [],
+            "type": "date"
+          },
+          {
+            "id": "<id:19>",
+            "name": "Minutes",
+            "options": [],
+            "type": "number"
+          },
+          {
+            "id": "<id:20>",
+            "name": "Read first",
+            "options": [],
+            "type": "relation"
+          }
+        ],
+        "createAt": "<ts>",
+        "createdBy": "<id:21>",
+        "deleteAt": 0,
+        "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
+        "icon": "👋",
+        "id": "<id:22>",
+        "isBuiltin": false,
+        "isTemplate": false,
+        "kind": "board",
+        "minimumRole": "editor",
+        "modifiedBy": "<id:21>",
+        "properties": {},
+        "showDescription": true,
+        "templateVersion": 9,
+        "title": "Getting started with fvoci",
+        "type": "P",
+        "updateAt": "<ts>",
+        "workspaceId": "<id:1>"
+      },
+      {
+        "cardProperties": [
+          {
             "id": "p1",
             "name": "Status",
             "options": [],
@@ -381,16 +475,16 @@
           }
         ],
         "createAt": "<ts>",
-        "createdBy": "<id:8>",
+        "createdBy": "<id:21>",
         "deleteAt": 0,
         "description": "to export",
         "icon": "",
-        "id": "<id:9>",
+        "id": "<id:23>",
         "isBuiltin": false,
         "isTemplate": false,
         "kind": "board",
         "minimumRole": "editor",
-        "modifiedBy": "<id:8>",
+        "modifiedBy": "<id:21>",
         "properties": {},
         "showDescription": false,
         "templateVersion": 0,
@@ -403,21 +497,21 @@
   },
   {
     "name": "imported blocks",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:9>/blocks as arch-bob",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:23>/blocks as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "body": null,
-        "containerId": "<id:9>",
+        "containerId": "<id:23>",
         "createAt": "<ts>",
-        "createdBy": "<id:8>",
+        "createdBy": "<id:21>",
         "deleteAt": 0,
         "fields": {
           "icon": "x"
         },
-        "id": "<id:10>",
-        "modifiedBy": "<id:8>",
+        "id": "<id:24>",
+        "modifiedBy": "<id:21>",
         "parentId": "",
         "schema": 1,
         "title": "Exported card",
@@ -426,14 +520,14 @@
       },
       {
         "body": null,
-        "containerId": "<id:9>",
+        "containerId": "<id:23>",
         "createAt": "<ts>",
-        "createdBy": "<id:8>",
+        "createdBy": "<id:21>",
         "deleteAt": 0,
         "fields": {},
-        "id": "<id:11>",
-        "modifiedBy": "<id:8>",
-        "parentId": "<id:10>",
+        "id": "<id:25>",
+        "modifiedBy": "<id:21>",
+        "parentId": "<id:24>",
         "schema": 1,
         "title": "Exported text",
         "type": "comment",
@@ -441,16 +535,16 @@
       },
       {
         "body": null,
-        "containerId": "<id:9>",
+        "containerId": "<id:23>",
         "createAt": "<ts>",
-        "createdBy": "<id:8>",
+        "createdBy": "<id:21>",
         "deleteAt": 0,
         "fields": {
           "fileId": "<secret:2>.png"
         },
-        "id": "<id:12>",
-        "modifiedBy": "<id:8>",
-        "parentId": "<id:10>",
+        "id": "<id:26>",
+        "modifiedBy": "<id:21>",
+        "parentId": "<id:24>",
         "schema": 1,
         "title": "",
         "type": "attachment",
@@ -458,15 +552,15 @@
       },
       {
         "body": null,
-        "containerId": "<id:9>",
+        "containerId": "<id:23>",
         "createAt": "<ts>",
-        "createdBy": "<id:8>",
+        "createdBy": "<id:21>",
         "deleteAt": 0,
         "fields": {
           "viewType": "table"
         },
-        "id": "<id:13>",
-        "modifiedBy": "<id:8>",
+        "id": "<id:27>",
+        "modifiedBy": "<id:21>",
         "parentId": "",
         "schema": 1,
         "title": "Exported view",
@@ -477,12 +571,12 @@
   },
   {
     "name": "imported members",
-    "request": "GET /api/v1/w/<id:1>/containers/<id:9>/members as arch-bob",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:23>/members as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
-        "containerId": "<id:9>",
+        "containerId": "<id:23>",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
@@ -490,18 +584,18 @@
         "userId": "<id:2>"
       },
       {
-        "containerId": "<id:9>",
+        "containerId": "<id:23>",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": false,
         "schemeViewer": false,
-        "userId": "<id:8>"
+        "userId": "<id:21>"
       }
     ]
   },
   {
     "name": "imported file",
-    "request": "GET /api/v1/w/<id:1>/containers/<id:9>/files/<secret:2>.png as arch-bob",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:23>/files/<secret:2>.png as arch-bob",
     "status": 200,
     "content_type": "application/octet-stream",
     "body": "<67 bytes>"
@@ -525,6 +619,7 @@
     "request": "(observation)",
     "status": 0,
     "body": [
+      "Getting started with fvoci",
       "Exported board"
     ]
   }

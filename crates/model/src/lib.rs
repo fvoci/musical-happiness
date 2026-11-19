@@ -53,6 +53,7 @@ pub use account_deletion::{
     ACCOUNT_DELETION_GRACE_DAYS, AccountDeletion, AccountDeletionAsked, DeleteAccountRequest,
     DeletionProof, Leaving, LeavingOrganization, OrganizationName,
 };
+pub use allowlist::body_node_types;
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
     AuthParamError, ChangePasswordRequest, DISPLAY_NAME_MAX_LENGTH, LoginRequest,
@@ -95,7 +96,8 @@ pub use containers_and_blocks::{
     renew_containers_and_blocks_ids, renew_containers_and_blocks_ids_told,
 };
 pub use date_value::{
-    DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
+    DateValueError, check_date_value, date_property_ids, day_at, days_between, move_dates,
+    rewrite_previous_date_values,
 };
 pub use deleted_item::DeletedItem;
 pub use file_info::{FileInfo, FileKey, is_storage_path};

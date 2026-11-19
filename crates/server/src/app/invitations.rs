@@ -24,6 +24,7 @@ use fvoci_store::{
 };
 
 use super::auth::account_error;
+use super::language::Language;
 use super::signups::SignupMarker;
 use super::{App, Asker, ContainerAccess};
 use crate::auth::now_millis;
@@ -429,6 +430,12 @@ impl App {
     /// `address` is where the request comes from: acceptances are counted against it
     /// as registrations are, and one of an address is under way at a time.
     ///
+    /// An account that comes into the workspace as a member by it is given its welcome
+    /// board there, if it was given none before (`App::welcome_member`): in the
+    /// language of the account's settings; where they name none, in the language of
+    /// the screen a new account was made on, if the server writes in it, or else the
+    /// one `accept_language`, the request's `Accept-Language`, prefers.
+    ///
     /// # Errors
     ///
     /// Returns one and the same 404 (reason `invitation_unavailable`) for a token that
@@ -440,8 +447,9 @@ impl App {
         token: &str,
         accepting: Accepting<'_>,
         address: Option<IpAddr>,
+        accept_language: Option<&str>,
     ) -> Result<Admission, AppError> {
-        let _attempt = self.admit_registration(address)?;
+        let attempt = self.admit_registration(address)?;
         let mut new_user = None;
         let mut settled = None;
         for _ in 0..ATTEMPTS {
@@ -477,6 +485,22 @@ impl App {
             self.metrics().registered();
         }
         app.announce_admission(&accepted).await;
+        // A guest's link names a board; a link for members names none.
+        if accepted.used && accepted.container_id.is_none() {
+            // The acceptance is done with: another from the address waits no longer.
+            drop(attempt);
+            // An account made here is written to in the language of the screen it was
+            // made on, as one whose address is confirmed first is, if the server
+            // writes in it: or else as the header has it.
+            let language = match accepting {
+                Accepting::NewAccount { language, .. } => Language::written_in(language)
+                    .map(Language::tag)
+                    .or(accept_language),
+                Accepting::SignedIn(_) => accept_language,
+            };
+            app.welcome_member(&accepted.user_id, &accepted.workspace_id, language)
+                .await;
+        }
         tracing::info!(
             user_id = %accepted.user_id,
             workspace_id = %accepted.workspace_id,

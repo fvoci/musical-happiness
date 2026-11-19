@@ -427,7 +427,7 @@ export class MemoryBackend implements Backend {
     return searchBoardsOf(this.world, this.userId, workspaceId, query);
   }
 
-  /** As the server: the workspace's templates, then the built-in ones, each the oldest first. */
+  /** The workspace's templates, then the built-in ones, each the oldest first: of one language, as the world holds them. */
   async templates(workspaceId: string): Promise<Container[]> {
     await this.#enterWorkspace('templates', workspaceId);
     const all = [...this.world.containers.values()]
@@ -447,7 +447,7 @@ export class MemoryBackend implements Backend {
     return this.#copyContainer(source, asTemplate);
   }
 
-  /** As the server: a copy of the built-in welcome template, without its mark. */
+  /** A copy of the marked built-in template, without its mark, where the world holds one. */
   async onboard(workspaceId: string): Promise<string> {
     await this.#enterWorkspace('onboard', workspaceId);
     const welcome =

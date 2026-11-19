@@ -14,10 +14,13 @@
 # The names and keywords of the emoji, as CLDR gives them: steam.
 src/lib/editor/emoji/en.json
 
-# The built-in template "Team Retrospective", by its title and its key.
+# The boards the in-memory backend starts with, which the tests are written against.
+# Their texts are rewritten together with those tests.
+src/lib/state/memory/seed/*.json
+
+# One of those boards is "Team Retrospective", by its title and its key.
 ** | Team Retrospective
 src/lib/state/memory/seed.ts | team-retrospective
-tests/tools/builtin-templates.test.ts | team-retrospective
 
 # The demonstration's boards are those of a small team of people, filed in a category
 # called "Team"; the tests find them there.

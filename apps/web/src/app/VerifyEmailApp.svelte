@@ -11,8 +11,8 @@
 
   /**
    * Confirms, and goes to where the account was let in: the welcome board of an
-   * organization it started (its tour), the board or the wiki of a guest's link, or
-   * the workspace. The token leaves the address and the history.
+   * organization it started, the board or the wiki of a guest's link, or the
+   * workspace. The token leaves the address and the history.
    */
   async function complete(token: string, password?: string): Promise<Confirmed> {
     const client = await verification;

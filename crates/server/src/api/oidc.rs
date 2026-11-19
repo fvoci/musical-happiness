@@ -22,10 +22,10 @@ use fvoci_model::{
 
 use super::auth::{address_of, user_agent};
 use super::contract::params::{
-    CallbackOrg, LoginOrg, OidcCode, OidcError, OidcIssuer, OidcState, StartOrg,
+    AcceptLanguage, CallbackOrg, LoginOrg, OidcCode, OidcError, OidcIssuer, OidcState, StartOrg,
 };
 use super::contract::tag;
-use super::{ApiResult, decode_json, json_object, json_response, query_param};
+use super::{ApiResult, accept_language, decode_json, json_object, json_response, query_param};
 use crate::app::{
     App, BackTo, Callback, FinishedLogin, HELD_SIGN_IN_LIFETIME_MILLIS, LOGIN_FLOW_LIFETIME_MILLIS,
     LoginFailure, StartedLogin,
@@ -242,13 +242,15 @@ pub(super) fn started_response(app: &App, started: StartedLogin) -> Response {
 /// Where nothing is carried over it goes to the login page with
 /// `oidc_carry_over_refused`, and where the sign-in itself failed (refused by the
 /// former provider, its token not taken, not this browser's) with that reason, as
-/// any sign-in does.
+/// any sign-in does. An account that comes into the organization by the sign-in, as a
+/// member, is given its welcome board unless it has one (`onboard` says more): in the
+/// language of its settings, or else in the one `Accept-Language` prefers.
 #[utoipa::path(
     get,
     path = "/auth/oidc/callback/{orgId}",
     operation_id = "finishOidcLogin",
     tag = tag::AUTH,
-    params(CallbackOrg, OidcState, OidcCode, OidcError, OidcIssuer),
+    params(CallbackOrg, OidcState, OidcCode, OidcError, OidcIssuer, AcceptLanguage),
     security(()),
     responses((
         status = 303,
@@ -279,6 +281,7 @@ async fn handle_callback(
             Some(Credential::Bearer(_)) | None => None,
         },
         held_secret: cookie_value(&headers, held_cookie_name(&app)),
+        accept_language: accept_language(&headers).map(str::to_owned),
     };
     let came_with_held = callback.held_secret.is_some();
     let returned = app

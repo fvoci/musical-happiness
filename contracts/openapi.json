@@ -16,7 +16,7 @@
             ]
           },
           "language": {
-            "description": "The language tag of the screen the request comes from (`ko`, `en-GB`): the\nlanguage of the mail that confirms a new account's address, where the server asks\nfor that (English, Korean); English for any other.",
+            "description": "The language tag of the screen the request comes from (`ko`, `en-GB`): the\nlanguage of the mail that confirms a new account's address, where the server asks\nfor that (English, Korean); English for any other. A new account's welcome\nboard is written in it too, if it is English or Korean.",
             "type": "string"
           },
           "token": {
@@ -2824,24 +2824,6 @@
         },
         "type": "object"
       },
-      "OnboardingStart": {
-        "description": "What starting the tour answers: where the tour's board is.",
-        "properties": {
-          "boardId": {
-            "description": "The identifier of the board the tour goes through.",
-            "type": "string"
-          },
-          "workspaceId": {
-            "description": "The identifier of the workspace.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "boardId",
-          "workspaceId"
-        ],
-        "type": "object"
-      },
       "OrgMember": {
         "allOf": [
           {
@@ -4684,6 +4666,19 @@
         ],
         "type": "string"
       },
+      "WelcomeBoard": {
+        "description": "What asking for a first board answers: where it is.",
+        "properties": {
+          "boardId": {
+            "description": "The identifier of the new board.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId"
+        ],
+        "type": "object"
+      },
       "Workspace": {
         "description": "A workspace of an organization.",
         "properties": {
@@ -4835,7 +4830,7 @@
   "paths": {
     "/api/v1/auth/oidc/callback/{orgId}": {
       "get": {
-        "description": "Where a provider sends the browser back to: each organization has an address of its\nown, its provider's `redirectUri`, and a sign-in started for one organization does\nnot finish at another's address, nor with an `iss` (RFC 9207) other than the\nprovider's, before any code is exchanged. The sign-in is taken by its `state`, once, and only from the\nbrowser that started it; another browser takes nothing. The code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. A registration that waits for that address\nto be confirmed (`register`, `acceptInvitation`) stands in nobody's way. Where the\nprovider vouches for the address, one made by a link of this organization is\nremoved with the sign-in, new account or known: the use it took of the link is\ngiven back, and the link mailed for it confirms nothing any more. A registration\nof its own, or by a link of another organization, stays, and so does any at a\ntrial of pending settings and at a sign-in that carries over. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303). A sign-in that was started to\nlink sets no session: the browser goes to the web app with `oidc_linked=1` in the\nquery. A trial of the provider's pending settings (`startOidcTrial`) that ends well\nmakes them the provider's and sets the session, made through them, and the browser\ngoes to the organization's page (`/org/{orgId}`) with `oidc_pending=applied`; one\nthat fails changes nothing, and goes there with `oidc_pending_error` naming the\nreason as `oidc_error` does (among them `oidc_trial_account` and\n`oidc_trial_stale`).\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,\n`oidc_identity_taken`, `oidc_email_mismatch`, `oidc_carry_over_refused` or\n`oidc_unavailable`.\n\nWhile the organization keeps the provider it moved away from (`former` of its\nprovider), a sign-in that vouches for somebody who has no account makes none: what\nthe provider said is held for this browser for ten minutes, under a cookie of its\nown, and the browser goes to the login page with `oidc_held=1`, which asks whether\nthe person had an account: `startOidcCarryOver` if they had, `finishHeldOidcLogin`\nif not. A sign-in through the former provider, which `startOidcCarryOver` starts,\ncomes back here too: it sets a session only by carrying the held sign-in over.\nWhere nothing is carried over it goes to the login page with\n`oidc_carry_over_refused`, and where the sign-in itself failed (refused by the\nformer provider, its token not taken, not this browser's) with that reason, as\nany sign-in does.",
+        "description": "Where a provider sends the browser back to: each organization has an address of its\nown, its provider's `redirectUri`, and a sign-in started for one organization does\nnot finish at another's address, nor with an `iss` (RFC 9207) other than the\nprovider's, before any code is exchanged. The sign-in is taken by its `state`, once, and only from the\nbrowser that started it; another browser takes nothing. The code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. A registration that waits for that address\nto be confirmed (`register`, `acceptInvitation`) stands in nobody's way. Where the\nprovider vouches for the address, one made by a link of this organization is\nremoved with the sign-in, new account or known: the use it took of the link is\ngiven back, and the link mailed for it confirms nothing any more. A registration\nof its own, or by a link of another organization, stays, and so does any at a\ntrial of pending settings and at a sign-in that carries over. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303). A sign-in that was started to\nlink sets no session: the browser goes to the web app with `oidc_linked=1` in the\nquery. A trial of the provider's pending settings (`startOidcTrial`) that ends well\nmakes them the provider's and sets the session, made through them, and the browser\ngoes to the organization's page (`/org/{orgId}`) with `oidc_pending=applied`; one\nthat fails changes nothing, and goes there with `oidc_pending_error` naming the\nreason as `oidc_error` does (among them `oidc_trial_account` and\n`oidc_trial_stale`).\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,\n`oidc_identity_taken`, `oidc_email_mismatch`, `oidc_carry_over_refused` or\n`oidc_unavailable`.\n\nWhile the organization keeps the provider it moved away from (`former` of its\nprovider), a sign-in that vouches for somebody who has no account makes none: what\nthe provider said is held for this browser for ten minutes, under a cookie of its\nown, and the browser goes to the login page with `oidc_held=1`, which asks whether\nthe person had an account: `startOidcCarryOver` if they had, `finishHeldOidcLogin`\nif not. A sign-in through the former provider, which `startOidcCarryOver` starts,\ncomes back here too: it sets a session only by carrying the held sign-in over.\nWhere nothing is carried over it goes to the login page with\n`oidc_carry_over_refused`, and where the sign-in itself failed (refused by the\nformer provider, its token not taken, not this browser's) with that reason, as\nany sign-in does. An account that comes into the organization by the sign-in, as a\nmember, is given its welcome board unless it has one (`onboard` says more): in the\nlanguage of its settings, or else in the one `Accept-Language` prefers.",
         "operationId": "finishOidcLogin",
         "parameters": [
           {
@@ -4878,6 +4873,15 @@
             "description": "The issuer that answered (RFC 9207), if the provider says: it must be the provider's.",
             "in": "query",
             "name": "iss",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.",
+            "in": "header",
+            "name": "Accept-Language",
             "required": false,
             "schema": {
               "type": "string"
@@ -5018,7 +5022,7 @@
     },
     "/api/v1/auth/oidc/held/sign-in": {
       "post": {
-        "description": "For the login page, after a sign-in through the provider of the organization `org`\nwas held for this browser: for somebody who had no account. The held sign-in ends\nas a first sign-in through the provider does: an account is made for who the\nprovider vouched for, a member of the organization, if the organization lets\nnewcomers in and no account has their email address; the session comes in the\n`Set-Cookie` header. An identity that was tied to an account meanwhile (carried\nover from another browser) signs in to that account, as any sign-in would. The\nheld sign-in is taken by this, whatever comes of it, and its cookie cleared.\n\n409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is\nheld for this browser, or the provider changed since; 409 with the reason a first\nsign-in is refused with otherwise (`oidc_join_closed`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_unavailable`); 429 when this\naddress made too many sign-ins of late.",
+        "description": "For the login page, after a sign-in through the provider of the organization `org`\nwas held for this browser: for somebody who had no account. The held sign-in ends\nas a first sign-in through the provider does: an account is made for who the\nprovider vouched for, a member of the organization, if the organization lets\nnewcomers in and no account has their email address; the session comes in the\n`Set-Cookie` header. An identity that was tied to an account meanwhile (carried\nover from another browser) signs in to that account, as any sign-in would. The\nheld sign-in is taken by this, whatever comes of it, and its cookie cleared.\n\n409 with the reason `oidc_carry_over_refused` if no sign-in of the organization is\nheld for this browser, or the provider changed since; 409 with the reason a first\nsign-in is refused with otherwise (`oidc_join_closed`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_unavailable`); 429 when this\naddress made too many sign-ins of late.\n\nAn account that comes into the organization by this, as a member, is given its\nwelcome board unless it has one (`onboard` says more): in the language of its\nsettings, or else in the one `Accept-Language` prefers.",
         "operationId": "finishHeldOidcLogin",
         "parameters": [
           {
@@ -5026,6 +5030,15 @@
             "in": "query",
             "name": "org",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.",
+            "in": "header",
+            "name": "Accept-Language",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -5259,7 +5272,7 @@
     },
     "/api/v1/email-verification/complete": {
       "post": {
-        "description": "Consumes the token of the link mailed to a registration's address, within a day of\nthe mail and seven days of the registration: makes the account, and the\norganization and first workspace it registered with, and signs it in. The session\ncomes in the `Set-Cookie` header, as from `login`, and the answer says where the\naccount was let in. A link is used once, and a newer mail of the same registration\nends the links before it. A missing, ended, used or replaced token answers 400,\nnaming `token` in `errors`.\n\nOnly who registered finishes a registration, so that nobody is signed in to an\naccount whose password somebody else chose. In the browser the registration was\nmade from, which the cookie of `register` or `acceptInvitation` shows, the token is\nenough. Anywhere else a token that would confirm is answered 403 with the reason\n`password_required`, and the request is sent again with `password`, the password the\nregistration was made with: a wrong one is the 401 of `login` (`invalid_credentials`),\ncounted with the failed logins to the registration's user name, and too many are\n429. A request that is refused so leaves the link as it was. Nothing is asked of a\ntoken that confirms nothing, so the answers tell no more of whether a registration\nwaits than the token does.\n\nOn a server that takes one organization and has its first user by now,\nthe registration is removed and the answer is 403 with the reason\n`invitation_required`. A registration made by the link of an invitation\n(`acceptInvitation`) is let in as the acceptance would have let it in, and the answer\nnames the board of a guest's link (`containerId`); if the link lets nobody in any more\n(revoked, or who made it may no longer invite), the registration is removed and the\nanswer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as\nregistrations are, and too many are 429.",
+        "description": "Consumes the token of the link mailed to a registration's address, within a day of\nthe mail and seven days of the registration: makes the account, and the\norganization and first workspace it registered with, and signs it in. The session\ncomes in the `Set-Cookie` header, as from `login`, and the answer says where the\naccount was let in. A link is used once, and a newer mail of the same registration\nends the links before it. A missing, ended, used or replaced token answers 400,\nnaming `token` in `errors`.\n\nOnly who registered finishes a registration, so that nobody is signed in to an\naccount whose password somebody else chose. In the browser the registration was\nmade from, which the cookie of `register` or `acceptInvitation` shows, the token is\nenough. Anywhere else a token that would confirm is answered 403 with the reason\n`password_required`, and the request is sent again with `password`, the password the\nregistration was made with: a wrong one is the 401 of `login` (`invalid_credentials`),\ncounted with the failed logins to the registration's user name, and too many are\n429. A request that is refused so leaves the link as it was. Nothing is asked of a\ntoken that confirms nothing, so the answers tell no more of whether a registration\nwaits than the token does.\n\nOn a server that takes one organization and has its first user by now,\nthe registration is removed and the answer is 403 with the reason\n`invitation_required`. A registration made by the link of an invitation\n(`acceptInvitation`) is let in as the acceptance would have let it in, and the answer\nnames the board of a guest's link (`containerId`); if the link lets nobody in any more\n(revoked, or who made it may no longer invite), the registration is removed and the\nanswer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as\nregistrations are, and too many are 429.\n\nAn account that a link for members lets in so is given its welcome board in the\nworkspace, unless it has one (`onboard` says more): written in the `language` of\nthe acceptance if that was English or Korean, or else in English.",
         "operationId": "completeEmailVerification",
         "requestBody": {
           "content": {
@@ -5405,8 +5418,19 @@
     },
     "/api/v1/invitations/accept": {
       "post": {
-        "description": "Lets somebody into the workspace the link of `token` leads into, and answers where\nthat is. A request with a session lets in the user of the session, and names no\n`account` (400 if it does). A request without one makes the `account` it names and\nlets that in: the account's members are checked as `register` checks them (400,\nwith `errors`, which name them under `/account`), and a name or an email address\nthat is taken is 409 with the reason `username_taken` or `email_taken`. Accepting\ndoes not sign in.\n\nA member's link makes the account a member of the workspace and of its\norganization; who is a guest of the workspace becomes a member, and who works there\nalready stays what they are. A guest's link puts the account on its board, in the\nlink's role or the higher one the account has there: who is no member of the\nworkspace becomes a guest of it (and no member of its organization), and who is one\nstays what they are in it. The answer names the board then (`containerId`). The account\nis made, the membership stored and the use of the link counted together or not at\nall, and an acceptance that changes nothing uses nothing of the link.\n\nOn a server that asks for the email address of a registration to be confirmed\n(`emailVerification` of `getLoginOptions`), a new `account` waits for its address,\nunless the link was made for one recipient of a mailed guest link at that address,\nwhich the mail proves: the answer is 202 with no body, nobody is let in, and the\nlink mailed to the address (`completeEmailVerification`) makes the account and lets\nit in, as this acceptance would have, and signs it in. The 202 sets the cookie of\nthe browser the registration was made from, as `register` does. The registration counts as a\nuse of the link from the start, so a link for one guest lets nobody else in\nmeanwhile, and it holds its name and address as an account would. Not confirmed in\nseven days, it is removed and gives the use back. A new `account` from the browser\nof a registration that waits still (by this link, another, or `register`) replaces\nthat registration: its name and address are free for the account, and the use it\ntook of a link is given back, so that a link for one guest takes the same person\nagain with the address put right. `language` is the language of the\nmail (English or Korean).\n\nA session that the link's organization does not take (it takes no password,\n`ssoRequired`, and the session was not made through its provider) is 401 with the\nreason `sso_required` and its `orgId`, and lets nobody in.\n\nA token that lets nobody in is 404 with the reason `invitation_unavailable`,\nwhatever is wrong with it: there is no such link, it ended, it was used as often as\nit may be, it was revoked, or who made it may no longer invite. Requests are counted\nby where they come from, and too many are 429.",
+        "description": "Lets somebody into the workspace the link of `token` leads into, and answers where\nthat is. A request with a session lets in the user of the session, and names no\n`account` (400 if it does). A request without one makes the `account` it names and\nlets that in: the account's members are checked as `register` checks them (400,\nwith `errors`, which name them under `/account`), and a name or an email address\nthat is taken is 409 with the reason `username_taken` or `email_taken`. Accepting\ndoes not sign in.\n\nA member's link makes the account a member of the workspace and of its\norganization; who is a guest of the workspace becomes a member, and who works there\nalready stays what they are. A guest's link puts the account on its board, in the\nlink's role or the higher one the account has there: who is no member of the\nworkspace becomes a guest of it (and no member of its organization), and who is one\nstays what they are in it. The answer names the board then (`containerId`). The account\nis made, the membership stored and the use of the link counted together or not at\nall, and an acceptance that changes nothing uses nothing of the link.\n\nOn a server that asks for the email address of a registration to be confirmed\n(`emailVerification` of `getLoginOptions`), a new `account` waits for its address,\nunless the link was made for one recipient of a mailed guest link at that address,\nwhich the mail proves: the answer is 202 with no body, nobody is let in, and the\nlink mailed to the address (`completeEmailVerification`) makes the account and lets\nit in, as this acceptance would have, and signs it in. The 202 sets the cookie of\nthe browser the registration was made from, as `register` does. The registration counts as a\nuse of the link from the start, so a link for one guest lets nobody else in\nmeanwhile, and it holds its name and address as an account would. Not confirmed in\nseven days, it is removed and gives the use back. A new `account` from the browser\nof a registration that waits still (by this link, another, or `register`) replaces\nthat registration: its name and address are free for the account, and the use it\ntook of a link is given back, so that a link for one guest takes the same person\nagain with the address put right. `language` is the language of the\nmail (English or Korean).\n\nA session that the link's organization does not take (it takes no password,\n`ssoRequired`, and the session was not made through its provider) is 401 with the\nreason `sso_required` and its `orgId`, and lets nobody in.\n\nA token that lets nobody in is 404 with the reason `invitation_unavailable`,\nwhatever is wrong with it: there is no such link, it ended, it was used as often as\nit may be, it was revoked, or who made it may no longer invite. Requests are counted\nby where they come from, and too many are 429.\n\nAn account that a link for members lets in is given its welcome board in the\nworkspace, a private board of its own, unless it has one (`onboard` says more):\nwritten in the language of the account's settings, or else in `language` for an\naccount made here, if that is English or Korean, or else in the one\n`Accept-Language` prefers. An account whose address is confirmed first is given\nit then (`completeEmailVerification`).",
         "operationId": "acceptInvitation",
+        "parameters": [
+          {
+            "description": "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.",
+            "in": "header",
+            "name": "Accept-Language",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -11901,7 +11925,7 @@
     },
     "/api/v1/w/{workspaceId}/onboard": {
       "post": {
-        "description": "Copies the built-in welcome board for the user, as a private board of their own,\nand notes in the client's state (`getClientState`) that the tour has begun:\n`onboardingTourStarted` is `1`, `onboardingTourStep` is `0` and `tourCategory` is\n`onboarding`. Every request makes another copy.",
+        "description": "Copies the built-in welcome board for the user, as a private board of their own in\nthe workspace: what a new account starts on. It is written in the language of the\nuser's settings; where that is left to the device, or is one the board is not\nwritten in, in the one `Accept-Language` prefers; failing both, in English. Every\nrequest makes another copy.\n\nWhoever starts an organization asks for it. An account that comes into an\norganization as a member (by a link, by a registration made by a link, or by\nsigning in through the organization's provider) is given one without asking, in\nthe workspace it comes into, unless it has one: an account is given one once,\nwhatever it comes into after, and a guest none.",
         "operationId": "onboard",
         "parameters": [
           {
@@ -11912,6 +11936,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.",
+            "in": "header",
+            "name": "Accept-Language",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -11919,11 +11952,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OnboardingStart"
+                  "$ref": "#/components/schemas/WelcomeBoard"
                 }
               }
             },
-            "description": "Where the tour's board is."
+            "description": "Where the new board is."
           },
           "default": {
             "content": {
@@ -11936,7 +11969,7 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
           }
         },
-        "summary": "Start the tour",
+        "summary": "Make the welcome board",
         "tags": [
           "workspaces"
         ]
@@ -12727,7 +12760,7 @@
     },
     "/api/v1/w/{workspaceId}/templates": {
       "get": {
-        "description": "The workspace's template boards the user may see, then the built-in templates, which\nevery workspace is offered. Each of the two oldest first.",
+        "description": "The workspace's template boards the user may see, then the built-in templates, which\nevery workspace is offered. Each of the two oldest first.\n\nThe built-in templates are written in several languages (`templateLanguage` among a\nboard's `properties`), and those of one are listed: the language of the user's\nsettings; where that is left to the device, or is one the templates are not written\nin, the one `Accept-Language` prefers; failing both, English.",
         "operationId": "getTemplates",
         "parameters": [
           {
@@ -12735,6 +12768,15 @@
             "in": "path",
             "name": "workspaceId",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.",
+            "in": "header",
+            "name": "Accept-Language",
+            "required": false,
             "schema": {
               "type": "string"
             }

@@ -138,6 +138,10 @@ async fn request(
 /// (revoked, or who made it may no longer invite), the registration is removed and the
 /// answer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as
 /// registrations are, and too many are 429.
+///
+/// An account that a link for members lets in so is given its welcome board in the
+/// workspace, unless it has one (`onboard` says more): written in the `language` of
+/// the acceptance if that was English or Korean, or else in English.
 #[utoipa::path(
     post, path = "/email-verification/complete", operation_id = "completeEmailVerification",
     tag = tag::AUTH, security(()), request_body = CompleteEmailVerification,

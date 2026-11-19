@@ -100,9 +100,7 @@
       "type": "view",
       "title": "All Users",
       "fields": {
-        "cardOrder": [
-          "ccsa77z7ubbbhbd3jq8xyx4hq8r"
-        ],
+        "cardOrder": ["ccsa77z7ubbbhbd3jq8xyx4hq8r"],
         "collapsedOptionIds": [],
         "columnCalculations": {},
         "columnWidths": {
@@ -158,9 +156,7 @@
         "sortOptions": [],
         "viewType": "calendar",
         "visibleOptionIds": [],
-        "visiblePropertyIds": [
-          "__title"
-        ]
+        "visiblePropertyIds": ["__title"]
       }
     },
     {
@@ -177,9 +173,7 @@
           "filters": [],
           "operation": "and"
         },
-        "hiddenOptionIds": [
-          ""
-        ],
+        "hiddenOptionIds": [""],
         "kanbanCalculations": {},
         "sortOptions": [],
         "viewType": "board",

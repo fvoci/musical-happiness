@@ -3,7 +3,6 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use axum::http::HeaderMap;
-use axum::http::header::ACCEPT_LANGUAGE;
 use fvoci_model::{
     Container, ContainerKind, ContainerPatch, ContainerType, ContainersAndBlocks, JsonMap,
     MinimumRole,
@@ -20,7 +19,9 @@ use super::contract::params::{
 use super::contract::tag;
 use super::workspace::{InContainer, InWorkspace};
 
-use super::{ApiResult, created, decode_json, json_response, no_content, query_param};
+use super::{
+    ApiResult, accept_language, created, decode_json, json_response, no_content, query_param,
+};
 use super::{
     duplicate_as, json_object, require_container_permission, require_granted,
     require_workspace_access,
@@ -370,9 +371,7 @@ async fn handle_duplicate_container(
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
     let duplicate_as = duplicate_as(query.as_deref());
-    let accept_language = headers
-        .get(ACCEPT_LANGUAGE)
-        .and_then(|value| value.to_str().ok());
+    let accept_language = accept_language(&headers);
     let mut to_workspace = query_param(query.as_deref(), "toWorkspace");
 
     // Whether the board is there for the user comes first: a board that cannot be seen

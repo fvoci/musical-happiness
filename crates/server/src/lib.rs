@@ -148,7 +148,7 @@ impl Server {
             Err(error) => tracing::error!(%error, "unable to sweep the temporary files"),
         }
         if !skip_template_init {
-            app.init_templates()
+            app.stock_templates_at_start()
                 .await
                 .context("unable to initialize templates")?;
         }
@@ -322,6 +322,7 @@ impl Server {
         let clean_up = start_session_clean_up(&self.app);
         let purge = start_trash_purge(&self.app);
         let uploads = start_upload_clean_up(&self.app);
+        let restock = app::start_template_restock(&self.app);
         let search = search::start_upkeep(&self.app);
 
         let service = self
@@ -391,6 +392,7 @@ impl Server {
         clean_up.cancel().await;
         purge.cancel().await;
         uploads.cancel().await;
+        restock.cancel().await;
         search::stop_upkeep(search).await;
         served.context("serving HTTP")
     }

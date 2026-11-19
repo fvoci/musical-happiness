@@ -152,6 +152,18 @@ pub struct CopyTitles {
     pub new_template: &'static str,
 }
 
+/// What a copy of a board does not take from the original as it stands. The store
+/// knows neither what a caller keeps among a board's properties nor what day it is: the
+/// caller brings both. The default changes nothing.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CopyChanges<'c> {
+    /// The names of the board's own properties that the copy is made without.
+    pub without_properties: &'c [&'c str],
+    /// How many days later than the original's the copy's days are: the date values of
+    /// its cards and the days its views filter dates by. Earlier for a negative number.
+    pub days_later: i64,
+}
+
 /// A block as a list gives it: without its body, with what the list says about it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListedBlock {

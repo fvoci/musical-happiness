@@ -288,7 +288,6 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("OidcFormerProvider", Members::All),
     ("OidcFormerProviderEnd", Members::All),
     ("OidcPendingProvider", Members::All),
-    ("OnboardingStart", Members::AsWritten),
     (
         "Problem",
         Members::Only(&["type", "title", "status", "detail"]),
@@ -301,6 +300,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
     ("SnippetPart", Members::All),
     ("Subscription", Members::All),
+    ("WelcomeBoard", Members::All),
     ("Workspace", Members::All),
     ("Team", Members::All),
     ("TeamMember", Members::All),

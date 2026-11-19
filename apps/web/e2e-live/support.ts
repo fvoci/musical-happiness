@@ -122,6 +122,32 @@ export async function register(baseURL: string, who: Person): Promise<void> {
   await api.dispose();
 }
 
+/** The title of the welcome board a member is given as a link lets them in: English, as these requests name no language. */
+export const WELCOME_TITLE = 'Getting started with fvoci';
+
+/**
+ * Deletes the welcome board whoever `api` is signed in as was given as a link
+ * let them in, as the board itself invites: for a test of what somebody sees
+ * who has no board, or only the boards the test makes.
+ */
+export async function putAwayWelcomeBoard(api: APIRequestContext): Promise<void> {
+  const [workspace] = await json<Schemas['UserWorkspace'][]>(
+    await api.get('/api/v1/users/me/workspaces'),
+    'workspaces',
+  );
+  if (!workspace) throw new Error('whoever is signed in has no workspace');
+  const boards = await json<Schemas['Container'][]>(
+    await api.get(`/api/v1/w/${workspace.id}/boards`),
+    'boards',
+  );
+  const given = boards.filter((board) => board.title === WELCOME_TITLE && board.type === 'P');
+  if (given.length !== 1) throw new Error(`one welcome board, not ${given.length}`);
+  await ok(
+    await api.delete(`/api/v1/w/${workspace.id}/containers/${given[0]?.id ?? ''}`),
+    'delete the welcome board',
+  );
+}
+
 /** A client of the API signed in as `who`. */
 export async function signedIn(baseURL: string, who: Person): Promise<APIRequestContext> {
   const api = await apiClient(baseURL);

@@ -136,7 +136,8 @@ pub struct AcceptInvitation {
     pub account: Option<NewAccount>,
     /// The language tag of the screen the request comes from (`ko`, `en-GB`): the
     /// language of the mail that confirms a new account's address, where the server asks
-    /// for that (English, Korean); English for any other.
+    /// for that (English, Korean); English for any other. A new account's welcome
+    /// board is written in it too, if it is English or Korean.
     pub language: String,
 }
 

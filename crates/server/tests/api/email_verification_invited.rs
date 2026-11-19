@@ -29,8 +29,13 @@ struct Scene {
 
 impl Scene {
     async fn start(socket: Option<&Path>) -> Self {
+        Self::start_from(Setup::native(), socket).await
+    }
+
+    /// As [`Self::start`], on a server set up as `setup` says besides.
+    async fn start_from(setup: Setup, socket: Option<&Path>) -> Self {
         let smtp = FakeSmtp::start_on(0).await;
-        let mut setup = Setup::native()
+        let mut setup = setup
             .smtp(smtp.settings())
             .configure(|config| config.mail.email_verification = true);
         if let Some(socket) = socket {
@@ -282,6 +287,54 @@ async fn a_one_use_link_reserved_by_a_registration_lets_nobody_else_in_until_it_
         .accept(token, "tam", "tam@example.test")
         .await
         .check_status(StatusCode::ACCEPTED);
+    scene.stop().await;
+}
+
+/// Whoever a link for members lets in once their address is confirmed has a welcome
+/// board of their own, written in the language of the screen they registered on,
+/// whether the mailed link confirms or the server's operator; a guest has none.
+#[tokio::test]
+async fn a_confirmed_registration_by_a_link_for_members_has_a_welcome_board() {
+    let socket = socket_path();
+    let scene = Scene::start_from(Setup::native().with_templates(), Some(&socket)).await;
+    let members = scene.link(Role::Member).await;
+    let members = members.token.as_deref().expect("its token");
+    let guests = scene.link(Role::Guest).await;
+    for (token, username) in [
+        (members, "pat"),
+        (guests.token.as_deref().expect("its token"), "gil"),
+        (members, "uma"),
+    ] {
+        scene
+            .accept(token, username, &format!("{username}@example.test"))
+            .await
+            .check_status(StatusCode::ACCEPTED);
+    }
+    let messages = scene.smtp.received(4).await;
+    for mail in &messages[1..3] {
+        confirm(&scene.th, mail).await.check_status(StatusCode::OK);
+    }
+    let target = "/api/v1/admin/users/uma/email-verification";
+    socket_request(&socket, "POST", target, "")
+        .await
+        .check_no_content();
+
+    let store = scene.th.app.store();
+    let mut titles = Vec::new();
+    for username in ["pat", "gil", "uma"] {
+        let user = store.get_user_by_username(username).await.expect("in");
+        let boards = store
+            .texts_unchecked(&format!(
+                "SELECT title FROM containers WHERE CAST(created_by AS TEXT) = '{}' \
+                 AND is_template = false",
+                user.id
+            ))
+            .await
+            .expect("the boards are read");
+        titles.push(boards);
+    }
+    let welcome = vec!["fvoci 시작하기".to_owned()];
+    assert_eq!(titles, [welcome.clone(), Vec::new(), welcome]);
     scene.stop().await;
 }
 

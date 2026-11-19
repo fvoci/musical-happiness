@@ -65,6 +65,7 @@ mod trash;
 mod trash_file_race;
 mod users;
 mod users_at_once;
+mod welcome;
 mod workspace_membership;
 mod workspace_names;
 mod workspace_rename;

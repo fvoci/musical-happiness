@@ -1,0 +1,219 @@
+//! The record that an account was given its welcome board: made once, with the board,
+//! by one of the calls that would make it at once, not where no board came of it, and
+//! taken back with a board that is.
+
+use std::sync::Arc;
+
+use fvoci_model::{DeleteContainersAndBlocks, new_id};
+use fvoci_store::{CopyChanges, CopyTitles, Store};
+use tokio::sync::Barrier;
+use tokio::task::JoinSet;
+
+use crate::common;
+
+/// The titles of copies, in English, as a caller of the store brings them.
+const TITLES: CopyTitles = CopyTitles {
+    copy_of: |title| format!("{title} copy"),
+    new_template: "New board template",
+};
+
+/// When the account is recorded as given its welcome board, as text: none if it is not.
+async fn recorded(store: &Store, user_id: &str) -> Vec<String> {
+    store
+        .texts_unchecked(&format!(
+            "SELECT CAST(welcomed_at AS TEXT) FROM users \
+             WHERE CAST(id AS TEXT) = '{user_id}' AND welcomed_at IS NOT NULL"
+        ))
+        .await
+        .expect("the record is read")
+}
+
+/// Of the welcome boards asked for an account at once, one is made, and none after;
+/// one that cannot be copied records nothing, and the account is given it the next time.
+#[tokio::test]
+async fn one_welcome_board_is_made_of_those_asked_for_at_once() {
+    let test = common::setup().await;
+    let workspace_id = common::workspace(&test).await;
+    let owner = common::user(&test, "owner").await;
+    let alice = common::user(&test, "alice").await;
+    let bob = common::user(&test, "bob").await;
+    for user_id in [&alice, &bob] {
+        common::works_in(&test, &workspace_id, user_id).await;
+    }
+    let board = common::create_test_boards(&test, &workspace_id, &owner, 1)
+        .await
+        .remove(0);
+    let boards_of = async |user_id: &str| {
+        test.texts_unchecked(&format!(
+            "SELECT CAST(id AS TEXT) FROM containers WHERE CAST(created_by AS TEXT) = '{user_id}'"
+        ))
+        .await
+        .expect("the boards are read")
+    };
+
+    // No such board to copy: nothing is made, and nothing recorded.
+    let missing = test
+        .duplicate_welcome_board(&new_id(), &alice, &workspace_id, &TITLES, <_>::default(), 6)
+        .await;
+    assert!(missing.is_err_and(|error| error.is_not_found()));
+
+    let barrier = Arc::new(Barrier::new(8));
+    let mut asked = JoinSet::new();
+    for _ in 0..8 {
+        let (store, barrier) = (test.store.clone(), Arc::clone(&barrier));
+        let (board_id, alice, workspace_id) =
+            (board.id.clone(), alice.clone(), workspace_id.clone());
+        asked.spawn(async move {
+            barrier.wait().await;
+            store
+                .duplicate_welcome_board(
+                    &board_id,
+                    &alice,
+                    &workspace_id,
+                    &TITLES,
+                    CopyChanges::default(),
+                    7,
+                )
+                .await
+                .expect("answered")
+                .is_some()
+        });
+    }
+    let made = asked.join_all().await;
+    assert_eq!(made.iter().filter(|made| **made).count(), 1, "{made:?}");
+    assert_eq!(boards_of(&alice).await.len(), 1, "one board");
+    assert_eq!(recorded(&test, &alice).await, ["7"], "with the board");
+
+    // Each account its own; a record made for a board that was asked for counts,
+    // and is of the last one asked for.
+    assert_eq!(recorded(&test, &bob).await, Vec::<String>::new());
+    test.record_welcome(&bob, 8).await.unwrap();
+    test.record_welcome(&bob, 9).await.unwrap();
+    assert_eq!(recorded(&test, &bob).await, ["9"]);
+    let again = test
+        .duplicate_welcome_board(&board.id, &bob, &workspace_id, &TITLES, <_>::default(), 10)
+        .await
+        .expect("answered");
+    assert_eq!(again, None);
+    assert_eq!(boards_of(&bob).await, Vec::<String>::new());
+    let nobody = test
+        .duplicate_welcome_board(
+            &board.id,
+            &new_id(),
+            &workspace_id,
+            &TITLES,
+            <_>::default(),
+            10,
+        )
+        .await
+        .expect("answered");
+    assert_eq!(nobody, None, "nobody's account");
+    test.teardown().await;
+}
+
+/// A welcome board that is taken back takes the record made with it along, and the
+/// account is given its board the next time; a record made since, for another board,
+/// stays, and so do the board and the record where the board cannot be deleted.
+#[tokio::test]
+async fn a_welcome_board_taken_back_takes_its_record_along() {
+    let test = common::setup().await;
+    let workspace_id = common::workspace(&test).await;
+    let owner = common::user(&test, "owner").await;
+    let carol = common::user(&test, "carol").await;
+    let dave = common::user(&test, "dave").await;
+    for user_id in [&carol, &dave] {
+        common::works_in(&test, &workspace_id, user_id).await;
+    }
+    let template = common::create_test_boards(&test, &workspace_id, &owner, 1)
+        .await
+        .remove(0);
+    let given = async |user_id: &str, now: i64| {
+        let (copies, _members) = test
+            .duplicate_welcome_board(
+                &template.id,
+                user_id,
+                &workspace_id,
+                &TITLES,
+                <_>::default(),
+                now,
+            )
+            .await
+            .expect("answered")
+            .expect("given");
+        DeleteContainersAndBlocks::from(&copies)
+    };
+    let is_there = async |copies: &DeleteContainersAndBlocks| match test
+        .get_container(&copies.containers[0])
+        .await
+    {
+        Ok(_) => true,
+        Err(error) if error.is_not_found() => false,
+        Err(error) => panic!("the board is read: {error}"),
+    };
+
+    // Not deleted: a block that is none of the board's. Board and record stay.
+    let carols = given(&carol, 7).await;
+    let mut with_a_stranger = carols.clone();
+    with_a_stranger.blocks.push(new_id());
+    let refused = test
+        .take_back_welcome_board(&with_a_stranger, &carol, 7)
+        .await;
+    assert!(refused.is_err_and(|error| error.is_not_found()));
+    assert!(is_there(&carols).await);
+    assert_eq!(recorded(&test, &carol).await, ["7"]);
+
+    // Taken back with its record: the account is given its board the next time.
+    test.take_back_welcome_board(&carols, &carol, 7)
+        .await
+        .expect("taken back");
+    assert!(!is_there(&carols).await);
+    assert_eq!(recorded(&test, &carol).await, Vec::<String>::new());
+    let next = given(&carol, 8).await;
+    assert!(is_there(&next).await);
+    assert_eq!(recorded(&test, &carol).await, ["8"]);
+
+    // A record made since is another board's: the board goes, and the record stays.
+    let daves = given(&dave, 7).await;
+    test.record_welcome(&dave, 9).await.unwrap();
+    test.take_back_welcome_board(&daves, &dave, 7)
+        .await
+        .expect("taken back");
+    assert!(!is_there(&daves).await);
+    assert_eq!(recorded(&test, &dave).await, ["9"]);
+    test.teardown().await;
+}
+
+/// Migration 0048: the accounts that were there are past their welcome, and one made
+/// after is not.
+#[tokio::test]
+async fn the_migration_records_the_accounts_that_were_there_as_welcomed() {
+    let database = common::empty_database().await;
+    let connection = common::raw_connection(&database);
+    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 47)
+        .await;
+    let before = new_id();
+    common::execute_raw(
+        &connection,
+        &format!(
+            "INSERT INTO users (id, username, email, password_hash, create_at, update_at) \
+             VALUES ('{before}', 'before', 'before@example.com', '', 1, 1);"
+        ),
+    )
+    .await;
+    let store = Store::connect(database.db_type(), database.database_connection())
+        .await
+        .expect("migrated");
+    let after = common::user(&store, "after").await;
+    let welcomed = (
+        recorded(&store, &before).await,
+        recorded(&store, &after).await,
+    );
+    store.close().await;
+    database.remove().await;
+
+    assert_eq!(
+        welcomed,
+        (vec!["1".to_owned()], Vec::new()),
+        "as of when it was made"
+    );
+}

@@ -272,7 +272,11 @@ impl App {
         // Nothing of the registration is touched before its registrant is known: what
         // confirming finds (a link that lets nobody in, a server that has its first
         // user) removes it.
-        if !made_here {
+        if made_here {
+            // Nothing is tried at a password: another from the address waits no
+            // longer, and not for the welcome board of this one.
+            drop(turn);
+        } else {
             if registrant.password.is_empty() {
                 return Err(password_required());
             }
@@ -379,6 +383,18 @@ impl App {
                 first = confirmed.user.is_admin,
                 "a registration was confirmed"
             );
+            // Whoever starts an organization asks for their welcome board (`onboard`);
+            // whoever comes into one as a member is given it here, in the language of
+            // the screen the registration was made from. A guest's link names a board.
+            if !confirmed.started_organization && confirmed.container_id.is_none() {
+                self.welcome_member_in(
+                    &confirmed.org_id,
+                    &confirmed.user.id,
+                    &confirmed.workspace_id,
+                    Some(&signup.language),
+                )
+                .await;
+            }
         }
         Ok(confirmed)
     }
