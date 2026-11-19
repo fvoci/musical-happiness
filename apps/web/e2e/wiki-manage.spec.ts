@@ -121,6 +121,28 @@ test.describe('a wiki looked after', () => {
     await expect(page.getByTestId('wiki-notice')).toHaveCount(0);
   });
 
+  test('a press on the question a menu’s line asked takes while the menu is still going away', async ({
+    page,
+  }) => {
+    await openApp(page);
+    await wikiWithPages(page);
+    // Where the question's "Delete" is once the question has come to rest.
+    await pageAction(page, 'Policies', 'delete');
+    const asked = page.getByTestId('confirm-dialog');
+    const goAhead = asked.getByRole('button', { name: 'Delete' });
+    await goAhead.click({ trial: true });
+    const box = await goAhead.boundingBox();
+    if (!box) throw new Error('no button');
+    await asked.getByRole('button', { name: 'Cancel' }).click();
+    await expect(asked).toBeHidden();
+    // Asked again and pressed there at once: nothing waits for the menu to be gone. At a
+    // phone's width it is a sheet, which lies over that place while it goes (elsewhere a
+    // dropdown beside the tree, which does not).
+    await pageAction(page, 'Policies', 'delete');
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(page.getByTestId('page-title')).toHaveValue('Welcome');
+  });
+
   test('the wiki’s name, description and icon are changed, undone, and the wiki deleted and restored', async ({
     page,
   }) => {

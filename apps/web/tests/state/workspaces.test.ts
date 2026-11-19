@@ -99,6 +99,28 @@ describe('the workspace entered', () => {
   });
 });
 
+describe('a load the page leaves for', () => {
+  it('reads nothing more once the settings say so, and stays loading', async () => {
+    const made = twoWorkspaces();
+    const watch = vi.spyOn(made.backend, 'watchSelf');
+    const asked: string[] = [];
+    await made.workspace.load(undefined, (settings) => {
+      asked.push(settings.language);
+      return true;
+    });
+    expect(asked).toEqual(['auto']);
+    expect(made.workspace.status).toBe('loading');
+    expect(made.workspace.entered).toBe('none');
+    expect(made.readBoards).not.toHaveBeenCalled();
+    expect(watch).not.toHaveBeenCalled();
+    // Where it does not leave, it goes on as a load does.
+    await made.workspace.load(undefined, () => false);
+    expect(made.workspace.status).toBe('ready');
+    expect(made.workspace.info?.id).toBe(made.first.id);
+    expect(watch).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('entering another workspace', () => {
   it('reads it anew, and lets go of the open board, the sidebar and undo of the one left', async () => {
     const { workspace, backend, first } = twoWorkspaces();

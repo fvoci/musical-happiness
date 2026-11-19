@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/svelte';
-import { expect, waitFor } from 'storybook/test';
+import { expect } from 'storybook/test';
 import EmbedSample from './EmbedSample.svelte';
-import { storyElement } from './interactions.ts';
+import { embedsSettled, storyElement } from './interactions.ts';
 
 const meta = {
   title: 'Editor/Blocks/Formula',
@@ -13,11 +13,9 @@ const meta = {
         typeof args.source === 'string' ? args.source : '',
       );
     } else {
-      await waitFor(() =>
-        expect(canvasElement.querySelectorAll('[data-state="drawn"]')).toHaveLength(
-          typeof args.count === 'number' ? args.count : 1,
-        ),
-      );
+      const count = typeof args.count === 'number' ? args.count : 1;
+      await embedsSettled(canvasElement, count);
+      await expect(canvasElement.querySelectorAll('[data-state="drawn"]')).toHaveLength(count);
     }
   },
 } satisfies Meta<typeof EmbedSample>;
