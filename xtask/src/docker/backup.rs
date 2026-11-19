@@ -89,6 +89,7 @@ pub(super) fn round_trip(trial: &Trial, directory: &Path) -> Result<()> {
     ));
 
     refuses_a_lacking_env(trial, directory)?;
+    refuses_a_profile_off(trial, directory)?;
     updates(trial, &backups)
 }
 
@@ -197,42 +198,61 @@ fn refuses_a_volume_with_files(trial: &Trial, backup: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `backup.sh` and `update.sh` with an `.env` holding a key's line pasted as a line of
-/// its own (which compose refuses, quoting it) fail without showing it.
+/// `backup.sh`, `update.sh` and `restore.sh` with an `.env` holding a line pasted wrong,
+/// which compose refuses quoting it: a key's line as a line of its own, a quote never
+/// closed (with an escaped quote inside), a single quote never closed. Each fails
+/// without showing what was pasted or a secret of the trial.
 fn hides_a_key_pasted_wrong(trial: &Trial, directory: &Path) -> Result<()> {
-    let env = directory.join("pasted-wrong.env");
-    let pasted = format!("MIIEvQ+{}", super::hex(&super::random::<16>()?));
+    let secret = || -> Result<String> { Ok(super::hex(&super::random::<16>()?)) };
+    let (key, before, after, single) = (secret()?, secret()?, secret()?, secret()?);
+    let pasted = [
+        ("a key's line", format!("MIIEvQ+{key}="), vec![key]),
+        (
+            "a quote never closed",
+            format!("FVOCI_PASTED=\"{before}\\\"{after}"),
+            vec![before, after],
+        ),
+        (
+            "a single quote never closed",
+            format!("FVOCI_PASTED='{single}"),
+            vec![single],
+        ),
+    ];
     let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
-    super::write_private(&env, &format!("{text}\n{pasted}=\n"))?;
+    let env = directory.join("pasted-wrong.env");
     let env_text = env.to_string_lossy();
     let backups = folder(directory).join("pasted-wrong");
     let backups_text = backups.to_string_lossy();
-    let mut outcome = Ok(());
-    let common = [
-        "--env-file",
-        env_text.as_ref(),
-        "--dir",
-        backups_text.as_ref(),
+    // restore.sh reads compose's files once it sees a dump in the folder.
+    let fake_backup = folder(directory).join("pasted-wrong-backup");
+    std::fs::create_dir_all(&fake_backup).context("making a folder with a dump")?;
+    std::fs::write(fake_backup.join("db.dump"), "").context("writing an empty dump")?;
+    let fake_backup_text = fake_backup.to_string_lossy();
+    let runs: [(&str, &[&str]); 3] = [
+        ("backup.sh", &["--dir", &backups_text]),
+        ("update.sh", &["--no-pull", "--dir", &backups_text]),
+        ("restore.sh", &[&fake_backup_text]),
     ];
-    let runs: [(&str, &[&str]); 2] = [("backup.sh", &[]), ("update.sh", &["--no-pull"])];
-    for (name, own) in runs {
-        let arguments = [&common[..], own].concat();
-        let run = script_output(trial.script(name, &arguments), name);
-        outcome = run.and_then(|(succeeded, said)| {
+    let outcome = pasted.iter().try_for_each(|(what, line, secrets)| {
+        super::write_private(&env, &format!("{text}\n{line}\n"))?;
+        runs.iter().try_for_each(|(name, own)| {
+            let arguments = [&["--env-file", env_text.as_ref()][..], own].concat();
+            let (succeeded, said) = script_output(trial.script(name, &arguments), name)?;
+            no_secret_in(trial, name, &said)?;
+            let shown = secrets.iter().any(|secret| said.contains(secret.as_str()));
             ensure!(
-                !succeeded && said.contains("its quoted words hidden") && !said.contains(&pasted),
-                "{name} with a key's line pasted wrong did not fail hiding it: {}",
-                said.replace(&pasted, "<the pasted line>")
+                !succeeded && said.contains("its quoted words hidden") && !shown,
+                "{name} with {what} in the .env did not fail hiding it: {}",
+                secrets.iter().fold(said, |said, secret| said
+                    .replace(secret.as_str(), "<pasted>"))
             );
             Ok(())
-        });
-        if outcome.is_err() {
-            break;
-        }
-    }
+        })
+    });
     let _ = std::fs::remove_file(&env);
+    let _ = std::fs::remove_dir_all(&fake_backup);
     outcome?;
-    say("    a key's line pasted wrong in the .env: backup.sh and update.sh refuse, hiding it");
+    say("    lines pasted wrong in the .env (a key's, quotes never closed): refused, hidden");
     Ok(())
 }
 
@@ -524,6 +544,57 @@ fn refuses_a_lacking_env(trial: &Trial, directory: &Path) -> Result<()> {
     say(&format!(
         "    update.sh names the lacking {LACKING} and leaves fvoci running"
     ));
+    Ok(())
+}
+
+/// `update.sh` while a service of a profile runs (mailpit, of `mail`) and the profile is
+/// not given: it refuses, naming the service, before anything changes.
+fn refuses_a_profile_off(trial: &Trial, directory: &Path) -> Result<()> {
+    let profiled = ["--profile", "mail"];
+    let started = trial.compose(
+        &[
+            &profiled[..],
+            &["up", "--detach", "--no-deps", "--wait", "mailpit"],
+        ]
+        .concat(),
+    )?;
+    ensure!(
+        started.succeeded,
+        "mailpit did not start: {}",
+        started.error
+    );
+    let before = fvoci_started(trial)?;
+    let refused = script_output(
+        trial.script(
+            "update.sh",
+            &[
+                "--no-pull",
+                "--dir",
+                &folder(directory).join("main").to_string_lossy(),
+            ],
+        ),
+        "update.sh",
+    );
+    let removed = trial.compose(&[&profiled[..], &["rm", "--stop", "--force", "mailpit"]].concat());
+    let (succeeded, said) = refused?;
+    no_secret_in(trial, "update.sh", &said)?;
+    ensure!(
+        !succeeded
+            && said.contains("mailpit runs, but compose does not see it")
+            && said.contains("Nothing was changed"),
+        "update.sh with mailpit running and its profile off did not refuse, naming it: {said}"
+    );
+    ensure!(
+        fvoci_started(trial)? == before,
+        "update.sh refused but fvoci was made or started anew"
+    );
+    let removed = removed?;
+    ensure!(
+        removed.succeeded,
+        "mailpit was not removed: {}",
+        removed.error
+    );
+    say("    update.sh refuses while mailpit runs with its profile off, and leaves fvoci running");
     Ok(())
 }
 

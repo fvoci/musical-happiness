@@ -85,16 +85,22 @@ running() {
     [ -n "$containers" ]
 }
 
-# Prints `compose config "$@"`, or fails showing compose's complaint with its quoted
-# words hidden: what it quotes of a value pasted wrong (a key's lines) may be secret.
+# Prints `compose config "$@"`. What compose says besides (a warning, or why it refuses
+# its files or .env) is shown with what it quotes hidden: a pair of quotes with what is
+# between them (Go's escapes too), and from a quote never closed to the end of its line.
+# What it quotes of a value pasted wrong (a key's lines) may be secret.
 checked_config() {
     complaint=$(mktemp)
-    if ! compose config "$@" 2>"$complaint"; then
-        sed 's/"[^"]*"/"..."/g' "$complaint" >&2
-        rm -f -- "$complaint"
-        fail "compose refuses its files or .env (above, its quoted words hidden). Nothing was changed"
-    fi
+    refused=no
+    compose config "$@" 2>"$complaint" || refused=yes
+    quotes_hidden <"$complaint" >&2
     rm -f -- "$complaint"
+    [ "$refused" = no ] ||
+        fail "compose refuses its files or .env (above, its quoted words hidden). Nothing was changed"
+}
+
+quotes_hidden() {
+    sed -E -e 's/"([^"\\]|\\.)*"/<hidden>/g' -e "s/'[^']*'/<hidden>/g" -e "s/[\"'].*/<hidden>/"
 }
 
 # A setting of the service fvoci as compose reads its files and .env: "image", or a
@@ -111,11 +117,13 @@ fvoci_setting() {
     unset config
 }
 
-# The value the .env file "$1" gives the variable "$2" (the last line of it; `export`,
-# spaces and quotes taken off). Empty when it has none.
+# The value the .env file "$1" gives the variable "$2", as compose reads a line of one
+# (the last line of it; `export`, the spaces around, the quotes, and a comment after
+# them or after a space taken off). Empty when it has none.
 env_value() {
     sed -n "s/^[[:space:]]*\(export[[:space:]][[:space:]]*\)\{0,1\}$2[[:space:]]*=[[:space:]]*//p" "$1" |
-        tail -n 1 | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+        tail -n 1 | sed -e 's/^"\([^"]*\)".*/\1/;t' -e "s/^'\([^']*\)'.*/\1/;t" \
+        -e 's/[[:space:]]#.*//' -e 's/[[:space:]]*$//'
 }
 
 # Warns when the project runs cloudflared and the range of its network edge is not

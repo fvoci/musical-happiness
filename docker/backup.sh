@@ -53,7 +53,9 @@ if [ "$storage" = local ]; then
     # GNU tar ends with 1 when a file changed or went while it was read (an upload, a
     # purge): what it wrote is whole, and the database tells what the files must be.
     # shellcheck disable=SC2016 # the container's shell expands it.
-    set -- -c 'tar "$@"; status=$?; [ "$status" -le 1 ]' tar --create --file=- --directory=/data \
+    set -- -c 'tar "$@"; status=$?
+        [ "$status" -ne 1 ] || echo "backup: a file changed or went while it was read; the archive is whole" >&2
+        [ "$status" -le 1 ]' tar --create --file=- --directory=/data \
         --warning=no-file-changed --warning=no-file-removed \
         --exclude=files/.tmp --exclude=files/.fvoci-ready files
     if running fvoci; then

@@ -71,7 +71,7 @@ runs=$(docker ps --filter "label=com.docker.compose.project=$project" \
     --format '{{.Label "com.docker.compose.service"}}')
 for service in $runs; do
     printf '%s\n' "$seen" | grep -qx -- "$service" ||
-        fail "$service runs, but its profile is off here: give --profile (or COMPOSE_PROFILES in the .env). Nothing was changed"
+        fail "$service runs, but compose does not see it here: its profile is off (give --profile, or COMPOSE_PROFILES in the .env), or the new files no longer have it (docker compose rm --stop it first). Nothing was changed"
 done
 image=$(fvoci_setting image)
 old_container=$(compose ps --quiet fvoci)
@@ -94,11 +94,12 @@ done
 kept_tag="fvoci-server:before-update-$project"
 docker tag "$old_image" "$kept_tag"
 
+# The dump holds what was written before it began.
+backed_up=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 backup_said=$("$here/backup.sh" --env-file "$env_file" --dir "$backup_dir" --keep-days "$keep_days") ||
     fail "the backup failed: fvoci still runs, nothing was changed"
 printf '%s\n' "$backup_said"
 backup=$(printf '%s\n' "$backup_said" | sed -n 's/^backup: made \(.*\) ([0-9]* KiB: .*/\1/p')
-backed_up=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 if [ -z "$expected" ]; then
     expected=$(docker image inspect --format \
