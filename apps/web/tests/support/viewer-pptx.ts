@@ -40,6 +40,8 @@ export interface SlideSpec {
 
 export interface DeckSpec {
   slides: SlideSpec[];
+  /** Its parts kept as they are rather than deflated: a deck of many parts is unpacked one part at a time. */
+  stored?: boolean;
   /** Shapes the layout and the master draw on every slide. */
   layoutShapes?: string;
   masterShapes?: string;
@@ -268,7 +270,7 @@ export function deck(spec: DeckSpec): Buffer {
       data: typeof part.data === 'string' ? Buffer.from(part.data, 'utf8') : part.data,
     });
   }
-  return zip(members);
+  return zip(spec.stored ? members.map((member) => ({ ...member, stored: true })) : members);
 }
 
 /** The text the Korean deck carries, for the tests to look for. */

@@ -39,7 +39,7 @@
       return m.app_problem_upload_too_large({ limit: humanFileSize(error.limit) });
     }
     if (problem.action === 'import' && error?.status === 413) {
-      return error.reason === 'over_import_limit' && error.limit
+      return error.reason === 'archive_too_large' && error.limit
         ? m.app_problem_import_too_large({ limit: humanFileSize(error.limit) })
         : m.app_problem_import_too_big();
     }

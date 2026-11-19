@@ -41,11 +41,12 @@ const CONTENT_DIGEST: &str = "content-digest";
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct NewUpload {
-    /// The name of the file, 1 to 255 characters. The stored file keeps its extension,
-    /// as `uploadFile` keeps it.
+    /// The name of the file, 1 to 255 characters, of which what follows its last `/` is
+    /// kept: a name with nothing there (`dir/`) is refused. The stored file keeps its
+    /// extension, as `uploadFile` keeps it.
     name: String,
     /// The size of the file in bytes. More than `maxFileBytes` of `getClientConfig` is
-    /// 413.
+    /// 413 (`file_too_large`).
     size: i64,
     /// The content type of the file, at most 255 characters. The server does not go by
     /// it: what a file is served as follows from its name.
@@ -172,7 +173,7 @@ pub(super) fn part_routes() -> OpenApiRouter<App> {
 /// Opens an upload of a file to the board in parts. The answer says how large the
 /// parts are and how many; send each with `putUploadPart`, in any order and again
 /// after a failure, then `completeUpload`. A file larger than `maxFileBytes` of
-/// `getClientConfig` is 413. A user has at most 8
+/// `getClientConfig` is 413 with the reason `file_too_large`. A user has at most 8
 /// uploads open, holding back at most twice `maxFileBytes` together, and the server's
 /// open uploads hold back at most what it is configured for: an upload over one of
 /// these is 429, with the reason `too_many_uploads`, `uploads_pending` or
@@ -226,7 +227,8 @@ async fn handle_create_upload(
 ///
 /// Opens an upload of an archive to import into the workspace, sent in parts as a file is
 /// with `createUpload`, and imported with `importArchive` once every part is received.
-/// An archive larger than `maxImportBytes` of `getClientConfig` is 413. It counts
+/// An archive larger than `maxImportBytes` of `getClientConfig` is 413 with the reason
+/// `archive_too_large`. It counts
 /// toward the same limits as the uploads of files, which hold back at most twice the
 /// larger of `maxFileBytes` and `maxImportBytes` for a user. For users of the workspace who
 /// are not guests, as `importArchive`.

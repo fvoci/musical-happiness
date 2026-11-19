@@ -32,7 +32,7 @@ use super::workspace::InContainer;
 
 use super::{ApiResult, created, json_response, require_container_permission, require_granted};
 use crate::app::App;
-use crate::app::FILE;
+use crate::app::{FILE, MAX_UPLOAD_NAME_CHARS, names_a_file};
 use crate::error::{AppError, Reason};
 use crate::permissions::ContainerPermission;
 
@@ -70,6 +70,9 @@ const UPLOAD_FIELD: &str = "file";
 /// The refusal of an upload that carries no part with the file.
 const NO_FILE_PART: &str = "the request has no part named `file` with a file name";
 
+/// The refusal of a file name that names no file: blank after its last `/`.
+const NO_FILE_NAME: &str = "the file name of the part `file` is blank after its last `/`";
+
 /// What an upload answers: the name the file is asked for by.
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -97,8 +100,10 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
 /// through its own board only: through another board it is not there.
 ///
 /// Every file is sent as `application/octet-stream` and offered as a download
-/// (`Content-Disposition: attachment`) under its `fileId`, not under the name it was
-/// uploaded with, which `getFileInfo` has. The answer honours `Range` with one range,
+/// (`Content-Disposition: attachment`) under the name it was uploaded with, which
+/// `getFileInfo` has: `filename*` carries that name, and `filename` the `fileId` for a
+/// reader that knows no `filename*`. A file whose record has no name, or one of more
+/// than 255 characters, is offered under its `fileId`. The answer honours `Range` with one range,
 /// unless the request has `If-Range`. It may be cached by the browser of who asked but
 /// must be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no
 /// download: the `Last-Modified` of an answer is the time of that answer, so a request
@@ -148,7 +153,48 @@ pub(super) async fn serve_container_file(
         return Err(AppError::not_found(FILE));
     }
     let size = app.files().size(&info.path).await?.unwrap_or(0);
-    serve_content(app, file_id, &info.path, size, "", headers).await
+    let name = DownloadName::of(file_id, &info.name);
+    serve_content(app, name, &info.path, size, "", headers).await
+}
+
+/// What a download is called.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DownloadName<'a> {
+    /// The stored name: plain letters, for a reader that knows only `filename`.
+    stored: &'a str,
+    /// The name the file is saved under by a reader that knows `filename*`.
+    saved_as: &'a str,
+}
+
+impl<'a> DownloadName<'a> {
+    /// The download of the file stored as `stored`, saved under the name it was
+    /// `uploaded` with: its last segment, whichever way its directories are parted. A
+    /// name that is none (blank, `.` or `..`) leaves the stored name, and so does one
+    /// longer than [`MAX_UPLOAD_NAME_CHARS`], which `uploadFile` takes and whose
+    /// encoding would be a header longer than a proxy passes on.
+    fn of(stored: &'a str, uploaded: &'a str) -> Self {
+        let name = uploaded.rsplit(['/', '\\']).next().unwrap_or_default();
+        let is_name = !name.trim().is_empty()
+            && name != "."
+            && name != ".."
+            && name.chars().count() <= MAX_UPLOAD_NAME_CHARS;
+        Self {
+            stored,
+            saved_as: if is_name { name } else { stored },
+        }
+    }
+
+    /// The value of `Content-Disposition`. Both names are percent-encoded, so nothing of
+    /// a name ends the header or begins another parameter of it.
+    fn disposition(self, content_type: &str) -> String {
+        let kind = if is_media(content_type) {
+            "inline"
+        } else {
+            "attachment"
+        };
+        let (stored, saved_as) = (percent_encoded(self.stored), percent_encoded(self.saved_as));
+        format!("{kind};filename=\"{stored}\"; filename*=UTF-8''{saved_as}")
+    }
 }
 
 /// What is known about a file
@@ -188,12 +234,13 @@ pub(super) async fn container_file_info(
 /// Upload a file
 ///
 /// Stores a file with the board. The request is a `multipart/form-data` form whose
-/// part `file` carries the file and a file name. The file is limited to one part of an
+/// part `file` carries the file and a file name, of which what follows its last `/` is
+/// kept; a name with nothing there (`dir/`) is 400. The file is limited to one part of an
 /// upload in parts (8 MiB unless the server is configured otherwise), and to the
 /// `maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where
 /// the limit is the part, the refusal has the reason `upload_in_parts`: a file within
-/// `maxFileBytes` can be sent with `createUpload`. A file that is refused or cut off is
-/// not kept. The `fileId` of the answer ends in the extension of the file name, in lower
+/// `maxFileBytes` can be sent with `createUpload`. Where it is `maxFileBytes`, the
+/// reason is `file_too_large`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower
 /// case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
 /// anything but letters and digits in it, is left off. For editors.
 #[utoipa::path(
@@ -252,6 +299,9 @@ async fn handle_upload_file(
         let Some(filename) = field.file_name().map(str::to_owned) else {
             break Err(AppError::bad_request(NO_FILE_PART).with_parameter(UPLOAD_FIELD));
         };
+        if !names_a_file(&filename) {
+            break Err(AppError::bad_request(NO_FILE_NAME).with_parameter(UPLOAD_FIELD));
+        }
         // The stored name is what a reader asks for the file by; it stays out of the log.
         tracing::debug!(filename, "uploadFile");
         break store_field(&ws.app, &container_id, &filename, field, limit).await;
@@ -337,14 +387,14 @@ impl SingleUploadLimit {
     }
 
     /// The refusal of a larger file: 413, with the reason `upload_in_parts` where the
-    /// file could be sent in parts.
+    /// file could be sent in parts and `file_too_large` where the server stores none
+    /// as large.
     fn refusal(self) -> AppError {
-        let refusal = AppError::payload_too_large(self.bytes);
-        if self.in_parts {
-            refusal.with_reason(Reason::UploadInParts)
+        AppError::payload_too_large(self.bytes).with_reason(if self.in_parts {
+            Reason::UploadInParts
         } else {
-            refusal
-        }
+            Reason::FileTooLarge
+        })
     }
 }
 
@@ -404,7 +454,7 @@ async fn drain_form(multipart: &mut Multipart) {
 /// handling of `http.ServeContent`.
 async fn serve_content(
     app: &App,
-    filename: &str,
+    name: DownloadName<'_>,
     path: &str,
     size: u64,
     mime_type: &str,
@@ -412,7 +462,7 @@ async fn serve_content(
 ) -> ApiResult {
     let modtime = SystemTime::now();
     let content_type = content_type_for(mime_type);
-    let mut headers = base_headers(filename, &content_type, modtime);
+    let mut headers = base_headers(name, &content_type, modtime);
 
     // Preconditions, in the order of Go's checkPreconditions.
     if let Some(since) = http_date(request_headers, &IF_UNMODIFIED_SINCE)
@@ -473,14 +523,8 @@ fn range_error(message: &str) -> AppError {
 }
 
 /// The headers every download carries before range and conditional handling.
-fn base_headers(filename: &str, content_type: &str, modtime: SystemTime) -> HeaderMap {
-    let escaped = path_escape(filename);
-    let disposition = if is_media(content_type) {
-        format!("inline;filename=\"{escaped}\"; filename*=UTF-8''{escaped}")
-    } else {
-        format!("attachment;filename=\"{escaped}\"; filename*=UTF-8''{escaped}")
-    };
-
+fn base_headers(name: DownloadName<'_>, content_type: &str, modtime: SystemTime) -> HeaderMap {
+    let disposition = name.disposition(content_type);
     let mut headers = HeaderMap::new();
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
     headers.insert(
@@ -651,12 +695,13 @@ fn header_value(text: &str) -> HeaderValue {
     HeaderValue::from_str(text).unwrap_or_else(|_| HeaderValue::from_static(""))
 }
 
-/// Percent-escapes a name for a URL path segment, matching Go's `url.PathEscape`, which
-/// the original uses for the `Content-Disposition` file name.
-fn path_escape(name: &str) -> String {
+/// Percent-encodes a name for `Content-Disposition`: every byte of its UTF-8 but letters,
+/// digits and `-`, `_`, `.`, `~`, which is what the `filename*` of RFC 8187 takes as it
+/// is and leaves a quoted `filename` nothing to end it with.
+fn percent_encoded(name: &str) -> String {
     let mut escaped = String::with_capacity(name.len());
     for &byte in name.as_bytes() {
-        if is_unescaped_in_segment(byte) {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
             escaped.push(char::from(byte));
         } else {
             escaped.push('%');
@@ -665,13 +710,6 @@ fn path_escape(name: &str) -> String {
         }
     }
     escaped
-}
-
-/// Whether a byte is left unescaped in a URL path segment by Go's `url.PathEscape`.
-fn is_unescaped_in_segment(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric()
-        || matches!(byte, b'-' | b'_' | b'.' | b'~')
-        || matches!(byte, b'$' | b'&' | b'+' | b':' | b'=' | b'@')
 }
 
 /// The upper-case hexadecimal digit of a nibble.
@@ -739,10 +777,77 @@ mod tests {
     }
 
     #[test]
-    fn path_escape_matches_go() {
-        assert_eq!(path_escape("My Pic.PNG"), "My%20Pic.PNG", "a space");
-        assert_eq!(path_escape("plain.png"), "plain.png", "a plain name");
-        assert_eq!(path_escape(r#"a"b.png"#), "a%22b.png", "a quote");
+    fn a_name_is_percent_encoded_but_for_plain_letters() {
+        assert_eq!(percent_encoded("My Pic.PNG"), "My%20Pic.PNG", "a space");
+        assert_eq!(percent_encoded("plain-1_2~.png"), "plain-1_2~.png", "plain");
+        assert_eq!(percent_encoded(r#"a"b.png"#), "a%22b.png", "a quote");
+        assert_eq!(
+            percent_encoded("보고서.pdf"),
+            "%EB%B3%B4%EA%B3%A0%EC%84%9C.pdf",
+            "the bytes of UTF-8"
+        );
+        // What `filename*` does not take as it is, and what would end a parameter.
+        assert_eq!(
+            percent_encoded("a:b=c@d;e'f*g%h\r\n"),
+            "a%3Ab%3Dc%40d%3Be%27f%2Ag%25h%0D%0A"
+        );
+    }
+
+    #[test]
+    fn a_download_is_saved_under_the_name_it_was_uploaded_with() {
+        let stored = "7a.pdf";
+        let disposition = |uploaded: &str| DownloadName::of(stored, uploaded).disposition("");
+        assert_eq!(
+            disposition("보고서 1.pdf"),
+            "attachment;filename=\"7a.pdf\"; \
+             filename*=UTF-8''%EB%B3%B4%EA%B3%A0%EC%84%9C%201.pdf"
+        );
+        // Nothing of a name ends the header, a parameter of it or its quotes.
+        let hostile = disposition("a\"; filename*=UTF-8''evil.sh\r\nSet-Cookie: x=1");
+        assert!(
+            hostile
+                .bytes()
+                .all(|byte| byte.is_ascii_graphic() || byte == b' '),
+            "{hostile}"
+        );
+        assert_eq!(hostile.matches('"').count(), 2, "{hostile}");
+        assert_eq!(hostile.matches(';').count(), 2, "{hostile}");
+        assert_eq!(hostile.matches("filename*=").count(), 1, "{hostile}");
+        // Only the last segment is a name, whichever way the directories are parted.
+        for (uploaded, saved_as) in [
+            ("../../etc/passwd", "passwd"),
+            (r"..\..\boot.ini", "boot.ini"),
+            (r"c:\dir/x.png", "x.png"),
+        ] {
+            assert_eq!(
+                DownloadName::of(stored, uploaded).saved_as,
+                saved_as,
+                "{uploaded}"
+            );
+        }
+        // A record without a name, or with one that is none, leaves the stored name.
+        for uploaded in ["", "  ", ".", "..", "dir/", r"dir\", "a/.."] {
+            assert_eq!(
+                disposition(uploaded),
+                "attachment;filename=\"7a.pdf\"; filename*=UTF-8''7a.pdf",
+                "{uploaded:?}"
+            );
+        }
+        // The longest name an upload in parts takes is the longest a download is saved under.
+        let longest = "가".repeat(MAX_UPLOAD_NAME_CHARS);
+        assert_eq!(DownloadName::of(stored, &longest).saved_as, longest);
+        assert!(
+            disposition(&longest).len() < 2400,
+            "a header a proxy passes on"
+        );
+        let longer = "가".repeat(MAX_UPLOAD_NAME_CHARS + 1);
+        assert_eq!(DownloadName::of(stored, &longer).saved_as, stored);
+        assert!(
+            DownloadName::of(stored, "a.png")
+                .disposition("image/png")
+                .starts_with("inline;"),
+            "what a browser shows is shown"
+        );
     }
 
     #[test]

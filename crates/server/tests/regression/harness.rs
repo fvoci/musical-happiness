@@ -10,7 +10,8 @@
 //!   `<secret:N>`, numbered the same way, so that a file name is recognized where it
 //!   comes up again, also in the name of a member (an archive's `fileNames`, by stored
 //!   name; members whose names hold new ones are numbered in the order of what they
-//!   hold); identifiers in names of members stay as they are;
+//!   hold, and two that hold the same stop the recording, which could not number them
+//!   the same from run to run); identifiers in names of members stay as they are;
 //! * millisecond timestamps become `<ts>`;
 //! * the seconds to wait of a 429 (`retryAfter`, `Retry-After`) become `<seconds>`;
 //! * values of members named like secrets (`token`) become `<secret>`, and
@@ -818,6 +819,19 @@ impl Placeholders {
                     .map(|(name, member)| (self.order_of(name, member), name, member))
                     .collect();
                 sorted.sort_by(|a, b| a.0.cmp(&b.0));
+                // A name with a new secret has what it holds as the second half of its
+                // place; names without one have their own spelling, each its own.
+                if let Some(pair) = sorted
+                    .windows(2)
+                    .find(|pair| pair[0].0 == pair[1].0 && !pair[0].0.1.is_empty())
+                {
+                    panic!(
+                        "the members {:?} and {:?}, named by secrets new to the recording, \
+                         hold the same: {}. They cannot be numbered the same from run to \
+                         run; let them hold different values, or record their names before",
+                        pair[0].1, pair[1].1, pair[0].0.1
+                    );
+                }
                 let mut normalized = Map::new();
                 for (_, name, member) in sorted {
                     let key = self.key(name);

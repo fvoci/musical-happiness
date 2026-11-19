@@ -109,7 +109,8 @@ impl Index {
         }
     }
 
-    /// How many rooms there are.
+    /// How many rooms there are, for the tests that count them.
+    #[cfg(feature = "test-util")]
     pub(super) fn len(&self) -> usize {
         self.by_tenant
             .values()

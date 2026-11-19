@@ -12,6 +12,7 @@ use fvoci_store::DuplicateAs;
 use super::App;
 use super::templates::{ONBOARDING_PROPERTY, is_onboarding_template};
 use crate::error::AppError;
+use crate::metrics::ContainerWork;
 
 /// The preference that records the tour has started.
 const KEY_TOUR_STARTED: &str = "onboardingTourStarted";
@@ -62,11 +63,12 @@ impl App {
         let onboarding_board_id = self.onboarding_board_id().await?;
 
         let (boards_and_blocks, _members) = self
-            .duplicate_container(
+            .copy_container(
                 &onboarding_board_id,
                 user_id,
                 workspace_id,
                 DuplicateAs::Copy,
+                ContainerWork::Welcome,
             )
             .await?;
         let [board] = boards_and_blocks.containers.as_slice() else {

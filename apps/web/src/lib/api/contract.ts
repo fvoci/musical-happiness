@@ -1609,7 +1609,8 @@ export interface paths {
          * Open an upload of an archive
          * @description Opens an upload of an archive to import into the workspace, sent in parts as a file is
          *     with `createUpload`, and imported with `importArchive` once every part is received.
-         *     An archive larger than `maxImportBytes` of `getClientConfig` is 413. It counts
+         *     An archive larger than `maxImportBytes` of `getClientConfig` is 413 with the reason
+         *     `archive_too_large`. It counts
          *     toward the same limits as the uploads of files, which hold back at most twice the
          *     larger of `maxFileBytes` and `maxImportBytes` for a user. For users of the workspace who
          *     are not guests, as `importArchive`.
@@ -2395,12 +2396,13 @@ export interface paths {
         /**
          * Upload a file
          * @description Stores a file with the board. The request is a `multipart/form-data` form whose
-         *     part `file` carries the file and a file name. The file is limited to one part of an
+         *     part `file` carries the file and a file name, of which what follows its last `/` is
+         *     kept; a name with nothing there (`dir/`) is 400. The file is limited to one part of an
          *     upload in parts (8 MiB unless the server is configured otherwise), and to the
          *     `maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where
          *     the limit is the part, the refusal has the reason `upload_in_parts`: a file within
-         *     `maxFileBytes` can be sent with `createUpload`. A file that is refused or cut off is
-         *     not kept. The `fileId` of the answer ends in the extension of the file name, in lower
+         *     `maxFileBytes` can be sent with `createUpload`. Where it is `maxFileBytes`, the
+         *     reason is `file_too_large`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower
          *     case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
          *     anything but letters and digits in it, is left off. For editors.
          */
@@ -2424,8 +2426,10 @@ export interface paths {
          *     through its own board only: through another board it is not there.
          *
          *     Every file is sent as `application/octet-stream` and offered as a download
-         *     (`Content-Disposition: attachment`) under its `fileId`, not under the name it was
-         *     uploaded with, which `getFileInfo` has. The answer honours `Range` with one range,
+         *     (`Content-Disposition: attachment`) under the name it was uploaded with, which
+         *     `getFileInfo` has: `filename*` carries that name, and `filename` the `fileId` for a
+         *     reader that knows no `filename*`. A file whose record has no name, or one of more
+         *     than 255 characters, is offered under its `fileId`. The answer honours `Range` with one range,
          *     unless the request has `If-Range`. It may be cached by the browser of who asked but
          *     must be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no
          *     download: the `Last-Modified` of an answer is the time of that answer, so a request
@@ -2693,7 +2697,7 @@ export interface paths {
          * @description Opens an upload of a file to the board in parts. The answer says how large the
          *     parts are and how many; send each with `putUploadPart`, in any order and again
          *     after a failure, then `completeUpload`. A file larger than `maxFileBytes` of
-         *     `getClientConfig` is 413. A user has at most 8
+         *     `getClientConfig` is 413 with the reason `file_too_large`. A user has at most 8
          *     uploads open, holding back at most twice `maxFileBytes` together, and the server's
          *     open uploads hold back at most what it is configured for: an upload over one of
          *     these is 429, with the reason `too_many_uploads`, `uploads_pending` or
@@ -5167,14 +5171,15 @@ export interface components {
              */
             contentType?: string;
             /**
-             * @description The name of the file, 1 to 255 characters. The stored file keeps its extension,
-             *     as `uploadFile` keeps it.
+             * @description The name of the file, 1 to 255 characters, of which what follows its last `/` is
+             *     kept: a name with nothing there (`dir/`) is refused. The stored file keeps its
+             *     extension, as `uploadFile` keeps it.
              */
             name: string;
             /**
              * Format: int64
              * @description The size of the file in bytes. More than `maxFileBytes` of `getClientConfig` is
-             *     413.
+             *     413 (`file_too_large`).
              */
             size: number;
         };
