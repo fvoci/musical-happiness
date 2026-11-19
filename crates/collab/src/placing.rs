@@ -28,12 +28,24 @@
 //!   (yrs `Item::resolve_conflict`), so no more than the changes that name it, the
 //!   changes that name those, and so on, and the pieces they are cut into. A change
 //!   inserted where the document was made from a body, whose children name no left
-//!   neighbour, is charged a few steps so.
+//!   neighbour, is charged a few steps so. Nor what stands below the neighbour it
+//!   names to its right, where that names the same place to its left and begins where
+//!   it is named: the walk stops at it, and all of that comes after it. What is
+//!   inserted between two paragraphs typed one after the other is charged a step so.
 //!
 //! A change that begins before where the document has its client's changes is cut
 //! there by the library, and what is left is placed after the last of those it has,
 //! whatever neighbour the change names (yrs `Item::integrate` with an offset): it is
 //! charged so.
+//!
+//! Where a neighbour a change names, or an end of what an update deletes, falls inside
+//! a change and not at its edge, the library cuts that change in two (yrs
+//! `ItemContent::splice`): it counts letters from the start of the change to the cut,
+//! a nanosecond each, and copies both halves. Each such cut is charged the length of
+//! the change it falls in, a step for every [`PLACES_PER_STEP`] letters, and a run of
+//! values [`VALUE_PLACES`] times as much: two thousand deletions of a letter each, from
+//! the end of a text of four million back to its start, took 25 seconds before they
+//! were charged.
 //!
 //! The lists are read from the document's state, which names for each change its
 //! neighbours and, where it names none, its parent: a change belongs to the list of
@@ -43,11 +55,23 @@
 //!
 //! [`UpdateLimits::placing_steps`]: crate::UpdateLimits::placing_steps
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use yrs::{ClientID, ID, IdSet, StateVector};
 
 use crate::scan::{self, Change, Content, Id, Parent, Refusal};
+
+/// How many letters the library goes through cutting a change in the time of a step
+/// of its walk. It counts them at 0.8 ns each, 1.4 ns for letters of three bytes, and
+/// copies them at a twentieth of that; a step, walked again where the document is read
+/// again, takes up to 600 ns.
+pub(crate) const PLACES_PER_STEP: u64 = 256;
+
+/// What a place of a run of values is charged as letters, cutting it: the library
+/// copies every value of the run, at 30 ns each, and keeps 47 bytes of it for each cut
+/// until the update is taken (yrs 0.28.1). So many cuts of a run of 20,000 values took
+/// 190 MB.
+const VALUE_PLACES: u64 = 2 * PLACES_PER_STEP;
 
 /// A document as its state, with what the library read of it.
 #[derive(Debug, Clone, Copy)]
@@ -67,6 +91,8 @@ pub(crate) struct Sent<'bytes> {
     pub(crate) update: &'bytes [u8],
     /// The places the library read its changes to cover.
     pub(crate) covered: &'bytes IdSet,
+    /// The places it deletes.
+    pub(crate) deleted: &'bytes IdSet,
 }
 
 /// What the changes of an update are charged for a document: no less than the changes
@@ -80,7 +106,21 @@ pub(crate) struct Sent<'bytes> {
 /// place here than there.
 pub(crate) fn charge(held: &Held<'_>, sent: &Sent<'_>, limit: u64) -> Result<u64, Refusal> {
     let update = Placed::read(sent, held.ends)?;
-    let at_most = update.at_most(held.changes);
+    let cuts = cuts(&update, sent.deleted);
+    // No change of the document is longer than the most it has of a client.
+    let longest = held
+        .ends
+        .iter()
+        .map(|(_, clock)| u64::from(*clock))
+        .chain(update.clocks.ends.iter().copied())
+        .max()
+        .unwrap_or(0);
+    let walks = update.at_most(held.changes);
+    let at_most = walks.saturating_add(steps_of(
+        count(cuts.len())
+            .saturating_mul(longest)
+            .saturating_mul(VALUE_PLACES),
+    ));
     if at_most <= limit {
         return Ok(at_most);
     }
@@ -89,11 +129,62 @@ pub(crate) fn charge(held: &Held<'_>, sent: &Sent<'_>, limit: u64) -> Result<u64
         |_, _| {},
         |run| u64::from(held.ends.get(&ClientID::new(run.client))) == run.end,
     )?;
-    Ok(Lists::of(held.state, &clocks, &update)?.charge())
+    let cutting = steps_of(
+        cuts.iter()
+            .map(|cut| update.cut_inside(&clocks, *cut))
+            .fold(0, u64::saturating_add),
+    );
+    if walks.saturating_add(cutting) <= limit {
+        return Ok(walks.saturating_add(cutting));
+    }
+    Ok(Lists::of(held.state, &clocks, &update)?
+        .charge()
+        .saturating_add(cutting))
 }
 
 fn count(number: usize) -> u64 {
     u64::try_from(number).unwrap_or(u64::MAX)
+}
+
+/// The steps the cutting of so many letters is charged ([`PLACES_PER_STEP`]).
+fn steps_of(places: u64) -> u64 {
+    places.div_ceil(PLACES_PER_STEP)
+}
+
+/// What a cut inside a change is charged a place of it, by what the change holds:
+/// letters each one, values [`VALUE_PLACES`]. Deleted content and what was collected
+/// are cut by their length alone, and what is one place long is never cut inside.
+fn cut_charge(content: &Content<'_>) -> u64 {
+    match content {
+        Content::Letters(_) => 1,
+        Content::Values(_) => VALUE_PLACES,
+        Content::Collected(_) | Content::Deleted(_) | Content::One => 0,
+    }
+}
+
+/// Where the library may cut a change in two for an update, as the place a cut goes
+/// before: after the neighbour each change that comes names to its left, before the
+/// one it names to its right, and at both ends of every stretch the update deletes.
+fn cuts(update: &Placed<'_>, deleted: &IdSet) -> HashSet<Id> {
+    let mut cuts = HashSet::new();
+    for (change, standing) in update.changes.iter().zip(&update.standings) {
+        if *standing != Standing::Left {
+            cuts.extend(
+                change
+                    .left
+                    .map(|(client, clock)| (client, clock.saturating_add(1))),
+            );
+            cuts.extend(change.right);
+        }
+    }
+    for (client, ranges) in deleted.iter() {
+        for range in ranges.iter() {
+            let client = client.get();
+            cuts.insert((client, u64::from(range.start)));
+            cuts.insert((client, u64::from(range.end)));
+        }
+    }
+    cuts
 }
 
 /// The changes of one client in a state or an update: the clocks they cover, and
@@ -115,8 +206,12 @@ struct Clocks {
     /// By client. A state or an update has one run a client.
     runs: Vec<Run>,
     begins: Vec<u64>,
+    /// The clock after the last place of each.
+    ends: Vec<u64>,
     /// Whether each is an item: not a stretch that was collected.
     items: Vec<bool>,
+    /// What a cut inside each is charged a place of it ([`cut_charge`]).
+    cut_charges: Vec<u64>,
 }
 
 impl Clocks {
@@ -131,7 +226,9 @@ impl Clocks {
         let mut clocks = Self {
             runs: Vec::new(),
             begins: Vec::new(),
+            ends: Vec::new(),
             items: Vec::new(),
+            cut_charges: Vec::new(),
         };
         scan::walk(bytes, |(client, clock), change| {
             let end = clock.saturating_add(change.content.length());
@@ -150,7 +247,9 @@ impl Clocks {
                 }),
             }
             clocks.begins.push(clock);
+            clocks.ends.push(end);
             clocks.items.push(is_item(change));
+            clocks.cut_charges.push(cut_charge(&change.content));
             each((client, clock), change);
         })?;
         // A length counted otherwise than the library counts it would find every later
@@ -176,6 +275,19 @@ impl Clocks {
         // length before it begin there as well and cover nothing.
         let within = self.begins[run.first..run.after].partition_point(|begin| *begin <= clock);
         within.checked_sub(1).map(|at| run.first + at)
+    }
+
+    /// What a cut before the place of an identifier is charged, where it falls inside
+    /// one of these changes and not at its start: the length of the change, by what it
+    /// holds.
+    fn cut_inside(&self, id: Id) -> Option<u64> {
+        let at = self.block_of(id)?;
+        let begin = self.begins[at];
+        (begin < id.1).then(|| {
+            self.ends[at]
+                .saturating_sub(begin)
+                .saturating_mul(self.cut_charges[at])
+        })
     }
 }
 
@@ -269,6 +381,16 @@ impl<'bytes> Placed<'bytes> {
         self.clocks.begins[at].saturating_add(self.changes[at].content.length())
     }
 
+    /// What a cut before the place of an identifier is charged ([`Clocks::cut_inside`]):
+    /// in a change of the document, or else in one of this update that comes.
+    fn cut_inside(&self, held: &Clocks, cut: Id) -> u64 {
+        match held.block_of(cut) {
+            Some(_) => held.cut_inside(cut),
+            None => self.new_item_of(cut).and(self.clocks.cut_inside(cut)),
+        }
+        .unwrap_or(0)
+    }
+
     fn standings(&self) -> Vec<Standing> {
         let comes = |at: usize| {
             let known = self.known(self.clients[at]);
@@ -356,6 +478,8 @@ struct Lists<'placed, 'bytes> {
     /// For each change, the item that covers the left neighbour it names: what the
     /// library places it after.
     lefts: Vec<Option<usize>>,
+    /// For each change, the place it names to its left.
+    left_places: Vec<Option<Id>>,
     /// For each change, the weight of what stands below it ([`weights`]).
     weights: Vec<Weight>,
 }
@@ -377,6 +501,7 @@ impl<'placed, 'bytes> Lists<'placed, 'bytes> {
             places: Vec::with_capacity(all),
             sizes: Vec::new(),
             lefts: Vec::with_capacity(all),
+            left_places: Vec::with_capacity(all),
             weights: Vec::new(),
         };
         let mut named = Named::new();
@@ -385,6 +510,7 @@ impl<'placed, 'bytes> Lists<'placed, 'bytes> {
             let left = lists.left_of(change);
             lists.places.push(place);
             lists.lefts.push(left);
+            lists.left_places.push(change.left);
         })?;
         for (change, standing) in sent.changes.iter().zip(&sent.standings) {
             let (place, left) = match standing {
@@ -395,6 +521,7 @@ impl<'placed, 'bytes> Lists<'placed, 'bytes> {
             };
             lists.places.push(place);
             lists.lefts.push(left);
+            lists.left_places.push(change.left);
         }
         lists.sizes = vec![Size::default(); named.len()];
         let cuts = lists.count();
@@ -499,16 +626,53 @@ impl<'placed, 'bytes> Lists<'placed, 'bytes> {
 
     /// What the library may walk past to place a change after the left neighbour it
     /// names: the pieces of that neighbour after the place named and the changes below
-    /// it, but for the change itself and what stands below it, which come after it, and
-    /// the change it stops at. `None` where that is not known: it names no item to its
-    /// left, or changes name each other in a ring.
+    /// it, but for the change itself and what stands below it, which come after it,
+    /// what stands below the right neighbour the walk stops at ([`Self::below_right`]),
+    /// and the change it stops at. `None` where that is not known: it names no item to
+    /// its left, or changes name each other in a ring.
     fn below_left(&self, number: usize) -> Option<u64> {
         let left = self.lefts[number]?;
         match (self.weights[left], self.weights[number]) {
-            (Weight::Of(whole), Weight::Of(own)) => {
-                Some(whole.saturating_sub(own).saturating_add(1))
-            }
+            (Weight::Of(whole), Weight::Of(own)) => Some(
+                whole
+                    .saturating_sub(own)
+                    .saturating_sub(self.below_right(number, left))
+                    .saturating_add(1),
+            ),
             _ => None,
+        }
+    }
+
+    /// The weight of what stands below the right neighbour a change names, where the
+    /// walk that places the change stops at that neighbour before any of it: the
+    /// neighbour names the same place to its left as the change, so that it stands
+    /// below the same change, and begins at the place the change names, so that no
+    /// piece of it is cut off before. 0 where it is not so.
+    fn below_right(&self, number: usize, left: usize) -> u64 {
+        let held = self.held.begins.len();
+        let Some(change) = number
+            .checked_sub(held)
+            .and_then(|at| self.sent.changes.get(at))
+        else {
+            return 0;
+        };
+        let (Some(left_place), Some(right_place)) = (change.left, change.right) else {
+            return 0;
+        };
+        let Some(right) = self.item_of(right_place) else {
+            return 0;
+        };
+        let begins = match right.checked_sub(held) {
+            Some(at) => self.sent.clocks.begins[at],
+            None => self.held.begins[right],
+        };
+        let stops_there = right != left
+            && right != number
+            && begins == right_place.1
+            && self.left_places[right] == Some(left_place);
+        match self.weights[right] {
+            Weight::Of(weight) if stops_there => weight,
+            Weight::Of(_) | Weight::Unknown => 0,
         }
     }
 

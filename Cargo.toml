@@ -183,3 +183,9 @@ opt-level = 3
 # The names check of `cargo xtask check` digests the words of every file.
 [profile.dev.package.sha2]
 opt-level = 3
+
+# The Y library walks the lists of a document to place an update; unoptimized it takes
+# ten times as long, and the tests that hold an update to the time a worker has measure
+# it as it is built for the server.
+[profile.dev.package.yrs]
+opt-level = 3

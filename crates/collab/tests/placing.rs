@@ -7,14 +7,14 @@ mod support;
 
 use fvoci_collab::testing::{placing_steps, to_body};
 use fvoci_collab::{
-    PLACING_STEPS, TakeError, UpdateError, UpdateLimits, from_body, from_state, new_doc, state_of,
-    take_update,
+    PLACING_STEPS, TakeError, UpdateError, UpdateLimits, from_body, from_body_by, from_state,
+    new_doc, state_of, take_update,
 };
 use fvoci_model::BODY_MAX_NODES;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use support::wire::{Change, Content, Parent, Update};
+use support::wire::{Change, Content, Parent, Update, value};
 use support::{ROOMY, body_of, doc_of, edited, json_of, vectors};
 
 use yrs::types::Attrs;
@@ -508,4 +508,220 @@ fn a_body_is_still_a_body_after_changes_within_the_limit() {
         to_body(&doc).expect("a body"),
         "deleted content adds nothing to the body"
     );
+}
+
+/// The client of the documents made here from a body by a known client.
+const WRITER: u64 = 5;
+
+/// A document of one paragraph of `letters` letters, made by [`WRITER`]: the paragraph
+/// is its clock 0, its text 1, and the letters one change from 2 on.
+fn one_text(letters: u64) -> Doc {
+    let text = "a".repeat(usize::try_from(letters).expect("a length fits"));
+    from_body_by(
+        &body_of(&json!({"type": "doc", "content": [paragraph(&text)]})),
+        WRITER,
+    )
+}
+
+/// An update that deletes a place at each of `clocks` of [`WRITER`], in that order.
+fn deleting(clocks: impl Iterator<Item = u64>) -> Vec<u8> {
+    Update {
+        runs: Vec::new(),
+        deleted: vec![(WRITER, clocks.map(|clock| (clock, 1)).collect())],
+    }
+    .bytes()
+}
+
+fn refused_past_the_limit(doc: &Doc, update: &[u8]) -> Duration {
+    let start = Instant::now();
+    let refused = take_update(doc, update, &ROOMY).expect_err("past the limit");
+    let took = start.elapsed();
+    assert!(
+        matches!(
+            refused,
+            TakeError::Update(UpdateError::PlacedPastTooMany { .. })
+        ),
+        "{refused:?}"
+    );
+    took
+}
+
+/// The library cuts a change in two where a deletion ends inside it, counting its
+/// letters from its start to the cut and copying both halves: each cut is charged the
+/// length of the change it falls in, and so many cuts of a long text are refused
+/// before the library is asked, from its end back to its start too, which it takes the
+/// longest for. As many in short paragraphs are taken.
+#[test]
+fn cuts_inside_a_long_text_are_charged_its_length() {
+    const LETTERS: u64 = 400_000;
+    const DELETIONS: u64 = 1400;
+    let doc = one_text(LETTERS);
+    let spread = |count: u64| (1..=count).map(move |at| 2 + at * (LETTERS / (count + 1)));
+    let few = deleting(spread(10));
+    let steps = placing_steps(&doc, &few).expect("counted");
+    // Each cuts the text before and after the letter it deletes.
+    assert!(steps >= 2 * 10 * LETTERS / 256, "{steps} steps");
+    take_update(&doc, &few, &ROOMY).expect("a few are taken");
+    let longer = placing_steps(&one_text(2 * LETTERS), &few).expect("counted");
+    assert!(
+        longer >= 2 * steps - 10,
+        "{longer} steps in twice the text, {steps} in it"
+    );
+
+    let backwards = deleting(spread(DELETIONS).rev());
+    let took = refused_past_the_limit(&doc, &backwards);
+    assert!(took < Duration::from_secs(1), "refused in {took:?}");
+
+    // As many letters deleted, one in each of as many paragraphs: what a replacement of
+    // a word wherever it is does.
+    let short = vec![paragraph(&"a".repeat(100)); usize::try_from(DELETIONS).expect("fits")];
+    let doc = from_body_by(&body_of(&json!({"type": "doc", "content": short})), WRITER);
+    // Each paragraph is its element, its text and a hundred letters.
+    let each = deleting((0..DELETIONS).map(|paragraph| paragraph * 102 + 50));
+    let steps = placing_steps(&doc, &each).expect("counted");
+    assert!(steps <= 2 * DELETIONS, "{steps} steps");
+    take_update(&doc, &each, &ROOMY).expect("taken");
+}
+
+/// The library copies every value of a run of values it cuts, and holds more memory
+/// for it than for letters: a cut inside one is charged more than a cut inside as many
+/// letters. No editor makes a run of values; a client may send one.
+#[test]
+fn cuts_inside_a_run_of_values_are_charged_more_than_inside_letters() {
+    const VALUES: u64 = 20_000;
+    let made = Update::of(
+        WRITER,
+        0,
+        vec![
+            Change::under(Parent::body(), Content::element("heading")),
+            Change::member(
+                Parent::Change((WRITER, 0)),
+                "level",
+                Content::values(vec![
+                    value::whole(1);
+                    usize::try_from(VALUES).expect("fits")
+                ]),
+            ),
+        ],
+    )
+    .bytes();
+    let doc = take_update(&new_doc(), &made, &ROOMY).expect("made").doc;
+    // The values are clocks 1 on.
+    let one = deleting([1 + VALUES / 2].into_iter());
+    let steps = placing_steps(&doc, &one).expect("counted");
+    let as_letters =
+        placing_steps(&one_text(VALUES), &deleting([2 + VALUES / 2].into_iter())).expect("counted");
+    assert!(
+        steps >= 256 * as_letters,
+        "{steps} steps, {as_letters} for letters"
+    );
+    take_update(&doc, &one, &ROOMY).expect("one is taken");
+    let many = PLACING_STEPS / steps + 1;
+    let spread = (1..=many).map(|at| 1 + at * (VALUES / (many + 1)));
+    let took = refused_past_the_limit(&doc, &deleting(spread));
+    assert!(took < Duration::from_secs(1), "refused in {took:?}");
+}
+
+/// A document of `children` empty paragraphs typed by `client` one after the other:
+/// each names the one before it to its left.
+fn typed_in_order(client: u64, children: u64) -> Doc {
+    let changes = (0..children)
+        .map(|clock| match clock.checked_sub(1) {
+            None => Change::under(Parent::body(), Content::element("paragraph")),
+            Some(before) => Change::after((client, before), Content::element("paragraph")),
+        })
+        .collect();
+    take_update(&new_doc(), &Update::of(client, 0, changes).bytes(), &ROOMY)
+        .expect("typed")
+        .doc
+}
+
+/// A paragraph a client below the document's inserts with `left` and `right` as its
+/// neighbours.
+fn between(left: u64, right: u64) -> Change {
+    Change::Item {
+        left: Some((7, left)),
+        right: Some((7, right)),
+        parent: Parent::body(),
+        key: None,
+        content: Content::element("paragraph"),
+    }
+}
+
+/// What is inserted between two changes, the second of which names the first to its
+/// left, is placed by the library in a step: the walk stops at once at the right one.
+/// It is charged so, not what stands below the left one: an editor that inserts at many
+/// places of a long list typed in order is taken. Where the right neighbour stands
+/// before the left one, the walk goes on through what stands after the left one, and
+/// is charged it.
+#[test]
+fn a_change_between_two_typed_one_after_the_other_is_charged_a_step() {
+    const TYPED: u64 = 20_000;
+    const INSERTED: u64 = 500;
+    let doc = typed_in_order(7, TYPED);
+    let spread = |at: u64| at * (TYPED / INSERTED);
+    let inserted = Update::of(
+        1,
+        0,
+        (0..INSERTED)
+            .map(|at| between(spread(at), spread(at) + 1))
+            .collect(),
+    )
+    .bytes();
+    let steps = placing_steps(&doc, &inserted).expect("counted");
+    // The left neighbour, the right one, which both are named, and the change.
+    assert!(steps <= 3 * INSERTED, "{steps} steps");
+    take_update(&doc, &inserted, &ROOMY).expect("taken");
+
+    let middle = TYPED / 2;
+    let crossed = Update::of(1, 0, (0..INSERTED).map(|at| between(middle, at)).collect()).bytes();
+    let steps = placing_steps(&doc, &crossed).expect("counted");
+    assert!(steps >= INSERTED * (TYPED - middle - 1), "{steps} steps");
+}
+
+/// The changes of a client below the others of their list are walked past again every
+/// time the library reads the document again: once as the update is taken and twice
+/// as what it leaves is read again, and twice more where it is repaired. An update of
+/// them at the limit, repaired, is taken in less than half of the time a worker has
+/// for its answer (10 s).
+#[test]
+fn an_update_at_the_limit_of_a_client_below_the_document_is_taken_in_time() {
+    let doc = typed_in_order(7, count(CHILDREN));
+    let middle = count(CHILDREN) / 2;
+    let walking = |changes: u64| {
+        let mut walking: Vec<Change> = (0..changes)
+            .map(|right| {
+                let mut change = between(middle, right);
+                if let Change::Item { content, .. } = &mut change {
+                    *content = Content::Deleted(1);
+                }
+                change
+            })
+            .collect();
+        // What no body has, which the update is repaired of.
+        walking.push(Change::after(
+            (7, count(CHILDREN) - 1),
+            Content::element("nothing-a-body-has"),
+        ));
+        Update::of(1, 0, walking).bytes()
+    };
+    let within =
+        |changes: u64| placing_steps(&doc, &walking(changes)).expect("counted") <= PLACING_STEPS;
+    // The most changes within the limit: each walks about half the list.
+    let (mut most, mut past) = (1_u64, 2 * PLACING_STEPS / count(CHILDREN) + 2);
+    assert!(!within(past), "{past} changes are within the limit");
+    while past - most > 1 {
+        let changes = most.midpoint(past);
+        if within(changes) {
+            most = changes;
+        } else {
+            past = changes;
+        }
+    }
+    assert!(most > 100, "{most} changes");
+    let start = Instant::now();
+    let taken = take_update(&doc, &walking(most), &ROOMY).expect("taken");
+    let took = start.elapsed();
+    assert_eq!(taken.repair.deleted, 1);
+    assert!(took < Duration::from_secs(5), "taken in {took:?}");
 }

@@ -81,8 +81,8 @@ pub struct CollabSettings {
 pub(super) const DEFAULT_STATE_BYTES: u64 = 8 * 1024 * 1024;
 
 /// The default of `collab_update_bytes`: 64 KiB. What an update of this size may be
-/// made to cost a worker is held by what its changes are placed past
-/// (`fvoci_collab::PLACING_STEPS`), not by its size.
+/// made to cost a worker is held by the steps its changes take to place: changes
+/// walked past and letters cut (`fvoci_collab::PLACING_STEPS`), not by its size.
 pub(super) const DEFAULT_UPDATE_BYTES: u64 = 64 * 1024;
 
 /// The most workers.
@@ -139,6 +139,11 @@ pub(super) const MEMORY_PER_STATE_BYTE: u64 = 32;
 /// again from its state, and a repair does both once more. For the largest body that
 /// is 187 MB above the document (50,000 nodes; 39 MB for 4 MiB of text), and the
 /// executable and what the allocator keeps come on top.
+///
+/// It goes with the changes of the document, not with its body: a state grown to
+/// 5.8 MB by deleted nodes takes 414 MB to repair an update for, and one of 6 MB made
+/// of deleted texts 788 MB. That is not counted, as [`MEMORY_PER_STATE_BYTE`] does not
+/// count it: the worker that runs out of memory for it is started again.
 pub(super) const UPDATE_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
 
 impl Default for CollabSettings {

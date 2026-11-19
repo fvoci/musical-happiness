@@ -228,7 +228,67 @@ fn crowded() {
                 println!("{row}");
             }
         }
+        for row in walked_again(children, &typed_in_order(children)) {
+            println!("{row}");
+        }
     }
+}
+
+/// How long the most changes the limit takes of a client below the document's take,
+/// each named after the middle child and before a child ahead of it, so that the
+/// library walks on through the second half: once as the update is taken and again
+/// every time it reads the document again. With a node no body has, the update is
+/// repaired, which reads it twice more. A row of the table each.
+fn walked_again(children: usize, doc: &Doc) -> Vec<String> {
+    let children = u64::try_from(children).expect("a count fits");
+    let walking = |count: u64, repaired: bool| {
+        let mut changes: Vec<Change> = (0..count)
+            .map(|right| Change::Item {
+                left: Some((7, children / 2)),
+                right: Some((7, right)),
+                parent: Parent::body(),
+                key: None,
+                content: Content::Deleted(1),
+            })
+            .collect();
+        if repaired {
+            changes.push(Change::after(
+                (7, children - 1),
+                Content::element("nothing-a-body-has"),
+            ));
+        }
+        Update::of(1, 0, changes).bytes()
+    };
+    let within =
+        |count: u64| placing_steps(doc, &walking(count, true)).expect("counted") <= PLACING_STEPS;
+    let (mut most, mut past) = (0_u64, children / 2);
+    while past - most > 1 {
+        let count = most.midpoint(past);
+        if within(count) {
+            most = count;
+        } else {
+            past = count;
+        }
+    }
+    [
+        ("a client below", false),
+        ("a client below, repaired", true),
+    ]
+    .into_iter()
+    .map(|(made, repaired)| {
+        let update = walking(most, repaired);
+        let start = Instant::now();
+        let outcome = match take_update(doc, &update, &LIMITS) {
+            Ok(_) => "taken".to_owned(),
+            Err(error) => format!("refused: {error}"),
+        };
+        format!(
+            "| {children} | {made} | {most} | {} B | {outcome} | {} |",
+            update.len(),
+            millis(start.elapsed())
+        )
+    })
+    .collect()
 }
 
 /// How long updates that crowd the root of `doc`, of `children`, take: a row of the

@@ -68,8 +68,8 @@ pub enum TakeError {
 /// # Errors
 ///
 /// Returns [`TakeError::Update`] if the update cannot be taken at all (see
-/// [`UpdateError`]: among them one whose changes would be placed past more of the
-/// document than [`UpdateLimits::placing_steps`]), [`TakeError::Body`] if the document with it is no body and a
+/// [`UpdateError`]: among them one whose changes would take more steps to place than
+/// [`UpdateLimits::placing_steps`]), [`TakeError::Body`] if the document with it is no body and a
 /// repair does not make it one, and [`TakeError::BodyTooLarge`] if its body is past
 /// [`UpdateLimits::body_bytes`].
 ///

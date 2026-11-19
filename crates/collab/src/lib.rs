@@ -110,8 +110,8 @@ pub mod testing {
         crate::update::copy_of(doc)
     }
 
-    /// How many changes of a document the changes of an update may be placed past,
-    /// counted list by list whatever the update holds
+    /// How many steps the changes of an update may take to place in a document,
+    /// counted list by list and cut by cut whatever the update holds
     /// ([`UpdateLimits::placing_steps`]).
     ///
     /// # Errors

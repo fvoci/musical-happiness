@@ -22,9 +22,10 @@ pub struct UpdateLimits {
     /// The largest body an update may leave, in bytes of its stored JSON. Every body is
     /// held to [`fvoci_model::BODY_MAX_BYTES`] as well, so a larger value is that.
     pub body_bytes: usize,
-    /// How many changes of the document the Y library may have to walk past to place
-    /// the changes of one update ([`PLACING_STEPS`] for what a client sends); `None`
-    /// for no count, for what was taken before and is read again.
+    /// How many steps the Y library may have to take to place the changes of one
+    /// update: changes of the document it walks past, and letters of changes it cuts,
+    /// 256 a step ([`PLACING_STEPS`] for what a client sends); `None` for no count, for
+    /// what was taken before and is read again.
     pub placing_steps: Option<u64>,
     /// How many clients the document an update leaves may name ([`MAX_CLIENTS`] for
     /// what a client sends); `None` for no count, for what was taken before.
@@ -41,15 +42,17 @@ pub struct UpdateLimits {
 /// well before.
 pub const MAX_CLIENTS: usize = 16 * 1024;
 
-/// How many changes of a document the changes of one update a client sends may be
-/// placed past ([`UpdateLimits::placing_steps`]): the Y library walks 16 million
-/// children made from a body in 0.8 s and as many typed one after the other in 1.9 s
-/// (50 and 110 ns each, release build), and an update placed past as many is taken in
-/// a fifth of the time a worker has for its answer. An editor's update is
-/// placed past a handful. Past it are updates of hundreds of changes that each go
-/// into a list of tens of thousands: 500 separate insertions among 33,000 children
-/// of one node, sent as one update.
-pub const PLACING_STEPS: u64 = 16 * 1024 * 1024;
+/// How many steps the Y library may take to place the changes of one update a client
+/// sends ([`UpdateLimits::placing_steps`]). A step past a change takes 50 to 110 ns
+/// where the update is read once, and is taken again every time the library reads
+/// the document again, where the change is of a client below the others of its list:
+/// as the update is taken, as what it leaves is read again, and as it is repaired. An
+/// update of 3 million steps of those, repaired, was taken in 1.7 s, and as many cuts
+/// of a text of a million letters of three bytes in 0.3 s (release build, an idle
+/// machine): within a fifth of the time a worker has for its answer. An editor's update
+/// is a handful of steps. Past it are updates of a hundred changes that each go into a
+/// list of tens of thousands, or of hundreds of cuts of a text of a million letters.
+pub const PLACING_STEPS: u64 = 3 * 1024 * 1024;
 
 /// Why an update is refused.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -78,16 +81,17 @@ pub enum UpdateError {
     /// The update writes outside the fragment that holds the body.
     #[error("the update writes to the root {0:?}, which is not the body's")]
     UnexpectedRoot(String),
-    /// The changes of the update would be placed past more changes of the document
-    /// than [`UpdateLimits::placing_steps`]: each change that names a neighbour the
-    /// document has to its left, or none, is counted the list it goes into.
+    /// The changes of the update would take the library more steps to place than
+    /// [`UpdateLimits::placing_steps`]: each change that names a neighbour the document
+    /// has to its left, or none, is counted what it may walk past, and each change it
+    /// cuts its length.
     #[error(
-        "the changes of the update would be placed past {steps} changes of the document, \
+        "the changes of the update would take {steps} steps to place in the document, \
          more than the {limit} allowed"
     )]
     PlacedPastTooMany {
-        /// The changes of the document its changes may be placed past, counted no
-        /// further than is needed to know that they are more than the limit.
+        /// The steps its changes may take to place, counted no further than is needed
+        /// to know that they are more than the limit.
         steps: u64,
         /// The limit.
         limit: u64,
@@ -286,6 +290,7 @@ fn charged(
     let sent = Sent {
         update,
         covered: &sent.insertions(true),
+        deleted: sent.delete_set(),
     };
     placing::charge(&held, &sent, limit)
         .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))

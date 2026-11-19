@@ -261,7 +261,7 @@ async fn an_update_made_to_walk_a_long_list_is_refused_and_the_room_goes_on() {
     let th = Setup::native().start().await.init_basic().await;
     let lines = vec!["x"; 20_000];
     let (_t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&lines)).await;
-    // 900 changes past 20,000 children are 18 million steps, past the 16 million of
+    // 900 changes past 20,000 children are 18 million steps, past the 3 Mi of
     // `fvoci_collab::PLACING_STEPS`; 59 kB of them past 50,000 took 12 seconds.
     let began = std::time::Instant::now();
     one.send_update(&crowding(1 << 40, 900)).await;
