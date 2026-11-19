@@ -606,6 +606,7 @@
   "shell_board_unhide": "사이드바에 {name} 다시 보이기",
   "shell_share": "공유",
   "shell_description": "설명",
+  "shell_description_add": "설명 추가",
   "shell_template_use": "이 템플릿 사용: {name}",
   "shell_template_edit": "템플릿 {name} 고치기",
   "shell_template_note": "템플릿",

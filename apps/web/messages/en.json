@@ -606,6 +606,7 @@
   "shell_board_unhide": "Show {name} in the sidebar",
   "shell_share": "Share",
   "shell_description": "Description",
+  "shell_description_add": "Add description",
   "shell_template_use": "Use this template: {name}",
   "shell_template_edit": "Change the template {name}",
   "shell_template_note": "Template",

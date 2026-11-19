@@ -155,6 +155,15 @@ test.describe('the top bar', () => {
     await expect(field).toHaveValue('Where the launch stands.');
     await page.keyboard.press('Escape');
 
+    // Emptied, it is still there for its editors, to add one again.
+    await about.click();
+    await field.fill('');
+    await topBar(page).getByTestId('board-title').click();
+    await expect(about).toHaveAccessibleName('Add description');
+    await about.click();
+    await expect(field).toHaveValue('');
+    await page.keyboard.press('Escape');
+
     // A board the reader may only read shows the description, and no field.
     await showSidebar(page);
     await boardLink(page, READ_ONLY_BOARD).click();

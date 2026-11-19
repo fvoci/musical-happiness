@@ -5,9 +5,9 @@
 
   What it shows follows the width of the pane it is in, not of the window:
   five faces of who is here from where two kanban columns fit (two below).
-  The description is behind "ⓘ" next to the title, at every width, so that
-  the title keeps the room (ContainerDescription.svelte); a board's editors
-  and a wiki's admins change it there. The number of the board's members, there at every width, opens its members
+  The description is behind "ⓘ" next to the title (a line of "…" in a
+  narrow pane), so that the title keeps the room (ContainerDescription.svelte);
+  a board's editors and a wiki's admins change it there, or add one. The number of the board's members, there at every width, opens its members
   in the sharing dialog, which shows them alone to a reader who is no admin.
 
   Its editors find the board's deleted cards here ("Deleted cards").
@@ -137,10 +137,10 @@
         run: () => void workspace.redoLast(),
       },
     ];
-    if (container?.description) {
+    if (container?.description || describe) {
       list.push({
         id: 'description',
-        label: m.shell_description(),
+        label: container?.description ? m.shell_description() : m.shell_description_add(),
         icon: InfoIcon,
         separated: true,
         run: () => {
@@ -209,7 +209,7 @@
         {/if}
       </h1>
     </div>
-    {#if container.description}
+    {#if container.description || describe}
       {#key container.id}
         <ContainerDescription
           bind:open={

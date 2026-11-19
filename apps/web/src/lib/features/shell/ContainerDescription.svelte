@@ -1,15 +1,16 @@
 <!--
   The description of a board or a wiki, behind "ⓘ" next to its title: the
   title row keeps its room for the title, and the description is read where
-  it opens (a popover; a sheet on a compact page). There is no button where
-  there is no description. A narrow pane (a phone) has no room for the button
+  it opens (a popover; a sheet on a compact page). Where there is no
+  description there is a button only for whoever may write one, named to
+  add it. A narrow pane (a phone) has no room for the button
   beside the title: the top bar opens it from its menu (`open`).
 
   A reader who may change it (`onChange`) changes it there, in a field: what
   is typed is handed on, once, when the surface closes; Escape in the field
   puts the description back first. Leaving the board while it is open hands
-  it on too. While an input method is composing
-  (Hangul, kana) Escape is its own.
+  it on too. While an input method is composing (Hangul, kana) Escape is its
+  own: it neither puts the description back nor closes the surface.
 -->
 <script lang="ts">
   import InfoIcon from '@lucide/svelte/icons/info';
@@ -47,9 +48,14 @@
   $effect(() => commit);
 
   function onkeydown(event: KeyboardEvent): void {
-    // Escape goes on to the surface, which closes; nothing typed is kept.
-    if (event.key === 'Escape' && !isComposing(event)) draft = undefined;
+    if (event.key !== 'Escape') return;
+    // The surface listens on the document: an input method's Escape stops here.
+    if (isComposing(event)) event.stopPropagation();
+    // Otherwise it goes on to the surface, which closes; nothing typed is kept.
+    else draft = undefined;
   }
+
+  const name = $derived(description ? m.shell_description() : m.shell_description_add());
 </script>
 
 <PickerSurface
@@ -66,7 +72,7 @@
   {#snippet trigger({ props }: { props: Record<string, unknown> })}
     <IconButton
       {...props}
-      label={m.shell_description()}
+      label={name}
       data-testid="container-description"
       class="shrink-0 text-muted-foreground @max-columns/pane:hidden"
     >

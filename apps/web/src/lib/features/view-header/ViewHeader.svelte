@@ -3,7 +3,7 @@
   properties its cards show, grouping, filter, sort, search, a new card).
 
   It looks at the width of the pane it is in, not of the window
-  (`pane.header`). With room for all of it, it is one row: the views as
+  (`pane.tabs`). With room for all of it, it is one row: the views as
   tabs (as many as fit, the rest behind one more tab: ViewTabs.svelte), the
   tools as icons, "New". In a narrower pane it folds into one row of a
   different make: one button that names the view and opens the list of
@@ -88,7 +88,7 @@
   const pickers = new PickerPresentation();
 
   /** The pane has room for the whole header in one row. */
-  const row = $derived(pane.header);
+  const row = $derived(pane.tabs);
   const templates = $derived(board.board?.cardProperties ?? []);
   const canEdit = $derived(board.canEdit);
   const grouping = $derived(groupingOf(view.fields.viewType));

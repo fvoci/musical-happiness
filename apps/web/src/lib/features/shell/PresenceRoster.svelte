@@ -43,6 +43,20 @@
    * list: it opens in a popover or a sheet outside the pane, where no container query reaches.
    */
   const narrow = $derived(pane.measured && !pane.columns);
+
+  /**
+   * The list closed after the last one left: its button is away now, so the focus it would get
+   * back goes to the members' button instead. After the surface has put it back.
+   */
+  function toMembers(): void {
+    requestAnimationFrame(() => {
+      const group = document.querySelector('[data-testid="board-people"]');
+      const faces = group?.querySelector('[data-testid="board-presence"]');
+      const active = document.activeElement;
+      if (active !== null && active !== document.body && active !== faces) return;
+      group?.querySelector<HTMLElement>('[data-testid="board-members-count"]')?.focus();
+    });
+  }
 </script>
 
 <div
@@ -51,7 +65,17 @@
   class="flex shrink-0 items-center gap-1"
   data-testid="board-people"
 >
-  <PickerSurface bind:open={listOpen} presentation={presentation.current} title={label}>
+  <PickerSurface
+    bind:open={
+      () => listOpen,
+      (open: boolean) => {
+        listOpen = open;
+        if (!open && presence.count === 0) toMembers();
+      }
+    }
+    presentation={presentation.current}
+    title={label}
+  >
     {#snippet trigger({ props })}
       <button
         {...props}

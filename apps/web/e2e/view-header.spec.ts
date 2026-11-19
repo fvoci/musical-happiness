@@ -251,7 +251,7 @@ const ALL = [
 ];
 
 test.describe('the two rows', () => {
-  test('a pane of 992 pixels has the whole header in one row, and nothing spills', async ({
+  test('a pane of 704 pixels has the whole header in one row, and nothing spills', async ({
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'needs a window that can be this wide');
@@ -259,20 +259,30 @@ test.describe('the two rows', () => {
     // 1280 wide, the sidebar beside it: the pane is 1024.
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
 
+    // A pane of 992 has a tab for every view, each at its whole name.
+    const cut = (): Promise<number> =>
+      header(page).evaluate(
+        (element) =>
+          [...element.querySelectorAll('[data-testid="view-tabs"] a span')].filter(
+            (each) => each.scrollWidth > each.clientWidth,
+          ).length,
+      );
     await setPaneWidth(page, 992);
+    await expect(header(page).getByRole('link')).toHaveCount(4);
+    await expect(tool(page, 'more-views')).toHaveCount(0);
+    expect(await cut()).toBe(0);
+
+    await setPaneWidth(page, 704);
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
     for (const name of ['properties', 'group', 'filter', 'sort', 'search', 'more', 'add-view']) {
       await expect(tool(page, name)).toBeVisible();
     }
-    // Every view has its tab, each at its whole name.
-    const cut = await header(page).evaluate((element) =>
-      [...element.querySelectorAll('[data-testid="view-tabs"] a span')].filter(
-        (each) => each.scrollWidth > each.clientWidth,
-      ),
-    );
-    expect(cut).toHaveLength(0);
-    await expect(header(page).getByRole('link')).toHaveCount(4);
-    await expect(tool(page, 'more-views')).toHaveCount(0);
+    // Fewer tabs, the rest behind one more; none of them is cut.
+    const tabs = await header(page).getByRole('link').count();
+    expect(tabs).toBeGreaterThan(0);
+    if (tabs < 4)
+      await expect(tool(page, 'more-views')).toHaveText(`More views: ${String(4 - tabs)}`);
+    expect(await cut()).toBe(0);
     await expect(header(page).getByRole('link', { name: 'Progress Tracker' })).toHaveAttribute(
       'aria-current',
       'page',
@@ -292,7 +302,7 @@ test.describe('the two rows', () => {
     );
 
     // One pixel less and it folds.
-    await setPaneWidth(page, 991);
+    await setPaneWidth(page, 703);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
   });
 
@@ -343,8 +353,8 @@ test.describe('the two rows', () => {
     page,
   }, testInfo) => {
     await open(page);
-    // A window of 1100 with the sidebar beside the board: a pane of 844.
-    if (testInfo.project.name === 'desktop') await resize(page, 1100, 720);
+    // A window of 900 with the sidebar beside the board: a pane of 644.
+    if (testInfo.project.name === 'desktop') await resize(page, 900, 720);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
 
     await expect(tool(page, 'views')).toContainText('Progress Tracker');
@@ -381,13 +391,13 @@ test.describe('the two rows', () => {
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'needs a window that can be this wide');
     await open(page);
-    await resize(page, 1100, 720);
+    await resize(page, 900, 720);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
     // The sidebar cannot be folded away yet; a wider window gives the pane the same room.
     await resize(page, 1300, 720);
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
     await expect(page.getByTestId('new-card')).toHaveText(/New/);
-    await resize(page, 1100, 720);
+    await resize(page, 900, 720);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
   });
 });
@@ -395,12 +405,12 @@ test.describe('the two rows', () => {
 test.describe('in Korean', () => {
   test.use({ locale: 'ko-KR' });
 
-  test('the whole row has its words, and still does not spill at 992 pixels', async ({
+  test('the whole row has its names in Korean, and does not spill at 704 pixels', async ({
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'needs a window that can be this wide');
     await open(page);
-    await setPaneWidth(page, 992);
+    await setPaneWidth(page, 704);
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
     // Icons, each named for a screen reader and by its tooltip.
     await expect(tool(page, 'properties')).toHaveAccessibleName('속성');
@@ -1067,7 +1077,7 @@ test.describe('while the window changes size', () => {
     await text.evaluate((element) => {
       (window as unknown as { kept: Element }).kept = element;
     });
-    await resize(page, 1100, 720);
+    await resize(page, 900, 720);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
     await expect(filterEditor(page)).toBeVisible();
     await expect(page.locator('[data-slot="popover-content"]')).toHaveCount(1);
@@ -1125,7 +1135,7 @@ test.describe('while the window changes size', () => {
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'starts wide and goes through every stage');
     await open(page);
-    await resize(page, 1100, 720);
+    await resize(page, 900, 720);
     await openTool(page, 'sort');
     await expect(sortEditor(page)).toBeVisible();
     const anchored = (name: string): Promise<{ below: number; across: number } | undefined> =>
