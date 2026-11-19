@@ -138,7 +138,7 @@ async fn a_former_non_author_is_not_discoverable_through_a_stale_board_role() {
     // this subsequent profile change or making the account searchable.
     server
         .client2
-        .patch("/users/me", &json!({"displayName": "After leaving"}))
+        .patch("/users/me", &json!({"customName": "After leaving"}))
         .await
         .check_ok();
     let profile = server

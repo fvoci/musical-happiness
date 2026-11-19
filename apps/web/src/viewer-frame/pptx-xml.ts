@@ -3,8 +3,8 @@
  * it, read in the PowerPoint worker (`pptx-worker.ts`) with saxes: how many
  * elements, how deep, how much text and how many tabs, how many shapes and
  * how deeply grouped, the cells of its tables, the pictures it shows and
- * which of them it recolours pixel by pixel, the SmartArt it draws, and
- * its slide size if it has one.
+ * which of them it recolours pixel by pixel, the SmartArt it draws, its
+ * slide size if it has one, and whether it is a slide hidden from a show.
  *
  * What it cannot read as the renderer does, it counts more of: a picture is
  * any value of an attribute that names a picture's relationship, wherever
@@ -119,6 +119,8 @@ export interface PartMeasure {
   size?: { cx: number[]; cy: number[] };
   /** The characters of the text, each once. */
   characters: Set<string>;
+  /** The root says it is not shown (a slide's `show`, false as the renderer reads it). */
+  hidden: boolean;
 }
 
 interface Open {
@@ -159,10 +161,26 @@ function emptyMeasure(bytes: number): PartMeasure {
     slideIds: 0,
     slideRefs: [],
     characters: new Set(),
+    hidden: false,
   };
 }
 
 type Tag = { local: string; attributes: Record<string, { local: string; value: string }> };
+
+/** The values the renderer reads as false (its `pt`); any other is its default, true. */
+const FALSE = new Set(['0', 'false', 'f', 'off']);
+
+/**
+ * Whether the root's `show` says it is not shown, read as the renderer
+ * reads it (its `attr`): the attribute of that name, else the first of
+ * that local name.
+ */
+function notShown(tag: Tag): boolean {
+  const show =
+    tag.attributes.show?.value ??
+    Object.values(tag.attributes).find((each) => each.local === 'show')?.value;
+  return show !== undefined && FALSE.has(show.trim().toLowerCase());
+}
 
 /** What an element adds to the measure, besides the counts every element has. */
 /** Whether a text body is a table cell's: `a:tbl`, `a:tr`, `a:tc`, then it, as the renderer reads a table. */
@@ -181,6 +199,7 @@ function take(tag: Tag, open: Open[], measured: PartMeasure, element: Open): voi
     attributes.filter((each) => each.local === name).map((each) => each.value);
   const blip = open.findLast((each) => each.blip)?.blip;
   const bound = TEXT_BOUNDS[local];
+  if (open.length === 0) measured.hidden = notShown(tag);
   for (const { local: name, value: named } of attributes) {
     if (LENGTHS.has(name)) measured.extent = Math.max(measured.extent, length(named));
     if (name === 'sz' && length(named) > FONT_SIZE) measured.extent = Infinity;

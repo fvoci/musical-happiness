@@ -578,7 +578,7 @@ fn waiting(
         id: user.id.clone(),
         username: user.username.clone(),
         email: user.email.clone(),
-        display_name: user.display_name.clone(),
+        custom_name: user.name.custom_name.clone(),
         password_hash: user.password_hash.clone(),
         language: Language::written_in(language)
             .map(Language::tag)

@@ -373,10 +373,18 @@ async fn a_registration_answers_the_user_that_was_made() {
         members,
         [
             "createAt",
+            "credentials",
+            "customName",
             "deleteAt",
             "displayName",
+            "firstName",
             "id",
             "isAdmin",
+            "lastName",
+            "latinFirstName",
+            "latinLastName",
+            "nameShown",
+            "title",
             "updateAt",
             "username"
         ],
@@ -443,6 +451,14 @@ async fn get_me_logged_in() {
             "id": me.id,
             "username": FAKE_USERNAME,
             "displayName": "",
+            "firstName": "",
+            "lastName": "",
+            "latinFirstName": "",
+            "latinLastName": "",
+            "customName": "",
+            "nameShown": "name",
+            "title": null,
+            "credentials": [],
             "createAt": me.create_at,
             "updateAt": me.update_at,
             "deleteAt": 0,
@@ -580,6 +596,14 @@ async fn users_list_and_profiles() {
             "id": user2.id,
             "username": "user2",
             "displayName": "",
+            "firstName": "",
+            "lastName": "",
+            "latinFirstName": "",
+            "latinLastName": "",
+            "customName": "",
+            "nameShown": "name",
+            "title": null,
+            "credentials": [],
             "createAt": user2.create_at,
             "updateAt": user2.update_at,
             "deleteAt": 0,
@@ -1532,7 +1556,7 @@ async fn a_user_has_a_display_name_of_their_choosing() {
     assert_eq!(me.display_name, "", "none unless chosen");
     let changed: User = th
         .client
-        .patch("/users/me", &json!({"displayName": "Michael Scott 🎉"}))
+        .patch("/users/me", &json!({"customName": "Michael Scott 🎉"}))
         .await
         .ok_json();
     assert_eq!(changed.display_name, "Michael Scott 🎉");
@@ -1550,20 +1574,20 @@ async fn a_user_has_a_display_name_of_their_choosing() {
     // The limits: 64 UTF-16 code units, no control characters, no other member.
     let longest = format!("{}🎉", "가".repeat(62));
     th.client
-        .patch("/users/me", &json!({"displayName": longest}))
+        .patch("/users/me", &json!({"customName": longest}))
         .await
         .check_ok();
     for (body, field) in [
         (
-            json!({"displayName": format!("{}🎉", "가".repeat(63))}),
-            "displayName",
+            json!({"customName": format!("{}🎉", "가".repeat(63))}),
+            "customName",
         ),
-        (json!({"displayName": "two\nlines"}), "displayName"),
-        (json!({"displayName": "a\u{0}b"}), "displayName"),
-        (json!({"displayName": "\u{200B}"}), "displayName"),
-        (json!({"displayName": "\u{202E}evil"}), "displayName"),
-        (json!({"displayName": "line\u{2028}break"}), "displayName"),
-        (json!({"displayName": 1}), "displayName"),
+        (json!({"customName": "two\nlines"}), "customName"),
+        (json!({"customName": "a\u{0}b"}), "customName"),
+        (json!({"customName": "\u{200B}"}), "customName"),
+        (json!({"customName": "\u{202E}evil"}), "customName"),
+        (json!({"customName": "line\u{2028}break"}), "customName"),
+        (json!({"customName": 1}), "customName"),
         (json!({"username": "renamed"}), "username"),
     ] {
         let response = th.client.patch("/users/me", &body).await;
@@ -1598,13 +1622,13 @@ async fn a_user_has_a_display_name_of_their_choosing() {
 
     // White space around a name goes; empty, blank or null: none.
     let trimmed: User = jim
-        .patch("/users/me", &json!({"displayName": "  Jim  "}))
+        .patch("/users/me", &json!({"customName": "  Jim  "}))
         .await
         .ok_json();
     assert_eq!(trimmed.display_name, "Jim");
     for cleared in [json!(""), json!("   "), Value::Null] {
         let user: User = jim
-            .patch("/users/me", &json!({"displayName": cleared}))
+            .patch("/users/me", &json!({"customName": cleared}))
             .await
             .ok_json();
         assert_eq!(user.display_name, "");

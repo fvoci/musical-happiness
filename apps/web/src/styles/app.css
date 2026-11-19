@@ -435,6 +435,24 @@
 }
 
 /*
+ * What is on its way out (a sheet, a dialog, a menu, the layer behind one)
+ * takes no press, and stays as its exit left it until it is removed.
+ *
+ * It is removed some time after its exit has played, and until then it would
+ * be back where it was, over whatever opened in its place: a menu's sheet
+ * over the question its line asked. A press there went to the sheet, or began
+ * on the question's button and ended on the sheet, and did nothing. Bits UI
+ * sets `pointer-events: auto` on the element itself, hence `!important`.
+ */
+[class~='data-closed:animate-out']:where(
+  [data-state='closed'],
+  [data-closed]:not([data-closed='false'])
+) {
+  pointer-events: none !important;
+  animation-fill-mode: forwards;
+}
+
+/*
  * The reader's own switches, followed without asking again: less
  * transparency means no blur behind a sheet (a plain, darker layer instead),
  * less motion means nothing slides or fades.

@@ -36,6 +36,8 @@ export interface SlideSpec {
   links?: Link[];
   /** The relationship to the slide's layout, when it is not the plain one to the deck's layout. */
   layout?: Link;
+  /** Hidden from a show (PowerPoint's "Hide Slide"): `show="0"`. */
+  hidden?: boolean;
 }
 
 export interface DeckSpec {
@@ -247,7 +249,7 @@ export function deck(spec: DeckSpec): Buffer {
       xml(
         `ppt/slides/slide${index + 1}.xml`,
         slide.xml ??
-          `${XML}<p:sld ${NAMESPACES}>${tree(slide.shapes)}<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`,
+          `${XML}<p:sld ${NAMESPACES}${slide.hidden ? ' show="0"' : ''}>${tree(slide.shapes)}<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`,
       ),
       xml(
         `ppt/slides/_rels/slide${index + 1}.xml.rels`,
@@ -367,5 +369,25 @@ export function koreanPptx(): Buffer {
       { name: 'media/image1.png', data: png(300, 150, [46, 125, 210]) },
       { name: 'charts/chart1.xml', data: barChart([3, 5, 2, 6]) },
     ],
+  });
+}
+
+/** The text on slide `number` of `numberedPptx`. */
+export const numberedText = (number: number): string => `${number}번 장`;
+
+/**
+ * A deck of `count` slides, each saying its number, of which those numbered
+ * in `hidden` are hidden from a show.
+ */
+export function numberedPptx(count: number, hidden: readonly number[]): Buffer {
+  return deck({
+    slides: Array.from({ length: count }, (_, index) => ({
+      shapes: textBox(
+        2,
+        [600_000, 600_000, SLIDE.cx - 1_200_000, 1_200_000],
+        [run(numberedText(index + 1), 4000)],
+      ),
+      hidden: hidden.includes(index + 1),
+    })),
   });
 }

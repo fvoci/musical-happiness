@@ -184,8 +184,6 @@ pub struct Configuration {
     pub name_display: String,
     /// Whether user lists include email addresses.
     pub show_email_addresses: bool,
-    /// Whether user lists include first and last names.
-    pub show_full_names: bool,
     /// Whether the providers of the organizations may be reached at addresses that are
     /// not public (loopback, private networks): for an installation whose provider is
     /// on its own network. Off, such a provider is neither stored nor signed in
@@ -355,7 +353,6 @@ impl Default for Configuration {
             feature_flags: BTreeMap::new(),
             name_display: "username".to_owned(),
             show_email_addresses: false,
-            show_full_names: false,
             oidc_allow_private_addresses: false,
             oidc_extra_ca_file: String::new(),
             oidc_former_provider_days: 30,
@@ -426,7 +423,6 @@ impl std::fmt::Debug for Configuration {
             .field("feature_flags", &self.feature_flags)
             .field("name_display", &self.name_display)
             .field("show_email_addresses", &self.show_email_addresses)
-            .field("show_full_names", &self.show_full_names)
             .field(
                 "oidc_allow_private_addresses",
                 &self.oidc_allow_private_addresses,

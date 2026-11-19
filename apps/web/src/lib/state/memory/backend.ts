@@ -18,6 +18,7 @@ import type { DocNode } from '../../editor/schema.ts';
 import { readDisplaySettings, type DisplaySettings } from '../../logic/display.ts';
 import { isTimeZone, readRegionalSettings } from '../../logic/regional.ts';
 import { DEFAULT_ACCOUNT_SETTINGS } from '../../logic/account-settings.ts';
+import type { NameChange } from '../../logic/person-names.ts';
 import { readLanguageSettings } from '../../logic/language.ts';
 import {
   createBoard,
@@ -79,8 +80,8 @@ import { MemoryWikis } from './wikis.ts';
 import { copiedBlocks, giveCopiesFiles } from './copies.ts';
 import { memberRole, memberFileUrl } from './container-access.ts';
 import { readableFile, storeUpload } from './files.ts';
-import { usersAmong, usersNamed } from './users.ts';
-import { changeDisplayName } from './account.ts';
+import { userFound, usersAmong, usersNamed } from './users.ts';
+import { changeName } from './account.ts';
 import { archiveLines, archiveOf, blockOfLine } from './archive.ts';
 import { checkedBody, checkedComment, checkedWhole, flushCard, openMemoryRoom } from './bodies.ts';
 import { checkRelations, MemoryReferences, renameCopied } from './references.ts';
@@ -244,9 +245,9 @@ export class MemoryBackend implements Backend {
     return copy(this.world.users.get(this.userId) ?? fail(401, 'no session'));
   }
 
-  async patchMe(patch: { displayName: string | null }): Promise<User> {
+  async patchMe(patch: NameChange): Promise<User> {
     await this.#enter('patchMe');
-    return copy(changeDisplayName(this.world, this.userId, patch.displayName));
+    return copy(changeName(this.world, this.userId, patch));
   }
 
   async workspaces(): Promise<WorkspaceInfo[]> {
@@ -649,14 +650,12 @@ export class MemoryBackend implements Backend {
     return copy(sharing);
   }
 
-  /** As the server: in either name, whatever the case, the oldest first, ten at most. */
+  /** As the server: by the login name or the name, whatever the case, the oldest first, ten at most. */
   async searchUsers(workspaceId: string, query: string): Promise<User[]> {
     await this.#enter('searchUsers');
     const wanted = query.trim().toLowerCase();
     return (await this.users(workspaceId))
-      .filter((user) =>
-        [user.username, user.displayName].some((name) => name.toLowerCase().includes(wanted)),
-      )
+      .filter((user) => userFound(user, wanted))
       .sort((first, second) => first.createAt - second.createAt)
       .slice(0, 10);
   }

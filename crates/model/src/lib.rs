@@ -35,6 +35,7 @@ mod org_admin;
 mod organization;
 mod page;
 mod page_tree;
+mod person_name;
 mod problem;
 mod refusal;
 mod relation;
@@ -124,6 +125,10 @@ pub use page::{
     PageMove, PageNode, PagePatch, order_between, sort_pages,
 };
 pub use page_tree::{DEFAULT_PAGE_DEPTH, DEFAULT_WIKI_PAGES, PageLimits, PageTree, Place};
+pub use person_name::{
+    Credential, MAX_CREDENTIALS, NAME_PART_MAX_LENGTH, NameShown, PersonName, PersonNameChange,
+    Title, UnknownCode,
+};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{

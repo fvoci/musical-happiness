@@ -69,8 +69,6 @@ export interface WorkspaceOptions {
   goneUserName?: () => string;
 }
 
-const DEFAULT_SETTINGS: AccountSettings = DEFAULT_ACCOUNT_SETTINGS;
-
 export class Workspace {
   readonly backend: Backend;
   readonly #locale: () => string;
@@ -93,7 +91,7 @@ export class Workspace {
   workspaceUsers = $state.raw<User[]>([]);
   containers = $state.raw<Container[]>([]);
   categories = $state.raw<Category[]>([]);
-  settings = $state.raw<AccountSettings>(DEFAULT_SETTINGS);
+  settings = $state.raw<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
   problems = $state.raw<Problem[]>([]);
 
   /** The board that is open, if one is. */
@@ -157,8 +155,9 @@ export class Workspace {
   /**
    * Reads everything the shell needs: the reader, their workspaces and settings, then the
    * workspace `workspaceId` (`enter`), or without one `firstChoice`. Call again to retry.
+   * Where `leaves` says of the settings that the page loads again for them, nothing more is read.
    */
-  async load(workspaceId?: string): Promise<void> {
+  async load(workspaceId?: string, leaves?: (settings: AccountSettings) => boolean): Promise<void> {
     this.status = 'loading';
     try {
       const [me, workspaces, settings] = await Promise.all([
@@ -169,6 +168,7 @@ export class Workspace {
       this.me = me;
       this.workspaces = workspaces;
       this.#takeSettings(settings);
+      if (leaves?.(settings)) return;
       this.#stopWatching?.();
       this.#stopWatching = this.backend.watchSelf((change) => {
         this.#apply(change);
@@ -401,7 +401,7 @@ export class Workspace {
     const before = this.settings;
     const optimistic: Record<string, unknown> = { ...before };
     for (const [name, value] of Object.entries(patch)) {
-      optimistic[name] = value ?? DEFAULT_SETTINGS[name as keyof AccountSettings];
+      optimistic[name] = value ?? DEFAULT_ACCOUNT_SETTINGS[name as keyof AccountSettings];
     }
     this.#takeSettings(optimistic as unknown as AccountSettings);
     try {

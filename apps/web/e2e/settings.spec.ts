@@ -7,6 +7,8 @@
  * the device remembers (theme, density, the way a card opens,
  * haptics) is there again after a reload.
  */
+import path from 'node:path';
+
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import {
@@ -18,6 +20,7 @@ import {
   strip,
   undoInBar,
 } from './shell.support.ts';
+import { screensDir } from './screens.ts';
 
 const dialog = (page: Page): Locator => page.getByTestId('settings-dialog');
 const setting = (page: Page, name: string): Locator =>
@@ -211,7 +214,8 @@ test('time zone: picked from a list that can be searched; a refused change goes 
   await button.click();
   const search = page.getByRole('combobox', { name: 'Search time zones' });
   await search.fill('tokyo');
-  await expect(page.getByRole('option')).toHaveCount(1);
+  // The options of the list searched; the selects of the name have their own.
+  await expect(page.getByRole('listbox').getByRole('option')).toHaveCount(1);
   await page.getByRole('option', { name: 'Asia/Tokyo' }).click();
   await expect(button).toContainText('Asia/Tokyo');
   await expect.poll(async () => (await stored(page)).timeZone).toBe('Asia/Tokyo');
@@ -261,28 +265,60 @@ test('language: the page loads again in the chosen one, and the device remembers
   await expect(setting(page, 'language').getByRole('button')).toContainText('한국어');
 });
 
-test('display name: saved with its button, a refused one said beside the field, a failed save on the problem line', async ({
+test('name: its parts, the one shown, a title and credentials, saved with one button; a refused part said beside it, a failed save on the problem line', async ({
   page,
 }) => {
   await openApp(page);
   await openSettings(page);
-  const field = setting(page, 'displayName').getByLabel('Display name');
-  const save = setting(page, 'displayName').getByRole('button', { name: 'Save name' });
-  await expect(field).toHaveValue('김하나');
+  const form = setting(page, 'name');
+  const part = (name: string): Locator => form.getByRole('textbox', { name, exact: true });
+  const save = form.getByRole('button', { name: 'Save name' });
+  const custom = part('Name of your own');
+  await expect(custom).toHaveValue('김하나');
   await expect(save).toBeDisabled();
 
-  await field.fill('x'.repeat(65));
+  await custom.fill('x'.repeat(65));
   await save.click();
-  await expect(setting(page, 'displayName').getByTestId('problem-displayName')).toHaveText(
-    'A display name has at most 64 characters.',
+  await expect(form.getByTestId('problem-customName')).toHaveText('At most 64 characters.');
+
+  await custom.fill('  Hana Kim ');
+  await part('Family name').fill('김');
+  await part('Given name').fill('영환');
+  await expect(form.getByTestId('name-preview')).toHaveText('Others see you as 김영환.');
+  await form.getByRole('radio', { name: /The name of my own/ }).check();
+  await expect(form.getByTestId('name-preview')).toHaveText('Others see you as Hana Kim.');
+  await expect(form.getByRole('radio', { name: /My name in Latin letters/ })).toHaveAccessibleName(
+    /empty: the next one is shown/,
   );
-
-  await field.fill('  Hana Kim ');
+  await form.getByRole('combobox', { name: 'Title' }).selectOption({ label: 'Dr.' });
+  const add = form.getByRole('combobox', { name: 'Add a degree or qualification' });
+  const press = form.getByRole('button', { name: 'Add', exact: true });
+  // Choosing alone adds nothing: the arrow keys may go through the list.
+  await add.selectOption({ label: 'PhD' });
+  await expect(form.getByTestId('credentials')).toHaveCount(0);
+  await press.click();
+  await expect(add).toBeFocused();
+  for (const label of ['MD', 'MBA']) {
+    await add.selectOption({ label });
+    await press.click();
+  }
+  await expect(add).toBeDisabled();
+  // The third turns the list off: focus goes to the last one listed, not to the page.
+  await expect(form.getByRole('button', { name: 'Remove MBA' })).toBeFocused();
+  await expect(form.getByTestId('credentials').getByRole('listitem')).toHaveText([
+    /PhD/,
+    /MD/,
+    /MBA/,
+  ]);
+  await form.getByRole('button', { name: 'Remove MD' }).click();
+  await expect(add).toBeEnabled();
+  await expect(form.getByRole('button', { name: 'Remove MBA' })).toBeFocused();
   await save.click();
-  await expect(setting(page, 'displayName').getByText('Saved.')).toBeVisible();
-  await expect(field).toHaveValue('Hana Kim');
+  await expect(form.getByText('Saved.')).toBeVisible();
+  await expect(custom).toHaveValue('Hana Kim');
+  await expect(save).toBeDisabled();
 
-  // A failure that is no refusal of the name: the page's problem line, and the field keeps its text.
+  // A failure that is no refusal of the name: the page's problem line, and the form keeps its text.
   await page.evaluate(() => {
     (
       window as unknown as {
@@ -290,11 +326,48 @@ test('display name: saved with its button, a refused one said beside the field, 
       }
     ).fvociDev.backend.failNext('patchMe', new Error('refused by the test'));
   });
-  await field.fill('Hana');
+  await custom.fill('Hana');
   await save.click();
   await expect(page.getByTestId('problems')).toContainText('The change was not saved');
-  await expect(field).toHaveValue('Hana');
-  await expect(setting(page, 'displayName').getByTestId('problem-displayName')).toHaveCount(0);
+  await expect(custom).toHaveValue('Hana');
+  await expect(form.getByTestId('problem-customName')).toHaveCount(0);
+});
+
+/**
+ * Pictures of the name in the settings, filled in, wide and at 390 pixels, light and
+ * dark, into `target/screens/settings-name/`: taken only with `FVOCI_SCREENS=1`.
+ */
+test('pictures of the name in the settings', async ({ page }, testInfo) => {
+  test.skip(!process.env.FVOCI_SCREENS, 'pictures are taken only when asked for');
+  test.skip(testInfo.project.name !== 'desktop', 'once, at the sizes it sets');
+  for (const [width, viewport] of [
+    ['wide', { width: 1280, height: 900 }],
+    ['390', { width: 390, height: 844 }],
+  ] as const) {
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
+      await openApp(page);
+      await openSettings(page);
+      const form = setting(page, 'name');
+      const part = (name: string): Locator => form.getByRole('textbox', { name, exact: true });
+      await part('Family name').fill('김');
+      await part('Given name').fill('영환');
+      await part('Given name in Latin letters').fill('Younghwan');
+      await part('Family name in Latin letters').fill('Kim');
+      await form.getByRole('combobox', { name: 'Title' }).selectOption({ label: 'Dr.' });
+      const add = form.getByRole('combobox', { name: 'Add a degree or qualification' });
+      for (const label of ['PhD', 'MBA']) {
+        await add.selectOption({ label });
+        await form.getByRole('button', { name: 'Add', exact: true }).click();
+      }
+      await form.getByTestId('name-shown-name').scrollIntoViewIfNeeded();
+      await page.evaluate(() => document.fonts.ready);
+      await page.screenshot({
+        path: path.join(screensDir('settings-name'), `name-${width}-${colorScheme}.png`),
+      });
+    }
+  }
 });
 
 test('the layout readout is switched on and off in the settings', async ({ page }) => {

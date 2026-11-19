@@ -10,6 +10,10 @@
  * The frame has a time to get ready in and another to draw the file in;
  * past either, or when the viewer closes, the frame is taken out of the page,
  * and with it its document, its worker and the memory they held.
+ *
+ * A deck with slides hidden from a show opens on the others; the reader may
+ * show the hidden ones in place for as long as the viewer is open (it is
+ * not kept). Pages are turned past the slides left out (`SlideOrder`).
  */
 import { tick } from 'svelte';
 
@@ -27,6 +31,7 @@ import {
   type ToFrame,
   type ViewerKey,
 } from './protocol.ts';
+import { SlideOrder } from './slide-order.ts';
 
 /** A file to view: what is known before its bytes are read, and how to read them. */
 export interface ViewedFile {
@@ -77,6 +82,10 @@ export class ViewerSession {
   page = $state(1);
   /** A workbook's sheets, by name: its pages. None for a document of pages. */
   sheets = $state.raw<readonly SheetSummary[]>([]);
+  /** A deck's slides when some are hidden from a show; undefined for any other document. */
+  slides = $state.raw<SlideOrder | undefined>(undefined);
+  /** Whether a deck's hidden slides are shown. */
+  showHidden = $state(false);
   zoom = $state(1);
   /** The file's bytes once read: what "Download" saves. */
   blob = $state.raw<Blob | undefined>(undefined);
@@ -90,6 +99,8 @@ export class ViewerSession {
   /** Gives up the reading, and stands for "closed". */
   readonly #abort = new AbortController();
   #bytes: ArrayBuffer | undefined;
+  /** The hidden slides the frame told of, until it tells how many pages there are. */
+  #hidden: readonly number[] = [];
   #frame: HTMLIFrameElement | undefined;
   #timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -208,6 +219,7 @@ export class ViewerSession {
           chart: m.viewer_chart_not_drawn(),
           pageTooLarge: m.viewer_page_too_large(),
           download: m.viewer_download(),
+          hidden: m.viewer_hidden(),
         };
         this.#send({ kind: 'open', ...open, labels }, [bytes]);
         this.#wait(this.#limits.draw);
@@ -216,12 +228,21 @@ export class ViewerSession {
       case 'sheets':
         if (status.name === 'opening') this.sheets = message.sheets;
         break;
+      case 'hidden':
+        // Of a deck only: another document's pages are turned one by one.
+        if (status.name === 'opening' && status.format === 'pptx') this.#hidden = message.pages;
+        break;
       case 'shown':
         clearTimeout(this.#timer);
         // Sheets that are not the pages shown are not shown as them.
         if (this.sheets.length !== message.pages) this.sheets = [];
         this.pages = message.pages;
-        this.page = 1;
+        // Hidden slides past the last page are not of these pages: none is taken as hidden.
+        this.slides =
+          (this.#hidden.at(-1) ?? Infinity) <= message.pages
+            ? new SlideOrder(message.pages, this.#hidden)
+            : undefined;
+        this.page = this.slides?.first(false) ?? 1;
         this.status = { name: 'shown', format: status.format };
         // The keys that scroll a page (arrows, Page Down, Space) then scroll the document.
         // After the update: until then the frame is hidden, and takes no focus.
@@ -230,6 +251,8 @@ export class ViewerSession {
         });
         break;
       case 'page':
+        // A slide left out is not the reader's (a message sent before they were left out).
+        if (this.slides && !this.slides.shows(message.page, this.showHidden)) break;
         this.page = Math.min(message.page, this.pages);
         break;
       case 'failed':
@@ -250,6 +273,33 @@ export class ViewerSession {
     const target = Math.min(Math.max(1, page), this.pages);
     this.page = target;
     this.#send({ kind: 'page', page: target });
+  }
+
+  /** The page after (1) or before (-1) the one in view, past the slides left out; undefined at an end. */
+  #turned(step: 1 | -1): number | undefined {
+    if (this.slides) return this.slides.next(this.page, step, this.showHidden);
+    const page = this.page + step;
+    return page >= 1 && page <= this.pages ? page : undefined;
+  }
+
+  canTurn(step: 1 | -1): boolean {
+    return this.#turned(step) !== undefined;
+  }
+
+  /** Turns to the next page (1) or the previous one (-1). */
+  turn(step: 1 | -1): void {
+    const page = this.#turned(step);
+    if (page !== undefined) this.goTo(page);
+  }
+
+  /** Shows a deck's hidden slides in place, or leaves them out again. */
+  toggleHidden(): void {
+    const slides = this.slides;
+    if (this.status.name !== 'shown' || !slides || slides.allHidden) return;
+    this.showHidden = !this.showHidden;
+    // Where the reader lands, until the frame tells the slide it keeps in view.
+    this.page = slides.landing(this.page, this.showHidden);
+    this.#send({ kind: 'hidden', shown: this.showHidden });
   }
 
   /** Zooms one step in (1) or out (-1), or back to 1 (0). */

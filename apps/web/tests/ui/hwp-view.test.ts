@@ -46,6 +46,7 @@ class FakeObserver {
 const report = () =>
   ({
     sheets: vi.fn<Report['sheets']>(),
+    hidden: vi.fn<Report['hidden']>(),
     shown: vi.fn<Report['shown']>(),
     page: vi.fn<Report['page']>(),
     failed: vi.fn<Report['failed']>(),
@@ -56,6 +57,7 @@ const LABELS = {
   chart: 'Charts are not shown in the preview',
   pageTooLarge: 'This page is too large to show.',
   download: 'Download',
+  hidden: 'Hidden',
 };
 const SIZES = [
   { width: 800, height: 1100 },

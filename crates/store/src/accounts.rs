@@ -214,6 +214,7 @@ pub(crate) async fn insert_account(
     user.update_at = now;
     user.delete_at = 0;
     user.is_admin = role == InstanceRole::Administrator;
+    user.display_name = user.name.shown();
     users::insert_user_row(scope, user).await
 }
 

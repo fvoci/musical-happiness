@@ -138,6 +138,30 @@ describe('the PowerPoint worker reads a presentation into the parts the renderer
     if (answer.kind !== 'read') throw new Error(answer.reason);
     expect([...answer.pixels.keys()].sort()).toEqual([...answer.parts.slides.keys()].sort());
     expect(answer.pixels.get('ppt/slides/slide1.xml')).toBe(300 * 150);
+    expect(answer.hidden).toEqual([]);
+  });
+
+  it('the answer names the slides hidden from a show, `show` read as the renderer reads it', async () => {
+    const slide = (show: string): { shapes: string; xml: string } => ({
+      shapes: '',
+      xml: `<p:sld ${NAMESPACES} ${show}><p:cSld><p:spTree/></p:cSld></p:sld>`,
+    });
+    const file = deck({
+      slides: [
+        { shapes: '', hidden: true },
+        slide('show="1"'),
+        slide('show=" False "'),
+        slide('show="off"'),
+        slide('show="no"'),
+        slide('p:show="0"'),
+        slide('show="1" p:show="0"'),
+      ],
+    });
+    const answer = await readPresentation(await repacked(file));
+    if (answer.kind !== 'read') throw new Error(answer.reason);
+    expect(answer.hidden.sort()).toEqual(
+      [1, 3, 4, 6].map((number) => `ppt/slides/slide${number}.xml`),
+    );
   });
 });
 
@@ -394,6 +418,8 @@ describe('the answer of the worker is taken only in its shape', () => {
     ).toBeUndefined();
     expect(readFromPptxWorker({ ...answer, characters: 1 })).toBeUndefined();
     expect(readFromPptxWorker({ ...answer, pixels: undefined })).toBeUndefined();
+    expect(readFromPptxWorker({ ...answer, hidden: undefined })).toBeUndefined();
+    expect(readFromPptxWorker({ ...answer, hidden: [1] })).toBeUndefined();
     expect(readFromPptxWorker({ ...answer, pixels: new Map([['x', -1]]) })).toBeUndefined();
     expect(readFromPptxWorker({ ...answer, pixels: new Map([['x', Infinity]]) })).toBeUndefined();
     expect(readFromPptxWorker(answer)).toEqual(answer);

@@ -1,4 +1,4 @@
 -- The records of the built-in templates' files, read by every organization
--- (schema/postgres/0045_template_files.sql). An SQLite database has no policies to
+-- (schema/postgres/0046_template_files.sql). An SQLite database has no policies to
 -- keep the rows of organizations apart, so its organization reads them already, and
 -- nothing here changes.

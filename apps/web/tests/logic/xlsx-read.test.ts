@@ -48,7 +48,14 @@ import {
   pastTheEdgeXlsx,
 } from '../support/hostile-xlsx.ts';
 import { zip } from '../support/viewer-files.ts';
-import { cell, koreanXlsx, workbook, XLSX_TEXT } from '../support/viewer-xlsx.ts';
+import {
+  cell,
+  koreanXlsx,
+  ROW_COLUMN_STYLES,
+  rowColumnXlsx,
+  workbook,
+  XLSX_TEXT,
+} from '../support/viewer-xlsx.ts';
 
 const buffer = (bytes: Buffer): ArrayBuffer => new Uint8Array(bytes).buffer;
 
@@ -190,6 +197,25 @@ describe('what a cell holds, and where the parts are', () => {
     expect(cells.get('C1')).toEqual([NUMBER, 46_344]);
     expect(cells.get('D1')).toEqual([STRING, '東京']);
     expect(cells.get('E1')).toEqual([STRING, 'a\rb_x0041_']);
+  });
+
+  it('rows and columns of a style of their own: a row only with customFormat, in order', async () => {
+    const book = await read(rowColumnXlsx());
+    const [sheet] = book.sheets;
+    // Rows 2, 4, 7 and 12 (from 0: 1, 3, 6, 11); row 6 has no customFormat.
+    expect([...(sheet?.rowStyles ?? [])]).toEqual([1, 1, 3, 3, 6, 1, 11, 4]);
+    expect([...(sheet?.columnStyles ?? [])]).toEqual([2, 2, 2]);
+    // E7, written empty in a styled row, stays: its own style (none) is what it shows.
+    expect(cellsOf(book, 0).get('E7')).toEqual([BLANK, 0]);
+    const other = await sheetOf(
+      '<row r="3" s="99" customFormat="1"/><row r="1" s="1" customFormat="true"/><row r="3" s="1" customFormat="1"/><row r="2"><c r="A2"/></row>',
+      [],
+      { stylesXml: ROW_COLUMN_STYLES },
+    );
+    // A style not in the workbook is its first; a row written twice is its last; an empty cell
+    // in a sheet without styled rows or columns is no cell.
+    expect([...(other.sheets[0]?.rowStyles ?? [])]).toEqual([0, 1, 2, 1]);
+    expect(cellsOf(other, 0).size).toBe(0);
   });
 
   it('a cell named twice is the last; a string out of the table and an empty value are no value', async () => {
@@ -346,6 +372,34 @@ describe("the worker's answer", () => {
       'a style of a font that is not there',
       (book: Workbook) => {
         if (book.styles[0]) book.styles[0].font = book.fonts.length;
+        return { kind: 'read', workbook: book };
+      },
+    ],
+    [
+      'a row of a style not there',
+      (book: Workbook) => {
+        if (book.sheets[0]) book.sheets[0].rowStyles = Uint32Array.of(1, book.styles.length);
+        return { kind: 'read', workbook: book };
+      },
+    ],
+    [
+      'rows of a style out of order',
+      (book: Workbook) => {
+        if (book.sheets[0]) book.sheets[0].rowStyles = Uint32Array.of(5, 0, 2, 0);
+        return { kind: 'read', workbook: book };
+      },
+    ],
+    [
+      'a run of columns of a style backwards',
+      (book: Workbook) => {
+        if (book.sheets[0]) book.sheets[0].columnStyles = Uint32Array.of(3, 2, 0);
+        return { kind: 'read', workbook: book };
+      },
+    ],
+    [
+      'styles of rows in an array of another kind',
+      (book: Workbook) => {
+        if (book.sheets[0]) (book.sheets[0] as { rowStyles: unknown }).rowStyles = [1, 0];
         return { kind: 'read', workbook: book };
       },
     ],

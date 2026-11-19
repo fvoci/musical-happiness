@@ -3,14 +3,16 @@
  * deck in Korean turned through slide by slide, its links kept in the frame,
  * decks that pass a ceiling of the PowerPoint worker and an old PowerPoint
  * file offered as a download, and the app kept answering (and "Close"
- * closing) while a deck is read and while its slides are drawn.
+ * closing) while a deck is read and while its slides are drawn; a deck with
+ * slides hidden from a show, opened on the others and its hidden ones shown
+ * in place.
  *
  * With `FVOCI_SCREENS=1` the tests take pictures into `target/viewer-p3/`.
  */
 import { expect, test, type Page } from '@playwright/test';
 
 import { HOSTILE_PPTX, heavyPptx, slowPptx } from '../tests/support/hostile-pptx.ts';
-import { koreanPptx, PPTX_TEXT } from '../tests/support/viewer-pptx.ts';
+import { koreanPptx, numberedPptx, numberedText, PPTX_TEXT } from '../tests/support/viewer-pptx.ts';
 
 import {
   attach,
@@ -28,6 +30,8 @@ import {
 
 const PPTX_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 const SCREENS = 'viewer-p3';
+/** The pictures of the hidden slides, of the follow-up to viewer-p2. */
+const SCREENS_HIDDEN = 'viewer-p2';
 
 async function open(page: Page, name: string, file: Buffer): Promise<void> {
   const row = await attach(page, name, file, PPTX_TYPE);
@@ -139,6 +143,160 @@ function pixelsApart(page: Page, one: Buffer, other: Buffer, by: number): Promis
     [one.toString('base64'), other.toString('base64'), by] as const,
   );
 }
+
+/** The numbers of the slides laid out in the frame, in order. */
+function laidOut(page: Page): Promise<number[]> {
+  return viewerFrame(page).evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('.slide:not([hidden])')].map((box) =>
+      Number(box.dataset.page),
+    ),
+  );
+}
+
+test('a deck with hidden slides opens on those a show gives; the hidden ones come in place, marked', async ({
+  page,
+}) => {
+  await openCard(page);
+  // Hidden: the first, two together, and the last.
+  await open(page, '숨긴 장.pptx', numberedPptx(7, [1, 3, 4, 7]));
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  const counter = page.getByTestId('file-viewer-page');
+  const announce = page.getByTestId('file-viewer-announce');
+  const line = page.getByTestId('file-viewer-slides');
+  const toggle = page.getByTestId('file-viewer-hidden');
+  const frame = frameOf(page);
+  await expect(line.getByRole('status')).toHaveText('Slides: 3');
+  await expect(toggle).toHaveText('Show hidden slides (4)');
+  // The first slide a show gives is 2, numbered as in the file.
+  await expect(counter).toContainText('2 / 7');
+  await expect(announce).toHaveText('Slide 2 of 7');
+  expect(await laidOut(page)).toEqual([2, 5, 6]);
+  await expect(frame.locator('.slide[data-page="2"]')).toContainText(numberedText(2));
+  await picture(page, SCREENS_HIDDEN, 'pptx-hidden');
+
+  // Turned past the hidden slides, by the buttons and the keys; the ends are 2 and 6.
+  const next = viewer(page).getByRole('button', { name: 'Next slide' });
+  const previous = viewer(page).getByRole('button', { name: 'Previous slide' });
+  await expect(previous).toBeDisabled();
+  await next.click();
+  await expect(counter).toContainText('5 / 7');
+  // The keys from within the deck (the button "Next" lets the focus go once it is disabled).
+  await frame.locator('.slide[data-page="5"]').click();
+  await page.keyboard.press('ArrowRight');
+  await expect(counter).toContainText('6 / 7');
+  await expect(next).toBeDisabled();
+  await page.keyboard.press('ArrowLeft');
+  await expect(counter).toContainText('5 / 7');
+
+  // Reached by the keyboard: from the viewer's buttons, Tab, and Enter.
+  await viewer(page).getByTestId('file-viewer-close').focus();
+  await page.keyboard.press('Tab');
+  await expect(toggle).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(toggle).toHaveText('Hide hidden slides');
+  await expect(toggle).toBeFocused();
+  await expect(line.getByRole('status')).toHaveText('Slides: 7, 4 hidden');
+  expect(await laidOut(page)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  // The reader stays on slide 5, where it was.
+  await expect(counter).toContainText('5 / 7');
+  await expect(frame.locator('.slide[data-page="5"]')).toBeInViewport();
+  // Each hidden slide is marked in words, not by its colour alone.
+  const marked = frame.locator('.slide-hidden');
+  await expect(marked).toHaveCount(4);
+  for (const number of [1, 3, 4, 7]) {
+    await expect(frame.locator(`.slide[data-page="${number}"] .slide-mark`)).toHaveText('Hidden');
+  }
+  await expect(frame.locator('.slide[data-page="5"] .slide-mark')).toHaveCount(0);
+  await previous.click();
+  await expect(counter).toContainText('4 / 7');
+  await expect(announce).toHaveText('Slide 4 of 7, hidden');
+  await expect(frame.locator('.slide[data-page="4"]')).toContainText(numberedText(4));
+  await picture(page, SCREENS_HIDDEN, 'pptx-hidden-shown');
+
+  // Left out again while on hidden slide 4: the reader lands on 5, the next a show gives.
+  await toggle.click();
+  await expect(toggle).toHaveText('Show hidden slides (4)');
+  await expect(counter).toContainText('5 / 7');
+  expect(await laidOut(page)).toEqual([2, 5, 6]);
+  await expect(frame.locator('.slide[data-page="5"]')).toBeInViewport();
+  await page.keyboard.press('Escape');
+  await expect(viewer(page)).toHaveCount(0);
+
+  // Opened again, the deck is on the slides a show gives: the choice is not kept.
+  await page
+    .getByTestId('card-attachments')
+    .locator('[data-attachment]', { hasText: '숨긴 장.pptx' })
+    .getByRole('link', { name: '숨긴 장.pptx' })
+    .click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await expect(toggle).toHaveText('Show hidden slides (4)');
+});
+
+for (const [locale, words] of [
+  ['en-US', { count: 'Slides: 49', show: 'Show hidden slides (3)', hide: 'Hide hidden slides' }],
+  [
+    'ko-KR',
+    { count: '슬라이드 49장', show: '숨긴 슬라이드 3장 보기', hide: '숨긴 슬라이드 감추기' },
+  ],
+] as const) {
+  test.describe(locale, () => {
+    test.use({ locale });
+
+    test('the line of hidden slides fits at the narrowest width', async ({ page }) => {
+      await narrowest(page, words);
+    });
+  });
+}
+
+async function narrowest(
+  page: Page,
+  words: { count: string; show: string; hide: string },
+): Promise<void> {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openCard(page);
+  await open(page, '숨긴 장이 든 아주 긴 이름의 발표 자료.pptx', numberedPptx(52, [3, 4, 5]));
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  const toggle = page.getByTestId('file-viewer-hidden');
+  await expect(toggle).toHaveText(words.show);
+  await expect(page.getByTestId('file-viewer-slides').getByRole('status')).toHaveText(words.count);
+  const overflows = (): Promise<boolean[]> =>
+    page.evaluate(() =>
+      ['file-viewer', 'file-viewer-slides'].map((id) => {
+        const element = document.querySelector(`[data-testid="${id}"]`);
+        return !element || element.scrollWidth > element.clientWidth;
+      }),
+    );
+  expect(await overflows()).toEqual([false, false]);
+  await toggle.click();
+  await expect(toggle).toHaveText(words.hide);
+  expect(await overflows()).toEqual([false, false]);
+  const box = await toggle.boundingBox();
+  expect((box?.x ?? -1) + (box?.width ?? 0)).toBeLessThanOrEqual(390);
+}
+
+test('a deck whose slides are all hidden shows them all, marked, and no button', async ({
+  page,
+}) => {
+  await openCard(page);
+  await open(page, '모두 숨김.pptx', numberedPptx(2, [1, 2]));
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await expect(page.getByTestId('file-viewer-slides').getByRole('status')).toHaveText(
+    'Slides: 2, all hidden',
+  );
+  await expect(page.getByTestId('file-viewer-hidden')).toHaveCount(0);
+  await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 2');
+  await expect(page.getByTestId('file-viewer-announce')).toHaveText('Slide 1 of 2, hidden');
+  expect(await laidOut(page)).toEqual([1, 2]);
+  await expect(frameOf(page).locator('.slide-mark')).toHaveCount(2);
+});
+
+test('a deck without hidden slides has no line of them', async ({ page }) => {
+  await openCard(page);
+  await open(page, '셋.pptx', numberedPptx(3, []));
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 3');
+  await expect(page.getByTestId('file-viewer-slides')).toHaveCount(0);
+});
 
 test('a deck at the narrowest width, in the dark: the slide fits and keeps its colours', async ({
   page,

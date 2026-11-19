@@ -359,8 +359,12 @@ export class WikiStore {
     return this.#writes.deletePage(pageId);
   }
 
-  /** The wiki's pages in the trash, for its editors: a page of them, the last deleted first. */
-  deletedPages(paging?: Paging): Promise<DeletedItem[]> {
+  /**
+   * The wiki's pages in the trash, for its editors: a page of them, the last
+   * deleted first, those the reader is deleting right now among them.
+   */
+  async deletedPages(paging?: Paging): Promise<DeletedItem[]> {
+    await this.#writes.deletionsAnswered();
     return this.#wikis.deletedPages(this.wikiId, paging);
   }
 

@@ -590,7 +590,7 @@ async fn writes_elsewhere_read_nothing(
         "another organization's write is not this one's revision"
     );
     ts.client
-        .patch("/users/me", &json!({"displayName": "renamed"}))
+        .patch("/users/me", &json!({"customName": "renamed"}))
         .await
         .check_ok();
     assert_eq!(

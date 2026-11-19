@@ -7,6 +7,7 @@
  * `ServerBackend` is made of these and the rest (`backend.ts`).
  */
 import type { FileDetails } from '../editor/files.ts';
+import type { NameChange } from '../logic/person-names.ts';
 import type { Container } from '../logic/wire.ts';
 import type {
   AcceptedInvitation,
@@ -370,7 +371,7 @@ export class ServerRequests implements TrashReads {
     );
   }
 
-  async patchMe(patch: { displayName: string | null }): Promise<User> {
+  async patchMe(patch: NameChange): Promise<User> {
     const change: Schemas['AccountChange'] = patch;
     return userOf(
       await this.#http.request<Schemas['User']>(

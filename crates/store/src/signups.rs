@@ -4,7 +4,7 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_model::User;
+use fvoci_model::{PersonName, User};
 
 use crate::accounts::{self, Founding};
 use crate::db::{Dialect, Id, OptId, Row, Scope, Sql};
@@ -31,8 +31,9 @@ pub struct Signup {
     pub username: String,
     /// The address to be confirmed.
     pub email: String,
-    /// The name to be shown by; empty for none.
-    pub display_name: String,
+    /// The name the person wrote to be shown by (`PersonName::custom_name`); empty for
+    /// none.
+    pub custom_name: String,
     /// An Argon2id PHC string.
     pub password_hash: String,
     /// The language tag of the screen it was made from, for its mail.
@@ -67,7 +68,10 @@ impl Signup {
             id: self.id.clone(),
             username: self.username.clone(),
             email: self.email.clone(),
-            display_name: self.display_name.clone(),
+            name: PersonName {
+                custom_name: self.custom_name.clone(),
+                ..PersonName::default()
+            },
             password_hash: self.password_hash.clone(),
             ..User::default()
         }
@@ -470,7 +474,7 @@ async fn insert(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError
     sql.bind(Id(&signup.id))
         .push_bind(", ", &signup.username)
         .push_bind(", ", &signup.email)
-        .push_bind(", ", &signup.display_name)
+        .push_bind(", ", &signup.custom_name)
         .push_bind(", ", &signup.password_hash)
         .push_bind(", ", &signup.language)
         .push_bind(", NULLIF(", organization_name)
@@ -751,7 +755,7 @@ fn signup_from_row(row: &Row) -> Result<Signup, StoreError> {
         id: row.id(0)?,
         username: row.text(1)?,
         email: row.text(2)?,
-        display_name: row.text(3)?,
+        custom_name: row.text(3)?,
         password_hash: row.text(4)?,
         language: row.text(5)?,
         start: match row.id(9)? {
