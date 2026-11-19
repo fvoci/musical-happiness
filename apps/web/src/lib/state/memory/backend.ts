@@ -969,10 +969,10 @@ export class MemoryBackend implements Backend {
     if (stored?.containerId !== boardId)
       fail(400, 'no such file on this board', { field: 'fileId' });
     const block = this.#newBlock(boardId, cardId, 'attachment');
-    block.title = stored.name;
+    block.title = file.name;
     block.file = {
       fileId: stored.fileId,
-      name: stored.name,
+      name: file.name,
       size: stored.size,
       contentType: stored.contentType,
     };

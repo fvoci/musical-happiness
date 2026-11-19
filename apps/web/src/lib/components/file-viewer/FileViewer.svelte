@@ -20,23 +20,26 @@
   place, in a frame of its own; the header says when what is shown is not the
   newest.
 
+  A Hangul document can be edited by who may write the file's versions: "Edit"
+  hands the version on screen to the editor (FileEditor.svelte), which takes
+  the viewer's place until it is closed.
+
   It is mounted for one file and closed by unmounting it, which takes the
   frame out of the page and stops whatever the frame was doing.
 -->
 <script lang="ts">
-  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
-  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import HistoryIcon from '@lucide/svelte/icons/history';
+  import PencilIcon from '@lucide/svelte/icons/pencil';
   import XIcon from '@lucide/svelte/icons/x';
-  import ZoomInIcon from '@lucide/svelte/icons/zoom-in';
-  import ZoomOutIcon from '@lucide/svelte/icons/zoom-out';
   import { onDestroy, tick, untrack } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
 
+  import PageControls from './PageControls.svelte';
   import SheetTabs from './SheetTabs.svelte';
   import { display } from '$lib/display.svelte.ts';
+  import type { EditedFile } from '$lib/file-viewer/editing.svelte.ts';
   import {
     frameAddress,
     LIMITS,
@@ -65,6 +68,8 @@
     /** The file's versions, where the reader may see them. */
     versions?: VersionsSource | undefined;
     onClose: () => void;
+    /** Opens the editor on the version shown; without it the viewer offers no editing. */
+    onEdit?: ((edited: EditedFile) => void) | undefined;
     /**
      * Gives the focus back as the viewer goes, once its hold on the focus is let go of; without
      * it, the focus goes back to what had it when the viewer opened.
@@ -72,7 +77,7 @@
     returnFocus?: () => void;
   }
 
-  let { file, versions, onClose, returnFocus }: Props = $props();
+  let { file, versions, onClose, onEdit, returnFocus }: Props = $props();
 
   const uid = $props.id();
 
@@ -141,6 +146,16 @@
   const compact = $derived(page.stage === 'compact');
   const status = $derived(session.status);
   const framed = $derived(status.name === 'opening' || status.name === 'shown');
+  /**
+   * What "Edit" opens the editor on: the Hangul document on screen, for who may write its
+   * versions, once it is shown and its version is known (a new version is written from it).
+   */
+  const editable = $derived.by(() => {
+    if (!onEdit || !versions?.canWrite || status.name !== 'shown') return undefined;
+    const { format } = status;
+    if ((format !== 'hwp' && format !== 'hwpx') || shownVersion === undefined) return undefined;
+    return session.blob ? { format, blob: session.blob, version: shownVersion } : undefined;
+  });
   /** The sheet shown, when the file is a workbook. */
   const sheet = $derived(session.sheets[session.page - 1]);
   /** A deck's pages are its slides, and are called so. */
@@ -222,6 +237,14 @@
     void session.file.read().then((blob) => {
       if (blob) saveBlob(blob, file.name);
     });
+  }
+
+  async function edit(): Promise<void> {
+    const edited = editable;
+    if (!edited) return;
+    const { format, blob, version } = edited;
+    const bytes = await blob.arrayBuffer();
+    if (!closed) onEdit?.({ name: file.name, format, bytes, version });
   }
 
   /** Shows a version in the file's place. */
@@ -333,6 +356,11 @@
           {m.viewer_older_version()}
         </p>
       {/if}
+      {#if editable}
+        <IconButton label={m.viewer_edit()} data-testid="file-viewer-edit" onclick={edit}>
+          <PencilIcon aria-hidden="true" />
+        </IconButton>
+      {/if}
       {#if versions}
         <IconButton
           id="{uid}-versions"
@@ -432,60 +460,7 @@
       />
     {/if}
     {#if status.name === 'shown'}
-      <footer class="flex min-h-12 items-center justify-center gap-1 border-t p-1">
-        <IconButton
-          label={previous}
-          disabled={session.page <= 1}
-          onclick={() => {
-            session.goTo(session.page - 1);
-          }}
-        >
-          <ChevronLeftIcon aria-hidden="true" />
-        </IconButton>
-        <p class="min-w-16 text-center text-sm tabular-nums" data-testid="file-viewer-page">
-          <span aria-hidden="true">{session.page} / {session.pages}</span>
-          <span class="sr-only">{where}</span>
-        </p>
-        <IconButton
-          label={next}
-          disabled={session.page >= session.pages}
-          onclick={() => {
-            session.goTo(session.page + 1);
-          }}
-        >
-          <ChevronRightIcon aria-hidden="true" />
-        </IconButton>
-        <span class="mx-2 h-6 w-px bg-border" aria-hidden="true"></span>
-        <IconButton
-          label={m.viewer_zoom_out()}
-          disabled={!session.canZoomOut}
-          onclick={() => {
-            session.zoomBy(-1);
-          }}
-        >
-          <ZoomOutIcon aria-hidden="true" />
-        </IconButton>
-        <button
-          type="button"
-          class="min-h-8 min-w-14 rounded-md text-sm tabular-nums hover:bg-accent roomy:min-h-touch"
-          aria-label={m.viewer_zoom_reset({ percent: Math.round(session.zoom * 100) })}
-          data-testid="file-viewer-zoom"
-          onclick={() => {
-            session.zoomBy(0);
-          }}
-        >
-          {Math.round(session.zoom * 100)}%
-        </button>
-        <IconButton
-          label={m.viewer_zoom_in()}
-          disabled={!session.canZoomIn}
-          onclick={() => {
-            session.zoomBy(1);
-          }}
-        >
-          <ZoomInIcon aria-hidden="true" />
-        </IconButton>
-      </footer>
+      <PageControls {session} {where} {previous} {next} />
     {/if}
   </Dialog.Content>
 </Dialog.Root>
