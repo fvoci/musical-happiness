@@ -12,6 +12,7 @@
 //!   installation, tries it from outside and takes it down; `--push-plan` prints how
 //!   the images go to GHCR. Not part of `check` or `test`: it takes minutes.
 
+mod banned;
 mod check;
 mod containers;
 mod docker;

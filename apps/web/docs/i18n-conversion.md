@@ -409,8 +409,6 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 | `zh-Hans` | 你可以对问题进行评论，甚至可以@提及你的fvoci同伴，以引起他们的注意。                                                  |
 | `zh-Hant` | 你可以對問題進行評論,甚至標記提到你的fvoci夥伴,引起他們的注意。                                                       |
 
-`apps/web` 아래의 메시지, 도구, 테스트, 이 문서에 두 이름은 없다(`node tools/names/check.ts`). 도구와 테스트는 `names/check.ts`처럼 이름을 반쪽 둘로 이어 만든다.
-
 ### 제품 이름으로 쓰인 Boards
 
 원본의 영어 문구 몇 곳은 제품을 "Boards"라고 부른다(제거한 `WelcomePage.Heading`의 "Welcome To Boards"도 그렇다). 금지된 두 이름이 아니어서 처음 변환은 손대지 않았다. 결정 1: 제품을 가리키는 Boards는 `fvoci`로 바꾸고, 사이드바의 기본 카테고리 이름인 Boards는 그대로 둔다. 기계적 치환이 아니라 메시지마다 읽고 `messages-override`에 적었다.

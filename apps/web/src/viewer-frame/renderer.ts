@@ -8,6 +8,8 @@ import type { Failure, Labels, SheetSummary } from '$lib/file-viewer/protocol.ts
 export interface Report {
   /** A workbook's sheets, which are its pages: told before it is shown. */
   sheets(sheets: SheetSummary[]): void;
+  /** A deck's hidden slides, by number, in order: told before it is shown, when it has any. */
+  hidden(pages: number[]): void;
   /** The document is drawn as far as the reader can see it, and has this many pages. */
   shown(pages: number): void;
   /** The page most in view is now this one (from 1). */
@@ -23,6 +25,8 @@ export interface Drawn {
   goTo(page: number): void;
   /** Draws at this zoom, 1 being the document's own size. */
   zoom(zoom: number): void;
+  /** Shows a deck's hidden slides in place, or leaves them out, keeping the reader's place. */
+  showHidden?(shown: boolean): void;
 }
 
 /** Thrown when the file is a kind the renderer reads, but locked with a password. */
@@ -52,19 +56,27 @@ const PIN_SETTLES = 150;
  * Follows which page is in view while the document scrolls, and tells the
  * viewer when that changes. The page in view is the one across the line a
  * quarter of the way down the frame: a page brought into view by its top
- * (`pin`) is the page in view, however small the pages are drawn.
+ * (`pin`) is the page in view, however small the pages are drawn. A page's
+ * number is its place among `pages` unless `numberOf` says otherwise (a
+ * deck's slides keep theirs with the hidden ones left out).
  */
 export class PageFollower {
   readonly #pages: () => readonly Element[];
   readonly #report: Report;
+  readonly #numberOf: (page: Element, index: number) => number;
   #current = 0;
   #frame = 0;
   /** When a page was last brought into view: the scroll that follows does not move the count. */
   #pinnedAt = -Infinity;
 
-  constructor(pages: () => readonly Element[], report: Report) {
+  constructor(
+    pages: () => readonly Element[],
+    report: Report,
+    numberOf: (page: Element, index: number) => number = (_, index) => index + 1,
+  ) {
     this.#pages = pages;
     this.#report = report;
+    this.#numberOf = numberOf;
     const onScroll = (): void => {
       if (this.#frame !== 0) return;
       this.#frame = requestAnimationFrame(() => {
@@ -76,10 +88,16 @@ export class PageFollower {
     this.#measure();
   }
 
-  /** Takes `page` (from 1) as the page in view: it was just brought to the top. */
+  /** The page in view, as last told; 0 before any. */
+  get current(): number {
+    return this.#current;
+  }
+
+  /** Takes `page` (from 1) as the page in view, and tells it even when it was: it was just brought to the top. */
   pin(page: number): void {
     this.#pinnedAt = performance.now();
-    this.#tell(page);
+    this.#current = page;
+    this.#report.page(page);
   }
 
   #measure(): void {
@@ -96,7 +114,7 @@ export class PageFollower {
           : Math.min(Math.abs(box.top - line), Math.abs(box.bottom - line));
       if (distance < bestDistance) {
         bestDistance = distance;
-        best = index + 1;
+        best = this.#numberOf(page, index);
       }
     });
     this.#tell(best);

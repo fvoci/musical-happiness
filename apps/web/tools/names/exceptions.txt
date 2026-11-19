@@ -1,4 +1,4 @@
-# Where the name the original gives the workspace stays in the web app, and why
+# Where the former name of the workspace stays in the web app, and why
 # (tools/names/workspace.ts). `node tools/names/check.ts` fails on the name anywhere
 # else, in any case, and on an entry here that nothing needs any more. Every entry
 # stands under its reason. Of a file of messages only the ids are checked.
@@ -29,13 +29,9 @@ e2e/shell.spec.ts | 'Move to Team'
 e2e/sidebar.spec.ts | 'Team'
 e2e/sidebar.spec.ts | in Team.
 
-# The documents of how the original's messages were taken over name them by their ids
-# and their English texts; the others name what the original had: its addresses, a
-# function of its utilities.
+# The documents of the messages name them by their ids and their English texts.
 docs/i18n-conversion.md
 docs/ko-review.md
-PORTING.md | `/team/t`
-PORTING.md | `isTeamAdmin`
 
 # The notices of the HWP renderer's crates name where each crate lives; BLAKE3's
 # project is "BLAKE3-team" on GitHub.

@@ -14,10 +14,6 @@ import { parseDateValue } from '$lib/logic/wire.ts';
 
 import { readTemplates, templateDocuments } from '../support/templates.ts';
 
-// The two names, put together from halves so that this file passes the names check.
-const PRODUCT = ['Focal', 'board'].join('');
-const COMPANY = ['Matter', 'most'].join('');
-
 /** The values of the link properties of a template's cards. */
 function linkValues(template: SeedTemplate): string[] {
   const linkIds = template.board.cardProperties
@@ -115,9 +111,7 @@ describe('the built-in templates', () => {
     expect(templates.flatMap((template) => template.views)).toHaveLength(38);
   });
 
-  it('name neither the original nor an address outside, but for example addresses in link values', () => {
-    expect(everything.toLowerCase()).not.toContain(PRODUCT.toLowerCase());
-    expect(everything.toLowerCase()).not.toContain(COMPANY.toLowerCase());
+  it('name no address outside, but for example addresses in link values', () => {
     expect(addressProblems(templates)).toEqual([]);
     const values = templates.flatMap(linkValues).filter(valueLeadsOutside);
     expect(values).toHaveLength(10);

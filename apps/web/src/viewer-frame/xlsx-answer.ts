@@ -118,11 +118,21 @@ function cellsInShape(sheet: Fields, strings: number, styles: number): boolean {
   return true;
 }
 
+/** Whether the rows of pairs of row and style are in order, each once. */
+function ascending(pairs: Uint32Array): boolean {
+  for (let at = 2; at < pairs.length; at += 2) {
+    if ((pairs[at] ?? 0) <= (pairs[at - 2] ?? 0)) return false;
+  }
+  return true;
+}
+
 function isSheet(value: unknown, strings: number, styles: number): value is Sheet {
   if (!isRecord(value)) return false;
   const { columns, rows, merges } = value;
   if (!(columns instanceof Float64Array) || !(rows instanceof Float64Array)) return false;
   if (!(merges instanceof Uint32Array)) return false;
+  if (!(value.rowStyles instanceof Uint32Array)) return false;
+  if (!(value.columnStyles instanceof Uint32Array)) return false;
   return (
     typeof value.name === 'string' &&
     value.name.length <= SHEET_NAME_LENGTH &&
@@ -148,6 +158,18 @@ function isSheet(value: unknown, strings: number, styles: number): value is Shee
         isWhole(row, 0, MAX_ROWS - 1) &&
         (height === -1 || isNumber(height, 0, 409)) &&
         isWhole(hidden, 0, 1),
+    ) &&
+    runs(
+      value.rowStyles,
+      2,
+      ([row = 0, style = 0]) => row < MAX_ROWS && style < Math.max(1, styles),
+    ) &&
+    ascending(value.rowStyles) &&
+    runs(
+      value.columnStyles,
+      3,
+      ([first = 0, last = 0, style = 0]) =>
+        first <= last && last < MAX_COLUMNS && style < Math.max(1, styles),
     ) &&
     runs(
       merges,

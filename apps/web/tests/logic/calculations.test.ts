@@ -1,7 +1,6 @@
 /**
- * The cases of the original `calculations.test.tsx`, one to one and under
- * the same names. Four of them (marked) expect what the original did not: a
- * checkbox holding the text `false` is not ticked. See Q9 in PORTING.md.
+ * The calculations of a column. Four cases (marked) pin that a checkbox
+ * holding the text `false` is not ticked: Q9 in docs/notes.md.
  */
 import { describe, expect, it, test } from 'vitest';
 

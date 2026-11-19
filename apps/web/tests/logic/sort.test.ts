@@ -1,8 +1,6 @@
 /**
- * The order of cards. The original has no tests for this code
- * (`store/cards.ts`); these were written for the port. The manual order and
- * the handling of several sort options differ from the original on purpose
- * (Q1 and Q6 in PORTING.md).
+ * The order of cards: the manual order and the order by several sort options
+ * (Q1 and Q6 in docs/notes.md).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
