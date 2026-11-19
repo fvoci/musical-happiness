@@ -30,7 +30,7 @@ pub(super) struct TemplateStock {
     /// Set by a start whose file storage did not take the files, and cleared once the
     /// templates are stored or found current.
     owed: AtomicBool,
-    /// Held by the attempt under way. When the last one began.
+    /// Held by the attempt under way. When the last one that stored none ended.
     attempted: tokio::sync::Mutex<Option<Instant>>,
 }
 
@@ -87,7 +87,7 @@ impl App {
     }
 
     /// Starts an attempt to store the owed templates in the background, for a request
-    /// that would have shown them, unless one is under way or began less than
+    /// that would have shown them, unless one is under way or ended less than
     /// [`RESTOCK_FOR_A_REQUEST`] ago: a request does not wait for the file storage.
     pub(super) fn restock_templates_soon(&self) {
         let stock = &self.inner.template_stock;
@@ -95,7 +95,7 @@ impl App {
             return;
         }
         let due = stock.attempted.try_lock().is_ok_and(|attempted| {
-            attempted.is_none_or(|began| began.elapsed() >= RESTOCK_FOR_A_REQUEST)
+            attempted.is_none_or(|ended| ended.elapsed() >= RESTOCK_FOR_A_REQUEST)
         });
         if due {
             let app = self.clone();
@@ -105,7 +105,7 @@ impl App {
         }
     }
 
-    /// [`App::restock_templates`], unless an attempt began less than `no_sooner` ago.
+    /// [`App::restock_templates`], unless an attempt ended less than `no_sooner` ago.
     async fn restock(&self, no_sooner: Duration) -> bool {
         let stock = &self.inner.template_stock;
         if !stock.is_owed() {
@@ -116,16 +116,18 @@ impl App {
         if !stock.is_owed() {
             return true;
         }
-        if attempted.is_some_and(|began| began.elapsed() < no_sooner) {
+        if attempted.is_some_and(|ended| ended.elapsed() < no_sooner) {
             return false;
         }
-        *attempted = Some(Instant::now());
         match self.init_templates().await {
             Ok(_) => {
                 tracing::info!("the built-in templates that were owed are stored");
                 true
             }
             Err(error) => {
+                // From its end: a storage that takes long to refuse is not asked
+                // again the moment it has.
+                *attempted = Some(Instant::now());
                 tracing::warn!(%error, "the built-in templates are still owed");
                 false
             }

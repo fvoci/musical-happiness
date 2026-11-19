@@ -226,6 +226,20 @@ async fn a_member_let_in_by_a_link_has_a_welcome_board_of_their_own() {
     Client::send(request).await.check_ok();
     let on_a_korean_screen = ts.login("duri", PASSWORD).await;
     assert_eq!(titles(&on_a_korean_screen).await, [WELCOME_TITLE_KO]);
+
+    // A screen in a language the server writes nothing in leaves it to the request's.
+    let request = ts
+        .anonymous()
+        .request(reqwest::Method::POST, "/invitations/accept")
+        .header(reqwest::header::ACCEPT_LANGUAGE, "ko")
+        .json(&json!({
+            "token": token,
+            "language": "ja",
+            "account": {"username": "sesi", "email": "sesi@sample.com", "password": PASSWORD},
+        }));
+    Client::send(request).await.check_ok();
+    let on_a_japanese_screen = ts.login("sesi", PASSWORD).await;
+    assert_eq!(titles(&on_a_japanese_screen).await, [WELCOME_TITLE_KO]);
     ts.teardown().await;
 }
 

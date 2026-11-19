@@ -24,6 +24,7 @@ use fvoci_store::{
 };
 
 use super::auth::account_error;
+use super::language::Language;
 use super::signups::SignupMarker;
 use super::{App, Asker, ContainerAccess};
 use crate::auth::now_millis;
@@ -432,8 +433,8 @@ impl App {
     /// An account that comes into the workspace as a member by it is given its welcome
     /// board there, if it was given none before (`App::welcome_member`): in the
     /// language of the account's settings; where they name none, in the language of
-    /// the screen a new account was made on, or else the one `accept_language`, the
-    /// request's `Accept-Language`, prefers.
+    /// the screen a new account was made on, if the server writes in it, or else the
+    /// one `accept_language`, the request's `Accept-Language`, prefers.
     ///
     /// # Errors
     ///
@@ -489,10 +490,13 @@ impl App {
             // The acceptance is done with: another from the address waits no longer.
             drop(attempt);
             // An account made here is written to in the language of the screen it was
-            // made on, as one whose address is confirmed first is.
+            // made on, as one whose address is confirmed first is, if the server
+            // writes in it: or else as the header has it.
             let language = match accepting {
-                Accepting::NewAccount { language, .. } if !language.is_empty() => Some(language),
-                Accepting::NewAccount { .. } | Accepting::SignedIn(_) => accept_language,
+                Accepting::NewAccount { language, .. } => Language::written_in(language)
+                    .map(Language::tag)
+                    .or(accept_language),
+                Accepting::SignedIn(_) => accept_language,
             };
             app.welcome_member(&accepted.user_id, &accepted.workspace_id, language)
                 .await;

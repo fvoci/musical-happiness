@@ -2,10 +2,10 @@
 //! organizations it comes into: the record is the account's, not an organization's,
 //! and is made with the board, in the transaction that stores it.
 
-use fvoci_model::{ContainerMember, ContainersAndBlocks};
+use fvoci_model::{ContainerMember, ContainersAndBlocks, DeleteContainersAndBlocks};
 
 use crate::blocks::{CopyChanges, CopyTitles, DuplicateAs};
-use crate::containers_and_blocks::duplicate_container;
+use crate::containers_and_blocks::{delete_containers_and_blocks, duplicate_container};
 use crate::db::{Id, Scope};
 use crate::{Store, StoreError};
 
@@ -48,28 +48,47 @@ impl Store {
         .await
     }
 
-    /// Records at `now` that the account has its welcome board, unless that is
-    /// recorded: for a board made for whoever asked, which is made whatever is
-    /// recorded. Returns whether this call recorded it.
+    /// Records at `now` that the account has its welcome board, whatever was recorded:
+    /// for a board made for whoever asked, which is made whatever is recorded. The
+    /// record is this board's from here on, and no call that recorded before takes it
+    /// back with a board of its own ([`Store::take_back_welcome_board`]).
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
-    pub async fn claim_welcome(&self, user_id: &str, now: i64) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| claim(scope, user_id, now).await)
-            .await
+    pub async fn record_welcome(&self, user_id: &str, now: i64) -> Result<(), StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("UPDATE users SET ");
+            sql.push_bind("welcomed_at = ", now)
+                .push_bind(" WHERE id = ", Id(user_id));
+            scope.execute(sql).await?;
+            Ok(())
+        })
+        .await
     }
 
-    /// Takes back the record that the account has its welcome board: the board was
-    /// taken back after it was stored, and the account is given one the next time.
+    /// Takes back a welcome board that [`Store::duplicate_welcome_board`] stored and
+    /// recorded at `recorded_at`: deletes `copies` as
+    /// [`Store::delete_containers_and_blocks`] does and takes back the record, in one
+    /// transaction, so that the account is given its board the next time. A record
+    /// made at another time is another board's, and stays.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if the statement fails.
-    pub async fn forget_welcome(&self, user_id: &str) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+    /// As [`Store::delete_containers_and_blocks`]; neither is taken back then.
+    pub async fn take_back_welcome_board(
+        &self,
+        copies: &DeleteContainersAndBlocks,
+        user_id: &str,
+        recorded_at: i64,
+    ) -> Result<(), StoreError> {
+        self.transaction(async |scope| {
+            // The boards before the account, as every change that holds the
+            // organization's row and then writes an account goes.
+            delete_containers_and_blocks(scope, copies, user_id).await?;
             let mut sql = scope.sql("UPDATE users SET welcomed_at = NULL");
-            sql.push_bind(" WHERE id = ", Id(user_id));
+            sql.push_bind(" WHERE id = ", Id(user_id))
+                .push_bind(" AND welcomed_at = ", recorded_at);
             scope.execute(sql).await?;
             Ok(())
         })

@@ -63,8 +63,10 @@ impl App {
             .copy_welcome_board(&template_id, user_id, workspace_id, &reader)
             .await?;
         // The board is made, whether or not that is recorded: an account whose record
-        // failed may be given another as it comes into an organization.
-        if let Err(error) = self.store().claim_welcome(user_id, now).await {
+        // failed may be given another as it comes into an organization. Recorded
+        // whatever was: a record made for a board that is there is no other call's to
+        // take back.
+        if let Err(error) = self.store().record_welcome(user_id, now).await {
             tracing::warn!(user_id, %error, "an account's welcome board was not recorded");
         }
         Ok(board_id)
@@ -89,31 +91,64 @@ impl App {
         workspace_id: &str,
         accept_language: Option<&str>,
     ) {
-        let app = self.clone();
-        let (user_id, workspace_id) = (user_id.to_owned(), workspace_id.to_owned());
-        let accept_language = accept_language.map(str::to_owned);
-        let made = self.spawn_tracked(async move {
-            let now = crate::auth::now_millis();
-            let made = app
-                .welcome_once(&user_id, &workspace_id, accept_language.as_deref(), now)
-                .await;
-            match made {
-                Ok(Some(board_id)) => {
-                    tracing::info!(
-                        user_id,
-                        workspace_id,
-                        board_id,
-                        "a new member was given their welcome board"
-                    );
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    tracing::warn!(user_id, workspace_id, %error, "a new member was not given their welcome board");
-                }
+        let made = self.spawn_tracked({
+            let app = self.clone();
+            let (user_id, workspace_id) = (user_id.to_owned(), workspace_id.to_owned());
+            let accept_language = accept_language.map(str::to_owned);
+            async move {
+                app.welcome_and_log(&user_id, &workspace_id, accept_language.as_deref())
+                    .await;
             }
         });
-        if tokio::time::timeout(WELCOME_WAIT, made).await.is_err() {
-            tracing::info!("a new member's welcome board is still being made");
+        match tokio::time::timeout(WELCOME_WAIT, made).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::error!(
+                    user_id,
+                    workspace_id,
+                    %error,
+                    "the making of a new member's welcome board broke off"
+                );
+            }
+            Err(_) => {
+                tracing::info!(
+                    user_id,
+                    workspace_id,
+                    "a new member's welcome board is still being made"
+                );
+            }
+        }
+    }
+
+    /// `App::welcome_once` now, with what came of it logged.
+    async fn welcome_and_log(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+        accept_language: Option<&str>,
+    ) {
+        let now = crate::auth::now_millis();
+        let made = self
+            .welcome_once(user_id, workspace_id, accept_language, now)
+            .await;
+        match made {
+            Ok(Some(board_id)) => {
+                tracing::info!(
+                    user_id,
+                    workspace_id,
+                    board_id,
+                    "a new member was given their welcome board"
+                );
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(
+                    user_id,
+                    workspace_id,
+                    %error,
+                    "a new member's welcome board was not made, or not whole"
+                );
+            }
         }
     }
 
@@ -171,20 +206,10 @@ impl App {
             duplicate_as: DuplicateAs::Copy,
             kind: template.kind,
             work: ContainerWork::Welcome,
+            // Stored and recorded: a board deleted again takes its record along.
+            welcomed_at: Some(now),
         };
-        if let Err(error) = self.finish_copy(stored, copies, members).await {
-            // Stored and recorded. If its files could not be copied the board was
-            // deleted again: then the account has none, and the record is taken back.
-            let taken_back = self
-                .store()
-                .get_container(&board_id)
-                .await
-                .is_err_and(|error| error.is_not_found());
-            if taken_back && let Err(error) = self.store().forget_welcome(user_id).await {
-                tracing::error!(user_id, %error, "an account that got no welcome board is recorded as given one");
-            }
-            return Err(error);
-        }
+        self.finish_copy(stored, copies, members).await?;
         Ok(Some(board_id))
     }
 

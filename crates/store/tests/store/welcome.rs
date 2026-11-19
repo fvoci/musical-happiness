@@ -1,9 +1,10 @@
 //! The record that an account was given its welcome board: made once, with the board,
-//! by one of the calls that would make it at once, and not where no board came of it.
+//! by one of the calls that would make it at once, not where no board came of it, and
+//! taken back with a board that is.
 
 use std::sync::Arc;
 
-use fvoci_model::new_id;
+use fvoci_model::{DeleteContainersAndBlocks, new_id};
 use fvoci_store::{CopyChanges, CopyTitles, Store};
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
@@ -15,6 +16,17 @@ const TITLES: CopyTitles = CopyTitles {
     copy_of: |title| format!("{title} copy"),
     new_template: "New board template",
 };
+
+/// When the account is recorded as given its welcome board, as text: none if it is not.
+async fn recorded(store: &Store, user_id: &str) -> Vec<String> {
+    store
+        .texts_unchecked(&format!(
+            "SELECT CAST(welcomed_at AS TEXT) FROM users \
+             WHERE CAST(id AS TEXT) = '{user_id}' AND welcomed_at IS NOT NULL"
+        ))
+        .await
+        .expect("the record is read")
+}
 
 /// Of the welcome boards asked for an account at once, one is made, and none after;
 /// one that cannot be copied records nothing, and the account is given it the next time.
@@ -70,28 +82,104 @@ async fn one_welcome_board_is_made_of_those_asked_for_at_once() {
     let made = asked.join_all().await;
     assert_eq!(made.iter().filter(|made| **made).count(), 1, "{made:?}");
     assert_eq!(boards_of(&alice).await.len(), 1, "one board");
-    assert!(!test.claim_welcome(&alice, 8).await.unwrap(), "recorded");
+    assert_eq!(recorded(&test, &alice).await, ["7"], "with the board");
 
-    // Each account its own; a record made for a board that was asked for counts.
-    assert!(test.claim_welcome(&bob, 8).await.unwrap());
+    // Each account its own; a record made for a board that was asked for counts,
+    // and is of the last one asked for.
+    assert_eq!(recorded(&test, &bob).await, Vec::<String>::new());
+    test.record_welcome(&bob, 8).await.unwrap();
+    test.record_welcome(&bob, 9).await.unwrap();
+    assert_eq!(recorded(&test, &bob).await, ["9"]);
     let again = test
-        .duplicate_welcome_board(&board.id, &bob, &workspace_id, &TITLES, <_>::default(), 9)
+        .duplicate_welcome_board(&board.id, &bob, &workspace_id, &TITLES, <_>::default(), 10)
         .await
         .expect("answered");
     assert_eq!(again, None);
     assert_eq!(boards_of(&bob).await, Vec::<String>::new());
-
-    // Taken back, the account is given its board the next time.
-    test.forget_welcome(&bob).await.unwrap();
-    let later = test
-        .duplicate_welcome_board(&board.id, &bob, &workspace_id, &TITLES, <_>::default(), 9)
+    let nobody = test
+        .duplicate_welcome_board(
+            &board.id,
+            &new_id(),
+            &workspace_id,
+            &TITLES,
+            <_>::default(),
+            10,
+        )
         .await
         .expect("answered");
-    assert!(later.is_some());
-    assert!(
-        !test.claim_welcome(&new_id(), 9).await.unwrap(),
-        "nobody's account"
-    );
+    assert_eq!(nobody, None, "nobody's account");
+    test.teardown().await;
+}
+
+/// A welcome board that is taken back takes the record made with it along, and the
+/// account is given its board the next time; a record made since, for another board,
+/// stays, and so do the board and the record where the board cannot be deleted.
+#[tokio::test]
+async fn a_welcome_board_taken_back_takes_its_record_along() {
+    let test = common::setup().await;
+    let workspace_id = common::workspace(&test).await;
+    let owner = common::user(&test, "owner").await;
+    let carol = common::user(&test, "carol").await;
+    let dave = common::user(&test, "dave").await;
+    for user_id in [&carol, &dave] {
+        common::works_in(&test, &workspace_id, user_id).await;
+    }
+    let template = common::create_test_boards(&test, &workspace_id, &owner, 1)
+        .await
+        .remove(0);
+    let given = async |user_id: &str, now: i64| {
+        let (copies, _members) = test
+            .duplicate_welcome_board(
+                &template.id,
+                user_id,
+                &workspace_id,
+                &TITLES,
+                <_>::default(),
+                now,
+            )
+            .await
+            .expect("answered")
+            .expect("given");
+        DeleteContainersAndBlocks::from(&copies)
+    };
+    let is_there = async |copies: &DeleteContainersAndBlocks| match test
+        .get_container(&copies.containers[0])
+        .await
+    {
+        Ok(_) => true,
+        Err(error) if error.is_not_found() => false,
+        Err(error) => panic!("the board is read: {error}"),
+    };
+
+    // Not deleted: a block that is none of the board's. Board and record stay.
+    let carols = given(&carol, 7).await;
+    let mut with_a_stranger = carols.clone();
+    with_a_stranger.blocks.push(new_id());
+    let refused = test
+        .take_back_welcome_board(&with_a_stranger, &carol, 7)
+        .await;
+    assert!(refused.is_err_and(|error| error.is_not_found()));
+    assert!(is_there(&carols).await);
+    assert_eq!(recorded(&test, &carol).await, ["7"]);
+
+    // Taken back with its record: the account is given its board the next time.
+    test.take_back_welcome_board(&carols, &carol, 7)
+        .await
+        .expect("taken back");
+    assert!(!is_there(&carols).await);
+    assert_eq!(recorded(&test, &carol).await, Vec::<String>::new());
+    let next = given(&carol, 8).await;
+    assert!(is_there(&next).await);
+    assert_eq!(recorded(&test, &carol).await, ["8"]);
+
+    // A record made since is another board's: the board goes, and the record stays.
+    let daves = given(&dave, 7).await;
+    test.record_welcome(&dave, 9).await.unwrap();
+    test.take_back_welcome_board(&daves, &dave, 7)
+        .await
+        .expect("taken back");
+    assert!(!is_there(&daves).await);
+    assert_eq!(recorded(&test, &dave).await, ["9"]);
     test.teardown().await;
 }
 
@@ -116,12 +204,16 @@ async fn the_migration_records_the_accounts_that_were_there_as_welcomed() {
         .await
         .expect("migrated");
     let after = common::user(&store, "after").await;
-    let claimed = (
-        store.claim_welcome(&before, 2).await.unwrap(),
-        store.claim_welcome(&after, 2).await.unwrap(),
+    let welcomed = (
+        recorded(&store, &before).await,
+        recorded(&store, &after).await,
     );
     store.close().await;
     database.remove().await;
 
-    assert_eq!(claimed, (false, true));
+    assert_eq!(
+        welcomed,
+        (vec!["1".to_owned()], Vec::new()),
+        "as of when it was made"
+    );
 }

@@ -184,6 +184,17 @@ async fn a_member_let_in_while_the_templates_are_owed_has_them_stored_in_the_bac
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    assert!(!ts.app.owes_templates(), "stored within ten seconds");
+    assert!(!ts.app.owes_templates(), "stored soon after");
+    let late = ts.login("late", PASSWORD).await;
+    let boards = ts
+        .app
+        .store()
+        .texts_unchecked(&format!(
+            "SELECT title FROM containers WHERE CAST(created_by AS TEXT) = '{}'",
+            late.me().await.id
+        ))
+        .await
+        .expect("the boards are read");
+    assert_eq!(boards, Vec::<String>::new(), "let in without one");
     ts.teardown().await;
 }

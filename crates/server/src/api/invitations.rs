@@ -368,7 +368,9 @@ async fn handle_preview_invitation(
 /// An account that a link for members lets in is given its welcome board in the
 /// workspace, a private board of its own, unless it has one (`onboard` says more):
 /// written in the language of the account's settings, or else in `language` for an
-/// account made here, or else in the one `Accept-Language` prefers.
+/// account made here, if that is English or Korean, or else in the one
+/// `Accept-Language` prefers. An account whose address is confirmed first is given
+/// it then (`completeEmailVerification`).
 #[utoipa::path(
     post,
     path = "/invitations/accept",

@@ -134,8 +134,9 @@ async fn handle_start_carry_over(
 /// `oidc_email_unverified`, `oidc_email_taken`, `oidc_unavailable`); 429 when this
 /// address made too many sign-ins of late.
 ///
-/// The account that is made comes into the organization as a member and is given its
-/// welcome board (`onboard` says more), in the language `Accept-Language` prefers.
+/// An account that comes into the organization by this, as a member, is given its
+/// welcome board unless it has one (`onboard` says more): in the language of its
+/// settings, or else in the one `Accept-Language` prefers.
 #[utoipa::path(
     post,
     path = "/auth/oidc/held/sign-in",

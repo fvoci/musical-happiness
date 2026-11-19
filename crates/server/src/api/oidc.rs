@@ -242,9 +242,9 @@ pub(super) fn started_response(app: &App, started: StartedLogin) -> Response {
 /// Where nothing is carried over it goes to the login page with
 /// `oidc_carry_over_refused`, and where the sign-in itself failed (refused by the
 /// former provider, its token not taken, not this browser's) with that reason, as
-/// any sign-in does. An account that comes into the organization by the sign-in is
-/// given its welcome board (`onboard`), where its settings name no language in the one
-/// `Accept-Language` prefers.
+/// any sign-in does. An account that comes into the organization by the sign-in, as a
+/// member, is given its welcome board unless it has one (`onboard` says more): in the
+/// language of its settings, or else in the one `Accept-Language` prefers.
 #[utoipa::path(
     get,
     path = "/auth/oidc/callback/{orgId}",

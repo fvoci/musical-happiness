@@ -272,7 +272,11 @@ impl App {
         // Nothing of the registration is touched before its registrant is known: what
         // confirming finds (a link that lets nobody in, a server that has its first
         // user) removes it.
-        if !made_here {
+        if made_here {
+            // Nothing is tried at a password: another from the address waits no
+            // longer, and not for the welcome board of this one.
+            drop(turn);
+        } else {
             if registrant.password.is_empty() {
                 return Err(password_required());
             }

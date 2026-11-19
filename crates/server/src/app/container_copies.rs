@@ -28,6 +28,9 @@ pub(super) struct Stored<'a> {
     pub(super) kind: ContainerKind,
     /// What the copy is counted as.
     pub(super) work: ContainerWork,
+    /// When the store recorded them as the account's welcome board, if it did
+    /// (`Store::duplicate_welcome_board`): taken back, they take that record along.
+    pub(super) welcomed_at: Option<i64>,
 }
 
 impl App {
@@ -156,6 +159,7 @@ impl App {
             duplicate_as,
             kind,
             work,
+            welcomed_at: None,
         };
         self.finish_copy(stored, copies, members).await
     }
@@ -166,8 +170,9 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns the error of the files, after the copies are deleted again
-    /// (`App::take_back`), or of the category, with the copies left as they are.
+    /// Returns the error of the files, after the copies are deleted again and a record
+    /// made with them is taken back (`App::take_back`), or of the category, with the
+    /// copies left as they are.
     pub(super) async fn finish_copy(
         &self,
         stored: Stored<'_>,
@@ -181,13 +186,14 @@ impl App {
             duplicate_as,
             kind,
             work,
+            welcomed_at: _,
         } = stored;
         // The copied blocks get files of their own.
         if let Err(error) = self
             .copy_and_update_card_files(container_id, user_id, &mut copies.blocks)
             .await
         {
-            self.take_back(&copies, container_id, user_id).await;
+            self.take_back(&copies, stored).await;
             return Err(error.context(format_args!(
                 "could not patch file IDs while duplicating board {container_id}"
             )));
@@ -231,17 +237,28 @@ impl App {
         Ok((copies, members))
     }
 
-    /// Deletes the copies of `container_id` whose files could not be copied; a failure
-    /// to is logged, and the copies stay.
-    async fn take_back(&self, copies: &ContainersAndBlocks, container_id: &str, user_id: &str) {
+    /// Deletes the copies whose files could not be copied, and with a welcome board
+    /// the record that the account has it, at once: the account is given its board
+    /// the next time. A failure to is logged, and the copies stay, recorded as they
+    /// were.
+    async fn take_back(&self, copies: &ContainersAndBlocks, stored: Stored<'_>) {
         let delete = DeleteContainersAndBlocks::from(copies);
-        if let Err(error) = self
-            .store()
-            .delete_containers_and_blocks(&delete, user_id)
-            .await
-        {
+        let store = self.store();
+        let taken_back = match stored.welcomed_at {
+            Some(recorded_at) => {
+                store
+                    .take_back_welcome_board(&delete, stored.user_id, recorded_at)
+                    .await
+            }
+            None => {
+                store
+                    .delete_containers_and_blocks(&delete, stored.user_id)
+                    .await
+            }
+        };
+        if let Err(error) = taken_back {
             tracing::error!(
-                container_id,
+                container_id = stored.source_id,
                 %error,
                 "Cannot delete board after duplication error when updating block's file info"
             );
