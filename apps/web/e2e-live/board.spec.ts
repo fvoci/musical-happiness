@@ -79,9 +79,11 @@ test('a board of the server is listed and opens with its views, cards and member
   // the server's list of the workspace; the reader may only look. The header shows
   // who else is here now (nobody; presence.spec.ts has people come and go).
   expect(((await byId).postDataJSON() as string[]).length).toBe(2);
-  await expect(page.getByTestId('board-presence')).toHaveAccessibleName(
-    'People viewing this board: 0',
+  // Nobody else here: the group says it, and there is no button of faces.
+  await expect(page.getByTestId('board-people')).toHaveAccessibleName(
+    /^People viewing this board: 0, members: \d+$/,
   );
+  await expect(page.getByTestId('board-presence')).toBeHidden();
   await expect(page.getByTestId('read-only')).toBeVisible();
 
   // A reload opens the same board from its address.

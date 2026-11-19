@@ -45,9 +45,11 @@ test('board presence shows another person and removes their closed browser', asy
   const errors = [watchErrors(first), watchErrors(second)];
   try {
     await first.goto(boardPath(board, board.viewId));
-    await expect(first.getByTestId('board-presence')).toHaveAccessibleName(
-      'People viewing this board: 0',
+    // Nobody else here: the group says it, and there is no button of faces.
+    await expect(first.getByTestId('board-people')).toHaveAccessibleName(
+      /^People viewing this board: 0, members: \d+$/,
     );
+    await expect(first.getByTestId('board-presence')).toBeHidden();
     await second.goto(boardPath(board, board.viewId));
     for (const page of [first, second]) {
       await expect(page.getByTestId('board-presence')).toHaveAccessibleName(
@@ -63,9 +65,11 @@ test('board presence shows another person and removes their closed browser', asy
     await cardsInEveryView(first, second, api, board);
     await anonymousVisit(first, browser, base, api, board);
     await secondContext.close();
-    await expect(first.getByTestId('board-presence')).toHaveAccessibleName(
-      'People viewing this board: 0',
+    // Nobody else here: the group says it, and there is no button of faces.
+    await expect(first.getByTestId('board-people')).toHaveAccessibleName(
+      /^People viewing this board: 0, members: \d+$/,
     );
+    await expect(first.getByTestId('board-presence')).toBeHidden();
     expect(errors.flat()).toEqual([]);
   } finally {
     await firstContext.close();
