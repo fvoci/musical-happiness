@@ -26,11 +26,11 @@ use crate::error::AppError;
 const DEFAULT_TEMPLATE_VERSION: i64 = 9;
 
 /// The longest the storing of one file of the templates may take. The files are a few
-/// kilobytes each, and a server does not start, nor a request for a first board that
-/// finds no template answer, before they are stored: a file storage that does not
-/// answer fails either within this instead of holding it for as long as an upload may
-/// take.
-const TEMPLATE_FILE_TIMEOUT: Duration = Duration::from_secs(60);
+/// kilobytes each, and a server does not serve, nor a request for a first board that
+/// finds no template answer, before the storing has ended one way or the other: a file
+/// storage that does not answer holds either for this long, not for as long as an
+/// upload may take.
+const TEMPLATE_FILE_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// The board property that marks the built-in template a new account's first board is
 /// copied from: the welcome board, once in each language.
@@ -173,6 +173,23 @@ struct BuiltinTemplates {
 struct StoredAsset {
     info: FileInfo,
     bytes: &'static [u8],
+}
+
+/// Why the built-in templates were not stored.
+#[derive(Debug)]
+pub(super) enum NotStored {
+    /// The file storage did not take a file of theirs. It may another time.
+    Files(AppError),
+    /// Anything else: the database, or a mistake in the embedded files.
+    Other(AppError),
+}
+
+impl From<NotStored> for AppError {
+    fn from(not_stored: NotStored) -> Self {
+        match not_stored {
+            NotStored::Files(error) | NotStored::Other(error) => error,
+        }
+    }
 }
 
 /// A mistake in the embedded template `name`, which the tests catch.
@@ -413,10 +430,28 @@ impl App {
     /// Returns a server error if a file cannot be written, and the store's error if the
     /// templates cannot be read, removed or stored.
     pub async fn init_templates(&self) -> Result<bool, AppError> {
+        Ok(self.try_init_templates().await?)
+    }
+
+    /// [`App::init_templates`], saying of a failure whether it was the file storage's.
+    /// Templates that are stored, or found current, are owed no more.
+    pub(super) async fn try_init_templates(&self) -> Result<bool, NotStored> {
+        let stored = self.store_templates_if_needed().await?;
+        self.inner.template_stock.settle();
+        Ok(stored)
+    }
+
+    async fn store_templates_if_needed(&self) -> Result<bool, NotStored> {
+        let other = |error: AppError| NotStored::Other(error);
         // The built-in templates are the system organization's, in its workspace:
         // offered to every organization, and nobody's to change.
-        let system = self.scoped(Tenant::org(SYSTEM_ORG_ID)?);
-        if initialization_reason(&system.store().get_builtin_templates().await?).is_none() {
+        let system = self.scoped(Tenant::org(SYSTEM_ORG_ID).map_err(|error| other(error.into()))?);
+        let stored = system
+            .store()
+            .get_builtin_templates()
+            .await
+            .map_err(|error| other(error.into()))?;
+        if initialization_reason(&stored).is_none() {
             tracing::debug!("Template import not needed, skipping");
             return Ok(false);
         }
@@ -424,7 +459,7 @@ impl App {
         let BuiltinTemplates {
             boards_and_blocks: mut templates,
             files,
-        } = builtin_templates(SYSTEM_WORKSPACE_ID)?;
+        } = builtin_templates(SYSTEM_WORKSPACE_ID).map_err(other)?;
         if let Err(error) = system.write_template_files(&files).await {
             // The write that failed may yet appear, its answer lost.
             system
@@ -462,30 +497,32 @@ impl App {
                 system
                     .give_up_template_files(&files, Written::Settled)
                     .await;
-                Err(AppError::from(error).context("cannot store the built-in templates"))
+                Err(other(
+                    AppError::from(error).context("cannot store the built-in templates"),
+                ))
             }
         }
     }
 
     /// Writes the files of the templates, each at its place, marked as being written.
-    async fn write_template_files(&self, files: &[StoredAsset]) -> Result<(), AppError> {
+    async fn write_template_files(&self, files: &[StoredAsset]) -> Result<(), NotStored> {
         for file in files {
             let path = &file.info.path;
-            self.mark_writing(path).await?;
+            self.mark_writing(path).await.map_err(NotStored::Other)?;
             let mut bytes = file.bytes;
             let write = self.files().write(path, &mut bytes);
             match tokio::time::timeout(TEMPLATE_FILE_TIMEOUT, write).await {
                 Ok(Ok(_)) => {}
                 Ok(Err(error)) => {
-                    return Err(AppError::internal(format_args!(
+                    return Err(NotStored::Files(AppError::internal(format_args!(
                         "unable to store a file of the built-in templates at {path}: {error}"
-                    )));
+                    ))));
                 }
                 Err(_) => {
-                    return Err(AppError::internal(format_args!(
+                    return Err(NotStored::Files(AppError::internal(format_args!(
                         "storing a file of the built-in templates at {path} took longer than {} seconds",
                         TEMPLATE_FILE_TIMEOUT.as_secs()
-                    )));
+                    ))));
                 }
             }
         }
@@ -518,6 +555,8 @@ impl App {
         accept_language: Option<&str>,
     ) -> Result<Vec<Container>, AppError> {
         let language = self.language_for(user_id, accept_language).await?;
+        // What is owed is not waited for: the list has what the database holds.
+        self.restock_templates_soon();
         let mut boards = if role == WorkspaceRole::Admin {
             self.store()
                 .get_templates_of_workspace(workspace_id)

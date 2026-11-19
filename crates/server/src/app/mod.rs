@@ -58,6 +58,7 @@ use slots::Busy;
 pub use slots::Slot;
 pub use startup::migrate_database;
 pub(crate) use startup::{open_store, prepare_store};
+pub(crate) use template_stock::start_restock as start_template_restock;
 mod shared_reads;
 mod sharing;
 mod signups;
@@ -66,6 +67,7 @@ mod startup;
 mod store_metrics;
 mod subscriptions;
 mod teams;
+mod template_stock;
 mod templates;
 mod trash;
 mod uploads;
@@ -179,6 +181,8 @@ struct Inner {
     part_memory: Arc<tokio::sync::Semaphore>,
     /// The last answer of the readiness checks.
     readiness: readiness::Kept,
+    /// Whether the built-in templates are owed.
+    template_stock: template_stock::TemplateStock,
     /// The exports that run.
     exports: slots::Slots,
     /// The imports that run.
@@ -317,6 +321,7 @@ impl App {
                 upload_turns: uploads::UploadTurns::default(),
                 part_memory: Arc::new(tokio::sync::Semaphore::new(part_memory)),
                 readiness: readiness::Kept::default(),
+                template_stock: template_stock::TemplateStock::default(),
                 exports,
                 imports,
                 collab,

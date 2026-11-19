@@ -165,6 +165,7 @@ mod team_review;
 mod team_standing;
 mod teams;
 mod template_copies;
+mod template_stock;
 mod templates;
 mod uploads;
 mod users;
