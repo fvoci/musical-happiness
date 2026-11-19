@@ -32,9 +32,10 @@ const LIST_FILES: &str = "cd /data/files && find . -type f -not -path './.tmp/*'
 /// A secret the trial's `.env` sets, whose line `update.sh` must miss.
 const LACKING: &str = "FVOCI_SES_SECRET_ACCESS_KEY";
 
-/// Where the trial's backups go: removed with the trial's other files.
+/// Where the trial's backups go, in `main` and `s3`: removed with the trial's other
+/// files.
 pub(super) fn folder(directory: &Path) -> PathBuf {
-    directory.join("backups")
+    directory.join("trial-backups")
 }
 
 /// Backs up, takes the volumes away, restores, and updates.
@@ -43,7 +44,7 @@ pub(super) fn folder(directory: &Path) -> PathBuf {
 ///
 /// Fails at the first script or comparison that does not go as it should.
 pub(super) fn round_trip(trial: &Trial, directory: &Path) -> Result<()> {
-    let backups = folder(directory);
+    let backups = folder(directory).join("main");
     let kept = Kept::write(trial, directory)?;
     let rows = counted_rows(trial)?;
     let files = listed_files(trial)?;
@@ -57,6 +58,7 @@ pub(super) fn round_trip(trial: &Trial, directory: &Path) -> Result<()> {
     check_private(&backups, &backup, trial)?;
     say(&format!("    {}", last_said(&made, "backup")));
     backs_up_no_files_from_s3(trial, directory)?;
+    refuses_a_full_installation(trial, &backup, &rows)?;
 
     super::mail::remove_fake(trial)?;
     let down = trial.compose(&["down", "--volumes", "--timeout", super::STOP_SECONDS])?;
@@ -87,20 +89,75 @@ pub(super) fn round_trip(trial: &Trial, directory: &Path) -> Result<()> {
     ));
 
     refuses_a_lacking_env(trial, directory)?;
-    let updated = run_script(
-        trial,
+    updates(trial, &backups)
+}
+
+/// `restore.sh` refuses an installation with a container of fvoci, then, the container
+/// removed, a database that holds tables; and changes nothing.
+fn refuses_a_full_installation(trial: &Trial, backup: &Path, rows: &str) -> Result<()> {
+    let backup = backup.to_string_lossy();
+    let refusals = [
+        ("fvoci has a container", None),
+        (
+            "the database holds",
+            Some(["rm", "--stop", "--force", "fvoci"]),
+        ),
+    ];
+    for (refusal, first) in refusals {
+        if let Some(first) = first {
+            let removed = trial.compose(&first)?;
+            ensure!(
+                removed.succeeded,
+                "removing fvoci failed: {}",
+                removed.error
+            );
+        }
+        let (succeeded, said) =
+            script_output(trial.script("restore.sh", &[&backup]), "restore.sh")?;
+        no_secret_in(trial, "restore.sh", &said)?;
+        ensure!(
+            !succeeded && said.contains(refusal) && said.contains("Nothing was changed"),
+            "restore.sh did not refuse, saying \"{refusal}\": {said}"
+        );
+        let rows_now = counted_rows(trial)?;
+        ensure!(rows_now == rows, "restore.sh refused but the rows changed");
+    }
+    say("    restore.sh refuses fvoci's container and a database that holds tables");
+    Ok(())
+}
+
+/// `update.sh` that expects another commit fails after fvoci is ready, saying it
+/// serves; then one that expects the image's says how long fvoci was down.
+fn updates(trial: &Trial, backups: &Path) -> Result<()> {
+    let backups = backups.to_string_lossy();
+    let (succeeded, said) = script_output(
+        trial.script(
+            "update.sh",
+            &["--no-pull", "--commit", "0000000", "--dir", &backups],
+        ),
         "update.sh",
-        &["--no-pull", "--dir", &backups.to_string_lossy()],
     )?;
+    no_secret_in(trial, "update.sh", &said)?;
+    ensure!(
+        !succeeded && said.contains("is ready and serving, but runs the commit"),
+        "update.sh expecting another commit did not fail saying so: {said}"
+    );
+    let updated = run_script(trial, "update.sh", &["--no-pull", "--dir", &backups])?;
     let commit = format!("fvoci runs the commit {}", trial.images.revision());
     ensure!(
         updated.contains("fvoci was down") && updated.contains(&commit),
         "update.sh did not say how long fvoci was down and which commit it runs: {updated}"
     );
+    say("    update.sh expecting another commit fails, saying fvoci serves");
     for line in updated.lines().filter(|line| line.starts_with("update: ")) {
         say(&format!("    {line}"));
     }
     Ok(())
+}
+
+/// The tag `update.sh` gives the image that ran before it.
+pub(super) fn kept_tag(trial: &Trial) -> String {
+    format!("fvoci-server:before-update-{}", trial.project)
 }
 
 /// What a person keeps in the installation before the backup: an account, a card whose
@@ -136,10 +193,12 @@ impl Kept {
             Some(&json!({"username": "keeper", "password": password})),
         )?;
         let workspaces = client.expect("GET", "/api/v1/users/me/workspaces", None)?;
-        let workspace = workspaces
-            .get(0)
-            .map(|workspace| scenario::text(workspace, "id"))
-            .context("the new account has no workspace")??;
+        let workspace = scenario::text(
+            workspaces
+                .get(0)
+                .context("the new account has no workspace")?,
+            "id",
+        )?;
         let w = format!("/api/v1/w/{workspace}");
         let board = client.expect(
             "POST",
@@ -258,8 +317,12 @@ fn check_private(backups: &Path, backup: &Path, trial: &Trial) -> Result<()> {
         ensure!(mode(folder)? == 0o700, "{} is not 700", folder.display());
     }
     let mut names = Vec::new();
-    for entry in std::fs::read_dir(backup)? {
-        let path = entry?.path();
+    let entries =
+        std::fs::read_dir(backup).with_context(|| format!("reading {}", backup.display()))?;
+    for entry in entries {
+        let path = entry
+            .with_context(|| format!("reading {}", backup.display()))?
+            .path();
         ensure!(mode(&path)? == 0o600, "{} is not 600", path.display());
         names.push(path.to_string_lossy().into_owned());
     }
@@ -277,7 +340,7 @@ fn backs_up_no_files_from_s3(trial: &Trial, directory: &Path) -> Result<()> {
     let env = directory.join("s3.env");
     let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
     super::write_private(&env, &format!("{text}\nFVOCI_FILE_STORAGE=s3\n"))?;
-    let backups = directory.join("backups-s3");
+    let backups = folder(directory).join("s3");
     let made = run_script(
         trial,
         "backup.sh",
@@ -308,9 +371,10 @@ fn refuses_a_lacking_env(trial: &Trial, directory: &Path) -> Result<()> {
     let before = fvoci_started(trial)?;
     let env = directory.join("lacking.env");
     let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
+    let line = format!("{LACKING}=");
     let lines: Vec<&str> = text
         .lines()
-        .filter(|line| !line.starts_with(&format!("{LACKING}=")))
+        .filter(|kept| !kept.starts_with(&line))
         .collect();
     super::write_private(&env, &lines.join("\n"))?;
     let refused = script_output(
@@ -321,7 +385,7 @@ fn refuses_a_lacking_env(trial: &Trial, directory: &Path) -> Result<()> {
                 "--env-file",
                 &env.to_string_lossy(),
                 "--dir",
-                &folder(directory).to_string_lossy(),
+                &folder(directory).join("main").to_string_lossy(),
             ],
         ),
         "update.sh",

@@ -4,7 +4,7 @@
 # helpers they share. Nothing here prints a secret.
 
 # The installation: compose's project, its files and its .env, as the options say.
-project=${COMPOSE_PROJECT_NAME:-fvoci}
+project=""
 compose_files=""
 env_file=""
 # Where backups go, and how many days they are kept.
@@ -33,9 +33,6 @@ shared_option() {
 
 # Checks the shared options once they are read, and fixes compose's files.
 check_shared_options() {
-    case $project in
-    '' | *[!a-z0-9_-]* | [_-]*) fail "the project name \"$project\" is not one compose takes" ;;
-    esac
     case $keep_days in
     '' | *[!0-9]*) fail "--keep-days takes a number of days (0 keeps every backup)" ;;
     esac
@@ -45,6 +42,14 @@ check_shared_options() {
     first_file=${compose_files%%:*}
     [ -n "$env_file" ] || env_file="$(dirname -- "$first_file")/.env"
     [ -r "$env_file" ] || fail "$env_file cannot be read (give --env-file)"
+    # The project as compose names it: -p, the environment's, the .env's, or fvoci.
+    if [ -z "$project" ]; then
+        project=${COMPOSE_PROJECT_NAME:-$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$env_file" | tail -n 1)}
+        project=${project:-fvoci}
+    fi
+    case $project in
+    '' | *[!a-z0-9_-]* | [_-]*) fail "the project name \"$project\" is not one compose takes" ;;
+    esac
     COMPOSE_FILE=$compose_files
     COMPOSE_PROJECT_NAME=$project
     # compose's own separator of COMPOSE_FILE is ':' here: a file whose name holds one
@@ -67,8 +72,11 @@ now_ms() {
 # "12.3 s" from a number of milliseconds.
 seconds() { printf '%d.%d s' $(($1 / 1000)) $(($1 % 1000 / 100)); }
 
-# Whether the container of a service runs.
-running() { [ -n "$(compose ps --quiet --status running "$1")" ]; }
+# Whether the container of a service runs. Fails, saying so, if compose cannot tell.
+running() {
+    containers=$(compose ps --quiet --status running "$1") || fail "compose cannot list the containers of $project"
+    [ -n "$containers" ]
+}
 
 # A setting of the service fvoci as compose reads its files and .env: "image", or a
 # variable of its environment. Empty when it has none.
@@ -96,10 +104,11 @@ sql() {
         --no-align --tuples-only --set ON_ERROR_STOP=1 --command "$1"
 }
 
-# The newest migration the database has had, or "none".
+# The newest migration the database has had: "none" before the first, "unknown" when
+# PostgreSQL does not answer.
 schema_version() {
     sql "SELECT COALESCE((SELECT max(version) FROM _sqlx_migrations WHERE success)::text, 'none')" \
-        2>/dev/null || echo none
+        2>/dev/null || echo "unknown (PostgreSQL did not answer)"
 }
 
 # Rows of the users and the blocks (cards, pages, boards), "users N, blocks M".
@@ -109,8 +118,9 @@ row_counts() {
 }
 
 # Sends "$2 $3" (a method and a path) inside fvoci's container, to its admin socket when
-# "$1" is admin and to its HTTP port when it is http. Prints the status code on a line,
-# then the body. fvoci's image has no curl; perl is in every Debian.
+# "$1" is admin and to its HTTP port (under FVOCI_BASE_PATH) when it is http. Prints the
+# status code on a line, then the body. fvoci's image has no curl; perl is in every
+# Debian.
 fvoci_request() {
     # shellcheck disable=SC2016 # perl's variables, not the shell's.
     compose exec -T fvoci perl -MIO::Socket::UNIX -MIO::Socket::INET -e '
@@ -119,7 +129,7 @@ fvoci_request() {
             ? IO::Socket::UNIX->new(Peer => $ENV{FVOCI_ADMIN_SOCKET_PATH} || "/var/tmp/fvoci_local.socket")
             : IO::Socket::INET->new(PeerAddr => "127.0.0.1", PeerPort => $ENV{FVOCI_PORT} || 8000, Timeout => 10);
         $socket or die "cannot reach fvoci ($to): $!\n";
-        $path = ($ENV{FVOCI_BASE_PATH} || "") . $path;
+        $path = ($ENV{FVOCI_BASE_PATH} || "") . $path if $to eq "http";
         print $socket "$method $path HTTP/1.0\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n";
         local $/;
         my ($head, $body) = split /\r\n\r\n/, <$socket> // "", 2;
@@ -130,3 +140,6 @@ fvoci_request() {
 
 # The value of a number member "$1" in the JSON "$2" (the first of that name).
 json_number() { printf '%s' "$2" | sed -n "s/.*\"$1\":\([0-9][0-9]*\).*/\1/p" | head -n 1; }
+
+# The first line of "$1".
+first_line() { printf '%s\n' "$1" | head -n 1; }

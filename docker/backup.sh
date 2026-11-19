@@ -25,28 +25,38 @@ running postgres || fail "PostgreSQL of the project $project does not run (docke
 storage=$(file_storage)
 
 umask 077
-mkdir -p -- "$backup_dir"
-chmod 700 -- "$backup_dir"
+if [ -d "$backup_dir" ]; then
+    # Someone else's folder keeps its mode; one that others may read is said.
+    open=$(find "$backup_dir" -maxdepth 0 -perm /077)
+    [ -z "$open" ] || say "warning: $backup_dir may be read by others than its owner, and a backup holds every secret"
+else
+    mkdir -p -- "$backup_dir"
+    chmod 700 -- "$backup_dir"
+fi
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 name="$project-$stamp"
-[ ! -e "$backup_dir/$name" ] || fail "$backup_dir/$name is there already"
-# Made under another name and renamed once whole: a folder of the final name is a
-# whole backup.
-work="$backup_dir/.$name.partial"
-rm -rf -- "$work"
-mkdir -- "$work"
+# Made under a name of its own and renamed once whole: a folder of the final name is a
+# whole backup, and two backups of the same second do not share one.
+work=$(mktemp -d "$backup_dir/.$name.XXXXXX")
 trap 'rm -rf -- "$work"' EXIT
-trap 'exit 130' INT TERM
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # The database first, then the files: a file uploaded in between is kept without a
 # record (a comparison of the files reports it), never a record without its file.
 compose exec -T postgres pg_dump --username=postgres --dbname=fvoci --format=custom \
     >"$work/db.dump"
 if [ "$storage" = local ]; then
-    # The files' volume through fvoci's image and user, whether fvoci runs or not.
-    compose run --rm --no-deps -T --entrypoint tar fvoci \
-        --create --file=- --directory=/data --exclude=files/.tmp --exclude=files/.fvoci-ready \
-        files >"$work/files.tar"
+    set -- --create --file=- --directory=/data \
+        --exclude=files/.tmp --exclude=files/.fvoci-ready files
+    if running fvoci; then
+        compose exec -T fvoci tar "$@" >"$work/files.tar"
+    else
+        # The volume through fvoci's image and user, as it is here: nothing is pulled
+        # or built.
+        compose run --rm --no-deps -T --pull never --entrypoint tar fvoci "$@" >"$work/files.tar"
+    fi
     files_said="its files"
 else
     files_said="no files: they are in S3, whose bucket is yours to back up"
@@ -54,6 +64,7 @@ fi
 # What it was made with; the .env holds every secret, as the folder's mode says.
 cp -- "$env_file" "$work/env"
 n=0
+set -f
 old_ifs=$IFS
 IFS=:
 for file in $COMPOSE_FILE; do
@@ -61,9 +72,11 @@ for file in $COMPOSE_FILE; do
     cp -- "$file" "$work/compose-$n-$(basename -- "$file")"
 done
 IFS=$old_ifs
+set +f
 commit=unknown
 if running fvoci; then
-    commit=$(fvoci_request http GET /api/v1/ping | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p')
+    ping=$(fvoci_request http GET /api/v1/ping) || ping=""
+    commit=$(printf '%s' "$ping" | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p')
     commit=${commit:-unknown}
 fi
 {
@@ -74,15 +87,19 @@ fi
     echo "commit=$commit"
 } >"$work/made"
 chmod 600 -- "$work"/*
-mv -- "$work" "$backup_dir/$name"
+chmod 700 -- "$work"
+# -T: never into a folder of that name made meanwhile.
+mv -T -- "$work" "$backup_dir/$name" || fail "$backup_dir/$name is there already"
 trap - EXIT
 
 size=$(du -sk -- "$backup_dir/$name" | cut -f1)
 say "made $backup_dir/$name (${size} KiB: the database, $files_said) in $(seconds $(($(now_ms) - started)))"
 
 if [ "$keep_days" -gt 0 ]; then
+    # This project's backups, and what a backup that was killed left, and nothing else.
+    stamp_glob="[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z"
     old=$(find "$backup_dir" -mindepth 1 -maxdepth 1 -type d \
-        -name "$project-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z" \
+        \( -name "$project-$stamp_glob" -o -name ".$project-$stamp_glob.*" \) \
         -mmin +$((keep_days * 1440)))
     while IFS= read -r gone; do
         [ -n "$gone" ] || continue

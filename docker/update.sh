@@ -27,7 +27,14 @@ while [ $# -gt 0 ]; do
     fi
     case $1 in
     --no-pull) pull=no ;;
-    --commit) expected=${2:?--commit needs a value} && shift ;;
+    --commit)
+        expected=${2:?--commit needs a value}
+        case $expected in
+        [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+        *) fail "--commit takes a commit of 7 or more hexadecimal digits" ;;
+        esac
+        shift
+        ;;
     *) fail "unknown option $1" ;;
     esac
     shift
@@ -60,7 +67,9 @@ running fvoci || fail "fvoci does not run: start it first (docker compose up -d)
 image=$(fvoci_setting image)
 old_container=$(compose ps --quiet fvoci)
 old_image=$(docker inspect --format '{{.Image}}' "$old_container")
-old_tags=$(docker image inspect --format '{{join .RepoTags " "}}' "$old_image")
+# The image that runs now keeps a name of its own: a pull may move its tag to the new.
+kept_tag="fvoci-server:before-update-$project"
+docker tag "$old_image" "$kept_tag"
 schema_before=$(schema_version)
 rows_before=$(row_counts)
 
@@ -73,8 +82,12 @@ if [ "$pull" = yes ]; then
     compose pull ||
         fail "the images were not pulled (--no-pull if they are on this machine): fvoci still runs, nothing was changed"
 fi
-docker image inspect "$image" >/dev/null 2>&1 ||
-    fail "the image $image is not on this machine: fvoci still runs, nothing was changed"
+# Every image `up` will start must be here before fvoci stops.
+images=$(compose config --images) || fail "compose cannot list its images"
+for wanted in $images; do
+    docker image inspect "$wanted" >/dev/null 2>&1 ||
+        fail "the image $wanted is not on this machine: fvoci still runs, nothing was changed"
+done
 if [ -z "$expected" ]; then
     expected=$(docker image inspect --format \
         '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
@@ -87,19 +100,22 @@ after_the_stop() {
     status=$?
     [ "$status" -ne 0 ] || return 0
     printf '%s\n' \
-        "update: failed after fvoci was stopped ($since). What is left:" \
-        "  - the backup $backup, made before the stop" \
-        "  - the image that ran before: $old_image (${old_tags:-untagged})" \
+        "update: failed after fvoci was stopped ($since), before it was ready. What is left:" \
+        "  - the backup $backup, made before the stop (its env and compose copies are" \
+        "    the new version's: going back needs the docker/ and .env that ran before)" \
+        "  - the image that ran before: $old_image, tagged $kept_tag" \
         "  - the schema: $(schema_version) (it was $schema_before)" \
         "  docker compose logs migrate fvoci says why. There are no migrations down: if the" \
         "  schema moved, going back is restoring the backup into new volumes with the image" \
-        "  that ran before (its tag in FVOCI_IMAGE; docker compose down; remove the volumes" \
+        "  that ran before (FVOCI_IMAGE=$kept_tag; docker compose down; remove the volumes" \
         "  postgres-data and fvoci-data; docker/restore.sh <backup>). If it did not move," \
-        "  that tag in FVOCI_IMAGE and docker compose up -d bring the old version back." >&2
+        "  FVOCI_IMAGE=$kept_tag and docker compose up -d bring the old version back." >&2
     exit "$status"
 }
 trap after_the_stop EXIT
-trap 'exit 130' INT TERM
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 say "stopping fvoci, then starting $image"
 compose stop fvoci
@@ -107,26 +123,30 @@ compose up --detach --no-build --wait --wait-timeout 300
 ready=$(fvoci_request http GET /api/v1/ready)
 case $ready in
 200*) ;;
-*) fail "fvoci is up but not ready (${ready%%
-*})" ;;
+*) fail "fvoci is up but not ready ($(first_line "$ready"))" ;;
 esac
 down=$(($(now_ms) - stopped))
+# fvoci serves people again: what goes wrong now is not undone by a restore, which
+# would lose what they write.
+trap - EXIT
 
-ping=$(fvoci_request http GET /api/v1/ping)
+ping=$(fvoci_request http GET /api/v1/ping) || ping=""
 commit=$(printf '%s' "$ping" | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p')
-logs=$(compose logs --no-color --since "$since" migrate fvoci 2>&1 || true)
-errors=$(printf '%s\n' "$logs" | grep -cw ERROR || true)
-warnings=$(printf '%s\n' "$logs" | grep -cw WARN || true)
+logs=$(compose logs --no-color --since "$since" migrate fvoci 2>&1) || logs=""
+errors=$(printf '%s\n' "$logs" | grep -cw ERROR) || errors=0
+warnings=$(printf '%s\n' "$logs" | grep -cw WARN) || warnings=0
 unset logs
 say "fvoci was down $(seconds "$down") and is ready"
 say "schema $schema_before -> $(schema_version)"
 say "rows before: $rows_before; now: $(row_counts)"
 say "since the stop fvoci and migrate logged $errors ERROR and $warnings WARN lines"
+say "the image that ran before is tagged $kept_tag"
 if [ -z "$expected" ] || [ -z "$commit" ]; then
     say "commit unknown: the image was built without its commit (ping says \"${commit}\", the image \"${expected}\")"
-elif [ "$commit" != "$expected" ]; then
-    fail "fvoci runs the commit $commit, not $expected"
 else
-    say "fvoci runs the commit $commit"
+    # A commit given short, or without the -dirty of a build from a changed checkout.
+    case $commit in
+    "$expected"*) say "fvoci runs the commit $commit" ;;
+    *) fail "fvoci is ready and serving, but runs the commit $commit, not $expected: FVOCI_IMAGE names another build. Going back to the image that ran before ($kept_tag) is safe while the schema did not move; a restore of the backup would lose what was written since $since" ;;
+    esac
 fi
-trap - EXIT

@@ -394,6 +394,9 @@ fn take_down(trial: &Trial) -> Result<()> {
     if !status.success() {
         bail!("docker compose down ended with {status}");
     }
+    // The name update.sh gave the image it replaced, the trial's own: the image keeps
+    // its other names. Absent unless the update ran.
+    let _ = capture("docker", &["image", "rm", &backup::kept_tag(trial)]);
     let label = trial.label();
     let listings: [&[&str]; 3] = [
         &["container", "ls", "--all"],

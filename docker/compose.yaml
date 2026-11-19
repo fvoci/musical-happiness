@@ -96,10 +96,11 @@
 #     (0 keeps them all). The .env's copy holds every secret.
 #   docker/restore.sh <backup folder>
 #     into new volumes only (docker compose down, then remove the project's volumes
-#     postgres-data and fvoci-data): a database with a table or a volume with a file is
+#     postgres-data and fvoci-data): a container of fvoci, a database with a table, a
+#     volume with a file or an .env whose FVOCI_SECRET_KEY is not the backup's is
 #     refused, nothing changed. Then `up` (migrate brings an older backup's schema up),
 #     the search index made anew and the files compared with the records, on the admin
-#     socket. It needs the backup's FVOCI_SECRET_KEY in the .env.
+#     socket.
 #   docker/update.sh [--no-pull] [--commit <sha>]
 #     once the new docker/ is in place and FVOCI_IMAGE in .env names the new image:
 #     checks the files and the .env first (a line the new version needs is named, and
@@ -107,9 +108,11 @@
 #     fvoci, `up`, and checks it is ready and runs the commit expected (--commit, or the
 #     image's label; unknown, not a failure, for an image built without it). It says
 #     how long fvoci was down, the schema's version before and after, the rows of users
-#     and blocks, and the log's ERROR and WARN lines. There are no migrations down:
-#     when it fails after the stop it says what is left, and going back from a schema
-#     that moved is restore.sh of the backup it made, with the image that ran before.
+#     and blocks, and the log's ERROR and WARN lines. The image that ran before is
+#     tagged fvoci-server:before-update-<project>. There are no migrations down: when
+#     it fails after the stop it says what is left, and going back from a schema that
+#     moved is restore.sh of the backup it made, with that image and the docker/ and
+#     .env that ran before. Over SSH, run it under tmux or nohup.
 
 name: fvoci
 
