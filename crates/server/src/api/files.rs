@@ -25,11 +25,10 @@ use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::blocks::refuse_a_guest_a_template;
 use super::contract::bodies::{Binary, FileForm};
 use super::contract::params::{ContainerId, FileId, MemberWorkspaceId};
 use super::contract::tag;
-use super::workspace::{InContainer, InWorkspace};
+use super::workspace::InContainer;
 
 use super::{ApiResult, created, json_response, require_container_permission, require_granted};
 use crate::app::App;
@@ -95,9 +94,7 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
 /// A file
 ///
 /// The content of a file of the board, for the board's members. A file is asked for
-/// through its own board only: through another board it is not there. A guest of the
-/// path's workspace reads a template's files only as a member of that template (403
-/// otherwise).
+/// through its own board only: through another board it is not there.
 ///
 /// Every file is sent as `application/octet-stream` and offered as a download
 /// (`Content-Disposition: attachment`) under its `fileId`, not under the name it was
@@ -125,24 +122,14 @@ async fn handle_serve_file(
     Path((_, container_id, file_id)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> ApiResult {
-    require_file_reader(&ws, &container_id).await?;
+    require_file_reader(&ws.app, &ws.session.user_id, &container_id).await?;
     serve_container_file(&ws.app, &container_id, &file_id, &headers).await
 }
 
-/// Checks that the user may read the files of the board: whoever may see it, but a
-/// guest of the path's workspace the files of a template only as a member of it, as
-/// its blocks.
-async fn require_file_reader(ws: &InWorkspace, container_id: &str) -> Result<(), AppError> {
-    let grant = ws
-        .app
-        .container_grant(&ws.session.user_id, container_id)
-        .await?;
-    require_granted(grant, ContainerPermission::View, "access denied to board")?;
-    if ws.role == fvoci_model::WorkspaceRole::Guest {
-        let container = ws.app.container(container_id).await?;
-        refuse_a_guest_a_template(ws, &container).await?;
-    }
-    Ok(())
+/// Checks that the user may read the files of the board.
+async fn require_file_reader(app: &App, user_id: &str, container_id: &str) -> Result<(), AppError> {
+    let grant = app.container_grant(user_id, container_id).await?;
+    require_granted(grant, ContainerPermission::View, "access denied to board")
 }
 
 /// Sends a file of the board, as `getFile` describes it.
@@ -167,8 +154,7 @@ pub(super) async fn serve_container_file(
 /// What is known about a file
 ///
 /// The name a file was uploaded under, its size and when it was uploaded. For the
-/// board's members; a guest of the path's workspace is told of a template's files only
-/// as a member of that template (403 otherwise).
+/// board's members.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/containers/{containerId}/files/{fileId}/info",
@@ -181,7 +167,7 @@ async fn handle_get_file_info(
     InContainer(ws): InContainer,
     Path((_, container_id, file_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    require_file_reader(&ws, &container_id).await?;
+    require_file_reader(&ws.app, &ws.session.user_id, &container_id).await?;
     Ok(json_response(
         &container_file_info(&ws.app, &container_id, file_id.as_str()).await?,
     ))

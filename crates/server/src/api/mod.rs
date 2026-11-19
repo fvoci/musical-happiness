@@ -345,9 +345,12 @@ pub(crate) fn query_param(query: Option<&str>, name: &str) -> String {
     query_option(query, name).unwrap_or_default()
 }
 
-/// Returns the percent-decoded value of a query parameter, if the query has it.
+/// Returns the percent-decoded value of a query parameter, if the query has it with a
+/// value: a parameter that is there and empty is as one that is not.
 pub(crate) fn query_option(query: Option<&str>, name: &str) -> Option<String> {
-    query.and_then(|query| crate::auth::token::query_value(query, name))
+    query
+        .and_then(|query| crate::auth::token::query_value(query, name))
+        .filter(|value| !value.is_empty())
 }
 
 /// Reads the `disableNotify` query flag.

@@ -554,7 +554,10 @@ async fn the_templates_listed_are_the_files_of(ts: &crate::common::TestServer, l
         .iter()
         .map(|template| template["files"].as_array().map_or(0, Vec::len))
         .sum();
-    assert!(named > 0, "the files of the templates name files");
+    assert!(
+        named > 0,
+        "{language}: the files of the templates name files"
+    );
     assert_eq!(
         shown.len(),
         named,
@@ -832,31 +835,6 @@ async fn a_guest_uses_templates_in_the_workspace_where_they_are_a_member() {
         .get(&format!("{elsewhere}/boards/{board}/blocks"))
         .await
         .check_ok();
-    // A file of a template is read where its blocks are, and not where the user is a
-    // guest.
-    let mut files = 0;
-    for template in &templates {
-        let blocks = ts
-            .client2
-            .get(&format!("{elsewhere}/boards/{}/blocks", template.id))
-            .await
-            .ok_json::<Vec<Block>>();
-        for file in blocks.iter().flat_map(Block::shown_files) {
-            for part in ["", "/info"] {
-                let asked = format!("containers/{}/files/{file}{part}", template.id);
-                ts.client2
-                    .get(&format!("{ROOT_WS}/{asked}"))
-                    .await
-                    .check_forbidden();
-                ts.client2
-                    .get(&format!("{elsewhere}/{asked}"))
-                    .await
-                    .check_ok();
-            }
-            files += 1;
-        }
-    }
-    assert!(files > 0, "the templates show files");
     ts.client2
         .post(
             &format!("{elsewhere}/containers/{board}/duplicate"),

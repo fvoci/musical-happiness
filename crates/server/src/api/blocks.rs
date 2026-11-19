@@ -25,7 +25,7 @@ use super::{
     BlockAction, require_block_patch_permission, require_block_permission,
     require_delete_permission, require_deletion_permission,
 };
-use super::{change_notification, duplicate_as, require_container_permission};
+use super::{change_notification, duplicate_as, query_option, require_container_permission};
 use super::{
     decode_object_with, element_pointer, objects_mut, put_patch_bodies, take_block_bodies,
     take_patch_bodies,
@@ -46,11 +46,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_undelete_block))
         .routes(routes!(handle_get_comment_versions))
         .routes(routes!(handle_duplicate_block))
-}
-
-/// Returns a query parameter, or `None` if it is absent or empty.
-fn optional_query_param(query: Option<&str>, name: &str) -> Option<String> {
-    Some(query_param(query, name)).filter(|value| !value.is_empty())
 }
 
 /// The refusal to change what is on a board.
@@ -91,21 +86,11 @@ async fn require_read_access(ws: &InWorkspace, container: &Container) -> Result<
         "access denied to board",
     )
     .await?;
-    refuse_a_guest_a_template(ws, container).await
-}
-
-/// A guest of the path's workspace reads a template, and its files, only as a member of
-/// it: not an open template of the workspace, nor one the server ships with.
-pub(super) async fn refuse_a_guest_a_template(
-    ws: &InWorkspace,
-    container: &Container,
-) -> Result<(), AppError> {
+    // A guest of the path's workspace reads a template only as a member of it: not an
+    // open template of the workspace, nor one the server ships with.
     if container.is_template
         && ws.role == fvoci_model::WorkspaceRole::Guest
-        && !ws
-            .app
-            .invited_to_container(&ws.session.user_id, &container.id)
-            .await?
+        && !app.invited_to_container(user_id, &container.id).await?
     {
         return Err(AppError::forbidden(
             "guest are not allowed to get board templates",
@@ -176,14 +161,14 @@ pub(super) async fn asked_blocks(
 ) -> Result<Vec<Block>, AppError> {
     if !query_param(query, "all").is_empty() {
         app.blocks_for_container(container_id).await
-    } else if let Some(block_id) = optional_query_param(query, "blockId") {
+    } else if let Some(block_id) = query_option(query, "blockId") {
         Ok(vec![
             block_on_container(app, &block_id, container_id).await?,
         ])
     } else {
-        let parent_id = optional_query_param(query, "parentId");
+        let parent_id = query_option(query, "parentId");
         // The type is matched as it is written: one that no block has finds nothing.
-        let block_type = optional_query_param(query, "type").map(BlockType::from);
+        let block_type = query_option(query, "type").map(BlockType::from);
         app.blocks(container_id, parent_id.as_deref(), block_type.as_ref())
             .await
     }

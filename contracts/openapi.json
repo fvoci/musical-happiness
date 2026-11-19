@@ -10552,7 +10552,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}": {
       "get": {
-        "description": "The content of a file of the board, for the board's members. A file is asked for\nthrough its own board only: through another board it is not there. A guest of the\npath's workspace reads a template's files only as a member of that template (403\notherwise).\n\nEvery file is sent as `application/octet-stream` and offered as a download\n(`Content-Disposition: attachment`) under its `fileId`, not under the name it was\nuploaded with, which `getFileInfo` has. The answer honours `Range` with one range,\nunless the request has `If-Range`. It may be cached by the browser of who asked but\nmust be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no\ndownload: the `Last-Modified` of an answer is the time of that answer, so a request\nwith the `If-Modified-Since` of an earlier answer gets the whole file again.",
+        "description": "The content of a file of the board, for the board's members. A file is asked for\nthrough its own board only: through another board it is not there.\n\nEvery file is sent as `application/octet-stream` and offered as a download\n(`Content-Disposition: attachment`) under its `fileId`, not under the name it was\nuploaded with, which `getFileInfo` has. The answer honours `Range` with one range,\nunless the request has `If-Range`. It may be cached by the browser of who asked but\nmust be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no\ndownload: the `Last-Modified` of an answer is the time of that answer, so a request\nwith the `If-Modified-Since` of an earlier answer gets the whole file again.",
         "operationId": "getFile",
         "parameters": [
           {
@@ -10650,7 +10650,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/info": {
       "get": {
-        "description": "The name a file was uploaded under, its size and when it was uploaded. For the\nboard's members; a guest of the path's workspace is told of a template's files only\nas a member of that template (403 otherwise).",
+        "description": "The name a file was uploaded under, its size and when it was uploaded. For the\nboard's members.",
         "operationId": "getFileInfo",
         "parameters": [
           {
