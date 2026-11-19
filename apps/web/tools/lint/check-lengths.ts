@@ -24,7 +24,9 @@ try {
     for (const problem of problems) console.error(problem);
     console.error(
       `lengths: ${problems.length} differences between the code and ${EXCEPTIONS}. ` +
-        'By hand a ceiling goes down and never up: shorten the code, or split it.',
+        'Over a limit or ceiling: shorten the code or split it; where a split would make it ' +
+        'worse, raise or add its line by hand to the length above, with the evidence in the ' +
+        'commit body (see tools/lint/lengths.ts). A ceiling above the code goes down to it.',
     );
     process.exit(1);
   }

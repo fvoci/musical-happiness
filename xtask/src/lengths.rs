@@ -3,13 +3,25 @@
 //! The numbers are the constants of this file. What is over them today is listed in
 //! [`EXCEPTIONS`] with its length as a ceiling: it may not grow, and when it shrinks
 //! the step fails until the ceiling is lowered, or the line removed once the length is
-//! within the limit. `cargo xtask measure` rewrites the list from the code as it is,
-//! and is the one way a ceiling is to go up.
+//! within the limit. By hand a line is lowered, removed, or moved with its code to the
+//! file or name the code went to; a moved line is not an added one and needs no
+//! evidence.
 //!
-//! The step holds the code to the list; it cannot tell a number that was raised by
-//! hand from one that was measured. By hand a line is lowered, removed, or renamed
-//! with its code. A raised or added line shows in the diff of the list, and whoever
-//! merges looks for it there.
+//! Code that would go over is split first. A ceiling goes up, or a line is added, only
+//! where a split would make the code worse, and only with the evidence for that in the
+//! body of the commit that brings the code: what the added code is, the seam a split
+//! would cut along (`file:line`), and what the split would cost there (one rule in two
+//! places, a `match` over every case cut in two, a type opened up for the split alone,
+//! a file with no job of its own). That a split is more work is not evidence. The
+//! number goes in by hand on that one line, in the same commit, and is the length the
+//! step printed, not one line more: the step refuses a ceiling above the code.
+//!
+//! The step cannot tell a raised number from a measured one. A raised or added line
+//! shows in the diff of the list, and whoever merges reads it against the evidence and
+//! sends back one whose evidence is missing or does not hold. `cargo xtask measure`
+//! rewrites the whole list from the code, once after work that was measured apart is
+//! merged; what it raises or adds there (it prints each) is held to the same rule: the
+//! body of the merge commit gives the evidence, or the code is split first.
 
 mod measure;
 
@@ -172,8 +184,10 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         steps::say(&format!("    {problem}"));
     }
     steps::say(
-        "    by hand a ceiling goes down and never up: shorten the code, or split it. \
-         `cargo xtask measure` is for the one who merges, once",
+        "    over a limit or ceiling: shorten the code or split it; where a split would make \
+         it worse, raise or add its line by hand to the length above, with the evidence in \
+         the commit body (see xtask/src/lengths.rs). A ceiling above the code goes down to \
+         it. `cargo xtask measure` is for the one who merges, once",
     );
     bail!(
         "{} differences between the code and {EXCEPTIONS}",
@@ -181,9 +195,11 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     )
 }
 
-/// `cargo xtask measure`: writes the list anew from the code as it is. This is the one
-/// way a ceiling is to go up; it is for the moment after a merge of work that was
-/// measured apart, and no check calls it.
+/// `cargo xtask measure`: writes the list anew from the code as it is.
+///
+/// It is for the moment after a merge of work that was measured apart, and no check
+/// calls it; a ceiling that goes up with its code is one line changed by hand (see the
+/// head of this module).
 ///
 /// # Errors
 ///
@@ -284,10 +300,16 @@ const EXCEPTIONS_HEAD: &str = "\
 # shorter, until the number here is lowered (or the line removed, once the code is
 # within the limit).
 #
-# By hand a line is lowered, removed, or renamed with its code; never raised or added.
-# The check cannot tell a raised number from a measured one: the diff of this file
-# shows it. `cargo xtask measure` is run once after work that was measured apart is
-# merged, not to make a check pass.
+# By hand a line is lowered, removed, or moved with its code to the file or name the
+# code went to; a moved line is not an added one.
+#
+# Code that would go over is split first. A line is raised or added by hand only in the
+# commit that brings the code which needs it, to the length the check printed, and with
+# the evidence in that commit's body that a split would make the code worse: what the
+# added code is, the seam, and its cost (xtask/src/lengths.rs). Whoever merges reads
+# every raised or added line here against that evidence. `cargo xtask measure` is run
+# once after work that was measured apart is merged, not to make a check pass; what it
+# raises or adds there is held to the same rule, in the body of the merge commit.
 #
 # file <lines> <path>
 # function <lines> <path> <name>

@@ -6,10 +6,16 @@
 # shorter, until the number here is lowered (or the line removed, once the code is
 # within the limit).
 #
-# By hand a line is lowered, removed, or renamed with its code; never raised or added.
-# The check cannot tell a raised number from a measured one: the diff of this file
-# shows it. `cargo xtask measure` is run once after work that was measured apart is
-# merged, not to make a check pass.
+# By hand a line is lowered, removed, or moved with its code to the file or name the
+# code went to; a moved line is not an added one.
+#
+# Code that would go over is split first. A line is raised or added by hand only in the
+# commit that brings the code which needs it, to the length the check printed, and with
+# the evidence in that commit's body that a split would make the code worse: what the
+# added code is, the seam, and its cost (xtask/src/lengths.rs). Whoever merges reads
+# every raised or added line here against that evidence. `cargo xtask measure` is run
+# once after work that was measured apart is merged, not to make a check pass; what it
+# raises or adds there is held to the same rule, in the body of the merge commit.
 #
 # file <lines> <path>
 # function <lines> <path> <name>

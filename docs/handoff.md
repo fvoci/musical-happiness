@@ -63,7 +63,7 @@
 
 ```bash
 cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 층, 길이, 계약, 라이선스·권고. 외부 서비스 없음
-cargo xtask measure  # 길이의 예외 목록(xtask/exceptions/lengths.txt)을 지금 코드로 다시 쓴다. 천장을 올리는 유일한 길이고, 따로 잰 묶음들을 합친 뒤 한 번만 돌린다. 웹앱의 것은 pnpm --filter web run lengths:measure
+cargo xtask measure  # 길이의 예외 목록(xtask/exceptions/lengths.txt)을 지금 코드로 다시 쓴다. 따로 잰 묶음들을 합친 뒤 한 번만 돌린다. 웹앱의 것은 pnpm --filter web run lengths:measure
 cargo xtask test     # 컨테이너 준비 → SQLite 전체 → PostgreSQL(store, server) → S3 저장소 테스트
 cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르면 실패. --write 가 고쳐 쓴다
 ```
@@ -72,7 +72,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 
 | 무엇 | 결과 |
 |---|---|
-| `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(손으로는 줄이거나, 코드가 옮겨 간 파일로 줄을 함께 옮기기만 한다. 길이의 천장을 올리는 것은 `measure`뿐이다. 손으로 더한 줄이나 올린 수는 검사가 가려내지 못하므로 그 파일의 diff에서 본다) |
+| `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(손으로는 줄이거나, 코드가 옮겨 간 파일로 줄을 함께 옮긴다. 길이의 천장은 나누는 것이 먼저이고, 나누면 코드가 더 나빠질 때만 그 코드를 들이는 커밋에서 한 줄을 손으로, 검사가 찍은 길이로 올리거나 더하고, 커밋 본문에 증거를 적는다: 더한 코드가 무엇인지, 나눌 이음매와 그 비용. 검사는 올린 수를 가려내지 못하므로 합치는 쪽이 그 파일의 diff를 증거와 견준다) |
 | `cargo xtask test` | SQLite 1,367건, PostgreSQL 1,113건, S3 10건, 실패 0(2026-11-12 02:36 KST, `fvoci/files-fix`) |
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |

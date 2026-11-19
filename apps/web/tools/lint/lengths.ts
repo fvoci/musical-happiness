@@ -4,14 +4,27 @@
  * The numbers are the constants below. What is over them today is listed in
  * `tools/lint/length-exceptions.txt` with its length as a ceiling: it may not
  * grow, and when it shrinks the check fails until the ceiling is lowered, or
- * the line removed once the length is within the limit. `measure-lengths.ts`
- * writes the list anew from the code as it is, and is the one way
- * a ceiling is to go up.
+ * the line removed once the length is within the limit. By hand a line is
+ * lowered, removed, or moved with its code to the file or name the code went
+ * to; a moved line is not an added one and needs no evidence.
  *
- * The check holds the code to the list; it cannot tell a number that was
- * raised by hand from one that was measured. By hand a line is lowered,
- * removed, or renamed with its code. A raised or added line shows in the
- * diff of the list, and whoever merges looks for it there.
+ * Code that would go over is split first. A ceiling goes up, or a line is
+ * added, only where a split would make the code worse, and only with the
+ * evidence for that in the body of the commit that brings the code: what the
+ * added code is, the seam a split would cut along (`file:line`), and what the
+ * split would cost there (one rule in two places, a `switch` over every case
+ * cut in two, a type exported for the split alone, a file with no job of its
+ * own). That a split is more work is not evidence. The number goes in by hand
+ * on that one line, in the same commit, and is the length the check printed,
+ * not one line more: the check refuses a ceiling above the code.
+ *
+ * The check cannot tell a raised number from a measured one. A raised or
+ * added line shows in the diff of the list, and whoever merges reads it
+ * against the evidence and sends back one whose evidence is missing or does
+ * not hold. `measure-lengths.ts` rewrites the whole list from the code, once
+ * after work that was measured apart is merged; what it raises or adds there
+ * (it prints each) is held to the same rule: the body of the merge commit
+ * gives the evidence, or the code is split first.
  *
  * A function is measured by ESLint's parsers, from its first line to its
  * last, comments and empty lines included: declarations, function
@@ -140,10 +153,16 @@ const EXCEPTIONS_HEAD = `# Files and functions of src that are over the limit of
 # limit, and when the code got shorter, until the number here is lowered (or the line
 # removed, once the code is within the limit).
 #
-# By hand a line is lowered, removed, or renamed with its code; never raised or added.
-# The check cannot tell a raised number from a measured one: the diff of this file
-# shows it. \`lengths:measure\` is run once after work that was measured apart is
-# merged, not to make a check pass.
+# By hand a line is lowered, removed, or moved with its code to the file or name the
+# code went to; a moved line is not an added one.
+#
+# Code that would go over is split first. A line is raised or added by hand only in the
+# commit that brings the code which needs it, to the length the check printed, and with
+# the evidence in that commit's body that a split would make the code worse: what the
+# added code is, the seam, and its cost (tools/lint/lengths.ts). Whoever merges reads
+# every raised or added line here against that evidence. \`lengths:measure\` is run
+# once after work that was measured apart is merged, not to make a check pass; what it
+# raises or adds there is held to the same rule, in the body of the merge commit.
 #
 # file <lines> <path>
 # function <lines> <path> <name>

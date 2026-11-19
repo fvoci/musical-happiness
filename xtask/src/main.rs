@@ -54,9 +54,11 @@ enum Command {
         #[arg(long, value_enum, default_value_t = Databases::All)]
         database: Databases,
     },
-    /// Rewrites `xtask/exceptions/lengths.txt` from the code as it is: the one way the
-    /// ceiling of a long file or function goes up. Run it once after work that was
-    /// measured apart is merged, never to make `check` pass.
+    /// Rewrites `xtask/exceptions/lengths.txt` from the code as it is.
+    ///
+    /// Run it once after work that was measured apart is merged, never to make `check`
+    /// pass: a ceiling that goes up with its code is one line changed by hand, with
+    /// evidence (see `xtask/src/lengths.rs`).
     Measure,
     /// Fails if `contracts/openapi.json` is not the OpenAPI document the server prints
     /// from its route definitions.
