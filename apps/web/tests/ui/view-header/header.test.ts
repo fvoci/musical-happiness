@@ -230,6 +230,18 @@ describe('the whole row', () => {
     await fireEvent.blur(field, { relatedTarget: null });
     await tick();
     expect(header().querySelector('[data-testid="view-search"]')).not.toHaveClass('hidden');
+    // Until the press is a click: then the field closes as the focus leaves it for nowhere.
+    await fireEvent.click(document.body);
+    field.focus();
+    await fireEvent.blur(field, { relatedTarget: null });
+    await tick();
+    expect(header().querySelector('[data-testid="view-search"]')).toHaveClass('hidden');
+    await fireEvent.click(toolButton('search'));
+    await tick();
+    await fireEvent.blur(within(header()).getByRole('searchbox', { name: 'Search cards' }), {
+      relatedTarget: toolButton('views'),
+    });
+    await tick();
     // Going on from the button elsewhere, the empty field closes and the tabs are back.
     await fireEvent.focusOut(toolButton('views'), { relatedTarget: document.body });
     await tick();

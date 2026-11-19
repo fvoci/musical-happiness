@@ -145,9 +145,11 @@
     );
   }
 
-  /** A view picked from that button: the tabs come back, and its tab takes the focus. */
-  function openFolded(viewId: string): void {
-    const folded = row && !tabs;
+  /**
+   * A view picked (or added) from that button, `folded` as it was when it
+   * was asked for: the tabs come back, and its tab takes the focus.
+   */
+  function openFolded(viewId: string, folded = row && !tabs): void {
     onOpenView(viewId);
     if (folded) focusTab(viewId);
   }
@@ -156,8 +158,14 @@
   let pressing = false;
   function pressed(): void {
     pressing = true;
-    // The field's blur comes in the same task as the press.
-    setTimeout(() => (pressing = false));
+    // Until the press is a click: under a finger the field's blur comes after the touch ends.
+    const done = (): void => {
+      pressing = false;
+      window.removeEventListener('click', done, true);
+      window.removeEventListener('pointercancel', done, true);
+    };
+    window.addEventListener('click', done, true);
+    window.addEventListener('pointercancel', done, true);
   }
   /** The focus leaving an empty field for that button keeps the field, and the button with it. */
   const keepsSearch = (to: EventTarget | null): boolean =>
@@ -168,7 +176,9 @@
     if (!row || search !== '' || !document.hasFocus()) return;
     const to = event.relatedTarget;
     const kept = to instanceof Node && event.currentTarget.contains(to);
-    if (kept || (to instanceof Element && to.closest('[role="search"], [role="menu"]'))) return;
+    // The field, and the list of views: a menu, or a sheet (a dialog) on a compact page.
+    const list = '[role="search"], [role="menu"], [role="dialog"]';
+    if (kept || (to instanceof Element && to.closest(list))) return;
     searchOpenIn = undefined;
   }
 
@@ -176,10 +186,11 @@
 
   async function addView(viewType: AddableViewType): Promise<void> {
     const title = NEW_VIEW_TITLES[viewType]();
+    const folded = row && !tabs;
     const made = await whileHere(board, () =>
       board.createView({ title, fields: newViewFields(viewType, templates) }),
     );
-    if (made) openFolded(made.id);
+    if (made) openFolded(made.id, folded);
   }
 
   const onAddView = $derived(

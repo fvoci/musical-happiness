@@ -160,6 +160,26 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(await cuts(page)).toEqual({ cut: [], scroll: 0 });
     });
 
+    test('a window too low for a popover lists the views in a sheet while an empty search is open', async ({
+      page,
+    }) => {
+      test.skip(scheme === 'dark', 'the same on either screen');
+      // Wide enough for the whole row, low enough for a compact page: lists open as sheets.
+      await page.setViewportSize({ width: 1280, height: 480 });
+      await openApp(page);
+      await expect(header(page)).toHaveAttribute('data-layout', 'row');
+      await openSearch(page);
+      await tool(page, 'views').click();
+      const sheet = page.getByRole('dialog', { name: 'Views' });
+      await expect(sheet).toBeVisible();
+      await expect(header(page).locator('[data-testid="view-search"]')).toBeVisible();
+      await sheet.getByRole('menuitem', { name: 'Task Overview' }).click();
+      await expect(tabs(page).filter({ hasText: 'Task Overview' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+    });
+
     test('a window of 1,280 cuts no name, searching or not', async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 800 });
       await openApp(page);
