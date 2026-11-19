@@ -384,7 +384,7 @@
 - 구성원의 얼굴은 넷까지, 나머지는 "+N". 칸이 544px 이상일 때만.
   - 왜: 제안서의 표.
   - 바꾸려면: `TopBar.svelte`의 `FACES`.
-- 보드 설명은 제목 옆 "ⓘ" 단추를 누르면 열린다. 칸 544px 이상에서 단추가 보이고, 설명이 없으면 고칠 수 있는 사람에게만 "설명 추가" 단추가 보인다. 칸 544px 미만(휴대폰)에서는 "…" 메뉴의 한 줄이다. `showDescription`은 보지 않는다. 2026-11-19 PR 2 전에는 칸 992px 이상에서 막대에 한 줄로 보였다.
+- 보드 설명은 제목 옆 "ⓘ" 단추를 누르면 열린다. 칸 544px 이상에서 단추가 보이고, 설명이 없으면 고칠 수 있는 사람에게만 "설명 추가" 단추가 보인다. 칸 544px 미만(휴대폰)에서는 "…" 메뉴의 한 줄이다. `showDescription`은 보지 않는다.
   - 왜: 제목에 자리를 주려고. 그 값은 뷰 머리글 아래의 설명 칸을 여닫는 값이다. 그 칸은 틀의 것이 아니다.
   - 다른 안: `showDescription`이 꺼져 있으면 막대에서도 숨긴다.
   - 바꾸려면: `TopBar.svelte`(메뉴와 단추), `ContainerDescription.svelte`(열리는 판과 편집).
@@ -649,7 +649,7 @@
 - **Q14.** 시트는 열릴 때 시트 자체에 초점이 간다(공용 `BottomSheet`). 팝오버의 이름 바꾸기 칸은 `data-picker-focus`로 초점을 받는다.
   - 바꾸려면: `components/sheet/BottomSheet.svelte`, `ViewMenu.svelte`의 `data-picker-focus`.
 - **Q15.** 안 A. 접힌 줄은 뷰 단추, 검색, 필터(조건 수), "…".
-  - 바꾸려면: `ViewHeader.svelte`의 `row`(= `pane.tabs`), 경계는 `styles/app.css`의 `--container-tabs`(704px. 2026-11-19 PR 2에서 992px에서 내렸다).
+  - 바꾸려면: `ViewHeader.svelte`의 `row`(= `pane.tabs`), 경계는 `styles/app.css`의 `--container-tabs`(704px).
 - **Q16.** 가. 접힌 배치에서 오른쪽 아래 둥근 단추. "템플릿으로 만들기"는 범위 밖이라 없다.
   - 바꾸려면: `ViewHeader.svelte`의 맨 아래 `Button`.
 - **Q17.** 가. 돋보기를 누르면 줄이 검색 칸으로 바뀌고 왼쪽에 닫기. 검색 칸은 두 모양에서 한 요소다.
