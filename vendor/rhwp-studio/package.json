@@ -9,7 +9,12 @@
     "repository": "https://github.com/edwardkim/rhwp",
     "tag": "v0.9.0",
     "commit": "c9095c5f67632e6721e800ccc7fb43ea49d26682",
-    "patched": []
+    "patched": [
+      "rhwp-studio/src/core/font-loader.ts",
+      "rhwp-studio/src/core/font-substitution.ts",
+      "rhwp-studio/src/core/pdf-open.ts",
+      "rhwp-studio/src/main.ts"
+    ]
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",

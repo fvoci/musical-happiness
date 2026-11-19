@@ -80,8 +80,14 @@ interface FontResource { bytes: ArrayBuffer; cssUrl: string }
 const fontResources = new Map<string, FontResource>();
 const pendingFontResources = new Map<string, Promise<FontResource>>();
 
+/** [fvoci] Whether the font files of rhwp-studio's `public/fonts` come with this build. */
+const FONT_FILES_SHIPPED: boolean = false;
+
 /** URL FontFace.load는 취소할 수 없고 문서 load/fonts.ready까지 붙잡을 수 있다. */
 async function loadFontResource(file: string): Promise<FontResource> {
+  // [fvoci] None of rhwp-studio's font files is shipped, and the frame it runs in fetches
+  // nothing: a supply from a file is absent without being asked for.
+  if (!FONT_FILES_SHIPPED) throw new Error('WEB_FONT_FILE_UNAVAILABLE');
   const cached = fontResources.get(file);
   if (cached) return cached;
   const pending = pendingFontResources.get(file);

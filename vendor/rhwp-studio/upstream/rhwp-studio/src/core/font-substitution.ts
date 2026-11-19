@@ -326,19 +326,21 @@ export function completeFontFamilyList(incoming: readonly string[], fallback: re
   return families;
 }
 
+// [fvoci] The one Korean family the host ships (Noto Sans KR) is in every chain, before the
+// generic family: where the system has no Korean serif or monospace face, the text is still drawn.
 function bodyFallbackFamilies(fontName: string): string[] {
   if (GENERIC_FONTS.has(fontName)) return [fontName];
   // KoPub바탕체는 이름에 "바탕체"가 있지만 Windows BatangChe와 달리 비례폭 출판 명조다.
   if (/KoPub\s*바탕(?:체)?|KoPub\s*Batang/i.test(fontName)) {
-    return ['Batang', 'AppleMyungjo', 'Noto Serif KR', 'serif'];
+    return ['Batang', 'AppleMyungjo', 'Noto Serif KR', 'Noto Sans KR', 'serif'];
   }
   // Monospace 판별
   if (/굴림체|바탕체|gulimche|batangche|coding|courier/i.test(fontName)) {
-    return ['GulimChe', 'D2Coding', 'Noto Sans Mono', 'monospace'];
+    return ['GulimChe', 'D2Coding', 'Noto Sans Mono', 'Noto Sans KR', 'monospace'];
   }
   // Serif 판별
   if (/[바탕명조궁서]|hymjre|times|palatino|georgia|batang|gungsuh/i.test(fontName)) {
-    return ['Batang', 'AppleMyungjo', 'Noto Serif KR', 'serif'];
+    return ['Batang', 'AppleMyungjo', 'Noto Serif KR', 'Noto Sans KR', 'serif'];
   }
   // Sans-serif (기본)
   return ['Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Pretendard', 'sans-serif'];

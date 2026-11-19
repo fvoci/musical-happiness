@@ -189,6 +189,42 @@ async function completeHostSave(fileName?: string): Promise<{ ok: true; wasDirty
   fonts: { setProvider: setHostFontProvider, getState: getHostFontState },
 };
 
+// [fvoci] The pages laid out again some time after an edit (the deferred pagination) are told
+// on the events an edit is told on, with a reason that names the pagination. The document is
+// not changed by them: they neither count as a change nor make a saved document unsaved.
+const isLayoutOnly = (reason: unknown): boolean =>
+  typeof reason === 'string' && reason.includes('pagination');
+
+// [fvoci] The hook of the page this editor is built into (apps/web/src/editor-frame): it hands
+// the document's bytes in, takes the saved bytes together with rhwp's report of what they
+// lose, and hears when the document changes. No other way gives the bytes out: the embed
+// runtime at the end of this file, whose exports carry no report, is not installed.
+(window as any).rhwpStudio.host = {
+  ready: () => initPromise,
+  load: async (data: Uint8Array, fileName: string) => {
+    await initPromise;
+    await loadBytes(data, fileName, null, undefined, { suppressDialogs: true, skipRecent: true });
+    return { pageCount: wasm.pageCount, sourceFormat: wasm.getSourceFormat() };
+  },
+  exportWithReport: (format: 'hwp' | 'hwpx') =>
+    format === 'hwpx' ? wasm.exportHwpxWithReport() : wasm.exportHwpWithReport(),
+  isDirty: () => documentState.isDirty(),
+  onDirtyChanged: (listener: (dirty: boolean) => void) =>
+    eventBus.on('document-dirty-changed', (change) => {
+      listener(Boolean((change as { dirty?: boolean } | undefined)?.dirty));
+    }),
+  onMutated: (listener: () => void) => {
+    const heard = (reason: unknown): void => { if (!isLayoutOnly(reason)) listener(); };
+    const offs = [
+      eventBus.on('document-mutated', heard),
+      eventBus.on('document-changed', heard),
+    ];
+    return () => { for (const off of offs) off(); };
+  },
+  notifySaved: (fileName?: string) => completeHostSave(fileName),
+  focus: () => { if (inputHandler?.isActive()) inputHandler.focus(); },
+};
+
 // E2E 테스트용 전역 노출 (개발 모드 전용)
 if (import.meta.env.DEV) {
   (window as any).__wasm = wasm;
@@ -1283,10 +1319,12 @@ function setupEventListeners(): void {
   });
 
   eventBus.on('document-mutated', (reason) => {
+    if (isLayoutOnly(reason)) return; // [fvoci]
     documentState.markDirty(typeof reason === 'string' ? reason : 'document-mutated');
   });
 
   eventBus.on('document-changed', (reason) => {
+    if (isLayoutOnly(reason)) return; // [fvoci]
     documentState.markDirty(typeof reason === 'string' ? reason : 'document-changed');
   });
 
@@ -2225,7 +2263,9 @@ void initPromise.then(() => {
   }
 });
 
-installEmbedRuntime({
+// [fvoci] Not installed (see the host's hook above): the options are built and dropped.
+const installNoEmbedRuntime = (_options: Parameters<typeof installEmbedRuntime>[0]): void => {};
+installNoEmbedRuntime({
   hostWindow: window,
   parentWindow: window.parent,
   subscribeCommandError: (listener) => eventBus.on('command-error', listener),
