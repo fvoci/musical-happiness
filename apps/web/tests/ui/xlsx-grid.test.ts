@@ -203,27 +203,41 @@ describe('rows and columns of a style of their own', () => {
     expect(second.every((each) => !each.hasAttribute('role'))).toBe(true);
   });
 
-  it('a styled column across the whole sheet spends the budget like any cell', async () => {
-    // Every column bordered (each cell drawn alone), 1-pixel columns and rows: far more empty
-    // cells in view than the budget.
-    const xml = `<sheetFormatPr defaultRowHeight="0.75"/><cols><col min="1" max="16384" width="0.1" style="4" customWidth="1"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>`;
-    const view = await drawn(
-      workbook({ sheets: [{ name: 'bordered', xml }], stylesXml: ROW_COLUMN_STYLES }),
-    );
-    const drawnBlanks = view.element.querySelectorAll('.xlsx-cell[aria-hidden="true"]').length;
-    expect(drawnBlanks).toBeLessThanOrEqual(CELL_BUDGET);
-    expect(drawnBlanks).toBeGreaterThan(CELL_BUDGET / 2);
-  });
+  /**
+   * The two below make the whole budget of cells, each bordered (two elements): 1.5 seconds
+   * alone, past 5 under the load of the whole check (6.7 at a load of 36).
+   */
+  const FULL_BUDGET_TIME = 15_000;
 
-  it('the written cells are drawn before any empty one: a styled sheet loses no value', async () => {
-    // As dense as the sheet above that fills the budget with values, every column bordered.
-    const xml = `<sheetFormatPr defaultRowHeight="0.75"/><cols><col min="1" max="16384" width="0.1" style="4" customWidth="1"/></cols><sheetData>${rowsOf(70, 100)}</sheetData>`;
-    const view = await drawn(
-      workbook({ sheets: [{ name: 'dense', xml }], stylesXml: ROW_COLUMN_STYLES }),
-    );
-    // Every value in view, though the empty cells around them are more than the budget.
-    expect(view.element.querySelectorAll('[role="cell"]')).toHaveLength(70 * 100);
-    const empty = view.element.querySelectorAll('.xlsx-cell[aria-hidden="true"]').length;
-    expect(empty).toBe(CELL_BUDGET - 70 * 100);
-  });
+  it(
+    'a styled column across the whole sheet spends the budget like any cell',
+    async () => {
+      // Every column bordered (each cell drawn alone), 1-pixel columns and rows: far more empty
+      // cells in view than the budget.
+      const xml = `<sheetFormatPr defaultRowHeight="0.75"/><cols><col min="1" max="16384" width="0.1" style="4" customWidth="1"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>`;
+      const view = await drawn(
+        workbook({ sheets: [{ name: 'bordered', xml }], stylesXml: ROW_COLUMN_STYLES }),
+      );
+      const drawnBlanks = view.element.querySelectorAll('.xlsx-cell[aria-hidden="true"]').length;
+      expect(drawnBlanks).toBeLessThanOrEqual(CELL_BUDGET);
+      expect(drawnBlanks).toBeGreaterThan(CELL_BUDGET / 2);
+    },
+    FULL_BUDGET_TIME,
+  );
+
+  it(
+    'the written cells are drawn before any empty one: a styled sheet loses no value',
+    async () => {
+      // As dense as the sheet above that fills the budget with values, every column bordered.
+      const xml = `<sheetFormatPr defaultRowHeight="0.75"/><cols><col min="1" max="16384" width="0.1" style="4" customWidth="1"/></cols><sheetData>${rowsOf(70, 100)}</sheetData>`;
+      const view = await drawn(
+        workbook({ sheets: [{ name: 'dense', xml }], stylesXml: ROW_COLUMN_STYLES }),
+      );
+      // Every value in view, though the empty cells around them are more than the budget.
+      expect(view.element.querySelectorAll('[role="cell"]')).toHaveLength(70 * 100);
+      const empty = view.element.querySelectorAll('.xlsx-cell[aria-hidden="true"]').length;
+      expect(empty).toBe(CELL_BUDGET - 70 * 100);
+    },
+    FULL_BUDGET_TIME,
+  );
 });
