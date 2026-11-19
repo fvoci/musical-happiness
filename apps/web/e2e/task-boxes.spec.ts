@@ -74,7 +74,10 @@ async function editorOf(page: Page, testId: string): Promise<Locator> {
 const boxes = (editor: Locator): Locator =>
   editor.locator('ul[data-type="taskList"] > li > label input[type="checkbox"]');
 
-/** Whether the body has the focus (not a box in it), whether the selection is in it, the editor's own selection, and how far its scroller is scrolled. */
+/**
+ * Whether the body has the focus (not a box in it), whether the selection is in it, the editor's
+ * own selection, and how far the window and the body's scroller are scrolled.
+ */
 const where = (
   editor: Locator,
 ): Promise<{
@@ -82,6 +85,7 @@ const where = (
   selected: boolean;
   caret: [number, number];
   scrolled: number;
+  windowScrolled: number;
 }> =>
   editor.evaluate((root) => {
     const selection = getSelection();
@@ -97,18 +101,36 @@ const where = (
       selected: anchor !== null && root.contains(anchor),
       caret: [state.selection.from, state.selection.to],
       scrolled: scroller.scrollTop,
+      windowScrolled: window.scrollY,
     };
   });
 
 /**
- * A finger, or a pointer, pressed on the middle of a box: where its label answers (on a touch
- * screen the label is a finger's square drawn over the box). Nothing is scrolled first.
+ * Where a box is pressed: its middle, or (with a finger) the edge of its label, outside the box
+ * drawn and inside the finger's square drawn around it (editor.css).
  */
-async function press(page: Page, box: Locator): Promise<void> {
+type Spot = 'middle' | 'edge';
+
+/**
+ * A finger, or a pointer, pressed on a box at `spot`. Nothing is scrolled first. At the edge, the
+ * press is checked to land on the label and not on the box itself.
+ */
+async function press(page: Page, box: Locator, spot: Spot = 'middle'): Promise<void> {
   const drawn = await box.boundingBox();
   if (!drawn) throw new Error('no box of a task');
-  const x = drawn.x + drawn.width / 2;
-  const y = drawn.y + drawn.height / 2;
+  const off = spot === 'edge' ? 16 : 0;
+  const x = drawn.x + drawn.width / 2 - off;
+  const y = drawn.y + drawn.height / 2 + off;
+  if (spot === 'edge') {
+    const hit = await box.evaluate(
+      (input, at) => {
+        const found = document.elementFromPoint(at.x, at.y);
+        return found !== input && found?.closest('label') === input.closest('label');
+      },
+      { x, y },
+    );
+    expect(hit, 'the edge of the label, not the box').toBe(true);
+  }
   if (test.info().project.use.hasTouch) await page.touchscreen.tap(x, y);
   else await page.mouse.click(x, y);
 }
@@ -135,13 +157,17 @@ test.describe('with a finger', () => {
     expect(before.focused).toBe(false);
     expect(before.selected).toBe(false);
 
-    await press(page, boxes(editor).nth(1));
-    await expect(boxes(editor).nth(1)).toBeChecked();
-    expect(await where(editor)).toEqual(before);
-
-    await press(page, boxes(editor).nth(1));
-    await expect(boxes(editor).nth(1)).not.toBeChecked();
-    expect(await where(editor)).toEqual(before);
+    // The box's middle (where the library's own handler focused the body at its start) and the
+    // label's edge (where the browser focused it at the line pressed): each ticks and unticks.
+    for (const spot of ['middle', 'edge'] as const) {
+      for (const task of [0, 1]) {
+        const box = boxes(editor).nth(task);
+        const was = await box.isChecked();
+        await press(page, box, spot);
+        await expect(box, `${spot} of task ${task}`).toBeChecked({ checked: !was });
+        expect(await where(editor), `${spot} of task ${task}`).toEqual(before);
+      }
+    }
   });
 
   test('a press on a task’s box while writing ticks it, and the caret stays where it was', async ({
@@ -155,10 +181,14 @@ test.describe('with a finger', () => {
     const before = await where(editor);
     expect(before.selected).toBe(true);
 
-    await press(page, boxes(editor).nth(2));
-    await expect(boxes(editor).nth(2)).toBeChecked();
-    expect(await where(editor)).toEqual(before);
-    await expect(editor).toBeFocused();
+    for (const spot of ['middle', 'edge'] as const) {
+      const box = boxes(editor).nth(2);
+      const was = await box.isChecked();
+      await press(page, box, spot);
+      await expect(box, spot).toBeChecked({ checked: !was });
+      expect(await where(editor), spot).toEqual(before);
+      await expect(editor).toBeFocused();
+    }
   });
 
   test('on a wiki’s page as on a card', async ({ page }) => {
