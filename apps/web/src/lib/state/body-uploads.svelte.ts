@@ -35,10 +35,16 @@ export class BodyUploads {
     }
   }
 
-  /** What they were going up for closes: those under way are given up, and that is told, once. */
-  giveUp(): void {
-    if (this.#underWay.length === 0) return;
-    for (const upload of this.#underWay) upload.abort();
+  /**
+   * What they were going up for closes: those under way are given up, and that
+   * is told, once. `others` says a file of another kind (a card's attachment)
+   * was given up with it: one line tells of all.
+   */
+  giveUp(others = false): void {
+    const underWay = this.#underWay;
+    if (underWay.length === 0 && !others) return;
+    this.#underWay = [];
+    for (const upload of underWay) upload.abort();
     this.#report('left', undefined);
   }
 }

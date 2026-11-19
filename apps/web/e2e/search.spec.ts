@@ -351,8 +351,8 @@ test.describe('the search of cards and pages', () => {
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(new RegExp(`${wikiPath(wikiId, pier)}$`));
     await showTree(page);
-    // The drawer leaves the top bar in reach: neither its button nor the keys open the search.
-    await topBar(page).getByTestId('open-search').click();
+    // The drawer keeps the top bar away, its button with it, and the keys open no search.
+    await expect(topBar(page)).toHaveAttribute('inert', '');
     await page.keyboard.press(await primaryKey(page, 'k'));
     await expect(dialog(page)).toHaveCount(0);
     await expect(pageTree(page)).toBeVisible();

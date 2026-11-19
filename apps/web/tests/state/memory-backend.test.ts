@@ -378,13 +378,21 @@ describe('the name of an upload', () => {
   it('is refused as the server refuses it where it names no file', async () => {
     const { backend, boardId } = await firstBoard();
     const longest = '가'.repeat(255);
-    for (const name of ['dir/', 'dir\\', ' ', '.', 'dir/..', 'a\0.txt', `${longest}가`]) {
+    // U+0085 is blank to the server and not to `trim`; U+FEFF the other way round.
+    for (const name of ['dir/', 'dir\\', ' ', '\u0085', '.', 'dir/..', 'a\0.txt', `${longest}가`]) {
       const refused = await rejection(backend.upload(boardId, new File(['x'], name)));
       expect(refused.status, JSON.stringify(name)).toBe(400);
     }
-    for (const name of ['dir/a.txt', 'dir\\a.txt', '...', longest]) {
+    // Kept as the server keeps it: what follows the last `/`.
+    for (const [name, kept] of [
+      ['dir/a.txt', 'a.txt'],
+      ['dir\\a.txt', 'dir\\a.txt'],
+      ['...', '...'],
+      ['\uFEFF', '\uFEFF'],
+      [longest, longest],
+    ] as const) {
       const uploaded = await backend.upload(boardId, new File(['x'], name));
-      expect((await backend.fileDetails(boardId, uploaded.fileId)).name).toBe(name);
+      expect((await backend.fileDetails(boardId, uploaded.fileId)).name).toBe(kept);
     }
   });
 });

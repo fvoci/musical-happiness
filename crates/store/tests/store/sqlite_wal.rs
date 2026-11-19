@@ -91,6 +91,15 @@ async fn run(connection: &mut SqliteConnection, statement: &'static str) {
         .unwrap_or_else(|error| panic!("{statement}: {error}"));
 }
 
+/// How many workspaces of that name the connection reads, or why it reads none.
+async fn workspaces_named(connection: &mut SqliteConnection, name: &str) -> Result<i64, String> {
+    sqlx::query_scalar("SELECT COUNT(*) FROM workspaces WHERE name = ?")
+        .bind(name)
+        .fetch_one(connection)
+        .await
+        .map_err(|error| error.to_string())
+}
+
 /// A workspace of the store's organization, stored: its identifier.
 async fn another_workspace(store: &Store, title: &str) -> String {
     let workspace = Workspace {
@@ -221,27 +230,39 @@ async fn a_file_kept_with_the_rollback_journal_is_changed_when_it_is_opened() {
 }
 
 /// A server that was not closed (killed, or its machine): the file and what is beside
-/// it, as they are on the disk at that moment, open with every commit, the last one
-/// read out of the log.
+/// it, as they are on the disk at that moment, open with every commit. The last one is
+/// in the log alone (a read under way keeps it from being moved into the file, as any
+/// reader of a busy server does), so the file without its log is behind.
 #[tokio::test]
 async fn a_store_that_was_not_closed_leaves_every_commit_to_the_next() {
     let Some(scene) = on_a_file().await else {
         return;
     };
     let (store, path) = (&scene.store, &scene.path);
+    let mut reading = outside(path).await;
+    run(&mut reading, "BEGIN").await;
+    let before = workspaces_named(&mut reading, "Committed last").await;
+    assert_eq!(before, Ok(0));
     let made = another_workspace(store, "Committed last").await;
 
-    let log = beside(path, "-wal");
-    let logged = std::fs::metadata(&log)
-        .expect("a log beside the file")
-        .len();
-    assert!(logged > 0, "the last commit is in the log");
     // The disk as a server that ends here leaves it: the file with its log. The index
     // of the log (`-shm`) is of the memory of the machine, and is made anew.
     let left = beside(path, ".left");
+    let alone = beside(path, ".alone");
     std::fs::copy(path, &left).expect("the file is copied");
-    std::fs::copy(&log, beside(&left, "-wal")).expect("the log is copied");
+    std::fs::copy(beside(path, "-wal"), beside(&left, "-wal")).expect("the log is copied");
+    std::fs::copy(path, &alone).expect("the file is copied");
+    run(&mut reading, "COMMIT").await;
+    reading.close().await.expect("the connection closes");
 
+    let mut behind = outside(&alone).await;
+    let without_the_log = workspaces_named(&mut behind, "Committed last").await;
+    behind.close().await.expect("the connection closes");
+    // A file that never took anything out of its log has no tables at all.
+    assert!(
+        without_the_log.is_err() || without_the_log == Ok(0),
+        "the last commit is in the log, not in the file: {without_the_log:?}"
+    );
     let next = scene.open(&left).await;
     let kept = next.get_workspace(&made).await.expect("still there");
     assert_eq!(kept.title, "Committed last");
@@ -249,13 +270,14 @@ async fn a_store_that_was_not_closed_leaves_every_commit_to_the_next() {
     store.close().await;
     for suffix in ["", "-wal", "-shm"] {
         let _ = std::fs::remove_file(beside(&left, suffix));
+        let _ = std::fs::remove_file(beside(&alone, suffix));
     }
     scene.database.remove().await;
 }
 
 /// A backup while the server works is taken through SQLite (`VACUUM INTO`, or the
-/// `.backup` of its shell): one file, of one moment, with the last commit. The file
-/// copied alone would be without what is still in its log.
+/// `.backup` of its shell): one file, of one moment, with the last commit. (So it was
+/// with the rollback journal; the test above shows what the file copied alone lacks.)
 #[tokio::test]
 async fn a_copy_taken_through_sqlite_while_the_store_works_has_the_last_commit() {
     let Some(scene) = on_a_file().await else {

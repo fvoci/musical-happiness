@@ -12,14 +12,15 @@ import type { StoredFile, World } from './world.ts';
 /**
  * Whether a name is one the server takes for a file: at most 255
  * characters, without U+0000, and with a last segment, parted by `/` or
- * `\`, that is neither blank nor `.` or `..`.
+ * `\`, that is neither blank nor `.` or `..`. Blank is what the server
+ * calls so (Unicode's `White_Space`, which is not quite what `trim` takes).
  */
-function namesFile(name: string): boolean {
+function fitsAFile(name: string): boolean {
   const last = name.split(/[/\\]/).at(-1) ?? '';
   return (
     Array.from(name).length <= 255 &&
     !name.includes('\0') &&
-    last.trim() !== '' &&
+    !/^\p{White_Space}*$/u.test(last) &&
     last !== '.' &&
     last !== '..'
   );
@@ -37,7 +38,7 @@ export async function storeUpload(
   options: UploadOptions,
   enter: (signal?: AbortSignal) => Promise<void>,
 ): Promise<UploadedFile> {
-  if (!namesFile(file.name)) fail(400, 'the name is none of a file');
+  if (!fitsAFile(file.name)) fail(400, 'the name is none of a file');
   if (file.size > LIMITS.fileBytes) {
     fail(413, 'the file is too large', { limit: LIMITS.fileBytes, reason: 'file_too_large' });
   }
@@ -52,7 +53,8 @@ export async function storeUpload(
   const stored = {
     fileId: world.newId(),
     containerId,
-    name: file.name,
+    // What the server keeps of a name: what follows its last `/`.
+    name: file.name.slice(file.name.lastIndexOf('/') + 1),
     size: file.size,
     contentType: file.type || 'application/octet-stream',
     blob: file as Blob,

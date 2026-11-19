@@ -30,6 +30,8 @@ impl fmt::Display for UnfitName {
     }
 }
 
+impl std::error::Error for UnfitName {}
+
 /// Checks a name a client gives a file: at most [`MAX_UPLOAD_NAME_CHARS`] characters,
 /// without U+0000, and with a last segment, whichever way its directories are parted,
 /// that is neither blank (`dir/`, `dir\`) nor `.` or `..`.

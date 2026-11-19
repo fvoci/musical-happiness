@@ -331,6 +331,29 @@ describe('comments and attachments', () => {
     ]);
   });
 
+  it('tells once of an attachment and an image both going up when the card is closed', async () => {
+    const { card, backend, workspace } = await openAlpha();
+    backend.latency = 5;
+    const told = workspace.problems.length;
+    const attaching = card.attach(new File(['hello'], 'hello.txt'));
+    const uploading = card.uploadFile(new File(['png'], 'a.png', { type: 'image/png' }));
+    card.close();
+    await attaching;
+    await expect(uploading).rejects.toThrow();
+    expect(workspace.problems.slice(told)).toEqual([
+      { id: expect.any(Number) as number, action: 'left', error: undefined },
+    ]);
+
+    // An attachment alone is told of too; one that had failed was told then, and is not again.
+    const { card: second, backend: slow, workspace: place } = await openAlpha();
+    slow.latency = 5;
+    const before = place.problems.length;
+    const alone = second.attach(new File(['hello'], 'alone.txt'));
+    second.close();
+    await alone;
+    expect(place.problems.slice(before).map((problem) => problem.action)).toEqual(['left']);
+  });
+
   it('tells nothing of files when a card with none going up is closed', async () => {
     const { card, backend, workspace } = await openAlpha();
     backend.latency = 5;

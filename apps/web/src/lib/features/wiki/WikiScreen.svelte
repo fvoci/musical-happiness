@@ -108,12 +108,12 @@
   /** The wiki and the page on the screen, as one key. */
   const place = $derived(`${wiki.wikiId} ${page?.pageId ?? ''}`);
   /**
-   * The place the drawer was opened over. It is out over that place only: when the
-   * screen shows another without the drawer having been asked (a page that was
-   * deleted elsewhere, an address followed), the drawer is away with it.
+   * Whether the drawer was asked out. It is out over the place it was opened over
+   * only: when the screen shows another (a page that was deleted elsewhere, an
+   * address followed), the drawer is away, and stays away when that place is back.
    */
-  let drawerOver = $state<string | undefined>(undefined);
-  const drawer = $derived(drawerOver === place);
+  const away = (_over: string): boolean => false;
+  let drawer = $derived(away(place));
   const drawerOut = $derived(narrow && drawer);
   coverPane(() => drawerOut);
   let panel = $state<HTMLElement>();
@@ -121,7 +121,7 @@
 
   /** Opens the drawer with the focus on the tree's page in the tab order (none: its close button). */
   async function openDrawer(): Promise<void> {
-    drawerOver = place;
+    drawer = true;
     await tick();
     const target =
       panel?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]') ??
@@ -131,7 +131,7 @@
 
   /** Puts the drawer away, the focus back on the button that opened it once it is no longer inert. */
   async function closeDrawer(): Promise<void> {
-    drawerOver = undefined;
+    drawer = false;
     await tick();
     opener?.focus();
   }
@@ -139,7 +139,7 @@
   closeOnBack(
     () => drawerOut,
     () => {
-      drawerOver = undefined;
+      drawer = false;
     },
   );
 
@@ -191,7 +191,7 @@
       // Shown only while its wiki is: the reader may have gone on to another meanwhile.
       if (!madePage || wiki !== making) return;
       if (madePage.parentId) open.set([madePage.parentId]);
-      if (drawerOut) drawerOver = undefined;
+      if (drawerOut) drawer = false;
       made = undefined;
       onOpenPage(madePage.id);
       // The page made takes the caret in its title (`PageView`), not the drawer's button.

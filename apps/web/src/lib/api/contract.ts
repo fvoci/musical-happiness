@@ -4671,7 +4671,7 @@ export interface components {
         EmailVerified: {
             /** @description For a guest's link: the board or the wiki it was let onto. */
             containerId?: string | null;
-            containerKind: components["schemas"]["ContainerKind"] | null;
+            containerKind?: components["schemas"]["ContainerKind"] | null;
             /**
              * @description Whether the registration started its organization, rather than joining one by
              *     the link of an invitation.

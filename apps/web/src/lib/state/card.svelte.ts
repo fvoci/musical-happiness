@@ -124,8 +124,9 @@ export class CardStore {
   close(): void {
     this.#closed = true;
     this.closeBody();
+    const attaching = this.uploads.some((upload) => !upload.failed);
     for (const upload of this.uploads) upload.cancel();
-    this.#bodyUploads.giveUp();
+    this.#bodyUploads.giveUp(attaching);
   }
 
   #takeDetail(detail: CardDetail): void {

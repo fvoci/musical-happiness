@@ -21,6 +21,7 @@ import {
   ON_A_WIKI,
   pageAction,
   pageBody,
+  restoreBySomebodyElse,
   showTree,
   treeItem,
   treeShape,
@@ -398,12 +399,27 @@ test.describe('at a phone’s width', () => {
     await expect(drawer).toBeHidden();
     await expect(page.getByTestId('open-page-tree')).toHaveAttribute('aria-expanded', 'false');
     await expect(bar).not.toHaveAttribute('inert', '');
+
+    // The page is back and the reader follows an address to it (a link, a hit of the
+    // search): the drawer that was out over it is not.
+    await restoreBySomebodyElse(page, wikiId, pageId);
+    await page.evaluate(
+      (address) => {
+        history.pushState(null, '', address);
+        dispatchEvent(new PopStateEvent('popstate'));
+      },
+      wikiPath(wikiId, pageId),
+    );
+    await expect(page.getByTestId('page-title')).toHaveValue('Policies');
+    expect(wikiPlaceOf(page.url()).pageId).toBe(pageId);
+    await expect(drawer).toBeHidden();
+    await expect(bar).not.toHaveAttribute('inert', '');
     // The drawer left nothing in the history: the tree opens and closes as before.
     await page.getByTestId('open-page-tree').click();
     await expect(drawer).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(drawer).toBeHidden();
-    await expect(page.getByTestId('page-title')).toHaveValue('Welcome');
+    await expect(page.getByTestId('page-title')).toHaveValue('Policies');
   });
 });
 

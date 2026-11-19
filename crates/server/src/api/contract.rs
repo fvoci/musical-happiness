@@ -232,7 +232,10 @@ const SCHEMAS: &[(&str, Members)] = &[
         Members::AllBut(&["boards", "wikis", "files"]),
     ),
     ("OrganizationName", Members::All),
-    ("EmailVerified", Members::AllBut(&["containerId"])),
+    (
+        "EmailVerified",
+        Members::AllBut(&["containerId", "containerKind"]),
+    ),
     ("Block", Members::AllBut(&["editedAt"])),
     ("Body", Members::AsWritten),
     ("Container", Members::All),
