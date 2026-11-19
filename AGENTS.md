@@ -23,7 +23,7 @@ LSP 도구로 찾는다. 위치는 줄·글자 모두 1부터. 첫 질의가 "�
 
 ## 검증 (저장소 루트에서)
 
-- 서버: `cargo xtask check`(외부 서비스 없음), `cargo xtask test`(PostgreSQL·S3 컨테이너를 띄운다. Docker가 없으면 `--databases sqlite`).
+- 서버: `cargo xtask check`(외부 서비스 없음), `cargo xtask test`(PostgreSQL·S3 컨테이너를 띄운다. Docker가 없으면 `--database sqlite`).
 - 계약: `cargo xtask openapi`(다르면 실패, `--write`로 다시 쓴다). 웹앱 타입은 `pnpm --filter web run api:types`.
 - 웹앱: `pnpm install --frozen-lockfile` 뒤 `pnpm --filter web run check`, `test`, `build`, `e2e`.
 
@@ -31,5 +31,5 @@ LSP 도구로 찾는다. 위치는 줄·글자 모두 1부터. 첫 질의가 "�
 
 - 강제 푸시, 올라간 커밋의 amend·rebase·reset. 고칠 것은 새 커밋으로.
 - `xtask/exceptions/`의 수를 손으로 올리기(천장은 `cargo xtask measure`만 올린다), 검사를 끄거나 테스트를 건너뛰어 통과시키기.
-- 설정 키를 더하면서 `docs/configuration.md`를 같은 커밋에서 고치지 않기.
+- 설정 키를 더하고 `docs/configuration.md`를 같은 커밋에서 고치지 않기(`cargo xtask check`의 설정 테스트가 실패한다).
 - 비밀값(`docker/.env`)·개인 정보 커밋, `.github/workflows` 추가.
