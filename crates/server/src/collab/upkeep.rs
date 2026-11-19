@@ -44,12 +44,13 @@ impl Collab {
                 return Err(refused);
             }
         };
-        let (repair, state_bytes, files) = match answer {
+        let (repair, state_bytes, clients, files) = match answer {
             Answer::Taken {
                 repair,
                 state_bytes,
+                clients,
                 files,
-            } => (repair, state_bytes, files),
+            } => (repair, state_bytes, clients, files),
             other => return Err(unexpected(&other)),
         };
         if super::place::still_at_epoch(slot, epoch).is_err() {
@@ -92,6 +93,7 @@ impl Collab {
         let now = Instant::now();
         open.log_end = seqs.last().copied().unwrap_or(open.log_end);
         open.state_bytes = state_bytes;
+        open.clients = clients;
         user_id.clone_into(&mut open.last_writer);
         open.last_update = now;
         open.first_unwritten.get_or_insert(now);
@@ -135,8 +137,9 @@ impl Collab {
         }
     }
 
-    /// Makes the document again from its body if its state is near its limit, and
-    /// folds its log into its state if it is long; whether it was made again. The
+    /// Makes the document again from its body if its state is near its limit or it
+    /// names many clients ([`OpenDoc::crowded`]), and folds its log into its state if
+    /// it is long; whether it was made again. The
     /// update before is logged whatever happens here: what fails is logged, and tried
     /// again after a later update.
     async fn keep_up(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
@@ -148,7 +151,8 @@ impl Collab {
         // A document made from a body that is near the limit itself is not made again
         // at every update: only once it grew by a quarter of the limit since.
         let grown = open.state_bytes >= open.made_bytes.saturating_add(limit / 4);
-        if near_limit && grown && self.remake_and_tell(app, card_id, slot).await {
+        if (near_limit && grown || open.crowded()) && self.remake_and_tell(app, card_id, slot).await
+        {
             return true;
         }
         // Not by a process that lost the lock of the server, as at closing.
@@ -178,6 +182,7 @@ impl Collab {
         let grown = slot.open.as_ref().is_some_and(|open| {
             open.state_bytes > open.made_bytes
                 && open.state_bytes.saturating_mul(4) >= limit.saturating_mul(3)
+                || open.crowded()
         });
         refused.reason() == Some(Reason::DocumentTooLarge)
             && grown
@@ -367,6 +372,8 @@ impl Collab {
         open.body_digest = digest;
         open.state_bytes = state_bytes;
         open.made_bytes = state_bytes;
+        // The writer of the body.
+        open.clients = 1;
         open.first_unwritten = None;
         Ok(())
     }

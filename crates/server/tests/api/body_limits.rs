@@ -96,7 +96,7 @@ async fn the_largest_body_is_written_copied_and_restored_and_a_byte_more_is_refu
         .check_ok();
     assert!(stored(&made.id).await.as_ref() == Some(&most), "restored");
 
-    // A copy of the card, and a copy of its board.
+    // A copy of the card, and copies of its board, as a board and as a template.
     let copies: Vec<Value> = th
         .client
         .post_empty(&format!(
@@ -111,25 +111,27 @@ async fn the_largest_body_is_written_copied_and_restored_and_a_byte_more_is_refu
         .and_then(|block| block["id"].as_str())
         .expect("the copy of the card");
     assert!(stored(copy).await.as_ref() == Some(&most), "copied");
-    let of_the_board: ContainersAndBlocks = duplicate_board(
-        &th.client,
-        &board.id,
-        &format!("?asTemplate=false&toWorkspace={TEST_WORKSPACE_ID}"),
-    )
-    .await
-    .created_json();
-    let in_the_copy: Vec<&str> = of_the_board
-        .blocks
-        .iter()
-        .filter(|block| block.title == "Most")
-        .map(|block| block.id.as_str())
-        .collect();
-    assert_eq!(in_the_copy.len(), 2, "the card and its copy");
-    for card_id in in_the_copy {
-        assert!(
-            stored(card_id).await.as_ref() == Some(&most),
-            "in the copy of the board"
-        );
+    for template in [false, true] {
+        let of_the_board: ContainersAndBlocks = duplicate_board(
+            &th.client,
+            &board.id,
+            &format!("?asTemplate={template}&toWorkspace={TEST_WORKSPACE_ID}"),
+        )
+        .await
+        .created_json();
+        let in_the_copy: Vec<&str> = of_the_board
+            .blocks
+            .iter()
+            .filter(|block| block.title == "Most")
+            .map(|block| block.id.as_str())
+            .collect();
+        assert_eq!(in_the_copy.len(), 2, "the card and its copy");
+        for card_id in in_the_copy {
+            assert!(
+                stored(card_id).await.as_ref() == Some(&most),
+                "in the copy of the board, as a template: {template}"
+            );
+        }
     }
     th.teardown().await;
 }
@@ -285,7 +287,7 @@ async fn an_archive_brings_the_largest_body_and_one_of_a_byte_more_is_refused_wh
 }
 
 /// In the room of a body an update that brings it to its largest is taken, and the
-/// next, which would make it a paragraph larger, is refused by its name and changes
+/// next, which would make it a letter larger, is refused by its name and changes
 /// nothing: who comes into the room then is given the largest body.
 #[tokio::test]
 async fn the_room_takes_the_update_to_the_largest_body_and_refuses_the_next() {
@@ -303,7 +305,8 @@ async fn the_room_takes_the_update_to_the_largest_body_and_refuses_the_next() {
     one.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     one.write_acked("last").await;
 
-    one.write("").await;
+    let letter = one.editor().type_at_end("x");
+    one.send_update(&letter).await;
     let nack = one.text("DOC_NACK").await;
     assert_eq!(
         nack,

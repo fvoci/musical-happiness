@@ -61,7 +61,7 @@ pub enum TakeError {
 /// others of its list by walking past them, so that an update made for it has every
 /// change walk a long list (59 kB of changes that each named the root of 50,000
 /// children took 12 seconds): [`UpdateLimits::placing_steps`] is what an update may
-/// be made to walk, and the most it takes is under a second. What calls this keeps
+/// be made to walk, and the most it takes is under two seconds. What calls this keeps
 /// [`UpdateLimits::update_bytes`] and [`UpdateLimits::state_bytes`] small and does not
 /// hold anything others wait for while it runs.
 ///
@@ -104,7 +104,8 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
     }
     let limits = UpdateLimits {
         update_bytes: state.len(),
-        placing_steps: u64::MAX,
+        placing_steps: None,
+        clients: None,
         ..*limits
     };
     take_update(&new_doc(), state, &limits)

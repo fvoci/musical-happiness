@@ -78,6 +78,8 @@ pub(super) struct OpenDoc {
     pub(super) state_bytes: u64,
     /// The size of its state when it was made from its body; 0 if it was not here.
     pub(super) made_bytes: u64,
+    /// How many clients it names.
+    pub(super) clients: u64,
     /// Who sent the last update; what writes the body writes it as them.
     pub(super) last_writer: String,
     /// When the first update whose body is not written was taken.
@@ -100,6 +102,14 @@ pub(super) struct OpenDoc {
 }
 
 impl OpenDoc {
+    /// Whether it names three quarters of the clients a document may name
+    /// ([`fvoci_collab::MAX_CLIENTS`]): it is made again from its body, which names one,
+    /// before updates are refused.
+    pub(super) fn crowded(&self) -> bool {
+        let limit = u64::try_from(fvoci_collab::MAX_CLIENTS).unwrap_or(u64::MAX);
+        self.clients.saturating_mul(4) >= limit.saturating_mul(3)
+    }
+
     /// The share of its worker's documents it is counted in.
     pub(super) fn share(&self) -> Share {
         if self.aside.is_some() {
@@ -302,7 +312,7 @@ impl Collab {
         }
         let error = match self.open_stored(app, card_id, None).await {
             Ok(open) => {
-                let past_limit = open.state_bytes > self.inner.limits.state_bytes;
+                let past_limit = open.state_bytes > self.inner.limits.state_bytes || open.crowded();
                 slot.open = Some(open);
                 if past_limit {
                     // Stored or logged under a larger limit: its body is written to the

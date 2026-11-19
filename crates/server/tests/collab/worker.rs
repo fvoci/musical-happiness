@@ -542,6 +542,7 @@ async fn the_cost_of_taking_updates_is_measured() {
     let Answer::Opened {
         state: Some(state),
         state_bytes,
+        ..
     } = opened
     else {
         panic!("a document made from a body comes with its state: {opened:?}");

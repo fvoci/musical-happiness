@@ -23,6 +23,17 @@
 //! - Every other change is charged the list it goes into: what the document holds of
 //!   it before the update, the changes of the update that go into it, and the pieces
 //!   the neighbours they name may cut its changes into.
+//! - Or, if it is less, what stands below the left neighbour it names: the walk passes
+//!   only changes that name that neighbour to their left, or one it passed already
+//!   (yrs `Item::resolve_conflict`), so no more than the changes that name it, the
+//!   changes that name those, and so on, and the pieces they are cut into. A change
+//!   inserted where the document was made from a body, whose children name no left
+//!   neighbour, is charged a few steps so.
+//!
+//! A change that begins before where the document has its client's changes is cut
+//! there by the library, and what is left is placed after the last of those it has,
+//! whatever neighbour the change names (yrs `Item::integrate` with an offset): it is
+//! charged so.
 //!
 //! The lists are read from the document's state, which names for each change its
 //! neighbours and, where it names none, its parent: a change belongs to the list of
@@ -224,8 +235,22 @@ impl<'bytes> Placed<'bytes> {
             standings: Vec::new(),
             known,
         };
+        placed.trim();
         placed.standings = placed.standings();
         Ok(placed)
+    }
+
+    /// Names, for each change that begins before where the document has its client's
+    /// changes and ends past it, the neighbour the library places what is left of it
+    /// after: the last of those changes the document has.
+    fn trim(&mut self) {
+        for at in 0..self.changes.len() {
+            let client = self.clients[at];
+            let known = self.known(client);
+            if self.clocks.items[at] && self.clocks.begins[at] < known && known < self.end_of(at) {
+                self.changes[at].left = Some((client, known - 1));
+            }
+        }
     }
 
     fn known(&self, client: u64) -> u64 {
@@ -328,6 +353,11 @@ struct Lists<'placed, 'bytes> {
     sent: &'placed Placed<'bytes>,
     places: Vec<Place>,
     sizes: Vec<Size>,
+    /// For each change, the item that covers the left neighbour it names: what the
+    /// library places it after.
+    lefts: Vec<Option<usize>>,
+    /// For each change, the weight of what stands below it ([`weights`]).
+    weights: Vec<Weight>,
 }
 
 /// The lists by what their first changes name: a parent, and a member of it for the
@@ -340,48 +370,67 @@ impl<'placed, 'bytes> Lists<'placed, 'bytes> {
         held: &'placed Clocks,
         sent: &'placed Placed<'bytes>,
     ) -> Result<Self, Refusal> {
+        let all = held.begins.len() + sent.changes.len();
         let mut lists = Self {
             held,
             sent,
-            places: Vec::with_capacity(held.begins.len() + sent.changes.len()),
+            places: Vec::with_capacity(all),
             sizes: Vec::new(),
+            lefts: Vec::with_capacity(all),
+            weights: Vec::new(),
         };
         let mut named = Named::new();
         scan::walk(state, |_, change| {
             let place = lists.named_place(change, &mut named);
+            let left = lists.left_of(change);
             lists.places.push(place);
+            lists.lefts.push(left);
         })?;
         for (change, standing) in sent.changes.iter().zip(&sent.standings) {
-            let place = match standing {
-                Standing::Left => Place::Nowhere,
-                Standing::Follows | Standing::Walks => lists.named_place(change, &mut named),
+            let (place, left) = match standing {
+                Standing::Left => (Place::Nowhere, None),
+                Standing::Follows | Standing::Walks => {
+                    (lists.named_place(change, &mut named), lists.left_of(change))
+                }
             };
             lists.places.push(place);
+            lists.lefts.push(left);
         }
         lists.sizes = vec![Size::default(); named.len()];
-        let held = held.begins.len();
+        let cuts = lists.count();
+        lists.weights = weights(&lists.lefts, &cuts);
+        Ok(lists)
+    }
+
+    /// Counts what each list holds and has coming, and how often the changes of the
+    /// update name each change as a neighbour: the cuts of each.
+    fn count(&mut self) -> Vec<u64> {
+        let held = self.held.begins.len();
         for number in 0..held {
-            if let Some(list) = lists.list_of(number) {
-                lists.sizes[list].held += 1;
+            if let Some(list) = self.list_of(number) {
+                self.sizes[list].held += 1;
             }
         }
+        let mut cuts = vec![0_u64; self.places.len()];
+        let sent = self.sent;
         for (at, change) in sent.changes.iter().enumerate() {
             if sent.standings[at] == Standing::Left {
                 continue;
             }
-            if let Some(list) = lists.list_of(held + at) {
-                lists.sizes[list].coming += 1;
+            if let Some(list) = self.list_of(held + at) {
+                self.sizes[list].coming += 1;
             }
             for neighbour in [change.left, change.right].into_iter().flatten() {
-                let list = lists
-                    .item_of(neighbour)
-                    .and_then(|number| lists.list_of(number));
-                if let Some(list) = list {
-                    lists.sizes[list].cuts += 1;
+                let Some(number) = self.item_of(neighbour) else {
+                    continue;
+                };
+                cuts[number] += 1;
+                if let Some(list) = self.list_of(number) {
+                    self.sizes[list].cuts += 1;
                 }
             }
         }
-        Ok(lists)
+        cuts
     }
 
     /// The number of the item that covers the place of an identifier, in the document
@@ -391,6 +440,14 @@ impl<'placed, 'bytes> Lists<'placed, 'bytes> {
             Some(at) => self.held.items[at].then_some(at),
             None => Some(self.held.begins.len() + self.sent.new_item_of(id)?),
         }
+    }
+
+    /// The item a change names to its left, if it is an item.
+    fn left_of(&self, change: &Change<'bytes>) -> Option<usize> {
+        if !is_item(change) {
+            return None;
+        }
+        self.item_of(change.left?)
     }
 
     /// Where a change says it belongs: with the neighbour it names, the left one
@@ -440,8 +497,24 @@ impl<'placed, 'bytes> Lists<'placed, 'bytes> {
         list
     }
 
+    /// What the library may walk past to place a change after the left neighbour it
+    /// names: the pieces of that neighbour after the place named and the changes below
+    /// it, but for the change itself and what stands below it, which come after it, and
+    /// the change it stops at. `None` where that is not known: it names no item to its
+    /// left, or changes name each other in a ring.
+    fn below_left(&self, number: usize) -> Option<u64> {
+        let left = self.lefts[number]?;
+        match (self.weights[left], self.weights[number]) {
+            (Weight::Of(whole), Weight::Of(own)) => {
+                Some(whole.saturating_sub(own).saturating_add(1))
+            }
+            _ => None,
+        }
+    }
+
     /// What the changes of the update are charged: one step each that follows a
-    /// change of its own update alone, and each other the list it goes into.
+    /// change of its own update alone, and each other the list it goes into or, if it
+    /// is less, what stands below the neighbour it names to its left.
     fn charge(mut self) -> u64 {
         let held = self.held.begins.len();
         let sent = self.sent;
@@ -450,15 +523,63 @@ impl<'placed, 'bytes> Lists<'placed, 'bytes> {
             let steps = match standing {
                 Standing::Left => 0,
                 Standing::Follows => 1,
-                Standing::Walks => self.list_of(held + at).map_or(0, |list| {
-                    let size = self.sizes[list];
-                    size.held
-                        .saturating_add(size.coming)
-                        .saturating_add(size.cuts)
-                }),
+                Standing::Walks => {
+                    let through = self.list_of(held + at).map_or(0, |list| {
+                        let size = self.sizes[list];
+                        size.held
+                            .saturating_add(size.coming)
+                            .saturating_add(size.cuts)
+                    });
+                    self.below_left(held + at)
+                        .map_or(through, |below| below.min(through))
+                }
             };
             charged = charged.saturating_add(steps);
         }
         charged
     }
+}
+
+/// The weight of what stands below a change: itself, the pieces the changes of an
+/// update may cut it into, and the weights of the changes that name it to their left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Weight {
+    Of(u64),
+    /// In a ring of changes that name each other to their left, or with one below it:
+    /// the library places none of the ring.
+    Unknown,
+}
+
+/// The weight of each change ([`Weight`]), by the item each names to its left and the
+/// cuts of each: added up from the changes no change names, so that every change is
+/// read once.
+fn weights(lefts: &[Option<usize>], cuts: &[u64]) -> Vec<Weight> {
+    let mut weights: Vec<u64> = cuts.iter().map(|cuts| cuts.saturating_add(1)).collect();
+    // How many of the changes that name each one to their left are not added yet.
+    let mut waiting = vec![0_u32; lefts.len()];
+    for left in lefts.iter().flatten() {
+        waiting[*left] += 1;
+    }
+    let mut ready: Vec<usize> = (0..lefts.len()).filter(|at| waiting[*at] == 0).collect();
+    while let Some(at) = ready.pop() {
+        let Some(left) = lefts[at] else {
+            continue;
+        };
+        weights[left] = weights[left].saturating_add(weights[at]);
+        waiting[left] -= 1;
+        if waiting[left] == 0 {
+            ready.push(left);
+        }
+    }
+    weights
+        .into_iter()
+        .zip(waiting)
+        .map(|(weight, waiting)| {
+            if waiting == 0 {
+                Weight::Of(weight)
+            } else {
+                Weight::Unknown
+            }
+        })
+        .collect()
 }

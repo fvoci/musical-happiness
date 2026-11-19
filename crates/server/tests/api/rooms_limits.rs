@@ -342,8 +342,9 @@ async fn a_connection_that_does_not_read_is_put_out_and_the_others_go_on() {
             config.collab.collab_frames_per_second = 1_000_000;
             // The bytes that may wait are far off: it is the messages that count.
             config.collab.collab_state_bytes = 64 * 1024 * 1024;
-            // A worker's memory has room for a document that large.
-            config.collab.collab_worker_memory_bytes = 2 * 1024 * 1024 * 1024;
+            // A worker's memory has room for a document that large (256 MiB and 32
+            // times the state).
+            config.collab.collab_worker_memory_bytes = 3 * 1024 * 1024 * 1024;
         })
         .start()
         .await

@@ -42,7 +42,7 @@ pub use build::{from_body, from_body_by, new_doc};
 pub use doc::{BodyDoc, Changed};
 pub use repair::Repair;
 pub use take::{TakeError, Taken, from_state, take_update};
-pub use update::{PLACING_STEPS, UpdateError, UpdateLimits, state_of};
+pub use update::{MAX_CLIENTS, PLACING_STEPS, UpdateError, UpdateLimits, state_of};
 pub use yrs;
 
 /// The steps of [`take_update`] one by one, for this crate's tests: what each does
@@ -178,6 +178,35 @@ pub mod testing {
                 let mut txn = self.doc.transact_mut();
                 let paragraph = root.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
                 paragraph.push_back(&mut txn, XmlTextPrelim::new(text));
+            }
+            self.doc.transact().encode_diff_v1(&before)
+        }
+
+        /// Types `letters` at the end of the text of the last paragraph and gives the
+        /// update of it.
+        ///
+        /// # Panics
+        ///
+        /// Panics if what is last is no paragraph of a text.
+        #[must_use]
+        pub fn type_at_end(&self, letters: &str) -> Vec<u8> {
+            use yrs::{ReadTxn as _, Text as _, XmlFragment as _, XmlOut};
+            let before = self.doc.transact().state_vector();
+            let root = self.doc.get_or_insert_xml_fragment(crate::FIELD);
+            {
+                let mut txn = self.doc.transact_mut();
+                let last = root
+                    .len(&txn)
+                    .checked_sub(1)
+                    .and_then(|at| root.get(&txn, at));
+                let Some(XmlOut::Element(paragraph)) = last else {
+                    panic!("the last node is a paragraph: {last:?}");
+                };
+                let Some(XmlOut::Text(text)) = paragraph.first_child() else {
+                    panic!("the last paragraph has a text");
+                };
+                let end = text.len(&txn);
+                text.insert(&mut txn, end, letters);
             }
             self.doc.transact().encode_diff_v1(&before)
         }

@@ -514,7 +514,7 @@ fn https_behind_a_proxy_nobody_named_is_warned_about() {
 }
 
 #[test]
-fn the_request_limit_defaults_to_four_mebibytes_and_can_be_set() {
+fn the_request_limit_defaults_to_eight_mebibytes_and_can_be_set() {
     let parse = |text: &str| Configuration::parse(text, no_env).expect("valid JSON");
     assert_eq!(
         parse("{}").max_request_bytes,

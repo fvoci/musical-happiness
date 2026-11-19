@@ -25,7 +25,8 @@ pub(crate) const ROOMY: UpdateLimits = UpdateLimits {
     update_bytes: 64 * 1024 * 1024,
     state_bytes: 64 * 1024 * 1024,
     body_bytes: 64 * 1024 * 1024,
-    placing_steps: fvoci_collab::PLACING_STEPS,
+    placing_steps: Some(fvoci_collab::PLACING_STEPS),
+    clients: Some(fvoci_collab::MAX_CLIENTS),
 };
 
 /// A file of the contracts both sides read.

@@ -1,5 +1,6 @@
 //! Keeping a card's document small: its log folded into its state, and a document that
-//! grew near its limit made again from its body. What it holds is the same afterwards.
+//! grew near its limit, or names many clients, made again from its body. What it holds
+//! is the same afterwards.
 
 use std::time::Instant;
 
@@ -193,6 +194,112 @@ async fn a_document_near_its_limit_is_made_again_from_its_body() {
         assert!(!taken.remade, "not made again at every update");
     }
     th.teardown().await;
+}
+
+/// A document that names three quarters of the clients a document may name is made
+/// again from its body, which names one: the update that brought it there is taken, the
+/// room is told, and an editor that loads it again goes on.
+#[tokio::test]
+async fn a_document_of_many_clients_is_made_again_from_its_body() {
+    let th = Setup::native()
+        // Room for an update of thousands of clients.
+        .configure(|config| config.collab.collab_update_bytes = 1024 * 1024)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let e = editing(&th, &paragraphs(&["kept"])).await;
+    let collab = e.app.collab();
+    let mut events = collab.subscribe();
+    let loaded = collab.open(&e.app, &e.card_id).await.expect("opened");
+    let editor = Editor::join(101, &loaded.state);
+    let first = collab
+        .take(
+            &e.app,
+            &e.card_id,
+            loaded.epoch,
+            &e.user1,
+            &editor.append_paragraph("a"),
+        )
+        .await
+        .expect("taken");
+    assert!(!first.remade, "not made again for an editor");
+    let many = u64::try_from(fvoci_collab::MAX_CLIENTS * 3 / 4).expect("a count fits");
+    let update = of_clients((101, 0), 1_000_000, many);
+    let start = Instant::now();
+    let crowded = collab
+        .take(&e.app, &e.card_id, loaded.epoch, &e.user1, &update)
+        .await
+        .expect("taken");
+    println!(
+        "{many} clients taken and made again in {:?} ({})",
+        start.elapsed(),
+        profile()
+    );
+    assert!(crowded.remade, "made again");
+    assert!(
+        std::iter::from_fn(|| events.try_recv().ok())
+            .any(|event| event.card_id == e.card_id && event.change == DocChange::Remade),
+        "the room is told"
+    );
+    let stored = e
+        .app
+        .store()
+        .get_body_doc(&e.card_id)
+        .await
+        .expect("read")
+        .expect("a document");
+    assert!(
+        stored.state.len() < 1024,
+        "a body of two lines: {} bytes",
+        stored.state.len()
+    );
+    let wanted = editor.body().map(|body| body.document().clone());
+    let (again, again_epoch) = joined(collab, &e.app, &e.card_id, 102).await;
+    assert_eq!(again.body().map(|body| body.document().clone()), wanted);
+    let taken = collab
+        .take(
+            &e.app,
+            &e.card_id,
+            again_epoch,
+            &e.user1,
+            &again.append_paragraph("on"),
+        )
+        .await
+        .expect("an editor that loaded it again goes on");
+    assert!(!taken.remade, "not made again at every update");
+    th.teardown().await;
+}
+
+/// An update of `count` clients from `first` on, each of one stretch of deleted content
+/// after the change of the client before, the first after `after`: as the Y library
+/// writes an update (version 1).
+fn of_clients(after: (u64, u64), first: u64, count: u64) -> Vec<u8> {
+    fn number(out: &mut Vec<u8>, mut number: u64) {
+        while number >= 0x80 {
+            out.push(number.to_le_bytes()[0] | 0x80);
+            number >>= 7;
+        }
+        out.push(number.to_le_bytes()[0]);
+    }
+    let mut out = Vec::new();
+    number(&mut out, count);
+    let mut left = after;
+    for client in first..first + count {
+        // One change of the client, from its first clock.
+        for value in [1, client, 0] {
+            number(&mut out, value);
+        }
+        // Deleted content (1) after a neighbour (0x80): the neighbour and the length.
+        out.push(0x81);
+        for value in [left.0, left.1, 1] {
+            number(&mut out, value);
+        }
+        left = (client, 0);
+    }
+    // Nothing deleted.
+    number(&mut out, 0);
+    out
 }
 
 /// Adds a paragraph of 480 KiB and deletes it again, round after round, until the

@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 #[cfg(feature = "test-util")]
 use std::time::Duration;
 
-use fvoci_collab::{BodyDoc, PLACING_STEPS, TakeError, UpdateError, UpdateLimits};
+use fvoci_collab::{BodyDoc, MAX_CLIENTS, PLACING_STEPS, TakeError, UpdateError, UpdateLimits};
 use fvoci_model::{Body, BodyError};
 
 use super::frame::{FrameError, read_frame, write_frame};
@@ -80,7 +80,8 @@ impl Worker {
                 update_bytes: size(limits.update_bytes),
                 state_bytes: size(limits.state_bytes),
                 body_bytes: size(limits.body_bytes),
-                placing_steps: PLACING_STEPS,
+                placing_steps: Some(PLACING_STEPS),
+                clients: Some(MAX_CLIENTS),
             },
             docs: HashMap::new(),
             held_bytes: 0,
@@ -131,6 +132,7 @@ impl Worker {
             .take(update, &limits)
             .map_err(|error| take_refused(&error))?;
         let state_bytes = u64::try_from(changed.state_bytes).unwrap_or(u64::MAX);
+        let clients = count(changed.doc.clients());
         let files = changed
             .repair
             .body
@@ -142,6 +144,7 @@ impl Worker {
         Ok(Answer::Taken {
             repair: changed.repair.update,
             state_bytes,
+            clients,
             files,
         })
     }
@@ -155,7 +158,8 @@ impl Worker {
             update_bytes: held,
             state_bytes: held,
             body_bytes: self.update_limits.body_bytes,
-            placing_steps: u64::MAX,
+            placing_steps: None,
+            clients: None,
         }
     }
 
@@ -247,13 +251,22 @@ impl Worker {
             }
         };
         let (state, state_bytes) = state;
+        let clients = count(opened.clients());
         self.hold(doc, opened, state_bytes, share)?;
-        Ok(Answer::Opened { state, state_bytes })
+        Ok(Answer::Opened {
+            state,
+            state_bytes,
+            clients,
+        })
     }
 }
 
 fn size_of(bytes: &[u8]) -> u64 {
-    u64::try_from(bytes.len()).unwrap_or(u64::MAX)
+    count(bytes.len())
+}
+
+fn count(number: usize) -> u64 {
+    u64::try_from(number).unwrap_or(u64::MAX)
 }
 
 fn json_of(body: &Body) -> Vec<u8> {
@@ -274,10 +287,15 @@ fn take_refused(error: &TakeError) -> Refused {
         TakeError::Update(UpdateError::TooLarge { .. }) => Refusal::UpdateTooLarge,
         TakeError::Update(UpdateError::Unreadable(_)) => Refusal::Unreadable,
         TakeError::Update(UpdateError::MissingChanges) => Refusal::MissingChanges,
-        TakeError::Update(UpdateError::DocumentTooLarge { .. }) => Refusal::DocumentTooLarge,
+        // A document of too many clients is one too large to read in time.
+        TakeError::Update(
+            UpdateError::DocumentTooLarge { .. } | UpdateError::TooManyClients { .. },
+        ) => Refusal::DocumentTooLarge,
         TakeError::Body(BodyError::TooLarge | BodyError::TooManyNodes | BodyError::TooDeep)
         | TakeError::BodyTooLarge { .. } => Refusal::BodyTooLarge,
         TakeError::Body(_) => Refusal::NoBody,
+        // What cannot be applied, and what would be placed past too much of the
+        // document (`UpdateError::PlacedPastTooMany`): the room says a refused update.
         _ => Refusal::Unappliable,
     };
     refused(refusal, &error.to_string())

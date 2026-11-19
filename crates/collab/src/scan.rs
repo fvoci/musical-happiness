@@ -20,7 +20,7 @@
 //! another version of the encoding, a hole in a client's changes, a clock past 31
 //! bits, a number JavaScript does not keep).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// How deep a value in an update may nest. The values of a body are attributes:
 /// numbers, truths and texts, which do not nest at all.
@@ -186,6 +186,10 @@ pub(crate) fn walk<'bytes>(
     };
     let length = u64::try_from(update.len()).unwrap_or(u64::MAX);
     let mut begins: Vec<Id> = Vec::new();
+    // The clients seen: a state names one for each that wrote, tens of thousands in a
+    // document edited for long, so that looking through `begins` for each would take
+    // the square of that.
+    let mut clients: HashSet<u64> = HashSet::new();
     let mut count = 0_u64;
     for _ in 0..walk.count()? {
         let changes = walk.count()?;
@@ -204,7 +208,7 @@ pub(crate) fn walk<'bytes>(
         if clock.saturating_add(long).saturating_add(length) > MAX_CLOCK {
             return Err(Refusal::Number);
         }
-        if begins.iter().any(|(seen, _)| *seen == client) {
+        if !clients.insert(client) {
             return Err(Refusal::Gap);
         }
         begins.push((client, clock));

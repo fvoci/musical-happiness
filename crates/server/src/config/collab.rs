@@ -126,12 +126,13 @@ pub(super) const MOST_VERSION_MINUTES: u32 = 24 * 60;
 
 /// How many bytes of a worker's memory every byte of the states of the documents it
 /// holds takes: a document of nodes in memory is 20 to 23 times its state (27 MB for
-/// the 1.3 MB of 50,000 nodes; a document of text is little more than its state).
+/// the 1.3 MB of 50,000 nodes; a document of text is little more than its state), as
+/// the program asks for it, and what the allocator keeps around that comes on top.
 ///
 /// A state of many changes of a few bytes each takes more than this (a change is some
 /// hundred bytes in memory however short), which is not counted: it is what a client
 /// makes on purpose, and the worker that runs out of memory for it is started again.
-pub(super) const MEMORY_PER_STATE_BYTE: u64 = 24;
+pub(super) const MEMORY_PER_STATE_BYTE: u64 = 32;
 
 /// The memory of a worker that is kept free of the documents it holds, for the one
 /// update it takes at a time: an update makes a copy of its document, reads the copy
@@ -165,7 +166,7 @@ impl Default for CollabSettings {
 impl CollabSettings {
     /// The bytes of the states of all its documents a worker may hold together: what
     /// of its memory is not kept for the update it takes (256 MiB), divided by what a
-    /// byte of a state takes in memory (24). 32 MiB with the memory of the default.
+    /// byte of a state takes in memory (32). 24 MiB with the memory of the default.
     #[must_use]
     pub fn held_bytes(&self) -> u64 {
         self.collab_worker_memory_bytes
@@ -212,8 +213,11 @@ impl CollabSettings {
         }
         if self.held_bytes() < self.collab_state_bytes {
             bail!(
-                "collab_worker_memory_bytes must be at least {UPDATE_MEMORY_BYTES} and \
-                 {MEMORY_PER_STATE_BYTE} times collab_state_bytes ({}), not {}",
+                "collab_worker_memory_bytes must be at least {} ({UPDATE_MEMORY_BYTES} and \
+                 {MEMORY_PER_STATE_BYTE} times collab_state_bytes, {}), not {}",
+                self.collab_state_bytes
+                    .saturating_mul(MEMORY_PER_STATE_BYTE)
+                    .saturating_add(UPDATE_MEMORY_BYTES),
                 self.collab_state_bytes,
                 self.collab_worker_memory_bytes
             );
@@ -328,7 +332,7 @@ mod tests {
     #[test]
     fn the_memory_of_a_worker_has_room_for_a_document_at_its_limit() {
         let defaults = CollabSettings::default();
-        assert_eq!(defaults.held_bytes(), 32 * 1024 * 1024);
+        assert_eq!(defaults.held_bytes(), 24 * 1024 * 1024);
         let with = |state: u64, memory: u64| CollabSettings {
             collab_state_bytes: state,
             collab_worker_memory_bytes: memory,
@@ -344,7 +348,10 @@ mod tests {
             .check()
             .expect_err("a byte short")
             .to_string();
-        assert!(error.contains("collab_worker_memory_bytes"), "{error}");
+        assert!(
+            error.contains(&format!("at least {}", needed(larger))),
+            "{error}"
+        );
     }
 
     #[test]

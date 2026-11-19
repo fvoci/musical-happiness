@@ -17,7 +17,7 @@ use crate::export::{boards_of, import, import_upload, put_part};
 const PART: usize = 5 * 1024 * 1024;
 
 /// The largest `board.jsonl` an import reads.
-const JSONL_LIMIT: usize = 256 * 1024 * 1024;
+const JSONL_LIMIT: usize = 64 * 1024 * 1024;
 
 /// The directory under which the parts of uploads are kept.
 fn uploads_dir(ts: &TestServer) -> PathBuf {

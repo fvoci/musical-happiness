@@ -83,6 +83,8 @@ impl Collab {
             body_digest: digest,
             state_bytes,
             made_bytes: state_bytes,
+            // The writer of the body.
+            clients: 1,
             last_writer: block.modified_by.clone(),
             first_unwritten: None,
             last_update: Instant::now(),
@@ -134,6 +136,7 @@ impl Collab {
             body_digest: stored.body_digest,
             state_bytes: 0,
             made_bytes: 0,
+            clients: 0,
             // Who sent the last update logged, which the fold of the log keeps.
             last_writer: if stored.last_writer.is_empty() {
                 block.modified_by.clone()
@@ -220,11 +223,20 @@ impl Collab {
                 },
             )
             .await?;
-        let (generation, Answer::Opened { state, state_bytes }) = opened else {
+        let (
+            generation,
+            Answer::Opened {
+                state,
+                state_bytes,
+                clients,
+            },
+        ) = opened
+        else {
             return Err(unexpected(&opened.1).into());
         };
         open.generation = generation;
         open.state_bytes = state_bytes;
+        open.clients = clients;
         let state_seq = open.state_seq;
         self.replay(app, card_id, open, state, state_seq, updates)
             .await
@@ -257,7 +269,17 @@ impl Collab {
                 .call(open.worker, Some(open.generation), &request)
                 .await?
             {
-                (_, Answer::Taken { state_bytes, .. }) => open.state_bytes = state_bytes,
+                (
+                    _,
+                    Answer::Taken {
+                        state_bytes,
+                        clients,
+                        ..
+                    },
+                ) => {
+                    open.state_bytes = state_bytes;
+                    open.clients = clients;
+                }
                 (_, other) => return Err(unexpected(&other).into()),
             }
             if !update.written_by.is_empty() {
@@ -291,6 +313,7 @@ impl Collab {
                 Answer::Opened {
                     state: Some(state),
                     state_bytes,
+                    ..
                 },
             ) => Ok((generation, state, state_bytes)),
             (_, other) => Err(unexpected(&other).into()),

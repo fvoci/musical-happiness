@@ -41,11 +41,12 @@ const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 /// The most entries an archive has (`docs/s6-design.md` 4.2).
 const MAX_ENTRIES: u64 = 10_000;
 
-/// The largest `board.jsonl` that is read (`docs/s6-design.md` 4.2): 64 bodies of the
-/// largest size, as before a body grew to 4 MiB. It is read whole and held as blocks
-/// until the board is stored, so this is what one import may take of memory, a few
-/// times over where its bodies are of many nodes.
-const MAX_JSONL_BYTES: u64 = 256 * 1024 * 1024;
+/// The largest `board.jsonl` that is read (`docs/s6-design.md` 4.2). It is read whole
+/// and held as blocks until the board is stored: bodies of many small nodes take 33
+/// times their bytes so (2.2 GB at this limit, release build), whatever the limit of a
+/// body. So it holds 16 bodies of the largest size, and a board of more is exported but
+/// not imported again.
+const MAX_JSONL_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The largest `version.json` that is read: it is one small object.
 const MAX_VERSION_BYTES: u64 = 64 * 1024;
@@ -92,7 +93,7 @@ impl App {
     /// Returns a bad request if the file is not a ZIP, has no `version.json` or one of
     /// another version, or holds what does not fit together; a 413 for an archive of
     /// more than 10,000 entries, whose entries unpack to more than 1 GiB together, or
-    /// with a `board.jsonl` of more than 256 MiB or a file larger than `max_file_bytes`; and
+    /// with a `board.jsonl` of more than 64 MiB or a file larger than `max_file_bytes`; and
     /// the store's error if a board cannot be stored.
     pub(crate) async fn import_archive(
         &self,

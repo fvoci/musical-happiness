@@ -342,8 +342,10 @@ async fn a_document_past_a_lowered_state_limit_is_written_before_it_is_made_agai
     const LOWER: u64 = 8 * 1024 * 1024;
     let th = Setup::native()
         .configure(|config| {
-            // Four times the limit it is lowered to; a worker's memory has room for it.
+            // Four times the limit it is lowered to, and a worker's memory with room
+            // for it (256 MiB and 32 times the state).
             config.collab.collab_state_bytes = 4 * LOWER;
+            config.collab.collab_worker_memory_bytes = 2 * 1024 * 1024 * 1024;
             // Large updates, so that few of them bring the document past the lower
             // limit: every update is paid for by the size of the document.
             config.collab.collab_update_bytes = 1024 * 1024;

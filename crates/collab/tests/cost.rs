@@ -16,7 +16,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use fvoci_collab::testing::{changes_of, placing_steps, to_body};
-use fvoci_collab::{PLACING_STEPS, UpdateLimits, from_body, from_state, state_of, take_update};
+use fvoci_collab::{
+    MAX_CLIENTS, PLACING_STEPS, UpdateLimits, from_body, from_state, new_doc, state_of, take_update,
+};
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES};
 use serde_json::{Value, json};
 use support::wire::{Change, Content, Parent, Update};
@@ -26,9 +28,10 @@ use yrs::{Doc, XmlElementPrelim, XmlFragment, XmlTextPrelim};
 /// The limits the server holds an update to with its settings as they come.
 const LIMITS: UpdateLimits = UpdateLimits {
     update_bytes: 64 * 1024,
-    state_bytes: 16 * 1024 * 1024,
+    state_bytes: 8 * 1024 * 1024,
     body_bytes: BODY_MAX_BYTES,
-    placing_steps: PLACING_STEPS,
+    placing_steps: Some(PLACING_STEPS),
+    clients: Some(MAX_CLIENTS),
 };
 
 /// The nodes a shape leaves free: a paragraph with a text is appended to it.
@@ -180,13 +183,35 @@ fn crowding(client: u64, count: usize) -> Vec<u8> {
     Update::of(client, 0, changes).bytes()
 }
 
+/// A document of `children` empty paragraphs typed one after the other by one client:
+/// each names the one before it to its left, so that the library goes past each by
+/// what it passed already, which takes longer than past children made from a body.
+fn typed_in_order(children: usize) -> Doc {
+    let changes = (0..u64::try_from(children).expect("a count fits"))
+        .map(|clock| match clock.checked_sub(1) {
+            None => Change::under(Parent::body(), Content::element("paragraph")),
+            Some(before) => Change::after((7, before), Content::element("paragraph")),
+        })
+        .collect();
+    let roomy = UpdateLimits {
+        update_bytes: usize::MAX,
+        state_bytes: usize::MAX,
+        placing_steps: None,
+        clients: None,
+        ..LIMITS
+    };
+    take_update(&new_doc(), &Update::of(7, 0, changes).bytes(), &roomy)
+        .expect("typed")
+        .doc
+}
+
 /// How long one update that is made to be slow takes, by the children of the root it
-/// is walked through and the changes it holds.
+/// is walked through, how they were made, and the changes it holds.
 #[test]
 #[ignore = "a measurement, run by name in a release build"]
 fn crowded() {
-    println!("| children | changes | update | outcome | ms |");
-    println!("| --- | --- | --- | --- | --- |");
+    println!("| children | made | changes | update | outcome | ms |");
+    println!("| --- | --- | --- | --- | --- | --- |");
     let filter: Option<usize> = std::env::var("FVOCI_COST_CHILDREN")
         .ok()
         .and_then(|children| children.parse().ok());
@@ -195,31 +220,46 @@ fn crowded() {
             continue;
         }
         let body = body_of(&document(&vec![json!({"type": "paragraph"}); children]));
-        let doc = from_body(&body);
-        // The most changes the limit takes: each walks the children and each other.
-        let most = (1..usize::MAX)
-            .take_while(|changes: &usize| {
-                let steps = changes * (children + changes);
-                u64::try_from(steps).is_ok_and(|steps| steps <= PLACING_STEPS)
-            })
-            .last()
-            .unwrap_or(1);
-        for count in [100, most, 1_000, 5_400] {
+        for (made, doc) in [
+            ("from a body", from_body(&body)),
+            ("typed in order", typed_in_order(children)),
+        ] {
+            for row in crowd(children, made, &doc) {
+                println!("{row}");
+            }
+        }
+    }
+}
+
+/// How long updates that crowd the root of `doc`, of `children`, take: a row of the
+/// table each.
+fn crowd(children: usize, made: &str, doc: &Doc) -> Vec<String> {
+    // The most changes the limit takes: each walks the children and each other.
+    let most = (1..usize::MAX)
+        .take_while(|changes: &usize| {
+            let steps = changes * (children + changes);
+            u64::try_from(steps).is_ok_and(|steps| steps <= PLACING_STEPS)
+        })
+        .last()
+        .unwrap_or(1);
+    [100, most, 1_000, 5_400]
+        .into_iter()
+        .map(|count| {
             // Above every client the server takes at random (32 bits), so that each
             // change is placed after the children and not before them.
             let update = crowding(1 << 40, count);
             let start = Instant::now();
-            let outcome = match take_update(&doc, &update, &LIMITS) {
+            let outcome = match take_update(doc, &update, &LIMITS) {
                 Ok(_) => "taken".to_owned(),
                 Err(error) => format!("refused: {error}"),
             };
-            println!(
-                "| {children} | {count} | {} B | {outcome} | {} |",
+            format!(
+                "| {children} | {made} | {count} | {} B | {outcome} | {} |",
                 update.len(),
                 millis(start.elapsed())
-            );
-        }
-    }
+            )
+        })
+        .collect()
 }
 
 /// The allocator of this test: the system's, which counts what is allocated now and

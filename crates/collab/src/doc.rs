@@ -78,6 +78,12 @@ impl BodyDoc {
         state_of(&self.doc)
     }
 
+    /// How many clients the document names: each that wrote to it.
+    #[must_use]
+    pub fn clients(&self) -> usize {
+        self.doc.transact().state_vector().len()
+    }
+
     /// The state vector of the document, version 1: what it has of each client.
     #[must_use]
     pub fn state_vector(&self) -> Vec<u8> {

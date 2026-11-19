@@ -7,7 +7,7 @@ mod support;
 
 use fvoci_collab::testing::{placing_steps, to_body};
 use fvoci_collab::{
-    PLACING_STEPS, TakeError, UpdateError, UpdateLimits, from_body, from_state, state_of,
+    PLACING_STEPS, TakeError, UpdateError, UpdateLimits, from_body, from_state, new_doc, state_of,
     take_update,
 };
 use fvoci_model::BODY_MAX_NODES;
@@ -87,8 +87,8 @@ fn changes_made_to_walk_the_children_of_a_node_are_refused_and_fewer_are_taken()
     assert_eq!(state_of(&doc), before, "the document is as it was");
 }
 
-/// The lists are counted whichever neighbours the changes name: each a different child
-/// of the root to its left, each the same child to its right, the root by a change that
+/// Changes the library places from the front of a list are counted the list whichever
+/// neighbours they name: each the same child to its right, the root by a change that
 /// goes into the list of another change of the update.
 #[test]
 fn the_changes_are_counted_whichever_neighbours_they_name() {
@@ -96,9 +96,6 @@ fn the_changes_are_counted_whichever_neighbours_they_name() {
     let (server, _) = first_run(&state_of(&doc));
     let many = changes_past_the_limit(CHILDREN);
     let child = |number: usize| (server, count(number));
-    let left_of_each: Vec<Change> = (0..many)
-        .map(|number| Change::after(child(number), Content::Deleted(1)))
-        .collect();
     let right_of_one: Vec<Change> = (0..many)
         .map(|_| Change::Item {
             left: None,
@@ -120,7 +117,6 @@ fn the_changes_are_counted_whichever_neighbours_they_name() {
         })
         .collect();
     for (name, changes) in [
-        ("left of each child", left_of_each),
         ("right of one child", right_of_one),
         ("through changes of their own", through_their_own),
     ] {
@@ -135,6 +131,123 @@ fn the_changes_are_counted_whichever_neighbours_they_name() {
             "{name}"
         );
     }
+}
+
+/// The children of a document made from a body name no neighbour to their left (the
+/// last goes in first, each other at the front), so that a change placed after one of
+/// them walks past nothing: each such change is charged a few steps, as many as there
+/// are, and what an editor inserts at places all over a long list is taken.
+#[test]
+fn changes_after_children_made_from_a_body_are_charged_what_stands_below_them() {
+    const INSERTED: usize = 340;
+    let doc = widest();
+    let (server, _) = first_run(&state_of(&doc));
+    let many = changes_past_the_limit(CHILDREN);
+    let after_each: Vec<Change> = (0..many)
+        .map(|number| Change::after((server, count(number)), Content::Deleted(1)))
+        .collect();
+    let update = Update::of(ABOVE, 0, after_each).bytes();
+    let steps = placing_steps(&doc, &update).expect("counted");
+    assert!(steps <= count(4 * many), "{steps} steps for {many} changes");
+    let start = Instant::now();
+    take_update(&doc, &update, &ROOMY).expect("taken");
+    let took = start.elapsed();
+    assert!(took < Duration::from_secs(5), "taken in {took:?}");
+
+    let doc = opened(&vec![json!({"type": "paragraph"}); CHILDREN - INSERTED]);
+    let scattered = edited(&doc, |root, txn| {
+        // From the end back, so that each place is of the list as it was.
+        for at in (0..INSERTED).rev() {
+            let index = u32::try_from(1 + at * 140).expect("a place fits");
+            root.insert(txn, index, XmlElementPrelim::empty("paragraph"));
+        }
+    });
+    let steps = placing_steps(&doc, &scattered).expect("counted");
+    assert!(
+        steps <= count(8 * INSERTED),
+        "{steps} steps for {INSERTED} paragraphs"
+    );
+    take_update(&doc, &scattered, &ROOMY).expect("taken");
+}
+
+/// A change that says again the first of a client's changes the document has, and goes
+/// on past them, is cut by the library where the document's end: what is left is
+/// placed after that change, whatever the parent and the neighbours the update names,
+/// and walks past what stands below it. It is charged so, and refused where that is
+/// too much, without the walk.
+#[test]
+fn a_change_that_goes_on_past_what_the_document_has_is_charged_where_the_rest_goes() {
+    const CLIENTS: u64 = 1000;
+    const TYPED: u64 = 20_000;
+    let first = 100_000;
+    let clients = || (0..CLIENTS).map(|at| first - at);
+    // A paragraph of each client after the one before, and paragraphs of another after
+    // them, each after the one before: each stands below those before it.
+    let mut before = None;
+    let runs = clients()
+        .map(|client| {
+            let change = match before {
+                None => Change::under(Parent::body(), Content::element("paragraph")),
+                Some(left) => Change::after(left, Content::element("paragraph")),
+            };
+            before = Some((client, 0));
+            support::wire::Run {
+                client,
+                clock: 0,
+                changes: vec![change],
+            }
+        })
+        .collect();
+    let doc = take_update(
+        &new_doc(),
+        &Update {
+            runs,
+            deleted: Vec::new(),
+        }
+        .bytes(),
+        &ROOMY,
+    )
+    .expect("a paragraph of each client")
+    .doc;
+    let last = before.expect("a paragraph");
+    let typed = (0..TYPED)
+        .map(|clock| {
+            let left = clock.checked_sub(1).map_or(last, |before| (1, before));
+            Change::after(left, Content::element("paragraph"))
+        })
+        .collect();
+    let doc = take_update(&doc, &Update::of(1, 0, typed).bytes(), &ROOMY)
+        .expect("paragraphs typed after them")
+        .doc;
+    // Each client's paragraph again and one place more, under a parent of its own.
+    let runs = clients()
+        .map(|client| support::wire::Run {
+            client,
+            clock: 0,
+            changes: vec![Change::under(
+                Parent::Change((client, 0)),
+                Content::Deleted(2),
+            )],
+        })
+        .collect();
+    let past = Update {
+        runs,
+        deleted: Vec::new(),
+    }
+    .bytes();
+    let steps = placing_steps(&doc, &past).expect("counted");
+    assert!(steps >= CLIENTS * TYPED, "{steps} steps");
+    let start = Instant::now();
+    let refused = take_update(&doc, &past, &ROOMY);
+    let took = start.elapsed();
+    assert!(
+        matches!(
+            refused,
+            Err(TakeError::Update(UpdateError::PlacedPastTooMany { .. }))
+        ),
+        "{refused:?}"
+    );
+    assert!(took < Duration::from_secs(5), "refused in {took:?}");
 }
 
 /// The client and the first clock of the first run of a state.
@@ -171,12 +284,9 @@ fn what_follows_a_change_of_its_own_update_alone_is_a_step() {
         }
     });
     let steps = placing_steps(&doc, &pasted).expect("counted");
-    // The first paragraph walks the children of the root, with what comes of the
-    // update; each other is a step, and each text is alone in its paragraph.
-    assert!(
-        (count(CHILDREN)..count(CHILDREN + 8 * PASTED)).contains(&steps),
-        "{steps} steps"
-    );
+    // The first paragraph goes after the last child, which nothing stands below; each
+    // other is a step, and each text is alone in its paragraph.
+    assert!(steps < count(8 * PASTED), "{steps} steps");
     // Past the nodes of a body, which is another refusal than this one.
     assert!(matches!(
         take_update(&doc, &pasted, &ROOMY),
@@ -227,7 +337,7 @@ fn changes_that_name_each_other_are_counted_without_going_round() {
 
 /// What an update says again of what the document has is left out by the library,
 /// and a change that names it is placed in the document: it does not follow a change
-/// of its own update.
+/// of its own update, and is charged what stands below it there.
 #[test]
 fn a_change_after_what_the_document_has_already_is_placed_in_the_document() {
     const CHAIN: usize = 400;
@@ -245,11 +355,11 @@ fn a_change_after_what_the_document_has_already_is_placed_in_the_document() {
     changes.extend((0..CHAIN).map(|at| Change::after((ABOVE, count(at)), Content::Deleted(1))));
     let again = Update::of(ABOVE, 0, changes).bytes();
     let steps = placing_steps(&doc, &again).expect("counted");
-    assert!(steps >= charged(CHAIN, CHILDREN), "{steps} steps");
-    assert!(matches!(
-        take_update(&doc, &again, &ROOMY),
-        Err(TakeError::Update(UpdateError::PlacedPastTooMany { .. }))
-    ));
+    // Each walks past the rest of the chain, not a step as one that follows a change
+    // of its own update.
+    let below = count(CHAIN * (CHAIN + 1) / 2);
+    assert!(steps >= below, "{steps} steps");
+    assert!(take_update(&doc, &again, &ROOMY).is_ok(), "taken");
     // The same update is taken where it is no more than the document has.
     let whole = take_update(&doc, &first, &ROOMY).expect("said again");
     assert_eq!(state_of(&whole.doc), state_of(&doc));
@@ -363,7 +473,8 @@ fn what_was_taken_before_is_read_again() {
     let doc = widest();
     let update = crowding(changes_past_the_limit(CHILDREN));
     let before = UpdateLimits {
-        placing_steps: u64::MAX,
+        placing_steps: None,
+        clients: None,
         ..ROOMY
     };
     let taken = take_update(&doc, &update, &before).expect("taken without the count");
