@@ -199,7 +199,7 @@ test('the welcome board shows its five views, its pictures and its document, in 
   // rest behind one more; with the sidebar folded to its strip, every view a tab.
   await page.setViewportSize({ width: 1000, height: 800 });
   await expect(page.getByTestId('view-header')).toHaveAttribute('data-layout', 'row');
-  expect(await headCuts(page)).toEqual({ cut: [], scroll: 0 });
+  await expect.poll(() => headCuts(page)).toEqual({ cut: [], scroll: 0 });
   await sidebar(page).getByRole('button', { name: 'Collapse sidebar' }).click();
   await expect(tabs.getByRole('link')).toHaveText([
     'Board',
@@ -208,7 +208,7 @@ test('the welcome board shows its five views, its pictures and its document, in 
     'Gantt',
     'Table',
   ]);
-  expect(await headCuts(page)).toEqual({ cut: [], scroll: 0 });
+  await expect.poll(() => headCuts(page)).toEqual({ cut: [], scroll: 0 });
   await page.getByTestId('expand-sidebar').click();
   await page.setViewportSize({ width: 1280, height: 720 });
   for (const [view, shown] of [

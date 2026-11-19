@@ -67,16 +67,22 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(tabs(page).first()).toHaveAttribute('aria-current', 'page');
       const shown = await tabs(page).count();
       expect(shown).toBeGreaterThan(0);
-      if (shown < 4) {
-        await expect(tool(page, 'more-views')).toHaveText(`More views: ${String(4 - shown)}`);
-      }
+      expect(shown).toBeLessThan(4);
+      await expect(tool(page, 'more-views')).toHaveText(`More views: ${String(4 - shown)}`);
+      // In the landmark of the views, with the tabs.
+      await expect(
+        page.getByRole('navigation', { name: 'Views' }).locator('[data-tool="more-views"]'),
+      ).toBeVisible();
       expect(await cuts(page)).toEqual({ cut: [], scroll: 0 });
       await picture(page, `1000-sidebar-${scheme}`);
 
-      // Searching, the tabs fold into one button that names the shown view.
+      // Searching, the tabs fold into one button that names the shown view, in the landmark.
       await openSearch(page);
       await expect(tabs(page)).toHaveCount(0);
       await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+      await expect(
+        page.getByRole('navigation', { name: 'Views' }).locator('[data-tool="views"]'),
+      ).toBeVisible();
       expect(await cuts(page)).toEqual({ cut: [], scroll: 0 });
       await picture(page, `1000-sidebar-search-${scheme}`);
       await closeSearch(page);
@@ -115,10 +121,25 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(page.getByRole('menuitem', { name: 'Task Overview' })).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(views).toBeFocused();
+      // Going on from the button, the empty field closes and the tabs are back.
+      await page.keyboard.press('Shift+Tab');
+      await expect(views).toHaveCount(0);
+      await expect(tabs(page).first()).toBeVisible();
+
+      // A view picked by the keys: its tab has the focus as the tabs come back.
+      await openSearch(page);
+      await page.keyboard.press('Shift+Tab');
+      await expect(views).toBeFocused();
+      await page.keyboard.press('Enter');
+      await page.getByRole('menuitem', { name: 'Task Calendar' }).focus();
+      await page.keyboard.press('Enter');
+      const calendar = tabs(page).filter({ hasText: 'Task Calendar' });
+      await expect(calendar).toHaveAttribute('aria-current', 'page');
+      await expect(calendar).toBeFocused();
 
       // By the pointer: the list opens where the button was pressed, and another view
       // brings the tabs back, that view's the current one.
-      await header(page).getByRole('searchbox', { name: 'Search cards' }).focus();
+      await openSearch(page);
       await views.click();
       await page.getByRole('menuitem', { name: 'Task Overview' }).click();
       await expect(tabs(page).filter({ hasText: 'Task Overview' })).toHaveAttribute(

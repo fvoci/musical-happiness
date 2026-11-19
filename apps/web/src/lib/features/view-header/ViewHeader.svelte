@@ -138,6 +138,22 @@
   const searchBar = $derived(!row && searchShown);
   /** The tabs, but for an open search field: then the view is named on one button, cut nowhere. */
   const tabs = $derived(row && !searchShown);
+  /** A view picked from that button: its tab takes the focus as the tabs come back. */
+  let focusTab = $state<string | undefined>(undefined);
+
+  function openFolded(viewId: string): void {
+    if (row) focusTab = viewId;
+    onOpenView(viewId);
+  }
+
+  /** An empty field kept for that button closes as the focus goes on from the button too. */
+  function switcherLeft(event: FocusEvent & { currentTarget: HTMLElement }): void {
+    if (!row || search !== '' || !document.hasFocus()) return;
+    const to = event.relatedTarget;
+    const kept = to instanceof Node && event.currentTarget.contains(to);
+    if (kept || (to instanceof Element && to.closest('[role="search"], [role="menu"]'))) return;
+    searchOpenIn = undefined;
+  }
 
   // ------------------------------------------------------------- views
 
@@ -288,15 +304,19 @@
         {viewHref}
         {onOpenView}
         {onAddView}
+        focusId={focusTab}
+        onFocused={() => (focusTab = undefined)}
       />
     {:else}
-      <ViewSwitcher
-        views={board.orderedViews}
-        current={view}
-        boardTitle={board.board?.title}
-        {onOpenView}
-        {onAddView}
-      />
+      <nav aria-label={m.viewheader_views()} class="flex min-w-0 shrink" onfocusout={switcherLeft}>
+        <ViewSwitcher
+          views={board.orderedViews}
+          current={view}
+          boardTitle={board.board?.title}
+          onOpenView={openFolded}
+          {onAddView}
+        />
+      </nav>
       <div class="min-w-1 flex-1"></div>
     {/if}
   </div>

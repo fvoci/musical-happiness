@@ -209,7 +209,15 @@ test.describe('the top bar', () => {
     await expect(field).toHaveCount(0);
     await expect(about).toBeFocused();
 
-    // Escape gives up what was typed.
+    // Escape gives up what was typed, from the field and from "Done".
+    await openByKeys();
+    await expect(field).toHaveValue('Saved by Done.');
+    await page.keyboard.type(' Not kept.');
+    await page.keyboard.press('Tab');
+    await expect(done).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(field).toHaveCount(0);
+    await expect(about).toBeFocused();
     await openByKeys();
     await expect(field).toHaveValue('Saved by Done.');
     await page.keyboard.type(' And more.');
