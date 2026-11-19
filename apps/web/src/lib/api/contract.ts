@@ -55,7 +55,9 @@ export interface paths {
          *     Where nothing is carried over it goes to the login page with
          *     `oidc_carry_over_refused`, and where the sign-in itself failed (refused by the
          *     former provider, its token not taken, not this browser's) with that reason, as
-         *     any sign-in does.
+         *     any sign-in does. An account that comes into the organization by the sign-in is
+         *     given its welcome board (`onboard`), where its settings name no language in the one
+         *     `Accept-Language` prefers.
          */
         get: operations["finishOidcLogin"];
         put?: never;
@@ -131,6 +133,9 @@ export interface paths {
          *     sign-in is refused with otherwise (`oidc_join_closed`, `oidc_email_missing`,
          *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_unavailable`); 429 when this
          *     address made too many sign-ins of late.
+         *
+         *     The account that is made comes into the organization as a member and is given its
+         *     welcome board (`onboard` says more), in the language `Accept-Language` prefers.
          */
         post: operations["finishHeldOidcLogin"];
         delete?: never;
@@ -350,6 +355,11 @@ export interface paths {
          *     whatever is wrong with it: there is no such link, it ended, it was used as often as
          *     it may be, it was revoked, or who made it may no longer invite. Requests are counted
          *     by where they come from, and too many are 429.
+         *
+         *     An account that a link for members lets in is given its welcome board in the
+         *     workspace, a private board of its own, unless it has one (`onboard` says more):
+         *     written in the language of the account's settings, or else in `language` for an
+         *     account made here, or else in the one `Accept-Language` prefers.
          */
         post: operations["acceptInvitation"];
         delete?: never;
@@ -6241,7 +6251,10 @@ export interface operations {
                 /** @description The issuer that answered (RFC 9207), if the provider says: it must be the provider's. */
                 iss?: string;
             };
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path: {
                 /** @description The organization the sign-in was started for: each has an address of its own to come back to (its provider's `redirectUri`). */
                 orgId: string;
@@ -6341,7 +6354,10 @@ export interface operations {
                 /** @description The identifier of the organization whose provider the person signs in through. */
                 org: string;
             };
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -6604,7 +6620,10 @@ export interface operations {
     acceptInvitation: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path?: never;
             cookie?: never;
         };

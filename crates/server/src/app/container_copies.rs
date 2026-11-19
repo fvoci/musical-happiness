@@ -13,6 +13,23 @@ use super::templates::changes_of_copy;
 use crate::error::AppError;
 use crate::metrics::{ContainerWork, Module};
 
+/// Copies that are stored, and are still to be finished ([`App::finish_copy`]).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Stored<'a> {
+    /// What they are copies of.
+    pub(super) source_id: &'a str,
+    /// Whose they are.
+    pub(super) user_id: &'a str,
+    /// The workspace they are in.
+    pub(super) to_workspace: &'a str,
+    /// As what they were made.
+    pub(super) duplicate_as: DuplicateAs,
+    /// The kind of what was copied.
+    pub(super) kind: ContainerKind,
+    /// What the copy is counted as.
+    pub(super) work: ContainerWork,
+}
+
 impl App {
     /// Copies a board and its blocks, except comments, into `to_workspace` for a user, who
     /// becomes the copy's admin. Returns the copies and that membership.
@@ -106,7 +123,7 @@ impl App {
         }
         self.write_container_bodies(container_id).await?;
         let to_workspace_named = Some(to_workspace).filter(|workspace| !workspace.is_empty());
-        let (mut copies, members) = match kind {
+        let (copies, members) = match kind {
             ContainerKind::Board => {
                 self.store()
                     .duplicate_container(
@@ -132,6 +149,39 @@ impl App {
                 .map_err(refused_without_member)?,
         };
 
+        let stored = Stored {
+            source_id: container_id,
+            user_id,
+            to_workspace,
+            duplicate_as,
+            kind,
+            work,
+        };
+        self.finish_copy(stored, copies, members).await
+    }
+
+    /// Does for copies that are stored what is done past their transaction: gives
+    /// their blocks files of their own, files a copy that is no template under a
+    /// category, counts it, and tells the workspace.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of the files, after the copies are deleted again
+    /// (`App::take_back`), or of the category, with the copies left as they are.
+    pub(super) async fn finish_copy(
+        &self,
+        stored: Stored<'_>,
+        mut copies: ContainersAndBlocks,
+        members: Vec<ContainerMember>,
+    ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), AppError> {
+        let Stored {
+            source_id: container_id,
+            user_id,
+            to_workspace,
+            duplicate_as,
+            kind,
+            work,
+        } = stored;
         // The copied blocks get files of their own.
         if let Err(error) = self
             .copy_and_update_card_files(container_id, user_id, &mut copies.blocks)
@@ -242,7 +292,7 @@ pub(super) fn counted_as(kind: ContainerKind) -> Module {
 }
 
 /// The titles of a copy in a language the server writes in.
-fn titles_in(language: Language) -> CopyTitles {
+pub(super) fn titles_in(language: Language) -> CopyTitles {
     match language {
         Language::English => CopyTitles {
             copy_of: |title| format!("{title} copy"),

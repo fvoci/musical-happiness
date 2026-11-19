@@ -19,7 +19,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::auth::address_of;
-use super::contract::params::{InvitationId, WorkerWorkspaceId};
+use super::contract::params::{AcceptLanguage, InvitationId, WorkerWorkspaceId};
 use super::contract::tag;
 use super::session::optional_session_of;
 use super::signup_cookie::{marker_of, with_marker};
@@ -364,11 +364,17 @@ async fn handle_preview_invitation(
 /// whatever is wrong with it: there is no such link, it ended, it was used as often as
 /// it may be, it was revoked, or who made it may no longer invite. Requests are counted
 /// by where they come from, and too many are 429.
+///
+/// An account that a link for members lets in is given its welcome board in the
+/// workspace, a private board of its own, unless it has one (`onboard` says more):
+/// written in the language of the account's settings, or else in `language` for an
+/// account made here, or else in the one `Accept-Language` prefers.
 #[utoipa::path(
     post,
     path = "/invitations/accept",
     operation_id = "acceptInvitation",
     tag = tag::WORKSPACES,
+    params(AcceptLanguage),
     request_body = AcceptInvitation,
     security((), ("sessionCookie" = []), ("bearerToken" = [])),
     responses(

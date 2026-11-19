@@ -187,14 +187,14 @@ pub(crate) fn date_filter_value_from_previous(text: &str) -> Option<String> {
 
 /// The calendar day it is at a time for somebody whose settings name `time_zone`, as
 /// `YYYY-MM-DD`. Where the settings leave the zone to the device, which the server does
-/// not know, it is the day in UTC. `None` for a time outside years 1 to 9999.
+/// not know, or name one the bundled database has not, it is the day in UTC. `None`
+/// for a time outside years 1 to 9999.
 #[must_use]
 pub fn day_at(millis: i64, time_zone: &TimeZone) -> Option<String> {
-    let zone = match time_zone.name() {
-        // A name the settings hold is one of the bundled database.
-        Some(name) => jiff::tz::TimeZoneDatabase::bundled().get(name).ok()?,
-        None => jiff::tz::TimeZone::UTC,
-    };
+    let zone = time_zone
+        .name()
+        .and_then(|name| jiff::tz::TimeZoneDatabase::bundled().get(name).ok())
+        .unwrap_or(jiff::tz::TimeZone::UTC);
     let time = jiff::Timestamp::from_millisecond(millis).ok()?;
     let day = zone.to_datetime(time).date().to_string();
     is_calendar_date(&day).then_some(day)

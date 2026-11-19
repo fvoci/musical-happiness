@@ -430,9 +430,10 @@ impl App {
     /// as registrations are, and one of an address is under way at a time.
     ///
     /// An account that comes into the workspace as a member by it is given its welcome
-    /// board there, if it was given none before (`App::welcome_member`, in the
-    /// language `accept_language`, the request's `Accept-Language`, prefers where the
-    /// account's settings name none).
+    /// board there, if it was given none before (`App::welcome_member`): in the
+    /// language of the account's settings; where they name none, in the language of
+    /// the screen a new account was made on, or else the one `accept_language`, the
+    /// request's `Accept-Language`, prefers.
     ///
     /// # Errors
     ///
@@ -447,7 +448,7 @@ impl App {
         address: Option<IpAddr>,
         accept_language: Option<&str>,
     ) -> Result<Admission, AppError> {
-        let _attempt = self.admit_registration(address)?;
+        let attempt = self.admit_registration(address)?;
         let mut new_user = None;
         let mut settled = None;
         for _ in 0..ATTEMPTS {
@@ -485,7 +486,15 @@ impl App {
         app.announce_admission(&accepted).await;
         // A guest's link names a board; a link for members names none.
         if accepted.used && accepted.container_id.is_none() {
-            app.welcome_member(&accepted.user_id, &accepted.workspace_id, accept_language)
+            // The acceptance is done with: another from the address waits no longer.
+            drop(attempt);
+            // An account made here is written to in the language of the screen it was
+            // made on, as one whose address is confirmed first is.
+            let language = match accepting {
+                Accepting::NewAccount { language, .. } if !language.is_empty() => Some(language),
+                Accepting::NewAccount { .. } | Accepting::SignedIn(_) => accept_language,
+            };
+            app.welcome_member(&accepted.user_id, &accepted.workspace_id, language)
                 .await;
         }
         tracing::info!(

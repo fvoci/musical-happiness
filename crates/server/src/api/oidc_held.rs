@@ -15,7 +15,7 @@ use utoipa_axum::routes;
 use fvoci_model::{OidcStart, Problem};
 
 use super::auth::{address_of, user_agent};
-use super::contract::params::StartOrg;
+use super::contract::params::{AcceptLanguage, StartOrg};
 use super::contract::tag;
 use super::oidc::{browser_cookie, held_cookie_name, started_response};
 use super::{ApiResult, accept_language, no_content, query_param};
@@ -133,12 +133,15 @@ async fn handle_start_carry_over(
 /// sign-in is refused with otherwise (`oidc_join_closed`, `oidc_email_missing`,
 /// `oidc_email_unverified`, `oidc_email_taken`, `oidc_unavailable`); 429 when this
 /// address made too many sign-ins of late.
+///
+/// The account that is made comes into the organization as a member and is given its
+/// welcome board (`onboard` says more), in the language `Accept-Language` prefers.
 #[utoipa::path(
     post,
     path = "/auth/oidc/held/sign-in",
     operation_id = "finishHeldOidcLogin",
     tag = tag::AUTH,
-    params(StartOrg),
+    params(StartOrg, AcceptLanguage),
     security(()),
     responses(
         (

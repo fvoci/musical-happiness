@@ -10,6 +10,7 @@ import {
   boardPath,
   makeBoard,
   person,
+  putAwayWelcomeBoard,
   register,
   signedIn,
   signInOnPage,
@@ -30,6 +31,10 @@ test('a board of the server is listed and opens with its views, cards and member
   const reader = person('reader');
   await register(base, owner);
   await register(base, reader);
+  // The reader has the one board: what the app opens by itself is it.
+  const readerApi = await signedIn(base, reader);
+  await putAwayWelcomeBoard(readerApi);
+  await readerApi.dispose();
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, {
     title: 'Garden plan',

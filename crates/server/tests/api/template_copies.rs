@@ -126,7 +126,7 @@ async fn a_board_made_from_a_built_in_template_has_its_days_moved_to_the_makers_
     );
     assert!(
         written.iter().all(|(title, days)| days != &moved[title]),
-        "every card with a day is moved: {moved:?}"
+        "every card of the template has a day, and each is moved: {moved:?}"
     );
 
     // The settings name a zone where the next day has begun: thirty-one days on.
@@ -225,5 +225,44 @@ async fn a_board_made_from_a_built_in_template_is_unmarked_and_its_copy_keeps_it
         .await
         .expect("the board is copied");
     assert_eq!(days_among(&copy.blocks), days, "a board's days are its own");
+    ts.teardown().await;
+}
+
+/// The welcome board is such a board: asked for on the last evening of the year, each
+/// of its days is thirty days after the day the template has.
+#[tokio::test]
+async fn a_welcome_board_has_its_days_moved_to_the_day_it_is_asked_for() {
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let written = days_of(&ts.client, &template(&ts.client, "welcome").await.id).await;
+    let user = ts.client.me().await;
+    let board_id = ts
+        .app
+        .create_welcome_board_at(&user.id, ROOT_WORKSPACE_ID, None, NEW_YEARS_EVE)
+        .await
+        .expect("the welcome board is made");
+    let moved = days_of(&ts.client, &board_id).await;
+
+    let mut compared = 0;
+    for (title, days) in &written {
+        for (before, after) in days.iter().zip(&moved[title]) {
+            let (Some(before), Some(after)) = (before["from"].as_str(), after["from"].as_str())
+            else {
+                panic!("a day of {title} is written as a day: {before} and {after}");
+            };
+            assert_eq!(
+                fvoci_model::days_between(before, after),
+                Some(30),
+                "{title}"
+            );
+            compared += 1;
+        }
+        assert_eq!(days.len(), moved[title].len(), "{title}");
+    }
+    assert!(compared > 0, "the welcome board has days: {written:?}");
     ts.teardown().await;
 }

@@ -15,9 +15,14 @@ use super::templates::NotStored;
 use crate::error::AppError;
 use crate::scheduler::RecurringTask;
 
-/// How long after one attempt to store the owed templates the next is made: by the
-/// recurring task, and no sooner for a request that would have shown them.
+/// How long after one attempt to store the owed templates the recurring task makes the
+/// next.
 const RESTOCK_INTERVAL: Duration = Duration::from_secs(60);
+
+/// How long after an attempt a request that would have shown the templates starts the
+/// next: sooner than the recurring task, which would otherwise have tried by then
+/// every time, and not with every request.
+const RESTOCK_FOR_A_REQUEST: Duration = Duration::from_secs(10);
 
 /// Whether the built-in templates are owed, and when storing them was last tried.
 #[derive(Debug, Default)]
@@ -83,19 +88,19 @@ impl App {
 
     /// Starts an attempt to store the owed templates in the background, for a request
     /// that would have shown them, unless one is under way or began less than
-    /// [`RESTOCK_INTERVAL`] ago: a request does not wait for the file storage.
+    /// [`RESTOCK_FOR_A_REQUEST`] ago: a request does not wait for the file storage.
     pub(super) fn restock_templates_soon(&self) {
         let stock = &self.inner.template_stock;
         if !stock.is_owed() {
             return;
         }
         let due = stock.attempted.try_lock().is_ok_and(|attempted| {
-            attempted.is_none_or(|began| began.elapsed() >= RESTOCK_INTERVAL)
+            attempted.is_none_or(|began| began.elapsed() >= RESTOCK_FOR_A_REQUEST)
         });
         if due {
             let app = self.clone();
             self.spawn_background(async move {
-                app.restock(RESTOCK_INTERVAL).await;
+                app.restock(RESTOCK_FOR_A_REQUEST).await;
             });
         }
     }

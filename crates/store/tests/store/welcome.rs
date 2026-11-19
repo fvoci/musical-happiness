@@ -1,44 +1,93 @@
-//! The record that an account was given its welcome board: made once, by one of the
-//! calls that would make it at once, and taken back where no board came of it.
+//! The record that an account was given its welcome board: made once, with the board,
+//! by one of the calls that would make it at once, and not where no board came of it.
 
 use std::sync::Arc;
 
 use fvoci_model::new_id;
-use fvoci_store::Store;
+use fvoci_store::{CopyChanges, CopyTitles, Store};
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
 
 use crate::common;
 
-/// Of the claims made for an account at once, one records the welcome; none does
-/// after, until it is taken back.
+/// The titles of copies, in English, as a caller of the store brings them.
+const TITLES: CopyTitles = CopyTitles {
+    copy_of: |title| format!("{title} copy"),
+    new_template: "New board template",
+};
+
+/// Of the welcome boards asked for an account at once, one is made, and none after;
+/// one that cannot be copied records nothing, and the account is given it the next time.
 #[tokio::test]
-async fn one_claim_of_those_made_at_once_records_the_welcome() {
+async fn one_welcome_board_is_made_of_those_asked_for_at_once() {
     let test = common::setup().await;
-    let alice = common::user(&test.store, "alice").await;
-    let bob = common::user(&test.store, "bob").await;
+    let workspace_id = common::workspace(&test).await;
+    let owner = common::user(&test, "owner").await;
+    let alice = common::user(&test, "alice").await;
+    let bob = common::user(&test, "bob").await;
+    for user_id in [&alice, &bob] {
+        common::works_in(&test, &workspace_id, user_id).await;
+    }
+    let board = common::create_test_boards(&test, &workspace_id, &owner, 1)
+        .await
+        .remove(0);
+    let boards_of = async |user_id: &str| {
+        test.texts_unchecked(&format!(
+            "SELECT CAST(id AS TEXT) FROM containers WHERE CAST(created_by AS TEXT) = '{user_id}'"
+        ))
+        .await
+        .expect("the boards are read")
+    };
+
+    // No such board to copy: nothing is made, and nothing recorded.
+    let missing = test
+        .duplicate_welcome_board(&new_id(), &alice, &workspace_id, &TITLES, <_>::default(), 6)
+        .await;
+    assert!(missing.is_err_and(|error| error.is_not_found()));
 
     let barrier = Arc::new(Barrier::new(8));
-    let mut claims = JoinSet::new();
+    let mut asked = JoinSet::new();
     for _ in 0..8 {
-        let (store, alice, barrier) = (test.store.clone(), alice.clone(), Arc::clone(&barrier));
-        claims.spawn(async move {
+        let (store, barrier) = (test.store.clone(), Arc::clone(&barrier));
+        let (board_id, alice, workspace_id) =
+            (board.id.clone(), alice.clone(), workspace_id.clone());
+        asked.spawn(async move {
             barrier.wait().await;
-            store.claim_welcome(&alice, 7).await.expect("a claim")
+            store
+                .duplicate_welcome_board(
+                    &board_id,
+                    &alice,
+                    &workspace_id,
+                    &TITLES,
+                    CopyChanges::default(),
+                    7,
+                )
+                .await
+                .expect("answered")
+                .is_some()
         });
     }
-    let recorded = claims.join_all().await;
-    assert_eq!(
-        recorded.iter().filter(|recorded| **recorded).count(),
-        1,
-        "{recorded:?}"
-    );
-    assert!(!test.claim_welcome(&alice, 8).await.unwrap(), "given");
-    assert!(test.claim_welcome(&bob, 8).await.unwrap(), "each its own");
+    let made = asked.join_all().await;
+    assert_eq!(made.iter().filter(|made| **made).count(), 1, "{made:?}");
+    assert_eq!(boards_of(&alice).await.len(), 1, "one board");
+    assert!(!test.claim_welcome(&alice, 8).await.unwrap(), "recorded");
 
-    test.forget_welcome(&alice).await.unwrap();
-    assert!(test.claim_welcome(&alice, 9).await.unwrap(), "taken back");
-    assert!(!test.claim_welcome(&bob, 9).await.unwrap(), "not bob's");
+    // Each account its own; a record made for a board that was asked for counts.
+    assert!(test.claim_welcome(&bob, 8).await.unwrap());
+    let again = test
+        .duplicate_welcome_board(&board.id, &bob, &workspace_id, &TITLES, <_>::default(), 9)
+        .await
+        .expect("answered");
+    assert_eq!(again, None);
+    assert_eq!(boards_of(&bob).await, Vec::<String>::new());
+
+    // Taken back, the account is given its board the next time.
+    test.forget_welcome(&bob).await.unwrap();
+    let later = test
+        .duplicate_welcome_board(&board.id, &bob, &workspace_id, &TITLES, <_>::default(), 9)
+        .await
+        .expect("answered");
+    assert!(later.is_some());
     assert!(
         !test.claim_welcome(&new_id(), 9).await.unwrap(),
         "nobody's account"

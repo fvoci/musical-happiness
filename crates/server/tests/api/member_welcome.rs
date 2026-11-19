@@ -200,12 +200,32 @@ async fn a_member_let_in_by_a_link_has_a_welcome_board_of_their_own() {
 
     let token = link(&ts, For::Members).await;
     let korean = newcomer(&ts, &token, "hana", "ko-KR,ko;q=0.9,en;q=0.8").await;
-    let titles: Vec<String> = welcome_boards(store, &korean.me().await.id)
-        .await
-        .into_iter()
-        .map(|(_, title)| title)
-        .collect();
-    assert_eq!(titles, [WELCOME_TITLE_KO], "the request accepts Korean");
+    let titles = async |client: &Client| -> Vec<String> {
+        welcome_boards(store, &client.me().await.id)
+            .await
+            .into_iter()
+            .map(|(_, title)| title)
+            .collect()
+    };
+    assert_eq!(
+        titles(&korean).await,
+        [WELCOME_TITLE_KO],
+        "the request accepts Korean"
+    );
+
+    // The language of the screen the account was made on comes before the request's.
+    let request = ts
+        .anonymous()
+        .request(reqwest::Method::POST, "/invitations/accept")
+        .header(reqwest::header::ACCEPT_LANGUAGE, "en")
+        .json(&json!({
+            "token": token,
+            "language": "ko",
+            "account": {"username": "duri", "email": "duri@sample.com", "password": PASSWORD},
+        }));
+    Client::send(request).await.check_ok();
+    let on_a_korean_screen = ts.login("duri", PASSWORD).await;
+    assert_eq!(titles(&on_a_korean_screen).await, [WELCOME_TITLE_KO]);
     ts.teardown().await;
 }
 
@@ -275,8 +295,9 @@ async fn an_account_is_given_its_welcome_board_once() {
 }
 
 /// Whoever signs in through the organization's provider for the first time comes into
-/// its default workspace and has one welcome board there, in the language the browser
-/// accepts as it comes back; signing in again, and twice at once, gives no other.
+/// its default workspace and has one welcome board there, in English where the browser
+/// that comes back names no language; the same person signing in twice at once, and
+/// again later, has no other.
 #[tokio::test]
 async fn a_newcomer_through_the_provider_has_one_welcome_board() {
     let fake = FakeProvider::start().await;
@@ -299,9 +320,10 @@ async fn a_newcomer_through_the_provider_has_one_welcome_board() {
     Browser::new(&ts, &fake).sign_in(&org_id).await.token();
 
     let boards = welcome_boards(ts.app.store(), &ada).await;
-    let [(board_id, _)] = boards.as_slice() else {
+    let [(board_id, title)] = boards.as_slice() else {
         panic!("one welcome board: {boards:?}");
     };
+    assert_eq!(title, WELCOME_TITLE);
     let board: Container = ts
         .client_with_token(first.token())
         .get(&format!("{ROOT_WS}/containers/{board_id}"))

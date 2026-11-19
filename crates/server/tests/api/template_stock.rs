@@ -59,7 +59,10 @@ async fn started_on_dead_storage(configure: fn(&mut Configuration)) -> TestServe
     ts.client = ts
         .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD)
         .await;
-    assert!(ts.app.owes_templates(), "the templates are owed");
+    assert!(
+        ts.app.owes_templates(),
+        "the templates are owed (run as an unprivileged user: root writes where nobody may)"
+    );
     ts
 }
 
@@ -154,5 +157,33 @@ async fn a_first_board_asked_for_while_the_templates_are_owed_stores_them() {
         .check_ok();
     assert!(!ts.app.owes_templates(), "nothing is owed");
     assert_eq!(listed(&ts).await, TEMPLATES);
+    ts.teardown().await;
+}
+
+/// Somebody a link lets in while the templates are owed is let in without a welcome
+/// board, and makes the server try: the templates are there soon after.
+#[tokio::test]
+async fn a_member_let_in_while_the_templates_are_owed_has_them_stored_in_the_background() {
+    fn configure(config: &mut Configuration) {
+        config.file_storage_path = dead_storage("joined").display().to_string();
+    }
+    let ts = started_on_dead_storage(configure).await;
+    set_mode(Path::new(&ts.app.config().file_storage_path), WRITABLE);
+
+    let request = serde_json::json!({
+        "token": ts.member_link().await,
+        "account": {"username": "late", "email": "late@sample.com", "password": PASSWORD},
+    });
+    ts.anonymous()
+        .post("/invitations/accept", &request)
+        .await
+        .check_ok();
+    for _ in 0..100 {
+        if !ts.app.owes_templates() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(!ts.app.owes_templates(), "stored within ten seconds");
     ts.teardown().await;
 }
