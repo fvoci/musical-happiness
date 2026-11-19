@@ -24,6 +24,7 @@ import {
   type CardSummary,
   type Comment,
 } from './backend.ts';
+import { BodyUploads } from './body-uploads.svelte.ts';
 import type { BoardStore } from './board.svelte.ts';
 import { REJOIN_SPACING, afterPutOut, type CommentEdit, type Upload } from './card-parts.ts';
 import { byCreation } from './order.ts';
@@ -124,7 +125,7 @@ export class CardStore {
     this.#closed = true;
     this.closeBody();
     for (const upload of this.uploads) upload.cancel();
-    for (const upload of this.#bodyUploads) upload.abort();
+    this.#bodyUploads.giveUp();
   }
 
   #takeDetail(detail: CardDetail): void {
@@ -460,27 +461,18 @@ export class CardStore {
    * follows the room's document whatever others write. Closing the card gives it up.
    */
   async uploadFile(file: File): Promise<string> {
-    const controller = new AbortController();
-    this.#bodyUploads = [...this.#bodyUploads, controller];
-    try {
-      const uploaded = await this.#backend.upload(this.#boardId, file, {
-        signal: controller.signal,
-      });
-      return uploaded.fileId;
-    } catch (error) {
-      if (!controller.signal.aborted) this.board.workspace.report('upload', error);
-      throw error;
-    } finally {
-      this.#bodyUploads = this.#bodyUploads.filter((other) => other !== controller);
-    }
+    const going = (signal: AbortSignal) => this.#backend.upload(this.#boardId, file, { signal });
+    return (await this.#bodyUploads.run(going)).fileId;
   }
 
   /** The uploads of files for the body under way. */
-  #bodyUploads = $state.raw<AbortController[]>([]);
+  readonly #bodyUploads = new BodyUploads((action, error) => {
+    this.board.workspace.report(action, error);
+  });
 
   /** A file is going up for the body: closing the card now would give it up. */
   get filesGoingUp(): boolean {
-    return this.#bodyUploads.length > 0;
+    return this.#bodyUploads.goingUp;
   }
 
   /** A file's bytes; undefined when not read (told), or given up by `signal` (not told). */

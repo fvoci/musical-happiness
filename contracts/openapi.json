@@ -1605,10 +1605,21 @@
         "description": "Where a confirmed registration's account was let in.",
         "properties": {
           "containerId": {
-            "description": "For a guest's link: the board it was let onto.",
+            "description": "For a guest's link: the board or the wiki it was let onto.",
             "type": [
               "string",
               "null"
+            ]
+          },
+          "containerKind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ContainerKind",
+                "description": "For a guest's link: which of the two it is, so that they are sent to its own\naddress."
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "organizationStarted": {
@@ -1621,6 +1632,7 @@
           }
         },
         "required": [
+          "containerKind",
           "organizationStarted",
           "workspaceId"
         ],

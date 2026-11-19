@@ -4669,8 +4669,9 @@ export interface components {
         Density: "auto" | "compact" | "comfortable";
         /** @description Where a confirmed registration's account was let in. */
         EmailVerified: {
-            /** @description For a guest's link: the board it was let onto. */
+            /** @description For a guest's link: the board or the wiki it was let onto. */
             containerId?: string | null;
+            containerKind: components["schemas"]["ContainerKind"] | null;
             /**
              * @description Whether the registration started its organization, rather than joining one by
              *     the link of an invitation.

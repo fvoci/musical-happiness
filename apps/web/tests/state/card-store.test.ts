@@ -316,13 +316,27 @@ describe('comments and attachments', () => {
     expect(card.filesGoingUp).toBe(false);
   });
 
-  it('gives up an image upload when the card is closed, telling nothing', async () => {
+  it('gives up an image upload when the card is closed, and tells that once', async () => {
     const { card, backend, workspace } = await openAlpha();
     backend.latency = 5;
     const told = workspace.problems.length;
     const uploading = card.uploadFile(new File(['png'], 'a.png', { type: 'image/png' }));
+    const other = card.uploadFile(new File(['%PDF'], 'b.pdf'));
     card.close();
     await expect(uploading).rejects.toThrow();
+    await expect(other).rejects.toThrow();
+    // One line for what was given up, and none for each request that ended with it.
+    expect(workspace.problems.slice(told)).toEqual([
+      { id: expect.any(Number) as number, action: 'left', error: undefined },
+    ]);
+  });
+
+  it('tells nothing of files when a card with none going up is closed', async () => {
+    const { card, backend, workspace } = await openAlpha();
+    backend.latency = 5;
+    await card.uploadFile(new File(['png'], 'a.png', { type: 'image/png' }));
+    const told = workspace.problems.length;
+    card.close();
     expect(workspace.problems).toHaveLength(told);
   });
 

@@ -11,8 +11,10 @@ import { expect, test, type Page } from '@playwright/test';
 import { screensDir } from './screens.ts';
 import { hideSidebar, openApp, pressInBar, showSidebar, sidebar } from './shell.support.ts';
 import {
+  deleteBySomebodyElse,
   goInside,
   hideTree,
+  letSomebodyElseIn,
   nameThePage,
   newWiki,
   ON_A_PAGE,
@@ -159,6 +161,8 @@ test.describe('a wiki looked after', () => {
     await expect(page.getByTestId('wiki-header-title')).toHaveText('Guide');
     await expect(page.getByTestId('wiki-header-description')).toHaveText('How we work.');
     await expect(page.getByTestId('wiki-header-icon')).not.toBeEmpty();
+    // The tree's drawer is put away first: the bar above is kept away while it is out.
+    await hideTree(page);
     await showSidebar(page);
     await expect(sidebar(page).getByRole('link', { name: 'Guide, wiki' })).toBeVisible();
     await hideSidebar(page);
@@ -369,6 +373,37 @@ test.describe('at a phone’s width', () => {
     await page.getByTestId('page-tree-scrim').click({ position: { x: 380, y: 400 } });
     await expect(drawer).toBeHidden();
     await hideTree(page);
+  });
+
+  test('while the drawer is out the bar above is kept away, and the drawer goes with a page deleted elsewhere', async ({
+    page,
+  }) => {
+    await openApp(page);
+    const wikiId = await wikiWithPages(page);
+    await letSomebodyElseIn(page, wikiId);
+    await hideTree(page);
+    await expect(page.getByTestId('page-title')).toHaveValue('Policies');
+    const { pageId } = wikiPlaceOf(page.url());
+    const drawer = page.getByRole('dialog', { name: 'Pages' });
+    const bar = page.getByTestId('top-bar');
+    await expect(bar).not.toHaveAttribute('inert', '');
+    await page.getByTestId('open-page-tree').click();
+    await expect(drawer).toBeVisible();
+    // The bar is no part of the wiki's screen, and as far away as the page under the drawer.
+    await expect(bar).toHaveAttribute('inert', '');
+
+    // Somebody else deletes the page shown: the screen shows another, with no drawer over it.
+    await deleteBySomebodyElse(page, wikiId, pageId);
+    await expect(page.getByTestId('page-title')).toHaveValue('Welcome');
+    await expect(drawer).toBeHidden();
+    await expect(page.getByTestId('open-page-tree')).toHaveAttribute('aria-expanded', 'false');
+    await expect(bar).not.toHaveAttribute('inert', '');
+    // The drawer left nothing in the history: the tree opens and closes as before.
+    await page.getByTestId('open-page-tree').click();
+    await expect(drawer).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(drawer).toBeHidden();
+    await expect(page.getByTestId('page-title')).toHaveValue('Welcome');
   });
 });
 

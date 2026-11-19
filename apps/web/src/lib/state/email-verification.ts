@@ -1,3 +1,5 @@
+import type { AcceptedInvitation } from './account-types.ts';
+
 /** Who a request for a new confirmation link names: the user name or the address. */
 export interface WaitingAccount {
   username?: string;
@@ -5,10 +7,7 @@ export interface WaitingAccount {
 }
 
 /** Where a confirmed registration's account was let in. */
-export interface Confirmed {
-  workspaceId: string;
-  /** For a guest's link: the board it was let onto. */
-  containerId?: string;
+export interface Confirmed extends AcceptedInvitation {
   /** Whether it started its organization (its tour starts), or joined one by a link. */
   organizationStarted: boolean;
 }

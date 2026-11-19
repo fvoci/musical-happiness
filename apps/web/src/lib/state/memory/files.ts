@@ -17,7 +17,7 @@ import type { StoredFile, World } from './world.ts';
 function namesFile(name: string): boolean {
   const last = name.split(/[/\\]/).at(-1) ?? '';
   return (
-    [...name].length <= 255 &&
+    Array.from(name).length <= 255 &&
     !name.includes('\0') &&
     last.trim() !== '' &&
     last !== '.' &&

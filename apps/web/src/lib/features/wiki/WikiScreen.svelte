@@ -22,6 +22,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
+  import { coverPane } from '$lib/layout/over-pane.svelte.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
   import type { PagePlace } from '$lib/logic/page-moves.ts';
   import { ancestorsOf, PAGE_TITLE_MAX } from '$lib/logic/page-tree.ts';
@@ -104,14 +105,23 @@
   let made = $state<string | undefined>(undefined);
   /** The tree is a drawer over the page: a narrow pane. */
   const narrow = $derived(pane.measured && !pane.columns);
-  let drawer = $state(false);
+  /** The wiki and the page on the screen, as one key. */
+  const place = $derived(`${wiki.wikiId} ${page?.pageId ?? ''}`);
+  /**
+   * The place the drawer was opened over. It is out over that place only: when the
+   * screen shows another without the drawer having been asked (a page that was
+   * deleted elsewhere, an address followed), the drawer is away with it.
+   */
+  let drawerOver = $state<string | undefined>(undefined);
+  const drawer = $derived(drawerOver === place);
   const drawerOut = $derived(narrow && drawer);
+  coverPane(() => drawerOut);
   let panel = $state<HTMLElement>();
   let opener = $state<HTMLElement | null>(null);
 
   /** Opens the drawer with the focus on the tree's page in the tab order (none: its close button). */
   async function openDrawer(): Promise<void> {
-    drawer = true;
+    drawerOver = place;
     await tick();
     const target =
       panel?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]') ??
@@ -121,7 +131,7 @@
 
   /** Puts the drawer away, the focus back on the button that opened it once it is no longer inert. */
   async function closeDrawer(): Promise<void> {
-    drawer = false;
+    drawerOver = undefined;
     await tick();
     opener?.focus();
   }
@@ -129,7 +139,7 @@
   closeOnBack(
     () => drawerOut,
     () => {
-      drawer = false;
+      drawerOver = undefined;
     },
   );
 
@@ -181,7 +191,7 @@
       // Shown only while its wiki is: the reader may have gone on to another meanwhile.
       if (!madePage || wiki !== making) return;
       if (madePage.parentId) open.set([madePage.parentId]);
-      if (drawerOut) drawer = false;
+      if (drawerOut) drawerOver = undefined;
       made = undefined;
       onOpenPage(madePage.id);
       // The page made takes the caret in its title (`PageView`), not the drawer's button.

@@ -57,9 +57,19 @@
     onOpenSidebar: (event: MouseEvent) => void;
     /** The button of the search of the workspace, where it has one. */
     search?: Snippet<[Workspace]>;
+    /** Kept away: a drawer of the screen below is out. */
+    inert?: boolean;
   }
 
-  let { workspace, containerId, sharedHref, menuButton, onOpenSidebar, search }: Props = $props();
+  let {
+    workspace,
+    containerId,
+    sharedHref,
+    menuButton,
+    onOpenSidebar,
+    search,
+    inert = false,
+  }: Props = $props();
 
   let sharing = $state(false);
   /** The sharing dialog was opened from the number of members: it begins at them. */
@@ -122,6 +132,7 @@
 
 <header
   data-testid="top-bar"
+  {inert}
   class="flex h-12 shrink-0 items-center gap-1 border-b px-1.5 @columns/pane:h-14 @columns/pane:gap-2 @columns/pane:px-3"
 >
   {#if menuButton}
