@@ -53,6 +53,7 @@ pub(super) fn round_trip(trial: &Trial, directory: &Path) -> Result<()> {
         "the upload is not in the volume: {files}"
     );
 
+    hides_a_key_pasted_wrong(trial, directory)?;
     let made = run_script(trial, "backup.sh", &["--dir", &backups.to_string_lossy()])?;
     let backup = only_backup(&backups)?;
     check_private(&backups, &backup, trial)?;
@@ -193,6 +194,45 @@ fn refuses_a_volume_with_files(trial: &Trial, backup: &Path) -> Result<()> {
     );
     take_volumes_away(trial)?;
     say("    restore.sh refuses a files' volume that holds a file");
+    Ok(())
+}
+
+/// `backup.sh` and `update.sh` with an `.env` holding a key's line pasted as a line of
+/// its own (which compose refuses, quoting it) fail without showing it.
+fn hides_a_key_pasted_wrong(trial: &Trial, directory: &Path) -> Result<()> {
+    let env = directory.join("pasted-wrong.env");
+    let pasted = format!("MIIEvQ+{}", super::hex(&super::random::<16>()?));
+    let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
+    super::write_private(&env, &format!("{text}\n{pasted}=\n"))?;
+    let env_text = env.to_string_lossy();
+    let backups = folder(directory).join("pasted-wrong");
+    let backups_text = backups.to_string_lossy();
+    let mut outcome = Ok(());
+    let common = [
+        "--env-file",
+        env_text.as_ref(),
+        "--dir",
+        backups_text.as_ref(),
+    ];
+    let runs: [(&str, &[&str]); 2] = [("backup.sh", &[]), ("update.sh", &["--no-pull"])];
+    for (name, own) in runs {
+        let arguments = [&common[..], own].concat();
+        let run = script_output(trial.script(name, &arguments), name);
+        outcome = run.and_then(|(succeeded, said)| {
+            ensure!(
+                !succeeded && said.contains("its quoted words hidden") && !said.contains(&pasted),
+                "{name} with a key's line pasted wrong did not fail hiding it: {}",
+                said.replace(&pasted, "<the pasted line>")
+            );
+            Ok(())
+        });
+        if outcome.is_err() {
+            break;
+        }
+    }
+    let _ = std::fs::remove_file(&env);
+    outcome?;
+    say("    a key's line pasted wrong in the .env: backup.sh and update.sh refuse, hiding it");
     Ok(())
 }
 

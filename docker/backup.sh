@@ -21,8 +21,10 @@ done
 check_shared_options
 
 started=$(now_ms)
-running postgres || fail "PostgreSQL of the project $project does not run (docker compose up -d postgres)"
+# compose's files and .env are read first through checked_config: what compose says of
+# a value pasted wrong is shown with its quoted words hidden.
 storage=$(file_storage)
+running postgres || fail "PostgreSQL of the project $project does not run (docker compose up -d postgres)"
 
 umask 077
 if [ -d "$backup_dir" ]; then
