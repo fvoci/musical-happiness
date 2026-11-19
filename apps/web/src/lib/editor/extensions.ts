@@ -24,14 +24,7 @@ import { Heading } from '@tiptap/extension-heading';
 import { HorizontalRule } from '@tiptap/extension-horizontal-rule';
 import { Italic } from '@tiptap/extension-italic';
 import { Link } from '@tiptap/extension-link';
-import {
-  BulletList,
-  ListItem,
-  ListKeymap,
-  OrderedList,
-  TaskItem,
-  TaskList,
-} from '@tiptap/extension-list';
+import { BulletList, ListItem, ListKeymap, OrderedList, TaskList } from '@tiptap/extension-list';
 import { Paragraph } from '@tiptap/extension-paragraph';
 import { Strike } from '@tiptap/extension-strike';
 import { Text } from '@tiptap/extension-text';
@@ -53,6 +46,7 @@ import { fileUrl } from './files.ts';
 import { BlockMath, InlineMath } from './math-nodes.ts';
 import { Reference, type ReferenceOptions } from './reference.ts';
 import { isAllowedHref, isUserId } from './schema.ts';
+import { BodyTaskItem } from './task-item.ts';
 
 /** A link keeps its target and nothing else; how it opens is the app's business, not the document's. */
 const BodyLink = Link.extend({
@@ -318,7 +312,7 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     BodyOrderedList,
     ListItem,
     TaskList,
-    TaskItem.configure({ nested: true }),
+    BodyTaskItem.configure({ nested: true }),
     Blockquote,
     BodyCodeBlock,
     HorizontalRule,

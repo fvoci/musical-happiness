@@ -11,6 +11,7 @@ use super::App;
 use super::language::Language;
 use super::templates::{ONBOARDING_PROPERTY, is_onboarding_template, written_in};
 use crate::error::AppError;
+use crate::metrics::ContainerWork;
 
 impl App {
     /// Copies the welcome board into a workspace for a user, in the language the
@@ -32,7 +33,13 @@ impl App {
         let welcome_board_id = self.welcome_template_id(language).await?;
 
         let (boards_and_blocks, _members) = self
-            .duplicate_container(&welcome_board_id, user_id, workspace_id, DuplicateAs::Copy)
+            .copy_container(
+                &welcome_board_id,
+                user_id,
+                workspace_id,
+                DuplicateAs::Copy,
+                ContainerWork::Welcome,
+            )
             .await?;
         let [board] = boards_and_blocks.containers.as_slice() else {
             return Err(AppError::internal("new board wasn't created"));

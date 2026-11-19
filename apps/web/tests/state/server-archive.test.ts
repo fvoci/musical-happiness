@@ -152,7 +152,7 @@ describe('an import', () => {
     expect(isBackendError(refused) && [refused.status, refused.limit, refused.reason]).toEqual([
       413,
       5,
-      'over_import_limit',
+      'archive_too_large',
     ]);
     expect(calls.map((call) => call.url)).toEqual(['/api/v1/client-config']);
   });

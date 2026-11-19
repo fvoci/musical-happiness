@@ -207,8 +207,9 @@ crates/store/src/invitations.rs | container_team_access::
 crates/store/src/link_locks.rs | team changes hold
 crates/store/src/observe.rs | TeamSelfJoining
 crates/server/src/error.rs | teamselfjoining
-crates/server/src/error.rs | team_self_joining
-crates/server/src/error.rs | to a team
+crates/server/src/error/reason.rs | teamselfjoining
+crates/server/src/error/reason.rs | team_self_joining
+crates/server/src/error/reason.rs | to a team
 crates/server/src/problems.rs | teamselfjoining
 crates/server/src/problems.rs | yourself to a team
 crates/server/src/app/containers.rs | team_role
@@ -252,10 +253,10 @@ crates/model/src/name.rs | a team of people
 crates/model/src/name.rs |     team,
 crates/model/src/name.rs | self::team
 crates/model/src/name.rs | ("team name", "a team name")
-crates/server/src/error.rs | another team of the workspace
-crates/server/src/error.rs | teamnametaken
-crates/server/src/error.rs | team_name_taken
-crates/server/src/error.rs | team name taken
+crates/server/src/error/reason.rs | another team of the workspace
+crates/server/src/error/reason.rs | teamnametaken
+crates/server/src/error/reason.rs | team_name_taken
+crates/server/src/error/reason.rs | team name taken
 crates/server/src/problems.rs | teamnametaken
 crates/server/src/problems.rs | another team of the workspace
 

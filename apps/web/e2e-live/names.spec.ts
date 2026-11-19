@@ -231,3 +231,53 @@ test('people are shown by display name and login name wherever the board names t
   for (const api of [ownerApi, namedApi, plainApi]) await api.dispose();
   expect(errors).toEqual([]);
 });
+
+test("a member's new name and title reach another's open page, and their profile card", async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('chair');
+  const named = person('kim');
+  for (const who of [owner, named]) await register(base, who);
+  const namedApi = await signedIn(base, named);
+  const ownerApi = await signedIn(base, owner);
+  const board = await makeBoard(ownerApi, {
+    title: 'Faculty',
+    cards: [{ title: 'Seminar', status: 'To do' }],
+    members: [{ who: named, role: 'editor' }],
+  });
+
+  const errors = watchErrors(page);
+  await page.goto(boardPath(board, board.viewId));
+  await signInOnPage(page, owner);
+  await page.getByTestId('share-board').click();
+  const members = page.getByTestId('share-members');
+  await expect(members.getByRole('button', { name: named.username, exact: true })).toBeVisible();
+
+  // Named in another session: the open page is told, and reads them again.
+  const changed = await namedApi.patch('/api/v1/users/me', {
+    data: {
+      lastName: '김',
+      firstName: '영환',
+      latinFirstName: 'Younghwan',
+      latinLastName: 'Kim',
+      title: 'prof',
+      credentials: ['phd'],
+    },
+  });
+  expect(changed.ok()).toBe(true);
+  const opener = members.getByRole('button', { name: `Prof. 김영환, PhD @${named.username}` });
+  await expect(opener).toBeVisible();
+  await opener.click();
+  const card = page.getByRole('dialog', { name: 'Prof. 김영환, PhD' });
+  await expect(card.locator('[data-row="latin"]')).toHaveText('Younghwan Kim');
+  await expect(card.locator('[data-row="credentials"]')).toHaveText('PhD');
+  await page.keyboard.press('Escape');
+  await expect(card).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  // The narrow places name them alone: the member's tag of the list says "김영환 (@login)".
+  await expect(members.locator(`[data-member="김영환 (@${named.username})"]`)).toHaveCount(1);
+  for (const api of [ownerApi, namedApi]) await api.dispose();
+  expect(errors).toEqual([]);
+});

@@ -75,7 +75,7 @@ import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
 import { ServerRequests, underWorkspace } from './requests.ts';
 import { makeWelcomeBoard, templatesOf } from './templates.ts';
-import { importInParts, uploadInParts } from './upload.ts';
+import { importInParts, tooLarge, uploadInParts } from './upload.ts';
 
 /** How many files go up at once; the server allows a reader 8 open uploads. */
 const UPLOADS_AT_ONCE = 3;
@@ -814,12 +814,12 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /**
    * Uploads a file in parts (`upload.ts`). A file over the server's limit
    * (`getClientConfig`'s `maxFileBytes`) is refused before anything is sent,
-   * with the limit, as the server would refuse it (413).
+   * with the limit and the reason, as the server would refuse it (413).
    */
   async upload(containerId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {
     const limit = (await this.#config.read()).maxFileBytes;
     if (file.size > limit) {
-      throw new BackendError(413, { detail: 'the file is too large', limit });
+      throw tooLarge('file', limit);
     }
     // A few at a time: the server keeps only so many open uploads of a reader (429).
     await this.#uploadTurn(options?.signal);
@@ -891,12 +891,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
     const limit = (await this.#config.read()).maxImportBytes;
     if (file.size > limit) {
-      // The reason is this app's: the server's 413 may count entries, this one counts bytes.
-      throw new BackendError(413, {
-        detail: 'the archive is too large',
-        reason: 'over_import_limit',
-        limit,
-      });
+      throw tooLarge('archive', limit);
     }
     await this.#uploadTurn(options?.signal);
     try {

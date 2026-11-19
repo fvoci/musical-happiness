@@ -4,6 +4,8 @@
  * are the server's.
  */
 
+import type { PersonName } from '../logic/person-names.ts';
+
 import type { Teams } from './team-types.ts';
 
 /** What somebody is in a workspace. A guest is on the boards they were invited to, and nothing else of it. */
@@ -19,6 +21,8 @@ export interface WorkspaceMember {
   username: string;
   /** The name they are shown by; empty for none. */
   displayName: string;
+  /** The parts of the name, the title and the credentials, where they were told. */
+  name?: PersonName;
   role: WorkspaceRole;
   /** Temporary administration ends when the organization-admin joining ends. */
   joinedAsOrgAdmin?: boolean;

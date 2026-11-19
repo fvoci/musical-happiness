@@ -1222,7 +1222,8 @@ export interface paths {
          *     and the credentials. White space around a part is dropped, and empty or `null` is
          *     none. A part has at most 64 UTF-16 code units, without control characters and
          *     without characters that show nothing, break a line or turn the text around (U+00AD,
-         *     U+200B–U+200F, U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). `title` is a
+         *     U+034F, U+061C, U+115F, U+1160, U+180E, U+200B–U+200F, U+2028–U+202E, U+2060–U+206F,
+         *     U+2800, U+3164, U+FEFF, U+FFA0, U+FFF9–U+FFFB). `title` is a
          *     code of its list or `null`; `credentials` at most three codes of their list, each
          *     once, in the order they are written, or `null` for none. `displayName` follows: the
          *     server makes it from these (`contracts/name-vectors.json`). A member that is no such
@@ -1614,7 +1615,8 @@ export interface paths {
          * Open an upload of an archive
          * @description Opens an upload of an archive to import into the workspace, sent in parts as a file is
          *     with `createUpload`, and imported with `importArchive` once every part is received.
-         *     An archive larger than `maxImportBytes` of `getClientConfig` is 413. It counts
+         *     An archive larger than `maxImportBytes` of `getClientConfig` is 413 with the reason
+         *     `archive_too_large`. It counts
          *     toward the same limits as the uploads of files, which hold back at most twice the
          *     larger of `maxFileBytes` and `maxImportBytes` for a user. For users of the workspace who
          *     are not guests, as `importArchive`.
@@ -2400,12 +2402,13 @@ export interface paths {
         /**
          * Upload a file
          * @description Stores a file with the board. The request is a `multipart/form-data` form whose
-         *     part `file` carries the file and a file name. The file is limited to one part of an
+         *     part `file` carries the file and a file name, of which what follows its last `/` is
+         *     kept; a name with nothing there (`dir/`) is 400. The file is limited to one part of an
          *     upload in parts (8 MiB unless the server is configured otherwise), and to the
          *     `maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where
          *     the limit is the part, the refusal has the reason `upload_in_parts`: a file within
-         *     `maxFileBytes` can be sent with `createUpload`. A file that is refused or cut off is
-         *     not kept. The `fileId` of the answer ends in the extension of the file name, in lower
+         *     `maxFileBytes` can be sent with `createUpload`. Where it is `maxFileBytes`, the
+         *     reason is `file_too_large`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower
          *     case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
          *     anything but letters and digits in it, is left off. For editors.
          */
@@ -2429,8 +2432,10 @@ export interface paths {
          *     through its own board only: through another board it is not there.
          *
          *     Every file is sent as `application/octet-stream` and offered as a download
-         *     (`Content-Disposition: attachment`) under its `fileId`, not under the name it was
-         *     uploaded with, which `getFileInfo` has. The answer honours `Range` with one range,
+         *     (`Content-Disposition: attachment`) under the name it was uploaded with, which
+         *     `getFileInfo` has: `filename*` carries that name, and `filename` the `fileId` for a
+         *     reader that knows no `filename*`. A file whose record has no name, or one of more
+         *     than 255 characters, is offered under its `fileId`. The answer honours `Range` with one range,
          *     unless the request has `If-Range`. It may be cached by the browser of who asked but
          *     must be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no
          *     download: the `Last-Modified` of an answer is the time of that answer, so a request
@@ -2698,7 +2703,7 @@ export interface paths {
          * @description Opens an upload of a file to the board in parts. The answer says how large the
          *     parts are and how many; send each with `putUploadPart`, in any order and again
          *     after a failure, then `completeUpload`. A file larger than `maxFileBytes` of
-         *     `getClientConfig` is 413. A user has at most 8
+         *     `getClientConfig` is 413 with the reason `file_too_large`. A user has at most 8
          *     uploads open, holding back at most twice `maxFileBytes` together, and the server's
          *     open uploads hold back at most what it is configured for: an upload over one of
          *     these is 429, with the reason `too_many_uploads`, `uploads_pending` or
@@ -3387,9 +3392,10 @@ export interface paths {
          * The users of a workspace
          * @description Up to ten of the users the user sees in the workspace: whoever works there sees its
          *     members and who is on a board of it with them, a guest only who is on a board of it
-         *     with them; and the user. With `search` those whose login name or display name has
-         *     that text in it, whatever the case of the letters, without it the ten oldest
-         *     accounts. Oldest account first.
+         *     with them; and the user. With `search` those whose login name, display name or a
+         *     part of whose name (either way round, and the name they wrote) has that text in it,
+         *     whatever the case of the letters, without it the ten oldest accounts. Oldest account
+         *     first.
          */
         get: operations["getWorkspaceUsers"];
         put?: never;
@@ -3406,7 +3412,8 @@ export interface paths {
          *
          *     An account that was deleted is answered to whoever asks by its identifier, seen
          *     before or not, as what is left of it: the identifier, an empty `username`, `email`
-         *     and `displayName`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
+         *     and `displayName`, every part of the name empty, no title nor credentials,
+         *     `nameShown` `name`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
          *     the account is answered, neither when it went nor when it was asked to (the
          *     identifier is kept as it was made). The empty `username` is what tells it, not a
          *     time: a page shows a deleted user where it wrote or is mentioned.
@@ -5204,14 +5211,15 @@ export interface components {
              */
             contentType?: string;
             /**
-             * @description The name of the file, 1 to 255 characters. The stored file keeps its extension,
-             *     as `uploadFile` keeps it.
+             * @description The name of the file, 1 to 255 characters, of which what follows its last `/` is
+             *     kept: a name with nothing there (`dir/`) is refused. The stored file keeps its
+             *     extension, as `uploadFile` keeps it.
              */
             name: string;
             /**
              * Format: int64
              * @description The size of the file in bytes. More than `maxFileBytes` of `getClientConfig` is
-             *     413.
+             *     413 (`file_too_large`).
              */
             size: number;
         };
@@ -5376,7 +5384,7 @@ export interface components {
             linkPassword?: string;
         };
         /** @description A member of an organization, as its administrators list them. */
-        OrgMember: {
+        OrgMember: components["schemas"]["PersonName"] & {
             /** @description The name the user shows; empty for none. */
             displayName: string;
             /** @description What the user is in the organization. */
@@ -6163,7 +6171,7 @@ export interface components {
             updateAt: number;
         };
         /** @description A member of a workspace, as its administrators list them. */
-        WorkspaceMember: {
+        WorkspaceMember: components["schemas"]["PersonName"] & {
             /**
              * Format: int64
              * @description When the user became a member, in milliseconds since the Unix epoch.

@@ -22,6 +22,14 @@ import type { Schemas } from './convert.ts';
 import { underWorkspace } from './requests.ts';
 import type { Http } from './http.ts';
 
+/**
+ * The refusal of a file or an archive over the server's limit, before anything is
+ * sent: as the server's own (413, its reason and the limit). Its other 413s of an
+ * import (too many entries, entries that unpack to too much) have no reason.
+ */
+export const tooLarge = (what: 'file' | 'archive', limit: number): BackendError =>
+  new BackendError(413, { detail: `the ${what} is too large`, reason: `${what}_too_large`, limit });
+
 /** How many times one part is sent before the upload fails. */
 const PART_TRIES = 3;
 /** The pause before a part is sent again, in milliseconds, times the tries so far. */

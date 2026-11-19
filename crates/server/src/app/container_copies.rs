@@ -32,6 +32,25 @@ impl App {
         to_workspace: &str,
         duplicate_as: DuplicateAs,
     ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), AppError> {
+        self.copy_container(
+            container_id,
+            user_id,
+            to_workspace,
+            duplicate_as,
+            ContainerWork::Duplicate,
+        )
+        .await
+    }
+
+    /// [`App::duplicate_container`], counted among the boards copied whole as `work`.
+    pub(super) async fn copy_container(
+        &self,
+        container_id: &str,
+        user_id: &str,
+        to_workspace: &str,
+        duplicate_as: DuplicateAs,
+        work: ContainerWork,
+    ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), AppError> {
         let kind = self.container(container_id).await?.kind;
         if kind == ContainerKind::Wiki && duplicate_as == DuplicateAs::Template {
             return Err(
@@ -92,8 +111,7 @@ impl App {
             }
         }
 
-        self.metrics()
-            .container_copied(ContainerWork::Duplicate, counted_as(kind));
+        self.metrics().container_copied(work, counted_as(kind));
 
         let app = self.clone();
         let broadcast = copies.clone();

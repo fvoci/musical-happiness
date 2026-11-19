@@ -142,7 +142,7 @@
 
 - **열린 업로드의 한도.** 사용자 한 명은 업로드를 8개까지 열어 둔다. 사용자의 열린 업로드가 걸어 두는 크기(선언한 `size`의 합)는 가장 큰 파일 한도의 두 배까지(9b부터는 파일과 아카이브 한도 가운데 큰 것의 두 배), 서버 전체는 설정 `max_pending_upload_bytes`(기본 2 GiB)까지다. 넘는 `createUpload`는 429이고 `reason`이 `too_many_uploads`, `uploads_pending`, `server_uploads_pending` 가운데 하나다. `Retry-After`는 없다: 자리는 업로드를 끝내거나 버려야 난다. 완료하는 중인(닫힌) 업로드는 세지 않는다. 같은 순간에 연 세션들도 한도를 함께 넘지 못한다.
 - **파일 하나의 한도.** `maxFileBytes`(설정 `max_file_bytes`)의 기본이 0(한도 없음)에서 100 MiB가 됐다(설계 결정 16).
-- **`uploadFile`.** 파일을 메모리에 모으지 않고 저장소로 흘려 쓴다. 부분 하나의 크기(`partSize`, 기본 8 MiB)까지만 받고, 그보다 크면 413이고 `reason`이 `upload_in_parts`다. 그 파일이 `maxFileBytes` 안이면 `createUpload`로 보낼 수 있다(흘려 받으며 거절하므로 서버는 전체 크기를 모른다). `maxFileBytes`가 부분보다 작으면 `maxFileBytes`까지이고 413에 `reason`이 없다. `maxFileBytes`는 이제 0(한도 없음)일 수 없다. 요청이 선언한 길이가 한도를 크게 넘으면 읽기 전에, 아니면 읽다가 거절한다. 거절하거나 끊긴 파일은 남지 않는다.
+- **`uploadFile`.** 파일을 메모리에 모으지 않고 저장소로 흘려 쓴다. 부분 하나의 크기(`partSize`, 기본 8 MiB)까지만 받고, 그보다 크면 413이고 `reason`이 `upload_in_parts`다. 그 파일이 `maxFileBytes` 안이면 `createUpload`로 보낼 수 있다(흘려 받으며 거절하므로 서버는 전체 크기를 모른다). `maxFileBytes`가 부분보다 작으면 `maxFileBytes`까지이고 413의 `reason`이 `file_too_large`다. `maxFileBytes`는 이제 0(한도 없음)일 수 없다. 요청이 선언한 길이가 한도를 크게 넘으면 읽기 전에, 아니면 읽다가 거절한다. 거절하거나 끊긴 파일은 남지 않는다.
 - **정리.** 끝난(24시간이 지난) 열린 업로드와, 닫힌 채 한 시간이 지난 업로드(서버가 완료 중에 멈춘 것. 끝나기 직전에 시작한 완료도 이 한 시간을 받는다)는 서버가 한 시간마다, 그리고 시작할 때 부분과 함께 버린다. 시작할 때는 어느 업로드의 것도 아닌 부분과, 로컬 저장소가 쓰다 만 파일도 지운다.
 
 들어간 것(tracer-bullet 8b, 2026-11-11 10:23 KST): S3 멀티파트. 연산의 모양과 뜻은 그대로다.
@@ -320,7 +320,7 @@
 | 6절 카드 상세 질문 3 | 날짜 값만, 카드를 쓸 때 바뀌는 값을 검사한다(2절): 날짜 속성에는 날짜 값이나 `null`, 다른 속성이나 정의 없는 속성에는 날짜 값이 아닌 것. 종류를 바꿔도 값은 그대로 두고, 그 값을 다시 쓸 때 새 규칙으로 본다 |
 | 6절 카드 상세 질문 4 | **결정됨.** `reorderCardProperties`(`PUT /boards/{boardId}/property-order`)가 속성 ID 전부를 새 순서로 받는다 |
 | 6절 카드 상세 질문 6 | 댓글만 달 수 있는 사람은 파일을 올리지 못한다(보드 편집자부터) |
-| H2 | **결정됨.** `User.displayName`은 서버가 이름의 칸(성·이름, 영문 이름, 직접 쓴 이름)과 고른 것(`nameShown`)으로 짓는다(`contracts/name-vectors.json`, 칸은 `patchMe`로). 사용자 검색은 로그인 이름과 이름의 칸에서 찾는다 |
+| H2 | **결정됨.** `User.displayName`은 서버가 이름의 칸(성·이름, 영문 이름, 직접 쓴 이름)과 고른 것(`nameShown`)으로 짓는다(`contracts/name-vectors.json`, 칸은 `patchMe`로). 사용자 검색은 로그인 이름과 이름의 칸에서 찾는다. 조직·워크스페이스의 구성원 목록에도 이름의 칸·호칭·학위가 오고, 이름이 바뀌면 `UPDATE_USER`(`contracts/websocket.md`)가 간다 |
 | H3 | **결정됨.** `getDeletedCards`(보드의 편집자부터)와 `getDeletedContainers`(관리자였던 보드만). 되살리기는 `undeleteBlock`·`undeleteContainer` |
 | H5 | **결정됨(11:05 KST).** 웹앱이 "참여" 단계를 두고 서버의 `joinContainer`는 그대로다 |
 | G5 | 남이 본문을 고치면 블록 전체(본문까지)가 온다(`contracts/websocket.md` 5절). 지금대로 둔다, 그 계획에서 다시 본다 |

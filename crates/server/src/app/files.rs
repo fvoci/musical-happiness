@@ -563,6 +563,12 @@ pub(crate) fn base_name(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
 }
 
+/// Whether a client-supplied name names a file: what its record keeps of it, the last
+/// segment ([`base_name`]), is not blank. `dir/` names none.
+pub(crate) fn names_a_file(name: &str) -> bool {
+    !base_name(name).trim().is_empty()
+}
+
 /// The lower-cased extension of a name, with its leading dot, as kept in the record.
 /// `.jpeg` is stored as `.jpg`.
 pub(crate) fn stored_extension(name: &str) -> String {

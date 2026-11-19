@@ -286,7 +286,16 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
 
     let response = open_import(&ts.client, TEST_WORKSPACE_ID, 1001).await;
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
-    assert_eq!(response.value()["limit"], json!(1000));
+    let problem = response.value();
+    assert_eq!(
+        (&problem["type"], &problem["reason"], &problem["limit"]),
+        (
+            &json!("/problems/archive-too-large"),
+            &json!("archive_too_large"),
+            &json!(1000)
+        ),
+        "{problem}"
+    );
 
     let archive = archive_with(&[], zip::CompressionMethod::Stored);
     let id = upload_id(&open_import(&ts.client, TEST_WORKSPACE_ID, archive.len()).await);

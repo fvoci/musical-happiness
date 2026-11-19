@@ -1,4 +1,5 @@
 /** A story-only People implementation; the application memory backend has no People service. */
+import { emptyName } from '$lib/logic/person-names.ts';
 import {
   BackendError,
   type People,
@@ -25,6 +26,10 @@ export class ExamplePeople implements People {
       userId: index === 0 ? 'example-reader' : `example-member-${index}`,
       username: `example-member-${index}`,
       displayName: `Example member ${index} · 이름이 긴 예시 구성원`,
+      // The second has a title and credentials: the list writes them with the name.
+      ...(index === 1
+        ? { name: { ...emptyName(), title: 'prof' as const, credentials: ['phd' as const] } }
+        : {}),
       role: index === 0 ? 'admin' : index % 3 === 0 ? 'guest' : 'member',
     }));
     const guest = this.link('guest');

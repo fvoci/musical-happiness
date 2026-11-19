@@ -2537,11 +2537,11 @@
             "type": "string"
           },
           "name": {
-            "description": "The name of the file, 1 to 255 characters. The stored file keeps its extension,\nas `uploadFile` keeps it.",
+            "description": "The name of the file, 1 to 255 characters, of which what follows its last `/` is\nkept: a name with nothing there (`dir/`) is refused. The stored file keeps its\nextension, as `uploadFile` keeps it.",
             "type": "string"
           },
           "size": {
-            "description": "The size of the file in bytes. More than `maxFileBytes` of `getClientConfig` is\n413.",
+            "description": "The size of the file in bytes. More than `maxFileBytes` of `getClientConfig` is\n413 (`file_too_large`).",
             "format": "int64",
             "type": "integer"
           }
@@ -2814,32 +2814,40 @@
         "type": "object"
       },
       "OrgMember": {
-        "description": "A member of an organization, as its administrators list them.",
-        "properties": {
-          "displayName": {
-            "description": "The name the user shows; empty for none.",
-            "type": "string"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PersonName",
+            "description": "The parts of the user's name, and their title and credentials: the\nadministrators see the user's name."
           },
-          "role": {
-            "$ref": "#/components/schemas/OrgRole",
-            "description": "What the user is in the organization."
-          },
-          "userId": {
-            "description": "The user's identifier.",
-            "type": "string"
-          },
-          "username": {
-            "description": "The user's login name.",
-            "type": "string"
+          {
+            "properties": {
+              "displayName": {
+                "description": "The name the user shows; empty for none.",
+                "type": "string"
+              },
+              "role": {
+                "$ref": "#/components/schemas/OrgRole",
+                "description": "What the user is in the organization."
+              },
+              "userId": {
+                "description": "The user's identifier.",
+                "type": "string"
+              },
+              "username": {
+                "description": "The user's login name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "displayName",
+              "role",
+              "userId",
+              "username"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "displayName",
-          "role",
-          "userId",
-          "username"
         ],
-        "type": "object"
+        "description": "A member of an organization, as its administrators list them."
       },
       "OrgRole": {
         "description": "What a member of an organization is in it.",
@@ -3531,6 +3539,16 @@
             "reason": "server_imports_busy",
             "title": "The server is busy importing",
             "type": "/problems/server-imports-busy"
+          },
+          {
+            "reason": "file_too_large",
+            "title": "File too large",
+            "type": "/problems/file-too-large"
+          },
+          {
+            "reason": "archive_too_large",
+            "title": "Archive too large",
+            "type": "/problems/archive-too-large"
           },
           {
             "reason": "update_refused",
@@ -4676,43 +4694,51 @@
         "type": "object"
       },
       "WorkspaceMember": {
-        "description": "A member of a workspace, as its administrators list them.",
-        "properties": {
-          "createAt": {
-            "description": "When the user became a member, in milliseconds since the Unix epoch.",
-            "format": "int64",
-            "type": "integer"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PersonName",
+            "description": "The parts of the user's name, and their title and credentials: the\nadministrators see the user's name."
           },
-          "displayName": {
-            "description": "The name the user is shown by; empty if they have none.",
-            "type": "string"
-          },
-          "joinedAsOrgAdmin": {
-            "description": "Whether this membership is a temporary joining as organization administrator.",
-            "type": "boolean"
-          },
-          "role": {
-            "$ref": "#/components/schemas/WorkspaceRole",
-            "description": "What the user is in the workspace."
-          },
-          "userId": {
-            "description": "The identifier of the user.",
-            "type": "string"
-          },
-          "username": {
-            "description": "The user's login name.",
-            "type": "string"
+          {
+            "properties": {
+              "createAt": {
+                "description": "When the user became a member, in milliseconds since the Unix epoch.",
+                "format": "int64",
+                "type": "integer"
+              },
+              "displayName": {
+                "description": "The name the user is shown by; empty if they have none.",
+                "type": "string"
+              },
+              "joinedAsOrgAdmin": {
+                "description": "Whether this membership is a temporary joining as organization administrator.",
+                "type": "boolean"
+              },
+              "role": {
+                "$ref": "#/components/schemas/WorkspaceRole",
+                "description": "What the user is in the workspace."
+              },
+              "userId": {
+                "description": "The identifier of the user.",
+                "type": "string"
+              },
+              "username": {
+                "description": "The user's login name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "createAt",
+              "displayName",
+              "joinedAsOrgAdmin",
+              "role",
+              "userId",
+              "username"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "createAt",
-          "displayName",
-          "joinedAsOrgAdmin",
-          "role",
-          "userId",
-          "username"
         ],
-        "type": "object"
+        "description": "A member of a workspace, as its administrators list them."
       },
       "WorkspaceName": {
         "additionalProperties": false,
@@ -7350,7 +7376,7 @@
         ]
       },
       "patch": {
-        "description": "Changes what the body names of the user of the session's name: its parts\n(`firstName`, `lastName`, `latinFirstName`, `latinLastName`), the name they wrote to\nbe shown by (`customName`), which of them they are shown by (`nameShown`), the title\nand the credentials. White space around a part is dropped, and empty or `null` is\nnone. A part has at most 64 UTF-16 code units, without control characters and\nwithout characters that show nothing, break a line or turn the text around (U+00AD,\nU+200B–U+200F, U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). `title` is a\ncode of its list or `null`; `credentials` at most three codes of their list, each\nonce, in the order they are written, or `null` for none. `displayName` follows: the\nserver makes it from these (`contracts/name-vectors.json`). A member that is no such\nthing, or a value that breaks these rules, is refused (400 naming it) and changes\nnothing. Answers the user as `getMe` does.",
+        "description": "Changes what the body names of the user of the session's name: its parts\n(`firstName`, `lastName`, `latinFirstName`, `latinLastName`), the name they wrote to\nbe shown by (`customName`), which of them they are shown by (`nameShown`), the title\nand the credentials. White space around a part is dropped, and empty or `null` is\nnone. A part has at most 64 UTF-16 code units, without control characters and\nwithout characters that show nothing, break a line or turn the text around (U+00AD,\nU+034F, U+061C, U+115F, U+1160, U+180E, U+200B–U+200F, U+2028–U+202E, U+2060–U+206F,\nU+2800, U+3164, U+FEFF, U+FFA0, U+FFF9–U+FFFB). `title` is a\ncode of its list or `null`; `credentials` at most three codes of their list, each\nonce, in the order they are written, or `null` for none. `displayName` follows: the\nserver makes it from these (`contracts/name-vectors.json`). A member that is no such\nthing, or a value that breaks these rules, is refused (400 naming it) and changes\nnothing. Answers the user as `getMe` does.",
         "operationId": "patchMe",
         "requestBody": {
           "content": {
@@ -8102,7 +8128,7 @@
     },
     "/api/v1/w/{workspaceId}/archive/uploads": {
       "post": {
-        "description": "Opens an upload of an archive to import into the workspace, sent in parts as a file is\nwith `createUpload`, and imported with `importArchive` once every part is received.\nAn archive larger than `maxImportBytes` of `getClientConfig` is 413. It counts\ntoward the same limits as the uploads of files, which hold back at most twice the\nlarger of `maxFileBytes` and `maxImportBytes` for a user. For users of the workspace who\nare not guests, as `importArchive`.",
+        "description": "Opens an upload of an archive to import into the workspace, sent in parts as a file is\nwith `createUpload`, and imported with `importArchive` once every part is received.\nAn archive larger than `maxImportBytes` of `getClientConfig` is 413 with the reason\n`archive_too_large`. It counts\ntoward the same limits as the uploads of files, which hold back at most twice the\nlarger of `maxFileBytes` and `maxImportBytes` for a user. For users of the workspace who\nare not guests, as `importArchive`.",
         "operationId": "createImportUpload",
         "parameters": [
           {
@@ -10490,7 +10516,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files": {
       "post": {
-        "description": "Stores a file with the board. The request is a `multipart/form-data` form whose\npart `file` carries the file and a file name. The file is limited to one part of an\nupload in parts (8 MiB unless the server is configured otherwise), and to the\n`maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where\nthe limit is the part, the refusal has the reason `upload_in_parts`: a file within\n`maxFileBytes` can be sent with `createUpload`. A file that is refused or cut off is\nnot kept. The `fileId` of the answer ends in the extension of the file name, in lower\ncase, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with\nanything but letters and digits in it, is left off. For editors.",
+        "description": "Stores a file with the board. The request is a `multipart/form-data` form whose\npart `file` carries the file and a file name, of which what follows its last `/` is\nkept; a name with nothing there (`dir/`) is 400. The file is limited to one part of an\nupload in parts (8 MiB unless the server is configured otherwise), and to the\n`maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where\nthe limit is the part, the refusal has the reason `upload_in_parts`: a file within\n`maxFileBytes` can be sent with `createUpload`. Where it is `maxFileBytes`, the\nreason is `file_too_large`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower\ncase, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with\nanything but letters and digits in it, is left off. For editors.",
         "operationId": "uploadFile",
         "parameters": [
           {
@@ -10552,7 +10578,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}": {
       "get": {
-        "description": "The content of a file of the board, for the board's members. A file is asked for\nthrough its own board only: through another board it is not there.\n\nEvery file is sent as `application/octet-stream` and offered as a download\n(`Content-Disposition: attachment`) under its `fileId`, not under the name it was\nuploaded with, which `getFileInfo` has. The answer honours `Range` with one range,\nunless the request has `If-Range`. It may be cached by the browser of who asked but\nmust be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no\ndownload: the `Last-Modified` of an answer is the time of that answer, so a request\nwith the `If-Modified-Since` of an earlier answer gets the whole file again.",
+        "description": "The content of a file of the board, for the board's members. A file is asked for\nthrough its own board only: through another board it is not there.\n\nEvery file is sent as `application/octet-stream` and offered as a download\n(`Content-Disposition: attachment`) under the name it was uploaded with, which\n`getFileInfo` has: `filename*` carries that name, and `filename` the `fileId` for a\nreader that knows no `filename*`. A file whose record has no name, or one of more\nthan 255 characters, is offered under its `fileId`. The answer honours `Range` with one range,\nunless the request has `If-Range`. It may be cached by the browser of who asked but\nmust be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no\ndownload: the `Last-Modified` of an answer is the time of that answer, so a request\nwith the `If-Modified-Since` of an earlier answer gets the whole file again.",
         "operationId": "getFile",
         "parameters": [
           {
@@ -11381,7 +11407,7 @@
     },
     "/api/v1/w/{workspaceId}/containers/{containerId}/uploads": {
       "post": {
-        "description": "Opens an upload of a file to the board in parts. The answer says how large the\nparts are and how many; send each with `putUploadPart`, in any order and again\nafter a failure, then `completeUpload`. A file larger than `maxFileBytes` of\n`getClientConfig` is 413. A user has at most 8\nuploads open, holding back at most twice `maxFileBytes` together, and the server's\nopen uploads hold back at most what it is configured for: an upload over one of\nthese is 429, with the reason `too_many_uploads`, `uploads_pending` or\n`server_uploads_pending`. An upload is open until it is completed, abandoned or\nends; one that ends is thrown away with its parts within the hour. For editors, as\n`uploadFile`.",
+        "description": "Opens an upload of a file to the board in parts. The answer says how large the\nparts are and how many; send each with `putUploadPart`, in any order and again\nafter a failure, then `completeUpload`. A file larger than `maxFileBytes` of\n`getClientConfig` is 413 with the reason `file_too_large`. A user has at most 8\nuploads open, holding back at most twice `maxFileBytes` together, and the server's\nopen uploads hold back at most what it is configured for: an upload over one of\nthese is 429, with the reason `too_many_uploads`, `uploads_pending` or\n`server_uploads_pending`. An upload is open until it is completed, abandoned or\nends; one that ends is thrown away with its parts within the hour. For editors, as\n`uploadFile`.",
         "operationId": "createUpload",
         "parameters": [
           {
@@ -13017,7 +13043,7 @@
     },
     "/api/v1/w/{workspaceId}/users": {
       "get": {
-        "description": "Up to ten of the users the user sees in the workspace: whoever works there sees its\nmembers and who is on a board of it with them, a guest only who is on a board of it\nwith them; and the user. With `search` those whose login name or display name has\nthat text in it, whatever the case of the letters, without it the ten oldest\naccounts. Oldest account first.",
+        "description": "Up to ten of the users the user sees in the workspace: whoever works there sees its\nmembers and who is on a board of it with them, a guest only who is on a board of it\nwith them; and the user. With `search` those whose login name, display name or a\npart of whose name (either way round, and the name they wrote) has that text in it,\nwhatever the case of the letters, without it the ten oldest accounts. Oldest account\nfirst.",
         "operationId": "getWorkspaceUsers",
         "parameters": [
           {
@@ -13070,7 +13096,7 @@
         ]
       },
       "post": {
-        "description": "The users with the identifiers of the body that the user sees in the workspace, each\nonce; the body names at least one and at most 200: an empty list, or a longer one,\nis 400. An identifier of\nsomebody the user does not see finds nothing, as one of nobody: the answer does not\ntell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or\nlast changed a card, block or comment of a board of the workspace they read, also\nafter leaving the workspace. Oldest account first, not in the order of the request:\nby `createAt`, then by identifier.\n\nAn account that was deleted is answered to whoever asks by its identifier, seen\nbefore or not, as what is left of it: the identifier, an empty `username`, `email`\nand `displayName`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of\nthe account is answered, neither when it went nor when it was asked to (the\nidentifier is kept as it was made). The empty `username` is what tells it, not a\ntime: a page shows a deleted user where it wrote or is mentioned.\n`deleteAt` is not zero for a writer whose account waits to be deleted, who is\nanswered as they are, with their name.",
+        "description": "The users with the identifiers of the body that the user sees in the workspace, each\nonce; the body names at least one and at most 200: an empty list, or a longer one,\nis 400. An identifier of\nsomebody the user does not see finds nothing, as one of nobody: the answer does not\ntell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or\nlast changed a card, block or comment of a board of the workspace they read, also\nafter leaving the workspace. Oldest account first, not in the order of the request:\nby `createAt`, then by identifier.\n\nAn account that was deleted is answered to whoever asks by its identifier, seen\nbefore or not, as what is left of it: the identifier, an empty `username`, `email`\nand `displayName`, every part of the name empty, no title nor credentials,\n`nameShown` `name`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of\nthe account is answered, neither when it went nor when it was asked to (the\nidentifier is kept as it was made). The empty `username` is what tells it, not a\ntime: a page shows a deleted user where it wrote or is mentioned.\n`deleteAt` is not zero for a writer whose account waits to be deleted, who is\nanswered as they are, with their name.",
         "operationId": "getWorkspaceUsersById",
         "parameters": [
           {

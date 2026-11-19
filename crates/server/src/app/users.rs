@@ -35,7 +35,7 @@ impl App {
     }
 
     /// Changes what `change` names of the user's name, and so the name they are shown
-    /// by. Returns the user as stored.
+    /// by, and tells whoever sees them where they follow it. Returns the user as stored.
     ///
     /// # Errors
     ///
@@ -45,7 +45,11 @@ impl App {
         user_id: &str,
         change: &PersonNameChange,
     ) -> Result<User, AppError> {
-        Ok(self.store().change_person_name(user_id, change).await?)
+        let changed = self.store().change_person_name(user_id, change).await?;
+        if changed.changed {
+            self.broadcast_person_change_in_background(user_id.to_owned());
+        }
+        Ok(changed.user)
     }
 
     /// Returns the user with the given identifier.
