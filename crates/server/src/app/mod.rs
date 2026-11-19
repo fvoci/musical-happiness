@@ -3,6 +3,7 @@
 //! [`App`] holds the server's shared state. Its operations are spread over the modules of
 //! this directory by area, mirroring the original's `server/app` package.
 
+mod accept_language;
 mod access;
 mod account_deletion;
 mod account_erasure;
@@ -19,10 +20,12 @@ mod containers_and_blocks;
 mod doomed;
 mod download;
 mod export;
+mod file_name;
 mod files;
 mod housekeeping;
 mod import;
 mod invitations;
+mod language;
 mod limits;
 mod list_page;
 mod loose_objects;
@@ -76,7 +79,8 @@ pub use blocks::ChangeNotification;
 pub use cards::CardPreviews;
 pub use category_containers::DEFAULT_CATEGORY_CONTAINERS;
 pub use export::ExportedArchive;
-pub(crate) use files::{FILE, names_a_file};
+pub(crate) use file_name::check_file_name;
+pub(crate) use files::FILE;
 pub use housekeeping::WorkspacesPurged;
 pub use import::Imported;
 pub use invitations::{Accepting, Admission, Inviting};

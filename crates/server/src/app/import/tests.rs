@@ -4,6 +4,7 @@ use super::archive::{
     CENTRAL_HEADER, SCAN_CHUNK_BYTES, clean_dir, count_central_headers, split_entry_name,
 };
 use super::*;
+use crate::app::MAX_UPLOAD_NAME_CHARS;
 
 /// The central headers are counted wherever they are, a chunk's end included, and
 /// the count stops once it is over the limit.
@@ -165,6 +166,9 @@ fn the_names_of_files_are_taken_as_an_upload_names_them() {
         "7h.jpg": "Photo.JPEG",
         "7i.pdf": "../../minutes.pdf",
         "7j": "dir/  ",
+        "7k": r"dir\",
+        "7l": "..",
+        "7m": "dir/.",
     }});
     let names = file_names_of(&board);
     let taken = |entry: &str, name: &str| (entry.to_owned(), name.to_owned());

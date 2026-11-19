@@ -445,9 +445,14 @@ async fn opening_an_upload_is_checked() {
         "{problem}"
     );
 
-    let refusals: [(Value, &str); 6] = [
+    let refusals: [(Value, &str); 11] = [
         (json!({"name": "", "size": 1}), "name"),
         (json!({"name": "dir/", "size": 1}), "name"),
+        (json!({"name": r"dir\", "size": 1}), "name"),
+        (json!({"name": ".", "size": 1}), "name"),
+        (json!({"name": "dir/..", "size": 1}), "name"),
+        (json!({"name": "a\u{0}.txt", "size": 1}), "name"),
+        (json!({"name": "\u{0}", "size": 1}), "name"),
         (json!({"name": "a".repeat(256), "size": 1}), "name"),
         (json!({"name": "a.txt", "size": -1}), "size"),
         (

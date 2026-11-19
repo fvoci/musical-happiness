@@ -145,7 +145,9 @@ is missing or over is 401. What the user may not see is 404, as if it were not t
 they may see but not do is 403. A path that is no operation is 404 too, and a method an \
 operation's path does not have is 405.
 
-A request without a session whose JSON body has more than 64 KiB is 413 before it is 401.
+A request without a session whose JSON body has more than 64 KiB is 413 before it is 401. \
+A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` \
+in bytes.
 
 The identifiers of users, workspaces, boards, blocks and categories are UUIDs, written \
 lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is \

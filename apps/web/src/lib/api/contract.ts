@@ -1571,7 +1571,8 @@ export interface paths {
          *     `version.json` are 400, and nothing of them is stored. An archive of more than
          *     10,000 entries, whose entries unpack to more than 1 GiB together, or with a
          *     `board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with
-         *     the `limit` passed, and nothing of it is stored. The blocks that show files are
+         *     the `limit` passed, and nothing of it is stored; for the entry that is too large the
+         *     reason is `archive_entry_too_large`. The blocks that show files are
          *     pointed at the board's new copies of them, the images and file blocks of bodies
          *     included. A file the board's line lists under `missingFiles` is not stored, even when
          *     the archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy
@@ -2330,7 +2331,7 @@ export interface paths {
          *     and the files the blocks show, those of the images and file blocks of bodies among
          *     them. A board's line also carries `fileNames`: the name of each of its files, by
          *     stored name, which an import gives the files it stores. A name an upload could not
-         *     have (blank, with U+0000, over 255 characters, or of another extension than the
+         *     have (blank, `.` or `..` after its last `/` or `\`, with U+0000, over 255 characters, or of another extension than the
          *     stored name) is passed over and its file keeps the name of its entry, and an archive
          *     without the member is read as before. A file a block shows that the board does not
          *     have, its record or its bytes gone, gets no entry: it is listed under `missingFiles`
@@ -2369,8 +2370,11 @@ export interface paths {
          *     user becomes the admin of the copy, which is always private. A copy of the same kind
          *     has the title of the original with ` copy` after it; a template made from a board is
          *     titled `New board template`, and a board made from a template keeps the title. The
-         *     board's members may copy it; an open template is for everyone in its workspace, and a
-         *     built-in template for everyone.
+         *     server writes those words in English and in Korean (` 사본`, `새 보드 템플릿`), and
+         *     chooses by the language of the user's settings; where the settings leave the language
+         *     to the device, or name one the server does not write in, by the first of the two that
+         *     `Accept-Language` prefers; failing both, English. The board's members may copy it; an
+         *     open template is for everyone in its workspace, and a built-in template for everyone.
          *
          *     A wiki is copied as a board is, with its pages as they stand: their tree and order,
          *     titles, icons and bodies, the images and file blocks of the bodies given files of
@@ -2401,8 +2405,10 @@ export interface paths {
         /**
          * Upload a file
          * @description Stores a file with the board. The request is a `multipart/form-data` form whose
-         *     part `file` carries the file and a file name, of which what follows its last `/` is
-         *     kept; a name with nothing there (`dir/`) is 400. The file is limited to one part of an
+         *     part `file` carries the file and a file name of at most 255 characters, without
+         *     U+0000, of which what follows its last `/` is kept. A name whose last segment,
+         *     parted by `/` or `\`, is blank (`dir/`), `.` or `..` is 400, as is one too long or
+         *     with U+0000. The file is limited to one part of an
          *     upload in parts (8 MiB unless the server is configured otherwise), and to the
          *     `maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where
          *     the limit is the part, the refusal has the reason `upload_in_parts`: a file within
@@ -5202,9 +5208,10 @@ export interface components {
              */
             contentType?: string;
             /**
-             * @description The name of the file, 1 to 255 characters, of which what follows its last `/` is
-             *     kept: a name with nothing there (`dir/`) is refused. The stored file keeps its
-             *     extension, as `uploadFile` keeps it.
+             * @description The name of the file, as `uploadFile` takes one: 1 to 255 characters, without
+             *     U+0000, of which what follows its last `/` is kept. A name whose last segment,
+             *     parted by `/` or `\`, is blank (`dir/`), `.` or `..` is refused. The stored file
+             *     keeps its extension, as `uploadFile` keeps it.
              */
             name: string;
             /**
@@ -9888,7 +9895,10 @@ export interface operations {
                 /** @description The workspace the copy goes to: one the user works in. Left out, the workspace of the path. */
                 toWorkspace?: string;
             };
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;

@@ -10,6 +10,22 @@ import { LIMITS } from './shapes.ts';
 import type { StoredFile, World } from './world.ts';
 
 /**
+ * Whether a name is one the server takes for a file: at most 255
+ * characters, without U+0000, and with a last segment, parted by `/` or
+ * `\`, that is neither blank nor `.` or `..`.
+ */
+function namesFile(name: string): boolean {
+  const last = name.split(/[/\\]/).at(-1) ?? '';
+  return (
+    [...name].length <= 255 &&
+    !name.includes('\0') &&
+    last.trim() !== '' &&
+    last !== '.' &&
+    last !== '..'
+  );
+}
+
+/**
  * Stores `file` with the board or wiki `containerId`, telling the progress
  * after each part; `enter` is the backend's way into a call, asked before
  * each part (where a test holds or fails it, and a signal gives it up).
@@ -21,6 +37,7 @@ export async function storeUpload(
   options: UploadOptions,
   enter: (signal?: AbortSignal) => Promise<void>,
 ): Promise<UploadedFile> {
+  if (!namesFile(file.name)) fail(400, 'the name is none of a file');
   if (file.size > LIMITS.fileBytes) {
     fail(413, 'the file is too large', { limit: LIMITS.fileBytes, reason: 'file_too_large' });
   }

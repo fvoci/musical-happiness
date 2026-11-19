@@ -357,6 +357,19 @@ fn describe_transfer(reason: Reason) -> Option<&'static str> {
             "Status 413. The archive is larger than the largest the server imports (`limit`, \
              the `maxImportBytes` of `getClientConfig`)."
         }
+        Reason::ArchiveEntryTooLarge => {
+            "Status 413. An entry of the archive unpacks to more than an entry of its kind \
+             may (`limit`, in bytes): a file to more than the largest the server stores (the \
+             `maxFileBytes` of `getClientConfig`), a `board.jsonl` to more than the server \
+             reads of one. Nothing of the archive is stored."
+        }
+        Reason::RequestTooLarge => {
+            "Status 413. The body of the request is larger than its route reads (`limit`, in \
+             bytes), by the length it declares or by what it sends. A request without a \
+             session is read no further than the sign-in and the registration need. A file \
+             is not sent in such a body: `uploadFile` and the parts of an upload have limits \
+             and reasons of their own."
+        }
         _ => return None,
     })
 }

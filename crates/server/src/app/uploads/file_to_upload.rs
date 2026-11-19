@@ -4,7 +4,7 @@
 use fvoci_model::{RefusalReason, Refusals, UploadPurpose};
 
 use super::MAX_UPLOAD_NAME_CHARS;
-use crate::app::files::names_a_file;
+use crate::app::file_name::{UnfitName, check_file_name};
 use crate::error::{AppError, Reason};
 
 /// A session to open: the file the client is about to send.
@@ -23,26 +23,19 @@ impl FileToUpload {
     ///
     /// # Errors
     ///
-    /// Returns every member that is refused: a name that is blank, names no file
-    /// (`dir/`) or is too long, a content type that is too long, a size below zero.
+    /// Returns every member that is refused: a name that is none of a file
+    /// ([`check_file_name`]), a content type that is too long, a size below zero.
     pub(super) fn check(&self) -> Result<(), Refusals> {
         // Every member that is refused, not the first alone.
         let mut refused = Refusals::new();
-        let name_chars = self.name.chars().count();
-        if !names_a_file(&self.name) || name_chars > MAX_UPLOAD_NAME_CHARS {
-            let reason = if name_chars > MAX_UPLOAD_NAME_CHARS {
-                RefusalReason::TooLong
-            } else {
-                RefusalReason::Required
+        if let Err(unfit) = check_file_name(&self.name) {
+            let reason = match unfit {
+                UnfitName::TooLong => RefusalReason::TooLong,
+                UnfitName::Nul => RefusalReason::InvalidCharacters,
+                UnfitName::NoFile => RefusalReason::Required,
+                UnfitName::Dots => RefusalReason::InvalidFormat,
             };
-            refused.refuse(
-                "name",
-                reason,
-                format!(
-                    "the name is 1 to {MAX_UPLOAD_NAME_CHARS} characters, and not blank \
-                     after its last `/`"
-                ),
-            );
+            refused.refuse("name", reason, format!("the name {unfit}"));
         }
         if self.content_type.chars().count() > MAX_UPLOAD_NAME_CHARS {
             refused.refuse(

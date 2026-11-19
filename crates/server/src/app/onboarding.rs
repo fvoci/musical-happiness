@@ -10,6 +10,7 @@ use fvoci_model::{ContainerPatch, ContainerType, UserPreferencesPatch};
 use fvoci_store::DuplicateAs;
 
 use super::App;
+use super::language::Language;
 use super::templates::{ONBOARDING_PROPERTY, is_onboarding_template};
 use crate::error::AppError;
 use crate::metrics::ContainerWork;
@@ -68,6 +69,9 @@ impl App {
                 user_id,
                 workspace_id,
                 DuplicateAs::Copy,
+                // A board made from a template keeps the template's title: no title is
+                // written in this language.
+                Language::English,
                 ContainerWork::Welcome,
             )
             .await?;

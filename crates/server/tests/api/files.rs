@@ -272,22 +272,39 @@ async fn upload_name_with_path_separators_is_reduced_to_its_base() {
     ts.teardown().await;
 }
 
-/// A name that ends in a directory names no file: what would be kept of it is blank.
+/// A name that ends in a directory names no file: what would be kept of it is blank,
+/// or a directory's own name. One longer than an upload in parts takes is refused as
+/// that refuses it.
 #[tokio::test]
 async fn an_upload_name_that_names_no_file_is_refused() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
         .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
         .await;
-    for name in ["dir/", "a/b/ ", "/", " "] {
+    let too_long = "가".repeat(256);
+    for name in [
+        "dir/",
+        "a/b/ ",
+        "/",
+        " ",
+        r"dir\",
+        ".",
+        "..",
+        "dir/..",
+        r"dir\.",
+        too_long.as_str(),
+    ] {
         let response = upload(&ts.client, &board.id, name, b"x").await;
         response.check_bad_request();
         assert_eq!(response.refused_at(), "parameter file", "{name:?}");
     }
-    // A name in a directory is its last segment, as before.
-    upload(&ts.client, &board.id, "dir/a.txt", b"x")
-        .await
-        .check_created();
+    // A name in a directory is its last segment, as before, and the longest is taken.
+    let longest = "가".repeat(255);
+    for name in ["dir/a.txt", r"dir\a.txt", "...", longest.as_str()] {
+        upload(&ts.client, &board.id, name, b"x")
+            .await
+            .check_created();
+    }
     ts.teardown().await;
 }
 

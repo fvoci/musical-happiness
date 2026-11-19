@@ -11,7 +11,7 @@ use bytes::Bytes;
 use tokio::fs;
 
 use super::{MAX_ENTRIES, MAX_JSONL_BYTES, MAX_VERSION_BYTES};
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 /// The signature each entry of a ZIP's central directory begins with (APPNOTE 4.3.12).
 pub(super) const CENTRAL_HEADER: &[u8; 4] = b"PK\x01\x02";
@@ -232,7 +232,8 @@ pub(super) fn decompress(
         return Err(AppError::too_large(
             format_args!("the archive entry {name} unpacks to more than {limit} bytes"),
             limit,
-        ));
+        )
+        .with_reason(Reason::ArchiveEntryTooLarge));
     }
     Ok(read)
 }

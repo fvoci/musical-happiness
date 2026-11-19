@@ -32,7 +32,7 @@ use super::workspace::InContainer;
 
 use super::{ApiResult, created, json_response, require_container_permission, require_granted};
 use crate::app::App;
-use crate::app::{FILE, MAX_UPLOAD_NAME_CHARS, names_a_file};
+use crate::app::{FILE, MAX_UPLOAD_NAME_CHARS, check_file_name};
 use crate::error::{AppError, Reason};
 use crate::permissions::ContainerPermission;
 
@@ -69,9 +69,6 @@ const UPLOAD_FIELD: &str = "file";
 
 /// The refusal of an upload that carries no part with the file.
 const NO_FILE_PART: &str = "the request has no part named `file` with a file name";
-
-/// The refusal of a file name that names no file: blank after its last `/`.
-const NO_FILE_NAME: &str = "the file name of the part `file` is blank after its last `/`";
 
 /// What an upload answers: the name the file is asked for by.
 #[derive(Debug, Serialize, ToSchema)]
@@ -170,8 +167,9 @@ impl<'a> DownloadName<'a> {
     /// The download of the file stored as `stored`, saved under the name it was
     /// `uploaded` with: its last segment, whichever way its directories are parted. A
     /// name that is none (blank, `.` or `..`) leaves the stored name, and so does one
-    /// longer than [`MAX_UPLOAD_NAME_CHARS`], which `uploadFile` takes and whose
-    /// encoding would be a header longer than a proxy passes on.
+    /// longer than [`MAX_UPLOAD_NAME_CHARS`], whose encoding would be a header longer
+    /// than a proxy passes on: no upload takes such a name now, and a record made
+    /// before the uploads refused them may hold one.
     fn of(stored: &'a str, uploaded: &'a str) -> Self {
         let name = uploaded.rsplit(['/', '\\']).next().unwrap_or_default();
         let is_name = !name.trim().is_empty()
@@ -234,8 +232,10 @@ pub(super) async fn container_file_info(
 /// Upload a file
 ///
 /// Stores a file with the board. The request is a `multipart/form-data` form whose
-/// part `file` carries the file and a file name, of which what follows its last `/` is
-/// kept; a name with nothing there (`dir/`) is 400. The file is limited to one part of an
+/// part `file` carries the file and a file name of at most 255 characters, without
+/// U+0000, of which what follows its last `/` is kept. A name whose last segment,
+/// parted by `/` or `\`, is blank (`dir/`), `.` or `..` is 400, as is one too long or
+/// with U+0000. The file is limited to one part of an
 /// upload in parts (8 MiB unless the server is configured otherwise), and to the
 /// `maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where
 /// the limit is the part, the refusal has the reason `upload_in_parts`: a file within
@@ -299,8 +299,9 @@ async fn handle_upload_file(
         let Some(filename) = field.file_name().map(str::to_owned) else {
             break Err(AppError::bad_request(NO_FILE_PART).with_parameter(UPLOAD_FIELD));
         };
-        if !names_a_file(&filename) {
-            break Err(AppError::bad_request(NO_FILE_NAME).with_parameter(UPLOAD_FIELD));
+        if let Err(unfit) = check_file_name(&filename) {
+            let refusal = format_args!("the file name of the part `file` {unfit}");
+            break Err(AppError::bad_request(refusal).with_parameter(UPLOAD_FIELD));
         }
         // The stored name is what a reader asks for the file by; it stays out of the log.
         tracing::debug!(filename, "uploadFile");

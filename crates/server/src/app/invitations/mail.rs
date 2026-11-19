@@ -4,9 +4,8 @@ use std::collections::BTreeSet;
 
 use fvoci_model::{Invitation, InvitationMail, WorkspaceRole};
 
-use super::super::mail::{
-    Content, Delivered, InvitationRefusal, Language, Letter, Organizations, Queued,
-};
+use super::super::language::Language;
+use super::super::mail::{Content, Delivered, InvitationRefusal, Letter, Organizations, Queued};
 use super::{App, Inviting};
 use crate::auth::{now_millis, secret::token_digest};
 use crate::error::{AppError, Reason};
