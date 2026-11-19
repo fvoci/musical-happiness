@@ -17,6 +17,8 @@
  * what an update redraws); only the press and the change are this file's.
  */
 import { TaskItem } from '@tiptap/extension-list';
+import { closeHistory } from '@tiptap/pm/history';
+import { yUndoPluginKey } from '@tiptap/y-tiptap';
 
 export const BodyTaskItem = TaskItem.extend({
   addNodeView() {
@@ -38,15 +40,26 @@ export const BodyTaskItem = TaskItem.extend({
         event.preventDefault();
       });
       // A press on the label passes to the box without the browser's focusing
-      // it (WebKit does), which would take the focus from the text being written.
-      label.addEventListener('click', (event) => {
-        if (event.target === box) return;
-        event.preventDefault();
-        box.click();
-      });
+      // it (WebKit does), which would take the focus from the text being
+      // written. Where the body can only be read, the press does nothing: the
+      // browser puts the box back itself, and no change is said.
+      item.addEventListener(
+        'click',
+        (event) => {
+          if (!(event.target instanceof Node) || !label.contains(event.target)) return;
+          if (!editor.isEditable) event.preventDefault();
+          else if (event.target !== box) {
+            event.preventDefault();
+            box.click();
+          }
+        },
+        { capture: true },
+      );
 
       // Taken on the way down, before the library's own listener on the box,
-      // which would focus the editor: the event goes no further.
+      // which would focus the editor: the event goes no further. The tick is
+      // a step of undo of its own, not gathered with what was typed just
+      // before or after it (a shared body gathers what comes close together).
       item.addEventListener(
         'change',
         (event) => {
@@ -58,13 +71,23 @@ export const BodyTaskItem = TaskItem.extend({
             box.checked = !box.checked;
             return;
           }
-          editor.view.dispatch(
-            editor.state.tr.setNodeMarkup(at, undefined, { ...task.attrs, checked: box.checked }),
-          );
+          const undo = yUndoPluginKey.getState(editor.state)?.undoManager;
+          undo?.stopCapturing();
+          const tick = editor.state.tr.setNodeMarkup(at, undefined, {
+            ...task.attrs,
+            checked: box.checked,
+          });
+          editor.view.dispatch(closeHistory(tick));
+          undo?.stopCapturing();
         },
         { capture: true },
       );
-      return view;
+      // What is pressed or typed on the box is the box's: Enter, Tab or a
+      // letter there is not one for the text at the editor's selection.
+      return {
+        ...view,
+        stopEvent: (event: Event) => event.target instanceof Node && label.contains(event.target),
+      };
     };
   },
 });

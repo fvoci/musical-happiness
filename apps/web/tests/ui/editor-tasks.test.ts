@@ -6,7 +6,7 @@
  */
 import type { Editor } from '@tiptap/core';
 import { render } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import BodyEditor from '$lib/editor/BodyEditor.svelte';
@@ -54,6 +54,7 @@ describe('the box of a task', () => {
     const editor = editorIn(container);
     const { label, box } = partsOf(container);
     const changes = countChanges(editor);
+    const focus = vi.spyOn(editor.view, 'focus');
 
     // A press on the label is not one in the text: neither the browser nor the editor takes it.
     const pressed = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
@@ -63,6 +64,7 @@ describe('the box of a task', () => {
     expect(checkedIn(editor)).toEqual([true]);
     expect(box.checked).toBe(true);
     expect(changes.count).toBe(1);
+    expect(focus).not.toHaveBeenCalled();
     expect(editor.isFocused).toBe(false);
     expect(document.activeElement).not.toBe(editor.view.dom);
 
@@ -76,11 +78,44 @@ describe('the box of a task', () => {
     const editor = editorIn(container);
     editor.commands.focus(3, { scrollIntoView: false });
     const { from, to } = editor.state.selection;
+    const { label } = partsOf(container);
+    // jsdom gives a contenteditable no focus: whether the editor asks for it is what is seen.
+    const focus = vi.spyOn(editor.view, 'focus');
 
-    partsOf(container).box.click();
+    label.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    label.click();
 
     expect(checkedIn(editor)).toEqual([true]);
     expect([editor.state.selection.from, editor.state.selection.to]).toEqual([from, to]);
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it('keeps the keys pressed on it from the text: Enter there splits nothing', () => {
+    const { container } = render(BodyEditor, { doc: BODY });
+    const editor = editorIn(container);
+    editor.commands.focus(3, { scrollIntoView: false });
+    const before = editor.state.doc.toJSON() as unknown;
+    const { box } = partsOf(container);
+
+    // One key at a time: Backspace after Enter would join again what Enter split.
+    for (const key of ['Enter', 'Tab', 'Backspace', 'a']) {
+      box.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      expect(editor.state.doc.toJSON(), key).toEqual(before);
+    }
+  });
+
+  it('changes its own task, not the one it is inside or the one inside it', () => {
+    const nested = doc(
+      tasks(task(false, paragraph(text('Outer')), tasks(task(false, paragraph(text('Inner')))))),
+    );
+    const { container } = render(BodyEditor, { doc: nested });
+    const editor = editorIn(container);
+    const [outer, inner] = container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+
+    inner?.click();
+    expect(checkedIn(editor)).toEqual([false, true]);
+    outer?.click();
+    expect(checkedIn(editor)).toEqual([true, true]);
   });
 
   it('passes a press on its label to the box, which keeps no focus from it', () => {
@@ -99,12 +134,19 @@ describe('the box of a task', () => {
     const { container } = render(BodyEditor, { doc: BODY, editable: false });
     const editor = editorIn(container);
     const { label, box } = partsOf(container);
+    let said = 0;
+    for (const type of ['input', 'change']) {
+      box.addEventListener(type, () => {
+        said += 1;
+      });
+    }
 
     box.click();
     label.click();
 
     expect(checkedIn(editor)).toEqual([false]);
     expect(box.checked).toBe(false);
+    expect(said).toBe(0);
   });
 
   it('is one update of a shared document, which one undo takes back', async () => {
@@ -126,5 +168,20 @@ describe('the box of a task', () => {
     editor.commands.undo();
     expect(checkedIn(editor)).toEqual([false]);
     expect(editor.state.doc.textContent).toBe('BeforeWater the plants');
+  });
+
+  it('is a step of undo of its own in a shared document, apart from what was typed just before', async () => {
+    const shared = new Y.Doc();
+    const { container } = render(BodyEditor, { doc: null, collab: shared });
+    const editor = editorIn(container);
+    editor.commands.setContent(BODY);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    editor.commands.insertContentAt(7, ' now');
+    partsOf(container).box.click();
+    editor.commands.undo();
+
+    expect(checkedIn(editor)).toEqual([false]);
+    expect(editor.state.doc.textContent).toBe('Before nowWater the plants');
   });
 });
