@@ -131,7 +131,7 @@ async fn the_administrators_of_a_workspace_list_its_members() {
     let board = private_board(&th.client, "Plans").await;
     let visitor = guest_of(&th, &th.client, &board, "visitor").await;
     th.client2
-        .patch("/users/me", &json!({"displayName": "The Second"}))
+        .patch("/users/me", &json!({"customName": "The Second"}))
         .await
         .check_ok();
 

@@ -280,6 +280,10 @@ impl App {
             email: text(held.email),
             email_verified: held.email_unverified.then_some(false),
             name: text(held.name),
+            // A held sign-in keeps the name the token gave whole, not its parts: the
+            // account it makes has its parts to fill in.
+            given_name: None,
+            family_name: None,
             preferred_username: text(held.preferred_username),
         };
         let token = new_secret();

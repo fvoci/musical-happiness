@@ -61,13 +61,74 @@
         "type": "object"
       },
       "AccountChange": {
-        "description": "What a user changes of their account. A member that is left out stays as it is.",
+        "description": "What a user changes of their name. A member that is left out stays as it is.",
         "properties": {
-          "displayName": {
-            "description": "The name to be shown by: at most 64 UTF-16 code units without control\ncharacters. Empty or `null` for none, and the login name is shown.",
+          "credentials": {
+            "description": "The degrees and qualifications written after the name: at most three, each once,\nin the order they are written. `null` or empty for none.",
+            "items": {
+              "$ref": "#/components/schemas/Credential"
+            },
+            "maxItems": 3,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "customName": {
+            "description": "The name the person wrote to be shown by; as `firstName`.",
             "type": [
               "string",
               "null"
+            ]
+          },
+          "firstName": {
+            "description": "The given name, in the letters the person writes it in: at most 64 UTF-16 code\nunits without control characters. Empty or `null` for none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastName": {
+            "description": "The family name, in the letters the person writes it in; as `firstName`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latinFirstName": {
+            "description": "The given name in Latin letters; as `firstName`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latinLastName": {
+            "description": "The family name in Latin letters; as `firstName`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nameShown": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NameShown",
+                "description": "Which name the person is shown by; `null` leaves it as it is."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Title",
+                "description": "The title written before the name; `null` for none."
+              },
+              {
+                "type": "null"
+              }
             ]
           }
         },
@@ -1371,6 +1432,32 @@
         ],
         "type": "object"
       },
+      "Credential": {
+        "description": "A degree or a professional qualification written after a person's name.",
+        "enum": [
+          "phd",
+          "md",
+          "dds",
+          "jd",
+          "edd",
+          "mba",
+          "ms",
+          "ma",
+          "cpa",
+          "cfa",
+          "pe",
+          "rn",
+          "kr_attorney",
+          "kr_patent_attorney",
+          "kr_tax_accountant",
+          "kr_cpa",
+          "kr_architect",
+          "kr_professional_engineer",
+          "kr_pharmacist",
+          "kr_korean_medicine_doctor"
+        ],
+        "type": "string"
+      },
       "DeleteAccountRequest": {
         "description": "A request to delete the account of the session.",
         "properties": {
@@ -2068,6 +2155,16 @@
           "viewer",
           "commenter",
           "editor"
+        ],
+        "type": "string"
+      },
+      "NameShown": {
+        "description": "Which name a person is shown by. When it is empty the next one down the list is\ntaken; the login name is the last.",
+        "enum": [
+          "name",
+          "latin_name",
+          "custom_name",
+          "username"
         ],
         "type": "string"
       },
@@ -3150,6 +3247,64 @@
         ],
         "type": "object"
       },
+      "PersonName": {
+        "description": "A person's name, every part of which may be empty.",
+        "properties": {
+          "credentials": {
+            "description": "The degrees and qualifications written after the name, in the person's order: at\nmost three, each once.",
+            "items": {
+              "$ref": "#/components/schemas/Credential"
+            },
+            "type": "array"
+          },
+          "customName": {
+            "description": "The name the person wrote to be shown by.",
+            "type": "string"
+          },
+          "firstName": {
+            "description": "The given name, in the letters the person writes it in.",
+            "type": "string"
+          },
+          "lastName": {
+            "description": "The family name, in the letters the person writes it in.",
+            "type": "string"
+          },
+          "latinFirstName": {
+            "description": "The given name in Latin letters.",
+            "type": "string"
+          },
+          "latinLastName": {
+            "description": "The family name in Latin letters.",
+            "type": "string"
+          },
+          "nameShown": {
+            "$ref": "#/components/schemas/NameShown",
+            "description": "Which name the person is shown by."
+          },
+          "title": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Title",
+                "description": "The title written before the name; `null` for none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "credentials",
+          "customName",
+          "firstName",
+          "lastName",
+          "latinFirstName",
+          "latinLastName",
+          "nameShown",
+          "title"
+        ],
+        "type": "object"
+      },
       "Problem": {
         "description": "The JSON body the server sends with every error status of the API, as\n`application/problem+json` (RFC 9457).\n\nA client decides by `status` and, where there is one, `reason`; both are stable,\nand so is `type`. `title` and `detail` are English text for logs and developers.",
         "properties": {
@@ -4155,6 +4310,14 @@
         ],
         "type": "string"
       },
+      "Title": {
+        "description": "A title written before a person's name.",
+        "enum": [
+          "dr",
+          "prof"
+        ],
+        "type": "string"
+      },
       "UnlinkRequest": {
         "description": "A request to remove an identity from the account of the session.",
         "properties": {
@@ -4301,50 +4464,58 @@
         "type": "object"
       },
       "User": {
-        "description": "A user account.\n\nThe JSON form carries only the public members. The email address, password hash and\nthe other authentication members are never serialized and are ignored when decoding.",
-        "properties": {
-          "createAt": {
-            "description": "Creation time in milliseconds since the Unix epoch; zero for a deleted account\n(an empty `username`).",
-            "format": "int64",
-            "type": "integer"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PersonName",
+            "description": "The parts of the user's name, which of them the user is shown by, and their\ntitle and credentials. Whoever sees the user's name sees these."
           },
-          "deleteAt": {
-            "description": "When the account was put out of use (deactivated, or its deletion asked), in\nmilliseconds since the Unix epoch; zero for one in use, and for a deleted account,\nwhich an empty `username` tells.",
-            "format": "int64",
-            "type": "integer"
-          },
-          "displayName": {
-            "description": "The name the user chose to be shown by; empty for none, and then the login name\nis shown. At most 64 UTF-16 code units, not unique.",
-            "type": "string"
-          },
-          "id": {
-            "description": "The user's identifier.",
-            "type": "string"
-          },
-          "isAdmin": {
-            "description": "Whether the user is an administrator of the instance. Decided by the server;\nnothing a request says about it is taken over.",
-            "type": "boolean"
-          },
-          "updateAt": {
-            "description": "Last modification time in milliseconds since the Unix epoch; zero for a deleted\naccount.",
-            "format": "int64",
-            "type": "integer"
-          },
-          "username": {
-            "description": "The login name.",
-            "type": "string"
+          {
+            "properties": {
+              "createAt": {
+                "description": "Creation time in milliseconds since the Unix epoch; zero for a deleted account\n(an empty `username`).",
+                "format": "int64",
+                "type": "integer"
+              },
+              "deleteAt": {
+                "description": "When the account was put out of use (deactivated, or its deletion asked), in\nmilliseconds since the Unix epoch; zero for one in use, and for a deleted account,\nwhich an empty `username` tells.",
+                "format": "int64",
+                "type": "integer"
+              },
+              "displayName": {
+                "description": "The name the user is shown by, by the rule of `PersonName::shown`: empty when\nthat is the login name, which is shown then. Kept with the account and made anew\nwhenever its name changes; what a request says of it is not taken over. At most\n129 UTF-16 code units (a name's two parts and a space), not unique.",
+                "type": "string"
+              },
+              "id": {
+                "description": "The user's identifier.",
+                "type": "string"
+              },
+              "isAdmin": {
+                "description": "Whether the user is an administrator of the instance. Decided by the server;\nnothing a request says about it is taken over.",
+                "type": "boolean"
+              },
+              "updateAt": {
+                "description": "Last modification time in milliseconds since the Unix epoch; zero for a deleted\naccount.",
+                "format": "int64",
+                "type": "integer"
+              },
+              "username": {
+                "description": "The login name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "createAt",
+              "deleteAt",
+              "displayName",
+              "id",
+              "isAdmin",
+              "updateAt",
+              "username"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "createAt",
-          "deleteAt",
-          "displayName",
-          "id",
-          "isAdmin",
-          "updateAt",
-          "username"
         ],
-        "type": "object"
+        "description": "A user account.\n\nThe JSON form carries only the public members. The email address, password hash and\nthe other authentication members are never serialized and are ignored when decoding."
       },
       "UserIds": {
         "description": "The identifiers of the users asked for: at least one, at most 200.",
@@ -7184,7 +7355,7 @@
         ]
       },
       "patch": {
-        "description": "Changes what the body names of the user of the session: `displayName`, the name to\nbe shown by. White space around it is dropped, and empty or `null` is none. At most\n64 UTF-16 code units, without control characters and without characters that show\nnothing, break a line or turn the text around (U+00AD, U+200B–U+200F,\nU+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). Not unique. A member that is\nno such thing, or a name that breaks these rules, is refused (400 naming it) and\nchanges nothing. Answers the user as `getMe` does.",
+        "description": "Changes what the body names of the user of the session's name: its parts\n(`firstName`, `lastName`, `latinFirstName`, `latinLastName`), the name they wrote to\nbe shown by (`customName`), which of them they are shown by (`nameShown`), the title\nand the credentials. White space around a part is dropped, and empty or `null` is\nnone. A part has at most 64 UTF-16 code units, without control characters and\nwithout characters that show nothing, break a line or turn the text around (U+00AD,\nU+200B–U+200F, U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). `title` is a\ncode of its list or `null`; `credentials` at most three codes of their list, each\nonce, in the order they are written, or `null` for none. `displayName` follows: the\nserver makes it from these (`contracts/name-vectors.json`). A member that is no such\nthing, or a value that breaks these rules, is refused (400 naming it) and changes\nnothing. Answers the user as `getMe` does.",
         "operationId": "patchMe",
         "requestBody": {
           "content": {

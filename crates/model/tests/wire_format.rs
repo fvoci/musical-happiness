@@ -3,9 +3,9 @@
 use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Category, CategoryContainerMetadata,
     CategoryContainers, CategoryType, ClientConfig, Container, ContainerKind, ContainerMember,
-    ContainerPatch, ContainerType, InvalidInput, LoginRequest, MinimumRole,
-    PatchContainersAndBlocks, Problem, Sharing, Subscriber, SubscriberType, Subscription, User,
-    UserPreferencesPatch, Workspace,
+    ContainerPatch, ContainerType, Credential, InvalidInput, LoginRequest, MinimumRole, NameShown,
+    PatchContainersAndBlocks, PersonName, Problem, Sharing, Subscriber, SubscriberType,
+    Subscription, Title, User, UserPreferencesPatch, Workspace,
 };
 use serde_json::{Value, json};
 
@@ -476,15 +476,21 @@ fn category_hydrate_and_validate() {
 }
 
 #[test]
-fn user_json_hides_credentials_and_what_nothing_stores() {
+fn user_json_hides_credentials_and_carries_the_name() {
     let user = User {
         id: "u1".to_owned(),
         username: "alice".to_owned(),
         display_name: "Alice A.".to_owned(),
+        name: PersonName {
+            first_name: "Alice".to_owned(),
+            last_name: "A".to_owned(),
+            custom_name: "Alice A.".to_owned(),
+            name_shown: NameShown::CustomName,
+            title: Some(Title::Dr),
+            credentials: vec![Credential::Phd, Credential::KrAttorney],
+            ..PersonName::default()
+        },
         email: "alice@example.com".to_owned(),
-        nickname: "al".to_owned(),
-        first_name: "Alice".to_owned(),
-        last_name: "A".to_owned(),
         password_hash: "hash".to_owned(),
         create_at: 0,
         update_at: 5,
@@ -498,8 +504,11 @@ fn user_json_hides_credentials_and_what_nothing_stores() {
     assert_eq!(
         to_json(&user),
         json!({
-            "id": "u1", "username": "alice", "displayName": "Alice A.", "createAt": 0,
-            "updateAt": 5, "deleteAt": 0, "isAdmin": true
+            "id": "u1", "username": "alice", "displayName": "Alice A.", "firstName": "Alice",
+            "lastName": "A", "latinFirstName": "", "latinLastName": "",
+            "customName": "Alice A.", "nameShown": "custom_name", "title": "dr",
+            "credentials": ["phd", "kr_attorney"], "createAt": 0, "updateAt": 5,
+            "deleteAt": 0, "isAdmin": true
         })
     );
 

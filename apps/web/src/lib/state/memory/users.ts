@@ -1,4 +1,5 @@
 /** The memory directory distinguishes current members from the authors of readable work. */
+import { emptyName, nameContains } from '../../logic/person-names.ts';
 import { isGone } from '../../logic/users.ts';
 import type { User } from '../backend.ts';
 
@@ -13,6 +14,18 @@ export function seedUsers(world: World, users: readonly User[]): void {
     world.users.set(user.id, user);
     world.workspaceMembers.add(user.id);
   }
+}
+
+/**
+ * Whether a search for `wanted`, in small letters, finds the user, as the
+ * server finds them: in the login name or the name (`nameContains`).
+ */
+export function userFound(user: User, wanted: string): boolean {
+  return (
+    user.username.toLowerCase().includes(wanted) ||
+    user.displayName.toLowerCase().includes(wanted) ||
+    nameContains(user.name ?? emptyName(), wanted)
+  );
 }
 
 function listed(user: User): User {
@@ -33,6 +46,7 @@ export function eraseUser(world: World, userId: string): void {
     ...user,
     username: '',
     displayName: '',
+    name: emptyName(),
     email: '',
     isAdmin: false,
     createAt: 0,

@@ -887,7 +887,7 @@ async fn a_first_sign_in_makes_no_second_account_and_removes_no_registration_of_
         id: new_id(),
         username: "founder".to_owned(),
         email: "newcomer@example.com".to_owned(),
-        display_name: String::new(),
+        custom_name: String::new(),
         password_hash: "hash".to_owned(),
         language: String::new(),
         start: fvoci_store::SignupStart::Organization("Theirs".to_owned()),

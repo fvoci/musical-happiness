@@ -17,7 +17,8 @@
     left members out, who are not in the workspace, says how many in a line.
   - The workspace's records, which its members read (`AuditDialog.svelte`): only
     where the backend has them.
-  - The display name (`DisplayNameField.svelte`).
+  - The name: its parts, which of them others see, the title and credentials
+    (`NameFields.svelte`).
   - Who is signed in, signing out and changing the password: only where the
     backend has accounts.
 
@@ -58,7 +59,7 @@
   import { Switch } from '$lib/ui/switch/index.js';
 
   import { devReadout } from './dev.svelte.ts';
-  import DisplayNameField from './DisplayNameField.svelte';
+  import NameFields from './NameFields.svelte';
   import PasswordChange from './PasswordChange.svelte';
   import SettingChoice from './SettingChoice.svelte';
   import SettingPicker from './SettingPicker.svelte';
@@ -405,7 +406,7 @@
 
       {#if workspace.me}
         <div class="border-t pt-4">
-          <DisplayNameField {workspace} />
+          <NameFields {workspace} />
         </div>
       {/if}
 

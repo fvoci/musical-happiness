@@ -423,7 +423,6 @@ async fn create_user_stamps_times_and_reads_back_the_stored_members() {
         id: new_id(),
         username: "leia".to_owned(),
         email: "leia@example.com".to_owned(),
-        nickname: "not stored".to_owned(),
         password_hash: "hash".to_owned(),
         create_at: 1,
         update_at: 2,
@@ -436,14 +435,7 @@ async fn create_user_stamps_times_and_reads_back_the_stored_members() {
     assert_eq!(user.delete_at, 0, "a new user is never deleted");
 
     let got = store.get_user_by_id(&user.id).await.unwrap();
-    let stored = User {
-        nickname: String::new(),
-        ..user.clone()
-    };
-    assert_eq!(
-        got, stored,
-        "everything but the unstored members reads back"
-    );
+    assert_eq!(got, user, "everything stored reads back");
 
     // The identifier, the name and the address are each one user's.
     let mut same_id = User {
@@ -484,7 +476,7 @@ async fn create_user_stamps_times_and_reads_back_the_stored_members() {
         "none of the refused users was stored"
     );
     let got = store.get_user_by_id(&user.id).await.unwrap();
-    assert_eq!(got, stored, "the refused users changed nothing");
+    assert_eq!(got, user, "the refused users changed nothing");
 
     // Text that is not an identifier is no user's identifier.
     let mut unnamed = User {

@@ -16,7 +16,7 @@ fn signup(username: &str, email: &str, now: i64) -> Signup {
         id: new_id(),
         username: username.to_owned(),
         email: email.to_owned(),
-        display_name: String::new(),
+        custom_name: String::new(),
         password_hash: "hash".to_owned(),
         language: String::new(),
         start: SignupStart::Organization("Ours".to_owned()),

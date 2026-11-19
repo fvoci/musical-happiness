@@ -58,6 +58,7 @@ mod page_places;
 mod page_trash;
 mod pages;
 mod password_reset;
+mod person_names;
 mod schema;
 mod search_docs;
 mod search_outbox;

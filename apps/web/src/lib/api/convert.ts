@@ -47,14 +47,24 @@ import type { components } from './contract.ts';
 export type Schemas = components['schemas'];
 
 /**
- * A user: a name to log in with and one to be shown by, and no email
- * address (it is never answered).
+ * A user: a name to log in with, the one to be shown by and the parts it is
+ * made of, and no email address (it is never answered).
  */
 export function userOf(user: Schemas['User']): User {
   return {
     id: user.id,
     username: user.username,
     displayName: user.displayName,
+    name: {
+      firstName: user.firstName,
+      lastName: user.lastName,
+      latinFirstName: user.latinFirstName,
+      latinLastName: user.latinLastName,
+      customName: user.customName,
+      nameShown: user.nameShown,
+      title: user.title,
+      credentials: user.credentials,
+    },
     email: '',
     isAdmin: user.isAdmin,
     createAt: user.createAt,
