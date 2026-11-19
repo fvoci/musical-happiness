@@ -95,6 +95,8 @@ reasons! {
     ArchiveEntryTooLarge => "archive_entry_too_large", "Archive entry too large";
     /// The body of the request is larger than its route reads.
     RequestTooLarge => "request_too_large", "Request too large";
+    /// The database did not take a statement of the request in time.
+    DatabaseBusy => "database_busy", "Database busy";
     /// The body's document does not take the update.
     UpdateRefused => "update_refused", "Update refused";
     /// The update builds on changes the body's document does not have.
@@ -107,8 +109,6 @@ reasons! {
     TooManyDocuments => "too_many_documents", "Too many documents open";
     /// The body's document cannot be worked on for now.
     DocumentUnavailable => "document_unavailable", "Document unavailable";
-    /// The database did not take a statement of the request in time.
-    DatabaseBusy => "database_busy", "Database busy";
     /// The connection reads the body's document and does not write it.
     DocumentReadOnly => "document_read_only", "Document read only";
     /// The websocket connection does not read what it is sent of the body's document.

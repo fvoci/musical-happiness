@@ -61,6 +61,9 @@ function uploadServer(options: {
       attempts.set(number, attempt);
       const status = options.fail?.(number, attempt);
       if (status === 0) throw new TypeError('no answer');
+      if (status === 503) {
+        return answer(503, { type: '/problems/database-busy', status, reason: 'database_busy' });
+      }
       return status ? problem(status, 'internal', 'x') : answer(204);
     }
     if (url.endsWith('/complete')) return answer(201, { fileId: 'f1.txt' });
@@ -133,6 +136,15 @@ describe('uploading a file to the server', () => {
     expect(failing.filter((call) => call.method === 'PUT')).toHaveLength(3);
     // What the server held of it is thrown away.
     expect(failing.at(-1)).toMatchObject({ method: 'DELETE', url: '/api/v1/w/w1/uploads/up1' });
+  });
+
+  it('sends a part again that the database did not take in time', async () => {
+    const calls = uploadServer({
+      partSize: 4,
+      fail: (number, attempt) => (number === 1 && attempt === 1 ? 503 : undefined),
+    });
+    await serverBackend('').upload('b1', new File(['0123456789'], 'a.txt'));
+    expect(calls.filter((call) => call.url.endsWith('/parts/1'))).toHaveLength(2);
   });
 
   it('does not send a part again that the server refused', async () => {

@@ -112,6 +112,8 @@
    * only: when the screen shows another (a page that was deleted elsewhere, an
    * address followed), the drawer is away, and stays away when that place is back.
    */
+  // Away over every place: a function of the place only so that the derived, which is
+  // written when the drawer is asked out, is made anew (away) when the place changes.
   const away = (_over: string): boolean => false;
   let drawer = $derived(away(place));
   const drawerOut = $derived(narrow && drawer);

@@ -107,18 +107,7 @@ impl App {
             .copy_and_update_card_files(container_id, user_id, &mut copies.blocks)
             .await
         {
-            let delete = DeleteContainersAndBlocks::from(&copies);
-            if let Err(delete_error) = self
-                .store()
-                .delete_containers_and_blocks(&delete, user_id)
-                .await
-            {
-                tracing::error!(
-                    container_id,
-                    error = %delete_error,
-                    "Cannot delete board after duplication error when updating block's file info"
-                );
-            }
+            self.take_back(&copies, container_id, user_id).await;
             return Err(error.context(format_args!(
                 "could not patch file IDs while duplicating board {container_id}"
             )));
@@ -160,6 +149,23 @@ impl App {
         });
 
         Ok((copies, members))
+    }
+
+    /// Deletes the copies of `container_id` whose files could not be copied; a failure
+    /// to is logged, and the copies stay.
+    async fn take_back(&self, copies: &ContainersAndBlocks, container_id: &str, user_id: &str) {
+        let delete = DeleteContainersAndBlocks::from(copies);
+        if let Err(error) = self
+            .store()
+            .delete_containers_and_blocks(&delete, user_id)
+            .await
+        {
+            tracing::error!(
+                container_id,
+                %error,
+                "Cannot delete board after duplication error when updating block's file info"
+            );
+        }
     }
 
     /// Files a copy of a board under the category its source is filed under for the

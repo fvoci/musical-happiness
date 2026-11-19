@@ -150,8 +150,10 @@ A body larger than its route reads is 413 with the reason `request_too_large` an
 in bytes.
 
 Any request may be answered 503 with the reason `database_busy`: the database did not take \
-one of its statements in time (another write held the file, or no connection came free). \
-That statement did nothing, and the same request may be sent again.
+one of its statements in time (another write held the file, or no connection to it was to be \
+had). That statement did nothing and may be taken a moment later. A request of one step may \
+be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done \
+before stays done, and sent again it is answered as its operation says.
 
 The identifiers of users, workspaces, boards, blocks and categories are UUIDs, written \
 lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is \

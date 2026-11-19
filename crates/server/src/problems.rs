@@ -370,6 +370,13 @@ fn describe_transfer(reason: Reason) -> Option<&'static str> {
              is not sent in such a body: `uploadFile` and the parts of an upload have limits \
              and reasons of their own."
         }
+        Reason::DatabaseBusy => {
+            "Status 503. The database did not take a statement of the request in the time \
+             it had: another write held an SQLite file for longer than the busy timeout of \
+             `database_connection`, or no connection to the database was to be had (all in \
+             use, or the database not reached). That statement did nothing, and may be \
+             taken a moment later; what the request had done before it is done."
+        }
         _ => return None,
     })
 }
@@ -515,12 +522,6 @@ fn describe_editing_together(reason: Reason) -> &'static str {
              wrote the stored document since this one read it (a server that lost the lock \
              of its database and has not gone down yet), and this one leaves it alone. The \
              document is as it was stored before. Try again later."
-        }
-        Reason::DatabaseBusy => {
-            "Status 503. The database did not take a statement of the request in the time \
-             it had: another write held an SQLite file for longer than the busy timeout of \
-             `database_connection`, or no connection came free. The statement did nothing; \
-             the same request may be sent again."
         }
         other => describe_rooms(other),
     }

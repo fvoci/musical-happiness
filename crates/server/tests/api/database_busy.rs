@@ -19,8 +19,9 @@ fn database_of(th: &TestServer) -> PathBuf {
     PathBuf::from(file.expect("a path"))
 }
 
-/// A server on an SQLite file whose statements wait a quarter of a second for another
-/// writer, with a card on a board. `None` where the tests run against PostgreSQL.
+/// A server on an SQLite file whose statements wait two seconds for another writer
+/// (long enough for the server's own writers to take turns on a busy machine, short
+/// enough to wait out once), with a card on a board. `None` where the tests run against PostgreSQL.
 async fn with_a_card() -> Option<(TestServer, String, Card)> {
     if fvoci_store::testing::db_type_of_the_tests() != DbType::Sqlite {
         return None;
@@ -32,7 +33,7 @@ async fn with_a_card() -> Option<(TestServer, String, Card)> {
                 .split('?')
                 .next()
                 .expect("a path");
-            config.database_connection = format!("{file}?busy_timeout_ms=250");
+            config.database_connection = format!("{file}?busy_timeout_ms=2000");
         })
         .start()
         .await

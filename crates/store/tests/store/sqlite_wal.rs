@@ -145,6 +145,35 @@ async fn a_read_does_not_wait_for_a_writer_that_holds_the_file() {
     scene.database.remove().await;
 }
 
+/// Writers take turns with the log too: one that waits its whole time is told so by
+/// an error that says the database was busy, which nothing else is.
+#[tokio::test]
+async fn a_write_that_waits_its_whole_time_fails_as_busy_and_nothing_else_does() {
+    let Some(scene) = on_a_file().await else {
+        return;
+    };
+    let (store, path) = (&scene.store, &scene.path);
+    let mut writer = outside(path).await;
+    run(&mut writer, "BEGIN IMMEDIATE").await;
+    run(&mut writer, "UPDATE workspaces SET name = name").await;
+
+    let waited = store
+        .create_workspace(&Workspace {
+            id: new_id(),
+            ..Workspace::default()
+        })
+        .await
+        .expect_err("the file is held");
+    assert!(waited.is_busy(), "{waited:?}");
+
+    run(&mut writer, "COMMIT").await;
+    writer.close().await.expect("the connection closes");
+    let missing = store.get_workspace(&new_id()).await.expect_err("none");
+    assert!(!missing.is_busy(), "{missing:?}");
+    store.close().await;
+    scene.database.remove().await;
+}
+
 /// A read under way (a transaction that has read, and is not over) keeps no commit
 /// waiting, and goes on reading what was there when it began.
 #[tokio::test]
@@ -259,8 +288,12 @@ async fn a_store_that_was_not_closed_leaves_every_commit_to_the_next() {
     let without_the_log = workspaces_named(&mut behind, "Committed last").await;
     behind.close().await.expect("the connection closes");
     // A file that never took anything out of its log has no tables at all.
+    let behind = match &without_the_log {
+        Ok(found) => *found == 0,
+        Err(error) => error.contains("no such table"),
+    };
     assert!(
-        without_the_log.is_err() || without_the_log == Ok(0),
+        behind,
         "the last commit is in the log, not in the file: {without_the_log:?}"
     );
     let next = scene.open(&left).await;
