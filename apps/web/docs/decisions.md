@@ -1444,7 +1444,7 @@
 
 - ✔ `window.fvociDev`를 늘 붙인다(`src/app/backend.ts`). 메모리 구현에만 있는 손잡이이고 종단 테스트와 번들 크기 측정이 쓴다. 서버를 부르는 구현이 들어오면 그 구현에서는 붙이지 않는다(붙이는 곳이 메모리 구현을 고르는 그 함수다).
 - ✔ 기능이 다른 기능의 DOM 표식에 기댄다(`CardDialog.svelte`가 닫힐 때 `[data-card]`로 초점을 돌려준다 등). 기능끼리 가져오지 못하게 한 대가이고, 표식은 약속으로 적어 두었다(49번).
-- 모듈 전역 둘(`setFileUrlResolver`, `regional.ts`), 화면이 `location`·`navigator.clipboard`를 직접 만지는 곳, `localStorage` 키 다섯: 앱 하나에 하나씩인 것들이다. 키의 목록은 `PORTING.md`에 있다.
+- 모듈 전역 둘(`setFileUrlResolver`, `regional.ts`), 화면이 `location`·`navigator.clipboard`를 직접 만지는 곳, `localStorage` 키 다섯: 앱 하나에 하나씩인 것들이다. 키의 목록은 `docs/notes.md`에 있다.
 
 **키보드와 이름**
 

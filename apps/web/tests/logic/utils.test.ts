@@ -1,10 +1,7 @@
 /**
- * The cases of the original `utils.test.ts`, under the same names, against
- * the modules its functions moved to. The four `htmlFromMarkdown` cases are
- * not here: see the test mapping in PORTING.md.
- *
- * Where the original read `window` (the base URL, the origin, the reader's
- * settings), the functions here take the value as an argument.
+ * The utilities, each against the module it lives in. The functions take the
+ * base URL, the origin and the reader's settings as arguments: none of them
+ * reads `window`.
  */
 import { describe, expect, it, test } from 'vitest';
 

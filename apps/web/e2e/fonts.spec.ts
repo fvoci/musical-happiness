@@ -129,7 +129,7 @@ test.describe('font files of a first screen', () => {
   });
 
   test.afterAll(() => {
-    // The numbers for PORTING.md: `pnpm --filter web run e2e` prints them.
+    // The numbers for docs/notes.md: `pnpm --filter web run e2e` prints them.
     for (const [language, { files, bytes }] of Object.entries(measured)) {
       process.stdout.write(
         `fonts ${language}: ${files.length} request(s), ${bytes} bytes: ${files.join(', ')}\n`,

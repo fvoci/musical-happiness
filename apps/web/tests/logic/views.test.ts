@@ -1,8 +1,6 @@
 /**
- * Search, grouping, the property table and CSV rows. The original has no
- * tests for this code; these were written for the port. Where the behaviour
- * differs from the original on purpose, the case names the entry in
- * PORTING.md (Q3, Q4, Q12, Q13).
+ * Search, grouping, the property table and CSV rows. A case that pins a
+ * numbered rule names it (Q3, Q4, Q12, Q13 in docs/notes.md).
  */
 import { describe, expect, it, vi } from 'vitest';
 

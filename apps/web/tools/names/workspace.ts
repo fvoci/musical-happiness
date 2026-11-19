@@ -1,5 +1,5 @@
 /**
- * The name the original gives the workspace. Here it is a workspace everywhere,
+ * The former name of the workspace. It is a workspace everywhere now,
  * and that name will be a group of people's, so it is refused in any case, in
  * plurals and compounds, but where `exceptions.txt` lets it stay, each entry
  * under its reason. The server's `cargo xtask check` holds the rest of the
