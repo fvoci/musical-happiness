@@ -26,4 +26,13 @@ describe('fittingTabs', () => {
   it('shows the current tab alone where even it does not fit', () => {
     expect(fittingTabs([100, 400, 100], 300, 80, 1)).toEqual([1]);
   });
+
+  it('leaves a current tab that fits where it is', () => {
+    expect(fittingTabs([100, 100, 100, 100], 300, 80, 1)).toEqual([0, 1]);
+  });
+
+  it('keeps what fits where the current view is not among the tabs', () => {
+    expect(fittingTabs([100, 100, 100, 100], 300, 80, -1)).toEqual([0, 1]);
+    expect(fittingTabs([100, 100, 100, 100], 300, 80, 9)).toEqual([0, 1]);
+  });
 });

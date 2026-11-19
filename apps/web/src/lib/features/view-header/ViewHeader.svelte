@@ -152,7 +152,8 @@
     if (event.key === 'Escape' && !isComposing(event)) void closeSearch();
   }
   const searchLeft = (): void => {
-    if (row && search === '') searchOpenIn = undefined;
+    // Not when the window lost the focus: coming back finds the field where it was.
+    if (row && search === '' && document.hasFocus()) searchOpenIn = undefined;
   };
 
   // ------------------------------------------------------------- views

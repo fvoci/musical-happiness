@@ -193,6 +193,18 @@ describe('the whole row', () => {
     expect(toolButton('search')).toHaveFocus();
   });
 
+  it('gives an empty search field back to its button when the focus leaves it', async () => {
+    await mount('List');
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    await fireEvent.click(toolButton('search'));
+    await tick();
+    await fireEvent.blur(within(header()).getByRole('searchbox', { name: 'Search cards' }));
+    await tick();
+    expect(header().querySelector('[data-testid="view-search"]')).toHaveClass('hidden');
+    expect(toolButton('search')).toBeVisible();
+    vi.restoreAllMocks();
+  });
+
   it('has no grouping for a gallery and no sort for a calendar', async () => {
     const template: SeedTemplate = {
       ...SMALL,

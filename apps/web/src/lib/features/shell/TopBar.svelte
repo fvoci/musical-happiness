@@ -78,8 +78,8 @@
   /** The sharing dialog was opened from the number of members: it begins at them. */
   let sharingMembers = $state(false);
   let trashOpen = $state(false);
-  /** The description is open (ContainerDescription.svelte). */
-  let describing = $state(false);
+  /** The board or wiki whose description is open (ContainerDescription.svelte): another starts closed. */
+  let describingIn = $state<string | undefined>(undefined);
   /** The deleted cards of the board, read anew each time they are shown. */
   let trash = $state.raw<Trash | undefined>(undefined);
 
@@ -144,7 +144,7 @@
         icon: InfoIcon,
         separated: true,
         run: () => {
-          describing = true;
+          describingIn = containerId;
         },
       });
     }
@@ -212,7 +212,12 @@
     {#if container.description}
       {#key container.id}
         <ContainerDescription
-          bind:open={describing}
+          bind:open={
+            () => describingIn === container.id,
+            (open: boolean) => {
+              describingIn = open ? container.id : undefined;
+            }
+          }
           description={container.description}
           onChange={describe}
         />

@@ -60,9 +60,9 @@
         aria-label={label}
         class={[
           'flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md px-1 text-xs hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch roomy:min-w-touch',
-          // Nobody else here, there is no face to show: the button is away (and not gone, so
-          // that a list open when the last one left stays where it is); the group still says it.
-          presence.count === 0 && 'hidden',
+          // Nobody else here, there is no face to show: the button is away, but for while
+          // its list is open (it stays where it is when the last one left); the group says it.
+          presence.count === 0 && !listOpen && 'hidden',
         ]}
       >
         <span class="flex -space-x-1">

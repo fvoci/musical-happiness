@@ -7,7 +7,8 @@
 
   A reader who may change it (`onChange`) changes it there, in a field: what
   is typed is handed on, once, when the surface closes; Escape in the field
-  puts the description back first. While an input method is composing
+  puts the description back first. Leaving the board while it is open hands
+  it on too. While an input method is composing
   (Hangul, kana) Escape is its own.
 -->
 <script lang="ts">
@@ -40,6 +41,10 @@
     draft = undefined;
     if (next !== description) onChange?.(next);
   }
+
+  // Gone while open (the reader went to another board, or the description was emptied
+  // elsewhere): what was typed is handed on all the same.
+  $effect(() => commit);
 
   function onkeydown(event: KeyboardEvent): void {
     // Escape goes on to the surface, which closes; nothing typed is kept.

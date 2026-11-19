@@ -72,6 +72,8 @@
     for (const box of [part, copies, adder()]) if (box) resized?.observe(box);
     const changed = new MutationObserver(measure);
     if (copies) changed.observe(copies, { childList: true, subtree: true, characterData: true });
+    // "+" comes and goes with the right to add views.
+    changed.observe(part, { childList: true });
     return () => {
       resized?.disconnect();
       changed.disconnect();
@@ -80,7 +82,13 @@
 
   const currentIndex = $derived(views.findIndex((each) => each.id === currentId));
   const shown = $derived(
-    new Set(fittingTabs(widths, room, moreWidth, currentIndex).map((index) => views[index]?.id)),
+    new Set(
+      // Until the copies of views just added or taken away are measured, all of them.
+      (widths.length === views.length
+        ? fittingTabs(widths, room, moreWidth, currentIndex)
+        : views.map((_, index) => index)
+      ).map((index) => views[index]?.id),
+    ),
   );
   const rest = $derived(views.filter((each) => !shown.has(each.id)));
 
