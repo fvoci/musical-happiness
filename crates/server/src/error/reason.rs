@@ -107,6 +107,8 @@ reasons! {
     TooManyDocuments => "too_many_documents", "Too many documents open";
     /// The body's document cannot be worked on for now.
     DocumentUnavailable => "document_unavailable", "Document unavailable";
+    /// The database did not take a statement of the request in time.
+    DatabaseBusy => "database_busy", "Database busy";
     /// The connection reads the body's document and does not write it.
     DocumentReadOnly => "document_read_only", "Document read only";
     /// The websocket connection does not read what it is sent of the body's document.

@@ -149,6 +149,10 @@ A request without a session whose JSON body has more than 64 KiB is 413 before i
 A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` \
 in bytes.
 
+Any request may be answered 503 with the reason `database_busy`: the database did not take \
+one of its statements in time (another write held the file, or no connection came free). \
+That statement did nothing, and the same request may be sent again.
+
 The identifiers of users, workspaces, boards, blocks and categories are UUIDs, written \
 lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is \
 no UUID: it is an unguessable name that ends in the file's extension. Times are \

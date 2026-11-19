@@ -36,6 +36,7 @@ mod compression;
 mod content_blocks;
 mod content_search;
 mod cookies;
+mod database_busy;
 mod deleted_boards_listed;
 mod deleted_cards;
 mod document_visibility;

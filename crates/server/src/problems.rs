@@ -516,6 +516,12 @@ fn describe_editing_together(reason: Reason) -> &'static str {
              of its database and has not gone down yet), and this one leaves it alone. The \
              document is as it was stored before. Try again later."
         }
+        Reason::DatabaseBusy => {
+            "Status 503. The database did not take a statement of the request in the time \
+             it had: another write held an SQLite file for longer than the busy timeout of \
+             `database_connection`, or no connection came free. The statement did nothing; \
+             the same request may be sent again."
+        }
         other => describe_rooms(other),
     }
 }
