@@ -10,7 +10,13 @@ describe('fittingTabs', () => {
 
   it('shows every tab while nothing is measured', () => {
     expect(fittingTabs([0, 0, 0], 0, 0, 2)).toEqual([0, 1, 2]);
-    expect(fittingTabs([100, 100], 0, 80, 1)).toEqual([0, 1]);
+    expect(fittingTabs([0, 100], 300, 80, 1)).toEqual([0, 1]);
+  });
+
+  it('keeps only the current tab where the measured room is none', () => {
+    expect(fittingTabs([100, 100], 0, 80, 1)).toEqual([1]);
+    expect(fittingTabs([100, 100, 100], -20, 80, 0)).toEqual([0]);
+    expect(fittingTabs([100, 100], 0, 80, -1)).toEqual([]);
   });
 
   it('keeps as many as fit beside the button of the rest, in their order', () => {

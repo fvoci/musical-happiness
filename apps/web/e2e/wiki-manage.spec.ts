@@ -8,8 +8,17 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { primaryKey } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
-import { hideSidebar, openApp, pressInBar, showSidebar, sidebar } from './shell.support.ts';
+import {
+  boardLink,
+  FIRST_BOARD,
+  hideSidebar,
+  openApp,
+  pressInBar,
+  showSidebar,
+  sidebar,
+} from './shell.support.ts';
 import {
   deleteBySomebodyElse,
   goInside,
@@ -144,6 +153,83 @@ test.describe('a wiki looked after', () => {
     await pageAction(page, 'Policies', 'delete');
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await expect(page.getByTestId('page-title')).toHaveValue('Welcome');
+  });
+
+  test('the wiki’s description is added behind "ⓘ" from the keyboard alone, and given up with Escape', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'a keyboard and a mouse');
+    await openApp(page);
+    await newWiki(page, 'Handbook');
+    await hideSidebar(page);
+    const about = page.getByTestId('top-bar').getByTestId('container-description');
+    const field = page.getByTestId('container-description-field');
+    await expect(about).toHaveAccessibleName('Add description');
+    await about.focus();
+    await page.keyboard.press('Enter');
+    await expect(field).toBeFocused();
+    await page.keyboard.type('How we work.');
+    await page.keyboard.press(await primaryKey(page, 'Enter'));
+    await expect(field).toHaveCount(0);
+    await expect(about).toBeFocused();
+    await expect(page.getByTestId('wiki-header-description')).toHaveText('How we work.');
+    await expect(about).toHaveAccessibleName('Description');
+
+    await page.keyboard.press('Enter');
+    await expect(field).toHaveValue('How we work.');
+    await page.keyboard.type(' Not kept.');
+    await page.keyboard.press('Escape');
+    await expect(field).toHaveCount(0);
+    await expect(about).toBeFocused();
+    await expect(page.getByTestId('wiki-header-description')).toHaveText('How we work.');
+  });
+
+  test('a board’s description being written is saved to the board when the reader goes back to a wiki, whose bar then follows the wiki', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'a keyboard and a mouse');
+    await openApp(page);
+    await newWiki(page, 'Handbook');
+    await showSidebar(page);
+    await boardLink(page, FIRST_BOARD).click();
+    const bar = page.getByTestId('top-bar');
+    await expect(bar.getByTestId('board-title')).toHaveValue(FIRST_BOARD);
+    const about = bar.getByTestId('container-description');
+    const field = page.getByTestId('container-description-field');
+    await about.click();
+    await field.fill('Written, then left for a wiki.');
+    // Back to the wiki with no click outside: nothing closed the description first.
+    await page.goBack();
+    await expect(wikiScreen(page)).toBeVisible();
+    await expect(field).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(async (title) => {
+          const { backend } = (
+            window as unknown as {
+              fvociDev: {
+                backend: {
+                  workspaces: () => Promise<{ id: string }[]>;
+                  boards: (id: string) => Promise<{ title: string; description: string }[]>;
+                };
+              };
+            }
+          ).fvociDev;
+          const [workspace] = await backend.workspaces();
+          const boards = workspace ? await backend.boards(workspace.id) : [];
+          return boards.find((board) => board.title === title)?.description;
+        }, FIRST_BOARD),
+      )
+      .toBe('Written, then left for a wiki.');
+
+    // The wiki's "ⓘ" is the wiki's, and follows what is saved to it.
+    await expect(about).toHaveAccessibleName('Add description');
+    await about.click();
+    await expect(field).toHaveValue('');
+    await field.fill('How we work.');
+    await page.keyboard.press(await primaryKey(page, 'Enter'));
+    await expect(about).toHaveAccessibleName('Description');
+    await expect(page.getByTestId('wiki-header-description')).toHaveText('How we work.');
   });
 
   test('the wiki’s name, description and icon are changed, undone, and the wiki deleted and restored', async ({

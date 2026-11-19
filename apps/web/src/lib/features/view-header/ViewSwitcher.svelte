@@ -63,6 +63,7 @@
       {...props}
       variant="ghost"
       data-tool="views"
+      title={viewTitle(current)}
       class="min-w-0 shrink justify-start roomy:h-touch roomy:text-base"
     >
       <CurrentIcon data-icon="inline-start" />

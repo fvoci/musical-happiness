@@ -149,11 +149,16 @@ describe('the whole row', () => {
     for (const name of ['add-view', 'properties', 'group', 'filter', 'sort', 'search', 'more']) {
       expect(toolButton(name)).toBeVisible();
     }
-    // A tool is an icon: its name is what a screen reader hears, and its tooltip.
-    expect(toolButton('properties')).toHaveTextContent('');
-    expect(toolButton('properties')).toHaveAccessibleName('Properties');
-    expect(toolButton('properties')).toHaveAttribute('title', 'Properties');
+    // A tool is an icon: its name is what a screen reader hears, and its tooltip, with
+    // what it has on as a count: here the one property the cards show.
+    expect(toolButton('properties')).toHaveTextContent('1');
+    expect(toolButton('properties')).toHaveAccessibleName('Properties (1)');
+    expect(toolButton('properties')).toHaveAttribute('title', 'Properties (1)');
+    expect(toolButton('filter')).toHaveTextContent('');
+    expect(toolButton('filter')).toHaveAccessibleName('Filter');
+    // Grouping has no count: it says what it is now.
     expect(toolButton('group')).toHaveAccessibleName('Group by: None');
+    expect(toolButton('group')).toHaveAttribute('title', 'Group by: None');
   });
 
   it('opens a view by its tab, and leaves a click that asks for a new tab to the browser', async () => {
@@ -181,6 +186,9 @@ describe('the whole row', () => {
     expect(header().querySelector('[data-tool="search"]')).toBeNull();
     const field = within(header()).getByRole('searchbox', { name: 'Search cards' });
     expect(field).toHaveFocus();
+    // The tabs are one button that names the view, so that no name is cut beside the field.
+    expect(within(header()).queryAllByRole('link')).toHaveLength(0);
+    expect(toolButton('views')).toHaveTextContent('List');
     await fireEvent.input(field, { target: { value: 'alp' } });
     expect(screen.getByTestId('search-text')).toHaveTextContent('alp');
     // With text it stays open when the focus leaves.
@@ -202,6 +210,43 @@ describe('the whole row', () => {
     await tick();
     expect(header().querySelector('[data-testid="view-search"]')).toHaveClass('hidden');
     expect(toolButton('search')).toBeVisible();
+    expect(within(header()).getAllByRole('link')).toHaveLength(2);
+    vi.restoreAllMocks();
+  });
+
+  it('keeps an empty search field open when the focus goes to the button of the views', async () => {
+    await mount('List');
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    await fireEvent.click(toolButton('search'));
+    await tick();
+    const field = within(header()).getByRole('searchbox', { name: 'Search cards' });
+    await fireEvent.blur(field, { relatedTarget: toolButton('views') });
+    await tick();
+    expect(header().querySelector('[data-testid="view-search"]')).not.toHaveClass('hidden');
+    expect(toolButton('views')).toBeInTheDocument();
+    // A press on it keeps the field where the browser does not focus a pressed button.
+    field.focus();
+    await fireEvent.pointerDown(toolButton('views'));
+    await fireEvent.blur(field, { relatedTarget: null });
+    await tick();
+    expect(header().querySelector('[data-testid="view-search"]')).not.toHaveClass('hidden');
+    // Until the press is a click: then the field closes as the focus leaves it for nowhere.
+    await fireEvent.click(document.body);
+    field.focus();
+    await fireEvent.blur(field, { relatedTarget: null });
+    await tick();
+    expect(header().querySelector('[data-testid="view-search"]')).toHaveClass('hidden');
+    await fireEvent.click(toolButton('search'));
+    await tick();
+    await fireEvent.blur(within(header()).getByRole('searchbox', { name: 'Search cards' }), {
+      relatedTarget: toolButton('views'),
+    });
+    await tick();
+    // Going on from the button elsewhere, the empty field closes and the tabs are back.
+    await fireEvent.focusOut(toolButton('views'), { relatedTarget: document.body });
+    await tick();
+    expect(header().querySelector('[data-testid="view-search"]')).toHaveClass('hidden');
+    expect(within(header()).getAllByRole('link')).toHaveLength(2);
     vi.restoreAllMocks();
   });
 
@@ -400,8 +445,10 @@ describe('the properties a view shows', () => {
     await fireEvent.click(within(panel).getByLabelText('Status'));
     await settled();
     expect(view().fields.visiblePropertyIds).toEqual(['note']);
+    expect(toolButton('properties')).toHaveAccessibleName('Properties (1)');
     await workspace.undoLast();
     expect(view().fields.visiblePropertyIds).toEqual([STATUS, 'note']);
+    expect(toolButton('properties')).toHaveAccessibleName('Properties (2)');
     await workspace.undoLast();
     expect(view().fields.visiblePropertyIds).toEqual([STATUS]);
   });
