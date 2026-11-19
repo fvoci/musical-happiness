@@ -605,7 +605,7 @@ async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
         )
     };
     let before = scrape(&server).await;
-    for work in ["export", "import", "duplicate"] {
+    for work in ["export", "import", "duplicate", "welcome"] {
         for kind in ["board", "wiki"] {
             assert_eq!(
                 copied(&before, work, kind),
@@ -639,8 +639,15 @@ async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
             .await
             .check_created();
     }
+    // The welcome board of a new account is counted apart from the copies people make.
+    client
+        .post_empty(&format!("{TEST_WS}/onboard"))
+        .await
+        .check_ok();
     let body = scrape(&server).await;
     let counted = [
+        ("welcome", "board", 1.0),
+        ("welcome", "wiki", 0.0),
         ("export", "board", 1.0),
         ("import", "board", 1.0),
         ("duplicate", "board", 1.0),
@@ -655,12 +662,12 @@ async fn the_boards_and_wikis_copied_whole_are_counted_by_work_and_kind() {
             "{work} {kind}: {body}"
         );
     }
-    // Two values of `kind`, three of `work`: nothing else is counted.
+    // Two values of `kind`, four of `work`: nothing else is counted.
     let series = body
         .lines()
         .filter(|line| line.starts_with("fvoci_containers_copied_total{"))
         .count();
-    assert_eq!(series, 6, "{body}");
+    assert_eq!(series, 8, "{body}");
     server.teardown().await;
 }
 

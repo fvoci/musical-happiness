@@ -163,7 +163,11 @@ describe('uploading a file to the server', () => {
     const error = await serverBackend('')
       .upload('b1', new File(['0123456789'], 'big.bin'))
       .catch((caught: unknown) => caught);
-    expect(isBackendError(error) && [error.status, error.limit]).toEqual([413, 5]);
+    expect(isBackendError(error) && [error.status, error.limit, error.reason]).toEqual([
+      413,
+      5,
+      'file_too_large',
+    ]);
     expect(calls.map((call) => call.method)).toEqual(['GET']);
   });
 

@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt as _, TryStreamExt as _};
-use fvoci_model::{RefusalReason, Refusals, Upload, UploadPart, UploadPurpose};
+use fvoci_model::{Upload, UploadPart, UploadPurpose};
 use fvoci_store::PartRecord;
 use sha2::{Digest as _, Sha256};
 use tokio::fs;
@@ -58,17 +58,6 @@ pub const PARTS_IN_MEMORY: u64 = 8;
 /// What a refusal says a session is that is not there: none of that identifier, another
 /// user's, or one that has ended.
 const UPLOAD: &str = "upload";
-
-/// A session to open: the file the client is about to send.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileToUpload {
-    /// The name of the file.
-    pub name: String,
-    /// Its size in bytes.
-    pub size: i64,
-    /// Its content type as the client knows it, or empty.
-    pub content_type: String,
-}
 
 /// The SHA-256 digest of a part, as the client sent it.
 pub type PartDigest = [u8; 32];
@@ -144,47 +133,6 @@ impl Drop for Turn<'_> {
     }
 }
 
-impl FileToUpload {
-    /// Checks what a request says of the file it is going to send, all of it.
-    ///
-    /// # Errors
-    ///
-    /// Returns every member that is refused: a name that is blank or too long, a
-    /// content type that is too long, a size below zero.
-    fn check(&self) -> Result<(), Refusals> {
-        // Every member that is refused, not the first alone.
-        let mut refused = Refusals::new();
-        let name_chars = self.name.chars().count();
-        if self.name.trim().is_empty() || name_chars > MAX_UPLOAD_NAME_CHARS {
-            let reason = if name_chars > MAX_UPLOAD_NAME_CHARS {
-                RefusalReason::TooLong
-            } else {
-                RefusalReason::Required
-            };
-            refused.refuse(
-                "name",
-                reason,
-                format!("the name is 1 to {MAX_UPLOAD_NAME_CHARS} characters"),
-            );
-        }
-        if self.content_type.chars().count() > MAX_UPLOAD_NAME_CHARS {
-            refused.refuse(
-                "contentType",
-                RefusalReason::TooLong,
-                format!("the content type is at most {MAX_UPLOAD_NAME_CHARS} characters"),
-            );
-        }
-        if self.size < 0 {
-            refused.refuse(
-                "size",
-                RefusalReason::Invalid,
-                "the size is 0 or more bytes",
-            );
-        }
-        refused.into_result()
-    }
-}
-
 impl App {
     /// Opens a session for `user_id` to upload a file to `container_id`. The caller has
     /// checked that the user may upload files to the board.
@@ -192,10 +140,11 @@ impl App {
     /// # Errors
     ///
     /// Returns a bad request for an empty or too long name, a negative size or a content
-    /// type that is too long; a 413 for a file larger than `max_file_bytes`; a 429 if the
-    /// user has [`MAX_OPEN_UPLOADS`] sessions open, or the open sessions would hold back
-    /// more bytes than the user's share (twice the largest upload, a file or an archive)
-    /// or the server's (`max_pending_upload_bytes`); and the store's error.
+    /// type that is too long; a 413 with the reason `file_too_large` for a file larger than
+    /// `max_file_bytes`; a 429 if the user has [`MAX_OPEN_UPLOADS`] sessions open, or the
+    /// open sessions would hold back more bytes than the user's share (twice the largest
+    /// upload, a file or an archive) or the server's (`max_pending_upload_bytes`); and
+    /// the store's error.
     pub async fn create_upload(
         &self,
         user_id: &str,
@@ -213,8 +162,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Those of [`App::create_upload`], with a 413 for an archive larger than
-    /// `max_import_bytes`.
+    /// Those of [`App::create_upload`], with a 413 with the reason `archive_too_large`
+    /// for an archive larger than `max_import_bytes`.
     pub async fn create_import_upload(
         &self,
         user_id: &str,
@@ -239,9 +188,7 @@ impl App {
             UploadPurpose::Import => self.limits().largest_import,
         };
         if new.size > limit {
-            return Err(AppError::payload_too_large(
-                u64::try_from(limit).unwrap_or(u64::MAX),
-            ));
+            return Err(file_to_upload::too_large(purpose, limit));
         }
 
         // One server serves a database (`docs/configuration.md`): a lock in it is
@@ -1007,3 +954,7 @@ async fn remove_quietly(path: &Path) {
         Err(error) => tracing::warn!(%error, "a part that is not kept could not be removed"),
     }
 }
+
+mod file_to_upload;
+
+pub use file_to_upload::FileToUpload;

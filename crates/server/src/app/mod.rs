@@ -76,7 +76,7 @@ pub use blocks::ChangeNotification;
 pub use cards::CardPreviews;
 pub use category_containers::DEFAULT_CATEGORY_CONTAINERS;
 pub use export::ExportedArchive;
-pub(crate) use files::FILE;
+pub(crate) use files::{FILE, names_a_file};
 pub use housekeeping::WorkspacesPurged;
 pub use import::Imported;
 pub use invitations::{Accepting, Admission, Inviting};

@@ -91,6 +91,38 @@ fn new_secrets_in_names_are_numbered_by_what_their_members_hold() {
     }
 }
 
+/// Two stored names new to the recording whose members hold the same cannot be told
+/// apart: either could be the first, and what names them later would be numbered by the
+/// names' own order, which differs from run to run. The recording stops instead.
+#[test]
+#[should_panic(expected = "hold the same")]
+fn new_secrets_in_names_that_hold_the_same_stop_the_recording() {
+    let recorded = json!({
+        "fileNames": {format!("{SECRET}.png"): "a.pdf", format!("{OTHER_SECRET}.png"): "a.pdf"},
+    });
+    Placeholders::default().value(&recorded, "");
+}
+
+/// Names that hold the same are told apart once their secrets are known to the recording.
+#[test]
+fn known_secrets_in_names_may_hold_the_same() {
+    for (first, second) in [(SECRET, OTHER_SECRET), (OTHER_SECRET, SECRET)] {
+        let recorded = json!({
+            // Members are read in the order of their names: `answered` comes first.
+            "answered": [format!("{first}.png"), format!("{second}.png")],
+            "fileNames": {format!("{first}.png"): "a.pdf", format!("{second}.png"): "a.pdf"},
+        });
+        assert_eq!(
+            Placeholders::default().value(&recorded, ""),
+            json!({
+                "answered": ["<secret:1>.png", "<secret:2>.png"],
+                "fileNames": {"<secret:1>.png": "a.pdf", "<secret:2>.png": "a.pdf"},
+            }),
+            "input {recorded}"
+        );
+    }
+}
+
 #[test]
 fn only_whole_runs_are_identifiers_or_secrets() {
     let unchanged = |text: &str| {

@@ -22,7 +22,7 @@ export async function storeUpload(
   enter: (signal?: AbortSignal) => Promise<void>,
 ): Promise<UploadedFile> {
   if (file.size > LIMITS.fileBytes) {
-    fail(413, 'the file is too large', { limit: LIMITS.fileBytes });
+    fail(413, 'the file is too large', { limit: LIMITS.fileBytes, reason: 'file_too_large' });
   }
   const parts = Math.max(1, Math.ceil(file.size / LIMITS.uploadPartBytes));
   for (let part = 1; part <= parts; part += 1) {

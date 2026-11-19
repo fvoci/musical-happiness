@@ -186,7 +186,7 @@
     "headers": {
       "Accept-Ranges": "bytes",
       "Cache-Control": "private, no-cache",
-      "Content-Disposition": "attachment;filename=\"<secret:1>.png\"; filename*=UTF-8''<secret:1>.png",
+      "Content-Disposition": "attachment;filename=\"<secret:1>.png\"; filename*=UTF-8''pixel.png",
       "Content-Length": "67",
       "Content-Security-Policy": "sandbox; frame-ancestors 'none'",
       "Content-Type": "application/octet-stream",
@@ -202,7 +202,7 @@
     "headers": {
       "Accept-Ranges": "bytes",
       "Cache-Control": "private, no-cache",
-      "Content-Disposition": "attachment;filename=\"<secret:3>.txt\"; filename*=UTF-8''<secret:3>.txt",
+      "Content-Disposition": "attachment;filename=\"<secret:3>.txt\"; filename*=UTF-8''notes.txt",
       "Content-Length": "5",
       "Content-Security-Policy": "sandbox; frame-ancestors 'none'",
       "Content-Type": "application/octet-stream",

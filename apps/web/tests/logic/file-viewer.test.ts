@@ -187,14 +187,19 @@ describe('in the frame, an archive is counted and handed on anew', () => {
 
   it('its XML is told by what it holds, not by its name, and held to 30 MB', async () => {
     // The main part, named .bin, after blanks: up to the limit with the other XML, and one byte past.
-    // Relationships count twice: docx-preview may parse them twice as often as a part.
-    const base = zipEntries(bytes(blankPaddedDocx(0)))?.reduce(
-      (sum, entry) => sum + (entry.name.endsWith('.rels') ? 2 : 1) * entry.size,
-      0,
-    );
-    const blanks = MARKUP_LIMIT_BYTES - (base ?? 0);
-    expect(parts(await repack(buffer(blankPaddedDocx(blanks))))).toHaveLength(3);
-    await unreadable(blankPaddedDocx(blanks + 1));
+    // Relationships count twice (docx-preview may parse them twice as often as a part), so
+    // most of the limit is theirs here, in half as many bytes to unpack: reading 30 MB of
+    // blanks one by one, twice, is not what is shown.
+    const lead = 100_000;
+    const base =
+      zipEntries(bytes(blankPaddedDocx(lead)))?.reduce(
+        (sum, entry) => sum + (entry.name.endsWith('.rels') ? 2 : 1) * entry.size,
+        0,
+      ) ?? 0;
+    const padding = Math.floor((MARKUP_LIMIT_BYTES - base) / 2);
+    const blanks = lead + (MARKUP_LIMIT_BYTES - base - 2 * padding);
+    expect(parts(await repack(buffer(blankPaddedDocx(blanks, padding))))).toHaveLength(3);
+    await unreadable(blankPaddedDocx(blanks + 1, padding));
   });
 
   it('XML is a first character "<" past any blanks, read as JSZip reads text', () => {

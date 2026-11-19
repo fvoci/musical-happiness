@@ -22,7 +22,7 @@ use tokio::fs;
 use super::App;
 use super::container_copies::counted_as;
 use super::export::ARCHIVE_VERSION;
-use super::files::{base_name, stored_extension};
+use super::files::{names_a_file, stored_extension};
 use super::uploads::MAX_UPLOAD_NAME_CHARS;
 use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
@@ -598,7 +598,7 @@ fn file_names_of(board: &Value) -> FileNames {
         .iter()
         .filter_map(|(entry, name)| {
             let name = name.as_str()?;
-            let fits = !base_name(name).trim().is_empty()
+            let fits = names_a_file(name)
                 && !name.contains('\0')
                 && name.chars().count() <= MAX_UPLOAD_NAME_CHARS
                 && stored_extension(name) == stored_extension(entry);

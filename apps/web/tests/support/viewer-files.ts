@@ -214,13 +214,14 @@ export function koreanDocx(): Buffer {
  * A Word document whose main part, named `word/doc.bin` rather than `.xml`,
  * is XML after `blanks` spaces: an archive that says only the truth, but
  * whose XML its names do not show. It has an empty `word/document.xml` too,
- * which is how it is known for a Word document.
+ * which is how it is known for a Word document. Its relationships end in
+ * `padding` more spaces, after their markup.
  */
-export function blankPaddedDocx(blanks: number): Buffer {
+export function blankPaddedDocx(blanks: number, padding = 0): Buffer {
   const body = `<w:document xmlns:w="${W}"><w:body>${paragraph(DOCX_TEXT.title)}</w:body></w:document>`;
   const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${PACKAGE_RELS}"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/doc.bin"/></Relationships>`;
   return zip([
-    { name: '_rels/.rels', data: Buffer.from(rels, 'utf8') },
+    { name: '_rels/.rels', data: Buffer.concat([Buffer.from(rels), Buffer.alloc(padding, 0x20)]) },
     { name: 'word/document.xml', data: Buffer.alloc(0) },
     { name: 'word/doc.bin', data: Buffer.concat([Buffer.alloc(blanks, 0x20), Buffer.from(body)]) },
   ]);
