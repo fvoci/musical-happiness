@@ -118,34 +118,52 @@ test.describe('the top bar', () => {
     expect((board?.y ?? 0) + (board?.height ?? 0)).toBe(page.viewportSize()?.height);
     expect(board?.width).toBe(bar?.width);
 
-    // Presence is said on every width; nobody else here, a narrow pane (under 544, two
-    // columns) folds the button of no faces away for the title. The description needs
-    // the full header.
+    // Presence is said on every width; with nobody else here there is no button of
+    // faces (no "0"), at any width. The description is behind "ⓘ", not in the bar.
     const width = (await pane(page).boundingBox())?.width ?? 0;
-    const presence = topBar(page).getByTestId('board-presence');
-    const description = topBar(page).getByText('Use this template to stay on top');
     await expect(topBar(page).getByTestId('board-people')).toHaveAccessibleName(
       /^People viewing this board: 0, members: \d+$/,
     );
-    if (width >= 544) {
-      await expect(presence).toBeVisible();
-      await expect(presence).toHaveAccessibleName('People viewing this board: 0');
-    } else await expect(presence).toBeHidden();
-    if (width >= 992) await expect(description).toBeVisible();
-    else await expect(description).toBeHidden();
+    await expect(topBar(page).getByTestId('board-presence')).toBeHidden();
+    await expect(topBar(page).getByText('Use this template to stay on top')).toBeHidden();
+    const about = topBar(page).getByTestId('container-description');
+    if (width >= 544) await expect(about).toBeVisible();
+    else await expect(about).toBeHidden();
   });
 
-  test('follows the pane, not the window: folding the sidebar shows the description', async ({
+  test('the description is behind "ⓘ" next to the title, and its editors change it there', async ({
     page,
   }) => {
-    // 1200 wide: beside the sidebar the pane is 944, short of the 992 the
-    // description waits for; with the sidebar folded it is 1144.
-    await page.setViewportSize({ width: 1200, height: 700 });
+    await page.setViewportSize({ width: 1280, height: 720 });
     await openApp(page);
-    const description = topBar(page).getByText('Use this template to stay on top');
-    await expect(description).toBeHidden();
-    await sidebar(page).getByRole('button', { name: 'Collapse sidebar' }).click();
-    await expect(description).toBeVisible();
+    const about = topBar(page).getByTestId('container-description');
+    await expect(about).toHaveAccessibleName('Description');
+    await about.click();
+    const field = page.getByTestId('container-description-field');
+    await expect(field).toHaveValue(/^Use this template to stay on top/);
+    await field.fill('Where the launch stands.');
+    await page.keyboard.press('Escape');
+    await expect(field).toHaveCount(0);
+    // Escape kept nothing of what was typed.
+    await about.click();
+    await expect(field).toHaveValue(/^Use this template to stay on top/);
+    await field.fill('Where the launch stands.');
+    // Leaving it by a click elsewhere keeps it.
+    await topBar(page).getByTestId('board-title').click();
+    await expect(field).toHaveCount(0);
+    await about.click();
+    await expect(field).toHaveValue('Where the launch stands.');
+    await page.keyboard.press('Escape');
+
+    // A board the reader may only read shows the description, and no field.
+    await showSidebar(page);
+    await boardLink(page, READ_ONLY_BOARD).click();
+    await expect(topBar(page).getByTestId('read-only')).toBeVisible();
+    await about.click();
+    await expect(page.getByTestId('container-description-text')).toHaveText(
+      /^Use this template to plan your company goals/,
+    );
+    await expect(page.getByTestId('container-description-field')).toHaveCount(0);
   });
 
   test('the title of a board is changed in place', async ({ page }) => {

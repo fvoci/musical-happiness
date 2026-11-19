@@ -4,7 +4,7 @@
   The faces of the others here now (five, two in a narrow pane, then "+k" for the
   rest and for those the reader may not see; in a narrow pane also for the anonymous
   readers of its public link) open the list of who is here and
-  which cards they have open. Beside them the number of the board's members opens
+  which cards they have open; with nobody else here there is no button for them. Beside them the number of the board's members opens
   the members of the sharing dialog (`onMembers`); it is there also when nobody
   else is. A narrow pane (a phone) keeps one of the two, so the board's title keeps
   its room: alone, the members as a figure and the number; with others, their faces,
@@ -60,8 +60,9 @@
         aria-label={label}
         class={[
           'flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md px-1 text-xs hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-touch roomy:min-w-touch',
-          // Nobody else here, a narrow pane gives the title the room of a "0"; the group still says it.
-          presence.count === 0 && '@max-columns/pane:hidden',
+          // Nobody else here, there is no face to show: the button is away (and not gone, so
+          // that a list open when the last one left stays where it is); the group still says it.
+          presence.count === 0 && 'hidden',
         ]}
       >
         <span class="flex -space-x-1">
@@ -84,7 +85,6 @@
             {m.presence_anonymous({ count: presence.snapshot.anonymousCount })}
           </span>
         {/if}
-        {#if presence.count === 0}<span aria-hidden="true">0</span>{/if}
       </button>
     {/snippet}
     <ul class="max-w-80 space-y-2 p-2" data-testid="presence-list">

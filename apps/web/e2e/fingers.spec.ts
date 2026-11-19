@@ -50,7 +50,7 @@ test('the board: the page does not scroll, and what the bar offers a finger is 4
     )
     .toBe(true);
   await expectPageStill(page);
-  for (const id of ['share-board', 'board-presence', 'board-title']) {
+  for (const id of ['share-board', 'board-members-count', 'board-title']) {
     await expectFingerSized(page.getByTestId(id), id);
   }
 });

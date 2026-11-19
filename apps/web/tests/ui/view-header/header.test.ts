@@ -146,10 +146,14 @@ describe('the whole row', () => {
       'href',
       `/view/${board.views.find((view) => view.title === 'Board')?.id ?? ''}`,
     );
-    for (const name of ['add-view', 'properties', 'group', 'filter', 'sort', 'more']) {
+    for (const name of ['add-view', 'properties', 'group', 'filter', 'sort', 'search', 'more']) {
       expect(toolButton(name)).toBeVisible();
     }
-    expect(within(header()).getByRole('searchbox', { name: 'Search cards' })).toBeVisible();
+    // A tool is an icon: its name is what a screen reader hears, and its tooltip.
+    expect(toolButton('properties')).toHaveTextContent('');
+    expect(toolButton('properties')).toHaveAccessibleName('Properties');
+    expect(toolButton('properties')).toHaveAttribute('title', 'Properties');
+    expect(toolButton('group')).toHaveAccessibleName('Group by: None');
   });
 
   it('opens a view by its tab, and leaves a click that asks for a new tab to the browser', async () => {
@@ -167,13 +171,26 @@ describe('the whole row', () => {
     expect(onAddCard).toHaveBeenCalledTimes(1);
   });
 
-  it('gives the search text to the page as it is typed', async () => {
+  it('opens the search field in place of its button, and gives the text to the page as it is typed', async () => {
     await mount('List');
+    const search = (): Element | null => header().querySelector('[data-testid="view-search"]');
+    expect(search()).toHaveClass('hidden');
+    await fireEvent.click(toolButton('search'));
+    await tick();
+    expect(search()).not.toHaveClass('hidden');
+    expect(header().querySelector('[data-tool="search"]')).toBeNull();
     const field = within(header()).getByRole('searchbox', { name: 'Search cards' });
+    expect(field).toHaveFocus();
     await fireEvent.input(field, { target: { value: 'alp' } });
     expect(screen.getByTestId('search-text')).toHaveTextContent('alp');
+    // With text it stays open when the focus leaves.
+    await fireEvent.blur(field);
+    expect(search()).not.toHaveClass('hidden');
     await fireEvent.keyDown(field, { key: 'Escape' });
     expect(screen.getByTestId('search-text')).toHaveTextContent('');
+    await tick();
+    expect(search()).toHaveClass('hidden');
+    expect(toolButton('search')).toHaveFocus();
   });
 
   it('has no grouping for a gallery and no sort for a calendar', async () => {
@@ -200,7 +217,7 @@ describe('a reader who may only look', () => {
     // The seed makes the reader a viewer of the board with this key.
     await mount('List', { ...TWO_VIEWS, key: 'company-goals-okrs' });
     expect(within(header()).getAllByRole('link')).toHaveLength(2);
-    expect(within(header()).getByRole('searchbox', { name: 'Search cards' })).toBeVisible();
+    expect(toolButton('search')).toBeVisible();
     for (const name of ['add-view', 'properties', 'group', 'filter', 'sort', 'more', 'rename']) {
       expect(header().querySelector(`[data-tool="${name}"]`)).toBeNull();
     }
@@ -304,7 +321,7 @@ describe('grouping', () => {
       collapsedOptionIds: ['done'],
     });
     workspace.undo.clear();
-    expect(toolButton('group')).toHaveTextContent('Group by: Status');
+    expect(toolButton('group')).toHaveAccessibleName('Group by: Status');
 
     await openMenu(toolButton('group'));
     // A board is always grouped by something.
@@ -318,7 +335,7 @@ describe('grouping', () => {
       hiddenOptionIds: [],
       collapsedOptionIds: [],
     });
-    expect(toolButton('group')).toHaveTextContent('Group by: Owner');
+    expect(toolButton('group')).toHaveAccessibleName('Group by: Owner');
 
     await workspace.undoLast();
     expect(view().fields).toMatchObject({
@@ -332,7 +349,7 @@ describe('grouping', () => {
 
   it('of a table can be taken off', async () => {
     const { view } = await mount('List');
-    expect(toolButton('group')).toHaveTextContent('Group by: None');
+    expect(toolButton('group')).toHaveAccessibleName('Group by: None');
     await openMenu(toolButton('group'));
     await choose('Status');
     await settled();
