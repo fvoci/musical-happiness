@@ -28,9 +28,9 @@ crates/store/src/schema.rs | `teams` (the table of the workspaces before migrati
 
 # The test of migration 17, and tests that fill a database as it was before it.
 crates/store/tests/store/workspace_rename.rs
-crates/store/tests/store/tenancy.rs | INSERT INTO teams
-crates/store/tests/store/tenancy.rs | (id, team_id,
-crates/store/tests/store/tenancy.rs | user_id, team_id,
+crates/store/tests/store/tenancy_before.rs | INSERT INTO teams
+crates/store/tests/store/tenancy_before.rs | (id, team_id,
+crates/store/tests/store/tenancy_before.rs | user_id, team_id,
 crates/store/tests/organization_boundary_round2.rs | (id, team_id,
 
 # An archive written before the rename names a board's workspace teamId; the import
@@ -146,13 +146,13 @@ apps/web/messages/en.json | teams_
 apps/web/messages/ko.json | teams_
 apps/web/e2e-live/teams.spec.ts
 crates/store/tests/store/users.rs | Taken::TeamName
-crates/store/tests/store/tenancy.rs | a_team_on_board
-crates/store/tests/store/tenancy.rs | create_team
-crates/store/tests/store/tenancy.rs | a team is stored
-crates/store/tests/store/tenancy.rs | add_team_member
-crates/store/tests/store/tenancy.rs | a team member is stored
-crates/store/tests/store/tenancy.rs | insert into container_teams (container_id, team_id, workspace_id, role)
-crates/store/tests/store/tenancy.rs | the team has a board role
+crates/store/tests/store/tenancy_tables.rs | a_team_on_board
+crates/store/tests/store/tenancy_tables.rs | create_team
+crates/store/tests/store/tenancy_tables.rs | a team is stored
+crates/store/tests/store/tenancy_tables.rs | add_team_member
+crates/store/tests/store/tenancy_tables.rs | a team member is stored
+crates/store/tests/store/tenancy_tables.rs | insert into container_teams (container_id, team_id, workspace_id, role)
+crates/store/tests/store/tenancy_tables.rs | the team has a board role
 
 # Workspace people groups, not the retired workspace name (O7b board roles).
 # Migration 41 renames the table of the teams' roles on a board (board_teams).
