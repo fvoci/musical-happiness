@@ -12,7 +12,9 @@
   admin's to do, so that nobody locks themselves out by a slip.
 
   A reader who is no admin sees its members and teams alone, with their roles,
-  and changes nothing (`readOnly`). Opened at the members (`at`, from the number
+  and changes nothing (`readOnly`). In the reader's own space, where nobody else
+  works and there are no guests and no teams, its admin has the public link
+  alone (`linkOnly`). Opened at the members (`at`, from the number
   of members at the head of the board), the dialog begins at that section.
 -->
 <script lang="ts">
@@ -36,6 +38,7 @@
   import {
     isBackendError,
     isGuest,
+    isOwnSpace,
     peopleOf,
     type ContainerRole,
     type Shareable,
@@ -82,6 +85,8 @@
   }: Props = $props();
 
   const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
+  /** The own space: what is in it is shown to others by its public link and nothing else. */
+  const linkOnly = $derived(isOwnSpace(workspace.info) && !membersOnly && !readOnly);
   const words = $derived(shareWords(shareable.container?.kind));
 
   const uid = $props.id();
@@ -254,7 +259,7 @@
       class="grid min-h-0 min-w-0 flex-1 grid-cols-1 content-start gap-5 overflow-y-auto overscroll-contain p-4"
     >
       <!-- The workspace. -->
-      {#if !membersOnly}
+      {#if !membersOnly && !linkOnly}
         <section class="grid gap-2" aria-labelledby="{uid}-workspace">
           <h3 id="{uid}-workspace" class="font-medium">
             {m.share_workspace_title({
@@ -290,7 +295,7 @@
         </section>
       {/if}
 
-      {#if access && !readOnly && !isGuest(workspace) && !shareable.container?.isTemplate}
+      {#if access && !readOnly && !linkOnly && !isGuest(workspace) && !shareable.container?.isTemplate}
         <GuestInvite
           {workspace}
           {access}
@@ -300,126 +305,132 @@
       {/if}
 
       <!-- The members. -->
-      <section class="grid grid-cols-1 gap-2" aria-labelledby="{uid}-members">
-        <h3
-          bind:this={membersHeading}
-          id="{uid}-members"
-          tabindex="-1"
-          class="scroll-mt-4 font-medium outline-none"
-          data-testid="share-members-title"
-        >
-          {m.share_members_title()}
-        </h3>
-        <ul class="grid grid-cols-1 gap-1" data-testid="share-members">
-          {#each shareable.orderedMembers.filter((member) => !member.synthetic) as member (member.userId)}
-            {@const name = nameOf(member.userId)}
-            {@const mine = member.userId === workspace.me?.id}
-            {@const memberRole = roleOfMember(member)}
-            {@const person = workspace.user(member.userId)}
-            <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch" data-member={name}>
-              <Avatar {name} colorKey={member.userId} locale={workspace.locale} decorative />
-              <span class="flex min-w-0 flex-1 items-baseline gap-1">
-                {#if person}
-                  <PersonProfile
-                    userId={person.id}
-                    username={person.username}
-                    displayName={person.displayName}
-                    name={person.name}
-                    locale={workspace.locale}
-                    goneName={name}
-                  />
-                {:else}<span class="truncate">{name}</span>{/if}
-                {#if mine}<span class="shrink-0 text-muted-foreground">
-                    {m['ShareBoard.userPermissionsYouText']()}</span
-                  >{/if}
-              </span>
-              {#if readOnly}
-                <span class="shrink-0 text-muted-foreground" data-testid="share-member-role">
-                  {memberRole === 'none' ? m.share_role_none() : ROLE_LABELS[memberRole]()}
+      {#if !linkOnly}
+        <section class="grid grid-cols-1 gap-2" aria-labelledby="{uid}-members">
+          <h3
+            bind:this={membersHeading}
+            id="{uid}-members"
+            tabindex="-1"
+            class="scroll-mt-4 font-medium outline-none"
+            data-testid="share-members-title"
+          >
+            {m.share_members_title()}
+          </h3>
+          <ul class="grid grid-cols-1 gap-1" data-testid="share-members">
+            {#each shareable.orderedMembers.filter((member) => !member.synthetic) as member (member.userId)}
+              {@const name = nameOf(member.userId)}
+              {@const mine = member.userId === workspace.me?.id}
+              {@const memberRole = roleOfMember(member)}
+              {@const person = workspace.user(member.userId)}
+              <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch" data-member={name}>
+                <Avatar {name} colorKey={member.userId} locale={workspace.locale} decorative />
+                <span class="flex min-w-0 flex-1 items-baseline gap-1">
+                  {#if person}
+                    <PersonProfile
+                      userId={person.id}
+                      username={person.username}
+                      displayName={person.displayName}
+                      name={person.name}
+                      locale={workspace.locale}
+                      goneName={name}
+                    />
+                  {:else}<span class="truncate">{name}</span>{/if}
+                  {#if mine}<span class="shrink-0 text-muted-foreground">
+                      {m['ShareBoard.userPermissionsYouText']()}</span
+                    >{/if}
                 </span>
-              {:else}
-                <!-- The reader's own role is another admin's to change: no locking oneself out. -->
-                <select
-                  class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
-                  aria-label={m.share_role_of({ name })}
-                  title={mine ? m.share_you_note() : undefined}
-                  disabled={mine}
-                  value={memberRole}
-                  onchange={(event) =>
-                    void shareable.setMemberRole(
-                      member.userId,
-                      event.currentTarget.value as ContainerRole,
-                    )}
-                >
-                  {#if memberRole === 'none'}
-                    <option value="none" disabled>{m.share_role_none()}</option>
-                  {/if}
-                  {#each ROLE_ORDER as role (role)}
-                    <option value={role}>{ROLE_LABELS[role]()}</option>
-                  {/each}
-                </select>
-                <IconButton
-                  label={m.share_remove({ name })}
-                  class="text-muted-foreground"
-                  disabled={mine}
-                  onclick={() => void removeMember(member.userId)}
-                >
-                  <XIcon />
-                </IconButton>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-
-        {#if !readOnly}
-          <Input
-            bind:ref={searchField}
-            type="search"
-            bind:value={query}
-            oninput={() => void search(query)}
-            autocomplete="off"
-            aria-label={m['ShareBoard.searchPlaceholder']()}
-            placeholder={m['ShareBoard.searchPlaceholder']()}
-            data-testid="share-search"
-            class="roomy:h-touch roomy:text-base"
-          />
-          {#if candidates.length > 0}
-            <ul class="grid grid-cols-1 gap-1" data-testid="share-candidates">
-              {#each candidates as user (user.id)}
-                {@const name = userDisplayName(user)}
-                <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
-                  <Avatar {name} colorKey={user.id} locale={workspace.locale} decorative />
-                  <span class="min-w-0 flex-1 truncate">{name}</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    class="roomy:min-h-touch"
-                    aria-label={m.share_add({ name })}
-                    onclick={() => void addMember(user)}
+                {#if readOnly}
+                  <span class="shrink-0 text-muted-foreground" data-testid="share-member-role">
+                    {memberRole === 'none' ? m.share_role_none() : ROLE_LABELS[memberRole]()}
+                  </span>
+                {:else}
+                  <!-- The reader's own role is another admin's to change: no locking oneself out. -->
+                  <select
+                    class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
+                    aria-label={m.share_role_of({ name })}
+                    title={mine ? m.share_you_note() : undefined}
+                    disabled={mine}
+                    value={memberRole}
+                    onchange={(event) =>
+                      void shareable.setMemberRole(
+                        member.userId,
+                        event.currentTarget.value as ContainerRole,
+                      )}
                   >
-                    <UserPlusIcon aria-hidden="true" />
-                    {m.share_add_short()}
-                  </Button>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-          <!-- In the page from the start: a live region that appears with its words is often not read. -->
-          <p class="text-muted-foreground empty:hidden" role="status">
-            {candidates.length === 0 && query.trim() !== ''
-              ? m.share_nobody_found({ workspace: workspaceName })
-              : ''}
-          </p>
-        {/if}
-      </section>
+                    {#if memberRole === 'none'}
+                      <option value="none" disabled>{m.share_role_none()}</option>
+                    {/if}
+                    {#each ROLE_ORDER as role (role)}
+                      <option value={role}>{ROLE_LABELS[role]()}</option>
+                    {/each}
+                  </select>
+                  <IconButton
+                    label={m.share_remove({ name })}
+                    class="text-muted-foreground"
+                    disabled={mine}
+                    onclick={() => void removeMember(member.userId)}
+                  >
+                    <XIcon />
+                  </IconButton>
+                {/if}
+              </li>
+            {/each}
+          </ul>
 
-      {#if access?.people.teams && !isGuest(workspace)}
+          {#if !readOnly}
+            <Input
+              bind:ref={searchField}
+              type="search"
+              bind:value={query}
+              oninput={() => void search(query)}
+              autocomplete="off"
+              aria-label={m['ShareBoard.searchPlaceholder']()}
+              placeholder={m['ShareBoard.searchPlaceholder']()}
+              data-testid="share-search"
+              class="roomy:h-touch roomy:text-base"
+            />
+            {#if candidates.length > 0}
+              <ul class="grid grid-cols-1 gap-1" data-testid="share-candidates">
+                {#each candidates as user (user.id)}
+                  {@const name = userDisplayName(user)}
+                  <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
+                    <Avatar {name} colorKey={user.id} locale={workspace.locale} decorative />
+                    <span class="min-w-0 flex-1 truncate">{name}</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      class="roomy:min-h-touch"
+                      aria-label={m.share_add({ name })}
+                      onclick={() => void addMember(user)}
+                    >
+                      <UserPlusIcon aria-hidden="true" />
+                      {m.share_add_short()}
+                    </Button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            <!-- In the page from the start: a live region that appears with its words is often not read. -->
+            <p class="text-muted-foreground empty:hidden" role="status">
+              {candidates.length === 0 && query.trim() !== ''
+                ? m.share_nobody_found({ workspace: workspaceName })
+                : ''}
+            </p>
+          {/if}
+        </section>
+      {/if}
+
+      {#if access?.people.teams && !linkOnly && !isGuest(workspace)}
         <ContainerTeams {workspace} {shareable} teams={access.people.teams} {readOnly} />
       {/if}
 
       <!-- The public link. -->
       {#if !membersOnly}
-        <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-public">
+        <section
+          class={['grid gap-2', !linkOnly && 'border-t pt-4']}
+          aria-labelledby="{uid}-public"
+          data-testid="share-public-section"
+        >
           <h3 id="{uid}-public" class="font-medium">{m['ShareBoard.PublishTitle']()}</h3>
           <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
             <span class="min-w-0 flex-1 text-muted-foreground">

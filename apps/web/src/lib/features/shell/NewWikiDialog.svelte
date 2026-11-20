@@ -2,7 +2,9 @@
   "New wiki": its name, and who finds it, as a board's sharing says it: open
   to whoever works in the workspace to find and join, or for the invited only.
   The field holds the focus; Enter makes it. A wiki without a name is made too,
-  and shown under the words for one without.
+  and shown under the words for one without. Where nobody else works in the
+  workspace (`alone`, the reader's own space) there is nobody to find it: it is
+  made for its maker, and that is not asked.
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -16,10 +18,12 @@
     open: boolean;
     /** The workspace's name, as the sharing of a board says it. */
     workspaceName: string;
+    /** Nobody else works in the workspace. */
+    alone?: boolean;
     onCreate: (draft: WikiDraft) => void;
   }
 
-  let { open = $bindable(), workspaceName, onCreate }: Props = $props();
+  let { open = $bindable(), workspaceName, alone = false, onCreate }: Props = $props();
 
   const uid = $props.id();
   let title = $state('');
@@ -34,7 +38,7 @@
   function submit(event: SubmitEvent): void {
     event.preventDefault();
     open = false;
-    onCreate({ title: title.trim(), type });
+    onCreate({ title: title.trim(), type: alone ? 'P' : type });
   }
 </script>
 
@@ -55,33 +59,35 @@
         data-testid="new-wiki-title"
         class="roomy:h-touch roomy:text-base"
       />
-      <fieldset class="grid gap-2">
-        <legend class="mb-1 font-medium">{m.wiki_new_who()}</legend>
-        <label class="flex min-h-8 items-start gap-3 roomy:min-h-touch" for="{uid}-open">
-          <input
-            id="{uid}-open"
-            type="radio"
-            name="{uid}-type"
-            value="O"
-            bind:group={type}
-            data-testid="new-wiki-open"
-            class="mt-1 size-4 accent-primary"
-          />
-          <span>{m.wiki_new_open({ workspace: workspaceName })}</span>
-        </label>
-        <label class="flex min-h-8 items-start gap-3 roomy:min-h-touch" for="{uid}-private">
-          <input
-            id="{uid}-private"
-            type="radio"
-            name="{uid}-type"
-            value="P"
-            bind:group={type}
-            data-testid="new-wiki-private"
-            class="mt-1 size-4 accent-primary"
-          />
-          <span>{m.wiki_new_private()}</span>
-        </label>
-      </fieldset>
+      {#if !alone}
+        <fieldset class="grid gap-2">
+          <legend class="mb-1 font-medium">{m.wiki_new_who()}</legend>
+          <label class="flex min-h-8 items-start gap-3 roomy:min-h-touch" for="{uid}-open">
+            <input
+              id="{uid}-open"
+              type="radio"
+              name="{uid}-type"
+              value="O"
+              bind:group={type}
+              data-testid="new-wiki-open"
+              class="mt-1 size-4 accent-primary"
+            />
+            <span>{m.wiki_new_open({ workspace: workspaceName })}</span>
+          </label>
+          <label class="flex min-h-8 items-start gap-3 roomy:min-h-touch" for="{uid}-private">
+            <input
+              id="{uid}-private"
+              type="radio"
+              name="{uid}-type"
+              value="P"
+              bind:group={type}
+              data-testid="new-wiki-private"
+              class="mt-1 size-4 accent-primary"
+            />
+            <span>{m.wiki_new_private()}</span>
+          </label>
+        </fieldset>
+      {/if}
       <Dialog.Footer>
         <Button
           variant="outline"

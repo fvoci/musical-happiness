@@ -48,7 +48,7 @@
   import { sidebarShape } from '$lib/layout/presentation.ts';
   import { paneCovered } from '$lib/layout/over-pane.svelte.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
-  import { createWiki, isGuest, whileHere, type WikiDraft } from '$lib/state/index.ts';
+  import { createWiki, isGuest, isOwnSpace, whileHere, type WikiDraft } from '$lib/state/index.ts';
   import type { AuditRecord } from '$lib/state/organization.ts';
 
   import AuditDialog from './AuditDialog.svelte';
@@ -402,6 +402,7 @@
 <NewWikiDialog
   bind:open={namingWiki}
   workspaceName={nameOfWorkspace(workspace.info, m.shell_workspace_unnamed)}
+  alone={isOwnSpace(workspace.info)}
   onCreate={(draft: WikiDraft) => void addWiki(draft)}
 />
 
