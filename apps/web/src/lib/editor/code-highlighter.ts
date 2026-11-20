@@ -4,7 +4,8 @@
  * The highlighter runs in a worker (code-highlight-worker.ts), started the
  * first time a block in a known language is shown; neither it nor its
  * grammars are part of a screen until then. Texts are coloured one at a
- * time. Each has `HIGHLIGHT_TIME` once the worker is ready: a text that takes
+ * time. Each has `HIGHLIGHT_TIME` once the worker is ready, which it says
+ * once it is loaded, however long that took: a text that takes
  * longer stops the worker (a new one starts for the next text) and stays
  * plain, and so does every text as long or longer in the same grammar from
  * then on, so that such a text is not tried again with every key typed. A
@@ -16,7 +17,7 @@
  * (`knownTokens`). A worker that cannot start leaves every block plain.
  */
 import type { CodeGrammar, CodeLanguage } from './code-languages.ts';
-import { isCodeTokens, type CodeTokens } from './code-tokens.ts';
+import { HIGHLIGHT_READY, isCodeTokens, type CodeTokens } from './code-tokens.ts';
 
 /** How long the worker may take over one text, in milliseconds, once it is ready. */
 export const HIGHLIGHT_TIME = 1000;
@@ -53,36 +54,43 @@ class WorkerHighlighter implements Highlighter {
 
   #start(): Promise<Worker | undefined> {
     this.#worker ??= import('./code-highlight-worker.ts?worker').then(
-      ({ default: HighlightWorker }) => {
-        let worker: Worker;
-        try {
-          worker = new HighlightWorker();
-        } catch {
-          // No workers here (a test's simulated page), or not allowed.
-          this.#broken = true;
-          return undefined;
-        }
-        worker.addEventListener(
-          'message',
-          (event: MessageEvent<{ id: number; tokens: unknown }>) => {
-            const answer = this.#waiting.get(event.data.id);
-            this.#waiting.delete(event.data.id);
-            answer?.(event.data.tokens);
-          },
-        );
-        // A worker that fails to load or to run takes its texts with it, and no other starts.
-        worker.addEventListener('error', () => {
-          this.#broken = true;
-          this.stop();
-        });
-        return worker;
-      },
+      ({ default: HighlightWorker }) => this.#started(HighlightWorker),
       () => {
         this.#broken = true;
         return undefined;
       },
     );
     return this.#worker;
+  }
+
+  /** Starts a worker; settles once it says it is ready, or as `undefined` if it never will be. */
+  #started(HighlightWorker: new () => Worker): Promise<Worker | undefined> {
+    let worker: Worker;
+    try {
+      worker = new HighlightWorker();
+    } catch {
+      // No workers here (a test's simulated page), or not allowed.
+      this.#broken = true;
+      return Promise.resolve(undefined);
+    }
+    return new Promise((ready) => {
+      worker.addEventListener('message', (event: MessageEvent<unknown>) => {
+        if (event.data === HIGHLIGHT_READY) {
+          ready(worker);
+          return;
+        }
+        const { id, tokens } = event.data as { id: number; tokens: unknown };
+        const answer = this.#waiting.get(id);
+        this.#waiting.delete(id);
+        answer?.(tokens);
+      });
+      // A worker that fails to load or to run takes its texts with it, and no other starts.
+      worker.addEventListener('error', () => {
+        this.#broken = true;
+        ready(undefined);
+        this.stop();
+      });
+    });
   }
 
   async ready(): Promise<boolean> {

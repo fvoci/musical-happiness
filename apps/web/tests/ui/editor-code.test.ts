@@ -234,6 +234,28 @@ describe('the numbers of the lines of a long block in the editor', () => {
   });
 });
 
+describe('a move of the caret the editor has not read yet', () => {
+  it('is kept when the decorations are drawn anew right behind it', async () => {
+    const target = create(doc(code('ts', SOURCE)));
+    await coloured(target);
+    target.commands.setTextSelection(2);
+    target.view.focus();
+    expect(target.view.hasFocus()).toBe(true);
+    expect(target.state.selection.head).toBe(2);
+    // The browser moves the caret to the end of the block (End, an arrow), and tells only later.
+    const walker = document.createTreeWalker(codeOf(target) ?? document.body, NodeFilter.SHOW_TEXT);
+    let last: Node | null = null;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) last = node;
+    document.getSelection()?.collapse(last, last?.textContent?.length ?? 0);
+    // In that moment the numbers are turned on, and the decorations drawn anew.
+    document.documentElement.setAttribute(CODE_LINES_ATTRIBUTE, '');
+    await vi.waitFor(() => {
+      expect(codeOf(target)?.querySelector('.doc-code-line')).not.toBeNull();
+    });
+    expect(target.state.selection.head).toBe(1 + SOURCE.length);
+  });
+});
+
 describe('the language of a code block', () => {
   const button = (target: Editor): HTMLButtonElement => {
     const found = target.view.dom.querySelector<HTMLButtonElement>('button.doc-code-language');

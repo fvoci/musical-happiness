@@ -45,7 +45,7 @@ import yaml from 'highlight.js/lib/languages/yaml';
 import { createLowlight } from 'lowlight';
 
 import type { CodeGrammar } from './code-languages.ts';
-import { tokensOfTree } from './code-tokens.ts';
+import { HIGHLIGHT_READY, tokensOfTree } from './code-tokens.ts';
 
 type Grammar = typeof bash;
 
@@ -112,4 +112,5 @@ if (typeof self !== 'undefined' && 'importScripts' in self) {
   self.addEventListener('message', (event: MessageEvent<HighlightRequest>) => {
     self.postMessage(answer(event.data));
   });
+  self.postMessage(HIGHLIGHT_READY);
 }

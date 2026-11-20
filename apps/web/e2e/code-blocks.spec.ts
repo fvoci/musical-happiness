@@ -114,6 +114,18 @@ test('a code block in the editor is coloured by a worker of the app, under the p
   expect(seen).toEqual([]);
 });
 
+test('a worker slow to load still colours: a text’s time starts once the worker is ready', async ({
+  page,
+}) => {
+  // Longer than a text is given (HIGHLIGHT_TIME), as on a slow network.
+  await page.route(/code-highlight-worker-[^/]*\.js$/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await route.continue();
+  });
+  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', SOURCE));
+  await coloured(body);
+});
+
 test('the language is found and taken from the keys, and the bar is reached with Tab', async ({
   page,
 }) => {

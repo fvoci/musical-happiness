@@ -16,6 +16,12 @@
  * with the same kind. Text between runs has no colour.
  */
 
+/**
+ * What the highlighter's worker says once it is loaded and can take texts
+ * (code-highlight-worker.ts): the page's time for a text starts then.
+ */
+export const HIGHLIGHT_READY = 'ready';
+
 /** The kinds of text that have a colour of their own. */
 export const TOKEN_KINDS = [
   'comment',

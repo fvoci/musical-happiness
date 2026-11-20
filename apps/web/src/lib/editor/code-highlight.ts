@@ -14,7 +14,9 @@
  * While an input method composes (Hangul, kana), the decorations are only
  * carried along with the text and nothing new is drawn around the syllable
  * being composed: drawing would end the composition. They are brought up to
- * date once it ends.
+ * date once it ends. Whatever is drawn at a moment of the plugin's own reads
+ * the page's caret first, which a key may have moved a moment before
+ * (moves-kept.ts): drawing would put it back.
  *
  * The numbers of the lines are widgets at the start of each line, drawn as
  * where a body is only shown (code-paint.ts), while the reader has asked for
@@ -30,6 +32,7 @@ import { knownTokens, tokensFor } from './code-highlighter.ts';
 import { codeLanguageOf, type CodeLanguage } from './code-languages.ts';
 import { codeLinesShown, onCodeLinesChange } from './code-lines.svelte.ts';
 import { lineMarker, lineStarts, numberedInColumn } from './code-paint.ts';
+import { readPage } from './moves-kept.ts';
 import { moveTokens, tokenClassAt, type CodeTokens } from './code-tokens.ts';
 import { DIAGRAM_LANGUAGE } from './schema.ts';
 
@@ -276,6 +279,7 @@ function askForTokens(view: EditorView, composing: () => boolean) {
     setTimeout(() => {
       waiting = false;
       if (destroyed || composing()) return;
+      readPage(view);
       view.dispatch(view.state.tr.setMeta(codeHighlightKey, { refresh: true }));
     }, 0);
   };
@@ -359,6 +363,7 @@ export function codeHighlight(): Plugin<HighlightState> {
       tokens = asking;
       asking.ask();
       const stopWatching = onCodeLinesChange(page, (lines) => {
+        readPage(view);
         view.dispatch(view.state.tr.setMeta(codeHighlightKey, { lines }));
       });
       // The editor may be told it is read-only only after its blocks are drawn.
