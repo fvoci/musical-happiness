@@ -174,6 +174,30 @@ img.ProseMirror-separator {
   background: none;
   padding: 0;
 }
+/*
+ * Room at the top of a code block for its bar, and at the start of its lines
+ * for their numbers while the reader has them shown (code-block.css): kept
+ * from the first drawing, so that what is drawn there later moves no text. A
+ * diagram's source has neither. The bar is a finger's height where fingers
+ * press.
+ */
+.doc-body {
+  --code-bar: 2.25rem;
+}
+:is([data-density='comfortable'] .doc-body) {
+  --code-bar: var(--spacing-touch);
+}
+@media (pointer: coarse) {
+  :root:not([data-density]) .doc-body {
+    --code-bar: var(--spacing-touch);
+  }
+}
+.doc-body pre:has(> code:not(.language-mermaid)) {
+  padding-top: var(--code-bar);
+}
+:root[data-code-lines] .doc-body pre:has(> code:not(.language-mermaid)) {
+  padding-inline-start: calc(1.75em + var(--code-digits, 3) * 1ch);
+}
 
 .doc-body hr {
   border: none;
