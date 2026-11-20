@@ -192,8 +192,12 @@ impl Mailer {
     /// stops with some loses them.
     pub(super) fn unsent(&self) -> UnsentMail {
         UnsentMail {
-            recovery: self.reset_places - self.reset_queue.available_permits(),
-            invitations: self.invitation_places - self.invitation_queue.available_permits(),
+            recovery: self
+                .reset_places
+                .saturating_sub(self.reset_queue.available_permits()),
+            invitations: self
+                .invitation_places
+                .saturating_sub(self.invitation_queue.available_permits()),
         }
     }
 
