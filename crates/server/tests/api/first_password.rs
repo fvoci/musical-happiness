@@ -28,8 +28,9 @@ async fn login(ts: &TestServer, username: &str, password: &str) -> (StatusCode, 
     (answer.status, client)
 }
 
-/// An account that a provider's sign-in made has no password and is told so. Its
-/// session sets the first one without being asked for an old one, once: the other
+/// An account that a provider's sign-in made has no password and is told so. A
+/// session of its made through the provider just now, and no older one, sets the
+/// first one without being asked for an old one, once: the other
 /// sessions of the account end, this one goes on under its new cookie, and a second
 /// first password is refused. The password then signs in, and that session opens the
 /// account's own space; an organization that takes only its provider's sessions is not
@@ -76,6 +77,25 @@ async fn an_account_made_through_a_provider_sets_its_first_password_once() {
         .check_status(StatusCode::CONFLICT);
     assert_eq!(has_password(&client).await, json!(false), "nothing was set");
 
+    // A session made a while ago vouches for nothing: who holds one signs in through
+    // the provider again, and sets the password from the session that comes of it.
+    let ada = client.me().await.id;
+    ts.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE sessions SET created_at = created_at - 600000 WHERE user_id = '{ada}'"
+        ))
+        .await
+        .expect("the sessions are aged");
+    let stale = client
+        .put("/users/me/password", &json!({"password": FIRST_PASSWORD}))
+        .await;
+    stale.check_forbidden();
+    assert_eq!(stale.error_reason(), "sign_in_again", "{}", stale.text());
+    assert_eq!(has_password(&client).await, json!(false), "nothing was set");
+    let before = client;
+    let client = ts.client_with_token(browser.sign_in(&org_id).await.token());
+
     let set = client
         .put("/users/me/password", &json!({"password": FIRST_PASSWORD}))
         .await;
@@ -83,6 +103,7 @@ async fn an_account_made_through_a_provider_sets_its_first_password_once() {
     let cookie = set.session_cookie().expect("the session's new cookie");
     client.get("/users/me").await.check_unauthorized();
     elsewhere.get("/users/me").await.check_unauthorized();
+    before.get("/users/me").await.check_unauthorized();
     let client = ts.client_with_token(&cookie);
     assert_eq!(has_password(&client).await, json!(true));
     client

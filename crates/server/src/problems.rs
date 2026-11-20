@@ -210,9 +210,10 @@ fn describe_reason(reason: Reason) -> &'static str {
         }
         Reason::SignInAgain => {
             "Status 403, asking to delete an account that has no password \
-             (`requestAccountDeletion`): the session was not made through a provider in \
-             the last five minutes. Sign in through the provider again (`startOidcLogin`) \
-             and send the request from the session that comes of it."
+             (`requestAccountDeletion`) or to give it its first one (`setPassword`): the \
+             session was not made through a provider in the last five minutes. Sign in \
+             through the provider again (`startOidcLogin`) and send the request from the \
+             session that comes of it."
         }
         Reason::AdminRequired => "Status 403. Only an administrator of the server may do this.",
         Reason::TeamSelfJoining => {

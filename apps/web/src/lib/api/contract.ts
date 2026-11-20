@@ -1473,7 +1473,10 @@ export interface paths {
          * Set the first password
          * @description Gives the account of the session its first password: for an account that has none
          *     (`hasPassword` of `getMe`), which was made by a sign-in through an organization's
-         *     provider. No password is asked for, as there is none; the session is what vouches.
+         *     provider. No password is asked for, as there is none: what vouches is a session
+         *     made through a provider in the last five minutes. Any other session is 403 with
+         *     the reason `sign_in_again`: the account signs in through the provider again
+         *     (`startOidcLogin`) and sends the request from the session that comes of it.
          *     From then on the account signs in with it (`login`) by its user name, and reaches
          *     its own space so, also once it is no longer in the organization whose provider made
          *     it; an organization that takes only sessions made through its provider goes on

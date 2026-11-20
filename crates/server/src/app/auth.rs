@@ -9,6 +9,7 @@ use fvoci_model::{
 use fvoci_store::{Founding, SignupLookup, StoreError, Taken};
 
 use super::App;
+use super::oidc_pending::FRESH_SIGN_IN_MILLIS;
 use crate::auth::hash_queue::QueueError;
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
@@ -588,14 +589,16 @@ impl App {
 
     /// Gives the account of `session`, which has no password, its first one, and ends
     /// the account's other sessions, as [`App::change_password`] does: the session it
-    /// came through stays, under a new token, which is returned. Nothing is asked for
-    /// but the session: there is no password to know. The caller has checked the
-    /// password.
+    /// came through stays, under a new token, which is returned. There is no password
+    /// to know: what is asked for is a session made through a provider no more than
+    /// five minutes ago (`FRESH_SIGN_IN_MILLIS`). The caller has checked the password.
     ///
     /// # Errors
     ///
     /// Returns a conflict if the account has a password, also one set while this was
-    /// under way: that one is changed by who knows it. Returns a 429 if the server has
+    /// under way: that one is changed by who knows it. Returns a 403 (reason
+    /// `sign_in_again`) for a session that was not made through a provider just now,
+    /// a 429 if the server has
     /// too much password work to do, a not-found error if there is no such user, or the
     /// store's error.
     pub async fn set_password(
@@ -609,6 +612,17 @@ impl App {
         // Asked before the hash is made, so that a request that is refused costs none.
         if !user.password_hash.is_empty() {
             return Err(has_one());
+        }
+        // The session vouches while it is the provider's word of a moment ago, as for
+        // deleting such an account: a password outlives the session that sets it, ends
+        // the account's other sessions and is the proof of what comes after.
+        let made_just_now = session.login.is_some()
+            && now_millis().saturating_sub(session.created_at) <= FRESH_SIGN_IN_MILLIS;
+        if !made_just_now {
+            return Err(AppError::forbidden(
+                "sign in through the provider again to set a password",
+            )
+            .with_reason(Reason::SignInAgain));
         }
         let token = new_secret();
         let set = self
