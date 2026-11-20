@@ -107,6 +107,27 @@ const TABLE: &[Pasted] = &[
         shown: ": an image named by the files or .env",
     },
     Pasted {
+        what: "a word pasted after a long image name, which compose folds",
+        line: |w| {
+            format!(
+                "FVOCI_IMAGE=ghcr.io/fvoci/fvoci-server@sha256:{} {}",
+                "0".repeat(64),
+                w[0]
+            )
+        },
+        shown: ": an image named by the files or .env",
+    },
+    Pasted {
+        what: "a long word pasted before an image's name, which compose folds",
+        line: |w| {
+            format!(
+                "FVOCI_IMAGE={0}{1}{2}{0}{1}{2} ghcr.io/fvoci/fvoci-server:v1",
+                w[0], w[1], w[2]
+            )
+        },
+        shown: ": an image named by the files or .env",
+    },
+    Pasted {
         what: "a port pasted",
         line: |w| format!("FVOCI_HOST_PORT={}", w[0]),
         shown: "compose: 1 line(s) hidden: they may quote a value of the .env",
@@ -120,7 +141,8 @@ const TABLE: &[Pasted] = &[
 
 /// A value of many lines, which compose takes and writes below its key (`KEY: |-`, or
 /// on one line in double quotes when it holds a CR). Its lines read like fvoci's
-/// settings and come before them (`E` before `F`, `environment` before `image`).
+/// settings and come before them (`E` before `F`, `environment` before `image`); its
+/// image is no name, which a check of every `image:` line would refuse.
 struct ManyLines {
     what: &'static str,
     line: fn(&[String; 3]) -> String,
@@ -131,7 +153,7 @@ const MANY_LINES: &[ManyLines] = &[
         what: "a value of lines written \\n in double quotes",
         line: |w| {
             format!(
-                "FVOCI_EMAIL_VERIFICATION=\"{}\\nFVOCI_FILE_STORAGE: s3\\nimage: {}\\n{}\"",
+                "FVOCI_EMAIL_VERIFICATION=\"{}\\nFVOCI_FILE_STORAGE: s3\\nimage: {}!\\n{}\"",
                 w[0], w[1], w[2]
             )
         },
@@ -140,7 +162,7 @@ const MANY_LINES: &[ManyLines] = &[
         what: "a value of lines in double quotes",
         line: |w| {
             format!(
-                "FVOCI_EMAIL_VERIFICATION=\"{}\nFVOCI_FILE_STORAGE: s3\nimage: {}\n{}\"",
+                "FVOCI_EMAIL_VERIFICATION=\"{}\nFVOCI_FILE_STORAGE: s3\nimage: {}!\n{}\"",
                 w[0], w[1], w[2]
             )
         },
@@ -149,7 +171,7 @@ const MANY_LINES: &[ManyLines] = &[
         what: "a value of lines in single quotes",
         line: |w| {
             format!(
-                "FVOCI_EMAIL_VERIFICATION='{}\nFVOCI_FILE_STORAGE: s3\nimage: {}\n{}'",
+                "FVOCI_EMAIL_VERIFICATION='{}\nFVOCI_FILE_STORAGE: s3\nimage: {}!\n{}'",
                 w[0], w[1], w[2]
             )
         },
@@ -158,7 +180,7 @@ const MANY_LINES: &[ManyLines] = &[
         what: "a value of lines ended by CR LF",
         line: |w| {
             format!(
-                "FVOCI_EMAIL_VERIFICATION=\"{}\r\nFVOCI_FILE_STORAGE: s3\r\nimage: {}\r\n{}\"\r",
+                "FVOCI_EMAIL_VERIFICATION=\"{}\r\nFVOCI_FILE_STORAGE: s3\r\nimage: {}!\r\n{}\"\r",
                 w[0], w[1], w[2]
             )
         },
@@ -208,10 +230,11 @@ pub(super) fn refused_hidden(trial: &Trial, directory: &Path) -> Result<()> {
 /// storage as without it, and `restore.sh`, given a backup without the files' archive,
 /// says the installation keeps its files in its volume, with no word of the value.
 fn read_past(trial: &Trial, text: &str, env: &Path, directory: &Path) -> Result<()> {
-    let own = image_and_storage(trial, &trial.env_file)?;
+    let own = format!("{} local", trial.images.server.local);
+    let read = image_and_storage(trial, &trial.env_file)?;
     ensure!(
-        own.ends_with(" local") && !own.starts_with(' '),
-        "ops.sh read the trial's own image and storage as \"{own}\""
+        read == own,
+        "ops.sh read the trial's own image and storage as \"{read}\", not \"{own}\""
     );
     let backup = super::backup::folder(directory).join("lines-backup");
     std::fs::create_dir_all(&backup).context("making a backup without files")?;
@@ -221,17 +244,12 @@ fn read_past(trial: &Trial, text: &str, env: &Path, directory: &Path) -> Result<
     for value in MANY_LINES {
         let words = [word()?, word()?, word()?];
         super::write_private(env, &format!("{text}\n{}\n", (value.line)(&words)))?;
-        let hidden = |said: String| {
-            words
-                .iter()
-                .fold(said, |said, word| said.replace(word.as_str(), "<pasted>"))
-        };
         let read = image_and_storage(trial, env)?;
         ensure!(
             read == own,
             "ops.sh read fvoci's image and storage in {} as \"{}\", not \"{own}\"",
             value.what,
-            hidden(read)
+            hidden(&words, read)
         );
         let arguments = ["--env-file", env_text.as_ref(), backup_text.as_ref()];
         let (succeeded, said) =
@@ -244,7 +262,7 @@ fn read_past(trial: &Trial, text: &str, env: &Path, directory: &Path) -> Result<
                 && said.contains("while this installation keeps them in its volume"),
             "restore.sh with {} in the .env did not say the files are in the volume, without a word of it: {}",
             value.what,
-            hidden(said)
+            hidden(&words, said)
         );
     }
     let _ = std::fs::remove_dir_all(&backup);
@@ -270,7 +288,10 @@ fn image_and_storage(trial: &Trial, env: &Path) -> Result<String> {
         .env("COMPOSE_PROJECT_NAME", &trial.project);
     let (succeeded, said) = script_output(command, "ops.sh")?;
     no_secret_in(trial, "ops.sh", &said)?;
-    ensure!(succeeded, "ops.sh did not read compose's files");
+    ensure!(
+        succeeded,
+        "ops.sh refused compose's files and the .env, or an image's name, with a value of many lines"
+    );
     Ok(said)
 }
 
@@ -302,12 +323,17 @@ fn try_line(trial: &Trial, text: &str, env: &Path, backups: &Path, pasted: &Past
             "{name} with {} in the .env did not stop showing \"{}\" and no word of it: {}",
             pasted.what,
             pasted.shown,
-            words
-                .iter()
-                .fold(said, |said, word| said.replace(word.as_str(), "<pasted>"))
+            hidden(&words, said)
         );
     }
     Ok(())
+}
+
+/// `said` with each of `words` put as `<pasted>`, for a message of the trial.
+fn hidden(words: &[String; 3], said: String) -> String {
+    words
+        .iter()
+        .fold(said, |said, word| said.replace(word.as_str(), "<pasted>"))
 }
 
 /// A word of a secret, which a `$` can name: a letter, then random hexadecimal digits.

@@ -171,16 +171,21 @@ compose_said() {
 # compose writes its YAML two spaces a level: a service at two, its settings at four,
 # its environment's variables at six. A value that holds line ends is written deeper
 # (`KEY: |-` and its lines below), and its lines may read like a setting: only a line
-# at its own depth is read.
+# at its own depth is read. A value longer than the line is folded at a space, the rest
+# on the lines below, deeper.
 
 # Fails, without showing it, if an image the files and .env name is not a name: compose
 # takes a line such as FVOCI_IMAGE=<pasted> ghcr.io/..., which `pull`, `run` and this
-# script's messages would then say. Sets fvoci_image to the service fvoci's.
+# script's messages would then say. Sets fvoci_image to the service fvoci's. A name
+# folded on lines below held a space: it is marked so, whatever its first line reads.
 check_image_names() {
     names=$(printf '%s\n' "$installation" | awk '
+        held != "" && /^     / { held = held " (folded)"; next }
+        held != "" { print held; held = "" }
         /^[^ ]/ { top = $1 }
         /^  [^ ]/ { service = $1; sub(/:$/, "", service) }
-        top == "services:" && index($0, "    image: ") == 1 { print service " " substr($0, 12) }')
+        top == "services:" && index($0, "    image: ") == 1 { held = service " " substr($0, 12) }
+        END { if (held != "") print held }')
     fvoci_image=""
     while IFS=' ' read -r service name; do
         [ -n "$service" ] || continue
@@ -199,18 +204,21 @@ END
 }
 
 # A variable of the service fvoci's environment as compose reads its files and .env,
-# its quotes taken off. Empty when it has none.
+# its quotes taken off, and the lines below it that are deeper joined by a space.
+# Empty when it has none.
 fvoci_setting() {
     printf '%s\n' "$installation" | awk -v line="      $1:" '
+        found && /^       / { sub(/^ */, ""); value = value " " $0; next }
+        found { exit }
         /^[^ ]/ { top = $1 }
         /^  [^ ]/ { service = $1 }
         /^    [^ ]/ { setting = $1 }
         top == "services:" && service == "fvoci:" && setting == "environment:" &&
         index($0 " ", line " ") == 1 {
             value = substr($0, length(line) + 1); sub(/^ */, "", value)
-            gsub(/["\047]/, "", value)
-            print value; exit
-        }'
+            found = 1
+        }
+        END { if (found) { gsub(/["\047]/, "", value); print value } }'
 }
 
 # FVOCI_SECRET_KEY in a listing of `compose config --environment` read on stdin, as

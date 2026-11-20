@@ -118,7 +118,13 @@ if [ "$keep_days" -gt 0 ]; then
         -mmin +$((keep_days * 1440)) -exec sh -c '
             days=$1
             shift
+            status=0
             for gone; do
-                rm -rf -- "$gone" && printf "%s: removed %s, older than %s days\n" "$0" "$gone" "$days"
-            done' "$script" "$keep_days" {} +
+                if rm -rf -- "$gone"; then
+                    printf "%s: removed %s, older than %s days\n" "$0" "$gone" "$days"
+                else
+                    status=1
+                fi
+            done
+            exit "$status"' "$script" "$keep_days" {} +
 fi
