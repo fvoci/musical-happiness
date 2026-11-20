@@ -87,6 +87,11 @@ export interface User extends UserNames {
   name?: PersonName;
   /** Only on the reader's own user. */
   isAdmin?: boolean;
+  /**
+   * Only on the reader's own user, where the backend has accounts: false for
+   * one made through an organization's provider until its person sets one.
+   */
+  hasPassword?: boolean;
   createAt: number;
   updateAt: number;
   /**

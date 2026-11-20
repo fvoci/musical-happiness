@@ -171,6 +171,13 @@ export interface Account {
    */
   changePassword(oldPassword: string, newPassword: string): Promise<void>;
   /**
+   * Gives an account that has no password (`User.hasPassword`) its first:
+   * from a session made through the provider in the last five minutes, else
+   * 403 `sign_in_again`. Its other sessions end, this one goes on. An account
+   * with a password is 409; a password too short or too long is 400.
+   */
+  setPassword(password: string): Promise<void>;
+  /**
    * What the login page shows: the organization it is for (the one `orgId`
    * names, or the only one of a server that holds one), and whether an
    * account is made without an invitation.

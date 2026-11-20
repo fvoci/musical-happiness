@@ -277,6 +277,37 @@ describe('the display name, on the server', () => {
     expect(sent).toEqual([account, account]);
   });
 
+  it('reads whether the reader has a password, and gives them their first with a PUT', async () => {
+    const sent: { method: string | undefined; url: string; body: unknown }[] = [];
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      sent.push({
+        method: init.method,
+        url,
+        body: typeof init.body === 'string' ? JSON.parse(init.body) : undefined,
+      });
+      if (init.method === 'PUT') return Promise.resolve(new Response(null, { status: 204 }));
+      return Promise.resolve(
+        Response.json({
+          id: 'u1',
+          username: 'grace',
+          displayName: '',
+          createAt: 0,
+          updateAt: 0,
+          deleteAt: 0,
+          hasPassword: false,
+        }),
+      );
+    });
+    const backend = serverBackend('');
+    expect(await backend.me()).toMatchObject({ id: 'u1', hasPassword: false });
+    await backend.setPassword('a long password');
+    expect(sent.at(-1)).toEqual({
+      method: 'PUT',
+      url: '/api/v1/users/me/password',
+      body: { password: 'a long password' },
+    });
+  });
+
   it('reads whether the server needs the name of the organization a registration starts', async () => {
     vi.stubGlobal('fetch', () =>
       Promise.resolve(

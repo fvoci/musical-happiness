@@ -67,6 +67,8 @@
   import { keepReturn, resume, takeReturn } from './return-to.ts';
   import { placeRoute, type Router } from './router.svelte.ts';
   import { signInOrganizations, signInWays } from './sign-in-organizations.ts';
+  import PasswordNoticeHost from './PasswordNoticeHost.svelte';
+  import { Administered } from './administered.svelte.ts';
   import WorkspacePane from './WorkspacePane.svelte';
   import WorkspaceSearch from './WorkspaceSearch.svelte';
 
@@ -76,7 +78,10 @@
   let account = $state.raw<Account | undefined>(undefined);
   let organizations = $state.raw<Organizations | undefined>(undefined);
   /** The organization the reader administers, once asked; the sidebar then leads to it. */
-  let administered = $state<string | undefined>(undefined);
+  const administered = new Administered(
+    () => workspace,
+    () => organizations,
+  );
   /**
    * The names of the account just made on this page: its first sign-in
    * copies the welcome board. Another account signed in here gets none.
@@ -225,21 +230,6 @@
     () => workspace,
   );
 
-  // Once signed in: is there an organization the reader administers? Asked once.
-  let askedAdministered = false;
-  $effect(() => {
-    if (workspace?.status !== 'ready' || !organizations || askedAdministered) return;
-    askedAdministered = true;
-    organizations.administered().then(
-      (orgId) => {
-        administered = orgId;
-      },
-      () => {
-        // Not told: the way to it is not shown.
-      },
-    );
-  });
-
   /** The reader's workspaces that this session opens: where else to go from one it does not. */
   const openWorkspaces = $derived(
     (workspace?.workspaces ?? [])
@@ -264,8 +254,7 @@
     const made = await signedIn(() =>
       startOrganization(shown, (named) => api.createOrganization(named), name),
     );
-    // The reader administers it: the sidebar leads there, unless to another already.
-    administered ??= made.orgId;
+    administered.started(made.orgId);
     router.go({ workspaceId: made.id });
   }
 
@@ -442,7 +431,7 @@
 {:else}
   <AppShell
     {workspace}
-    orgHref={administered ? router.href({ orgId: administered }) : undefined}
+    orgHref={administered.orgId ? router.href({ orgId: administered.orgId }) : undefined}
     onSwitchWorkspace={(workspaceId: string) => {
       router.go({ workspaceId });
     }}
@@ -478,6 +467,9 @@
       <WorkspaceSearch workspace={shown} {router} />
     {/snippet}
     {#snippet children({ workspace: shown, addBoard }: PaneTools)}
+      {#if account}
+        <PasswordNoticeHost workspace={shown} {account} onProvider={toProvider} />
+      {/if}
       <WorkspacePane
         workspace={shown}
         {router}

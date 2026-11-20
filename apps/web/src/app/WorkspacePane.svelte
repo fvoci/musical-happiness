@@ -95,6 +95,7 @@
   <div class="grid h-full place-items-center p-6 text-center">
     <p class="text-muted-foreground">{m.app_no_boards()}</p>
   </div>
+  <!-- To come with the server's refusal of a provider's session in an own space that has a password: its screen, which asks for the password. -->
 {:else if here && workspace.entered === 'failed'}
   <div class="grid h-full place-items-center p-6 text-center" data-testid="enter-failed">
     <div>

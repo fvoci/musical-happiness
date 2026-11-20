@@ -132,10 +132,6 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   // ------------------------------------------- the reader and their workspace
 
-  async me(): Promise<User> {
-    return userOf(await this.#http.request<Schemas['User']>('/api/v1/users/me'));
-  }
-
   /**
    * The people of the workspace. The server answers at most ten of them
    * (`getWorkspaceUsers` without a search; `docs/contract-assumptions.md`, D2).

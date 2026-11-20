@@ -380,6 +380,22 @@ export class ServerRequests implements TrashReads {
     );
   }
 
+  /** The reader, with what only they are told of their account: whether it has a password. */
+  async me(): Promise<User> {
+    const me = await this.#http.request<Schemas['Me']>('/api/v1/users/me');
+    return { ...userOf(me), hasPassword: me.hasPassword };
+  }
+
+  /**
+   * Gives an account without a password its first one; the session goes on
+   * under a new cookie. A session not made through the provider in the last
+   * five minutes is 403 (`sign_in_again`), an account with one 409.
+   */
+  async setPassword(password: string): Promise<void> {
+    const request: Schemas['SetPasswordRequest'] = { password };
+    await this.#http.request('/api/v1/users/me/password', {}, { method: 'PUT', json: request });
+  }
+
   async patchMe(patch: NameChange): Promise<User> {
     const change: Schemas['AccountChange'] = patch;
     return userOf(
