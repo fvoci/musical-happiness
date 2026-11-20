@@ -6,6 +6,7 @@
   import XIcon from '@lucide/svelte/icons/x';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
+  import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import type { People, Workspace } from '$lib/state/index.ts';
@@ -25,7 +26,7 @@
 
   let { open = $bindable(), workspace, people, inviteLink }: Props = $props();
 
-  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
+  const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
 
   // The back button closes it, as the other dialogs: the page under it stays.
   closeOnBack(

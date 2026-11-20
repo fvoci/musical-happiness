@@ -53,6 +53,7 @@ describe('the organizations offered to connect', () => {
         { id: 'c1', title: 'Of C', orgId: 'c' },
         { id: 'd1', title: 'Of D', orgId: 'd' },
         { id: 'm1', title: 'Of none' },
+        { id: 'own', title: '', orgId: 'mine', kind: 'personal' },
       ],
       (orgId) => {
         asked.push(orgId);

@@ -32,6 +32,7 @@
   import type { Snippet } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
+  import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack, isOverlayEntry } from '$lib/layout/back.svelte.ts';
   import { userDisplayName } from '$lib/logic/users.ts';
@@ -113,7 +114,7 @@
     },
   );
 
-  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
+  const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
 
   const uid = $props.id();
   let importField = $state<HTMLInputElement | null>(null);

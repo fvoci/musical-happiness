@@ -6,6 +6,7 @@ import { createBoardView, type Container } from '../logic/wire.ts';
 
 import {
   isBackendError,
+  isOwnSpace,
   ssoOrgOf,
   type Backend,
   type Category,
@@ -27,20 +28,24 @@ export const isOpen = (workspace: WorkspaceInfo): boolean => !workspace.ssoRequi
 
 /**
  * The workspace to start in when the address names none: `last`, the one
- * the reader was last in on this device, if it is still theirs; else the
- * first open to this session that they work in, before one they are only a
- * guest of; else the first open to this session; else their first.
+ * the reader was last in on this device, if it is still theirs; else one
+ * they share with others, as a new account and one invited as a guest alone
+ * start there: the first open to this session that they work in, before one
+ * they are only a guest of; else the first open to this session; else the
+ * first. Their own space only when they share none.
  */
 export function firstChoiceOf(
   workspaces: readonly WorkspaceInfo[],
   last: string | undefined,
 ): string | undefined {
+  const shared = workspaces.filter((workspace) => !isOwnSpace(workspace));
   const chosen =
     workspaces.find((workspace) => workspace.id === last) ??
     // Not one that is closed to this session while another is open: from a
     // closed one the reader has only the way through its single sign-on.
-    workspaces.find((workspace) => isOpen(workspace) && workspace.role !== 'guest') ??
-    workspaces.find(isOpen) ??
+    shared.find((workspace) => isOpen(workspace) && workspace.role !== 'guest') ??
+    shared.find(isOpen) ??
+    shared[0] ??
     workspaces[0];
   return chosen?.id;
 }

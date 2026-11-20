@@ -28,6 +28,7 @@
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import PersonProfile from '$lib/components/person/PersonProfile.svelte';
+  import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
@@ -80,7 +81,7 @@
     at,
   }: Props = $props();
 
-  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
+  const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
   const words = $derived(shareWords(shareable.container?.kind));
 
   const uid = $props.id();
@@ -257,7 +258,7 @@
         <section class="grid gap-2" aria-labelledby="{uid}-workspace">
           <h3 id="{uid}-workspace" class="font-medium">
             {m.share_workspace_title({
-              workspace: workspace.info?.title || m.shell_workspace_unnamed_title(),
+              workspace: nameOfWorkspace(workspace.info, m.shell_workspace_unnamed_title),
             })}
           </h3>
           <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">

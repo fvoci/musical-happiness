@@ -29,6 +29,7 @@
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
 
+  import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { ContainerPlace } from '$lib/logic/urls.ts';
   import type { Container } from '$lib/logic/wire.ts';
@@ -385,7 +386,7 @@
 
 <NewWikiDialog
   bind:open={namingWiki}
-  workspaceName={workspace.info?.title || m.shell_workspace_unnamed()}
+  workspaceName={nameOfWorkspace(workspace.info, m.shell_workspace_unnamed)}
   onCreate={(draft: WikiDraft) => void addWiki(draft)}
 />
 

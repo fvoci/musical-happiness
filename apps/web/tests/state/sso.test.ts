@@ -57,14 +57,16 @@ describe('a refusal that asks for single sign-on', () => {
 });
 
 describe('the workspaces as the server lists them', () => {
-  it('say which organization each is of, and which are closed to this session', () => {
+  it('say which organization each is of, what it is, and which are closed to this session', () => {
     const workspaces = workspacesOf([
       { id: 'a', orgId: ORG, kind: 'team', name: 'A', role: 'member', ssoRequired: true },
       { id: 'b', orgId: 'another', kind: 'team', name: 'B', role: 'admin', ssoRequired: false },
+      { id: 'c', orgId: 'own', kind: 'personal', name: '', role: 'admin', ssoRequired: false },
     ]);
     expect(workspaces).toEqual([
-      { id: 'a', title: 'A', role: 'member', orgId: ORG, ssoRequired: true },
-      { id: 'b', title: 'B', role: 'admin', orgId: 'another', ssoRequired: false },
+      { id: 'a', title: 'A', role: 'member', orgId: ORG, kind: 'team', ssoRequired: true },
+      { id: 'b', title: 'B', role: 'admin', orgId: 'another', kind: 'team', ssoRequired: false },
+      { id: 'c', title: '', role: 'admin', orgId: 'own', kind: 'personal', ssoRequired: false },
     ]);
   });
 });
@@ -245,5 +247,38 @@ describe('the workspace to start in', () => {
     const all = [one('a', 'guest', true), one('b', 'member', true)];
     expect(firstChoiceOf(all, undefined)).toBe('a');
     expect(firstChoiceOf(all, 'b')).toBe('b');
+  });
+
+  describe('beside the reader’s own space, listed last', () => {
+    const own: WorkspaceInfo = { id: 'own', title: '', kind: 'personal', role: 'admin' };
+    const team = (
+      id: string,
+      role: 'admin' | 'member' | 'guest',
+      closed = false,
+    ): WorkspaceInfo => ({
+      ...one(id, role, closed),
+      kind: 'team',
+    });
+
+    it('is the workspace of a new account’s team, not its own space', () => {
+      expect(firstChoiceOf([team('made', 'admin'), own], undefined)).toBe('made');
+    });
+
+    it('is the workspace an account is only a guest of, not its own space', () => {
+      expect(firstChoiceOf([team('invited', 'guest'), own], undefined)).toBe('invited');
+    });
+
+    it('is a team’s workspace closed to the session before the own space', () => {
+      expect(firstChoiceOf([team('closed', 'member', true), own], undefined)).toBe('closed');
+    });
+
+    it('is the own space of an account in no team, and the own space it was last in', () => {
+      expect(firstChoiceOf([own], undefined)).toBe('own');
+      expect(firstChoiceOf([team('made', 'admin'), own], 'own')).toBe('own');
+    });
+
+    it('is a team’s workspace also where the list puts the own space first', () => {
+      expect(firstChoiceOf([own, team('made', 'member')], undefined)).toBe('made');
+    });
   });
 });

@@ -8,6 +8,7 @@
   is made and after each change; a list that cannot be read is left out.
 -->
 <script lang="ts">
+  import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDate } from '$lib/logic/format.ts';
   import type { ContainerKind } from '$lib/logic/wire.ts';
@@ -33,7 +34,7 @@
   let { workspace, access, containerId, kind }: Props = $props();
   const words = $derived(shareWords(kind));
 
-  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
+  const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
 
   const uid = $props.id();
   const ROLES: readonly GuestContainerRole[] = ['editor', 'commenter', 'viewer'];

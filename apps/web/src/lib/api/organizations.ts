@@ -33,7 +33,9 @@ export class ServerOrganizations implements Organizations {
     const workspaces = await this.#http.request<Schemas['UserWorkspace'][]>(
       '/api/v1/users/me/workspaces',
     );
-    for (const orgId of new Set(workspaces.map((workspace) => workspace.orgId))) {
+    // The reader's own space has nobody to administer it: it is not asked for.
+    const shared = workspaces.filter((workspace) => workspace.kind !== 'personal');
+    for (const orgId of new Set(shared.map((workspace) => workspace.orgId))) {
       try {
         await this.organization(orgId);
         return orgId;

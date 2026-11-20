@@ -1267,6 +1267,7 @@
   "org_delete_named": "Delete {name}",
   "org_restore_named": "Restore {name}",
   "shell_switch_workspace_from": "Switch workspace: {name}",
+  "own_space_name": "My space",
   "shell_workspace_unnamed": "this workspace",
   "shell_workspace_unnamed_title": "This workspace",
   "teams_self_joining": "You cannot add yourself to a team while joined as organization administrator. You can join a board directly; that role ends when you leave administrative joining.",
