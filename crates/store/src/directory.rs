@@ -33,7 +33,9 @@ use crate::{body_versions, invitations, memberships_everywhere, users, users_by_
 mod every_organization;
 mod sign_in;
 
-pub(crate) use every_organization::{is_the_instances_organization, organizations_made_by};
+pub(crate) use every_organization::{
+    is_the_instances_organization, of_people, organizations_made_by,
+};
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -46,6 +48,11 @@ pub const SYSTEM_WORKSPACE_ID: &str = "00000000-0000-7000-8000-00000000a001";
 /// `o` are in use, and are not the system's, which is nobody's to work in.
 pub(crate) const IN_USE: &str = " AND t.delete_at = 0 AND o.delete_at = 0 AND o.is_system = false \
                       AND t.is_system = false";
+
+/// The condition that the organization `o`, if it is the space of an account, is of
+/// one in use: not of one that waits to be deleted or is being erased.
+const OWNER_IN_USE: &str = " AND NOT EXISTS (SELECT 1 FROM users AS owner \
+                            WHERE owner.id = o.owner_id AND owner.delete_at <> 0)";
 
 /// What a user is in a workspace, and whose the workspace is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -730,8 +737,10 @@ impl Store {
     /// organization and its kind, which says what the token reads of it (a board's
     /// cards, a wiki's pages). `None` if it is not shared, is not there, or the token
     /// is not its own. Nothing of the system organization is shared, nothing of a
-    /// workspace or an organization that was deleted, and nothing of an organization
-    /// that turned its public links off.
+    /// workspace or an organization that was deleted, nothing of an organization
+    /// that turned its public links off, and nothing of the space of an account that
+    /// is out of use: one that waits to be deleted has its links closed meanwhile, and
+    /// they open again if it takes the deletion back.
     ///
     /// The tokens are compared without showing through timing where they differ.
     ///
@@ -755,6 +764,7 @@ impl Store {
                     .push_bind(" AND s.enabled = ", true)
                     .push_bind(" AND o.public_links = ", true)
                     .push(IN_USE)
+                    .push(OWNER_IN_USE)
                     .push(&scope.same_organization(&[("s", "b"), ("b", "t")]));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
@@ -921,10 +931,9 @@ pub(crate) async fn oldest_organization(
     scope: &mut Scope<'_>,
 ) -> Result<Option<String>, StoreError> {
     let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-    sql.bind(false)
-        .push_bind(" AND kind = ", OrgKind::Team.as_str())
-        .push_bind(" AND delete_at = ", 0_i64)
-        .push(" ORDER BY create_at, id LIMIT 1");
+    sql.bind(false).push_bind(" AND delete_at = ", 0_i64);
+    of_people(&mut sql, "kind");
+    sql.push(" ORDER BY create_at, id LIMIT 1");
     scope
         .fetch_optional(sql)
         .await?

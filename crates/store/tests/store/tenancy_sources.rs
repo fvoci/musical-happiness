@@ -205,3 +205,40 @@ fn few_tests_connect_as_a_superuser() {
     connecting.sort();
     assert_eq!(connecting, ALLOWED, "the files that connect as a superuser");
 }
+
+/// What leaves the server for an address its operator chose, the webhooks of
+/// `block_change_webhooks`, is posted from one place in the server
+/// (`App::tell_webhooks`), which posts nothing of an account's own space. A second
+/// place that posted would post what the first holds back.
+#[test]
+fn the_operators_webhooks_are_posted_from_one_place() {
+    let server = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crates directory")
+        .join("server/src");
+    let mut files = Vec::new();
+    rust_sources(&server, &mut files);
+    let mut posting = Vec::new();
+    for file in files {
+        let text = std::fs::read_to_string(&file).expect("a source file");
+        let name = file
+            .strip_prefix(&server)
+            .expect("under the server's sources")
+            .to_string_lossy()
+            .replace('\\', "/");
+        for line in text.lines() {
+            let code = line.trim_start();
+            if code.starts_with("//") || code.starts_with("pub async fn notify_update(") {
+                continue;
+            }
+            if code.contains("notify_update(") || code.contains(".webhook") {
+                posting.push(name.clone());
+            }
+        }
+    }
+    assert_eq!(
+        posting,
+        ["app/webhooks.rs"],
+        "the lines that reach the webhook client"
+    );
+}

@@ -610,6 +610,6 @@ async fn announce(app: &App, card_id: &str) {
             .ws()
             .broadcast_block_change(&container.workspace_id, &block)
             .await;
-        app_of_task.webhook().notify_update(&block).await;
+        app_of_task.tell_webhooks(&block).await;
     });
 }

@@ -142,7 +142,7 @@ impl App {
         }
         for block in &created.blocks {
             self.ws().broadcast_block_change(workspace_id, block).await;
-            self.webhook().notify_update(block).await;
+            self.tell_webhooks(block).await;
         }
         for member in members {
             self.ws()
@@ -213,7 +213,7 @@ impl App {
                 .map_or("", |container| container.workspace_id.as_str());
             for block in &broadcast.blocks {
                 app.ws().broadcast_block_change(workspace_id, block).await;
-                app.webhook().notify_update(block).await;
+                app.tell_webhooks(block).await;
             }
             for container in &broadcast.containers {
                 app.ws()

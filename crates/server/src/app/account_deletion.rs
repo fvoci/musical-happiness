@@ -138,6 +138,7 @@ impl App {
             DeletionAsking::Asked(leaving) => {
                 // What the account had open ends with its sessions.
                 self.ws().close_user(&user.id);
+                self.end_readers_of_own_space(&user.id).await;
                 tracing::info!(
                     user_id = %user.id,
                     delete_after = leaving.delete_after,
@@ -151,6 +152,25 @@ impl App {
             DeletionAsking::Changed => Err(AppError::conflict(
                 "the account was changed in the meantime; sign in again",
             )),
+        }
+    }
+
+    /// Ends what connections follow of the boards of the account's own space by a
+    /// public link: the links open nothing while the account waits to be deleted. The
+    /// asking stands whatever becomes of this; a connection that is missed is told
+    /// nothing more once what it was let in by is checked again.
+    async fn end_readers_of_own_space(&self, user_id: &str) {
+        let ended = async {
+            let standing = self.store().account_deletion_standing(user_id).await?;
+            if let Some(own_space) = standing.own_space {
+                self.in_organization(&own_space.id)?
+                    .end_shared_readers(None)
+                    .await?;
+            }
+            Ok::<(), AppError>(())
+        };
+        if let Err(error) = ended.await {
+            tracing::warn!(user_id, %error, "the readers of an own space's links were not ended");
         }
     }
 

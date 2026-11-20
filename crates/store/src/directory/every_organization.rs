@@ -6,7 +6,7 @@
 use fvoci_model::OrgKind;
 
 use super::oldest_organization;
-use crate::db::{Dialect, Id, Scope};
+use crate::db::{Dialect, Id, Scope, Sql};
 use crate::error::StoreError;
 
 /// Runs the one read `read` with the rows of every organization in reach, in the
@@ -73,4 +73,17 @@ pub(crate) async fn organizations_made_by(
         }
     })
     .await
+}
+
+/// Appends the condition that `kind`, the column of an organization's kind, says one
+/// that people work in together. Written into the statement and not bound: the index
+/// of those organizations by age (0051) holds no account's own space, and a database
+/// reads it only for a statement that says the kind itself. For the reads that look
+/// for the oldest of them among however many spaces the accounts have.
+pub(crate) fn of_people(sql: &mut Sql, kind: &str) {
+    sql.push(" AND ")
+        .push(kind)
+        .push(" = '")
+        .push(OrgKind::Team.as_str())
+        .push("'");
 }

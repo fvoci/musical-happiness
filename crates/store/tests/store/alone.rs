@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use fvoci_model::{OrgKind, OrgRole, User, WorkspaceRole, new_id};
 use fvoci_store::{
-    DbType, Founding, OwnSpace, Proof, SIGNUP_LIFETIME_MILLIS, Signup, SignupStart, Started,
-    StartedOrganization, Store, StoreError,
+    DbType, Founding, Joining, NewLink, OwnSpace, Proof, SIGNUP_LIFETIME_MILLIS, Signup,
+    SignupStart, Started, StartedOrganization, Store, StoreError,
 };
 use tokio::sync::Barrier;
 
@@ -411,6 +411,38 @@ async fn the_schema_lets_nobody_but_its_owner_into_a_space() {
         assert!(
             error.contains("the space of an account") || error.contains("invited into the space"),
             "{statement}: {error}"
+        );
+    }
+    // The doors of the store that let people in say the same of a space: no link
+    // into it, no second member, and no administrator who joins it, from its own
+    // organization's handle as from the one the other account works in.
+    let in_space = store.for_org(&org_id).expect("an identifier");
+    let link = NewLink {
+        workspace_id: &workspace_id,
+        guest_of: None,
+        token_hash: "a link into a space",
+        created_by: &owner,
+        now: 0,
+        expires_at: i64::MAX,
+        max_uses: None,
+        mailed: None,
+    };
+    let invited = in_space.create_invitation(&link).await;
+    assert!(invited.is_err(), "a link into a space: {invited:?}");
+    for role in [WorkspaceRole::Member, WorkspaceRole::Guest] {
+        let added = in_space
+            .add_workspace_member(&workspace_id, &other, role)
+            .await;
+        assert!(added.is_err(), "a second member of a space: {added:?}");
+    }
+    for handle in [&in_space, store] {
+        let joined = handle
+            .join_workspace_as_org_admin(&workspace_id, &other)
+            .await
+            .expect("the joining is answered");
+        assert!(
+            matches!(joined, Joining::NoOrgAdmin | Joining::NotFound),
+            "an administrator joins a space: {joined:?}"
         );
     }
     assert_eq!(

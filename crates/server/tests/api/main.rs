@@ -56,6 +56,7 @@ mod fake_search;
 mod fake_smtp;
 mod file_blocks;
 mod files;
+mod first_password;
 mod guests;
 mod hostile_category_ids;
 mod import_authors;

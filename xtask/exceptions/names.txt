@@ -129,6 +129,7 @@ crates/server/tests/api/teams.rs
 crates/server/tests/api/search_isolation.rs | team
 crates/server/tests/api/main.rs | teams
 crates/server/tests/organization_boundary_round2/routes.rs | team
+crates/server/tests/organization_boundary_round2/own_space.rs | team: UNKNOWN_ID
 crates/server/tests/organization_boundary_round2/member_operations.rs | team
 crates/server/tests/organization_boundary_round2/workspace_operations/actions.rs | team
 contracts/openapi.json | team

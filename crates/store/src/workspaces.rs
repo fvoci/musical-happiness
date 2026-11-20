@@ -146,6 +146,29 @@ pub(crate) async fn insert_workspace(
     Ok(())
 }
 
+impl Store {
+    /// Whether the organization this handle works in is the space of one account: what
+    /// is in it is its owner's alone, and is told to nobody else.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoOrganization`] for a handle that names no organization,
+    /// [`StoreError::NotFound`] if the organization is not there, and
+    /// [`StoreError::Corrupt`] if its stored kind is none.
+    pub async fn is_own_space(&self) -> Result<bool, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT kind FROM organizations WHERE id = ");
+            sql.bind(scope.org()?);
+            let row = scope
+                .fetch_optional(sql)
+                .await?
+                .ok_or_else(|| StoreError::not_found("organization"))?;
+            Ok(crate::directory::org_kind(&row, 0)? == OrgKind::Personal)
+        })
+        .await
+    }
+}
+
 /// Stores a new organization that people work in together, under the identifier `org`
 /// and the given name, with `workspace` as its first workspace, which is its default
 /// one. Nobody is a member of either yet.

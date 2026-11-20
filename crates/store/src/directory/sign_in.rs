@@ -1,7 +1,7 @@
 //! The sign-ins under way through an organization's provider, and what a login page
 //! may show of an organization: looked up before a request names its organization.
 
-use fvoci_model::{LoginOrganization, OrgKind};
+use fvoci_model::LoginOrganization;
 
 use crate::Store;
 use crate::db::Id;
@@ -99,9 +99,10 @@ impl Store {
                     "SELECT o.id, o.name, EXISTS (SELECT 1 FROM oidc_providers AS p \
                      WHERE p.org_id = o.id AND p.enabled = ",
                 );
-                sql.bind(true)
-                    .push(") FROM organizations AS o WHERE o.delete_at = 0 AND o.is_system = false")
-                    .push_bind(" AND o.kind = ", OrgKind::Team.as_str());
+                sql.bind(true).push(
+                    ") FROM organizations AS o WHERE o.delete_at = 0 AND o.is_system = false",
+                );
+                super::of_people(&mut sql, "o.kind");
                 if let Some(org_id) = org_id {
                     sql.push_bind(" AND o.id = ", Id(org_id));
                 }

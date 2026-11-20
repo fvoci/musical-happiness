@@ -175,6 +175,9 @@ impl Store {
                 if scope.execute(sql).await? == 0 {
                     return Ok(DeletionAsking::Changed);
                 }
+                // The links of the account's own space open nothing while it waits:
+                // what was checked of a link before is checked again.
+                scope.invalidate_visibility();
                 sessions::delete_sessions_of_user(scope, user_id).await?;
                 password_reset::delete_password_resets_of_user(scope, user_id).await?;
                 Ok(DeletionAsking::Asked(Leaving {
@@ -215,7 +218,12 @@ impl Store {
                 .push_bind(" WHERE id = ", Id(user_id))
                 .push(" AND ")
                 .push(users::WAITS);
-            Ok(scope.execute(sql).await? > 0)
+            let back = scope.execute(sql).await? > 0;
+            if back {
+                // The links of its own space open again.
+                scope.invalidate_visibility();
+            }
+            Ok(back)
         })
         .await
     }
