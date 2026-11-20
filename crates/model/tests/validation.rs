@@ -192,29 +192,44 @@ fn register(username: &str, email: &str, password: &str) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
+/// A registration names the organization it starts, or none: a name that is left out
+/// or blank is no organization, and the account starts with its own space alone. The
+/// first registration of a server starts the server's organization and must name it.
 #[test]
-fn a_registration_names_its_organization() {
-    let named = |organization_name: &str| {
-        RegisterRequest {
-            username: "alice".to_owned(),
-            email: "alice@example.com".to_owned(),
-            password: "12345678".to_owned(),
-            display_name: String::new(),
-            organization_name: organization_name.to_owned(),
-            language: String::new(),
-        }
-        .validate()
-        .map_err(|error| error.to_string())
+fn a_registration_names_its_organization_or_none() {
+    let request = |organization_name: &str| RegisterRequest {
+        username: "alice".to_owned(),
+        email: "alice@example.com".to_owned(),
+        password: "12345678".to_owned(),
+        display_name: String::new(),
+        organization_name: organization_name.to_owned(),
+        language: String::new(),
     };
+    let named = |organization_name: &str| {
+        request(organization_name)
+            .validate()
+            .map_err(|error| error.to_string())
+    };
+    let first = |organization_name: &str| {
+        request(organization_name)
+            .validate_as_first()
+            .map_err(|error| error.to_string())
+    };
+    assert_eq!(first("  우리 팀  "), Ok(()));
+    for none in ["", "   "] {
+        assert_eq!(named(none), Ok(()), "no organization is started");
+        assert_eq!(request(none).organization(), None);
+        assert_eq!(
+            first(none),
+            Err("organization name is required".to_owned()),
+            "the first registration names the server's organization"
+        );
+    }
+    assert!(request("  우리 팀  ").organization().is_some());
     assert_eq!(named("  우리 팀  "), Ok(()));
     assert_eq!(
         fvoci_model::organization_name("  우리 팀  "),
         Ok("우리 팀".to_owned())
-    );
-    assert_eq!(named(""), Err("organization name is required".to_owned()));
-    assert_eq!(
-        named("   "),
-        Err("organization name is required".to_owned())
     );
     assert_eq!(named(&"가".repeat(64)), Ok(()));
     assert_eq!(
@@ -225,9 +240,11 @@ fn a_registration_names_its_organization() {
         named("a\u{202E}b").is_err(),
         "nothing that turns the text around"
     );
-    // Every member that is refused is named, the organization after the account.
+    // Every member that is refused is named, the organization after the account: of
+    // a first registration the missing organization with the rest, of any other the
+    // rest alone.
     let all = RegisterRequest::default()
-        .validate()
+        .validate_as_first()
         .expect_err("nothing is there");
     let details: Vec<&str> = all.iter().map(|refusal| refusal.detail.as_str()).collect();
     assert_eq!(
@@ -237,6 +254,21 @@ fn a_registration_names_its_organization() {
             "email is required",
             "password is required",
             "organization name is required"
+        ]
+    );
+    let later = RegisterRequest::default()
+        .validate()
+        .expect_err("nothing is there");
+    let details: Vec<&str> = later
+        .iter()
+        .map(|refusal| refusal.detail.as_str())
+        .collect();
+    assert_eq!(
+        details,
+        [
+            "username is required",
+            "email is required",
+            "password is required"
         ]
     );
 }

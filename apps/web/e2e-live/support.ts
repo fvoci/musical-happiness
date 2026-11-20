@@ -401,7 +401,8 @@ export async function operator(baseURL: string, command: string): Promise<number
 }
 
 /**
- * Makes `who` a member of a new workspace of their organization, as its
+ * Makes `who` a member of a new workspace of the organization they work in with
+ * others (not of their own space, which has one workspace and nobody else), as its
  * administrator, and returns its identifier. It is written into the server's
  * database (`tools/live-server.ts` says where that is), as the server would,
  * under a name that begins with `name`: each name in use in an organization
@@ -416,7 +417,8 @@ export function addWorkspace(baseURL: string, who: Person, name: string): string
     const home = database
       .prepare(
         'SELECT w.org_id, w.settings FROM workspaces AS w JOIN workspace_members AS m ' +
-          'ON m.workspace_id = w.id WHERE m.user_id = ? AND NOT w.is_system LIMIT 1',
+          'ON m.workspace_id = w.id JOIN organizations AS o ON o.id = w.org_id ' +
+          'WHERE m.user_id = ? AND NOT w.is_system AND o.owner_id IS NULL LIMIT 1',
       )
       .get(user.id) as { org_id: string; settings: string } | undefined;
     if (!home) throw new Error(`${who.username} works in no workspace`);

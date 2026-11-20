@@ -473,7 +473,7 @@ async fn no_invitation_names_a_space_by_any_of_its_keys() {
         )
     };
     let update = |set: &str| format!("UPDATE invitations SET {set} WHERE id = '{}'", link.id);
-    let (team, team_workspace) = (&test.org_id, &test.workspace_id);
+    let (shared, shared_workspace) = (&test.org_id, &test.workspace_id);
     let board = &board.id;
     // Each statement names the space by one thing alone, so that each part of the
     // triggers refuses one of its own. Where PostgreSQL's keys of the organization
@@ -481,12 +481,15 @@ async fn no_invitation_names_a_space_by_any_of_its_keys() {
     // the refusal is the key's.
     let statements = [
         (
-            insert(&org_id, team_workspace, None, "by the organization"),
+            insert(&org_id, shared_workspace, None, "by the organization"),
             false,
         ),
-        (insert(team, &workspace_id, None, "by the workspace"), true),
         (
-            insert(team, team_workspace, Some(board), "by the board"),
+            insert(shared, &workspace_id, None, "by the workspace"),
+            true,
+        ),
+        (
+            insert(shared, shared_workspace, Some(board), "by the board"),
             true,
         ),
         (update(&format!("org_id = '{org_id}'")), false),
