@@ -132,11 +132,13 @@ fn hold(count: u32, spared: u32) -> Option<Duration> {
 
 #[cfg(test)]
 mod tests {
-    use uuid::Uuid;
-
     use super::*;
 
-    const ONE: Tenant = Tenant::Org(Uuid::from_u128(1));
+    /// The holds are kept by tenant whatever it is: two that are no organization stand
+    /// for two organizations here. Naming an organization is for the few files that
+    /// make a store handle of one (the store's
+    /// `the_server_names_an_organization_for_a_handle_in_few_places`).
+    const ONE: Tenant = Tenant::System;
 
     #[test]
     fn a_sender_is_held_for_longer_each_time_up_to_the_longest() {
@@ -201,7 +203,7 @@ mod tests {
             "everyone is"
         );
         assert_eq!(senders.held_until(ONE, "", now), Some(now + FIRST_HOLD));
-        let other = Tenant::Org(Uuid::from_u128(2));
+        let other = Tenant::Unset;
         assert_eq!(
             senders.held_until(other, "cat", now),
             None,
