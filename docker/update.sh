@@ -45,11 +45,9 @@ check_shared_options
 # The new files and .env, before anything changes: compose reads the variable of an
 # environment secret only when it starts the service, so `config` passes a .env that
 # lacks one, and `up` would stop half-way.
-config=$(checked_config)
-needed=$(printf '%s\n' "$config" | awk '
+needed=$(printf '%s\n' "$installation" | awk '
     /^[^ ]/ { secrets = ($1 == "secrets:") }
     secrets && $1 == "environment:" { print $2 }')
-unset config
 # The variables compose sees (.env and the shell's), names only: the values are
 # printed nowhere.
 defined=$(compose config --environment) ||

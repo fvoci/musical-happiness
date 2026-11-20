@@ -20,6 +20,7 @@ mod checks;
 mod freshness;
 mod images;
 mod mail;
+mod pasted;
 mod scenario;
 mod tunnel;
 
@@ -350,6 +351,10 @@ fn try_installation(trial: &Trial, directory: &Path) -> Result<()> {
             steps::Step::new("the profile tunnel, and nothing of it without", || {
                 tunnel::profile(trial)
             }),
+            steps::Step::new(
+                "lines pasted wrong in the .env: each script stops, hiding them",
+                || pasted::refused_hidden(trial, directory),
+            ),
             // Last: it takes the volumes away and makes the installation anew.
             steps::Step::new("back up, take the volumes away, restore, update", || {
                 backup::round_trip(trial, directory)

@@ -429,6 +429,10 @@ impl<'a> Fake<'a> {
                 &label,
                 "--user",
                 "65534:65534",
+                // Over the image's volume, which `docker rm` would otherwise leave as an
+                // anonymous volume of no project.
+                "--mount",
+                "type=tmpfs,destination=/var/lib/postgresql",
                 "--entrypoint",
                 "perl",
                 "postgres:18",
@@ -441,6 +445,21 @@ impl<'a> Fake<'a> {
             started.succeeded,
             "the fake provider did not start: {}",
             started.error
+        );
+        let mounts = capture(
+            "docker",
+            &[
+                "inspect",
+                "--format",
+                "{{range .Mounts}}{{.Type}} {{end}}",
+                &fake.name,
+            ],
+        )?;
+        ensure!(
+            mounts.succeeded && !mounts.output.contains("volume"),
+            "the fake provider has a volume, which its removal would leave: {} {}",
+            mounts.output,
+            mounts.error
         );
         let since = Instant::now();
         loop {
@@ -490,7 +509,7 @@ fn fake_name(trial: &Trial) -> String {
 ///
 /// Fails if a container of the trial's fake provider is left.
 pub(super) fn remove_fake(trial: &Trial) -> Result<()> {
-    let _ = capture("docker", &["rm", "--force", &fake_name(trial)]);
+    let _ = capture("docker", &["rm", "--force", "--volumes", &fake_name(trial)]);
     let label = format!("label={FAKE_LABEL}={}", trial.project);
     let left = capture(
         "docker",

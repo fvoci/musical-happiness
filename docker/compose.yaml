@@ -89,9 +89,12 @@
 # COMPOSE_PROJECT_NAME), the compose files (-f, repeated for an override; this one
 # unless named), the .env (--env-file; the one beside the first file) and the profiles
 # (--profile, repeated; or COMPOSE_PROFILES in the .env, which plain compose commands
-# read too). What compose says of its files and .env they show with what it quotes
-# hidden (a value pasted wrong may be a secret). update.sh refuses a running service
-# that compose does not see (its profile off, or gone from the new files); with
+# read too). They stop, changing nothing, when compose refuses the files and .env or
+# warns of them (a `$` in a value is a variable to compose: `$$` is one `$`, or quote
+# the value in single quotes), and show what it said without what it quotes, which may
+# be a secret pasted wrong: a line number and its words for what they know, a count
+# for the rest (`docker compose config -q` shows them). update.sh refuses a running
+# service that compose does not see (its profile off, or gone from the new files); with
 # cloudflared they warn when the range of edge, which `down` may change, is not trusted.
 #   docker/backup.sh [--dir ~/fvoci-backups] [--keep-days 14]
 #     while fvoci runs or not: the database (pg_dump -Fc), the files of the volume (not
@@ -102,7 +105,8 @@
 #   docker/restore.sh <backup folder>
 #     into new volumes only (docker compose down, then remove the project's volumes
 #     postgres-data and fvoci-data): a container of fvoci, a database with a table, a
-#     volume with a file or an .env whose FVOCI_SECRET_KEY is not the backup's is
+#     volume with a file or an .env whose FVOCI_SECRET_KEY is not the backup's (each
+#     .env read as compose reads it, the shell's key winning over the one given) is
 #     refused, nothing changed. Then `up` (migrate brings an older backup's schema up),
 #     the search index made anew and the files compared with the records, on the admin
 #     socket.

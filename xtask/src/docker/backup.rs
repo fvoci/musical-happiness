@@ -53,12 +53,12 @@ pub(super) fn round_trip(trial: &Trial, directory: &Path) -> Result<()> {
         "the upload is not in the volume: {files}"
     );
 
-    hides_a_key_pasted_wrong(trial, directory)?;
     let made = run_script(trial, "backup.sh", &["--dir", &backups.to_string_lossy()])?;
     let backup = only_backup(&backups)?;
     check_private(&backups, &backup, trial)?;
     say(&format!("    {}", last_said(&made, "backup")));
     backs_up_no_files_from_s3(trial, directory)?;
+    reads_the_key_as_compose_does(trial, directory)?;
     refuses_a_full_installation(trial, directory, &backup, &rows)?;
 
     take_volumes_away(trial)?;
@@ -163,6 +163,106 @@ fn refuses_a_full_installation(
     Ok(())
 }
 
+/// A backup whose `.env` writes `FVOCI_SECRET_KEY` some way, given to `restore.sh`.
+struct KeyCase {
+    what: &'static str,
+    /// The lines of the backup's `.env` in place of the trial's key's line.
+    backup: String,
+    /// The lines of the `.env` given in place of the trial's key's line; the trial's
+    /// `.env` when `None`.
+    given: Option<String>,
+    /// `FVOCI_SECRET_KEY` of the environment, which wins over the `.env` given.
+    shell: Option<String>,
+    /// What `restore.sh` must refuse saying.
+    refusal: &'static str,
+}
+
+/// `restore.sh` reads the backup's `FVOCI_SECRET_KEY` as compose reads an `.env`: a key
+/// written through a variable is the same key; a `$` that compose reads as a variable
+/// makes another key, though the backup's text is the value of the `.env` given; and
+/// the environment's key, which compose gives fvoci over the `.env`'s, is compared with
+/// the backup's own. Each backup is a folder of empty files and an `env`: the key is
+/// compared before they are read, and the same key is refused next for fvoci's
+/// container.
+fn reads_the_key_as_compose_does(trial: &Trial, directory: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
+    let key = text
+        .lines()
+        .find_map(|line| line.strip_prefix("FVOCI_SECRET_KEY="))
+        .context("the trial's .env has no FVOCI_SECRET_KEY")?;
+    let other = super::base64(&super::random::<32>()?);
+    let with = |lines: &str| -> String {
+        text.lines()
+            .filter(|line| !line.starts_with("FVOCI_SECRET_KEY="))
+            .chain(lines.lines())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let (same, another) = (
+        "fvoci has a container",
+        "FVOCI_SECRET_KEY is not the backup's",
+    );
+    let cases = [
+        KeyCase {
+            what: "the backup's key through a variable",
+            backup: format!("FVOCI_KEY_PART={key}\nFVOCI_SECRET_KEY=${{FVOCI_KEY_PART}}"),
+            given: None,
+            shell: None,
+            refusal: same,
+        },
+        KeyCase {
+            what: "a $ in the backup's key, written in quotes in the .env given",
+            backup: format!("FVOCI_SECRET_KEY={key}$FVOCI_KEY_TAIL"),
+            given: Some(format!("FVOCI_SECRET_KEY='{key}$FVOCI_KEY_TAIL'")),
+            shell: None,
+            refusal: another,
+        },
+        KeyCase {
+            what: "another key in the environment",
+            backup: format!("FVOCI_SECRET_KEY={key}"),
+            given: None,
+            shell: Some(other.clone()),
+            refusal: another,
+        },
+    ];
+    let given_env = directory.join("key-given.env");
+    for (at, case) in cases.iter().enumerate() {
+        let backup = folder(directory).join(format!("key-{at}"));
+        std::fs::create_dir_all(&backup).context("making a backup's folder")?;
+        for empty in ["db.dump", "files.tar"] {
+            std::fs::write(backup.join(empty), "").context("writing a backup's file")?;
+        }
+        super::write_private(&backup.join("env"), &with(&case.backup))?;
+        let (backup_text, given_text) = (backup.to_string_lossy(), given_env.to_string_lossy());
+        let mut arguments = vec![backup_text.as_ref()];
+        if let Some(lines) = &case.given {
+            super::write_private(&given_env, &with(lines))?;
+            arguments.extend(["--env-file", given_text.as_ref()]);
+        }
+        let mut command = trial.script("restore.sh", &arguments);
+        if let Some(shell) = &case.shell {
+            command.env("FVOCI_SECRET_KEY", shell);
+        }
+        let outcome = script_output(command, "restore.sh");
+        let _ = std::fs::remove_file(&given_env);
+        let _ = std::fs::remove_dir_all(&backup);
+        let (succeeded, said) = outcome?;
+        no_secret_in(trial, "restore.sh", &said)?;
+        ensure!(
+            !said.contains(&other),
+            "restore.sh wrote the environment's key"
+        );
+        ensure!(
+            !succeeded && said.contains(case.refusal) && said.contains("Nothing was changed"),
+            "restore.sh with {} did not refuse saying \"{}\": {said}",
+            case.what,
+            case.refusal
+        );
+    }
+    say("    restore.sh reads a backup's key as compose does (a variable, a $, the environment's)");
+    Ok(())
+}
+
 /// On new volumes, `restore.sh` refuses a files' volume that holds a file; the volumes
 /// are taken away again.
 fn refuses_a_volume_with_files(trial: &Trial, backup: &Path) -> Result<()> {
@@ -195,64 +295,6 @@ fn refuses_a_volume_with_files(trial: &Trial, backup: &Path) -> Result<()> {
     );
     take_volumes_away(trial)?;
     say("    restore.sh refuses a files' volume that holds a file");
-    Ok(())
-}
-
-/// `backup.sh`, `update.sh` and `restore.sh` with an `.env` holding a line pasted wrong,
-/// which compose refuses quoting it: a key's line as a line of its own, a quote never
-/// closed (with an escaped quote inside), a single quote never closed. Each fails
-/// without showing what was pasted or a secret of the trial.
-fn hides_a_key_pasted_wrong(trial: &Trial, directory: &Path) -> Result<()> {
-    let secret = || -> Result<String> { Ok(super::hex(&super::random::<16>()?)) };
-    let (key, before, after, single) = (secret()?, secret()?, secret()?, secret()?);
-    let pasted = [
-        ("a key's line", format!("MIIEvQ+{key}="), vec![key]),
-        (
-            "a quote never closed",
-            format!("FVOCI_PASTED=\"{before}\\\"{after}"),
-            vec![before, after],
-        ),
-        (
-            "a single quote never closed",
-            format!("FVOCI_PASTED='{single}"),
-            vec![single],
-        ),
-    ];
-    let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
-    let env = directory.join("pasted-wrong.env");
-    let env_text = env.to_string_lossy();
-    let backups = folder(directory).join("pasted-wrong");
-    let backups_text = backups.to_string_lossy();
-    // restore.sh reads compose's files once it sees a dump in the folder.
-    let fake_backup = folder(directory).join("pasted-wrong-backup");
-    std::fs::create_dir_all(&fake_backup).context("making a folder with a dump")?;
-    std::fs::write(fake_backup.join("db.dump"), "").context("writing an empty dump")?;
-    let fake_backup_text = fake_backup.to_string_lossy();
-    let runs: [(&str, &[&str]); 3] = [
-        ("backup.sh", &["--dir", &backups_text]),
-        ("update.sh", &["--no-pull", "--dir", &backups_text]),
-        ("restore.sh", &[&fake_backup_text]),
-    ];
-    let outcome = pasted.iter().try_for_each(|(what, line, secrets)| {
-        super::write_private(&env, &format!("{text}\n{line}\n"))?;
-        runs.iter().try_for_each(|(name, own)| {
-            let arguments = [&["--env-file", env_text.as_ref()][..], own].concat();
-            let (succeeded, said) = script_output(trial.script(name, &arguments), name)?;
-            no_secret_in(trial, name, &said)?;
-            let shown = secrets.iter().any(|secret| said.contains(secret.as_str()));
-            ensure!(
-                !succeeded && said.contains("its quoted words hidden") && !shown,
-                "{name} with {what} in the .env did not fail hiding it: {}",
-                secrets.iter().fold(said, |said, secret| said
-                    .replace(secret.as_str(), "<pasted>"))
-            );
-            Ok(())
-        })
-    });
-    let _ = std::fs::remove_file(&env);
-    let _ = std::fs::remove_dir_all(&fake_backup);
-    outcome?;
-    say("    lines pasted wrong in the .env (a key's, quotes never closed): refused, hidden");
     Ok(())
 }
 
@@ -399,7 +441,7 @@ fn run_script(trial: &Trial, name: &str, arguments: &[&str]) -> Result<String> {
 }
 
 /// What a script wrote, both streams, and whether it succeeded.
-fn script_output(mut command: Command, name: &str) -> Result<(bool, String)> {
+pub(super) fn script_output(mut command: Command, name: &str) -> Result<(bool, String)> {
     let output = command
         .output()
         .with_context(|| format!("starting {name}"))?;
@@ -407,7 +449,7 @@ fn script_output(mut command: Command, name: &str) -> Result<(bool, String)> {
     Ok((output.status.success(), said.into_owned()))
 }
 
-fn no_secret_in(trial: &Trial, what: &str, text: &str) -> Result<()> {
+pub(super) fn no_secret_in(trial: &Trial, what: &str, text: &str) -> Result<()> {
     if trial
         .secrets
         .iter()
@@ -550,19 +592,7 @@ fn refuses_a_lacking_env(trial: &Trial, directory: &Path) -> Result<()> {
 /// `update.sh` while a service of a profile runs (mailpit, of `mail`) and the profile is
 /// not given: it refuses, naming the service, before anything changes.
 fn refuses_a_profile_off(trial: &Trial, directory: &Path) -> Result<()> {
-    let profiled = ["--profile", "mail"];
-    let started = trial.compose(
-        &[
-            &profiled[..],
-            &["up", "--detach", "--no-deps", "--wait", "mailpit"],
-        ]
-        .concat(),
-    )?;
-    ensure!(
-        started.succeeded,
-        "mailpit did not start: {}",
-        started.error
-    );
+    let mailpit = Mailpit::start(trial)?;
     let before = fvoci_started(trial)?;
     let refused = script_output(
         trial.script(
@@ -575,7 +605,7 @@ fn refuses_a_profile_off(trial: &Trial, directory: &Path) -> Result<()> {
         ),
         "update.sh",
     );
-    let removed = trial.compose(&[&profiled[..], &["rm", "--stop", "--force", "mailpit"]].concat());
+    mailpit.remove()?;
     let (succeeded, said) = refused?;
     no_secret_in(trial, "update.sh", &said)?;
     ensure!(
@@ -588,18 +618,73 @@ fn refuses_a_profile_off(trial: &Trial, directory: &Path) -> Result<()> {
         fvoci_started(trial)? == before,
         "update.sh refused but fvoci was made or started anew"
     );
-    let removed = removed?;
+    say("    update.sh refuses while mailpit runs with its profile off, and leaves fvoci running");
+    Ok(())
+}
+
+/// mailpit of the profile `mail`, started for one check and removed whatever happens
+/// after its start began: left running, it would make every later `update.sh` refuse.
+struct Mailpit<'a> {
+    trial: &'a Trial,
+    removed: bool,
+}
+
+impl<'a> Mailpit<'a> {
+    const PROFILE: [&'static str; 2] = ["--profile", "mail"];
+
+    fn start(trial: &'a Trial) -> Result<Self> {
+        // Made first: a start that fails may have made the container.
+        let mailpit = Mailpit {
+            trial,
+            removed: false,
+        };
+        let up = ["up", "--detach", "--no-deps", "--wait", "mailpit"];
+        let started = trial.compose(&[&Self::PROFILE[..], &up].concat())?;
+        ensure!(
+            started.succeeded,
+            "mailpit did not start: {}",
+            started.error
+        );
+        Ok(mailpit)
+    }
+
+    /// Removes the container with its volumes, and fails if one of mailpit is left.
+    fn remove(mut self) -> Result<()> {
+        self.removed = true;
+        remove_mailpit(self.trial)
+    }
+}
+
+impl Drop for Mailpit<'_> {
+    fn drop(&mut self) {
+        if !self.removed {
+            // One that stays is found by the take-down's look for leftovers.
+            let _ = remove_mailpit(self.trial);
+        }
+    }
+}
+
+fn remove_mailpit(trial: &Trial) -> Result<()> {
+    let rm = ["rm", "--stop", "--force", "--volumes", "mailpit"];
+    let removed = trial.compose(&[&Mailpit::PROFILE[..], &rm].concat())?;
     ensure!(
         removed.succeeded,
         "mailpit was not removed: {}",
         removed.error
     );
-    say("    update.sh refuses while mailpit runs with its profile off, and leaves fvoci running");
+    let ps = ["ps", "--all", "--quiet", "mailpit"];
+    let left = trial.compose(&[&Mailpit::PROFILE[..], &ps].concat())?;
+    ensure!(
+        left.succeeded && left.output.is_empty(),
+        "mailpit's container is left: {} {}",
+        left.output,
+        left.error
+    );
     Ok(())
 }
 
 /// fvoci's container and when it started.
-fn fvoci_started(trial: &Trial) -> Result<String> {
+pub(super) fn fvoci_started(trial: &Trial) -> Result<String> {
     let container = trial.compose(&["ps", "--quiet", "fvoci"])?;
     ensure!(
         container.succeeded && !container.output.is_empty(),

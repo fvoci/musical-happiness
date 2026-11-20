@@ -43,14 +43,24 @@ elif [ -f "$backup/files.tar" ]; then
     say "the files of $backup/files.tar are not restored: this installation keeps its files in S3"
 fi
 # The key that seals the sign-in providers' secrets must be the backup's, or they do
-# not open: the backup's .env against the value compose gives fvoci (the shell's wins
-# over the .env's). Compared here, printed nowhere.
+# not open. Both are read as compose reads an .env (quotes, escapes, a $ and the
+# variables it names): the value compose gives fvoci now (the shell's wins over the
+# .env's), against the backup's .env read alone (the shell's FVOCI_SECRET_KEY left
+# out, which would win over it too). Compared here, printed nowhere.
 current_key=$(compose config --environment) ||
     fail "compose cannot list the variables it sees (config --environment needs a newer compose). Nothing was changed"
-current_key=$(printf '%s\n' "$current_key" | sed -n 's/^FVOCI_SECRET_KEY=//p' | tail -n 1)
-if [ -f "$backup/env" ] &&
-    grep -q '^[[:space:]]*\(export[[:space:]][[:space:]]*\)\{0,1\}FVOCI_SECRET_KEY[[:space:]]*=' "$backup/env"; then
-    backup_key=$(env_value "$backup/env" FVOCI_SECRET_KEY)
+current_key=$(printf '%s\n' "$current_key" | listed_key) || current_key=""
+backup_key=""
+if [ -f "$backup/env" ]; then
+    # What compose says of the backup's .env is not shown (it may quote a secret); a
+    # warning (a $ read as a variable not set) is how compose read it then too.
+    backup_key=$(
+        unset FVOCI_SECRET_KEY
+        docker compose --env-file "$backup/env" config --environment 2>/dev/null
+    ) || fail "compose cannot read $backup/env (docker compose --env-file $backup/env config -q says why, quoting it). Nothing was changed"
+    backup_key=$(printf '%s\n' "$backup_key" | listed_key) || backup_key=""
+fi
+if [ -n "$backup_key" ]; then
     [ "$backup_key" = "$current_key" ] ||
         fail "FVOCI_SECRET_KEY is not the backup's ($backup/env has it): the sign-in providers' secrets would not open. Nothing was changed"
 else

@@ -33,7 +33,8 @@ shared_option() {
     esac
 }
 
-# Checks the shared options once they are read, and fixes compose's files.
+# Checks the shared options once they are read, fixes compose's files, and reads them
+# with the .env through checked_config before compose is asked anything else.
 check_shared_options() {
     case $keep_days in
     '' | *[!0-9]*) fail "--keep-days takes a number of days (0 keeps every backup)" ;;
@@ -44,16 +45,14 @@ check_shared_options() {
     first_file=${compose_files%%:*}
     [ -n "$env_file" ] || env_file="$(dirname -- "$first_file")/.env"
     [ -r "$env_file" ] || fail "$env_file cannot be read (give --env-file)"
-    # The project as compose names it: -p, the environment's, the .env's, or fvoci.
-    if [ -z "$project" ]; then
-        project=${COMPOSE_PROJECT_NAME:-$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$env_file" | tail -n 1)}
-        project=${project:-fvoci}
+    if [ -n "$project" ]; then
+        case $project in
+        *[!a-z0-9_-]* | [_-]*) fail "the project name \"$project\" is not one compose takes" ;;
+        esac
+        COMPOSE_PROJECT_NAME=$project
+        export COMPOSE_PROJECT_NAME
     fi
-    case $project in
-    '' | *[!a-z0-9_-]* | [_-]*) fail "the project name \"$project\" is not one compose takes" ;;
-    esac
     COMPOSE_FILE=$compose_files
-    COMPOSE_PROJECT_NAME=$project
     # --profile, else COMPOSE_PROFILES of the environment or the .env, as compose reads.
     if [ -n "$profiles" ]; then
         COMPOSE_PROFILES=$profiles
@@ -62,7 +61,18 @@ check_shared_options() {
     # compose's own separator of COMPOSE_FILE is ':' here: a file whose name holds one
     # cannot be given.
     COMPOSE_PATH_SEPARATOR=:
-    export COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PATH_SEPARATOR
+    export COMPOSE_FILE COMPOSE_PATH_SEPARATOR
+    installation=$(checked_config --format yaml) || exit 1
+    # Without -p, the project as compose names it: COMPOSE_PROJECT_NAME of the
+    # environment or the .env, else the files' name.
+    if [ -z "$project" ]; then
+        project=$(printf '%s\n' "$installation" | sed -n 's/^name: //p' | head -n 1)
+        case $project in
+        '' | *[!a-z0-9_-]*) fail "compose names no project this script can use" ;;
+        esac
+        COMPOSE_PROJECT_NAME=$project
+        export COMPOSE_PROJECT_NAME
+    fi
 }
 
 compose() { docker compose --env-file "$env_file" "$@"; }
@@ -85,45 +95,80 @@ running() {
     [ -n "$containers" ]
 }
 
-# Prints `compose config "$@"`. What compose says besides (a warning, or why it refuses
-# its files or .env) is shown with what it quotes hidden: a pair of quotes with what is
-# between them (Go's escapes too), and from a quote never closed to the end of its line.
-# What it quotes of a value pasted wrong (a key's lines) may be secret.
+# Prints `compose config "$@"`, if compose says nothing besides. What it says besides
+# (why it refuses its files or .env, or a warning) is shown as compose_said shows it,
+# and stops the script: compose reads the files and .env anew at each call and would
+# say it again, unhidden, at every later one (`ps`, `pull`, `up`...). A warning is no
+# less a stop: the commonest, a variable not set, is a `$` in a value of the .env,
+# which compose reads as the start of a variable (and gives the services a value
+# other than the one written).
 checked_config() {
-    complaint=$(mktemp)
+    # What compose says besides is kept in memory, never in a file: it may quote a secret.
     refused=no
-    compose config "$@" 2>"$complaint" || refused=yes
-    quotes_hidden <"$complaint" >&2
-    rm -f -- "$complaint"
-    [ "$refused" = no ] ||
-        fail "compose refuses its files or .env (above, its quoted words hidden). Nothing was changed"
+    complaint=$(compose config "$@" 2>&1 >/dev/null) || refused=yes
+    if [ "$refused" = yes ] || [ -n "$complaint" ]; then
+        printf '%s\n' "$complaint" | compose_said >&2
+        unset complaint
+        [ "$refused" = no ] ||
+            fail "compose refuses its files or .env (above, without what it quotes of them). Nothing was changed"
+        fail "compose warns of its files or .env (above, without what it quotes of them). A \$ in a value of the .env starts a variable: write \$\$ for one, or put the value in single quotes. Nothing was changed"
+    fi
+    # The same files and .env, which compose has just read without a word.
+    compose config "$@" 2>/dev/null ||
+        fail "compose read its files or .env once and not twice: were they changed meanwhile? Nothing was changed"
 }
 
-quotes_hidden() {
-    sed -E -e 's/"([^"\\]|\\.)*"/<hidden>/g' -e "s/'[^']*'/<hidden>/g" -e "s/[\"'].*/<hidden>/"
+# What compose wrote on stderr, read on stdin, as lines it is known to write with
+# everything taken from the files or .env left out: a line number at most. Any other
+# line is counted, not shown: what compose quotes of a value pasted wrong (a key's
+# lines, a quote never closed, a ${...} whose message is the value) may be a secret.
+compose_said() {
+    awk '
+        function said(text) { if (!(text in shown)) { shown[text] = 1; print "compose: " text } }
+        /^[ \t]*$/ { next }
+        match($0, /^failed to read [^:]*: line [0-9]+: /) {
+            rest = substr($0, RLENGTH + 1)
+            line = substr($0, 1, RLENGTH - 2)
+            sub(/^.*: /, "", line)
+            if (rest ~ /^unterminated quoted value /) { said(line ": unterminated quoted value <hidden>"); next }
+            if (rest ~ /^unexpected character /) { said(line ": unexpected character <hidden> in variable name <hidden>"); next }
+            if (rest == "key cannot contain a space") { said(line ": key cannot contain a space"); next }
+        }
+        /^failed to read [^:]*: Invalid template: / { said("Invalid template: <hidden>"); next }
+        /^failed to read [^:]*: required variable / { said("required variable <hidden> is missing a value"); next }
+        /^invalid project name ".*": must consist only of lowercase alphanumeric characters, hyphens, and underscores as well as start with a letter or number$/ {
+            said("invalid project name <hidden>: lowercase letters, digits, - and _, starting with a letter or digit"); next
+        }
+        /^time="[^"]*" level=warning msg="The \\"[A-Za-z0-9_]*\\" variable is not set\. Defaulting to a blank string\."$/ ||
+        /^WARN\[[0-9]*\] The "[A-Za-z0-9_]*" variable is not set\. Defaulting to a blank string\.$/ {
+            said("warning: The <hidden> variable is not set. Defaulting to a blank string."); next
+        }
+        { hidden++ }
+        END {
+            if (hidden) print "compose: " hidden " line(s) hidden: they may quote a value of the .env (docker compose config -q shows them as compose writes them)"
+        }'
 }
 
 # A setting of the service fvoci as compose reads its files and .env: "image", or a
 # variable of its environment. Empty when it has none.
 fvoci_setting() {
-    config=$(checked_config --format yaml) || exit 1
-    printf '%s\n' "$config" | awk -v key="$1:" '
+    printf '%s\n' "$installation" | awk -v key="$1:" '
         /^[^ ]/ { top = $1 }
         /^  [^ ]/ { service = $1 }
         top == "services:" && service == "fvoci:" && $1 == key {
             value = $0; sub(/^[^:]*:[ ]*/, "", value); gsub(/["\047]/, "", value)
             print value; exit
         }'
-    unset config
 }
 
-# The value the .env file "$1" gives the variable "$2", as compose reads a line of one
-# (the last line of it; `export`, the spaces around, the quotes, and a comment after
-# them or after a space taken off). Empty when it has none.
-env_value() {
-    sed -n "s/^[[:space:]]*\(export[[:space:]][[:space:]]*\)\{0,1\}$2[[:space:]]*=[[:space:]]*//p" "$1" |
-        tail -n 1 | sed -e 's/^"\([^"]*\)".*/\1/;t' -e "s/^'\([^']*\)'.*/\1/;t" \
-        -e 's/[[:space:]]#.*//' -e 's/[[:space:]]*$//'
+# FVOCI_SECRET_KEY in a listing of `compose config --environment` read on stdin, as
+# FVOCI_SECRET_KEY=<value>, with the lines of a value that holds line ends. Fails,
+# printing nothing, when it is not set.
+listed_key() {
+    awk '/^[A-Za-z_][A-Za-z0-9_]*=/ { inside = 0 }
+        /^FVOCI_SECRET_KEY=/ { inside = 1; found = 1 }
+        inside { print }
+        END { exit !found }'
 }
 
 # Warns when the project runs cloudflared and the range of its network edge is not
