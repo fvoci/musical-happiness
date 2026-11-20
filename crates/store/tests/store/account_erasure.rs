@@ -1429,7 +1429,7 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
     assert_eq!(goes[0].id, alone, "{standing:?}");
     assert!(stays.is_empty(), "{standing:?}");
     let counted = alone_store
-        .leaving_organization(goes[0].clone(), fvoci_model::OrgKind::Team)
+        .leaving_organization(goes[0].clone())
         .await
         .expect("counted");
     assert_eq!(

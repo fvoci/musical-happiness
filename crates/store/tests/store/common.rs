@@ -170,6 +170,14 @@ pub(crate) async fn own_space_shape(system: &Store, user_id: &str) -> [Vec<Strin
     shape
 }
 
+/// The tables an account's own space has a row in when it is made, one in each.
+pub(crate) const OWN_SPACE_TABLES: [&str; 4] = [
+    "organizations",
+    "workspaces",
+    "organization_members",
+    "workspace_members",
+];
+
 /// How many rows of a table of PostgreSQL are of the accounts' own spaces: every
 /// table behind the wall names its organization.
 pub(crate) async fn rows_of_own_spaces(store: &Store, table: &str) -> i64 {

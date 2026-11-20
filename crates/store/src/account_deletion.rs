@@ -82,20 +82,26 @@ impl Store {
             .await
     }
 
-    /// How much is in the handle's organization, of the `kind`, which goes with its
-    /// only member: the boards and the wikis of its workspaces in use (templates not
-    /// counted), and the files they hold.
+    /// How much is in the handle's organization, which goes with its only member, and
+    /// what kind it is of: the boards and the wikis of its workspaces in use (templates
+    /// not counted), and the files they hold.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NoOrganization`] if the handle names none, and
+    /// Returns [`StoreError::NoOrganization`] if the handle names none,
+    /// [`StoreError::NotFound`] if its organization is not there, and
     /// [`StoreError::Database`] if a query fails.
     pub async fn leaving_organization(
         &self,
         organization: OrganizationName,
-        kind: OrgKind,
     ) -> Result<LeavingOrganization, StoreError> {
         self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT kind FROM organizations WHERE id = ");
+            sql.bind(scope.org()?);
+            let kind = match scope.fetch_optional(sql).await? {
+                Some(row) => directory::org_kind(&row, 0)?,
+                None => return Err(StoreError::not_found("organization")),
+            };
             let (mut boards, mut wikis) = (0, 0);
             let mut sql = scope.sql(
                 "SELECT c.kind, CAST(COUNT(*) AS BIGINT) FROM containers AS c \

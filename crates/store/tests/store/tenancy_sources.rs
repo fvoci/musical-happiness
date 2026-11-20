@@ -82,6 +82,33 @@ fn the_systems_reach_is_asked_for_in_few_places() {
     assert_eq!(asking, allowed, "the files that ask for the system's reach");
 }
 
+/// A transaction's wall is moved to another organization in one place: where an
+/// account's own space is stored with the account, under an identifier made there.
+/// Anywhere else, moving it would put rows into an organization the request did not
+/// name, or read them from it.
+#[test]
+fn the_wall_of_a_transaction_is_moved_in_one_place() {
+    let store = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    rust_sources(&store, &mut files);
+    let mut moving = Vec::new();
+    for file in files {
+        let text = std::fs::read_to_string(&file).expect("a source file");
+        let moves = text
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .any(|line| line.contains("in_new_organization(") || line.contains("ORG_SETTING"));
+        if moves {
+            let name = file.strip_prefix(&store).expect("under the sources");
+            moving.push(name.to_string_lossy().replace('\\', "/"));
+        }
+    }
+    moving.sort();
+    // The setting is named where a transaction begins (`lib.rs`) and where it is
+    // moved (`db.rs`); `accounts.rs` is the caller.
+    assert_eq!(moving, ["accounts.rs", "db.rs", "lib.rs"]);
+}
+
 /// The files of the server that say whose rows a handle reaches: the way into a
 /// workspace, the templates (as the system organization), the start (the one
 /// organization of the routes that name no workspace), the housekeeping, the

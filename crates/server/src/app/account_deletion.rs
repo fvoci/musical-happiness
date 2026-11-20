@@ -42,10 +42,7 @@ impl App {
         // takes any, and nobody enters it as an administrator.
         if let Some(own_space) = standing.own_space {
             let within = self.in_organization(&own_space.id)?;
-            let own_space = within
-                .store()
-                .leaving_organization(own_space, OrgKind::Personal);
-            organizations.push(own_space.await?);
+            organizations.push(within.store().leaving_organization(own_space).await?);
         }
         for organization in standing.alone_in {
             let within = match self.enter_org_as_admin(session, &organization.id).await {
@@ -54,12 +51,7 @@ impl App {
                 Err(error) => return Err(error),
             };
             organizations.push(match within {
-                Some(within) => {
-                    let store = within.store();
-                    store
-                        .leaving_organization(organization, OrgKind::Team)
-                        .await?
-                }
+                Some(within) => within.store().leaving_organization(organization).await?,
                 None => LeavingOrganization::closed(organization, OrgKind::Team),
             });
         }

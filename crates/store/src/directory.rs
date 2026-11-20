@@ -902,7 +902,7 @@ fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
 }
 
 /// Reads the kind of an organization from a column.
-fn org_kind(row: &Row, index: usize) -> Result<OrgKind, StoreError> {
+pub(crate) fn org_kind(row: &Row, index: usize) -> Result<OrgKind, StoreError> {
     row.text(index)?
         .parse()
         .map_err(|error: fvoci_model::UnknownOrgKind| StoreError::Corrupt {

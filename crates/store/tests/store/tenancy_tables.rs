@@ -449,6 +449,8 @@ async fn what_two_organizations_store_stays_apart_in_every_table() {
         .into_iter()
         .filter(|table| !GLOBAL_TABLES.contains(&table.as_str()))
         .collect();
+    let accounts = test.system().count_rows("users").await.expect("counted");
+    assert_eq!(accounts, 3, "one account for each filling");
     for table in &walled {
         let count = async |store: &Store| store.count_rows(table).await.expect("counted");
         let (our_rows, their_rows) = (count(ours).await, count(&theirs).await);
@@ -470,9 +472,19 @@ async fn what_two_organizations_store_stays_apart_in_every_table() {
             );
         }
         assert_eq!(count(&unset).await, 0, "{table}: no organization named");
-        // What is of neither is of the system or of the own space of an account,
-        // which the handle of that space reaches and no other.
-        let of_spaces = common::rows_of_own_spaces(ours, table).await;
+        // What is of neither is the system's, or the own space of an account: an
+        // organization and its workspace for each account the test made, the account
+        // in both, and not a row of any other table.
+        let of_spaces = if common::OWN_SPACE_TABLES.contains(&table.as_str()) {
+            accounts
+        } else {
+            0
+        };
+        assert_eq!(
+            common::rows_of_own_spaces(ours, table).await,
+            of_spaces,
+            "{table}: what the own spaces of the {accounts} accounts hold"
+        );
         assert_eq!(
             count(&test.system()).await,
             our_rows + their_rows + count(&system_org).await + of_spaces,

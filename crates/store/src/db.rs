@@ -411,9 +411,12 @@ impl<'c> Scope<'c> {
     /// Runs `operation` as the organization `org_id`, which this transaction makes, in
     /// place of the one the scope reaches: the scope names it, and on PostgreSQL the
     /// transaction's wall is moved to it and back, so that the rows `operation` stores
-    /// are the new organization's and nothing of any other is in its reach meanwhile.
-    /// The system's reach is not asked for. Only inside a transaction, whose setting
-    /// the wall is.
+    /// are the new organization's, and nothing of any other is in its reach meanwhile
+    /// unless the scope has the system's reach, which stays what it was: it is neither
+    /// asked for nor given up here. Only inside a transaction, whose setting the wall
+    /// is. Nothing here knows that the organization is new: the one caller makes its
+    /// identifier (`accounts::make_own_space`), and a test of the sources holds it to
+    /// be the only one.
     ///
     /// For an organization nobody read anything of yet: its writes move the revision
     /// of the scope's own organization, not the new one's, which has no cached read to
@@ -426,7 +429,7 @@ impl<'c> Scope<'c> {
     /// is moved back whatever `operation` answered; where that fails after it failed,
     /// its error is the one returned, and the transaction is one PostgreSQL takes
     /// nothing more in.
-    pub(crate) async fn as_new_organization<T>(
+    pub(crate) async fn in_new_organization<T>(
         &mut self,
         org_id: &str,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,

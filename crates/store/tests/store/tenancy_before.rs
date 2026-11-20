@@ -361,8 +361,18 @@ async fn assert_every_row_is_behind_the_wall(unset: &Store, ours: &Store) {
             of_the_system,
             "{table}: the system's"
         );
-        // Besides what was there, the own space of each account, behind its wall.
-        let of_spaces = common::rows_of_own_spaces(unset, table).await;
+        // Besides what was there, the own space of each of the four accounts, behind
+        // its wall: an organization, its workspace and the account in both.
+        let of_spaces = if common::OWN_SPACE_TABLES.contains(&table) {
+            4
+        } else {
+            0
+        };
+        assert_eq!(
+            common::rows_of_own_spaces(unset, table).await,
+            of_spaces,
+            "{table}: the own spaces"
+        );
         assert_eq!(
             count(&unset.system()).await,
             of_ours + of_the_system + of_spaces,

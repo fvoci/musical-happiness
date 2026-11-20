@@ -275,7 +275,7 @@ async fn each_organization_of_an_account_is_asked_for_itself() {
         .await
         .expect("the guest leaves");
     let counted = test
-        .leaving_organization(standing.alone_in[0].clone(), fvoci_model::OrgKind::Team)
+        .leaving_organization(standing.alone_in[0].clone())
         .await
         .expect("counted");
     assert_eq!(

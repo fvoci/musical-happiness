@@ -228,7 +228,7 @@ pub(crate) async fn insert_account(
 ///
 /// The space is another organization than the one the scope reaches (the one the
 /// account signs up for, is invited into or signs in to): it is stored as itself
-/// ([`Scope::as_new_organization`]), and nothing of it is the scope's organization's.
+/// ([`Scope::in_new_organization`]), and nothing of it is the scope's organization's.
 async fn make_own_space(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
     let org_id = new_id();
     let workspace = Workspace {
@@ -237,7 +237,7 @@ async fn make_own_space(scope: &mut Scope<'_>, user_id: &str) -> Result<(), Stor
         ..Workspace::default()
     };
     scope
-        .as_new_organization(&org_id, async |scope| {
+        .in_new_organization(&org_id, async |scope| {
             let org = scope.org()?;
             workspaces::insert_own_space(scope, org, user_id, &workspace).await?;
             join_organization(scope, user_id, OrgRole::Admin).await?;

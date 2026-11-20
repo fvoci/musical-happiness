@@ -180,7 +180,7 @@ for every operation under `/org/{orgId}` (the organization and its settings, its
 members, its workspaces, joining one as an administrator, its audit log, its provider \
 of sign-ins), for its owner as for anybody else, and no answer of those operations \
 names it. Under its workspace these are 404, as for a workspace that is not there: \
-`createInvitation`, `getInvitations`, `revokeInvitation`, `sendInvitationMail`, \
+`createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, \
 `setGuestInvitations`, the operations on teams (`/w/{workspaceId}/teams` and what is \
 under it) and on the teams of a board or a wiki \
 (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page \
