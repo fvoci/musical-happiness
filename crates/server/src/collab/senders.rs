@@ -31,8 +31,7 @@ const REMEMBERED: Duration = Duration::from_hours(24);
 /// How many of the users an organization remembers ([`REMEMBERED`]) are held back
 /// alone: when one more ends a worker, everyone in it is, and longer for each further
 /// one. One that sends from many users gets no more than that before the organization
-/// is held; one user is held alone however often. A user without a session counts each
-/// time, as one cannot be told from another.
+/// is held; one user is held alone however often.
 const ORGANIZATION_SPARED: u32 = 2;
 
 /// The deaths of a sender.
@@ -47,10 +46,9 @@ struct Deaths {
 /// What an organization remembers of the updates of its users that ended a worker.
 #[derive(Debug, Default)]
 struct Organization {
-    /// Its users with a session, by their identifier.
+    /// Its users, by their identifier: who sends an update has a session (a room lets
+    /// in nobody without one).
     senders: HashMap<String, Deaths>,
-    /// When a user without a session ended one.
-    unnamed: Vec<Instant>,
     /// Until when the updates of all its users are refused.
     held_until: Option<Instant>,
 }
@@ -61,35 +59,25 @@ impl Organization {
     fn forget(&mut self, now: Instant) -> bool {
         let remembered = |last: Instant| now.duration_since(last) <= REMEMBERED;
         self.senders.retain(|_, deaths| remembered(deaths.last));
-        self.unnamed.retain(|at| remembered(*at));
-        !self.senders.is_empty()
-            || !self.unnamed.is_empty()
-            || self.held_until.is_some_and(|until| until > now)
+        !self.senders.is_empty() || self.held_until.is_some_and(|until| until > now)
     }
 
     /// Counts a death of a user at `now`, and holds everyone back if the user is one
     /// more that it remembers past [`ORGANIZATION_SPARED`].
     fn ended_worker(&mut self, user_id: &str, now: Instant) {
-        let new_user = if user_id.is_empty() {
-            self.unnamed.push(now);
-            true
-        } else {
-            let new_user = !self.senders.contains_key(user_id);
-            let deaths = self.senders.entry(user_id.to_owned()).or_insert(Deaths {
-                count: 0,
-                last: now,
-                held_until: None,
-            });
-            deaths.count = deaths.count.saturating_add(1);
-            deaths.last = now;
-            if let Some(hold) = hold(deaths.count, 0) {
-                deaths.held_until = Some(now + hold);
-            }
-            new_user
-        };
+        let new_user = !self.senders.contains_key(user_id);
+        let deaths = self.senders.entry(user_id.to_owned()).or_insert(Deaths {
+            count: 0,
+            last: now,
+            held_until: None,
+        });
+        deaths.count = deaths.count.saturating_add(1);
+        deaths.last = now;
+        if let Some(hold) = hold(deaths.count, 0) {
+            deaths.held_until = Some(now + hold);
+        }
         if new_user {
-            let users = self.senders.len().saturating_add(self.unnamed.len());
-            let users = u32::try_from(users).unwrap_or(u32::MAX);
+            let users = u32::try_from(self.senders.len()).unwrap_or(u32::MAX);
             // Users forgotten meanwhile may leave fewer than at the hold under way,
             // which this does not shorten.
             if let Some(hold) = hold(users, ORGANIZATION_SPARED) {
@@ -107,8 +95,7 @@ pub(super) struct Senders {
 
 impl Senders {
     /// Until when the updates of a user of an organization are refused, at `now`; `None`
-    /// if they are not. A user without a session (an empty `user_id`) is held with the
-    /// organization alone.
+    /// if they are not.
     pub(super) fn held_until(
         &self,
         tenant: Tenant,
@@ -231,7 +218,6 @@ mod tests {
             Some(now + FIRST_HOLD),
             "everyone is"
         );
-        assert_eq!(senders.held_until(ONE, "", now), Some(now + FIRST_HOLD));
         let other = Tenant::Unset;
         assert_eq!(
             senders.held_until(other, "cat", now),
@@ -260,7 +246,7 @@ mod tests {
 
     /// Users 23 hours apart, however many, are never more than two to the organization.
     #[test]
-    fn users_a_day_apart_never_hold_the_organization() {
+    fn users_23_hours_apart_never_hold_the_organization() {
         let senders = Senders::default();
         let start = Instant::now();
         for (day, user) in (0..12).zip(["ann", "bob", "cat", "dan"].into_iter().cycle()) {
@@ -355,26 +341,26 @@ mod tests {
         assert_eq!(senders.held_until(ONE, "zed", later), held);
     }
 
+    /// An organization none of whose users is remembered any more, and that is not
+    /// held, is forgotten when the next update ends a worker: what is kept is of the
+    /// organizations with a sender in the last day.
     #[test]
-    fn users_without_a_session_are_forgotten_after_a_day() {
+    fn an_organization_is_forgotten_a_day_after_its_last_sender() {
         let senders = Senders::default();
+        let kept = || {
+            let organizations = senders.organizations.lock().expect("not poisoned");
+            organizations.len()
+        };
         let start = Instant::now();
-        senders.ended_worker(ONE, "", start);
-        senders.ended_worker(ONE, "", start);
-        let later = start + HOUR * 25;
-        senders.ended_worker(ONE, "", later);
-        assert_eq!(senders.held_until(ONE, "", later), None);
-    }
-
-    #[test]
-    fn a_user_without_a_session_counts_for_the_organization_alone() {
-        let senders = Senders::default();
-        let now = Instant::now();
-        for _ in 0..ORGANIZATION_SPARED {
-            senders.ended_worker(ONE, "", now);
-        }
-        assert_eq!(senders.held_until(ONE, "", now), None);
-        senders.ended_worker(ONE, "", now);
-        assert_eq!(senders.held_until(ONE, "ann", now), Some(now + FIRST_HOLD));
+        senders.ended_worker(ONE, "ann", start);
+        senders.ended_worker(Tenant::Unset, "bob", start);
+        assert_eq!(kept(), 2);
+        let within = start + HOUR * 23;
+        senders.ended_worker(ONE, "cat", within);
+        assert_eq!(kept(), 2, "both have a sender of the last day");
+        let later = start + REMEMBERED + Duration::from_secs(1);
+        senders.ended_worker(ONE, "dan", later);
+        assert_eq!(kept(), 1, "the other organization is forgotten");
+        assert_eq!(senders.held_until(Tenant::Unset, "bob", later), None);
     }
 }

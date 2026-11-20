@@ -138,6 +138,7 @@ pub enum Death {
 }
 
 /// How many workers ended, for the tests of whom a death is put down to.
+#[cfg(feature = "test-util")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ended {
     /// The workers that ran and died or were ended (one that did not take its limits
@@ -168,6 +169,7 @@ enum Job {
         answer: oneshot::Sender<Result<(u64, Answer), CallError>>,
     },
     Pid(oneshot::Sender<Option<u32>>),
+    #[cfg(feature = "test-util")]
     Ended(oneshot::Sender<Ended>),
     End(oneshot::Sender<()>),
 }
@@ -258,6 +260,7 @@ impl Worker {
     }
 
     /// How many workers ended, and how many deaths in a row the next one waits for.
+    #[cfg(feature = "test-util")]
     pub async fn ended(&self) -> Option<Ended> {
         self.ask(Job::Ended).await
     }
@@ -346,6 +349,7 @@ async fn hold(
                     .and_then(|running| running.child.id());
                 let _ = answer.send(pid);
             }
+            #[cfg(feature = "test-util")]
             Job::Ended(answer) => {
                 let _ = answer.send(Ended {
                     workers: state.generation,
