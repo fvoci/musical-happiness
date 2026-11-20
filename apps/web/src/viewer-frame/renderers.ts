@@ -12,13 +12,14 @@ import type { FormatId } from '$lib/file-viewer/formats.ts';
 
 import type { Render } from './renderer.ts';
 
-export const RENDERERS: Record<FormatId, () => Promise<Render>> = {
+/** `engine`: rhwp's WebAssembly, which comes with the formats it reads (the app fetches it). */
+export const RENDERERS: Record<FormatId, (engine: ArrayBuffer | null) => Promise<Render>> = {
   pdf: async () => (await import('./pdf.ts')).render,
   docx: async () => (await import('./docx.ts')).render,
   xlsx: async () => (await import('./xlsx.ts')).render,
   pptx: async () => (await import('./pptx.ts')).render,
-  hwpx: async () => (await import('./hwp.ts')).renderer('hwpx'),
-  hwp: async () => (await import('./hwp.ts')).renderer('hwp'),
+  hwpx: async (engine) => (await import('./hwp.ts')).renderer('hwpx', engine),
+  hwp: async (engine) => (await import('./hwp.ts')).renderer('hwp', engine),
 };
 
 /**

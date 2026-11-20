@@ -62,6 +62,8 @@ parameter!(PageId: Path "pageId", String, True, "The identifier of the page: a p
 parameter!(CommentId: Path "commentId", String, True, "The identifier of the comment: a comment on the page of the path. 404 for a comment on another page, and for a block that is no comment.");
 parameter!(BodyVersionNumber: Path "version", i64, True, "The number of the version of the card's body, as `getCardBodyVersions` lists it.");
 parameter!(PageVersionNumber: Path "version", i64, True, "The number of the version of the page's body, as `getPageBodyVersions` lists it.");
+parameter!(FileVersionNumber: Path "version", i64, True, "The number of the version of the file, as `getFileVersions` lists it.");
+parameter!(LeaseId: Path "leaseId", String, True, "The lease of the file, as `holdFileLease` gave it.");
 parameter!(CategoryId: Path "categoryId", String, True, "The identifier of the category, one of the user's own.");
 parameter!(TeamId: Path "teamId", String, True, "The identifier of a team within this workspace.");
 parameter!(UserId: Path "userId", String, True, "The identifier of the user.");

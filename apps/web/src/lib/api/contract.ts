@@ -2564,6 +2564,152 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/lease": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether somebody edits a file
+         * @description Whether somebody holds the file's lease (`holdFileLease`): has it open in the
+         *     editor. Who, only where the caller sees that person among the people of the
+         *     workspace, as presence names them, and where it is the caller; else `editorId` is
+         *     empty and the caller is to say "somebody else". For who reads the board or the wiki.
+         */
+        get: operations["getFileLease"];
+        /**
+         * Hold the lease of a file to edit it
+         * @description With an empty `leaseId`, takes the file's lease if nobody holds it; with the lease
+         *     the caller holds, holds on to it. Either way the lease lasts `seconds` from now,
+         *     and is held on to before then (the web app does so every 30 seconds while the
+         *     editor is open). A lease that ended and that nobody else took meanwhile is taken
+         *     anew, under a new `leaseId`. A lease is one editor's: the caller's other window is
+         *     refused as anybody else is. 409 with the reason `file_being_edited` while another
+         *     lease of the file is held; `getFileLease` then says who. For editors.
+         */
+        put: operations["holdFileLease"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/lease/{leaseId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Let the lease of a file go
+         * @description The editor is closed: whoever asks next may edit the file. A lease that is the
+         *     caller's no more (it ended, and maybe another took the file's), or never was, is
+         *     left as it is, and the answer is the same. For editors.
+         */
+        delete: operations["releaseFileLease"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The versions kept of a file
+         * @description The newest first, each with when it was written, by whom and its size, without the
+         *     bytes (`getFileVersion`). A file that was never written anew has one version, the
+         *     upload. The server keeps the newest versions of a file (its setting
+         *     `max_file_versions`, fifty unless set otherwise), so the numbers may begin above 1.
+         *     For who reads the board or the wiki; a file of another is 404.
+         */
+        get: operations["getFileVersions"];
+        put?: never;
+        /**
+         * Write a new version of a file
+         * @description Makes a file that was uploaded to the same board or wiki (`uploadFile`,
+         *     `completeUpload`) the new version of the file of the path: its bytes are what
+         *     `getFile` gives from now on, wherever the file is shown, and the version before
+         *     stays to be read (`getFileVersion`) and gone back to (`restoreFileVersion`). The
+         *     uploaded file is no file of its own after: its `fileId` names nothing. The file of
+         *     the path keeps its `fileId` and the name it was uploaded with. Versions past those
+         *     the server keeps go, the oldest first.
+         *
+         *     `baseVersion` is the version the new one was made from. If the file has a newer
+         *     one by now, nothing changes: 409 with the reason `file_version_stale`, and the
+         *     uploaded file is still a file of the board, to be attached on its own.
+         *
+         *     The uploaded file is one that no block shows and that has no versions of its own,
+         *     and its `fileId` ends in the same extension as the file's; any other, and one the
+         *     board does not have, is 400 at `/fileId`. For editors.
+         */
+        post: operations["addFileVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The bytes of a version of a file
+         * @description As `getFile` gives the newest version: sent as `application/octet-stream`, offered
+         *     as a download under the name the file was uploaded with, with one range honoured. For whom
+         *     `getFileVersions` is for. A number the file has no version of, or has none of any
+         *     more, is 404.
+         */
+        get: operations["getFileVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/versions/{version}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Go back to a version of a file
+         * @description Makes the bytes of the version the file's newest version again, as a new version
+         *     by the caller (`restoredFrom` names the one gone back to): the versions between
+         *     stay. A file whose newest version is the one asked for is left as it is, and that
+         *     version is the answer. `baseVersion` is the file's newest version as the caller
+         *     read it; if the file has a newer one by now, nothing changes: 409 with the reason
+         *     `file_version_stale`. A number the file has no version of, or has none of any more,
+         *     is 404. For editors.
+         */
+        post: operations["restoreFileVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/containers/{containerId}/join": {
         parameters: {
             query?: never;
@@ -4819,6 +4965,65 @@ export interface components {
              */
             size: number;
         };
+        /** @description Whether somebody has a file open in the editor now, and who. */
+        FileLease: {
+            /** @description Whether somebody holds the file's lease: has it open in the editor. */
+            editing: boolean;
+            /**
+             * @description Who holds it, where the caller may see who that is (the caller included); empty
+             *     for nobody, and for somebody the caller does not see.
+             */
+            editorId: string;
+        };
+        /** @description The lease a caller asks to hold: one held already, to be held on, or none. */
+        FileLeaseRequest: {
+            /** @description The lease the caller holds, as `holdFileLease` gave it; empty to take one. */
+            leaseId: string;
+        };
+        /**
+         * @description A version kept of a file: the bytes the file had, when they were written and by
+         *     whom.
+         */
+        FileVersion: {
+            /**
+             * Format: int64
+             * @description When the version was written, in milliseconds since the Unix epoch: for the
+             *     first, when the file was uploaded.
+             */
+            createAt: number;
+            /**
+             * @description Who wrote the version; empty where nobody is known to have (the first version
+             *     of a file from before versions were kept, and of a copy).
+             */
+            createdBy: string;
+            /** @description Whether the version is the file's newest: what `getFile` gives. */
+            isCurrent: boolean;
+            /**
+             * Format: int64
+             * @description The version whose bytes this one took, for one made by `restoreFileVersion`;
+             *     `null` for any other.
+             */
+            restoredFrom: number | null;
+            /**
+             * Format: int64
+             * @description The size of the version in bytes.
+             */
+            size: number;
+            /**
+             * Format: int64
+             * @description The place of the version among the file's, counted from 1. The server keeps the
+             *     newest ones: the lowest numbers go as new versions come.
+             */
+            version: number;
+        };
+        /** @description From which version a file is taken back to an older one. */
+        FileVersionBase: {
+            /**
+             * Format: int64
+             * @description The number of the file's newest version, as `getFileVersions` gave it.
+             */
+            baseVersion: number;
+        };
         FinishPasswordReset: {
             /** @description The new password: at least eight characters, at most 1024 bytes. */
             password: string;
@@ -4829,6 +5034,16 @@ export interface components {
         GuestInvitationsChange: {
             /** @description Whether the admins of the workspace's boards may invite guests to them. */
             enabled: boolean;
+        };
+        /** @description A lease the caller holds. */
+        HeldFileLease: {
+            /** @description The lease, to hold on to it and to let it go with. */
+            leaseId: string;
+            /**
+             * Format: int32
+             * @description How many seconds it lasts from now unless held on to again.
+             */
+            seconds: number;
         };
         /**
          * @description How the hours of a day are written. The names are those of the browsers' `Intl`.
@@ -5266,6 +5481,20 @@ export interface components {
             blocks: components["schemas"]["NewBlock"][];
             /** @description The boards, at least one. Each needs an `id`. */
             containers: components["schemas"]["NewBoard"][];
+        };
+        /** @description An uploaded file that is to become a file's new version. */
+        NewFileVersion: {
+            /**
+             * Format: int64
+             * @description The number of the version the new one was made from: the file's newest, as
+             *     `getFileVersions` gave it when the bytes were read.
+             */
+            baseVersion: number;
+            /**
+             * @description The identifier of the uploaded file whose bytes become the version, as
+             *     `uploadFile` or `completeUpload` answered it.
+             */
+            fileId: string;
         };
         /** @description A request to make a link. */
         NewInvitation: {
@@ -10314,6 +10543,335 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FileInfo"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getFileLease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board or the wiki. */
+                containerId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whether somebody edits the file, and who. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileLease"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    holdFileLease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board or the wiki. */
+                containerId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileLeaseRequest"];
+            };
+        };
+        responses: {
+            /** @description The lease the caller holds now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeldFileLease"];
+                };
+            };
+            /** @description Another lease of the file is held: `reason` is `file_being_edited`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    releaseFileLease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board or the wiki. */
+                containerId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+                /** @description The lease of the file, as `holdFileLease` gave it. */
+                leaseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller holds no lease of the file. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getFileVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board or the wiki. */
+                containerId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions, the newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileVersion"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    addFileVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board or the wiki. */
+                containerId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewFileVersion"];
+            };
+        };
+        responses: {
+            /** @description The new version, the file's newest. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileVersion"];
+                };
+            };
+            /** @description The file has a newer version than `baseVersion`: `reason` is `file_version_stale`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getFileVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board or the wiki. */
+                containerId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+                /** @description The number of the version of the file, as `getFileVersions` lists it. */
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bytes of the version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description The range of them that was asked for. */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description As `getFile` answers it. No body. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description As `getFile` answers it. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description As `getFile` answers it. */
+            416: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    restoreFileVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board or the wiki. */
+                containerId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+                /** @description The number of the version of the file, as `getFileVersions` lists it. */
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileVersionBase"];
+            };
+        };
+        responses: {
+            /** @description The file's newest version as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileVersion"];
+                };
+            };
+            /** @description The file has a newer version than `baseVersion`: `reason` is `file_version_stale`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

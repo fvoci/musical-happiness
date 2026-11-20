@@ -37,6 +37,7 @@ mod directory;
 mod error;
 mod file_info;
 mod file_refs;
+mod file_versions;
 mod invitations;
 mod invited_signups;
 mod joinings;
@@ -108,6 +109,10 @@ pub use directory::{
 };
 pub use error::{StoreError, Taken};
 pub use file_refs::NewBodyFiles;
+pub use file_versions::{
+    DEFAULT_FILE_VERSIONS_KEPT, KeptFileVersion, RestoredCopy, UnusableUpload, VersionAdded,
+    VersionRestored,
+};
 pub use invitations::{
     Acceptance, Accepted, Acceptor, Inviter, InviterOfContainer, MailedTo, NewLink,
 };
@@ -262,6 +267,8 @@ struct Inner {
     search_outbox: std::sync::atomic::AtomicBool,
     /// See [`Store::set_body_versions_kept`].
     body_versions_kept: std::sync::atomic::AtomicU32,
+    /// See [`Store::set_file_versions_kept`].
+    file_versions_kept: std::sync::atomic::AtomicU32,
     /// Who is told about the calls; see [`Store::observe`].
     observer: std::sync::OnceLock<Box<dyn Observer>>,
     visibility: visibility::Visibility,
@@ -419,6 +426,9 @@ impl Store {
                 search_outbox: std::sync::atomic::AtomicBool::new(false),
                 body_versions_kept: std::sync::atomic::AtomicU32::new(
                     body_versions::DEFAULT_BODY_VERSIONS_KEPT,
+                ),
+                file_versions_kept: std::sync::atomic::AtomicU32::new(
+                    file_versions::DEFAULT_FILE_VERSIONS_KEPT,
                 ),
                 observer: std::sync::OnceLock::new(),
                 visibility: visibility::Visibility::settling_for(visibility::settle_after(

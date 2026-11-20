@@ -78,6 +78,8 @@ impl Store {
                 files.push(file);
             }
             loose_objects::doom(scope, &doomed).await?;
+            let gone: Vec<&str> = files.iter().map(|file| file.id.as_str()).collect();
+            crate::file_versions::forget(scope, &gone).await?;
             Ok(files)
         })
         .await

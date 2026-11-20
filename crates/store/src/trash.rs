@@ -387,6 +387,8 @@ pub(crate) async fn remove_containers(
         }
     }
     loose_objects::doom(scope, &doomed).await?;
+    let gone: Vec<&str> = files.iter().map(|file| file.id.as_str()).collect();
+    crate::file_versions::forget(scope, &gone).await?;
     Ok(Purged { records, files })
 }
 
@@ -940,6 +942,15 @@ struct StoredFile {
     size: i64,
     path: String,
     create_at: i64,
+    /// The file's newest version; 1 in what was stored before files had versions.
+    #[serde(default = "first_version")]
+    version: i64,
+    #[serde(default)]
+    created_by: String,
+}
+
+const fn first_version() -> i64 {
+    1
 }
 
 impl From<Vec<FileInfo>> for StoredFiles {
@@ -956,6 +967,8 @@ impl From<Vec<FileInfo>> for StoredFiles {
                     size: file.size,
                     path: file.path,
                     create_at: file.create_at,
+                    version: file.version,
+                    created_by: file.created_by,
                 })
                 .collect(),
         )
@@ -976,6 +989,8 @@ impl From<StoredFiles> for Vec<FileInfo> {
                 size: file.size,
                 path: file.path,
                 create_at: file.create_at,
+                version: file.version,
+                created_by: file.created_by,
             })
             .collect()
     }

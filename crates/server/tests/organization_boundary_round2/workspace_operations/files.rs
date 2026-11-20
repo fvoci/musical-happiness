@@ -7,7 +7,7 @@ use serde_json::json;
 use sha2::{Digest as _, Sha256};
 
 use super::super::routes::archive_entries;
-use super::Case;
+use super::{Case, Parameters};
 
 pub(super) async fn exercise(case: &mut Case, board: &str) {
     let at = &[("boardId", board)];
@@ -34,6 +34,7 @@ pub(super) async fn exercise(case: &mut Case, board: &str) {
         payload.len(),
         "file metadata matches its contents"
     );
+    versions(case, board, &file, &payload).await;
     let payload = format!("{} private multipart file", case.label).into_bytes();
     let upload = case
         .run(
@@ -76,6 +77,49 @@ pub(super) async fn exercise(case: &mut Case, board: &str) {
     case.run("deleteUpload", &[("uploadId", &abandoned)], json!({}))
         .await;
     archives(case, board).await;
+}
+
+/// The versions of the file: another upload becomes its second, the first is read and
+/// gone back to, so the file is what it was.
+async fn versions(case: &mut Case, board: &str, file: &str, first: &[u8]) {
+    let at = &[("boardId", board)];
+    let file_at = &[("boardId", board), ("fileId", file)];
+    case.present("getFileVersions", file_at, "\"version\":1")
+        .await;
+    let request = case.request("uploadFile", at).multipart(Form::new().part(
+        "file",
+        Part::bytes(format!("{} private version", case.label).into_bytes()).file_name("next.txt"),
+    ));
+    let next = case.send("uploadFile", request).await.value();
+    let next = case.remember(&next, "fileId");
+    case.run(
+        "addFileVersion",
+        file_at,
+        json!({"baseVersion": 1, "fileId": next}),
+    )
+    .await;
+    let first_at = &[("boardId", board), ("fileId", file), ("version", "1")];
+    let kept = case.run("getFileVersion", first_at, json!({})).await;
+    assert_eq!(
+        kept.body, first,
+        "an older version remains in its organization"
+    );
+    case.run("restoreFileVersion", first_at, json!({"baseVersion": 2}))
+        .await;
+    lease(case, file_at).await;
+}
+
+/// The file's lease: the founder takes it, is told it is theirs, and lets it go.
+async fn lease(case: &mut Case, file_at: Parameters<'_>) {
+    let held = case
+        .run("holdFileLease", file_at, json!({"leaseId": ""}))
+        .await
+        .value();
+    let lease = case.remember(&held, "leaseId");
+    case.present("getFileLease", file_at, "\"editing\":true")
+        .await;
+    let lease_at = &[file_at, &[("leaseId", lease.as_str())]].concat();
+    case.run("releaseFileLease", lease_at, json!({})).await;
 }
 
 async fn part(case: &mut Case, upload: &str, bytes: &[u8]) {

@@ -20,7 +20,9 @@ mod containers_and_blocks;
 mod doomed;
 mod download;
 mod export;
+mod file_leases;
 mod file_name;
+mod file_versions;
 mod files;
 mod housekeeping;
 mod import;
@@ -195,6 +197,8 @@ struct Inner {
     server_lock: server_lock::Holder,
     /// The limit on reads of shared boards whose token opens nothing.
     shared_reads: SharedReads,
+    /// Who has which file open in the editor (`file_leases`).
+    file_leases: file_leases::FileLeases,
     /// The search of bodies, on the search server if one is configured.
     search: Search,
     /// Sign-ups held until as many as it counts reach the store (`App::meet_next_signups`).
@@ -237,19 +241,10 @@ impl App {
     /// are configured and their HTTP client cannot be set up, or if `metrics_address`
     /// is no address.
     pub fn new(config: Configuration, store: Store, files: FileBackend) -> anyhow::Result<Self> {
-        let metrics = if config.metrics_listen_address()?.is_some() {
-            Metrics::kept()?
-        } else {
-            Metrics::none()
-        };
-        if metrics.is_kept() {
-            metrics.db_known(store_metrics::database(store.db_type()));
-            if !store.observe(Box::new(store_metrics::StoreMetrics(metrics.clone()))) {
-                tracing::warn!("the store has an observer already; its calls are not measured");
-            }
-        }
+        let metrics = store_metrics::set_up(&config, &store)?;
         store.set_comment_versions_kept(config.max_comment_versions);
         store.set_body_versions_kept(config.collab.collab_body_versions);
+        store.set_file_versions_kept(config.max_file_versions);
         // The authenticator reads what is no organization's (sessions), and asks the
         // directory whose a shared board is: it is given no organization to reach.
         let auth = Authenticator::new(store.scoped(Tenant::Unset), &config)?;
@@ -329,6 +324,7 @@ impl App {
                 collab,
                 server_lock: server_lock::Holder::default(),
                 shared_reads: SharedReads::default(),
+                file_leases: file_leases::FileLeases::default(),
                 search,
                 #[cfg(feature = "test-util")]
                 signups_meet: std::sync::Mutex::default(),
@@ -441,6 +437,11 @@ impl App {
     /// The limit on reads of shared boards whose token opens nothing.
     pub(crate) fn shared_reads(&self) -> &SharedReads {
         &self.inner.shared_reads
+    }
+
+    /// Who has which file open in the editor.
+    fn file_leases(&self) -> &file_leases::FileLeases {
+        &self.inner.file_leases
     }
 
     /// The limits on login attempts.

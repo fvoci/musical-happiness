@@ -12,6 +12,11 @@ export interface PackageLicense {
   identifier: string;
   /** Text of the licence file shipped in the package, or empty. */
   text: string;
+  /**
+   * Licences accepted for this item alone that `deny.toml` does not have, each
+   * by a decision written where the item is made (tools/licenses/rhwp-wasm.ts).
+   */
+  accepted?: readonly string[];
 }
 
 const require = createRequire(path.resolve(import.meta.dirname, '../../package.json'));

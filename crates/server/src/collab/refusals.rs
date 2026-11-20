@@ -24,7 +24,7 @@ pub(super) fn refused(refused: &Refused, limits: &Limits) -> AppError {
             limits.update_bytes,
         )
         .with_reason(Reason::UpdateTooLarge),
-        Refusal::DocumentTooLarge => AppError::too_large(
+        Refusal::DocumentTooLarge | Refusal::TooManySteps => AppError::too_large(
             "with the update the document would be larger than it may be",
             limits.state_bytes,
         )

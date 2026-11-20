@@ -256,6 +256,33 @@ fn holding_ops() -> Vec<Op> {
             None,
         ),
         op(
+            "file versions: list",
+            Method::GET,
+            "/containers/{c}/files/{f}/versions",
+            None,
+        ),
+        op(
+            "file versions: get",
+            Method::GET,
+            "/containers/{c}/files/{f}/versions/1",
+            None,
+        ),
+        // From a version the file never had: who may write is told so (409), and the
+        // file stays as it is for the next column.
+        op(
+            "file versions: add",
+            Method::POST,
+            "/containers/{c}/files/{f}/versions",
+            Json(|things, _| json!({"baseVersion": 7, "fileId": things.file})),
+        ),
+        // Back to the version the file has: nothing is written.
+        op(
+            "file versions: restore",
+            Method::POST,
+            "/containers/{c}/files/{f}/versions/1/restore",
+            Json(|_, _| json!({"baseVersion": 1})),
+        ),
+        op(
             "uploads: open",
             Method::POST,
             "/containers/{c}/uploads",
@@ -951,6 +978,8 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
         "teams: list",
         "files: get",
         "files: info",
+        "file versions: list",
+        "file versions: get",
         "references: to",
         "references: resolve",
         "pages: tree",

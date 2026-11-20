@@ -50,9 +50,9 @@ impl Collab {
             .ask_for(app, card_id, slot, request, AskedFor::Sender(user_id))
             .await
         {
-            Err(Unanswered::Refused(refused)) => {
+            Err(refused @ (Unanswered::Refused(_) | Unanswered::TooManySteps(_))) => {
                 self.remake_refused(app, card_id, slot, &refused).await;
-                return Err(refused.into());
+                return Err(refused.into_error().into());
             }
             answered => answered?,
         };
@@ -61,6 +61,7 @@ impl Collab {
             state_bytes,
             clients,
             client_changes,
+            reading_steps,
             files,
         } = answer
         else {
@@ -108,6 +109,7 @@ impl Collab {
         open.state_bytes = state_bytes;
         open.clients = clients;
         open.client_changes = client_changes;
+        open.reading_steps = reading_steps;
         user_id.clone_into(&mut open.last_writer);
         open.last_update = now;
         open.first_unwritten.get_or_insert(now);
@@ -151,8 +153,8 @@ impl Collab {
         }
     }
 
-    /// Makes the document again from its body if its state is near its limit or it
-    /// names many clients ([`OpenDoc::crowded`]), and folds its log into its state if
+    /// Makes the document again from its body if its state is near its limit, it
+    /// names many clients or it takes many steps to read ([`OpenDoc::crowded`]), and folds its log into its state if
     /// it is long; whether it was made again. The
     /// update before is logged whatever happens here: what fails is logged, and tried
     /// again after a later update.
@@ -183,24 +185,33 @@ impl Collab {
     }
 
     /// Makes a document whose update was refused for the size of its state again from
-    /// its body, if it grew since it was made (what was deleted is in its state), so
-    /// that the editors who load it again can go on; whether it was made again.
+    /// its body, if it grew since it was made (what was deleted is in its state), and
+    /// one whose update was refused for the steps its reading would take, unless this
+    /// server made it and it is as it was made (the steps are of what was written into
+    /// it, and a body's own document has none: such an update may be the paragraph of
+    /// an editor whose client is read before thousands of others its changes wait
+    /// for), so that the editors who load it again can go on; whether it was made
+    /// again. A document opened from what was stored is not known to be as it was
+    /// made, and is made again for such an update once.
     pub(super) async fn remake_refused(
         &self,
         app: &App,
         card_id: &str,
         slot: &mut Held,
-        refused: &AppError,
+        refused: &Unanswered,
     ) -> bool {
         let limit = self.inner.limits.state_bytes;
-        let grown = slot.open.as_ref().is_some_and(|open| {
-            open.state_bytes > open.made_bytes
-                && open.state_bytes.saturating_mul(4) >= limit.saturating_mul(3)
-                || open.crowded()
+        let wanted = slot.open.as_ref().is_some_and(|open| match refused {
+            Unanswered::TooManySteps(_) => open.state_bytes > open.made_bytes,
+            Unanswered::Refused(error) => {
+                error.reason() == Some(Reason::DocumentTooLarge)
+                    && (open.state_bytes > open.made_bytes
+                        && open.state_bytes.saturating_mul(4) >= limit.saturating_mul(3)
+                        || open.crowded())
+            }
+            Unanswered::Died(_) => false,
         });
-        refused.reason() == Some(Reason::DocumentTooLarge)
-            && grown
-            && self.remake_and_tell(app, card_id, slot).await
+        wanted && self.remake_and_tell(app, card_id, slot).await
     }
 
     /// Makes the document again from its body and tells the room, unless that failed
@@ -376,6 +387,7 @@ impl Collab {
             state,
             state_bytes,
             client_changes,
+            reading_steps,
         } = self
             .open_from_body(open.worker, number, body, open.share())
             .await?;
@@ -394,6 +406,7 @@ impl Collab {
         // The writer of the body.
         open.clients = 1;
         open.client_changes = client_changes;
+        open.reading_steps = reading_steps;
         open.first_unwritten = None;
         Ok(())
     }

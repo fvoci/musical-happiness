@@ -9,6 +9,7 @@ import { cspHashes } from './tools/build/inline-scripts.ts';
 import { checkHashedNames, precompress } from './tools/build/output.ts';
 import { pdfjsData } from './tools/build/pdfjs-data.ts';
 import { rhwpWasm } from './tools/build/rhwp-wasm.ts';
+import { studioVersion } from './tools/build/rhwp-studio.ts';
 import { pptxRenderer } from './tools/build/pptx-renderer.ts';
 import { thirdPartyNotices } from './tools/licenses/notices.ts';
 import { workerPackages } from './tools/licenses/worker-packages.ts';
@@ -31,6 +32,41 @@ const BASE_URL_PLACEHOLDER = '{{.BaseURL}}';
  */
 const VIEWER_FRAME = 'static/viewer-frame.html';
 
+/**
+ * The document the HWP editor runs in (src/editor-frame/), a page of its own
+ * as the viewer's is. The editor is rhwp-studio, brought into the repository
+ * as the package `@fvoci/rhwp-studio` and built from its source here: the
+ * names below are what the frame's program loads of it, and what the editor's
+ * source asks of a build of its own.
+ */
+const EDITOR_FRAME = 'static/editor-frame.html';
+const FRAMES = [VIEWER_FRAME, EDITOR_FRAME];
+const STUDIO = path.resolve(
+  import.meta.dirname,
+  'node_modules/@fvoci/rhwp-studio/upstream/rhwp-studio',
+);
+const EDITOR_SOURCE = path.resolve(import.meta.dirname, 'src/editor-frame');
+const STUDIO_ALIASES = [
+  { find: 'rhwp-studio:page', replacement: `${STUDIO}/index.html?raw` },
+  { find: 'rhwp-studio:style', replacement: `${STUDIO}/src/style.css` },
+  { find: 'rhwp-studio:theme-init', replacement: `${STUDIO}/public/theme-init.js` },
+  { find: 'rhwp-studio:locale-init', replacement: `${STUDIO}/public/locale-init.js` },
+  { find: 'rhwp-studio:main', replacement: `${STUDIO}/src/main.ts` },
+  // The engine: `@rhwp/core` from npm, given its bytes and without the PDF import (rhwp.ts).
+  { find: '@wasm/rhwp.js', replacement: `${EDITOR_SOURCE}/rhwp.ts` },
+  // The editor's other renderer, CanvasKit, is left out (no-canvaskit.ts), and so are the
+  // two plugins its build can do without: neither is in the repository.
+  { find: '@/view/canvaskit-renderer', replacement: `${EDITOR_SOURCE}/no-canvaskit.ts` },
+  { find: /^@\//, replacement: `${STUDIO}/src/` },
+];
+/** What the editor's source reads of its build: its version, and what is left out of it. */
+const STUDIO_CONSTANTS = {
+  __APP_VERSION__: JSON.stringify(studioVersion()),
+  __RHWP_DISABLE_EXTERNAL_WEBFONTS__: 'true',
+  __RHWP_HWPCTRL__: 'false',
+  __RHWP_AI__: 'false',
+};
+
 /** Names of the output files: hexadecimal hashes, which the server recognises (see `build`). */
 const OUTPUT_NAMES = {
   hashCharacters: 'hex',
@@ -40,6 +76,7 @@ const OUTPUT_NAMES = {
 } as const;
 
 export default defineConfig(({ command }) => ({
+  define: STUDIO_CONSTANTS,
   plugins: [
     tailwindcss(),
     svelte(),
@@ -70,6 +107,7 @@ export default defineConfig(({ command }) => ({
         find: /^echarts(\/.*)?$/,
         replacement: path.resolve(import.meta.dirname, 'src/viewer-frame/no-echarts.ts'),
       },
+      ...STUDIO_ALIASES,
     ],
   },
   experimental:
@@ -77,8 +115,8 @@ export default defineConfig(({ command }) => ({
       ? {
           renderBuiltUrl(fileName, { hostId, hostType }) {
             if (hostType !== 'html') return { relative: true };
-            if (hostId === VIEWER_FRAME) {
-              return `./${path.posix.relative(path.posix.dirname(VIEWER_FRAME), fileName)}`;
+            if (FRAMES.includes(hostId)) {
+              return `./${path.posix.relative(path.posix.dirname(hostId), fileName)}`;
             }
             return `${BASE_URL_PLACEHOLDER}/${fileName}`;
           },
@@ -97,6 +135,7 @@ export default defineConfig(({ command }) => ({
       input: {
         index: path.resolve(import.meta.dirname, 'index.html'),
         'viewer-frame': path.resolve(import.meta.dirname, VIEWER_FRAME),
+        'editor-frame': path.resolve(import.meta.dirname, EDITOR_FRAME),
       },
       // Hexadecimal, because that is what the server recognises as a
       // content hash. Sixteen digits: a hash of letters a-f only, which the

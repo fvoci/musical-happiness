@@ -49,7 +49,7 @@ test('an HWPX and an HWP document are viewed on the card, their renderer served 
   const served: { path: string; status: number; origin: string | undefined }[] = [];
   page.on('response', (response) => {
     const path = new URL(response.url()).pathname;
-    if (!/\/static\/(hwp|_virtual_rhwp-wasm)-/.test(path)) return;
+    if (!/\/static\/(hwp|rhwp-wasm)-/.test(path)) return;
     served.push({
       path,
       status: response.status(),

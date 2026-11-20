@@ -1,7 +1,8 @@
 <!--
   The files attached to a card: their names and sizes; a file's name opens it
   in the viewer (lib/components/file-viewer, over the card, as a file
-  block's does: `viewing.svelte.ts`), and a button beside it
+  block's does: `viewing.svelte.ts`), which lists its versions
+  (file-versions.ts), and a button beside it
   downloads it; and, where the reader may edit, attaching more (the
   button, or files dropped on this part of the card; several at once),
   following an upload while it runs, giving it up, and deleting a file.
@@ -26,6 +27,8 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import { saveBlob } from '$lib/save.ts';
+
+  import { attachmentVersions } from './file-versions.ts';
 
   interface Props {
     board: BoardStore;
@@ -91,7 +94,8 @@
     // Closed, the viewer gives the focus back to the name it was opened from.
     const back = () =>
       document.querySelector<HTMLElement>(`[data-attachment="${CSS.escape(id)}"] a`);
-    void viewing.open(file, back).then((arrived) => {
+    const versions = attachmentVersions(board, card, attachment);
+    void viewing.open(file, back, versions).then((arrived) => {
       if (!arrived) download(fileId, name);
     });
   }

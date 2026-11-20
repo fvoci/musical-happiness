@@ -1153,6 +1153,8 @@ fn file_of(board_id: &str) -> FileInfo {
         size: 2048,
         path: format!("boards/{board_id}/stored.png"),
         create_at: 1,
+        version: 1,
+        created_by: String::new(),
     }
 }
 

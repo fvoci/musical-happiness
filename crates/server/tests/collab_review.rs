@@ -226,6 +226,7 @@ async fn a_logged_image_keeps_its_file_before_projection() {
         name: "review.png".to_owned(),
         extension: ".png".to_owned(),
         size: 7,
+        ..FileInfo::default()
     };
     app.store()
         .save_file_info(&file)

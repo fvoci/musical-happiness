@@ -50,24 +50,9 @@ function elementsIn(svg: string): number {
   return count;
 }
 
-/** What rhwp says of a file it cannot read, and of one locked with a password (0.8.7). */
+/** What rhwp says of a file it cannot read, and of one locked with a password (0.9.0). */
 const INVALID_FILE = '유효하지 않은 파일';
 const NEEDS_PASSWORD = '비밀번호가 필요한';
-
-/** The value of a lowercase hexadecimal digit, from its character code. */
-const digit = (code: number): number => (code <= 0x39 ? code - 0x30 : code - 0x57);
-
-/** The bytes of lowercase hexadecimal text, as the build writes rhwp's WebAssembly. */
-export function fromHex(text: string): Uint8Array<ArrayBuffer> {
-  const native = (Uint8Array as unknown as { fromHex?: (hex: string) => Uint8Array<ArrayBuffer> })
-    .fromHex;
-  if (native) return native(text);
-  const bytes = new Uint8Array(text.length / 2);
-  for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = (digit(text.charCodeAt(2 * index)) << 4) | digit(text.charCodeAt(2 * index + 1));
-  }
-  return bytes;
-}
 
 /** Why rhwp did not open a file, from what it says. */
 function openFailure(error: unknown): Error {
@@ -108,7 +93,7 @@ function textOf(document: HwpDocument, index: number): TextRun[] {
 
 /** The file as rhwp may read it, once checked as its kind is. */
 async function checked(
-  message: Extract<ToWorker, { kind: 'open' }>,
+  message: Extract<ToWorker, { kind: 'open' | 'check' }>,
   unpackLimit: number,
 ): Promise<ArrayBuffer> {
   if (message.format === 'hwp') return checkCompound(message.bytes, unpackLimit);
@@ -144,7 +129,7 @@ export class HwpReader {
   async open(message: Extract<ToWorker, { kind: 'open' }>): Promise<FromWorker> {
     if (this.#document) throw new Error('a document is open already');
     const file = await checked(message, this.#limits.unpacked);
-    await init({ module_or_path: fromHex(message.wasm) });
+    await init({ module_or_path: message.wasm });
     let document: HwpDocument;
     try {
       document = new HwpDocument(new Uint8Array(file));
@@ -156,6 +141,11 @@ export class HwpReader {
     if (!Number.isInteger(count) || count < 1 || count > PAGE_LIMIT) throw new UnreadableFile();
     const pages = Array.from({ length: count }, (_, index) => pageSize(document, index));
     return { kind: 'opened', pages };
+  }
+
+  /** The file checked, for the editor to read: rhwp is not started here. */
+  async check(message: Extract<ToWorker, { kind: 'check' }>): Promise<FromWorker> {
+    return { kind: 'checked', bytes: await checked(message, this.#limits.unpacked) };
   }
 
   /** A page (from 1), drawn. */
@@ -180,7 +170,8 @@ export class HwpReader {
    */
   async answer(message: ToWorker): Promise<FromWorker> {
     try {
-      return message.kind === 'open' ? await this.open(message) : this.page(message.page);
+      if (message.kind === 'open') return await this.open(message);
+      return message.kind === 'check' ? await this.check(message) : this.page(message.page);
     } catch (error) {
       if (error instanceof WebAssembly.RuntimeError) throw error;
       return { kind: 'failed', reason: failureOf(error) };

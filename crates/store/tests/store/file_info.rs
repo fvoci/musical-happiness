@@ -85,6 +85,7 @@ async fn file_info_stores_every_member() {
         name: "picture.png".to_owned(),
         extension: ".png".to_owned(),
         size: 5,
+        ..FileInfo::default()
     };
     store.save_file_info(&file_info).await.unwrap();
 
@@ -176,6 +177,7 @@ async fn a_file_is_found_through_its_own_board_only() {
         name: uploaded_as.to_owned(),
         extension: ".png".to_owned(),
         size: 7,
+        ..FileInfo::default()
     };
 
     let own_file = file_of(own, "mine.png");
@@ -246,6 +248,7 @@ fn record_of(board_id: &str, stored_name: &str) -> FileInfo {
         name: "upload.png".to_owned(),
         extension: ".png".to_owned(),
         size: 7,
+        ..FileInfo::default()
     }
 }
 

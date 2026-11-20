@@ -7,14 +7,14 @@
 use fvoci_model::FileInfo;
 
 use crate::Store;
-use crate::db::{Dialect, Id, Row, Scope};
+use crate::db::{Dialect, Id, OptId, Row, Scope};
 use crate::error::StoreError;
 
 pub(crate) const FILE_INFO_COLUMNS: &str =
-    "id, container_id, name, original_name, extension, size, path, create_at";
+    "id, container_id, name, original_name, extension, size, path, create_at, version, created_by";
 
 /// How many columns [`FILE_INFO_COLUMNS`] names: the index of a column read after them.
-pub(crate) const FILE_INFO_COLUMN_COUNT: usize = 8;
+pub(crate) const FILE_INFO_COLUMN_COUNT: usize = 10;
 
 impl Store {
     /// Returns the record of the file a board has under a stored name.
@@ -114,7 +114,11 @@ impl Store {
                 ))
                 .bind(after)
                 .push_bind(" ORDER BY 1 LIMIT ", limit)
-                .push_bind(") AS trashed) AS recorded ORDER BY path LIMIT ", limit);
+                // The bytes of the versions before a file's newest, which no record names.
+                .push(") AS trashed UNION SELECT * FROM (SELECT path FROM file_versions WHERE path > ")
+                .bind(after)
+                .push_bind(" ORDER BY path LIMIT ", limit)
+                .push_bind(") AS versions) AS recorded ORDER BY path LIMIT ", limit);
             scope
                 .fetch_all(sql)
                 .await?
@@ -164,7 +168,9 @@ pub(crate) async fn other_spellings(scope: &mut Scope<'_>) -> Result<Vec<String>
         "SELECT path FROM file_info WHERE {} \
          UNION SELECT path FROM uploads WHERE {} \
          UNION SELECT path FROM loose_objects WHERE {} \
+         UNION SELECT path FROM file_versions WHERE {} \
          UNION SELECT {trashed_path} FROM deleted_containers AS d, {trashed_files} WHERE {}",
+        rough("path"),
         rough("path"),
         rough("path"),
         rough("path"),
@@ -197,6 +203,8 @@ pub(crate) async fn save_file_info(
         .push_bind(", ", file_info.size)
         .push_bind(", ", &file_info.path)
         .push_bind(", ", file_info.create_at)
+        .push_bind(", ", file_info.version)
+        .push_bind(", ", OptId(&file_info.created_by))
         .push_bind(", ", file_info.create_at)
         .push(")");
     scope
@@ -239,6 +247,8 @@ pub(crate) fn file_info_from_row(row: &Row) -> Result<FileInfo, StoreError> {
         size: row.int(5)?,
         path: row.text(6)?,
         create_at: row.int(7)?,
+        version: row.int(8)?,
+        created_by: row.id(9)?,
     })
 }
 

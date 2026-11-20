@@ -12,7 +12,7 @@ use super::versions::Versioned;
 use super::worker::{Blame, CallError};
 use super::{Collab, DocChange, DocEvent, refusals, taken_from};
 use crate::app::App;
-use crate::collab_worker::wire::{Answer, DocNumber, Request, Share};
+use crate::collab_worker::wire::{Answer, DocNumber, Refusal, Request, Share};
 use crate::error::AppError;
 
 /// How long a document that ended its worker twice, the second within
@@ -82,6 +82,9 @@ pub(super) struct OpenDoc {
     pub(super) clients: u64,
     /// The most changes one of its clients has, deleted ones too.
     pub(super) client_changes: u64,
+    /// The steps the Y library takes to read it from its state
+    /// ([`fvoci_collab::READING_STEPS`]).
+    pub(super) reading_steps: u64,
     /// Who sent the last update; what writes the body writes it as them.
     pub(super) last_writer: String,
     /// When the first update whose body is not written was taken.
@@ -105,12 +108,14 @@ pub(super) struct OpenDoc {
 
 impl OpenDoc {
     /// Whether it names three quarters of the clients a document may name
-    /// ([`fvoci_collab::MAX_CLIENTS`]), or a client of it has three quarters of the
-    /// changes one may have ([`fvoci_collab::MAX_CLIENT_CHANGES`]): it is made again from
-    /// its body, which names one client, of fewer changes than that, before updates are
-    /// refused.
+    /// ([`fvoci_collab::MAX_CLIENTS`]), a client of it has three quarters of the
+    /// changes one may have ([`fvoci_collab::MAX_CLIENT_CHANGES`]), or it takes three
+    /// quarters of the steps to read that an update may leave it with
+    /// ([`fvoci_collab::READING_STEPS`]): it is made again from its body, which names
+    /// one client, of fewer changes than that, and is read in no such steps, before
+    /// updates are refused.
     pub(super) fn crowded(&self) -> bool {
-        crowded(self.clients, self.client_changes)
+        crowded(self.clients, self.client_changes, self.reading_steps)
     }
 
     /// The share of its worker's documents it is counted in.
@@ -124,13 +129,15 @@ impl OpenDoc {
 }
 
 /// Whether a document of `clients` clients, of which one has `client_changes` changes,
-/// is made again from its body ([`OpenDoc::crowded`]).
-fn crowded(clients: u64, client_changes: u64) -> bool {
+/// that takes `reading_steps` steps to read, is made again from its body
+/// ([`OpenDoc::crowded`]).
+fn crowded(clients: u64, client_changes: u64, reading_steps: u64) -> bool {
     let three_quarters =
         |count: u64, limit: u64| count.saturating_mul(4) >= limit.saturating_mul(3);
     let max_clients = u64::try_from(fvoci_collab::MAX_CLIENTS).unwrap_or(u64::MAX);
     three_quarters(clients, max_clients)
         || three_quarters(client_changes, fvoci_collab::MAX_CLIENT_CHANGES)
+        || three_quarters(reading_steps, fvoci_collab::READING_STEPS)
 }
 
 impl OpenDoc {
@@ -316,7 +323,11 @@ impl Collab {
                     }
                 }
                 Err(CallError::Refused(refused)) => {
-                    return Err(refusals::refused(&refused, &self.inner.limits).into());
+                    let error = refusals::refused(&refused, &self.inner.limits);
+                    return Err(match refused.refusal {
+                        Refusal::TooManySteps => Unanswered::TooManySteps(error),
+                        _ => Unanswered::Refused(error),
+                    });
                 }
                 Err(CallError::Died(death)) => {
                     tracing::warn!(%death, card_id, "a collab worker ended over a card's document");
@@ -493,6 +504,11 @@ pub(super) enum Unanswered {
     /// It was refused, the document could not be opened, no worker could be started,
     /// or its sender is held back: the error to answer with.
     Refused(AppError),
+    /// It was refused as the document would take more steps to read with it than it
+    /// may ([`fvoci_collab::READING_STEPS`]): the error to answer with
+    /// (`document_too_large`). The document is made again from its body
+    /// ([`Collab::remake_refused`]).
+    TooManySteps(AppError),
     /// The worker ended over it: killed after its time, or broken. An update that did
     /// is in neither the document nor the log, its sender is held back
     /// ([`super::senders`]), and the connection that sent it is closed. The error to
@@ -525,7 +541,7 @@ impl Unanswered {
     /// The error to answer with.
     pub(super) fn into_error(self) -> AppError {
         match self {
-            Self::Refused(error) | Self::Died(error) => error,
+            Self::Refused(error) | Self::TooManySteps(error) | Self::Died(error) => error,
         }
     }
 }
@@ -581,22 +597,27 @@ pub(super) fn still_at_epoch(slot: &Slot, epoch: i64) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use fvoci_collab::{MAX_CLIENT_CHANGES, MAX_CLIENTS};
+    use fvoci_collab::{MAX_CLIENT_CHANGES, MAX_CLIENTS, READING_STEPS};
 
     use super::crowded;
 
     #[test]
     fn a_document_is_made_again_at_three_quarters_of_its_clients_or_of_a_client_s_changes() {
         let clients = u64::try_from(MAX_CLIENTS).expect("fits");
-        assert!(!crowded(1, 1));
+        assert!(!crowded(1, 1, 0));
         assert!(!crowded(
             clients * 3 / 4 - 1,
-            MAX_CLIENT_CHANGES * 3 / 4 - 1
+            MAX_CLIENT_CHANGES * 3 / 4 - 1,
+            READING_STEPS * 3 / 4 - 1
         ));
-        assert!(crowded(clients * 3 / 4, 1), "12,288 clients");
+        assert!(crowded(clients * 3 / 4, 1, 0), "12,288 clients");
         assert!(
-            crowded(1, MAX_CLIENT_CHANGES * 3 / 4),
+            crowded(1, MAX_CLIENT_CHANGES * 3 / 4, 0),
             "393,216 changes of a client"
+        );
+        assert!(
+            crowded(1, 1, READING_STEPS * 3 / 4),
+            "786,432 steps to read it"
         );
     }
 }

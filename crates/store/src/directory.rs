@@ -219,7 +219,8 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
 }
 
 /// Pushes `OR` the condition that the user `id` authored a board, a block, a kept
-/// comment version or a kept version of a card's body the seer reads, as
+/// comment version, a kept version of a card's body or a version of a file the seer
+/// reads, as
 /// `permissions::grant` has it: one they hold a
 /// role on, or an open template or an open wiki of a workspace they work in; of the
 /// workspace `within`
@@ -236,9 +237,9 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
     .bind(Id(seer_id))
     .push(IN_USE)
     .push(&scope.same_organization(&[("b", "t"), ("me", "t")]))
-    .push(
-        " AND (b.created_by = users.id OR EXISTS (SELECT 1 FROM blocks bl WHERE bl.container_id = b.id",
-    )
+    .push(" AND (b.created_by = users.id")
+    .push(&crate::file_versions::or_wrote_file_of_container(scope))
+    .push(" OR EXISTS (SELECT 1 FROM blocks bl WHERE bl.container_id = b.id")
     .push(&scope.same_organization(&[("bl", "b")]))
     .push(
         " AND (bl.created_by = users.id OR bl.modified_by = users.id \
@@ -653,6 +654,8 @@ impl Store {
                         ") UNION SELECT {trashed_path} FROM deleted_containers AS d, {trashed_files} \
                          WHERE {trashed_path} IN ("
                     ))
+                    .bind_list(paths.iter().copied())
+                    .push(") UNION SELECT path FROM file_versions WHERE path IN (")
                     .bind_list(paths.iter().copied())
                     .push(") UNION SELECT path FROM loose_objects WHERE path IN (")
                     .bind_list(paths.iter().copied())

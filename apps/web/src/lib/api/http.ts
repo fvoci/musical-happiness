@@ -101,6 +101,8 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   /** Gives the request up; it then rejects with the signal's reason. */
   signal?: AbortSignal;
+  /** Sent even as the page goes (a small request: the browser takes 64 KiB of them at once). */
+  keepalive?: boolean;
 }
 
 /** Talks to one server: the one the page came from, under the path the app is served at. */
@@ -182,6 +184,7 @@ export class Http {
         body,
         credentials: this.#credentials,
         signal: options.signal,
+        keepalive: options.keepalive,
       });
     } catch (error) {
       if (options.signal?.aborted) throw error;

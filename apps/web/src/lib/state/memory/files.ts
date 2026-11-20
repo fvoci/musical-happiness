@@ -27,12 +27,13 @@ function fitsAFile(name: string): boolean {
 }
 
 /**
- * Stores `file` with the board or wiki `containerId`, telling the progress
- * after each part; `enter` is the backend's way into a call, asked before
- * each part (where a test holds or fails it, and a signal gives it up).
+ * Stores `file` with the board or wiki `containerId` as its reader's upload,
+ * telling the progress after each part; `enter` is the backend's way into a
+ * call, asked before each part (where a test holds or fails it, and a signal
+ * gives it up).
  */
 export async function storeUpload(
-  world: World,
+  { world, userId }: { readonly world: World; readonly userId: string },
   containerId: string,
   file: File,
   options: UploadOptions,
@@ -59,7 +60,7 @@ export async function storeUpload(
     contentType: file.type || 'application/octet-stream',
     blob: file as Blob,
   };
-  world.files.set(stored.fileId, stored);
+  world.files.set(stored.fileId, { ...stored, createAt: world.now(), createdBy: userId });
   const { blob: _blob, containerId: _containerId, ...answer } = stored;
   return answer;
 }
@@ -75,4 +76,16 @@ export function readableFile(
   const file = world.files.get(fileId);
   if (file?.containerId !== containerId) fail(404, 'no such file');
   return file;
+}
+
+/** The bytes of such a file; 404 for one the seed only names. */
+export function readableBlob(
+  world: World,
+  userId: string,
+  containerId: string,
+  fileId: string,
+): Blob {
+  const { blob } = readableFile(world, userId, containerId, fileId);
+  if (!blob) fail(404, 'no such file');
+  return blob;
 }

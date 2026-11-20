@@ -29,6 +29,7 @@ fn empty_object_gives_the_defaults() {
     assert_eq!(config.max_pending_upload_bytes, 2 * 1024 * 1024 * 1024);
     assert_eq!(config.max_import_bytes, 256 * 1024 * 1024);
     assert_eq!(config.max_comment_versions, 50);
+    assert_eq!(config.max_file_versions, 50);
     assert_eq!(config.max_concurrent_exports, 2);
     assert_eq!(config.export_stall_seconds, 60);
     assert_eq!(config.export_stall(), std::time::Duration::from_secs(60));
@@ -448,6 +449,10 @@ fn check_rejects_what_the_server_cannot_honor() {
     assert!(
         error(r#"{"max_comment_versions": 0}"#).contains("max_comment_versions"),
         "a comment keeps at least the text it was posted with"
+    );
+    assert!(
+        error(r#"{"max_file_versions": 0}"#).contains("max_file_versions"),
+        "a file keeps at least the bytes it has"
     );
     for key in [
         "max_concurrent_exports",

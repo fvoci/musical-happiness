@@ -22,7 +22,7 @@ import {
 import { zipEntries } from '../../src/lib/file-viewer/zip-directory.ts';
 import { writeCompound } from '../../src/viewer-frame/compound-writer.ts';
 
-import { rhwpWasmHex } from '../../tools/build/rhwp-wasm.ts';
+import { rhwpWasmBytes } from '../../tools/build/rhwp-wasm.ts';
 
 import { png, zip, type ZipMember } from './viewer-files.ts';
 
@@ -45,9 +45,9 @@ let ready = false;
  * to the same limit: rhwp's loader keeps the first instance it is given, so the
  * worker's reader, tried in the same module context, runs on this one.
  */
-function startRhwp(): void {
+export function startRhwp(): void {
   if (ready) return;
-  initSync({ module: Buffer.from(rhwpWasmHex(), 'hex') });
+  initSync({ module: rhwpWasmBytes() });
   ready = true;
 }
 
@@ -119,23 +119,89 @@ export function koreanHwpx(): Buffer {
   return rewriteArchive(exported, (member) => (member.name === RHWP_ORIGIN ? undefined : member));
 }
 
+/** Parts rhwp does not keep, and a piece of data it keeps under a name of its own. */
+const OTHER_PARTS: ZipMember[] = [
+  {
+    name: 'Contents/history.xml',
+    data: Buffer.from(
+      '<?xml version="1.0" encoding="UTF-8"?><hhs:history xmlns:hhs="http://www.hancom.co.kr/hwpml/2011/history"/>',
+    ),
+  },
+  { name: 'Custom/notes.xml', data: Buffer.from('<?xml version="1.0"?><notes>기록</notes>') },
+  { name: 'BinData/attachment.pdf', data: Buffer.from('%PDF-1.4 attached') },
+];
+/** How the package's manifest names the history and the data; the notes it does not name. */
+const OTHER_ITEMS =
+  '<opf:item id="history" href="Contents/history.xml" media-type="application/xml"/>' +
+  '<opf:item id="attachment" href="BinData/attachment.pdf" media-type="application/pdf" isEmbeded="1"/>';
+
+/**
+ * The Korean HWPX with parts another program wrote and rhwp does not read: a
+ * history the package's manifest names, notes it does not name, and a piece
+ * of data it names, which rhwp keeps under a name of its own.
+ */
+export function koreanHwpxWithOtherParts(): Buffer {
+  const members: ZipMember[] = [];
+  rewriteArchive(koreanHwpx(), (member) => {
+    if (member.name !== 'Contents/content.hpf') {
+      members.push(member);
+      return member;
+    }
+    const listed = member.data
+      .toString('utf8')
+      .replace('</opf:manifest>', `${OTHER_ITEMS}</opf:manifest>`);
+    if (!listed.includes(OTHER_ITEMS)) throw new Error('the package lists its parts otherwise');
+    members.push({ ...member, data: Buffer.from(listed) });
+    return member;
+  });
+  return zip([...members, ...OTHER_PARTS]);
+}
+
 export function koreanHwp(): Buffer {
   return Buffer.from(koreanDocument().exportHwp());
 }
 
 /**
- * The Korean HWPX with 30,000 characters in place of the body: rhwp draws
- * each apart, and its first page comes to about 24,000 elements (past the
- * frame's ceiling of 20,000); the second is as it was.
+ * The Korean HWPX with 30,000 characters in place of the body, on paper four
+ * times as wide and as high, which holds them on one page: rhwp draws each
+ * apart, and its first page comes to about 23,000 elements (past the frame's
+ * ceiling of 20,000); the second is as it was. (On the sample's own paper
+ * rhwp 0.9.0 breaks the paragraph over 17 pages of about 1,500 elements.)
  */
 export function denseHwpx(): Buffer {
   const words = '가나다라 마바사아 자차카타 파하 ';
   const body = words.repeat(Math.ceil(30_000 / words.length)).slice(0, 30_000);
-  return rewriteArchive(koreanHwpx(), (member) =>
-    member.name === 'Contents/section0.xml'
-      ? { ...member, data: Buffer.from(member.data.toString('utf8').replace(HWP_TEXT.body, body)) }
-      : member,
-  );
+  const paper = /(<hp:pagePr[^>]*?width=")(\d+)("[^>]*?height=")(\d+)/;
+  return rewriteArchive(koreanHwpx(), (member) => {
+    if (member.name !== 'Contents/section0.xml') return member;
+    const text = member.data.toString('utf8');
+    if (!text.includes(HWP_TEXT.body) || !paper.test(text)) {
+      throw new Error('the sample has no body or no paper to change');
+    }
+    const dense = text
+      .replace(HWP_TEXT.body, body)
+      .replace(
+        paper,
+        (_, a: string, width: string, b: string, height: string) =>
+          `${a}${Number(width) * 4}${b}${Number(height) * 4}`,
+      );
+    return { ...member, data: Buffer.from(dense) };
+  });
+}
+
+/**
+ * An HWPX whose header says it has `count` sections. rhwp (from 0.9.0) reads
+ * only as many of the spine's sections as the header says, when it says fewer
+ * than the spine names; the sample's says one.
+ */
+export function declaringSections(archive: Buffer, count: number): Buffer {
+  const declared = /secCnt="\d+"/;
+  return rewriteArchive(archive, (member) => {
+    if (member.name !== 'Contents/header.xml') return member;
+    const text = member.data.toString('utf8');
+    if (!declared.test(text)) throw new Error('the header declares no count of sections');
+    return { ...member, data: Buffer.from(text.replace(declared, `secCnt="${count}"`)) };
+  });
 }
 
 export function lockedHwp(): Buffer {

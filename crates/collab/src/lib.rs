@@ -32,6 +32,7 @@ mod doc;
 mod placing;
 mod project;
 mod read;
+mod reading;
 mod repair;
 mod scan;
 mod schema;
@@ -39,11 +40,12 @@ mod take;
 mod update;
 
 pub use build::{from_body, from_body_by, new_doc};
-pub use doc::{BodyDoc, Changed, client_changes};
+pub use doc::{BodyDoc, Changed, client_changes, reading_steps};
 pub use repair::Repair;
 pub use take::{TakeError, Taken, from_state, take_update};
 pub use update::{
-    MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, UpdateError, UpdateLimits, state_of,
+    MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateError, UpdateLimits,
+    state_of,
 };
 pub use yrs;
 
@@ -121,6 +123,19 @@ pub mod testing {
     /// Returns why the update, or the document, cannot be read.
     pub fn placing_steps(doc: &Doc, update: &[u8]) -> Result<u64, UpdateError> {
         crate::update::placing_steps(doc, update)
+    }
+
+    pub use crate::reading::List;
+
+    /// How many steps the library takes to read a state into an empty document
+    /// ([`UpdateLimits::reading_steps`]), counted to the end whatever it is, and the
+    /// lists the reading that counts them leaves.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the bytes are no whole state.
+    pub fn reading(state: &[u8]) -> Result<(u64, Vec<List>), &'static str> {
+        crate::reading::lists(state).map_err(crate::scan::Refusal::reason)
     }
 
     /// How many changes a state or an update holds.

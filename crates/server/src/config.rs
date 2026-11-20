@@ -253,6 +253,9 @@ pub struct Configuration {
     /// How many earlier versions of a comment's body the server keeps: the first one,
     /// with which the comment was posted, and the newest. At least 1.
     pub max_comment_versions: u32,
+    /// How many versions of a file the server keeps, the newest: the bytes the file has
+    /// and those it had before it was written anew. At least 1.
+    pub max_file_versions: u32,
     /// How many exports (`exportContainerArchive`, `exportWorkspaceArchive`) the server runs at
     /// once; a user runs one at a time. An export runs until its archive is sent. At
     /// least 1.
@@ -371,6 +374,7 @@ impl Default for Configuration {
             max_pending_upload_bytes: DEFAULT_MAX_PENDING_UPLOAD_BYTES,
             max_import_bytes: DEFAULT_MAX_IMPORT_BYTES,
             max_comment_versions: DEFAULT_MAX_COMMENT_VERSIONS,
+            max_file_versions: fvoci_store::DEFAULT_FILE_VERSIONS_KEPT,
             max_concurrent_exports: DEFAULT_MAX_CONCURRENT_ARCHIVES,
             export_stall_seconds: 60,
             max_concurrent_imports: DEFAULT_MAX_CONCURRENT_ARCHIVES,
@@ -450,6 +454,7 @@ impl std::fmt::Debug for Configuration {
             .field("max_pending_upload_bytes", &self.max_pending_upload_bytes)
             .field("max_import_bytes", &self.max_import_bytes)
             .field("max_comment_versions", &self.max_comment_versions)
+            .field("max_file_versions", &self.max_file_versions)
             .field("max_concurrent_exports", &self.max_concurrent_exports)
             .field("export_stall_seconds", &self.export_stall_seconds)
             .field("max_concurrent_imports", &self.max_concurrent_imports)

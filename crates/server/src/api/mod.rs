@@ -19,6 +19,8 @@ mod containers;
 mod content_search;
 pub mod contract;
 mod email_verification;
+mod file_leases;
+mod file_versions;
 mod files;
 mod invitation_mail;
 mod invitations;
@@ -131,6 +133,8 @@ fn routes() -> Routes {
         .merge(categories::routes())
         .merge(config::routes())
         .merge(files::routes())
+        .merge(file_versions::routes())
+        .merge(file_leases::routes())
         .merge(invitations::routes())
         .merge(invitation_mail::routes())
         .merge(members::routes())

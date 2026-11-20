@@ -1,5 +1,5 @@
 /**
- * The elements of an HWPX package's list (`content.hpf`) as rhwp (0.8.7)
+ * The elements of an HWPX package's list (`content.hpf`) as rhwp (0.9.0)
  * sees them. Its reader is quick-xml 0.42 (`Reader::from_str`, the default
  * configuration), whose rules for where markup ends are its own, not XML's:
  * a quote opens a value anywhere in a tag, end tags hold quotes too, a

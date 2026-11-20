@@ -32,6 +32,9 @@ pub struct Changed {
     /// The most changes one of its clients has, deleted ones too
     /// ([`crate::MAX_CLIENT_CHANGES`]).
     pub client_changes: u64,
+    /// The steps the Y library takes to read it from its state
+    /// ([`crate::READING_STEPS`]); 0 where the limits had no count of them.
+    pub reading_steps: u64,
 }
 
 impl Default for BodyDoc {
@@ -121,6 +124,7 @@ impl From<crate::Taken> for Changed {
             repair: taken.repair,
             state_bytes: taken.state_bytes,
             client_changes: taken.client_changes,
+            reading_steps: taken.reading_steps,
         }
     }
 }
@@ -135,6 +139,19 @@ impl From<crate::Taken> for Changed {
 pub fn client_changes(state: &[u8]) -> Result<u64, UpdateError> {
     crate::scan::check(state)
         .map(|walked| walked.most)
+        .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))
+}
+
+/// The steps the Y library takes to read a document's `state` ([`crate::READING_STEPS`]),
+/// counted no further than a little past `stop_past`: for a document that was not
+/// taken, as [`Changed::reading_steps`] is for one that was.
+///
+/// # Errors
+///
+/// Returns [`UpdateError::Unreadable`] if the bytes are no whole state the crate reads.
+pub fn reading_steps(state: &[u8], stop_past: u64) -> Result<u64, UpdateError> {
+    crate::reading::count(state, stop_past)
+        .map(|read| read.steps)
         .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))
 }
 

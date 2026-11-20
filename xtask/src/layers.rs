@@ -148,8 +148,11 @@ pub(crate) const LAYERS: &[Layer] = &[
         unlayered: Some(&[
             "std::collections",
             "std::fmt",
+            "std::hash::Hash",
             "std::io::Result",
             "std::io::Write",
+            "std::mem::replace",
+            "std::mem::take",
             "std::sync::Arc",
             "serde_json",
             "thiserror",

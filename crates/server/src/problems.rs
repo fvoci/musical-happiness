@@ -343,6 +343,21 @@ fn describe_transfer(reason: Reason) -> Option<&'static str> {
             "Status 413. The file is larger than one request takes (`limit`): send it as an \
              upload in parts, which takes a file up to the largest the server stores."
         }
+        Reason::FileVersionStale => {
+            "Status 409. A version of a file was written from a version (`baseVersion`) that \
+             is the file's newest no more: somebody wrote one meanwhile. Nothing is changed, \
+             and an uploaded file that was to become the version (`addFileVersion`) is still \
+             a file of the board. Read the versions again (`getFileVersions`), and write \
+             from the newest or attach the uploaded file on its own."
+        }
+        Reason::FileBeingEdited => {
+            "Status 409. The file's lease (`holdFileLease`) is held by another editor: \
+             somebody else, or the caller in another window, has the file open in the \
+             editor. `getFileLease` says who, where the caller may know. Nothing keeps a \
+             version from being written meanwhile (`addFileVersion` is held to \
+             `baseVersion`); the lease is let go of when that editor is closed, and ends \
+             90 seconds after it was last held on to otherwise."
+        }
         Reason::ExportRunning => {
             "Status 429. The user has an export running, and runs one at a time. Try again \
              when it is done."
@@ -513,8 +528,9 @@ fn describe_editing_together(reason: Reason) -> &'static str {
         }
         Reason::DocumentTooLarge => {
             "Status 413. With the update the document of the body, or the body, would be \
-             larger than it may be (setting `collab_state_bytes`, and the limit of a body); \
-             `limit` is the limit in bytes."
+             larger than it may be (setting `collab_state_bytes`, and the limit of a body), \
+             or the document would take more steps to read than it may; `limit` is the \
+             limit in bytes."
         }
         Reason::TooManyDocuments => {
             "Status 503. The server holds as many documents of bodies being edited as it \

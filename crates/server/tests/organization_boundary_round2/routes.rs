@@ -105,6 +105,41 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/containers/{containerId}/files/{fileId}/info",
         "getFileInfo",
     ),
+    (
+        "GET",
+        "/containers/{containerId}/files/{fileId}/versions",
+        "getFileVersions",
+    ),
+    (
+        "POST",
+        "/containers/{containerId}/files/{fileId}/versions",
+        "addFileVersion",
+    ),
+    (
+        "GET",
+        "/containers/{containerId}/files/{fileId}/versions/{version}",
+        "getFileVersion",
+    ),
+    (
+        "POST",
+        "/containers/{containerId}/files/{fileId}/versions/{version}/restore",
+        "restoreFileVersion",
+    ),
+    (
+        "GET",
+        "/containers/{containerId}/files/{fileId}/lease",
+        "getFileLease",
+    ),
+    (
+        "PUT",
+        "/containers/{containerId}/files/{fileId}/lease",
+        "holdFileLease",
+    ),
+    (
+        "DELETE",
+        "/containers/{containerId}/files/{fileId}/lease/{leaseId}",
+        "releaseFileLease",
+    ),
     ("POST", "/containers/{containerId}/join", "joinContainer"),
     ("POST", "/containers/{containerId}/leave", "leaveContainer"),
     ("POST", "/containers/{containerId}/members", "addMember"),
@@ -327,6 +362,13 @@ const REACHED_BY_ITEM: &[&str] = &[
     "uploadFile",
     "getFile",
     "getFileInfo",
+    "getFileVersions",
+    "addFileVersion",
+    "getFileVersion",
+    "restoreFileVersion",
+    "getFileLease",
+    "holdFileLease",
+    "releaseFileLease",
     "joinContainer",
     "leaveContainer",
     "addMember",
@@ -1011,6 +1053,7 @@ impl Items<'_> {
             .replace("{subscriberId}", subscriber)
             .replace("{partNumber}", "1")
             .replace("{version}", "1")
+            .replace("{leaseId}", UNKNOWN_ID)
             .replace("{categoryId}", &pick(self.category, UNKNOWN_ID))
     }
 }
@@ -1061,6 +1104,7 @@ pub(super) async fn compare_resource_routes(
                 "createUpload" => json!({"name": "new.bin", "size": 0}),
                 "addMember" => json!({"userId": user, "schemeViewer": true}),
                 "setSharing" => json!({"enabled": true}),
+                "holdFileLease" => json!({"leaseId": ""}),
                 "createSubscription" => {
                     json!({"blockId": block(absent), "blockType": "card", "subscriberType": "user", "subscriberId": caller})
                 }
@@ -1573,7 +1617,7 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
     }
     ts.teardown().await;
     assert_eq!(
-        count, 49,
+        count, 56,
         "the operations that moved or came after under the workspace, and the two that went"
     );
     assert!(violations.is_empty(), "{}", violations.join("\n"));

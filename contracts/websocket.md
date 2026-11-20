@@ -256,7 +256,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 
 ### 세대
 
-`epoch`은 문서가 몇 번째로 만들어진 것인가다(1부터). 서버는 문서가 한도 가까이 자랐을 때와 카드의 본문이 문서를 거치지 않고 통째로 쓰였을 때(HTTP의 `patchCard`·`patchPage` 등, 판으로 되돌리기 `restoreCardBodyVersion`·`restorePageBodyVersion`, 가져오기, 되살리기) 카드의 본문에서 문서를 **새로 만든다**. 내용이 같아도 다른 문서다: 앞 세대의 변경은 새 문서에 얹히지 않는다.
+`epoch`은 문서가 몇 번째로 만들어진 것인가다(1부터). 서버는 문서가 한도 가까이 자랐을 때(크기, 클라이언트 수, 한 클라이언트의 변경 수, 읽는 데 드는 걸음), 받아들이면 읽는 데 드는 걸음이 한도를 넘는 변경을 거절했을 때(`document_too_large`. 거절한 변경은 새 문서에 없다)와 카드의 본문이 문서를 거치지 않고 통째로 쓰였을 때(HTTP의 `patchCard`·`patchPage` 등, 판으로 되돌리기 `restoreCardBodyVersion`·`restorePageBodyVersion`, 가져오기, 되살리기) 카드의 본문에서 문서를 **새로 만든다**. 내용이 같아도 다른 문서다: 앞 세대의 변경은 새 문서에 얹히지 않는다.
 
 - 서버는 프레임마다 `epoch`을 싣고, 클라이언트도 자기가 쥔 세대를 싣는다. 방의 세대와 다른 변경은 `DOC_NACK`(`update_out_of_step`)이다.
 - 문서가 새로 만들어지면 방의 모두에게 새 `epoch`의 `DOC_RESET`과 문서 전체가 간다. 클라이언트는 **쥐고 있던 문서를 버리고** 온 것으로 새 문서를 만든다. 아직 답을 받지 못한 변경은 버려진 문서의 것이다(늦게 오는 그 답은 옛 `epoch`을 싣고 있다). 자기 `epoch`과 다른 프레임은 버린다. 새로 만들어진 때와 `DOC_RESET` 사이에 보낸 변경은 `DOC_NACK`(`update_out_of_step`)이다.
@@ -273,7 +273,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 | `update_refused` | `DOC_NACK` | 업데이트가 아니거나, 본문 밖을 쓰거나, 문서를 본문이 아닌 것으로 만들거나, 보드에 없는 파일의 이미지를 보인다 |
 | `update_out_of_step` | `DOC_NACK` | 방의 세대와 다른 `epoch`, 또는 문서에 없는 변경 위에 얹은 변경 |
 | `update_too_large` | `DOC_NACK` | 업데이트가 `collab_update_bytes`를 넘는다 |
-| `document_too_large` | `DOC_NACK` | 받아들이면 문서나 본문이 한도를 넘는다 |
+| `document_too_large` | `DOC_NACK` | 받아들이면 문서나 본문이 한도를 넘는다(크기, 그리고 문서를 읽는 데 드는 걸음: `docs/configuration.md`의 `collab_update_bytes`) |
 | `document_read_only` | `DOC_NACK` | `read`로 든 연결의 변경 |
 | `too_many_documents` | `DOC_REFUSED`, `DOC_NACK`, `DOC_LEFT` | 서버가 쥘 수 있는 문서가 다 찼다 |
 | `document_unavailable` | `DOC_REFUSED`, `DOC_NACK`, `DOC_LEFT` | 지금 그 문서를 다룰 수 없다(작업자가 죽었거나 답하지 않았다, 문서가 잠시 닫혔다, 서버가 멈추는 중이다). 그 변경은 문서에 없다 |
