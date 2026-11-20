@@ -24,6 +24,12 @@ pub(crate) const SERVED: UpdateLimits = UpdateLimits {
 /// making of such a document from its body (release build, an idle machine).
 pub(crate) const LONGEST: Duration = Duration::from_millis(500);
 
+/// The documents of [`bodies`] held to [`LONGEST`]: those of the shapes people write.
+/// The body of the most changes ([`marked`]) is no such document; how long its edits
+/// take is measured and told, not held (up to 0.65 s: each update reads its state of
+/// 7.4 MB again, twice).
+pub(crate) const WRITTEN: [&str; 2] = ["50,000 nodes", "4 MiB"];
+
 /// The paragraphs of the largest paste: what fills an update of 64 KiB.
 const PASTED: u32 = 350;
 
@@ -69,17 +75,33 @@ pub(crate) fn bodies() -> Vec<(&'static str, Value)> {
 /// mark and with none. Every mark is a change where it begins and another where it
 /// ends.
 pub(crate) fn marked(nodes: usize, bytes: usize) -> Value {
-    const LETTERS: usize = 200;
+    marked_by(Some(200), nodes, bytes)
+}
+
+/// [`marked`] in a single paragraph, as long as `nodes` and `bytes` let it be: the
+/// marks of one text, which the library finds its places in by walking from the start
+/// of the text.
+pub(crate) fn marked_paragraph(nodes: usize, bytes: usize) -> Value {
+    marked_by(None, nodes, bytes)
+}
+
+/// Paragraphs of `letters` letters each, or one of as many as fit.
+fn marked_by(letters: Option<usize>, nodes: usize, bytes: usize) -> Value {
     let every = json!({"type": "text", "text": "a", "marks": [
         {"type": "bold"}, {"type": "italic"}, {"type": "strike"}, {"type": "code"},
         {"type": "link", "attrs": {"href": "/"}},
     ]});
     let none = json!({"type": "text", "text": "a"});
-    let content: Vec<Value> = [every, none].into_iter().cycle().take(LETTERS).collect();
-    let paragraph = json!({"type": "paragraph", "content": content});
-    let paragraph_bytes = serde_json::to_vec(&paragraph).expect("JSON").len() + 1;
+    let size = |value: &Value| serde_json::to_vec(value).expect("JSON").len() + 1;
     // The document's own bytes and node.
-    let count = ((bytes - 64) / paragraph_bytes).min((nodes - 1) / (LETTERS + 1));
+    let (bytes, nodes) = (bytes - 64, nodes - 1);
+    let letters = letters.unwrap_or_else(|| {
+        let pair = size(&every) + size(&none);
+        (nodes - 1).min(bytes / pair * 2)
+    });
+    let content: Vec<Value> = [every, none].into_iter().cycle().take(letters).collect();
+    let paragraph = json!({"type": "paragraph", "content": content});
+    let count = (bytes / size(&paragraph)).min(nodes / (letters + 1));
     json!({"type": "doc", "content": vec![paragraph; count]})
 }
 

@@ -75,7 +75,9 @@ pub struct CollabSettings {
 }
 
 /// The default of `collab_state_bytes`: 8 MiB. The document of the largest body is
-/// 4.2 MB (4 MiB of text) or 1.3 MB (50,000 nodes), and is made again from its body
+/// 4.2 MB (4 MiB of text), 1.3 MB (50,000 nodes) or, of the most changes (letters in
+/// turn with five marks and with none), 7.4 MB: 88% of this, which it starts at and is
+/// not made again for until it grew by a quarter. Others are made again from their body
 /// at three quarters of this. It is no larger because a worker pays for a state of
 /// many small changes in memory far more than for its bytes ([`MEMORY_PER_STATE_BYTE`]).
 pub(super) const DEFAULT_STATE_BYTES: u64 = 8 * 1024 * 1024;
@@ -98,7 +100,7 @@ pub(super) const MOST_STATE_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// The least `collab_worker_memory_bytes`: [`UPDATE_MEMORY_BYTES`] and a document of
 /// the least `collab_state_bytes`.
-pub(super) const LEAST_WORKER_MEMORY_BYTES: u64 = 512 * 1024 * 1024;
+pub(super) const LEAST_WORKER_MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// The least `collab_frames_per_second`: a connection comes into a room (which
 /// counts as five) and writes at once.
@@ -136,15 +138,19 @@ pub(super) const MEMORY_PER_STATE_BYTE: u64 = 32;
 
 /// The memory of a worker that is kept free of the documents it holds, for the one
 /// update it takes at a time: an update makes a copy of its document, reads the copy
-/// again from its state, and a repair does both once more. For the largest body that
-/// is 187 MB above the document (50,000 nodes; 39 MB for 4 MiB of text), and the
-/// executable and what the allocator keeps come on top.
+/// again from its state, and a repair does both once more. It goes with the changes of
+/// the document: for a body of 50,000 nodes that is 187 MB above the document (39 MB
+/// for 4 MiB of text), and for the body of the most changes (letters in turn with five
+/// marks and with none, a state of 7.4 MB) 359 MB for a letter typed and 663 MB to
+/// repair an update. Every body is so taken, by a worker that holds as many documents
+/// as it counts room for; the executable and what the allocator keeps come on top.
 ///
-/// It goes with the changes of the document, not with its body: a state grown to
-/// 5.8 MB by deleted nodes takes 414 MB to repair an update for, and one of 6 MB made
-/// of deleted texts 788 MB. That is not counted, as [`MEMORY_PER_STATE_BYTE`] does not
-/// count it: the worker that runs out of memory for it is started again.
-pub(super) const UPDATE_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
+/// A state grown by what was deleted from it takes more than its body: 414 MB to repair
+/// an update for one of 5.8 MB of deleted nodes, 788 MB for one of 6 MB of deleted
+/// texts. That is not counted, as [`MEMORY_PER_STATE_BYTE`] does not count it: the
+/// worker that runs out of memory for it is started again, and the sender of the update
+/// it was taking is held back for a little while (`collab::senders`).
+pub(super) const UPDATE_MEMORY_BYTES: u64 = 768 * 1024 * 1024;
 
 impl Default for CollabSettings {
     fn default() -> Self {
@@ -154,7 +160,7 @@ impl Default for CollabSettings {
             collab_state_bytes: DEFAULT_STATE_BYTES,
             collab_update_bytes: DEFAULT_UPDATE_BYTES,
             collab_worker_timeout_ms: 10_000,
-            collab_worker_memory_bytes: 1024 * 1024 * 1024,
+            collab_worker_memory_bytes: 1536 * 1024 * 1024,
             collab_recheck_seconds: 30,
             collab_documents_per_connection: 8,
             collab_connections_per_document: 50,
@@ -170,7 +176,7 @@ impl Default for CollabSettings {
 
 impl CollabSettings {
     /// The bytes of the states of all its documents a worker may hold together: what
-    /// of its memory is not kept for the update it takes (256 MiB), divided by what a
+    /// of its memory is not kept for the update it takes (768 MiB), divided by what a
     /// byte of a state takes in memory (32). 24 MiB with the memory of the default.
     #[must_use]
     pub fn held_bytes(&self) -> u64 {

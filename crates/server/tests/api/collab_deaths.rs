@@ -274,6 +274,84 @@ async fn an_update_that_ends_the_worker_is_not_kept_and_its_sender_is_held_back(
     th.teardown().await;
 }
 
+/// A body of letters in turn with every mark and with none, as many as a body may have:
+/// the one whose document has the most changes, and takes the most memory to take an
+/// update for.
+fn marked_body() -> Value {
+    let every = json!({"type": "text", "text": "a", "marks": [
+        {"type": "bold"}, {"type": "italic"}, {"type": "strike"}, {"type": "code"},
+        {"type": "link", "attrs": {"href": "/"}},
+    ]});
+    let none = json!({"type": "text", "text": "a"});
+    let content: Vec<Value> = [every, none].into_iter().cycle().take(200).collect();
+    let paragraph = json!({"type": "paragraph", "content": content});
+    let size = serde_json::to_vec(&paragraph).expect("JSON").len() + 1;
+    let count =
+        ((fvoci_model::BODY_MAX_BYTES - 1024) / size).min((fvoci_model::BODY_MAX_NODES - 10) / 201);
+    json!({"type": "doc", "content": vec![paragraph; count]})
+}
+
+/// The documents that take a worker the most memory, at the memory a worker has by
+/// default: while it holds as many documents of empty paragraphs (the most memory for
+/// their state) as it counts room for, it takes a letter typed into the document of
+/// the most changes, and an update of it the server repairs, and goes on.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_documents_that_take_the_most_memory_are_edited_by_a_worker_that_holds_its_share() {
+    let th = Setup::native()
+        // Time for a build without optimizations; the memory is as it comes.
+        .configure(|config| config.collab.collab_worker_timeout_ms = 120_000)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let marked = editing(&th, &marked_body()).await;
+    let collab = marked.app.collab();
+    let (editor, epoch) = joined(collab, &marked.app, &marked.card_id, 101).await;
+    let wide = json!({"type": "doc", "content": vec![json!({"type": "paragraph"}); 49_990]});
+    let mut held = 0;
+    loop {
+        let more = editing(&th, &wide).await;
+        match collab.open(&more.app, &more.card_id).await {
+            Ok(_) => held += 1,
+            Err(error) => {
+                assert_eq!(reason_of(&error), Some("too_many_documents"), "{error}");
+                break;
+            }
+        }
+        assert!(held < 40, "the worker counts room for {held} and more");
+    }
+    assert!(
+        held >= 10,
+        "the worker holds {held} documents of 50,000 paragraphs"
+    );
+    let pid = worker_pid(&marked).await;
+    let typed = collab
+        .take(
+            &marked.app,
+            &marked.card_id,
+            epoch,
+            &marked.user1,
+            &editor.append_paragraph("typed"),
+        )
+        .await
+        .expect("a letter typed");
+    assert!(!typed.remade, "not made again");
+    let repaired = collab
+        .take(
+            &marked.app,
+            &marked.card_id,
+            epoch,
+            &marked.user1,
+            &editor.append_element("nothing-a-body-has"),
+        )
+        .await
+        .expect("an update the server repairs");
+    assert!(repaired.repair.is_some(), "repaired");
+    assert_eq!(worker_pid(&marked).await, pid, "the same worker");
+    th.teardown().await;
+}
+
 /// A worker holds no more documents than it may; an update larger than the limit is
 /// refused, and so is one whose body would be larger than a body may be. What was
 /// refused is in neither the document nor its log.

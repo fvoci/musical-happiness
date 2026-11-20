@@ -7,9 +7,7 @@
 mod support;
 
 use fvoci_collab::testing::{repair, to_body, with_update};
-use fvoci_collab::{
-    TakeError, UpdateError, from_body_by, from_state, new_doc, state_of, take_update,
-};
+use fvoci_collab::{TakeError, UpdateError, from_state, new_doc, state_of, take_update};
 use support::explore::session;
 use support::wire::{Change, Content, Parent, Update, value};
 use support::{ROOMY, from_base64};
@@ -171,8 +169,10 @@ fn a_taken_document_opens_to_the_same_body_each_time() {
     let update =
         from_base64("AgEAAMEHEgcLBQMBAAcBB2RlZmF1bHQDCGxpc3RJdGVtiAAAAXtDQAAAAAAAAIQAAAV3b3JkIAA=");
     let opened = from_state(&before, &ROOMY).expect("a body");
-    // The document as the server made it of its body, by the writer the search gives.
-    let base = from_body_by(opened.repair.body.as_ref().expect("a body"), 7);
+    assert!(opened.repair.body.is_some(), "a body");
+    // The document as the server made it of its body, by the writer the search gives,
+    // before it wrote each mark in a pass of its own: what it stored so is still opened.
+    let base = support::doc_of(&before);
     assert_eq!(state_of(&base), before);
     if let Ok(taken) = take_update(&base, &update, &ROOMY) {
         let mut state = state_of(&taken.doc);

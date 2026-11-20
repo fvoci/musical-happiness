@@ -5,10 +5,12 @@
 
 mod support;
 
+use std::time::{Duration, Instant};
+
 use fvoci_collab::{BodyDoc, MAX_CLIENT_CHANGES, take_update};
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_NODES};
 use support::body_of;
-use support::honest::{SERVED, bodies, document, edits, marked};
+use support::honest::{SERVED, bodies, document, edits, marked, marked_paragraph};
 
 /// The body of the most changes of one client and the largest state there is (of the
 /// ways tried: marks in turn with letters of none, of every mark, of every mark but the
@@ -25,6 +27,32 @@ fn the_body_of_the_most_changes_fits_a_document() {
     );
     let state = doc.state().len();
     assert!(state <= SERVED.state_bytes, "{state} bytes of state");
+}
+
+/// One paragraph of letters in turn with every mark and with none, as many as a body
+/// may have, is made into a document in the time of its length: each mark is written
+/// in one pass over the text. Written a letter at a time, each walked the text from its
+/// start, and 8,000 such letters took 9 s (release).
+#[test]
+fn a_paragraph_of_many_marks_is_made_in_the_time_of_its_length() {
+    let document = marked_paragraph(BODY_MAX_NODES, BODY_MAX_BYTES);
+    let letters = document["content"][0]["content"]
+        .as_array()
+        .map_or(0, Vec::len);
+    assert!(letters > 40_000, "{letters} letters");
+    let body = body_of(&document);
+    let start = Instant::now();
+    let doc = BodyDoc::from_body(Some(&body));
+    let took = start.elapsed();
+    assert!(
+        took < Duration::from_secs(5),
+        "{letters} letters made in {took:?}"
+    );
+    let changes = doc.client_changes();
+    assert!(
+        changes * 4 < MAX_CLIENT_CHANGES * 3,
+        "{changes} changes of one client"
+    );
 }
 
 #[test]

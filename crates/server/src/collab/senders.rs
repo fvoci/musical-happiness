@@ -1,6 +1,7 @@
 //! Who sent an update that ended a worker, by taking longer than it may or by breaking
-//! it: their updates are refused for a while, twice as long each further time, and so
-//! are those of everyone in their organization from its third time. An update is no
+//! it: their updates are refused for a little while, ten seconds the first time (and the
+//! connection that sent it is closed), twice as long each further time, and so are
+//! those of everyone in their organization from its third time. An update is no
 //! more than a worker's time limit to anybody else (the worker is started again at
 //! once for it, [`super::worker::Blame::Sender`]); this keeps its sender from sending
 //! it again and again.
@@ -12,8 +13,9 @@ use std::time::Duration;
 use fvoci_store::Tenant;
 use tokio::time::Instant;
 
-/// How long the updates of a sender are refused after the first that ended a worker.
-const FIRST_HOLD: Duration = Duration::from_mins(1);
+/// How long the updates of a sender are refused after the first that ended a worker:
+/// short, as one may end it by chance; one who sends it again is held longer.
+const FIRST_HOLD: Duration = Duration::from_secs(10);
 
 /// The longest the updates of a sender or of an organization are refused for.
 const LONGEST_HOLD: Duration = Duration::from_mins(60);
@@ -123,10 +125,10 @@ mod tests {
         let start = Instant::now();
         assert_eq!(senders.held_until(ONE, "ann", start), None);
         let mut now = start;
-        for expected in [1, 2, 4, 8, 16, 32, 60, 60] {
+        for expected in [10, 20, 40, 80, 160, 320, 640, 1280, 2560, 3600, 3600] {
             senders.ended_worker(ONE, "ann", now);
             let until = senders.held_until(ONE, "ann", now).expect("held");
-            assert_eq!(until - now, Duration::from_mins(expected), "after {now:?}");
+            assert_eq!(until - now, Duration::from_secs(expected), "after {now:?}");
             // Sent again as soon as it is let.
             now = until;
             assert_eq!(senders.held_until(ONE, "ann", now), None, "let again");

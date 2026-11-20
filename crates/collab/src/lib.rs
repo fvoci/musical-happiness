@@ -184,6 +184,17 @@ pub mod testing {
             self.doc.transact().encode_diff_v1(&before)
         }
 
+        /// Appends an empty element `name` and gives the update of it: of a node no body
+        /// has, an update the server repairs.
+        #[must_use]
+        pub fn append_element(&self, name: &str) -> Vec<u8> {
+            use yrs::{ReadTxn as _, XmlElementPrelim, XmlFragment as _};
+            let before = self.doc.transact().state_vector();
+            let root = self.doc.get_or_insert_xml_fragment(crate::FIELD);
+            root.push_back(&mut self.doc.transact_mut(), XmlElementPrelim::empty(name));
+            self.doc.transact().encode_diff_v1(&before)
+        }
+
         /// Types `letters` at the end of the text of the last paragraph and gives the
         /// update of it.
         ///

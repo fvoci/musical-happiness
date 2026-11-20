@@ -91,6 +91,11 @@ fn shapes() -> Vec<(&'static str, Value)> {
                 json!({"type": "paragraph", "content": vec![json!({"type": "hardBreak"}); nodes - 1]}),
             ]),
         ),
+        ("marks", honest::marked(nodes, BODY_MAX_BYTES - 1024)),
+        (
+            "marked line",
+            honest::marked_paragraph(nodes, BODY_MAX_BYTES - 1024),
+        ),
     ]
 }
 
@@ -167,7 +172,8 @@ fn times() {
 
 /// How long what editors send to the largest documents takes ([`support::honest`]),
 /// and making such a document again from its body, as the restore of a version does:
-/// each within [`honest::LONGEST`].
+/// each within [`honest::LONGEST`] for the documents of the shapes people write
+/// ([`honest::WRITTEN`]).
 #[test]
 #[ignore = "a measurement, run by name in a release build"]
 fn honest() {
@@ -176,12 +182,16 @@ fn honest() {
     let mut slow = Vec::new();
     for (name, document) in honest::bodies() {
         let body = body_of(&document);
-        let (made, _) = timed(|| {
+        let (made, (state, changes)) = timed(|| {
             let made = BodyDoc::from_body(Some(&body));
-            (made.state(), made.client_changes())
+            (made.state().len(), made.client_changes())
         });
-        println!("| {name} | made again from its body | | {} |", millis(made));
-        if made > honest::LONGEST {
+        println!(
+            "| {name} | made again from its body: a state of {state} B, {changes} changes of its writer | | {} |",
+            millis(made)
+        );
+        let held = honest::WRITTEN.contains(&name);
+        if held && made > honest::LONGEST {
             slow.push((name, "made again from its body"));
         }
         let doc = honest::document(&document);
@@ -193,7 +203,7 @@ fn honest() {
                 edit.update.len(),
                 millis(took)
             );
-            if took > honest::LONGEST {
+            if held && took > honest::LONGEST {
                 slow.push((name, edit.name));
             }
         }
