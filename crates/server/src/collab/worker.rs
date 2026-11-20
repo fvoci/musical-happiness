@@ -140,7 +140,8 @@ pub enum Death {
 /// How many workers ended, for the tests of whom a death is put down to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ended {
-    /// The workers that died or were ended.
+    /// The workers that ran and died or were ended (one that did not take its limits
+    /// never ran).
     pub workers: u64,
     /// The deaths put down to the worker since its last answer: the next one waits for
     /// them to start ([`Blame::Worker`]).

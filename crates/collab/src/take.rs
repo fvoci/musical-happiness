@@ -58,7 +58,7 @@ pub enum TakeError {
 ///
 /// How long this takes grows with the document as well as with the update: the copy
 /// and the reading again each read the whole state (a paragraph typed into 50,000
-/// nodes is taken in 0.15 s, and a repair there in up to 1.2 s, release build), and
+/// nodes is taken in 0.15 s, and a repair there in up to 1.3 s, release build), and
 /// the walk refuses the known ways to make that reading cost the square of the state
 /// (a member written over and over). And the Y library places a change among the
 /// others of its list by walking past them, so that an update made for it has every

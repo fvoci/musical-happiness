@@ -754,7 +754,7 @@ impl Collab {
     /// tests of whom a death is put down to.
     #[cfg(feature = "test-util")]
     #[doc(hidden)]
-    pub async fn workers_ended(&self) -> worker::Ended {
+    pub async fn first_worker_ended(&self) -> worker::Ended {
         self.inner.workers[0]
             .ended()
             .await

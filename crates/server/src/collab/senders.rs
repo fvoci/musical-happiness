@@ -90,8 +90,10 @@ impl Organization {
         if new_user {
             let users = self.senders.len().saturating_add(self.unnamed.len());
             let users = u32::try_from(users).unwrap_or(u32::MAX);
+            // Users forgotten meanwhile may leave fewer than at the hold under way,
+            // which this does not shorten.
             if let Some(hold) = hold(users, ORGANIZATION_SPARED) {
-                self.held_until = Some(now + hold);
+                self.held_until = self.held_until.max(Some(now + hold));
             }
         }
     }
@@ -164,6 +166,8 @@ mod tests {
     /// make a store handle of one (the store's
     /// `the_server_names_an_organization_for_a_handle_in_few_places`).
     const ONE: Tenant = Tenant::System;
+
+    const HOUR: Duration = Duration::from_hours(1);
 
     #[test]
     fn a_sender_is_held_for_longer_each_time_up_to_the_longest() {
@@ -240,7 +244,6 @@ mod tests {
     /// organization's day: the first is forgotten before they end a worker again.
     #[test]
     fn two_users_do_not_hold_the_organization_across_a_day() {
-        const HOUR: Duration = Duration::from_hours(1);
         let senders = Senders::default();
         let start = Instant::now();
         senders.ended_worker(ONE, "ann", start);
@@ -255,7 +258,7 @@ mod tests {
         );
     }
 
-    /// Users a day apart each, however many, are one at a time to the organization.
+    /// Users 23 hours apart, however many, are never more than two to the organization.
     #[test]
     fn users_a_day_apart_never_hold_the_organization() {
         let senders = Senders::default();
@@ -267,6 +270,8 @@ mod tests {
         }
     }
 
+    /// A user the organization remembers counts once in it however often they end a
+    /// worker: they are held longer, and the others are not held again for them.
     #[test]
     fn a_sender_again_does_not_hold_the_organization_again() {
         let senders = Senders::default();
@@ -286,6 +291,79 @@ mod tests {
             Some(later + FIRST_HOLD * 2),
             "her second"
         );
+    }
+
+    /// A user back within a day is still remembered: one of three with two new ones.
+    #[test]
+    fn a_user_back_within_a_day_is_still_counted() {
+        let senders = Senders::default();
+        let start = Instant::now();
+        senders.ended_worker(ONE, "ann", start);
+        senders.ended_worker(ONE, "ann", start + HOUR * 23);
+        let later = start + HOUR * 46;
+        senders.ended_worker(ONE, "bob", later);
+        senders.ended_worker(ONE, "cat", later);
+        assert_eq!(
+            senders.held_until(ONE, "dan", later),
+            Some(later + FIRST_HOLD)
+        );
+    }
+
+    #[test]
+    fn a_sender_back_within_a_day_is_held_longer() {
+        let senders = Senders::default();
+        let start = Instant::now();
+        senders.ended_worker(ONE, "ann", start);
+        let later = start + HOUR * 23;
+        senders.ended_worker(ONE, "ann", later);
+        assert_eq!(
+            senders.held_until(ONE, "ann", later),
+            Some(later + FIRST_HOLD * 2)
+        );
+    }
+
+    #[test]
+    fn each_further_user_holds_the_organization_longer() {
+        let senders = Senders::default();
+        let now = Instant::now();
+        for user in ["ann", "bob", "cat", "dan"] {
+            senders.ended_worker(ONE, user, now);
+        }
+        assert_eq!(
+            senders.held_until(ONE, "eve", now),
+            Some(now + FIRST_HOLD * 2)
+        );
+    }
+
+    /// The users the organization forgets meanwhile do not cut short a hold under way.
+    #[test]
+    fn a_hold_of_the_organization_is_not_cut_short() {
+        let senders = Senders::default();
+        let start = Instant::now();
+        for user in ["ann", "bob"] {
+            senders.ended_worker(ONE, user, start);
+        }
+        let near = start + REMEMBERED - Duration::from_secs(10);
+        for user in ["cat", "dan", "eve"] {
+            senders.ended_worker(ONE, user, near);
+        }
+        let held = Some(near + FIRST_HOLD * 4);
+        assert_eq!(senders.held_until(ONE, "zed", near), held, "five users");
+        // Ann and Bob are forgotten: four are left, which alone would hold it for less.
+        let later = near + Duration::from_secs(11);
+        senders.ended_worker(ONE, "fay", later);
+        assert_eq!(senders.held_until(ONE, "zed", later), held);
+    }
+
+    #[test]
+    fn users_without_a_session_are_forgotten_after_a_day() {
+        let senders = Senders::default();
+        let start = Instant::now();
+        senders.ended_worker(ONE, "", start);
+        senders.ended_worker(ONE, "", start);
+        let later = start + HOUR * 25;
+        senders.ended_worker(ONE, "", later);
+        assert_eq!(senders.held_until(ONE, "", later), None);
     }
 
     #[test]

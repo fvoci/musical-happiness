@@ -307,7 +307,7 @@ async fn the_updates_a_sender_sent_together_end_one_worker() {
         sent.push((e, epoch, update));
     }
     let collab = sent[0].0.app.collab().clone();
-    let before = collab.workers_ended().await;
+    let before = collab.first_worker_ended().await;
     let takes: Vec<_> = sent
         .iter()
         .map(|(e, epoch, update)| {
@@ -337,7 +337,7 @@ async fn the_updates_a_sender_sent_together_end_one_worker() {
         "{refusals:?}"
     );
     assert_eq!(
-        collab.workers_ended().await.workers - before.workers,
+        collab.first_worker_ended().await.workers - before.workers,
         1,
         "one worker ended"
     );
@@ -372,7 +372,7 @@ async fn a_death_put_down_to_a_sender_does_not_make_the_next_worker_wait_longer(
     let collab = e.app.collab();
     let (editor, epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     collab.stall_updates(&e.app, &e.card_id, 30_000);
-    let before = collab.workers_ended().await;
+    let before = collab.first_worker_ended().await;
     let ended = collab
         .take(
             &e.app,
@@ -384,14 +384,14 @@ async fn a_death_put_down_to_a_sender_does_not_make_the_next_worker_wait_longer(
         .await
         .expect_err("it ended the worker");
     assert!(!held_back(&ended), "{ended:?}");
-    let after = collab.workers_ended().await;
+    let after = collab.first_worker_ended().await;
     assert_eq!(after.workers, before.workers + 1, "the worker ended");
     assert_eq!(after.in_a_row, 0, "the sender's death is not the worker's");
     collab
         .stall_worker(30_000)
         .await
         .expect_err("the worker ends");
-    let after = collab.workers_ended().await;
+    let after = collab.first_worker_ended().await;
     assert_eq!(after.in_a_row, 1, "the worker's death is");
     th.teardown().await;
 }
