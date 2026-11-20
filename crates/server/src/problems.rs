@@ -505,8 +505,9 @@ fn describe_editing_together(reason: Reason) -> &'static str {
         }
         Reason::DocumentTooLarge => {
             "Status 413. With the update the document of the body, or the body, would be \
-             larger than it may be (setting `collab_state_bytes`, and the limit of a body); \
-             `limit` is the limit in bytes."
+             larger than it may be (setting `collab_state_bytes`, and the limit of a body), \
+             or the document would take more steps to read than it may; `limit` is the \
+             limit in bytes."
         }
         Reason::TooManyDocuments => {
             "Status 503. The server holds as many documents of bodies being edited as it \

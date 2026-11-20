@@ -534,7 +534,7 @@ fn a_stored_document_past_the_steps_it_may_take_is_not_read() {
     let mut doc = typed_in_order(CHILDREN);
     let mut stored = Vec::new();
     let mut changes = 0;
-    for _ in 0..2 {
+    for _ in 0..3 {
         let most = most_placed(&doc, changes, CHILDREN);
         let update = before_the_last(ABOVE, changes, most, CHILDREN);
         doc = take_update(&doc, &update, &UNCOUNTED)
@@ -648,4 +648,76 @@ fn what_editors_write_one_session_after_the_other_is_read_in_few_steps() {
         "{steps} steps after {SESSIONS} sessions"
     );
     println!("{steps} steps after {SESSIONS} sessions");
+}
+
+/// The state of `sessions` sessions that each wrote `each` paragraphs after the last
+/// of the session before, the first under the root, with the client of each session by
+/// its number; and after them the first paragraph of one more session, of the client
+/// `next`.
+fn sessions_then(sessions: u64, each: u64, client_of: impl Fn(u64) -> u64, next: u64) -> Vec<u8> {
+    let paragraph = || Content::element("paragraph");
+    let last_of = |session: u64| (client_of(session), each - 1);
+    let mut runs: Vec<Run> = (0..sessions)
+        .map(|session| {
+            let client = client_of(session);
+            let first = match session.checked_sub(1) {
+                None => Change::under(Parent::body(), paragraph()),
+                Some(before) => Change::after(last_of(before), paragraph()),
+            };
+            let rest = (1..each).map(|clock| Change::after((client, clock - 1), paragraph()));
+            Run {
+                client,
+                clock: 0,
+                changes: std::iter::once(first).chain(rest).collect(),
+            }
+        })
+        .collect();
+    runs.push(Run {
+        client: next,
+        clock: 0,
+        changes: vec![Change::after(last_of(sessions - 1), paragraph())],
+    });
+    Update {
+        runs,
+        deleted: Vec::new(),
+    }
+    .bytes()
+}
+
+/// Where what editors write reaches the steps a document may take with no change made
+/// for it: thousands of sessions that each wrote after the one before. The library
+/// reads the clients from the highest down, and a change waits for the client it
+/// names, which waits for the one it names: a session whose client is read before all
+/// the others has its first paragraph wait for every change of them, and the library
+/// looks through all that wait each time. Such an update is refused, and the document
+/// made again from its body, with one client. With a client read after the others the
+/// same paragraph is no steps, and so are the sessions before it, read in their order.
+#[test]
+fn a_session_read_before_the_thousands_it_wrote_after_takes_a_document_past_its_steps() {
+    for (sessions, each) in [(4_000, 20), (2_500, 100)] {
+        // Each session's client is below the one before: read in the order they wrote.
+        let client_of = |session: u64| 1_000_000 - session;
+        let read_last = sessions_then(sessions, each, client_of, 1);
+        let steps = reading_steps(&read_last, u64::MAX).expect("a state");
+        assert_eq!(
+            steps, 0,
+            "{sessions} sessions of {each}, read as they wrote"
+        );
+        let read_first = sessions_then(sessions, each, client_of, 2_000_000);
+        let steps = reading_steps(&read_first, u64::MAX).expect("a state");
+        assert!(
+            steps > READING_STEPS,
+            "{sessions} sessions of {each}: {steps} steps"
+        );
+    }
+    // A few hundred sessions are far from it, whichever is read first.
+    let steps = reading_steps(
+        &sessions_then(400, 50, |session| 1_000_000 - session, 2_000_000),
+        u64::MAX,
+    )
+    .expect("a state");
+    assert!(
+        steps * 16 < READING_STEPS,
+        "400 sessions of 50: {steps} steps"
+    );
 }

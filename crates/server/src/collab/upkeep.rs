@@ -186,11 +186,13 @@ impl Collab {
 
     /// Makes a document whose update was refused for the size of its state again from
     /// its body, if it grew since it was made (what was deleted is in its state), and
-    /// one whose update was refused for the steps its reading would take, if it is not
-    /// as it was made (the steps are of what was written into it, and a body's own
-    /// document has none: such an update may be the paragraph of an editor whose
-    /// client is read before a thousand others its changes wait for), so that the
-    /// editors who load it again can go on; whether it was made again.
+    /// one whose update was refused for the steps its reading would take, unless this
+    /// server made it and it is as it was made (the steps are of what was written into
+    /// it, and a body's own document has none: such an update may be the paragraph of
+    /// an editor whose client is read before thousands of others its changes wait
+    /// for), so that the editors who load it again can go on; whether it was made
+    /// again. A document opened from what was stored is not known to be as it was
+    /// made, and is made again for such an update once.
     pub(super) async fn remake_refused(
         &self,
         app: &App,

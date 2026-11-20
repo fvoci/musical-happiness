@@ -84,9 +84,11 @@ pub const PLACING_STEPS: u64 = 3 * 1024 * 1024;
 /// ([`UpdateLimits::reading_steps`]). The library places a change by walking past the
 /// changes between the neighbours it names, and walks so again every time it reads the
 /// document from its state: two or three times for every update, five where the update
-/// is repaired, and twice as the document is opened. A step takes 110 to 230 ns in a
-/// list of 50,000 (release build), so each reading of such a document at this many
-/// steps takes 0.1 to 0.25 s more than the document's size asks: a paragraph typed
+/// is repaired, and twice as the document is opened. A step takes 0.13 to 0.24 µs in a
+/// list of 50,000 (release build, a machine that does other work besides, at which
+/// all the times here were measured; a busier one took twice as long), so each
+/// reading of such a document at this many steps takes 0.15 to 0.25 s more than the
+/// document's size asks: a paragraph typed
 /// into a list of 50,000 at these steps was taken in 0.31 s where it took 0.06 s,
 /// repaired in 0.74 s where it took 0.23 s, and the document was opened in 0.30 s
 /// where it took 0.10 s. With the slowest update of the largest body (2.3 s, repaired)
@@ -94,17 +96,29 @@ pub const PLACING_STEPS: u64 = 3 * 1024 * 1024;
 /// longer the more changes a document has that lie far from their neighbours, 0.5 µs
 /// in a list of 200,000 such and 0.7 to 0.9 µs in one of 700,000
 /// (`tests/cost.rs`, `scattered`): such a document is slow by its size before its
-/// steps are counted, 1.4 s a reading, which the limits of size and of a client's
+/// steps are counted, 1.5 s a reading, which the limits of size and of a client's
 /// changes are for, not this one.
 ///
 /// What editors write is placed in a step or two where two people wrote at one place:
-/// the largest documents measured, edited, are under 5,000 steps (the changes of the
-/// body's client, looked at once each while an edit waits for the one it names), and
-/// a body's own document is none. Past it are documents with changes made to walk: 62
+/// the largest bodies, edited, are under 5,000 steps (the changes of the body's
+/// client, looked at once each while an edit waits for the one it names), and a
+/// body's own document is none. Past it are documents with changes made to walk: 62
 /// changes of 383 bytes that name the last of 50,000 children to their right and
-/// nothing to their left are three million steps. What holds a document makes it
-/// again from its body, which has none, at three quarters of this, and when an update
-/// is refused for it.
+/// nothing to their left are three million steps.
+///
+/// And past it are documents that thousands of sessions wrote one after the other,
+/// with no change made for it. Each session is a client, whose changes wait for those
+/// of the session it wrote after, and the library looks through all that wait each
+/// time one does: 400 sessions of a paragraph are 289 steps, 400 of 50 changes
+/// 15,000, and from a few thousand sessions on a session whose client is read before
+/// the others brings the steps past the limit with its first paragraph, whatever
+/// they were (4,000 sessions of 20 changes, 2,500 of 100: `tests/reading.rs`). That
+/// is as long for the library as steps of its walk, and that update is refused as
+/// one made for it is: an editor loses what it sent, once in thousands of sessions
+/// of a document.
+///
+/// What holds a document makes it again from its body, which has none and one
+/// client, at three quarters of this, and when an update is refused for it.
 ///
 /// A stored state past it is refused before the library reads it, in the time of the
 /// count, which stops a little past the limit whatever the state holds: one that was
