@@ -11,6 +11,7 @@ import { boardLink, boardMenu, chooseFromMenu, sidebar } from '../e2e/shell.supp
 import {
   person,
   placeOf,
+  putAwayWelcomeBoard,
   register,
   type Schemas,
   signedIn,
@@ -39,6 +40,8 @@ test('a board is made with its first view, changed, deleted and brought back', a
   const owner = person('maker');
   await register(base, owner);
   const api = await signedIn(base, owner);
+  // The board made here is the one board: deleted, there is none to show in its place.
+  await putAwayWelcomeBoard(api);
 
   const errors = watchErrors(page);
   await page.goto('/');

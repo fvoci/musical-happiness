@@ -48,6 +48,8 @@ pub(crate) struct Person {
     pub(crate) email: Option<String>,
     pub(crate) email_verified: Option<bool>,
     pub(crate) name: Option<String>,
+    pub(crate) given_name: Option<String>,
+    pub(crate) family_name: Option<String>,
     pub(crate) preferred_username: Option<String>,
 }
 
@@ -59,6 +61,8 @@ impl Person {
             email: Some(email.to_owned()),
             email_verified: Some(true),
             name: Some(format!("Person {subject}")),
+            given_name: None,
+            family_name: None,
             preferred_username: None,
         }
     }
@@ -497,6 +501,8 @@ fn id_token(shared: &Shared, person: &Person, forgery: Forgery, nonce: &str) -> 
         ("email", person.email.clone().map(Value::from)),
         ("email_verified", person.email_verified.map(Value::from)),
         ("name", person.name.clone().map(Value::from)),
+        ("given_name", person.given_name.clone().map(Value::from)),
+        ("family_name", person.family_name.clone().map(Value::from)),
         (
             "preferred_username",
             person.preferred_username.clone().map(Value::from),

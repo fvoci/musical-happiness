@@ -303,7 +303,7 @@ describe('the versions of a page’s body, in memory', () => {
 });
 
 describe('the body of the page shown', () => {
-  it('gives up a file going up for it when the page is left, telling nothing', async () => {
+  it('gives up a file going up for it when the page is left, and tells that', async () => {
     const made = await aPage();
     const store = new WikiStore(made.workspace, made.wikiId);
     await store.load();
@@ -314,6 +314,7 @@ describe('the body of the page shown', () => {
     const uploading = page.uploadFile(new File(['%PDF'], 'minutes.pdf'));
     store.showPage(undefined);
     expect(await rejection(uploading)).toBe(0);
-    expect(made.workspace.problems).toHaveLength(told);
+    expect(made.workspace.problems.slice(told)).toMatchObject([{ action: 'left' }]);
+    expect(made.workspace.problems.at(-1)?.error).toBeUndefined();
   });
 });

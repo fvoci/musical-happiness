@@ -248,6 +248,10 @@ pub struct IdClaims {
     pub email_verified: Option<bool>,
     /// The person's name, if the token has one.
     pub name: Option<String>,
+    /// The person's given name, if the token has one.
+    pub given_name: Option<String>,
+    /// The person's family name, if the token has one.
+    pub family_name: Option<String>,
     /// The name the person goes by at the provider, if the token has one.
     pub preferred_username: Option<String>,
 }
@@ -267,6 +271,10 @@ struct RawClaims {
     email_verified: Option<bool>,
     #[serde(default)]
     name: Option<String>,
+    #[serde(default)]
+    given_name: Option<String>,
+    #[serde(default)]
+    family_name: Option<String>,
     #[serde(default)]
     preferred_username: Option<String>,
 }
@@ -364,6 +372,8 @@ pub fn verify_id_token(
             .filter(|email| email.trim().len() <= MAXIMUM_EMAIL_BYTES),
         email_verified: claims.email_verified,
         name: claims.name,
+        given_name: claims.given_name,
+        family_name: claims.family_name,
         preferred_username: claims.preferred_username,
     })
 }

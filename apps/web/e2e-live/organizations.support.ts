@@ -63,7 +63,10 @@ export async function startOrganization(page: Page, owner: Person): Promise<void
   await form.getByLabel(/^password$/i).fill(owner.password);
   await form.getByRole('button', { name: 'Start organization' }).click();
   await expect(page.getByTestId('app-shell')).toBeVisible();
-  await expect(boardLink(page, 'Welcome to fvoci!')).toHaveAttribute('aria-current', 'page');
+  await expect(boardLink(page, 'Getting started with fvoci')).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
 }
 
 export function observe(page: Page) {

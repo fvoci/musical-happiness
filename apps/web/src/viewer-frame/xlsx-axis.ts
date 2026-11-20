@@ -99,6 +99,15 @@ export class Axis {
     }
   }
 
+  /** The indices of some size from `first` to `last`, in order, at most `most` of them. */
+  sized(first: number, last: number, most: number): number[] {
+    const found: number[] = [];
+    for (let index = first; index <= last && found.length < most; index = this.next(index)) {
+      if (this.size(index) > 0) found.push(index);
+    }
+    return found;
+  }
+
   size(index: number): number {
     const run = this.#runs[this.#runBefore(index)];
     return run && index <= run.last ? run.size : this.#size;

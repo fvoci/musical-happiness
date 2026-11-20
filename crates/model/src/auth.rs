@@ -23,10 +23,18 @@ pub const MAXIMUM_EMAIL_BYTES: usize = 254;
 pub const DISPLAY_NAME_MAX_LENGTH: usize = 64;
 
 /// Characters that a display name refuses beside the control characters: those that
-/// show nothing, break a line or turn the direction of the text around, with which a
-/// name could look empty, or like another.
-const INVISIBLE: [std::ops::RangeInclusive<char>; 6] = [
+/// show nothing (the Hangul fillers and the blank Braille pattern among them, which are
+/// letters or symbols), break a line or turn the direction of the text around, with which
+/// a name could look empty, or like another.
+const INVISIBLE: [std::ops::RangeInclusive<char>; 13] = [
     '\u{00AD}'..='\u{00AD}',
+    '\u{034F}'..='\u{034F}',
+    '\u{061C}'..='\u{061C}',
+    '\u{115F}'..='\u{1160}',
+    '\u{180E}'..='\u{180E}',
+    '\u{2800}'..='\u{2800}',
+    '\u{3164}'..='\u{3164}',
+    '\u{FFA0}'..='\u{FFA0}',
     '\u{200B}'..='\u{200F}',
     '\u{2028}'..='\u{202E}',
     '\u{2060}'..='\u{206F}',

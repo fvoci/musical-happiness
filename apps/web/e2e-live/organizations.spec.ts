@@ -40,9 +40,9 @@ test('a second organization goes from signup through the full app to a shared li
   await observation.screen();
   await page
     .getByTestId('template-picker')
-    .getByRole('button', { name: 'Use this template: Project Tasks' })
+    .getByRole('button', { name: 'Use this template: Issue tracker' })
     .click();
-  await expect(boardLink(page, 'Project Tasks')).toHaveAttribute('aria-current', 'page');
+  await expect(boardLink(page, 'Issue tracker')).toHaveAttribute('aria-current', 'page');
   const title = 'Second planning board';
   await page.getByTestId('top-bar').getByTestId('board-title').fill(title);
   await page.getByTestId('top-bar').getByTestId('board-title').press('Enter');
@@ -95,4 +95,28 @@ test('a second organization goes from signup through the full app to a shared li
   expect([...errors, ...colleague.errors]).toEqual([]);
   await api.dispose();
   await colleague.context.close();
+});
+
+test('an organization started on a Korean screen begins on the welcome board in Korean', async ({
+  browser,
+  baseURL,
+}) => {
+  const context = await browser.newContext({ locale: 'ko-KR', baseURL: baseURL ?? '' });
+  const page = await context.newPage();
+  const errors = watchErrors(page);
+  const owner = person('korean-founder');
+  await page.goto('/');
+  await page.getByRole('button', { name: '처음인가요? 조직 시작하기' }).click();
+  const form = page.getByTestId('register-form');
+  await form.getByLabel('조직 이름', { exact: true }).fill('한국어 조직');
+  await form.getByLabel('사용자 이름', { exact: true }).fill(owner.username);
+  await form.getByLabel('이메일 주소', { exact: true }).fill(owner.email);
+  await form.getByLabel('비밀번호', { exact: true }).fill(owner.password);
+  await form.getByRole('button', { name: '조직 시작하기' }).click();
+  await expect(page.getByTestId('app-shell')).toBeVisible();
+  // The account's settings leave the language to the device: the browser's is taken.
+  await expect(boardLink(page, 'fvoci 시작하기')).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByText('카드를 열어 보세요', { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
 });

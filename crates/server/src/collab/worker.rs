@@ -113,6 +113,18 @@ pub enum CallError {
     Refused(#[from] Refused),
 }
 
+/// Whom a death of the worker over a request is put down to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Blame {
+    /// The worker: it is started again after the wait that its deaths in a row call for,
+    /// so that one that cannot run is not started over and over.
+    Worker,
+    /// The sender of the update the request takes, whose updates the server refuses for
+    /// a while: the worker is started again without a wait for it, which every
+    /// document of the worker would wait for.
+    Sender,
+}
+
 /// How a worker ended.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum Death {
@@ -123,6 +135,17 @@ pub enum Death {
     /// answer.
     #[error("{0}")]
     Broken(String),
+}
+
+/// How many workers ended, for the tests of whom a death is put down to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ended {
+    /// The workers that ran and died or were ended (one that did not take its limits
+    /// never ran).
+    pub workers: u64,
+    /// The deaths put down to the worker since its last answer: the next one waits for
+    /// them to start ([`Blame::Worker`]).
+    pub in_a_row: u32,
 }
 
 /// A worker process and the task that holds it. Dropping it ends the task, and with it
@@ -141,9 +164,11 @@ enum Job {
     Call {
         generation: Option<u64>,
         frame: Vec<u8>,
+        blame: Blame,
         answer: oneshot::Sender<Result<(u64, Answer), CallError>>,
     },
     Pid(oneshot::Sender<Option<u32>>),
+    Ended(oneshot::Sender<Ended>),
     End(oneshot::Sender<()>),
 }
 
@@ -189,6 +214,22 @@ impl Worker {
         generation: Option<u64>,
         request: &Request,
     ) -> Result<(u64, Answer), CallError> {
+        self.call_blaming(generation, request, Blame::Worker).await
+    }
+
+    /// [`Worker::call`], with whom a death of the worker over the request is put down
+    /// to: [`Blame::Sender`] for an update whose sender the server knows and holds
+    /// back, so that its death does not make the next worker wait.
+    ///
+    /// # Errors
+    ///
+    /// As [`Worker::call`].
+    pub async fn call_blaming(
+        &self,
+        generation: Option<u64>,
+        request: &Request,
+        blame: Blame,
+    ) -> Result<(u64, Answer), CallError> {
         let frame = request.encode();
         if header(frame.len(), self.settings.limits.frame_bytes()).is_err() {
             let refusal = if matches!(request, Request::Open { .. }) {
@@ -204,6 +245,7 @@ impl Worker {
         self.ask(|answer| Job::Call {
             generation,
             frame,
+            blame,
             answer,
         })
         .await
@@ -213,6 +255,11 @@ impl Worker {
     /// The process identifier of the running worker, if one runs.
     pub async fn pid(&self) -> Option<u32> {
         self.ask(Job::Pid).await.flatten()
+    }
+
+    /// How many workers ended, and how many deaths in a row the next one waits for.
+    pub async fn ended(&self) -> Option<Ended> {
+        self.ask(Job::Ended).await
     }
 
     /// Ends the worker: closes its input, which ends it, and kills it if it does not
@@ -274,7 +321,7 @@ async fn hold(
                 biased;
                 status = running.child.wait() => {
                     let death = Death::Broken(format!("it ended by itself: {status:?}"));
-                    state.bury(&death).await;
+                    state.bury(&death, Blame::Worker).await;
                     continue;
                 }
                 job = jobs.recv() => job,
@@ -286,9 +333,10 @@ async fn hold(
             Job::Call {
                 generation,
                 frame,
+                blame,
                 answer,
             } => {
-                let answered = state.call(generation, &frame).await;
+                let answered = state.call(generation, &frame, blame).await;
                 let _ = answer.send(answered);
             }
             Job::Pid(answer) => {
@@ -297,6 +345,12 @@ async fn hold(
                     .as_ref()
                     .and_then(|running| running.child.id());
                 let _ = answer.send(pid);
+            }
+            Job::Ended(answer) => {
+                let _ = answer.send(Ended {
+                    workers: state.generation,
+                    in_a_row: state.deaths,
+                });
             }
             Job::End(answer) => {
                 state.end().await;
@@ -312,6 +366,7 @@ impl State {
         &mut self,
         generation: Option<u64>,
         frame: &[u8],
+        blame: Blame,
     ) -> Result<(u64, Answer), CallError> {
         // A worker that ended while the job waited took its documents with it: the
         // request is not sent to it, and is not counted against them.
@@ -319,7 +374,7 @@ impl State {
             && let Ok(Some(status)) = running.child.try_wait()
         {
             let death = Death::Broken(format!("it ended by itself: {status:?}"));
-            self.bury(&death).await;
+            self.bury(&death, Blame::Worker).await;
         }
         if generation.is_some_and(|generation| generation != self.generation) {
             return Err(CallError::Lost);
@@ -347,7 +402,7 @@ impl State {
             Ok(Err(broken)) => Death::Broken(broken),
             Err(_) => Death::TimedOut,
         };
-        self.bury(&death).await;
+        self.bury(&death, blame).await;
         Err(CallError::Died(death))
     }
 
@@ -390,14 +445,17 @@ impl State {
     }
 
     /// Kills the running worker and waits for its end, so that it leaves no zombie;
-    /// what it held is gone with it.
-    async fn bury(&mut self, death: &Death) {
+    /// what it held is gone with it. A death put down to the worker makes the next one
+    /// wait ([`restart_wait`]).
+    async fn bury(&mut self, death: &Death, blame: Blame) {
         self.generation += 1;
-        self.count_death();
+        if blame == Blame::Worker {
+            self.count_death();
+        }
         if let Some(mut running) = self.running.take() {
             let _ = running.child.start_kill();
             let status = running.child.wait().await;
-            tracing::warn!(%death, ?status, "a collab worker died; the next request starts another");
+            tracing::warn!(%death, ?status, ?blame, "a collab worker died; the next request starts another");
         }
     }
 

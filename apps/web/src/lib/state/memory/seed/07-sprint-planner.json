@@ -1,0 +1,2182 @@
+{
+  "key": "sprint-planner",
+  "onboarding": false,
+  "board": {
+    "id": "bgi1yqiis8t8xdqxgnet8ebutky",
+    "title": "Sprint Planner",
+    "description": "Use this template to plan your sprints and manage your releases more efficiently.",
+    "icon": "🗓️",
+    "showDescription": true,
+    "cardProperties": [
+      {
+        "id": "50117d52-bcc7-4750-82aa-831a351c44a0",
+        "name": "Status",
+        "type": "select",
+        "options": [
+          {
+            "id": "aft5bzo7h9aspqgrx3jpy5tzrer",
+            "value": "Not Started",
+            "color": "propColorGray"
+          },
+          {
+            "id": "abrfos7e7eczk9rqw6y5abadm1y",
+            "value": "Next Up",
+            "color": "propColorOrange"
+          },
+          {
+            "id": "ax8wzbka5ahs3zziji3pp4qp9mc",
+            "value": "In Progress",
+            "color": "propColorBlue"
+          },
+          {
+            "id": "atabdfbdmjh83136d5e5oysxybw",
+            "value": "In Review",
+            "color": "propColorYellow"
+          },
+          {
+            "id": "ace1bzypd586kkyhcht5qqd9eca",
+            "value": "Approved",
+            "color": "propColorPink"
+          },
+          {
+            "id": "aay656c9m1hzwxc9ch5ftymh3nw",
+            "value": "Blocked",
+            "color": "propColorRed"
+          },
+          {
+            "id": "a6ghze4iy441qhsh3eijnc8hwze",
+            "value": "Complete 🙌",
+            "color": "propColorGreen"
+          }
+        ]
+      },
+      {
+        "id": "20717ad3-5741-4416-83f1-6f133fff3d11",
+        "name": "Type",
+        "type": "select",
+        "options": [
+          {
+            "id": "424ea5e3-9aa1-4075-8c5c-01b44b66e634",
+            "value": "Epic ⛰",
+            "color": "propColorYellow"
+          },
+          {
+            "id": "a5yxq8rbubrpnoommfwqmty138h",
+            "value": "Feature 🏗",
+            "color": "propColorGray"
+          },
+          {
+            "id": "apht1nt5ryukdmxkh6fkfn6rgoy",
+            "value": "User Story 📖",
+            "color": "propColorOrange"
+          },
+          {
+            "id": "aiycbuo3dr5k4xxbfr7coem8ono",
+            "value": "Task ⛏",
+            "color": "propColorGreen"
+          },
+          {
+            "id": "aomnawq4551cbbzha9gxnmb3z5w",
+            "value": "Bug 🐞",
+            "color": "propColorRed"
+          }
+        ]
+      },
+      {
+        "id": "60985f46-3e41-486e-8213-2b987440ea1c",
+        "name": "Sprint",
+        "type": "select",
+        "options": [
+          {
+            "id": "c01676ca-babf-4534-8be5-cce2287daa6c",
+            "value": "Sprint 1",
+            "color": "propColorBrown"
+          },
+          {
+            "id": "ed4a5340-460d-461b-8838-2c56e8ee59fe",
+            "value": "Sprint 2",
+            "color": "propColorPurple"
+          },
+          {
+            "id": "14892380-1a32-42dd-8034-a0cea32bc7e6",
+            "value": "Sprint 3",
+            "color": "propColorBlue"
+          }
+        ]
+      },
+      {
+        "id": "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e",
+        "name": "Priority",
+        "type": "select",
+        "options": [
+          {
+            "id": "cb8ecdac-38be-4d36-8712-c4d58cc8a8e9",
+            "value": "P1 🔥",
+            "color": "propColorRed"
+          },
+          {
+            "id": "e6a7f297-4440-4783-8ab3-3af5ba62ca11",
+            "value": "P2",
+            "color": "propColorYellow"
+          },
+          {
+            "id": "c62172ea-5da7-4dec-8186-37267d8ee9a7",
+            "value": "P3",
+            "color": "propColorGray"
+          }
+        ]
+      },
+      {
+        "id": "aphg37f7zbpuc3bhwhp19s1ribh",
+        "name": "Assignee",
+        "type": "multiPerson",
+        "options": []
+      },
+      {
+        "id": "a4378omyhmgj3bex13sj4wbpfiy",
+        "name": "Due Date",
+        "type": "date",
+        "options": []
+      },
+      {
+        "id": "ai7ajsdk14w7x5s8up3dwir77te",
+        "name": "Story Points",
+        "type": "number",
+        "options": []
+      },
+      {
+        "id": "a1g6i613dpe9oryeo71ex3c86hy",
+        "name": "Design Link",
+        "type": "url",
+        "options": []
+      },
+      {
+        "id": "aeomttrbhhsi8bph31jn84sto6h",
+        "name": "Created Time",
+        "type": "createdTime",
+        "options": []
+      },
+      {
+        "id": "ax9f8so418s6s65hi5ympd93i6a",
+        "name": "Created By",
+        "type": "createdBy",
+        "options": []
+      }
+    ]
+  },
+  "views": [
+    {
+      "id": "vdusd7mmojjy7dqtcews89kbawe",
+      "type": "view",
+      "title": "By Sprint",
+      "fields": {
+        "cardOrder": [],
+        "collapsedOptionIds": [],
+        "columnCalculations": {
+          "ai7ajsdk14w7x5s8up3dwir77te": "count"
+        },
+        "columnWidths": {
+          "20717ad3-5741-4416-83f1-6f133fff3d11": 128,
+          "50117d52-bcc7-4750-82aa-831a351c44a0": 126,
+          "__title": 280,
+          "a1g6i613dpe9oryeo71ex3c86hy": 159,
+          "aeomttrbhhsi8bph31jn84sto6h": 141,
+          "ax9f8so418s6s65hi5ympd93i6a": 183,
+          "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e": 100
+        },
+        "defaultTemplateId": "c9pwabyseiibumq71b9ykxsotqe",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "groupById": "60985f46-3e41-486e-8213-2b987440ea1c",
+        "hiddenOptionIds": [""],
+        "kanbanCalculations": {},
+        "sortOptions": [],
+        "viewType": "table",
+        "visibleOptionIds": [],
+        "visiblePropertyIds": [
+          "50117d52-bcc7-4750-82aa-831a351c44a0",
+          "20717ad3-5741-4416-83f1-6f133fff3d11",
+          "60985f46-3e41-486e-8213-2b987440ea1c",
+          "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e",
+          "aphg37f7zbpuc3bhwhp19s1ribh",
+          "a4378omyhmgj3bex13sj4wbpfiy",
+          "ai7ajsdk14w7x5s8up3dwir77te",
+          "a1g6i613dpe9oryeo71ex3c86hy",
+          "aeomttrbhhsi8bph31jn84sto6h",
+          "ax9f8so418s6s65hi5ympd93i6a"
+        ]
+      }
+    },
+    {
+      "id": "v4fpda1kk3jgy8ctqyw9ey4fwye",
+      "type": "view",
+      "title": "By Status",
+      "fields": {
+        "cardOrder": [
+          "cxmfbp7wdoifdzdztkrurxe3pgh",
+          "c9rh5kubchfy1tejtiwbsw6z5xr",
+          "cfb7jed1iz3ntx8rrcc5pphaixc",
+          "cc98t3whwhbnd5mx4qehmg43wpy",
+          "cs7rqsonyr7gofepxn84ui8niyy",
+          "cg1ausqdw9bdpbgx1aaoas6umaa"
+        ],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {},
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "groupById": "50117d52-bcc7-4750-82aa-831a351c44a0",
+        "hiddenOptionIds": [""],
+        "kanbanCalculations": {},
+        "sortOptions": [
+          {
+            "propertyId": "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e",
+            "reversed": false
+          }
+        ],
+        "viewType": "board",
+        "visibleOptionIds": [
+          "aft5bzo7h9aspqgrx3jpy5tzrer",
+          "abrfos7e7eczk9rqw6y5abadm1y",
+          "ax8wzbka5ahs3zziji3pp4qp9mc",
+          "atabdfbdmjh83136d5e5oysxybw",
+          "ace1bzypd586kkyhcht5qqd9eca",
+          "aay656c9m1hzwxc9ch5ftymh3nw",
+          "a6ghze4iy441qhsh3eijnc8hwze"
+        ],
+        "visiblePropertyIds": [
+          "20717ad3-5741-4416-83f1-6f133fff3d11",
+          "60985f46-3e41-486e-8213-2b987440ea1c",
+          "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e"
+        ]
+      }
+    },
+    {
+      "id": "vj3bern6637nt7c5edfx8qx6b6h",
+      "type": "view",
+      "title": "By Type",
+      "fields": {
+        "cardOrder": [
+          "cc98t3whwhbnd5mx4qehmg43wpy",
+          "cfb7jed1iz3ntx8rrcc5pphaixc",
+          "cs7rqsonyr7gofepxn84ui8niyy",
+          "c9rh5kubchfy1tejtiwbsw6z5xr",
+          "cxmfbp7wdoifdzdztkrurxe3pgh",
+          "cg1ausqdw9bdpbgx1aaoas6umaa"
+        ],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {},
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "groupById": "20717ad3-5741-4416-83f1-6f133fff3d11",
+        "hiddenOptionIds": [""],
+        "kanbanCalculations": {},
+        "sortOptions": [
+          {
+            "propertyId": "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e",
+            "reversed": false
+          }
+        ],
+        "viewType": "board",
+        "visibleOptionIds": [
+          "424ea5e3-9aa1-4075-8c5c-01b44b66e634",
+          "a5yxq8rbubrpnoommfwqmty138h",
+          "apht1nt5ryukdmxkh6fkfn6rgoy",
+          "aiycbuo3dr5k4xxbfr7coem8ono",
+          "aomnawq4551cbbzha9gxnmb3z5w"
+        ],
+        "visiblePropertyIds": [
+          "20717ad3-5741-4416-83f1-6f133fff3d11",
+          "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e"
+        ]
+      }
+    }
+  ],
+  "cards": [
+    {
+      "id": "c9pwabyseiibumq71b9ykxsotqe",
+      "type": "card",
+      "title": "User Story",
+      "fields": {
+        "icon": "📖",
+        "isTemplate": true,
+        "properties": {
+          "20717ad3-5741-4416-83f1-6f133fff3d11": "apht1nt5ryukdmxkh6fkfn6rgoy",
+          "50117d52-bcc7-4750-82aa-831a351c44a0": "aft5bzo7h9aspqgrx3jpy5tzrer"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Description"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description of this task]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Requirements"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Requirement 1]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Requirement 2]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "c9rh5kubchfy1tejtiwbsw6z5xr",
+      "type": "card",
+      "title": "Horizontal scroll issue",
+      "fields": {
+        "icon": "〰️",
+        "isTemplate": false,
+        "properties": {
+          "20717ad3-5741-4416-83f1-6f133fff3d11": "aomnawq4551cbbzha9gxnmb3z5w",
+          "50117d52-bcc7-4750-82aa-831a351c44a0": "aft5bzo7h9aspqgrx3jpy5tzrer",
+          "60985f46-3e41-486e-8213-2b987440ea1c": "ed4a5340-460d-461b-8838-2c56e8ee59fe",
+          "ai7ajsdk14w7x5s8up3dwir77te": "1",
+          "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e": "e6a7f297-4440-4783-8ab3-3af5ba62ca11"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Steps to reproduce the behavior"
+              }
+            ]
+          },
+          {
+            "type": "orderedList",
+            "attrs": {
+              "start": 1
+            },
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Go to ..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Select  ..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Scroll down to ..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "See error"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Expected behavior"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[A clear and concise description of what you expected to happen.]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Edition and Platform"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Edition: "
+                      },
+                      {
+                        "type": "text",
+                        "text": "[e.g. Personal Desktop / Personal Server / fvoci plugin]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Version: "
+                      },
+                      {
+                        "type": "text",
+                        "text": "[e.g. v0.9.0]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Browser and OS: "
+                      },
+                      {
+                        "type": "text",
+                        "text": "[e.g. Chrome 91 on macOS, Edge 93 on Windows]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Additional context"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Add any other context about the problem here.]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Screenshots"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[If applicable, add screenshots to elaborate on the problem.]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cc98t3whwhbnd5mx4qehmg43wpy",
+      "type": "card",
+      "title": "Login screen not loading",
+      "fields": {
+        "icon": "🖥️",
+        "isTemplate": false,
+        "properties": {
+          "20717ad3-5741-4416-83f1-6f133fff3d11": "aomnawq4551cbbzha9gxnmb3z5w",
+          "50117d52-bcc7-4750-82aa-831a351c44a0": "abrfos7e7eczk9rqw6y5abadm1y",
+          "60985f46-3e41-486e-8213-2b987440ea1c": "c01676ca-babf-4534-8be5-cce2287daa6c",
+          "ai7ajsdk14w7x5s8up3dwir77te": "1",
+          "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e": "cb8ecdac-38be-4d36-8712-c4d58cc8a8e9"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Steps to reproduce the behavior"
+              }
+            ]
+          },
+          {
+            "type": "orderedList",
+            "attrs": {
+              "start": 1
+            },
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Go to ..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Select  ..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Scroll down to ..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "See error"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Expected behavior"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[A clear and concise description of what you expected to happen.]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Edition and Platform"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Edition: "
+                      },
+                      {
+                        "type": "text",
+                        "text": "[e.g. Personal Desktop / Personal Server / fvoci plugin]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Version: "
+                      },
+                      {
+                        "type": "text",
+                        "text": "[e.g. v0.9.0]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Browser and OS: "
+                      },
+                      {
+                        "type": "text",
+                        "text": "[e.g. Chrome 91 on macOS, Edge 93 on Windows]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Additional context"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Add any other context about the problem here.]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Screenshots"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[If applicable, add screenshots to elaborate on the problem.]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cfb7jed1iz3ntx8rrcc5pphaixc",
+      "type": "card",
+      "title": "Move cards across boards",
+      "fields": {
+        "icon": "🚚",
+        "isTemplate": false,
+        "properties": {
+          "20717ad3-5741-4416-83f1-6f133fff3d11": "a5yxq8rbubrpnoommfwqmty138h",
+          "50117d52-bcc7-4750-82aa-831a351c44a0": "abrfos7e7eczk9rqw6y5abadm1y",
+          "60985f46-3e41-486e-8213-2b987440ea1c": "ed4a5340-460d-461b-8838-2c56e8ee59fe",
+          "ai7ajsdk14w7x5s8up3dwir77te": "2",
+          "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e": "e6a7f297-4440-4783-8ab3-3af5ba62ca11"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Description"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description of this task]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Requirements"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Requirement 1]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Requirement 2]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cg1ausqdw9bdpbgx1aaoas6umaa",
+      "type": "card",
+      "title": "Cross-team collaboration",
+      "fields": {
+        "icon": "🤝",
+        "isTemplate": false,
+        "properties": {
+          "20717ad3-5741-4416-83f1-6f133fff3d11": "424ea5e3-9aa1-4075-8c5c-01b44b66e634",
+          "50117d52-bcc7-4750-82aa-831a351c44a0": "aft5bzo7h9aspqgrx3jpy5tzrer",
+          "60985f46-3e41-486e-8213-2b987440ea1c": "14892380-1a32-42dd-8034-a0cea32bc7e6",
+          "ai7ajsdk14w7x5s8up3dwir77te": "3",
+          "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e": "c62172ea-5da7-4dec-8186-37267d8ee9a7"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Summary"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description of what this epic is about]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Motivation"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description on why this is needed]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Acceptance Criteria"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Criteron 1]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Criteron 2]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Personas"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Persona A]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Persona B]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Reference Materials"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Links to other relevant documents as needed]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ci1zytcoz1jrj3qncas3fjc9ruo",
+      "type": "card",
+      "title": "Bug",
+      "fields": {
+        "icon": "🐞",
+        "isTemplate": true,
+        "properties": {
+          "20717ad3-5741-4416-83f1-6f133fff3d11": "aomnawq4551cbbzha9gxnmb3z5w",
+          "50117d52-bcc7-4750-82aa-831a351c44a0": "aft5bzo7h9aspqgrx3jpy5tzrer"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Steps to reproduce the behavior"
+              }
+            ]
+          },
+          {
+            "type": "orderedList",
+            "attrs": {
+              "start": 1
+            },
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Go to ..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Select  ..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Scroll down to ..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "See error"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Expected behavior"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[A clear and concise description of what you expected to happen.]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Edition and Platform"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Edition: "
+                      },
+                      {
+                        "type": "text",
+                        "text": "[e.g. Personal Desktop / Personal Server / fvoci plugin]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Version: "
+                      },
+                      {
+                        "type": "text",
+                        "text": "[e.g. v0.9.0]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Browser and OS: "
+                      },
+                      {
+                        "type": "text",
+                        "text": "[e.g. Chrome 91 on macOS, Edge 93 on Windows]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Additional context"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Add any other context about the problem here.]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Screenshots"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[If applicable, add screenshots to elaborate on the problem.]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cs7rqsonyr7gofepxn84ui8niyy",
+      "type": "card",
+      "title": "Standard properties",
+      "fields": {
+        "icon": "🏷️",
+        "isTemplate": false,
+        "properties": {
+          "20717ad3-5741-4416-83f1-6f133fff3d11": "a5yxq8rbubrpnoommfwqmty138h",
+          "50117d52-bcc7-4750-82aa-831a351c44a0": "aft5bzo7h9aspqgrx3jpy5tzrer",
+          "60985f46-3e41-486e-8213-2b987440ea1c": "14892380-1a32-42dd-8034-a0cea32bc7e6",
+          "ai7ajsdk14w7x5s8up3dwir77te": "3",
+          "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e": "e6a7f297-4440-4783-8ab3-3af5ba62ca11"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Description"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description of this task]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Requirements"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Requirement 1]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Requirement 2]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cxi14orfaajfsjjpgok167kc78y",
+      "type": "card",
+      "title": "Epic",
+      "fields": {
+        "icon": "🤝",
+        "isTemplate": true,
+        "properties": {
+          "20717ad3-5741-4416-83f1-6f133fff3d11": "424ea5e3-9aa1-4075-8c5c-01b44b66e634",
+          "50117d52-bcc7-4750-82aa-831a351c44a0": "aft5bzo7h9aspqgrx3jpy5tzrer",
+          "ai7ajsdk14w7x5s8up3dwir77te": "3",
+          "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e": "c62172ea-5da7-4dec-8186-37267d8ee9a7"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Summary"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description of what this epic is about]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Motivation"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description on why this is needed]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Acceptance Criteria"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Criteron 1]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Criteron 2]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Personas"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Persona A]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Persona B]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Reference Materials"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Links to other relevant documents as needed]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cxmfbp7wdoifdzdztkrurxe3pgh",
+      "type": "card",
+      "title": "Global templates",
+      "fields": {
+        "icon": "🖼️",
+        "isTemplate": false,
+        "properties": {
+          "20717ad3-5741-4416-83f1-6f133fff3d11": "a5yxq8rbubrpnoommfwqmty138h",
+          "50117d52-bcc7-4750-82aa-831a351c44a0": "a6ghze4iy441qhsh3eijnc8hwze",
+          "60985f46-3e41-486e-8213-2b987440ea1c": "c01676ca-babf-4534-8be5-cce2287daa6c",
+          "ai7ajsdk14w7x5s8up3dwir77te": "2",
+          "f7f3ad42-b31a-4ac2-81f0-28ea80c5b34e": "e6a7f297-4440-4783-8ab3-3af5ba62ca11"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Description"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description of this task]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Requirements"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Requirement 1]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Requirement 2]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cxom5chmr5tna9ru4na34dbhmur",
+      "type": "card",
+      "title": "Feature",
+      "fields": {
+        "icon": "🏗️",
+        "isTemplate": true,
+        "properties": {
+          "20717ad3-5741-4416-83f1-6f133fff3d11": "a5yxq8rbubrpnoommfwqmty138h",
+          "50117d52-bcc7-4750-82aa-831a351c44a0": "aft5bzo7h9aspqgrx3jpy5tzrer"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Description"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description of this task]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Requirements"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Requirement 1]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Requirement 2]",
+                        "marks": [
+                          {
+                            "type": "italic"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "files": []
+}

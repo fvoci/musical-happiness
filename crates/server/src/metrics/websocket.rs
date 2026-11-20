@@ -27,6 +27,9 @@ pub(crate) enum Disconnect {
     ChecksOvertaken,
     /// It did not read its messages as fast as they came.
     SlowConsumer,
+    /// An update it sent ended the collab worker that took it; its user is held back
+    /// from sending updates for a while.
+    EndedWorker,
     /// It sent nothing at all for the quiet limit (`ws/inbound.rs`): a client gone
     /// without a word.
     Quiet,
@@ -36,13 +39,14 @@ pub(crate) enum Disconnect {
 }
 
 impl Disconnect {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::ClientClosed,
         Self::ReadError,
         Self::SessionEnded,
         Self::StoreUnavailable,
         Self::ChecksOvertaken,
         Self::SlowConsumer,
+        Self::EndedWorker,
         Self::Quiet,
         Self::Shutdown,
     ];
@@ -56,6 +60,7 @@ impl Disconnect {
             Self::StoreUnavailable => "store_unavailable",
             Self::ChecksOvertaken => "checks_overtaken",
             Self::SlowConsumer => "slow_consumer",
+            Self::EndedWorker => "ended_worker",
             Self::Quiet => "quiet",
             Self::Shutdown => "shutdown",
         }

@@ -5,6 +5,8 @@
  * backend in memory has no organization, and the screens that need one are
  * not offered there.
  */
+import type { PersonName } from '../logic/person-names.ts';
+
 export type OrgRole = 'admin' | 'member';
 
 /** What somebody is in a workspace, as the organization lists it. */
@@ -24,6 +26,8 @@ export interface OrgMember {
   userId: string;
   username: string;
   displayName: string;
+  /** The parts of the name, the title and the credentials, where they were told. */
+  name?: PersonName;
   role: OrgRole;
 }
 

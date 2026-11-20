@@ -13,6 +13,7 @@
  * out somewhere past some millions of pixels, WebKit before the others.
  */
 import { Axis } from './xlsx-axis.ts';
+import { BlankStyles } from './xlsx-blank.ts';
 import { PX_PER_POINT, type Looks } from './xlsx-look.ts';
 import { CELL_BUDGET, Pane, type Window } from './xlsx-pane.ts';
 import { MAX_COLUMNS, MAX_ROWS, type Sheet } from './xlsx-protocol.ts';
@@ -40,6 +41,8 @@ export function extent(sheet: Sheet): [number, number] {
     columns = Math.max(columns, sheet.merges[at + 3] ?? 0);
   }
   for (let at = 0; at + 2 < sheet.rows.length; at += 3) rows = Math.max(rows, sheet.rows[at] ?? 0);
+  // A styled row is in use, as Excel takes it; a styled column (often all of them) is not.
+  rows = Math.max(rows, sheet.rowStyles.at(-2) ?? 0);
   return [rows, columns];
 }
 
@@ -114,14 +117,23 @@ export class SheetView {
   readonly #panes: [Pane, Pane, Pane, Pane];
   /** The letters of the frozen columns and the rest's, the numbers of the frozen rows and the rest's. */
   readonly #rulers: [Ruler, Ruler, Ruler, Ruler];
+  /** How many cells one drawing looks at. */
+  readonly #cells: number;
   #zoom = 1;
 
-  constructor(sheet: Sheet, looks: Looks) {
+  /** `cells` is the budget of one drawing: the frame leaves it at `CELL_BUDGET`. */
+  constructor(sheet: Sheet, looks: Looks, cells = CELL_BUDGET) {
     this.#sheet = sheet;
+    this.#cells = cells;
     const { rows, columns } = axesOf(sheet);
     this.#rows = rows;
     this.#columns = columns;
-    const pane = (): Pane => new Pane(sheet, looks, rows, columns);
+    const blanks = new BlankStyles(
+      sheet,
+      (style) => looks.paints(style),
+      (style) => !looks.bordered(style),
+    );
+    const pane = (): Pane => new Pane(sheet, looks, rows, columns, blanks);
     this.#panes = [pane(), pane(), pane(), pane()];
     this.#rulers = [
       new Ruler(columns, true),
@@ -193,7 +205,7 @@ export class SheetView {
     this.#layer.style.setProperty('--xlsx-ruler-font', `${(11 * zoom).toFixed(2)}px`);
     const [frozenDown, down] = this.#bandsDown(layout);
     const [frozenAcross, across] = this.#bandsAcross(layout);
-    const budget = { cells: CELL_BUDGET };
+    const budget = { cells: this.#cells };
     // The frozen parts first: each is at most half the view, and they are the headings that say
     // what the rest is; on a sheet too dense for the budget, the rest's far side goes blank first.
     const [corner, frozenRows, frozenColumns, rest] = this.#panes;

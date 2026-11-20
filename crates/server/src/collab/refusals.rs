@@ -60,6 +60,17 @@ pub(super) fn unavailable() -> AppError {
         .with_reason(Reason::DocumentUnavailable)
 }
 
+/// The error of an update of a user, or of an organization, whose updates ended a
+/// worker a little before ([`super::senders`]). As a document that cannot be worked on
+/// for now, which an editor sends again later.
+pub(super) fn held_back() -> AppError {
+    AppError::service_unavailable(
+        "an update of the user, or of their organization, ended the server's worker a \
+         little before: their updates are refused for a while; try again later",
+    )
+    .with_reason(Reason::DocumentUnavailable)
+}
+
 /// The error of an update from a connection that only reads the document.
 pub(super) fn read_only() -> AppError {
     AppError::forbidden("the connection reads the document and does not write it")

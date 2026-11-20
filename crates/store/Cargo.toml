@@ -9,7 +9,6 @@ publish.workspace = true
 
 [dependencies]
 fvoci-model.workspace = true
-md-5.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # The digest of a body, which tells whether it changed. License: MIT OR Apache-2.0.

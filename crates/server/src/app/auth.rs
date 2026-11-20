@@ -3,7 +3,9 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{MAXIMUM_PASSWORD_BYTES, NewAccount, RegisterRequest, Session, User, new_id};
+use fvoci_model::{
+    MAXIMUM_PASSWORD_BYTES, NewAccount, PersonName, RegisterRequest, Session, User, new_id,
+};
 use fvoci_store::{Founding, SignupLookup, StoreError, Taken};
 
 use super::App;
@@ -449,7 +451,10 @@ impl App {
             id: new_id(),
             username: account.username.clone(),
             email: account.email.clone(),
-            display_name: account.display_name.clone(),
+            name: PersonName {
+                custom_name: account.display_name.clone(),
+                ..PersonName::default()
+            },
             password_hash: self.hash(&account.password).await?,
             ..User::default()
         })

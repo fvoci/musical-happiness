@@ -2,6 +2,7 @@
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
+use axum::http::HeaderMap;
 use fvoci_model::{
     Container, ContainerKind, ContainerPatch, ContainerType, ContainersAndBlocks, JsonMap,
     MinimumRole,
@@ -12,11 +13,15 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::NewBoard;
-use super::contract::params::{AsTemplate, BoardId, ContainerId, MemberWorkspaceId, ToWorkspace};
+use super::contract::params::{
+    AcceptLanguage, AsTemplate, BoardId, ContainerId, MemberWorkspaceId, ToWorkspace,
+};
 use super::contract::tag;
 use super::workspace::{InContainer, InWorkspace};
 
-use super::{ApiResult, created, decode_json, json_response, no_content, query_param};
+use super::{
+    ApiResult, accept_language, created, decode_json, json_response, no_content, query_param,
+};
 use super::{
     duplicate_as, json_object, require_container_permission, require_granted,
     require_workspace_access,
@@ -331,8 +336,11 @@ async fn handle_delete_container(
 /// user becomes the admin of the copy, which is always private. A copy of the same kind
 /// has the title of the original with ` copy` after it; a template made from a board is
 /// titled `New board template`, and a board made from a template keeps the title. The
-/// board's members may copy it; an open template is for everyone in its workspace, and a
-/// built-in template for everyone.
+/// server writes those words in English and in Korean (` 사본`, `새 보드 템플릿`), and
+/// chooses by the language of the user's settings; where the settings leave the language
+/// to the device, or name one the server does not write in, by the first of the two that
+/// `Accept-Language` prefers; failing both, English. The board's members may copy it; an
+/// open template is for everyone in its workspace, and a built-in template for everyone.
 ///
 /// A wiki is copied as a board is, with its pages as they stand: their tree and order,
 /// titles, icons and bodies, the images and file blocks of the bodies given files of
@@ -348,7 +356,7 @@ async fn handle_delete_container(
     path = "/w/{workspaceId}/containers/{containerId}/duplicate",
     operation_id = "duplicateContainer",
     tag = tag::CONTAINERS,
-    params(MemberWorkspaceId, ContainerId, AsTemplate, ToWorkspace),
+    params(MemberWorkspaceId, ContainerId, AsTemplate, ToWorkspace, AcceptLanguage),
     responses((
         status = 201,
         description = "The copy: one board and its blocks. The blocks are in the order of the original's, oldest first.",
@@ -359,9 +367,11 @@ async fn handle_duplicate_container(
     InContainer(ws): InContainer,
     Path((_, container_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
+    headers: HeaderMap,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
     let duplicate_as = duplicate_as(query.as_deref());
+    let accept_language = accept_language(&headers);
     let mut to_workspace = query_param(query.as_deref(), "toWorkspace");
 
     // Whether the board is there for the user comes first: a board that cannot be seen
@@ -387,7 +397,13 @@ async fn handle_duplicate_container(
 
     let (containers_and_blocks, _members) = ws
         .app
-        .duplicate_container(&container_id, user_id, &to_workspace, duplicate_as)
+        .duplicate_container(
+            &container_id,
+            user_id,
+            &to_workspace,
+            duplicate_as,
+            accept_language,
+        )
         .await?;
     Ok(created(&containers_and_blocks))
 }

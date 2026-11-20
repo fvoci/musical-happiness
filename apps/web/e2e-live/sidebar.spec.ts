@@ -21,6 +21,7 @@ import {
 import {
   makeBoard,
   person,
+  putAwayWelcomeBoard,
   register,
   signedIn,
   signInOnPage,
@@ -76,6 +77,7 @@ test('categories and the boards under them are kept on the server and show in th
   const owner = person('sidebar');
   await register(base, owner);
   const api = await signedIn(base, owner);
+  await putAwayWelcomeBoard(api);
   const alpha = await makeBoard(api, { title: 'Alpha' });
   const beta = await makeBoard(api, { title: 'Beta' });
   const { workspaceId } = alpha;

@@ -125,6 +125,10 @@ pub struct Callback {
     /// The secret of the cookie of the sign-in held for this browser, if it has one:
     /// a sign-in that carries over ends only for the browser it is held for.
     pub held_secret: Option<String>,
+    /// The request's `Accept-Language`: what an account that comes into the
+    /// organization by the sign-in has its welcome board written by, where its
+    /// settings name no language.
+    pub accept_language: Option<String>,
 }
 
 impl std::fmt::Debug for Callback {
@@ -133,6 +137,15 @@ impl std::fmt::Debug for Callback {
             .field("error", &self.error)
             .finish_non_exhaustive()
     }
+}
+
+/// How a sign-in through a provider ended where it is stored.
+#[derive(Debug)]
+pub(super) struct Ended {
+    /// What a trial of the pending settings did; `None` for any other sign-in.
+    pub(super) applied: Option<Applied>,
+    /// Whether the account came into the organization by it, as a member.
+    pub(super) joined: bool,
 }
 
 /// How a sign-in through a provider ended well.
@@ -513,7 +526,7 @@ impl App {
         let mut session = self.new_session(user_agent, now_millis());
         // Boxed: making the account and applying the pending settings make a large
         // future, which every caller of a callback would otherwise carry.
-        let applied = Box::pin(org.sign_in_through(
+        let ended = Box::pin(org.sign_in_through(
             &claims,
             &stored,
             ending,
@@ -521,7 +534,11 @@ impl App {
             &token_digest(&token),
         ))
         .await?;
-        Ok(match applied {
+        if ended.joined {
+            org.welcome_newcomer(&session.user_id, callback.accept_language.as_deref())
+                .await;
+        }
+        Ok(match ended.applied {
             Some(applied) => {
                 org.follow_applied(&applied).await;
                 FinishedLogin::Applied { token }
@@ -662,7 +679,7 @@ impl App {
         ending: Ending<'_>,
         session: &mut Session,
         digest: &str,
-    ) -> Result<Option<Applied>, LoginFailure> {
+    ) -> Result<Ended, LoginFailure> {
         let identity = Identity {
             issuer: &claims.issuer,
             subject: &claims.subject,
@@ -698,7 +715,10 @@ impl App {
             return self
                 .bind_by_trial(claims, stored, end, session, digest)
                 .await
-                .map(Some);
+                .map(|applied| Ended {
+                    joined: applied.joined,
+                    applied: Some(applied),
+                });
         }
         if of_a_deleted_account {
             tracing::info!(issuer = %claims.issuer, "a sign-in through a provider was for a deleted account");
@@ -741,7 +761,7 @@ impl App {
         ending: Ending<'_>,
         session: &mut Session,
         digest: &str,
-    ) -> Result<Option<Applied>, LoginFailure> {
+    ) -> Result<Ended, LoginFailure> {
         let FoundAccount {
             user,
             identity,
@@ -761,7 +781,7 @@ impl App {
         if joined {
             tracing::info!(user_id = %user.id, org_id = %stored.org_id, "an account joined the organization by signing in through its provider");
         }
-        Ok(applied)
+        Ok(Ended { applied, joined })
     }
 
     /// Stores the end of a sign-in as `ending` says: a session through the provider as

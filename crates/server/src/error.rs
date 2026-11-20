@@ -129,214 +129,6 @@ impl ErrorKind {
     }
 }
 
-/// Defines [`Reason`] with, for each variant, the value of the `reason` member and the
-/// `title` of its problem, and the list of every variant made from the same lines: a
-/// reason cannot be there without being listed and titled.
-macro_rules! reasons {
-    ($($(#[$doc:meta])* $variant:ident => $value:literal, $title:literal;)+) => {
-        /// Why a request was refused, where clients must tell causes of one kind apart.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub enum Reason {
-            $($(#[$doc])* $variant,)+
-        }
-
-        impl Reason {
-            /// Every reason, in the order they are defined in.
-            pub const ALL: &'static [Self] = &[$(Self::$variant,)+];
-
-            /// The value of the body's `reason` member.
-            pub fn as_str(self) -> &'static str {
-                match self {
-                    $(Self::$variant => $value,)+
-                }
-            }
-
-            /// The `title` of the problem an error with this reason is.
-            pub fn title(self) -> &'static str {
-                match self {
-                    $(Self::$variant => $title,)+
-                }
-            }
-        }
-    };
-}
-
-reasons! {
-    /// The request lacks the header of the cross-site request check.
-    Csrf => "csrf", "Cross-site request check failed";
-    /// The request, or the websocket handshake, comes from a page of another origin.
-    ForeignOrigin => "foreign_origin", "Request from another origin";
-    /// The user name, email address or password of a login is wrong.
-    InvalidCredentials => "invalid_credentials", "Invalid credentials";
-    /// The server has its organization: who is not its first user gets in by an invitation.
-    InvitationRequired => "invitation_required", "Invitation required";
-    /// The link of an invitation lets nobody in: there is none, or it ended.
-    InvitationUnavailable => "invitation_unavailable", "Invitation not available";
-    /// The user name is taken.
-    UsernameTaken => "username_taken", "User name taken";
-    /// The email address is taken.
-    EmailTaken => "email_taken", "Email address taken";
-    /// The password is right, of a registration whose email address is not confirmed
-    /// yet: there is no account until it is.
-    EmailUnverified => "email_unverified", "Email address not confirmed";
-    /// A confirmation link was opened in another browser than its registration was made
-    /// from: the password of the registration is to come with it.
-    PasswordRequired => "password_required", "Password required";
-    /// The change would leave the board, the workspace or the instance without an
-    /// administrator.
-    LastAdmin => "last_admin", "Last administrator";
-    /// The session is of an account that waits to be deleted: it opens the way back
-    /// and nothing else.
-    AccountDeletionPending => "account_deletion_pending", "Account waits to be deleted";
-    /// An account without a password asks for what its session, not made through a
-    /// provider just now, does not prove to be its person's.
-    SignInAgain => "sign_in_again", "Sign in again";
-    /// Only an administrator of the instance may do this.
-    AdminRequired => "admin_required", "Administrator required";
-    /// A guest of the workspace is given no role on a board above editor.
-    GuestRoleLimit => "guest_role_limit", "A guest is no more than an editor";
-    /// A temporary organization administrator cannot add themselves to a team.
-    TeamSelfJoining => "team_self_joining", "Cannot add yourself to a team during administrative joining";
-    /// Public sharing is turned off in the server's configuration.
-    SharingDisabled => "sharing_disabled", "Public sharing turned off";
-    /// The user has as many uploads in parts open as one may.
-    TooManyUploads => "too_many_uploads", "Too many open uploads";
-    /// The user's open uploads in parts hold back as many bytes as one user's may.
-    UploadsPending => "uploads_pending", "Open uploads hold too much";
-    /// The open uploads in parts of the whole server hold back as many bytes as they may.
-    ServerUploadsPending => "server_uploads_pending", "The server's open uploads hold too much";
-    /// The file is larger than one request takes; it is to be sent in parts.
-    UploadInParts => "upload_in_parts", "File to be uploaded in parts";
-    /// The user has an export running.
-    ExportRunning => "export_running", "An export is running";
-    /// The server runs as many exports as it may.
-    ServerExportsBusy => "server_exports_busy", "The server is busy exporting";
-    /// The user has an import running.
-    ImportRunning => "import_running", "An import is running";
-    /// The server runs as many imports as it may.
-    ServerImportsBusy => "server_imports_busy", "The server is busy importing";
-    /// The body's document does not take the update.
-    UpdateRefused => "update_refused", "Update refused";
-    /// The update builds on changes the body's document does not have.
-    UpdateOutOfStep => "update_out_of_step", "Update out of step";
-    /// The update is larger than the server takes.
-    UpdateTooLarge => "update_too_large", "Update too large";
-    /// With the update the body's document, or its body, would be larger than it may be.
-    DocumentTooLarge => "document_too_large", "Document too large";
-    /// The server holds as many documents of bodies being edited as it may.
-    TooManyDocuments => "too_many_documents", "Too many documents open";
-    /// The body's document cannot be worked on for now.
-    DocumentUnavailable => "document_unavailable", "Document unavailable";
-    /// The connection reads the body's document and does not write it.
-    DocumentReadOnly => "document_read_only", "Document read only";
-    /// The websocket connection does not read what it is sent of the body's document.
-    ConnectionTooSlow => "connection_too_slow", "Connection too slow";
-    /// The websocket connection is in as many rooms of bodies as one may be.
-    TooManyDocumentsJoined => "too_many_documents_joined", "Connection in too many documents";
-    /// As many websocket connections are in the room of the body as may be.
-    DocumentFull => "document_full", "Document full";
-    /// As many of the user's websocket connections are in the room of the body as may be.
-    TooManyConnectionsJoined => "too_many_connections_joined", "Too many connections of one user";
-    /// The websocket connection sends more of the rooms in a second than it may.
-    TooManyFrames => "too_many_frames", "Too many frames";
-    /// The server has no `secret_key` to seal a provider's client secret with.
-    SecretKeyRequired => "secret_key_required", "Secret key required";
-    /// The issuer of a provider could not be read and checked.
-    OidcIssuerUnverified => "oidc_issuer_unverified", "Provider not verified";
-    /// The organization has no provider that is on, or it could not be reached.
-    OidcUnavailable => "oidc_unavailable", "Sign-in through the provider not available";
-    /// A sign-in came back that is not one this browser started, was used or ended.
-    OidcStateInvalid => "oidc_state_invalid", "Sign-in not recognized";
-    /// The provider did not let the person sign in.
-    OidcDenied => "oidc_denied", "Sign-in refused by the provider";
-    /// The provider gave no ID token for the sign-in.
-    OidcTokenRefused => "oidc_token_refused", "No token from the provider";
-    /// The ID token of the provider does not hold.
-    OidcTokenInvalid => "oidc_token_invalid", "Token of the provider not valid";
-    /// The provider gave no email address for a person who has no account yet.
-    OidcEmailMissing => "oidc_email_missing", "No email address from the provider";
-    /// The provider says it has not checked the person's email address.
-    OidcEmailUnverified => "oidc_email_unverified", "Email address not verified";
-    /// Another account has the email address the provider gave.
-    OidcEmailTaken => "oidc_email_taken", "Email address of another account";
-    /// The organization does not let in who is no member through its provider.
-    OidcJoinClosed => "oidc_join_closed", "Organization closed to newcomers";
-    /// The identity a provider vouches for is another account's: it is not linked.
-    OidcIdentityTaken => "oidc_identity_taken", "Sign-in of another account";
-    /// The email address a provider vouches for is not the one of the account it was
-    /// to be linked to: it is not linked.
-    OidcEmailMismatch => "oidc_email_mismatch", "Email address of the provider not the account's";
-    /// A trial of a provider's pending settings ended in another account than the one
-    /// of the administrator who started it: nothing is changed.
-    OidcTrialAccount => "oidc_trial_account", "Trial in another account";
-    /// A trial of pending settings of another issuer vouched for an identity tied to
-    /// no account, and was not started from a session made through the provider just
-    /// now: nothing is tied or changed.
-    OidcTrialStale => "oidc_trial_stale", "Trial from a session not made just now";
-    /// Nothing was carried over to the organization's provider: no sign-in is held for
-    /// the browser, the former provider is kept no more, or it vouched for nobody with
-    /// an account that has a place in the organization.
-    OidcCarryOverRefused => "oidc_carry_over_refused", "Account not carried over";
-    /// The account has no password to confirm with.
-    PasswordNotSet => "password_not_set", "Account without a password";
-    /// The identity is the only way in to an account without a password.
-    LastSignIn => "last_sign_in", "Last way to sign in";
-    /// The organization takes only sessions made through its provider, and this one
-    /// was not.
-    SsoRequired => "sso_required", "Sign-in through the provider required";
-    /// Taking no password is switched on from a session made through the provider.
-    SsoUnproven => "sso_unproven", "Provider not signed in through";
-    /// The organization takes no password, and its provider stays as it is meanwhile.
-    SsoEnforced => "sso_enforced", "Provider held while no password is taken";
-    /// The value of a card relation is neither `null` nor a list of identifiers.
-    RelationNotAList => "relation_not_a_list", "Card relation that is no list";
-    /// A card relation names the card it is the value of.
-    RelationToItself => "relation_to_itself", "Card relation to the card itself";
-    /// A card relation names a card twice.
-    RelationRepeated => "relation_repeated", "Card named twice in a relation";
-    /// A card relation names more cards than one may.
-    RelationTooMany => "relation_too_many", "Card relation names too many cards";
-    /// A card relation names a block of the board that is no card.
-    RelationNotACard => "relation_not_a_card", "Card relation names no card";
-    /// A card relation names a card that is not on the board.
-    RelationCardNotFound => "relation_card_not_found", "Card relation names a card not on the board";
-    /// Another workspace in use of the organization has the name.
-    WorkspaceNameTaken => "workspace_name_taken", "Workspace name taken";
-    /// Another team of the workspace has the name, in some letter case.
-    TeamNameTaken => "team_name_taken", "Team name taken";
-    /// The organization's default workspace is not deleted.
-    DefaultWorkspace => "default_workspace", "Default workspace";
-    /// The change would leave the organization without an administrator.
-    LastOrgAdmin => "last_org_admin", "Last administrator of the organization";
-    /// The organization has turned its public links off.
-    PublicLinksOff => "public_links_off", "Public links turned off";
-    /// An invitation mail request names more recipients than one may.
-    TooManyRecipients => "too_many_recipients", "Too many recipients";
-    /// The workspace queued as many invitation messages within the hour as it may.
-    InvitationMailLimit => "invitation_mail_limit", "Hourly invitation mail limit reached";
-    /// The server holds as many invitation messages waiting to be sent as it may.
-    MailQueueFull => "mail_queue_full", "Mail queue full";
-    /// The search server the server is configured with cannot hold its index: bodies
-    /// are not searched (nor, on the administration socket, made again where there is no
-    /// search server).
-    SearchNotConfigured => "search_not_configured", "Search not configured";
-    /// A search was not answered in time: by the search server, or by the database
-    /// where there is none.
-    SearchUnavailable => "search_unavailable", "Search unavailable";
-    /// A page would be deeper in its wiki than the organization's limit.
-    PageTooDeep => "page_too_deep", "Page too deep";
-    /// The wiki would have more pages than the organization's limit.
-    TooManyPages => "too_many_pages", "Too many pages in the wiki";
-}
-
-impl Reason {
-    /// The name of the problem an error with this reason is, the last part of its
-    /// `type`: the reason, written with hyphens.
-    pub fn name(self) -> String {
-        self.as_str().replace('_', "-")
-    }
-}
-
 /// The `type` of the problems of the kind `name`, on a server at the root of its host:
 /// the path of the page about the kind. A server under a base path has the base path
 /// before it, which the request log adds.
@@ -472,6 +264,13 @@ impl AppError {
     /// says what is not there in words of the server's, never a cause.
     pub fn service_unavailable(message: &'static str) -> Self {
         Self::new(ErrorKind::ServiceUnavailable, message)
+    }
+
+    /// A 503 error for a statement the database did not take in its time
+    /// ([`StoreError::is_busy`]).
+    fn database_busy() -> Self {
+        Self::service_unavailable("the database is busy; try again")
+            .with_reason(Reason::DatabaseBusy)
     }
 
     /// A 429 error: too many attempts, try again after `wait`. The wait is told in
@@ -784,7 +583,12 @@ impl AppError {
     /// who debugs.
     pub(crate) fn log(&self) {
         if let Some(cause) = &self.cause {
-            tracing::error!(error = %format!("{cause:#}"), "API error");
+            if self.reason == Some(Reason::DatabaseBusy) {
+                // Of the moment, not of the server: told, and not as a failure.
+                tracing::warn!(error = %format!("{cause:#}"), "the database was busy");
+            } else {
+                tracing::error!(error = %format!("{cause:#}"), "API error");
+            }
         } else {
             tracing::debug!(status = self.status(), error = %self.message, "API error");
         }
@@ -835,6 +639,20 @@ impl AppError {
 
 impl From<anyhow::Error> for AppError {
     fn from(cause: anyhow::Error) -> Self {
+        // Nothing was wrong with the request, and nothing with the server but the
+        // moment: the statement did nothing, and the next try may find the database
+        // free. The store's error may have come the long way round, with words about
+        // where.
+        let busy = cause
+            .chain()
+            .filter_map(|cause| cause.downcast_ref::<StoreError>())
+            .any(StoreError::is_busy);
+        if busy {
+            return Self {
+                cause: Some(cause),
+                ..Self::database_busy()
+            };
+        }
         Self {
             cause: Some(cause),
             ..Self::new(ErrorKind::Internal, INTERNAL_MESSAGE)
@@ -936,6 +754,7 @@ impl From<StoreError> for AppError {
             )
             .with_reason(Reason::DocumentUnavailable)
             .context(error),
+            // A statement the database did not take in time is told apart there too.
             other => Self::from(anyhow::Error::from(other)),
         }
     }
@@ -985,5 +804,8 @@ impl From<SubscriptionError> for AppError {
 
 mod account_errors;
 mod model_errors;
+mod reason;
 #[cfg(test)]
 mod tests;
+
+pub use reason::Reason;

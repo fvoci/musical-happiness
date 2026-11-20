@@ -286,6 +286,7 @@ async fn system_templates_are_shared_read_only_and_their_copies_belong_to_the_de
             &scene.user,
             &scene.b.workspace_id,
             DuplicateAs::Copy,
+            None,
         )
         .await
         .expect("an authorized template copy into B");

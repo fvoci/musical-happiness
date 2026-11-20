@@ -14,7 +14,9 @@ use fvoci_model::{
     Block, ContainerKind, ContainerMember, ContainersAndBlocks, PageLimits, generate_block_ids,
 };
 
-use crate::blocks::{DuplicateAs, fetch_blocks, insert_blocks, select_blocks};
+use crate::blocks::{
+    CopyChanges, CopyTitles, DuplicateAs, fetch_blocks, insert_blocks, select_blocks,
+};
 use crate::containers_and_blocks::duplicate_container;
 use crate::db::{Id, Scope};
 use crate::file_refs::NewBodyFiles;
@@ -103,6 +105,7 @@ impl Store {
         user_id: &str,
         to_workspace: Option<&str>,
         limits: PageLimits,
+        titles: &CopyTitles,
     ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), StoreError> {
         self.transaction(async |scope| {
             if containers::lock_container_of_kind(scope, wiki_id).await?
@@ -117,7 +120,16 @@ impl Store {
                     id: wiki_id.to_owned(),
                     source,
                 })?;
-            duplicate_container(scope, wiki_id, user_id, to_workspace, DuplicateAs::Copy).await
+            duplicate_container(
+                scope,
+                wiki_id,
+                user_id,
+                to_workspace,
+                DuplicateAs::Copy,
+                titles,
+                CopyChanges::default(),
+            )
+            .await
         })
         .await
     }

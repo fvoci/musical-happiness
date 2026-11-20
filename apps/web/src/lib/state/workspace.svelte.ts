@@ -42,8 +42,7 @@ import { UserNames, type Learning } from './user-names.ts';
 import * as entry from './workspace-entry.ts';
 import { reread } from './write.ts';
 
-/** `signedOut`: the backend has accounts and nobody is signed in (401). */
-/** `leaving`: the account waits to be deleted, and its session opens only taking that back. */
+/** `signedOut`: nobody is signed in (401); `leaving`: the account waits to be deleted (its session opens only taking that back). */
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut' | 'leaving';
 
 /** Something a write or a read failed with, for the reader to be told. */
@@ -54,7 +53,7 @@ export interface Problem {
   error: BackendError | undefined;
 }
 
-export type ProblemAction = 'load' | 'save' | 'undo' | 'upload' | 'export' | 'import';
+export type ProblemAction = 'load' | 'save' | 'undo' | 'upload' | 'left' | 'export' | 'import';
 
 export interface WorkspaceOptions {
   backend: Backend;
@@ -68,8 +67,6 @@ export interface WorkspaceOptions {
   /** How somebody whose account was deleted is named, in the app's language (`UserNames`). */
   goneUserName?: () => string;
 }
-
-const DEFAULT_SETTINGS: AccountSettings = DEFAULT_ACCOUNT_SETTINGS;
 
 export class Workspace {
   readonly backend: Backend;
@@ -93,7 +90,7 @@ export class Workspace {
   workspaceUsers = $state.raw<User[]>([]);
   containers = $state.raw<Container[]>([]);
   categories = $state.raw<Category[]>([]);
-  settings = $state.raw<AccountSettings>(DEFAULT_SETTINGS);
+  settings = $state.raw<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
   problems = $state.raw<Problem[]>([]);
 
   /** The board that is open, if one is. */
@@ -157,8 +154,9 @@ export class Workspace {
   /**
    * Reads everything the shell needs: the reader, their workspaces and settings, then the
    * workspace `workspaceId` (`enter`), or without one `firstChoice`. Call again to retry.
+   * Where `leaves` says of the settings that the page loads again for them, nothing more is read.
    */
-  async load(workspaceId?: string): Promise<void> {
+  async load(workspaceId?: string, leaves?: (settings: AccountSettings) => boolean): Promise<void> {
     this.status = 'loading';
     try {
       const [me, workspaces, settings] = await Promise.all([
@@ -169,10 +167,9 @@ export class Workspace {
       this.me = me;
       this.workspaces = workspaces;
       this.#takeSettings(settings);
+      if (leaves?.(settings)) return;
       this.#stopWatching?.();
-      this.#stopWatching = this.backend.watchSelf((change) => {
-        this.#apply(change);
-      });
+      this.#stopWatching = this.backend.watchSelf(this.#apply.bind(this));
       const chosen = workspaceId ?? this.firstChoice();
       if (chosen === undefined) this.#leave(undefined);
       else await this.#enter(chosen);
@@ -242,8 +239,7 @@ export class Workspace {
     this.asked = asked;
     [this.info, this.closed] = [undefined, undefined];
     this.entered = 'none';
-    this.users = [];
-    this.workspaceUsers = [];
+    [this.users, this.workspaceUsers] = [[], []];
     this.containers = [];
     this.categories = [];
   }
@@ -301,6 +297,10 @@ export class Workspace {
         break;
       case 'resync':
         void this.#refresh();
+        void this.#userNames.reread();
+        break;
+      case 'user':
+        void this.#userNames.reread([change.userId]);
         break;
       default:
         break;
@@ -341,8 +341,8 @@ export class Workspace {
   }
 
   /**
-   * Puts a failure where the shell shows it. Anything that is not a backend
-   * error is a bug and is logged. A 401 is no failure to show: the session
+   * Puts a failure where the shell shows it, or with no error what is only to be told.
+   * Any other error is a bug and is logged. A 401 is no failure to show: the session
    * is over (`signedOut`), or the workspace shown is closed to it (`sso`).
    */
   report(action: ProblemAction, error: unknown): void {
@@ -367,7 +367,7 @@ export class Workspace {
       ...this.problems,
       { id: this.#problemCount, action, error: isBackendError(error) ? error : undefined },
     ];
-    if (!isBackendError(error)) console.error(error);
+    if (error !== undefined && !isBackendError(error)) console.error(error);
   }
 
   dismissProblem(id: number): void {
@@ -401,7 +401,7 @@ export class Workspace {
     const before = this.settings;
     const optimistic: Record<string, unknown> = { ...before };
     for (const [name, value] of Object.entries(patch)) {
-      optimistic[name] = value ?? DEFAULT_SETTINGS[name as keyof AccountSettings];
+      optimistic[name] = value ?? DEFAULT_ACCOUNT_SETTINGS[name as keyof AccountSettings];
     }
     this.#takeSettings(optimistic as unknown as AccountSettings);
     try {

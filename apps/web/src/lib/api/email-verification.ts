@@ -2,6 +2,7 @@
 import type { Confirmed, EmailVerification, WaitingAccount } from '../state/email-verification.ts';
 import type { Schemas } from './convert.ts';
 import type { Http } from './http.ts';
+import { makeWelcomeBoard } from './templates.ts';
 
 export class ServerEmailVerification implements EmailVerification {
   readonly #http: Http;
@@ -29,17 +30,13 @@ export class ServerEmailVerification implements EmailVerification {
     return {
       workspaceId: confirmed.workspaceId,
       ...(confirmed.containerId ? { containerId: confirmed.containerId } : {}),
+      ...(confirmed.containerKind ? { containerKind: confirmed.containerKind } : {}),
       organizationStarted: confirmed.organizationStarted,
     };
   }
 
-  /** Starts the tour of a new organization's first workspace: its welcome board. */
-  async welcome(workspaceId: string): Promise<string> {
-    const started = await this.#http.request<Schemas['OnboardingStart']>(
-      '/api/v1/w/{workspaceId}/onboard',
-      { workspaceId },
-      { method: 'POST' },
-    );
-    return started.boardId;
+  /** Makes the welcome board of a new organization's first workspace. */
+  welcome(workspaceId: string): Promise<string> {
+    return makeWelcomeBoard(this.#http, workspaceId);
   }
 }

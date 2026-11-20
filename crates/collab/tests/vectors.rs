@@ -252,6 +252,10 @@ fn the_updates_of_an_editing_session_are_taken_in_order() {
 
     let mut doc = opened;
     for (index, update) in updates.iter().enumerate() {
+        // What the binding sends is placed in a few steps, counted list by list.
+        let steps = fvoci_collab::testing::placing_steps(&doc, update)
+            .unwrap_or_else(|error| panic!("update {index}: {error}"));
+        assert!(steps < 1000, "update {index}: {steps} steps");
         doc = fvoci_collab::testing::with_update(&doc, update, &support::ROOMY)
             .unwrap_or_else(|error| panic!("update {index}: {error}"));
         assert!(

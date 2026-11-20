@@ -77,10 +77,18 @@
     "body": [
       {
         "createAt": "<ts>",
+        "credentials": [],
+        "customName": "",
         "deleteAt": 0,
         "displayName": "",
+        "firstName": "",
         "id": "<id:4>",
         "isAdmin": false,
+        "lastName": "",
+        "latinFirstName": "",
+        "latinLastName": "",
+        "nameShown": "name",
+        "title": null,
         "updateAt": "<ts>",
         "username": "workspaces-alice"
       }
@@ -101,10 +109,18 @@
     "body": [
       {
         "createAt": "<ts>",
+        "credentials": [],
+        "customName": "",
         "deleteAt": 0,
         "displayName": "",
+        "firstName": "",
         "id": "<id:4>",
         "isAdmin": false,
+        "lastName": "",
+        "latinFirstName": "",
+        "latinLastName": "",
+        "nameShown": "name",
+        "title": null,
         "updateAt": "<ts>",
         "username": "workspaces-alice"
       }

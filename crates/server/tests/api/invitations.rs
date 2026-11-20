@@ -505,7 +505,7 @@ async fn a_link_shows_whoever_holds_it_where_it_leads_and_who_made_it() {
         );
     }
     th.client
-        .patch("/users/me", &json!({"displayName": "Ada Lovelace"}))
+        .patch("/users/me", &json!({"customName": "Ada Lovelace"}))
         .await
         .check_ok();
     let preview = th

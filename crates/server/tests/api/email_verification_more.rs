@@ -209,7 +209,7 @@ async fn the_hourly_clean_up_removes_the_registrations_that_ended() {
         id: fvoci_model::new_id(),
         username: "old".to_owned(),
         email: "old@example.test".to_owned(),
-        display_name: String::new(),
+        custom_name: String::new(),
         password_hash: "hash".to_owned(),
         language: String::new(),
         start: fvoci_store::SignupStart::Organization("Old".to_owned()),

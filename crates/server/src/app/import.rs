@@ -22,8 +22,8 @@ use tokio::fs;
 use super::App;
 use super::container_copies::counted_as;
 use super::export::ARCHIVE_VERSION;
-use super::files::{base_name, stored_extension};
-use super::uploads::MAX_UPLOAD_NAME_CHARS;
+use super::file_name::check_file_name;
+use super::files::stored_extension;
 use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
 use crate::metrics::ContainerWork;
@@ -41,7 +41,11 @@ const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 /// The most entries an archive has (`docs/s6-design.md` 4.2).
 const MAX_ENTRIES: u64 = 10_000;
 
-/// The largest `board.jsonl` that is read (`docs/s6-design.md` 4.2).
+/// The largest `board.jsonl` that is read (`docs/s6-design.md` 4.2). It is read whole
+/// and held as blocks until the board is stored: bodies of many small nodes take 33
+/// times their bytes so (2.2 GB at this limit, release build), whatever the limit of a
+/// body. So it holds 16 bodies of the largest size, and a board of more is exported but
+/// not imported again.
 const MAX_JSONL_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The largest `version.json` that is read: it is one small object.
@@ -585,9 +589,8 @@ fn drop_orphans(containers_and_blocks: &mut ContainersAndBlocks) -> usize {
 }
 
 /// The names a board line gives the files of its directory (`fileNames`, by the names
-/// of their entries), as an upload's name may be: not blank (the part after the last
-/// `/`, which is what a record keeps), without U+0000, at most
-/// [`MAX_UPLOAD_NAME_CHARS`] characters, and with the extension of the entry's name.
+/// of their entries), as an upload's name may be ([`check_file_name`]), and with the
+/// extension of the entry's name.
 /// Any other is left out, and that file keeps the name of its entry, as before the
 /// names were written.
 fn file_names_of(board: &Value) -> FileNames {
@@ -598,10 +601,8 @@ fn file_names_of(board: &Value) -> FileNames {
         .iter()
         .filter_map(|(entry, name)| {
             let name = name.as_str()?;
-            let fits = !base_name(name).trim().is_empty()
-                && !name.contains('\0')
-                && name.chars().count() <= MAX_UPLOAD_NAME_CHARS
-                && stored_extension(name) == stored_extension(entry);
+            let fits =
+                check_file_name(name).is_ok() && stored_extension(name) == stored_extension(entry);
             fits.then(|| (entry.clone(), name.to_owned()))
         })
         .collect()

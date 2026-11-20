@@ -198,3 +198,35 @@ export class Finger {
     await this.#client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   }
 }
+
+/**
+ * What of the head is cut or spills: the names of the tabs (and of the
+ * button of the rest) whose right edge is past the end of the row of tabs or
+ * whose text is wider than its box, the name of the view on "current view ▾"
+ * if it is cut, and how far the header and the top bar scroll sideways.
+ */
+export async function headCuts(page: Page): Promise<{ cut: string[]; scroll: number }> {
+  return page.evaluate(() => {
+    const cut: string[] = [];
+    const clipped = (each: Element): boolean => each.scrollWidth > each.clientWidth;
+    const row = document.querySelector('[data-testid="view-tabs"]');
+    if (row) {
+      const edge = row.getBoundingClientRect().right;
+      for (const tab of row.querySelectorAll<HTMLElement>('a, button')) {
+        const name = tab.textContent.trim();
+        if (tab.getBoundingClientRect().right > edge + 0.5) cut.push(`${name} (past the row)`);
+        if ([...tab.querySelectorAll('span')].some(clipped)) cut.push(`${name} (in its box)`);
+      }
+    }
+    const switcher = document.querySelector('[data-testid="view-header"] [data-tool="views"]');
+    if (switcher && [...switcher.querySelectorAll('span')].some(clipped)) {
+      cut.push(`${switcher.textContent.trim()} (on the button)`);
+    }
+    let scroll = 0;
+    for (const id of ['view-header', 'top-bar']) {
+      const box = document.querySelector(`[data-testid="${id}"]`);
+      if (box) scroll = Math.max(scroll, box.scrollWidth - box.clientWidth);
+    }
+    return { cut, scroll };
+  });
+}

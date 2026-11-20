@@ -9,7 +9,7 @@ use tokio::sync::{Mutex, OwnedMutexGuard, OwnedSemaphorePermit};
 use tokio::time::Instant;
 
 use super::versions::Versioned;
-use super::worker::CallError;
+use super::worker::{Blame, CallError};
 use super::{Collab, DocChange, DocEvent, refusals, taken_from};
 use crate::app::App;
 use crate::collab_worker::wire::{Answer, DocNumber, Request, Share};
@@ -78,6 +78,10 @@ pub(super) struct OpenDoc {
     pub(super) state_bytes: u64,
     /// The size of its state when it was made from its body; 0 if it was not here.
     pub(super) made_bytes: u64,
+    /// How many clients it names.
+    pub(super) clients: u64,
+    /// The most changes one of its clients has, deleted ones too.
+    pub(super) client_changes: u64,
     /// Who sent the last update; what writes the body writes it as them.
     pub(super) last_writer: String,
     /// When the first update whose body is not written was taken.
@@ -100,6 +104,15 @@ pub(super) struct OpenDoc {
 }
 
 impl OpenDoc {
+    /// Whether it names three quarters of the clients a document may name
+    /// ([`fvoci_collab::MAX_CLIENTS`]), or a client of it has three quarters of the
+    /// changes one may have ([`fvoci_collab::MAX_CLIENT_CHANGES`]): it is made again from
+    /// its body, which names one client, of fewer changes than that, before updates are
+    /// refused.
+    pub(super) fn crowded(&self) -> bool {
+        crowded(self.clients, self.client_changes)
+    }
+
     /// The share of its worker's documents it is counted in.
     pub(super) fn share(&self) -> Share {
         if self.aside.is_some() {
@@ -108,6 +121,16 @@ impl OpenDoc {
             Share::Kept
         }
     }
+}
+
+/// Whether a document of `clients` clients, of which one has `client_changes` changes,
+/// is made again from its body ([`OpenDoc::crowded`]).
+fn crowded(clients: u64, client_changes: u64) -> bool {
+    let three_quarters =
+        |count: u64, limit: u64| count.saturating_mul(4) >= limit.saturating_mul(3);
+    let max_clients = u64::try_from(fvoci_collab::MAX_CLIENTS).unwrap_or(u64::MAX);
+    three_quarters(clients, max_clients)
+        || three_quarters(client_changes, fvoci_collab::MAX_CLIENT_CHANGES)
 }
 
 impl OpenDoc {
@@ -245,12 +268,40 @@ impl Collab {
         slot: &mut Held,
         request: impl Fn(DocNumber) -> Request,
     ) -> Result<Answer, AppError> {
+        self.ask_for(app, card_id, slot, request, AskedFor::Server)
+            .await
+            .map_err(Unanswered::into_error)
+    }
+
+    /// [`Collab::ask`] for an [`AskedFor`], telling a death of the worker over the request
+    /// apart.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Unanswered::Died`] if the worker ended over the request, and the
+    /// errors of [`Collab::ask`] otherwise as [`Unanswered::Refused`]; for a sender
+    /// held back, `document_unavailable` before the request is sent.
+    pub(super) async fn ask_for(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        request: impl Fn(DocNumber) -> Request,
+        asked_for: AskedFor<'_>,
+    ) -> Result<Answer, Unanswered> {
+        let blame = asked_for.blame();
         for _ in 0..2 {
             self.ensure_open(app, card_id, slot).await?;
+            if let AskedFor::Sender(user_id) = asked_for {
+                // Again after the waits for the document and for a worker started again:
+                // of the updates a sender sent together, those after the first that ended
+                // a worker are not sent to the next.
+                self.held_back(app, user_id)?;
+            }
             let open = slot.open.as_ref().expect("the document is open");
             let worker = &self.inner.workers[open.worker];
             match worker
-                .call(Some(open.generation), &request(open.number))
+                .call_blaming(Some(open.generation), &request(open.number), blame)
                 .await
             {
                 Ok((_, answer)) => return Ok(answer),
@@ -261,25 +312,37 @@ impl Collab {
                     if aside {
                         // Opened aside for its log alone: not opened again in the kept
                         // share, which may be full; the log stays for the next try.
-                        return Err(refusals::unavailable());
+                        return Err(refusals::unavailable().into());
                     }
                 }
                 Err(CallError::Refused(refused)) => {
-                    return Err(refusals::refused(&refused, &self.inner.limits));
+                    return Err(refusals::refused(&refused, &self.inner.limits).into());
                 }
                 Err(CallError::Died(death)) => {
                     tracing::warn!(%death, card_id, "a collab worker ended over a card's document");
                     self.lost(slot);
                     died_over(slot);
-                    return Err(refusals::unavailable());
+                    if let AskedFor::Sender(user_id) = asked_for {
+                        tracing::warn!(
+                            card_id,
+                            user_id,
+                            "the update ended the worker; its sender is held back"
+                        );
+                        self.inner.senders.ended_worker(
+                            app.store().tenant(),
+                            user_id,
+                            Instant::now(),
+                        );
+                    }
+                    return Err(Unanswered::Died(refusals::unavailable()));
                 }
                 Err(CallError::Unavailable(error)) => {
                     tracing::error!(%error, card_id, "no collab worker for a card's document");
-                    return Err(refusals::unavailable());
+                    return Err(refusals::unavailable().into());
                 }
             }
         }
-        Err(refusals::unavailable())
+        Err(refusals::unavailable().into())
     }
 
     /// Opens the document if it is not open, unless it is closed for a while. A slot
@@ -302,7 +365,7 @@ impl Collab {
         }
         let error = match self.open_stored(app, card_id, None).await {
             Ok(open) => {
-                let past_limit = open.state_bytes > self.inner.limits.state_bytes;
+                let past_limit = open.state_bytes > self.inner.limits.state_bytes || open.crowded();
                 slot.open = Some(open);
                 if past_limit {
                     // Stored or logged under a larger limit: its body is written to the
@@ -424,6 +487,55 @@ pub(super) fn died_over(slot: &mut Slot) {
     }
 }
 
+/// Why a request about a document got no answer ([`Collab::ask_for`]).
+#[derive(Debug)]
+pub(super) enum Unanswered {
+    /// It was refused, the document could not be opened, no worker could be started,
+    /// or its sender is held back: the error to answer with.
+    Refused(AppError),
+    /// The worker ended over it: killed after its time, or broken. An update that did
+    /// is in neither the document nor the log, its sender is held back
+    /// ([`super::senders`]), and the connection that sent it is closed. The error to
+    /// answer with (`document_unavailable`).
+    Died(AppError),
+}
+
+/// Who a request is asked for, and so whom a death of the worker over it is put down to.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum AskedFor<'user> {
+    /// The server, for itself or for what an editor reads: the worker
+    /// ([`Blame::Worker`]).
+    Server,
+    /// The user whose update the request takes ([`Blame::Sender`]): held back for a
+    /// death, and refused while held back.
+    Sender(&'user str),
+}
+
+impl AskedFor<'_> {
+    /// Whom a death of the worker over the request is put down to.
+    fn blame(self) -> Blame {
+        match self {
+            Self::Server => Blame::Worker,
+            Self::Sender(_) => Blame::Sender,
+        }
+    }
+}
+
+impl Unanswered {
+    /// The error to answer with.
+    pub(super) fn into_error(self) -> AppError {
+        match self {
+            Self::Refused(error) | Self::Died(error) => error,
+        }
+    }
+}
+
+impl From<AppError> for Unanswered {
+    fn from(error: AppError) -> Self {
+        Self::Refused(error)
+    }
+}
+
 /// Why a document could not be opened.
 #[derive(Debug)]
 pub(super) enum Opening {
@@ -464,5 +576,27 @@ pub(super) fn still_at_epoch(slot: &Slot, epoch: i64) -> Result<(), AppError> {
         Ok(())
     } else {
         Err(refusals::out_of_step())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fvoci_collab::{MAX_CLIENT_CHANGES, MAX_CLIENTS};
+
+    use super::crowded;
+
+    #[test]
+    fn a_document_is_made_again_at_three_quarters_of_its_clients_or_of_a_client_s_changes() {
+        let clients = u64::try_from(MAX_CLIENTS).expect("fits");
+        assert!(!crowded(1, 1));
+        assert!(!crowded(
+            clients * 3 / 4 - 1,
+            MAX_CLIENT_CHANGES * 3 / 4 - 1
+        ));
+        assert!(crowded(clients * 3 / 4, 1), "12,288 clients");
+        assert!(
+            crowded(1, MAX_CLIENT_CHANGES * 3 / 4),
+            "393,216 changes of a client"
+        );
     }
 }

@@ -8,17 +8,29 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { primaryKey } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
-import { hideSidebar, openApp, pressInBar, showSidebar, sidebar } from './shell.support.ts';
 import {
+  boardLink,
+  FIRST_BOARD,
+  hideSidebar,
+  openApp,
+  pressInBar,
+  showSidebar,
+  sidebar,
+} from './shell.support.ts';
+import {
+  deleteBySomebodyElse,
   goInside,
   hideTree,
+  letSomebodyElseIn,
   nameThePage,
   newWiki,
   ON_A_PAGE,
   ON_A_WIKI,
   pageAction,
   pageBody,
+  restoreBySomebodyElse,
   showTree,
   treeItem,
   treeShape,
@@ -121,6 +133,105 @@ test.describe('a wiki looked after', () => {
     await expect(page.getByTestId('wiki-notice')).toHaveCount(0);
   });
 
+  test('a press on the question a menu’s line asked takes while the menu is still going away', async ({
+    page,
+  }) => {
+    await openApp(page);
+    await wikiWithPages(page);
+    // Where the question's "Delete" is once the question has come to rest.
+    await pageAction(page, 'Policies', 'delete');
+    const asked = page.getByTestId('confirm-dialog');
+    const goAhead = asked.getByRole('button', { name: 'Delete' });
+    await goAhead.click({ trial: true });
+    const box = await goAhead.boundingBox();
+    if (!box) throw new Error('no button');
+    await asked.getByRole('button', { name: 'Cancel' }).click();
+    await expect(asked).toBeHidden();
+    // Asked again and pressed there at once: nothing waits for the menu to be gone. At a
+    // phone's width it is a sheet, which lies over that place while it goes (elsewhere a
+    // dropdown beside the tree, which does not).
+    await pageAction(page, 'Policies', 'delete');
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(page.getByTestId('page-title')).toHaveValue('Welcome');
+  });
+
+  test('the wiki’s description is added behind "ⓘ" from the keyboard alone, and given up with Escape', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'a keyboard and a mouse');
+    await openApp(page);
+    await newWiki(page, 'Handbook');
+    await hideSidebar(page);
+    const about = page.getByTestId('top-bar').getByTestId('container-description');
+    const field = page.getByTestId('container-description-field');
+    await expect(about).toHaveAccessibleName('Add description');
+    await about.focus();
+    await page.keyboard.press('Enter');
+    await expect(field).toBeFocused();
+    await page.keyboard.type('How we work.');
+    await page.keyboard.press(await primaryKey(page, 'Enter'));
+    await expect(field).toHaveCount(0);
+    await expect(about).toBeFocused();
+    await expect(page.getByTestId('wiki-header-description')).toHaveText('How we work.');
+    await expect(about).toHaveAccessibleName('Description');
+
+    await page.keyboard.press('Enter');
+    await expect(field).toHaveValue('How we work.');
+    await page.keyboard.type(' Not kept.');
+    await page.keyboard.press('Escape');
+    await expect(field).toHaveCount(0);
+    await expect(about).toBeFocused();
+    await expect(page.getByTestId('wiki-header-description')).toHaveText('How we work.');
+  });
+
+  test('a board’s description being written is saved to the board when the reader goes back to a wiki, whose bar then follows the wiki', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'a keyboard and a mouse');
+    await openApp(page);
+    await newWiki(page, 'Handbook');
+    await showSidebar(page);
+    await boardLink(page, FIRST_BOARD).click();
+    const bar = page.getByTestId('top-bar');
+    await expect(bar.getByTestId('board-title')).toHaveValue(FIRST_BOARD);
+    const about = bar.getByTestId('container-description');
+    const field = page.getByTestId('container-description-field');
+    await about.click();
+    await field.fill('Written, then left for a wiki.');
+    // Back to the wiki with no click outside: nothing closed the description first.
+    await page.goBack();
+    await expect(wikiScreen(page)).toBeVisible();
+    await expect(field).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(async (title) => {
+          const { backend } = (
+            window as unknown as {
+              fvociDev: {
+                backend: {
+                  workspaces: () => Promise<{ id: string }[]>;
+                  boards: (id: string) => Promise<{ title: string; description: string }[]>;
+                };
+              };
+            }
+          ).fvociDev;
+          const [workspace] = await backend.workspaces();
+          const boards = workspace ? await backend.boards(workspace.id) : [];
+          return boards.find((board) => board.title === title)?.description;
+        }, FIRST_BOARD),
+      )
+      .toBe('Written, then left for a wiki.');
+
+    // The wiki's "ⓘ" is the wiki's, and follows what is saved to it.
+    await expect(about).toHaveAccessibleName('Add description');
+    await about.click();
+    await expect(field).toHaveValue('');
+    await field.fill('How we work.');
+    await page.keyboard.press(await primaryKey(page, 'Enter'));
+    await expect(about).toHaveAccessibleName('Description');
+    await expect(page.getByTestId('wiki-header-description')).toHaveText('How we work.');
+  });
+
   test('the wiki’s name, description and icon are changed, undone, and the wiki deleted and restored', async ({
     page,
   }) => {
@@ -137,6 +248,8 @@ test.describe('a wiki looked after', () => {
     await expect(page.getByTestId('wiki-header-title')).toHaveText('Guide');
     await expect(page.getByTestId('wiki-header-description')).toHaveText('How we work.');
     await expect(page.getByTestId('wiki-header-icon')).not.toBeEmpty();
+    // The tree's drawer is put away first: the bar above is kept away while it is out.
+    await hideTree(page);
     await showSidebar(page);
     await expect(sidebar(page).getByRole('link', { name: 'Guide, wiki' })).toBeVisible();
     await hideSidebar(page);
@@ -347,6 +460,52 @@ test.describe('at a phone’s width', () => {
     await page.getByTestId('page-tree-scrim').click({ position: { x: 380, y: 400 } });
     await expect(drawer).toBeHidden();
     await hideTree(page);
+  });
+
+  test('while the drawer is out the bar above is kept away, and the drawer goes with a page deleted elsewhere', async ({
+    page,
+  }) => {
+    await openApp(page);
+    const wikiId = await wikiWithPages(page);
+    await letSomebodyElseIn(page, wikiId);
+    await hideTree(page);
+    await expect(page.getByTestId('page-title')).toHaveValue('Policies');
+    const { pageId } = wikiPlaceOf(page.url());
+    const drawer = page.getByRole('dialog', { name: 'Pages' });
+    const bar = page.getByTestId('top-bar');
+    await expect(bar).not.toHaveAttribute('inert', '');
+    await page.getByTestId('open-page-tree').click();
+    await expect(drawer).toBeVisible();
+    // The bar is no part of the wiki's screen, and as far away as the page under the drawer.
+    await expect(bar).toHaveAttribute('inert', '');
+
+    // Somebody else deletes the page shown: the screen shows another, with no drawer over it.
+    await deleteBySomebodyElse(page, wikiId, pageId);
+    await expect(page.getByTestId('page-title')).toHaveValue('Welcome');
+    await expect(drawer).toBeHidden();
+    await expect(page.getByTestId('open-page-tree')).toHaveAttribute('aria-expanded', 'false');
+    await expect(bar).not.toHaveAttribute('inert', '');
+
+    // The page is back and the reader follows an address to it (a link, a hit of the
+    // search): the drawer that was out over it is not.
+    await restoreBySomebodyElse(page, wikiId, pageId);
+    await page.evaluate(
+      (address) => {
+        history.pushState(null, '', address);
+        dispatchEvent(new PopStateEvent('popstate'));
+      },
+      wikiPath(wikiId, pageId),
+    );
+    await expect(page.getByTestId('page-title')).toHaveValue('Policies');
+    expect(wikiPlaceOf(page.url()).pageId).toBe(pageId);
+    await expect(drawer).toBeHidden();
+    await expect(bar).not.toHaveAttribute('inert', '');
+    // The drawer left nothing in the history: the tree opens and closes as before.
+    await page.getByTestId('open-page-tree').click();
+    await expect(drawer).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(drawer).toBeHidden();
+    await expect(page.getByTestId('page-title')).toHaveValue('Policies');
   });
 });
 

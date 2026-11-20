@@ -76,7 +76,7 @@ pub(super) async fn require_import_access(
 /// and the files the blocks show, those of the images and file blocks of bodies among
 /// them. A board's line also carries `fileNames`: the name of each of its files, by
 /// stored name, which an import gives the files it stores. A name an upload could not
-/// have (blank, with U+0000, over 255 characters, or of another extension than the
+/// have (blank, `.` or `..` after its last `/` or `\`, with U+0000, over 255 characters, or of another extension than the
 /// stored name) is passed over and its file keeps the name of its entry, and an archive
 /// without the member is read as before. A file a block shows that the board does not
 /// have, its record or its bytes gone, gets no entry: it is listed under `missingFiles`
@@ -201,7 +201,8 @@ async fn handle_export_workspace(
 /// `version.json` are 400, and nothing of them is stored. An archive of more than
 /// 10,000 entries, whose entries unpack to more than 1 GiB together, or with a
 /// `board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with
-/// the `limit` passed, and nothing of it is stored. The blocks that show files are
+/// the `limit` passed, and nothing of it is stored; for the entry that is too large the
+/// reason is `archive_entry_too_large`. The blocks that show files are
 /// pointed at the board's new copies of them, the images and file blocks of bodies
 /// included. A file the board's line lists under `missingFiles` is not stored, even when
 /// the archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy

@@ -1,0 +1,267 @@
+//! The parts of a person's name: stored, read back, shown by, searched by, and carried
+//! over from the name an account had before there were parts.
+
+use fvoci_model::{
+    Credential, NameShown, PersonName, PersonNameChange, Title, User, WorkspaceRole, new_id,
+};
+use fvoci_store::{Looking, Reach, Sight, Store};
+
+use crate::common;
+
+fn change(name: &PersonName) -> PersonNameChange {
+    PersonNameChange {
+        first_name: Some(name.first_name.clone()),
+        last_name: Some(name.last_name.clone()),
+        latin_first_name: Some(name.latin_first_name.clone()),
+        latin_last_name: Some(name.latin_last_name.clone()),
+        custom_name: Some(name.custom_name.clone()),
+        name_shown: Some(name.name_shown),
+        title: Some(name.title),
+        credentials: Some(name.credentials.clone()),
+    }
+}
+
+fn kim() -> PersonName {
+    PersonName {
+        first_name: "영환".to_owned(),
+        last_name: "김".to_owned(),
+        latin_first_name: "Younghwan".to_owned(),
+        latin_last_name: "Kim".to_owned(),
+        custom_name: "YH".to_owned(),
+        name_shown: NameShown::Name,
+        title: Some(Title::Dr),
+        credentials: vec![Credential::Phd, Credential::KrAttorney],
+    }
+}
+
+/// Every part is stored and read back, and the account is shown by the name its
+/// choice makes: on every read, and on every choice.
+#[tokio::test]
+async fn a_name_is_stored_whole_and_shown_by_its_choice() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let id = common::user(store, "kim").await;
+    let other = common::user(store, "other").await;
+
+    let stored = store
+        .change_person_name(&id, &change(&kim()))
+        .await
+        .unwrap()
+        .user;
+    assert_eq!(stored.name, kim());
+    assert_eq!(stored.display_name, "김영환");
+    assert_eq!(store.get_user_by_id(&id).await.unwrap(), stored);
+    // The same again changes nothing, and writes nothing.
+    let again = store
+        .change_person_name(&id, &change(&kim()))
+        .await
+        .unwrap();
+    assert!(!again.changed, "the same name is no change");
+    assert_eq!(again.user, stored, "not even the time");
+
+    for (shown, want) in [
+        (NameShown::LatinName, "Younghwan Kim"),
+        (NameShown::CustomName, "YH"),
+        (NameShown::Username, ""),
+        (NameShown::Name, "김영환"),
+    ] {
+        let only_the_choice = PersonNameChange {
+            name_shown: Some(shown),
+            ..PersonNameChange::default()
+        };
+        let user = store
+            .change_person_name(&id, &only_the_choice)
+            .await
+            .unwrap()
+            .user;
+        assert_eq!(user.display_name, want, "{shown:?}");
+        assert_eq!(user.name.first_name, "영환", "the rest stays");
+    }
+
+    let emptied = PersonNameChange {
+        first_name: Some(String::new()),
+        last_name: Some(String::new()),
+        title: Some(None),
+        credentials: Some(Vec::new()),
+        ..PersonNameChange::default()
+    };
+    let user = store.change_person_name(&id, &emptied).await.unwrap().user;
+    assert_eq!(user.display_name, "Younghwan Kim", "down the list");
+    assert_eq!((user.name.title, user.name.credentials.len()), (None, 0));
+
+    let untouched = store.get_user_by_id(&other).await.unwrap();
+    assert_eq!(
+        (untouched.display_name.as_str(), untouched.name),
+        ("", PersonName::default())
+    );
+    let gone = store
+        .change_person_name(&new_id(), &change(&kim()))
+        .await
+        .expect_err("no such user");
+    assert!(gone.is_not_found(), "{gone:?}");
+    test.teardown().await;
+}
+
+/// A new account is shown by the name it is made with, whatever it says it is shown by.
+#[tokio::test]
+async fn a_new_account_is_shown_by_its_name() {
+    let test = common::setup().await;
+    let mut user = User {
+        id: new_id(),
+        username: "maker".to_owned(),
+        email: "maker@example.com".to_owned(),
+        display_name: "not taken over".to_owned(),
+        name: PersonName {
+            custom_name: "Written".to_owned(),
+            ..PersonName::default()
+        },
+        ..User::default()
+    };
+    test.store.create_user(&mut user).await.unwrap();
+    let read = test.store.get_user_by_id(&user.id).await.unwrap();
+    assert_eq!(read.display_name, "Written");
+    assert_eq!(read.name.name_shown, NameShown::Name);
+    assert_eq!(read, user);
+    test.teardown().await;
+}
+
+/// A person is found by the parts of their name, either way round, and by the name
+/// they wrote, as by the login name.
+#[tokio::test]
+async fn people_are_found_by_every_part_of_their_name() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let seer = common::user(store, "seer").await;
+    let workspace_id = common::workspace_of(store, &[&seer]).await;
+    let kim_id = common::user(store, "kim").await;
+    store
+        .add_workspace_member(&workspace_id, &kim_id, WorkspaceRole::Member)
+        .await
+        .unwrap();
+    store
+        .change_person_name(&kim_id, &change(&kim()))
+        .await
+        .unwrap();
+    let sight = Sight::InWorkspace {
+        seer_id: &seer,
+        workspace_id: &workspace_id,
+        reach: Reach::Workspace,
+        looking: Looking::AmongPeople,
+    };
+    for query in [
+        "김영환",
+        "영환",
+        "younghwan KIM",
+        "Kim Younghwan",
+        "yh",
+        "kim",
+    ] {
+        let found = store.search_users_in_sight(sight, query).await.unwrap();
+        let ids: Vec<&str> = found.iter().map(|user| user.id.as_str()).collect();
+        assert_eq!(ids, [kim_id.as_str()], "{query}");
+    }
+    let found = store.search_users_in_sight(sight, "lee").await.unwrap();
+    assert!(found.is_empty(), "{found:?}");
+    test.teardown().await;
+}
+
+/// Migrations 0045 and 0046: an account is shown by the name it had, which becomes the
+/// name it wrote; one without is shown by its login name still, and by the parts of a
+/// name it gives later, as a new account is.
+#[tokio::test]
+async fn the_migration_keeps_the_name_every_account_is_shown_by() {
+    let database = common::empty_database().await;
+    let connection = common::raw_connection(&database);
+    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 44)
+        .await;
+    let (named, unnamed) = (new_id(), new_id());
+    let insert = |id: &str, username: &str, shown: &str| {
+        format!(
+            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+             display_name) VALUES ('{id}', '{username}', '{username}@example.com', '', 1, 1, \
+             '{shown}');"
+        )
+    };
+    common::execute_raw(
+        &connection,
+        &[
+            insert(&named, "named", "Hana Kim"),
+            insert(&unnamed, "unnamed", ""),
+        ]
+        .concat(),
+    )
+    .await;
+    let store = Store::connect(database.db_type(), database.database_connection())
+        .await
+        .expect("migrated");
+    let named = store.get_user_by_id(&named).await.unwrap();
+    let unnamed = store.get_user_by_id(&unnamed).await.unwrap();
+    store.close().await;
+    database.remove().await;
+
+    assert_eq!(named.display_name, "Hana Kim");
+    assert_eq!(named.name.custom_name, "Hana Kim");
+    assert_eq!(named.name.name_shown, NameShown::CustomName);
+    assert_eq!(
+        named.name.shown(),
+        "Hana Kim",
+        "the rule makes the same name"
+    );
+    assert_eq!(unnamed.display_name, "");
+    assert_eq!(unnamed.name.shown(), "");
+    assert_eq!(
+        unnamed.name,
+        PersonName::default(),
+        "as a new account, and as an erased one"
+    );
+}
+
+/// Migration 0046 on an account that gave a part of its name while still shown by the
+/// name it wrote, which was none: it keeps its choice, so that the name it is shown by is
+/// still the one the rule makes, as stored.
+#[tokio::test]
+async fn the_nameless_are_shown_by_name_but_not_those_that_gave_a_part() {
+    let database = common::empty_database().await;
+    let connection = common::raw_connection(&database);
+    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 45)
+        .await;
+    let (nameless, part_given) = (new_id(), new_id());
+    let insert = |id: &str, username: &str, first_name: &str| {
+        format!(
+            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+             display_name, first_name, last_name, name_shown) VALUES ('{id}', '{username}', \
+             '{username}@example.com', '', 1, 1, '', '{first_name}', '김', 'custom_name');"
+        )
+    };
+    common::execute_raw(
+        &connection,
+        &[
+            insert(&nameless, "nameless", "").replace("'김'", "''"),
+            insert(&part_given, "given", "영환"),
+        ]
+        .concat(),
+    )
+    .await;
+    let store = Store::connect(database.db_type(), database.database_connection())
+        .await
+        .expect("migrated");
+    let nameless = store.get_user_by_id(&nameless).await.unwrap();
+    let part_given = store.get_user_by_id(&part_given).await.unwrap();
+    store.close().await;
+    database.remove().await;
+
+    assert_eq!(nameless.name, PersonName::default(), "as a new account");
+    assert_eq!(
+        part_given.name.name_shown,
+        NameShown::CustomName,
+        "its choice kept"
+    );
+    assert_eq!(
+        (
+            part_given.display_name.as_str(),
+            part_given.name.shown().as_str()
+        ),
+        ("", ""),
+        "shown as stored"
+    );
+}

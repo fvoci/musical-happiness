@@ -22,7 +22,7 @@ use crate::config::mail::{MailSettings, Way, is_loopback_url};
 use crate::config::smtp::SmtpSettings;
 use crate::metrics::{MailFailure, MailKind, Metrics, ResetMailDrop};
 
-pub(super) use content::{Content, Language};
+pub(super) use content::Content;
 use outbound::{Outbound, Outcome, Outgoing};
 pub(super) use share::Organizations;
 

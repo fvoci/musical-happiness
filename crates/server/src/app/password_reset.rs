@@ -3,7 +3,8 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use super::mail::{Content, Language, Letter};
+use super::language::Language;
+use super::mail::{Content, Letter};
 use crate::auth::limiter::RetryAfter;
 
 use super::App;

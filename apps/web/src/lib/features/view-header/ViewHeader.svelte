@@ -3,11 +3,16 @@
   properties its cards show, grouping, filter, sort, search, a new card).
 
   It looks at the width of the pane it is in, not of the window
-  (`pane.header`). With room for all of it, it is one row: the views as
-  tabs, the tools with their words, the search field, "New". In a narrower
-  pane it folds into one row of a different make: one button that names the
-  view and opens the list of views, search and filter as icons, the rest
-  behind "…", and "New" as a round button at the bottom of the board.
+  (`pane.tabs`). With room for all of it, it is one row: the views as
+  tabs (as many as fit, the rest behind one more tab: ViewTabs.svelte), the
+  tools as icons, "New". In a narrower pane it folds into one row of a
+  different make: one button that names the view and opens the list of
+  views, search and filter as icons, the rest behind "…", and "New" as a
+  round button at the bottom of the board. While the search field is open in
+  the whole row, its tabs are that one button too, so that no name is cut
+  (ViewSearch.svelte). A tool is an icon in both rows, so that the names of
+  the views keep the room: its name is a tooltip and what a screen reader
+  hears, and what it has on (properties shown, conditions, sorts) a count.
 
   The two are one component, and every tool is one element in both. A tool
   that has no button of its own (in the folded row all but search and filter;
@@ -20,7 +25,6 @@
   other tools change the view for everyone and are not shown.
 -->
 <script lang="ts">
-  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import ArrowUpDownIcon from '@lucide/svelte/icons/arrow-up-down';
   import CalendarDaysIcon from '@lucide/svelte/icons/calendar-days';
   import EyeIcon from '@lucide/svelte/icons/eye';
@@ -28,11 +32,8 @@
   import LayersIcon from '@lucide/svelte/icons/layers';
   import ListFilterIcon from '@lucide/svelte/icons/list-filter';
   import PlusIcon from '@lucide/svelte/icons/plus';
-  import SearchIcon from '@lucide/svelte/icons/search';
   import { tick } from 'svelte';
 
-  import IconButton from '$lib/components/icon-button/IconButton.svelte';
-  import { isComposing } from '$lib/keys.ts';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
@@ -41,7 +42,6 @@
   import type { BoardView, PropertyTemplate } from '$lib/logic/wire.ts';
   import { whileHere, type BoardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
-  import { Input } from '$lib/ui/input/index.js';
 
   import ChoiceTool from './ChoiceTool.svelte';
   import { conditionCount } from './filter-edit.ts';
@@ -61,11 +61,13 @@
     groupingOf,
     groupProperty,
     newViewFields,
+    propertyToggles,
     sortOffered,
     type AddableViewType,
     type DisplayByChoice,
   } from './view-fields.ts';
   import ViewMenu from './ViewMenu.svelte';
+  import ViewSearch from './ViewSearch.svelte';
   import ViewSwitcher from './ViewSwitcher.svelte';
   import ViewTabs from './ViewTabs.svelte';
 
@@ -85,7 +87,7 @@
   const pickers = new PickerPresentation();
 
   /** The pane has room for the whole header in one row. */
-  const row = $derived(pane.header);
+  const row = $derived(pane.tabs);
   const templates = $derived(board.board?.cardProperties ?? []);
   const canEdit = $derived(board.canEdit);
   const grouping = $derived(groupingOf(view.fields.viewType));
@@ -100,6 +102,12 @@
   const dependsOnName = $derived(dependenciesName(view, templates, m.viewheader_group_none()));
   const filterCount = $derived(conditionCount(view.fields.filter));
   const sortCount = $derived(view.fields.sortOptions.length);
+  /** The properties the cards show, of those the panel can switch. */
+  const shownCount = $derived(
+    propertyToggles(templates, view.fields.viewType).filter((toggle) =>
+      view.fields.visiblePropertyIds.includes(toggle.id),
+    ).length,
+  );
 
   let header = $state<HTMLElement | null>(null);
 
@@ -123,39 +131,66 @@
 
   // ------------------------------------------------------------ search
 
-  /** The view whose search field was opened in the folded row. Another view starts closed. */
+  /** The view whose search field was opened (ViewSearch.svelte). Another view starts closed. */
   let searchOpenIn = $state<string | undefined>(undefined);
+  const searchShown = $derived(searchOpenIn === view.id || search !== '');
   /** The folded row shows the search field in place of everything else. */
-  const searchBar = $derived(!row && (searchOpenIn === view.id || search !== ''));
-  let searchField = $state<HTMLInputElement | null>(null);
-
-  async function openSearch(): Promise<void> {
-    searchOpenIn = view.id;
-    await tick();
-    searchField?.focus();
+  const searchBar = $derived(!row && searchShown);
+  /** The tabs, but for an open search field: then the view is named on one button, cut nowhere. */
+  const tabs = $derived(row && !searchShown);
+  /** The tab of a view takes the focus once it is drawn: the button it was opened from goes. */
+  function focusTab(viewId: string): void {
+    void tick().then(() =>
+      header?.querySelector<HTMLElement>(`[data-view="${CSS.escape(viewId)}"]`)?.focus(),
+    );
   }
 
-  async function closeSearch(): Promise<void> {
-    search = '';
+  /**
+   * A view picked (or added) from that button, `folded` as it was when it
+   * was asked for: the tabs come back, and its tab takes the focus.
+   */
+  function openFolded(viewId: string, folded = row && !tabs): void {
+    onOpenView(viewId);
+    if (folded) focusTab(viewId);
+  }
+
+  /** That button is being pressed: not every browser focuses a button it presses. */
+  let pressing = false;
+  function pressed(): void {
+    pressing = true;
+    // Until the press is a click: under a finger the field's blur comes after the touch ends.
+    const done = (): void => {
+      pressing = false;
+      window.removeEventListener('click', done, true);
+      window.removeEventListener('pointercancel', done, true);
+    };
+    window.addEventListener('click', done, true);
+    window.addEventListener('pointercancel', done, true);
+  }
+  /** The focus leaving an empty field for that button keeps the field, and the button with it. */
+  const keepsSearch = (to: EventTarget | null): boolean =>
+    pressing || (to instanceof Element && to.closest('[data-tool="views"]') !== null);
+
+  /** An empty field kept for that button closes as the focus goes on from the button too. */
+  function switcherLeft(event: FocusEvent & { currentTarget: HTMLElement }): void {
+    if (!row || search !== '' || !document.hasFocus()) return;
+    const to = event.relatedTarget;
+    const kept = to instanceof Node && event.currentTarget.contains(to);
+    // The field, and the list of views: a menu, or a sheet (a dialog) on a compact page.
+    const list = '[role="search"], [role="menu"], [role="dialog"]';
+    if (kept || (to instanceof Element && to.closest(list))) return;
     searchOpenIn = undefined;
-    await tick();
-    header?.querySelector<HTMLElement>('[data-tool="search"]')?.focus();
-  }
-
-  function searchKeys(event: KeyboardEvent): void {
-    if (event.key !== 'Escape' || isComposing(event)) return;
-    if (row) search = '';
-    else void closeSearch();
   }
 
   // ------------------------------------------------------------- views
 
   async function addView(viewType: AddableViewType): Promise<void> {
     const title = NEW_VIEW_TITLES[viewType]();
+    const folded = row && !tabs;
     const made = await whileHere(board, () =>
       board.createView({ title, fields: newViewFields(viewType, templates) }),
     );
-    if (made) onOpenView(made.id);
+    if (made) openFolded(made.id, folded);
   }
 
   const onAddView = $derived(
@@ -248,9 +283,9 @@
 </script>
 
 <!--
-  The button of a tool. In the whole row: its icon, its word, and a count.
-  In the folded row: the icon and the count, or (`aside`) nothing to see;
-  `always`: nothing to see in either row.
+  The button of a tool: its icon and a count, its name as a tooltip; or
+  (`aside`) nothing to see in the folded row; `always`: nothing to see in
+  either row.
 -->
 {#snippet tool(
   props: Record<string, unknown>,
@@ -265,25 +300,13 @@
     variant="ghost"
     data-tool={id}
     aria-label={count > 0 ? `${label} (${count})` : label}
+    title={count > 0 ? `${label} (${count})` : label}
     class={[
       'shrink-0 roomy:h-touch',
-      aside === 'always' || (aside && !row)
-        ? asideAt
-        : row
-          ? 'max-w-56'
-          : 'gap-1 px-2 roomy:min-w-touch',
+      aside === 'always' || (aside && !row) ? asideAt : 'gap-1 px-2 roomy:min-w-touch',
     ]}
   >
-    <!--
-      The whole row has the word and no icon: four icons are the width of a
-      view's tab, and a pane of 992 pixels has no tab to spare. To have both,
-      draw the icon here too, with `data-icon="inline-start"`.
-    -->
-    {#if row}
-      <span class="truncate">{label}</span>
-    {:else}
-      <ToolIcon />
-    {/if}
+    <ToolIcon />
     {#if count > 0}
       <span
         class="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-primary px-1 text-xs leading-none font-semibold text-primary-foreground"
@@ -302,7 +325,7 @@
   class={['relative flex h-12 shrink-0 items-center gap-1 border-b', row ? 'px-4' : 'px-1.5']}
 >
   <div class="contents" inert={searchBar}>
-    {#if row}
+    {#if tabs}
       <ViewTabs
         views={board.orderedViews}
         currentId={view.id}
@@ -311,25 +334,25 @@
         {onAddView}
       />
     {:else}
-      <ViewSwitcher
-        views={board.orderedViews}
-        current={view}
-        boardTitle={board.board?.title}
-        {onOpenView}
-        {onAddView}
-      />
-    {/if}
-    <div class="min-w-1 flex-1"></div>
-    {#if !row}
-      <IconButton
-        label={m['ViewHeader.search-text']()}
-        data-tool="search"
-        onclick={() => void openSearch()}
+      <nav
+        aria-label={m.viewheader_views()}
+        class="flex min-w-0 shrink"
+        onpointerdown={pressed}
+        onfocusout={switcherLeft}
       >
-        <SearchIcon />
-      </IconButton>
+        <ViewSwitcher
+          views={board.orderedViews}
+          current={view}
+          boardTitle={board.board?.title}
+          onOpenView={openFolded}
+          {onAddView}
+        />
+      </nav>
+      <div class="min-w-1 flex-1"></div>
     {/if}
-
+  </div>
+  <ViewSearch bind:search bind:openIn={searchOpenIn} viewId={view.id} {row} keeps={keepsSearch} />
+  <div class="contents" inert={searchBar}>
     {#if canEdit}
       <PickerSurface
         bind:open={
@@ -343,7 +366,8 @@
         title={m['ViewHeader.properties']()}
       >
         {#snippet trigger({ props }: { props: Record<string, unknown> })}
-          {@render tool(props, 'properties', EyeIcon, m['ViewHeader.properties'](), 0, true)}
+          {@const word = m['ViewHeader.properties']()}
+          {@render tool(props, 'properties', EyeIcon, word, shownCount, true)}
         {/snippet}
         <PropertiesPanel {board} {view} />
       </PickerSurface>
@@ -425,48 +449,6 @@
         </PickerSurface>
       {/if}
     {/if}
-  </div>
-
-  <!--
-    The search field is one element in both rows, so that it keeps what was
-    typed, the caret and the focus when the pane changes its width. In the
-    folded row it is either away or laid over the whole row.
-  -->
-  <div
-    role="search"
-    data-testid="view-search"
-    class={row
-      ? 'w-40 shrink-0'
-      : searchBar
-        ? 'absolute inset-0 z-10 flex items-center gap-1 bg-background px-1.5'
-        : 'hidden'}
-  >
-    {#if !row}
-      <IconButton
-        label={m.viewheader_search_close()}
-        data-tool="search-close"
-        onclick={() => void closeSearch()}
-      >
-        <ArrowLeftIcon />
-      </IconButton>
-    {/if}
-    <div class="relative min-w-0 flex-1">
-      <SearchIcon
-        class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
-        aria-hidden="true"
-      />
-      <Input
-        bind:ref={searchField}
-        bind:value={search}
-        type="search"
-        aria-label={m['ViewHeader.search-text']()}
-        placeholder={m['ViewHeader.search-text']()}
-        autocomplete="off"
-        enterkeyhint="search"
-        class="pl-8 roomy:h-touch roomy:text-base"
-        onkeydown={searchKeys}
-      />
-    </div>
   </div>
 
   {#if canEdit}

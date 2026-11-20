@@ -4,19 +4,13 @@
     "request": "(observation)",
     "status": 0,
     "body": [
-      "Meeting Agenda",
-      "Sales Pipeline CRM",
-      "Personal Tasks",
-      "Project Tasks",
-      "Company Goals & OKRs",
-      "Personal Goals",
-      "Sprint Planner",
-      "User Research Sessions",
-      "Competitive Analysis",
-      "Content Calendar",
-      "Team Retrospective",
-      "Roadmap",
-      "Welcome to fvoci!"
+      "Getting started with fvoci",
+      "Project schedule",
+      "Issue tracker",
+      "Meeting notes",
+      "Content calendar",
+      "Customer contacts",
+      "Study notes"
     ]
   },
   {
@@ -24,7 +18,7 @@
     "request": "(observation)",
     "status": 0,
     "body": [
-      7
+      9
     ]
   },
   {
@@ -58,8 +52,8 @@
     "request": "(observation)",
     "status": 0,
     "body": {
-      "card": 10,
-      "view": 4
+      "card": 9,
+      "view": 5
     }
   },
   {
@@ -136,12 +130,11 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "boardId": "<id:4>",
-      "workspaceId": "<id:1>"
+      "boardId": "<id:4>"
     }
   },
   {
-    "name": "onboarding board",
+    "name": "welcome board",
     "request": "GET /api/v1/w/<id:1>/containers/<id:4> as tpl-alice",
     "status": 200,
     "content_type": "application/json",
@@ -149,94 +142,81 @@
       "cardProperties": [
         {
           "id": "<id:5>",
-          "name": "Status",
+          "name": "Progress",
           "options": [
             {
-              "color": "propColorRed",
-              "id": "amm6wfhnbuxojwssyftgs9dipqe",
-              "value": "To do 🔥"
+              "color": "propColorGray",
+              "id": "<id:6>",
+              "value": "To read"
             },
             {
-              "color": "propColorYellow",
-              "id": "af3p8ztcyxgn8wd9z4az7o9tjeh",
-              "value": "Next up"
-            },
-            {
-              "color": "propColorPurple",
-              "id": "ajurey3xkocs1nwx8di5zx6oe7o",
-              "value": "Later"
+              "color": "propColorBlue",
+              "id": "<id:7>",
+              "value": "Trying it"
             },
             {
               "color": "propColorGreen",
-              "id": "agkinkjy5983wsk6kppsujajxqw",
-              "value": "Completed 🙌"
+              "id": "<id:8>",
+              "value": "Done it"
             }
           ],
           "type": "select"
         },
         {
-          "id": "acypkejeb5yfujhj9te57p9kaxw",
-          "name": "Priority",
+          "id": "<id:9>",
+          "name": "Topic",
           "options": [
             {
+              "color": "propColorBlue",
+              "id": "<id:10>",
+              "value": "Boards"
+            },
+            {
+              "color": "propColorPurple",
+              "id": "<id:11>",
+              "value": "Writing"
+            },
+            {
               "color": "propColorOrange",
-              "id": "aanaehcw3m13jytujsjk5hpf6ry",
-              "value": "1. High"
+              "id": "<id:12>",
+              "value": "Files"
             },
             {
-              "color": "propColorBrown",
-              "id": "ascd7nm9r491ayot8i86g1gmgqw",
-              "value": "2. Medium"
+              "color": "propColorGreen",
+              "id": "<id:13>",
+              "value": "Wiki"
             },
             {
-              "color": "propColorGray",
-              "id": "aq6ukoiciyfctgwyhwzpfss8ghe",
-              "value": "3. Low"
+              "color": "propColorPink",
+              "id": "<id:14>",
+              "value": "Together"
             }
           ],
           "type": "select"
         },
         {
-          "id": "aqh13jabwexjkzr3jqsz1i1syew",
-          "name": "Assignee",
-          "options": [],
-          "type": "person"
-        },
-        {
-          "id": "acmg7mz1rr1eykfug4hcdpb1y1o",
-          "name": "Due Date",
+          "id": "<id:15>",
+          "name": "Day",
           "options": [],
           "type": "date"
         },
         {
-          "id": "amewjwfjrtpu8ha73xsrdmxazxr",
-          "name": "Reviewed",
+          "id": "<id:16>",
+          "name": "Minutes",
           "options": [],
-          "type": "checkbox"
+          "type": "number"
         },
         {
-          "id": "attzzboqaz6m1sdti5xa7gjnk1e",
-          "name": "Last updated time",
+          "id": "<id:17>",
+          "name": "Read first",
           "options": [],
-          "type": "updatedTime"
-        },
-        {
-          "id": "a4nfnb5xr3txr5xq7y9ho7kyz6c",
-          "name": "Reference",
-          "options": [],
-          "type": "url"
-        },
-        {
-          "id": "a9gzwi3dt5n55nddej6zcbhxaeh",
-          "name": "Created by",
-          "options": [],
-          "type": "createdBy"
+          "type": "relation"
         }
       ],
       "createAt": "<ts>",
       "createdBy": "<id:2>",
       "deleteAt": 0,
-      "description": "fvoci is an open source project management tool that helps you organize, track, and manage work across teams. Select a card to learn more.",
+      "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
       "icon": "👋",
       "id": "<id:4>",
       "isBuiltin": false,
@@ -244,26 +224,23 @@
       "kind": "board",
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
-      "properties": {
-        "templateKey": "welcome",
-        "trackingTemplateId": "7bb8ddeb84b405c68a100dc7ee36a1a8"
-      },
+      "properties": {},
       "showDescription": true,
-      "templateVersion": 7,
-      "title": "Welcome to fvoci!",
+      "templateVersion": 9,
+      "title": "Getting started with fvoci",
       "type": "P",
       "updateAt": "<ts>",
       "workspaceId": "<id:1>"
     }
   },
   {
-    "name": "onboarding board block count",
+    "name": "welcome board block count",
     "request": "(observation)",
     "status": 0,
     "body": 14
   },
   {
-    "name": "categories after onboarding",
+    "name": "categories after the welcome board",
     "request": "GET /api/v1/w/<id:1>/categories as tpl-alice",
     "status": 200,
     "content_type": "application/json",
@@ -272,17 +249,21 @@
         "collapsed": false,
         "containerMetadata": [
           {
+            "containerId": "<id:18>",
+            "hidden": false
+          },
+          {
             "containerId": "<id:4>",
             "hidden": false
           },
           {
-            "containerId": "<id:6>",
+            "containerId": "<id:19>",
             "hidden": false
           }
         ],
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:7>",
+        "id": "<id:20>",
         "name": "Boards",
         "sortOrder": 10,
         "type": "system",
@@ -293,14 +274,10 @@
     ]
   },
   {
-    "name": "config after onboarding",
+    "name": "client state after the welcome board",
     "request": "GET /api/v1/users/me/client-state as tpl-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": {
-      "onboardingTourStarted": "1",
-      "onboardingTourStep": "0",
-      "tourCategory": "onboarding"
-    }
+    "body": {}
   }
 ]

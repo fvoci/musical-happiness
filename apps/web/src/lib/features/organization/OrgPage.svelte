@@ -22,6 +22,7 @@
   import { Button } from '$lib/ui/button/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
+  import PersonProfile from '$lib/components/person/PersonProfile.svelte';
 
   import OrgWorkspaces from './OrgWorkspaces.svelte';
   import OrgSso from './OrgSso.svelte';
@@ -127,7 +128,15 @@
             class="flex items-center gap-2 rounded-md border px-3 py-2"
             data-username={member.username}
           >
-            <span class="min-w-0 flex-1 truncate">{named(member)}</span>
+            <span class="flex min-w-0 flex-1">
+              <PersonProfile
+                userId={member.userId}
+                username={member.username}
+                displayName={member.displayName}
+                name={member.name}
+                {locale}
+              />
+            </span>
             <span class="text-xs text-muted-foreground">
               {member.role === 'admin' ? m.org_role_admin() : m.org_role_member()}
             </span>

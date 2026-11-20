@@ -45,10 +45,12 @@ pub(crate) enum ContainerWork {
     Import,
     /// Copied where it is (`duplicateContainer`).
     Duplicate,
+    /// The welcome board, copied for a new account (`onboard`).
+    Welcome,
 }
 
 impl ContainerWork {
-    const ALL: [Self; 3] = [Self::Export, Self::Import, Self::Duplicate];
+    const ALL: [Self; 4] = [Self::Export, Self::Import, Self::Duplicate, Self::Welcome];
 
     /// The value of the `work` label.
     fn as_str(self) -> &'static str {
@@ -56,6 +58,7 @@ impl ContainerWork {
             Self::Export => "export",
             Self::Import => "import",
             Self::Duplicate => "duplicate",
+            Self::Welcome => "welcome",
         }
     }
 }
@@ -173,8 +176,9 @@ impl StorageMetrics {
                 "containers_copied_total",
                 "How many boards and wikis were copied whole, by work: export (written \
                  into an archive, once the archive is ready to be sent), import (made from \
-                 an archive with its members), duplicate (copied by duplicateContainer, the \
-                 welcome board of a new account among them); and by kind: board, wiki.",
+                 an archive with its members), duplicate (copied by duplicateContainer), \
+                 welcome (the welcome board, copied for a new account); and by kind: board, \
+                 wiki.",
             )
             .namespace(PREFIX),
             &["work", "kind"],

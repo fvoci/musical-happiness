@@ -292,9 +292,11 @@ test('a page past the memory the renderer may take: it fails, and its worker is 
   const started = nextWorker(page);
   await view(page, 'heavy.hwpx', heavy, HWPX_TYPE);
   const { ended } = await started;
+  // The renderer writes until it has no memory left, which is seconds of work and more on a busy
+  // machine: the worker's end is what says it is over, and the failure is shown by then.
+  await ended;
   await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
   await expect(notice(page)).toContainText('The file could not be shown.');
-  await ended;
 });
 
 test('a document locked with a password says so', async ({ page }) => {

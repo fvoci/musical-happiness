@@ -10,7 +10,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
-use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
 
 use crate::error::StoreError;
 
@@ -86,9 +86,23 @@ pub(crate) fn sqlite_settings(connection: &str) -> Result<SqliteSettings, StoreE
         // connection of this store sees the same data.
         SqliteConnectOptions::from_str("sqlite::memory:")?
     } else {
+        // A file is kept with a write-ahead log. With the rollback journal a commit
+        // holds the whole file, and waits for every read under way before it does: a
+        // read begun meanwhile waits in turn, up to the busy timeout, and then fails.
+        // With the log who reads and who writes do not wait for each other; writers
+        // still take turns. The mode is the file's from then on, whoever opens it, and
+        // a file kept the other way is changed when it is first opened here. The log
+        // (`-wal`) and its index (`-shm`) are beside the file while it is open.
+        //
+        // Every commit is on the disk before it is answered (`FULL`), as on PostgreSQL:
+        // `NORMAL` would lose the last commits to a machine that goes down, after the
+        // client was told they were kept and files, mails and the search were sent on
+        // their word. It costs one sync of the log a commit, less than the journal took.
         SqliteConnectOptions::new()
             .filename(path)
             .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Full)
     };
     // SQLite enforces foreign keys only where a connection asks for it. The schema
     // relies on them: said here, and not left to the driver's default.

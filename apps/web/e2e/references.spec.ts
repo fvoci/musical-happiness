@@ -175,6 +175,37 @@ test('`[[` offers cards by title; the one taken is a chip that opens it, and the
   await expect(page.getByTestId('card-backlinks')).toHaveCount(0);
 });
 
+test('a finger on a chip in a body not being written opens the card, and the body never takes the focus', async ({
+  page,
+  hasTouch,
+}) => {
+  test.skip(!hasTouch, 'a finger needs a touch screen');
+  const place = await find(page);
+  await openCard(page, place, place.source.id);
+  const editor = await bodyEditor(page);
+  await writeBody(page, place, place.source.id, naming(place.target.id));
+  const chip = chips(page).first();
+  await expect(chip).toHaveAttribute('data-state', 'shown');
+  // Whether the body had the focus at any moment: on a phone even a moment is a keyboard.
+  await editor.evaluate((root) => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    const seen = { focused: false };
+    root.addEventListener('focus', () => {
+      seen.focused = true;
+    });
+    (window as unknown as { seen: typeof seen }).seen = seen;
+  });
+
+  await chip.getByRole('link').tap();
+  await expect(page).toHaveURL(
+    new RegExp(`${boardPath(place.boardId, place.viewId, place.target.id)}$`),
+  );
+  await expect(page.getByTestId('card-title')).toHaveValue(place.target.title);
+  expect(
+    await page.evaluate(() => (window as unknown as { seen: { focused: boolean } }).seen.focused),
+  ).toBe(false);
+});
+
 test('a chip shows the title as it is now, and no title for what is gone or was never there', async ({
   page,
 }) => {

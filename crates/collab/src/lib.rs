@@ -29,6 +29,7 @@
 
 mod build;
 mod doc;
+mod placing;
 mod project;
 mod read;
 mod repair;
@@ -38,10 +39,12 @@ mod take;
 mod update;
 
 pub use build::{from_body, from_body_by, new_doc};
-pub use doc::{BodyDoc, Changed};
+pub use doc::{BodyDoc, Changed, client_changes};
 pub use repair::Repair;
 pub use take::{TakeError, Taken, from_state, take_update};
-pub use update::{UpdateError, UpdateLimits, state_of};
+pub use update::{
+    MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, UpdateError, UpdateLimits, state_of,
+};
 pub use yrs;
 
 /// The steps of [`take_update`] one by one, for this crate's tests: what each does
@@ -109,6 +112,29 @@ pub mod testing {
         crate::update::copy_of(doc)
     }
 
+    /// How many steps the changes of an update may take to place in a document,
+    /// counted list by list and cut by cut whatever the update holds
+    /// ([`UpdateLimits::placing_steps`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns why the update, or the document, cannot be read.
+    pub fn placing_steps(doc: &Doc, update: &[u8]) -> Result<u64, UpdateError> {
+        crate::update::placing_steps(doc, update)
+    }
+
+    /// How many changes a state or an update holds.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the bytes are none the walk takes.
+    #[must_use]
+    pub fn changes_of(update: &[u8]) -> u64 {
+        crate::scan::check(update)
+            .expect("an update the walk takes")
+            .changes
+    }
+
     /// An editor that holds a body's document, as a client of the server does: it
     /// takes what the server sends and makes the updates of what it writes.
     #[derive(Debug)]
@@ -154,6 +180,46 @@ pub mod testing {
                 let mut txn = self.doc.transact_mut();
                 let paragraph = root.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
                 paragraph.push_back(&mut txn, XmlTextPrelim::new(text));
+            }
+            self.doc.transact().encode_diff_v1(&before)
+        }
+
+        /// Appends an empty element `name` and gives the update of it: of a node no body
+        /// has, an update the server repairs.
+        #[must_use]
+        pub fn append_element(&self, name: &str) -> Vec<u8> {
+            use yrs::{ReadTxn as _, XmlElementPrelim, XmlFragment as _};
+            let before = self.doc.transact().state_vector();
+            let root = self.doc.get_or_insert_xml_fragment(crate::FIELD);
+            root.push_back(&mut self.doc.transact_mut(), XmlElementPrelim::empty(name));
+            self.doc.transact().encode_diff_v1(&before)
+        }
+
+        /// Types `letters` at the end of the text of the last paragraph and gives the
+        /// update of it.
+        ///
+        /// # Panics
+        ///
+        /// Panics if what is last is no paragraph of a text.
+        #[must_use]
+        pub fn type_at_end(&self, letters: &str) -> Vec<u8> {
+            use yrs::{ReadTxn as _, Text as _, XmlFragment as _, XmlOut};
+            let before = self.doc.transact().state_vector();
+            let root = self.doc.get_or_insert_xml_fragment(crate::FIELD);
+            {
+                let mut txn = self.doc.transact_mut();
+                let last = root
+                    .len(&txn)
+                    .checked_sub(1)
+                    .and_then(|at| root.get(&txn, at));
+                let Some(XmlOut::Element(paragraph)) = last else {
+                    panic!("the last node is a paragraph: {last:?}");
+                };
+                let Some(XmlOut::Text(text)) = paragraph.first_child() else {
+                    panic!("the last paragraph has a text");
+                };
+                let end = text.len(&txn);
+                text.insert(&mut txn, end, letters);
             }
             self.doc.transact().encode_diff_v1(&before)
         }

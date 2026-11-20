@@ -31,12 +31,15 @@ export const DISPLAY_NAME_MAX_LENGTH = 64;
 
 /**
  * Characters a display name refuses beside the control characters (the
- * server's rule): those that show nothing, break a line or turn the text
- * around, with which a name could look empty, or like another.
+ * server's rule): those that show nothing (the Hangul fillers and the blank
+ * Braille pattern among them, which are letters), break a line or turn the
+ * text around, with which a
+ * name could look empty, or like another.
  */
 const REFUSED_IN_DISPLAY_NAME =
+  // The grapheme joiner (U+034F) combines, and so stands outside the class.
   // eslint-disable-next-line no-control-regex -- the control characters are what is refused
-  /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/u;
+  /\u034f|[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u115f\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\ufeff\uffa0\ufff9-\ufffb]/u;
 
 /**
  * White space as the server trims it (Unicode's `White_Space`), which is not

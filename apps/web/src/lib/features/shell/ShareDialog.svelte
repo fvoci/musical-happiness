@@ -27,6 +27,7 @@
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
+  import PersonProfile from '$lib/components/person/PersonProfile.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
@@ -313,11 +314,21 @@
             {@const name = nameOf(member.userId)}
             {@const mine = member.userId === workspace.me?.id}
             {@const memberRole = roleOfMember(member)}
+            {@const person = workspace.user(member.userId)}
             <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch" data-member={name}>
               <Avatar {name} colorKey={member.userId} locale={workspace.locale} decorative />
-              <span class="min-w-0 flex-1 truncate">
-                {name}
-                {#if mine}<span class="text-muted-foreground">
+              <span class="flex min-w-0 flex-1 items-baseline gap-1">
+                {#if person}
+                  <PersonProfile
+                    userId={person.id}
+                    username={person.username}
+                    displayName={person.displayName}
+                    name={person.name}
+                    locale={workspace.locale}
+                    goneName={name}
+                  />
+                {:else}<span class="truncate">{name}</span>{/if}
+                {#if mine}<span class="shrink-0 text-muted-foreground">
                     {m['ShareBoard.userPermissionsYouText']()}</span
                   >{/if}
               </span>

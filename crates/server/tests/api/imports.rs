@@ -16,6 +16,9 @@ use crate::export::{boards_of, import, import_upload, put_part};
 /// The smallest part size, so that an archive of two parts stays small.
 const PART: usize = 5 * 1024 * 1024;
 
+/// The largest `board.jsonl` an import reads.
+const JSONL_LIMIT: usize = 64 * 1024 * 1024;
+
 /// The directory under which the parts of uploads are kept.
 fn uploads_dir(ts: &TestServer) -> PathBuf {
     ts.app.config().tmp_dir().join("uploads")
@@ -286,7 +289,16 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
 
     let response = open_import(&ts.client, TEST_WORKSPACE_ID, 1001).await;
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
-    assert_eq!(response.value()["limit"], json!(1000));
+    let problem = response.value();
+    assert_eq!(
+        (&problem["type"], &problem["reason"], &problem["limit"]),
+        (
+            &json!("/problems/archive-too-large"),
+            &json!("archive_too_large"),
+            &json!(1000)
+        ),
+        "{problem}"
+    );
 
     let archive = archive_with(&[], zip::CompressionMethod::Stored);
     let id = upload_id(&open_import(&ts.client, TEST_WORKSPACE_ID, archive.len()).await);
@@ -341,7 +353,8 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
 }
 
 /// An archive over a limit of what it unpacks to is 413 with the limit, and nothing of
-/// it is stored.
+/// it is stored. An entry that is too large says so by its reason; the count of the
+/// entries has none.
 #[tokio::test]
 async fn an_archive_over_its_limits_stores_nothing() {
     let ts = Setup::native()
@@ -356,14 +369,25 @@ async fn an_archive_over_its_limits_stores_nothing() {
     let too_large_file = archive_with(&[("b1/large.bin", &file)], zip::CompressionMethod::Deflated);
     let response = import(&ts.client, TEST_WORKSPACE_ID, &too_large_file).await;
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
-    assert_eq!(response.value()["limit"], json!(1000));
+    let problem = response.check_problem();
+    assert_eq!(
+        (&problem["type"], &problem["reason"], &problem["limit"]),
+        (
+            &json!("/problems/archive-entry-too-large"),
+            &json!("archive_entry_too_large"),
+            &json!(1000)
+        ),
+        "{problem}"
+    );
 
     let names: Vec<String> = (0..10_000).map(|index| format!("b1/{index}.bin")).collect();
     let many: Vec<(&str, &[u8])> = names.iter().map(|name| (name.as_str(), &b""[..])).collect();
     let too_many = archive_with(&many, zip::CompressionMethod::Stored);
     let response = import(&ts.client, TEST_WORKSPACE_ID, &too_many).await;
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
-    assert_eq!(response.value()["limit"], json!(10_000));
+    let problem = response.check_problem();
+    assert_eq!(problem["limit"], json!(10_000));
+    assert_eq!(problem.get("reason"), None, "{problem}");
 
     // An end record that declares fewer entries than the archive has changes nothing:
     // the entries are counted by their headers before the directory is read.
@@ -389,12 +413,17 @@ async fn an_archive_over_its_limits_stores_nothing() {
         .start_file("b1/board.jsonl", deflated)
         .expect("start");
     writer
-        .write_all(&vec![b' '; 64 * 1024 * 1024 + 1])
+        .write_all(&vec![b' '; JSONL_LIMIT + 1])
         .expect("write");
     let large_jsonl = writer.finish().expect("finish").into_inner();
     let response = import(&ts.client, TEST_WORKSPACE_ID, &large_jsonl).await;
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
-    assert_eq!(response.value()["limit"], json!(64 * 1024 * 1024));
+    let problem = response.check_problem();
+    assert_eq!(
+        (&problem["reason"], &problem["limit"]),
+        (&json!("archive_entry_too_large"), &json!(JSONL_LIMIT)),
+        "{problem}"
+    );
 
     assert_eq!(boards_of(&ts).await.len(), before, "no board was made");
     assert_eq!(

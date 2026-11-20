@@ -29,36 +29,36 @@
 
 | 알고 싶은 것                                     | 있는 곳                                                                                                          |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| 무엇을 왜 그렇게 했는가, 고정한 판, 미결 사항    | `PORTING.md`                                                                                                     |
-| 화면 조립에서 한 일의 목록                       | `PORTING.md`의 "화면 조립: 서버의 계약 없이, 메모리 구현 위에서"                                                 |
-| 그 전에 한 일의 목록                             | `PORTING.md`의 "서버의 계약을 기다리며 한 것"                                                                    |
+| 무엇을 왜 그렇게 했는가, 고정한 판, 미결 사항    | `docs/notes.md`                                                                                                  |
+| 화면 조립에서 한 일의 목록                       | `docs/notes.md`의 "화면 조립: 서버의 계약 없이, 메모리 구현 위에서"                                              |
+| 그 전에 한 일의 목록                             | `docs/notes.md`의 "서버의 계약을 기다리며 한 것"                                                                 |
 | 묻지 않고 스스로 정한 것, 검토에서 남긴 것       | `docs/decisions.md`                                                                                              |
 | 서버에 대해 가정한 것과 물을 것                  | `docs/contract-assumptions.md`                                                                                   |
 | 모바일 화면 안, 경계 값, 질문 36개와 그 결정     | `docs/mobile-proposal.md`(결정은 "결정" 절), 그림은 `docs/mobile/`                                               |
 | 캘린더 뷰의 안, 질문 24개                        | `docs/calendar-proposal.md`, 그림은 `docs/calendar/`                                                             |
 | 조립된 화면의 그림                               | 저장소에 든 것은 `docs/screens/<화면>/`. 새로 찍으면 `target/screens/<화면>/`(커밋하지 않는다, `e2e/screens.ts`) |
-| 글꼴의 결정과 수치                               | `PORTING.md`의 "글꼴"                                                                                            |
-| 날짜 값의 와이어, 지역 설정의 값                 | `PORTING.md`의 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대: 계정 설정"                                     |
+| 글꼴의 결정과 수치                               | `docs/notes.md`의 "글꼴"                                                                                         |
+| 날짜 값의 와이어, 지역 설정의 값                 | `docs/notes.md`의 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대: 계정 설정"                                  |
 | 번역 결정, 한국어 검수 표                        | `docs/i18n-conversion.md`, `docs/ko-review.md`                                                                   |
-| 내장 템플릿과 변환이 바꾼 곳                     | 저장소 루트의 `crates/server/assets/templates/`의 `README.md`, `CHANGES.md`                                      |
+| 내장 템플릿                                      | 저장소 루트의 `crates/server/assets/templates/`의 `README.md`                                                    |
 | 편집기, 읽기 전용 표시기, 번들 크기              | `docs/spike-editor.md`(표시기는 9절, 창 크기는 6.5절, 수식과 다이어그램은 10절)                                  |
 | 드래그의 결정 1–11, 공개 형태, 창 크기가 바뀔 때 | `docs/spike-drag.md`                                                                                             |
-| 속성 편집기, 카드 상세와 원본 테스트의 대응      | `docs/properties-test-mapping.md`, `docs/card-test-mapping.md`, `src/lib/components/README.md`                   |
-| 빌드의 `.zst`, 원본 폴더 없이 도는 것            | `docs/build-notes.md`                                                                                            |
-| 화면 크기의 세 단계라는 방침                     | `PORTING.md`의 "화면 크기의 세 단계", 저장소 밖의 계획 `~/.claude/plans/fvoci-web-svelte.md`                     |
+| 속성 편집기                                      | `src/lib/components/README.md`                                                                                   |
+| 빌드의 `.zst`                                    | `docs/build-notes.md`                                                                                            |
+| 화면 크기의 세 단계라는 방침                     | `docs/notes.md`의 "화면 크기의 세 단계", 저장소 밖의 계획 `~/.claude/plans/fvoci-web-svelte.md`                  |
 | 도구의 위치, 화면을 띄우는 법, 함정              | 이 문서                                                                                                          |
 
 ## 이 브랜치의 마지막 검증
 
 2026-11-11 16:37–16:52 KST(커밋 `362f1b5`; 그 뒤는 이 표의 고침뿐이고 같은 명령을 다시 돌렸다), 저장소 루트에서 `pnpm --filter web run <명령>`:
 
-| 명령       | 결과                                                                                          |
-| ---------- | --------------------------------------------------------------------------------------------- |
-| `check`    | 통과(svelte-check 오류 0, ESLint, Prettier, 문구의 키)                                        |
-| `test`     | 2609 통과, 41 건너뜀(원본 번역과 템플릿 아카이브의 재변환처럼 원본이 있어야 하는 것), 파일 99 |
-| `build`    | 통과                                                                                          |
-| `e2e`      | 532 통과, 179 건너뜀(`FVOCI_SCREENS`의 그림과 프로젝트마다 맞지 않는 것), 실패 0              |
-| `e2e:live` | 27 통과, 실패 0(지난 묶음의 11개가 그대로 있다. 서버는 테스트가 띄우고 끈다)                  |
+| 명령       | 결과                                                                             |
+| ---------- | -------------------------------------------------------------------------------- |
+| `check`    | 통과(svelte-check 오류 0, ESLint, Prettier, 문구의 키)                           |
+| `test`     | 4,107 통과(세 시간대 각각), 건너뜀 0, 파일 223                                   |
+| `build`    | 통과                                                                             |
+| `e2e`      | 532 통과, 179 건너뜀(`FVOCI_SCREENS`의 그림과 프로젝트마다 맞지 않는 것), 실패 0 |
+| `e2e:live` | 27 통과, 실패 0(지난 묶음의 11개가 그대로 있다. 서버는 테스트가 띄우고 끈다)     |
 
 `stories/`·`.storybook/`·공용 컴포넌트를 바꾼 묶음은 합치기 전과 배포 전에 `pnpm --filter web run test:storybook`을 별도로 돌린다(`check`에는 포함하지 않는다).
 
@@ -142,7 +142,7 @@
 
 ### 종단 테스트가 부하에서 드러낸 것 둘 (고쳤다)
 
-시트가 닫히자마자 다음 시트가 열릴 때 방문 기록이 어긋나는 것(`docs/decisions.md` 58번)과, 메모리 구현에서 포기한 업로드가 테스트가 주문한 실패를 가로채는 것이다. 경위는 `PORTING.md`의 "합친 뒤에 드러나 고친 것"에 있다. 고친 뒤 전체를 두 번씩 돌린 1,064건과 마지막 실행 둘(532건씩)에서는 실패가 없었다. **그보다 많이 되풀이해 보지는 않았다.**
+시트가 닫히자마자 다음 시트가 열릴 때 방문 기록이 어긋나는 것(`docs/decisions.md` 58번)과, 메모리 구현에서 포기한 업로드가 테스트가 주문한 실패를 가로채는 것이다. 경위는 `docs/notes.md`의 "합친 뒤에 드러나 고친 것"에 있다. 고친 뒤 전체를 두 번씩 돌린 1,064건과 마지막 실행 둘(532건씩)에서는 실패가 없었다. **그보다 많이 되풀이해 보지는 않았다.**
 
 ### 확인하지 못한 것
 
@@ -178,7 +178,6 @@
 ### 문서와 커밋
 
 - **문서에 시각을 미리 적지 않는다.** 일이 끝날 시각을 어림해 적었다가 여러 번 고쳤다. `date`를 찍고 그 값을 적는다.
-- **이름 검사는 산출물도 본다.** 템플릿의 "바뀐 곳 목록"(`CHANGES.md`)은 이전 문구에 원본의 이름이 들어가므로 `{old product name}`, `{old company name}`으로 가려서 썼다.
 - **생성물을 Prettier가 다시 접는다.** `JSON.stringify(…, null, 2)`의 배열 모양은 Prettier의 것과 다르다. 도구가 쓰는 파일은 `.prettierignore`에 넣고, "최신인가"는 검사가 본다(`src/lib/api/contract.ts`).
 - **충돌을 풀며 체리픽한 커밋은 `git cherry`가 "같은 변경"으로 알아보지 못한다.** 화면 조립 때 메시지 파일의 충돌을 풀며 들어온 커밋이 그랬다. 워크트리를 지워도 되는지는 워킹 트리가 깨끗한지와 내용이 들어왔는지를 따로 확인한다.
 - **다른 커밋의 트리를 `target/` 아래에 풀고 거기서 `pnpm exec`를 부르면 안 된다.** pnpm이 심볼릭 링크를 타고 `apps/web/node_modules`에 잠금 파일 없이 설치한다. 한 번 겪었고, 지우고 `--frozen-lockfile`로 다시 설치했다. 추적되는 파일에는 영향이 없었다.
@@ -188,6 +187,6 @@
 - 무시되는 산출물은 `dist/`, `dist-spikes/`, `storybook-static/`, `test-results/`, `src/styles/fonts/`, `src/lib/i18n/paraglide/`다. 모두 다시 만들 수 있다.
 - 다시 만들기에 오래 걸리거나 한 번만 만든 것은 저장소 밖 `~/atlas/musical-happiness-carry/web/`에 옮겨져 있다. 새 워크트리에 놓는 명령은 그 폴더의 `README.md` 3절에 있다. 든 것은 이렇다.
   - 글꼴 산출물과 그 원본(`src/styles/fonts/`, `target/web-fonts/`). 이것이 있으면 `build`가 네트워크 없이 지나간다.
-  - 마지막 검증의 출력과 측정 스크립트(`target/scratch/`). 번들 크기를 잰 `measure-sizes.mjs`와 `measure.ts`, 테스트 매핑 표를 만든 `from-agents/make-mapping.mjs`가 여기 있다.
+  - 마지막 검증의 출력과 측정 스크립트(`target/scratch/`). 번들 크기를 잰 `measure-sizes.mjs`와 `measure.ts`가 여기 있다.
   - 하위 에이전트에게 준 지시서(`target/briefs/`, `target/agent-brief-common.md`). 안의 경로와 기준 커밋은 옛 워크트리의 것이라 고쳐 써야 한다.
 - 계획 문서는 저장소 밖 `~/.claude/plans/fvoci-web-svelte.md`에 있다.

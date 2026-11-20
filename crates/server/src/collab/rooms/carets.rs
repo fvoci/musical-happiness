@@ -250,6 +250,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
+    use tokio_util::sync::CancellationToken;
+
     use crate::collab::queue::{Capacity, Queue};
     use crate::collab::rooms::{Joined, Who};
 
@@ -264,6 +266,7 @@ mod tests {
                     bytes: 1 << 20,
                 }),
                 joined: Mutex::new(Joined::default()),
+                ended_worker: CancellationToken::new(),
             }),
             doc: 1,
             workspace_id: "workspace".to_owned(),

@@ -33,7 +33,10 @@ export async function readPresentation(bytes: ArrayBuffer): Promise<FromPptxWork
     }
     const { characters, slides } = checkCeilings(sorted);
     const pixels = new Map([...slides].map(([slide, count]) => [slide, count.pixels]));
-    return { kind: 'read', parts: sorted.parts, characters, pixels };
+    const hidden = [...sorted.parts.slides.keys()].filter(
+      (slide) => sorted.measures.get(slide)?.hidden === true,
+    );
+    return { kind: 'read', parts: sorted.parts, characters, pixels, hidden };
   } catch (error) {
     return failure(error);
   }

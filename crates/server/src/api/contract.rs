@@ -145,7 +145,15 @@ is missing or over is 401. What the user may not see is 404, as if it were not t
 they may see but not do is 403. A path that is no operation is 404 too, and a method an \
 operation's path does not have is 405.
 
-A request without a session whose JSON body has more than 64 KiB is 413 before it is 401.
+A request without a session whose JSON body has more than 64 KiB is 413 before it is 401. \
+A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` \
+in bytes.
+
+Any request may be answered 503 with the reason `database_busy`: the database did not take \
+one of its statements in time (another write held the file, or no connection to it was to be \
+had). That statement did nothing and may be taken a moment later. A request of one step may \
+be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done \
+before stays done, and sent again it is answered as its operation says.
 
 The identifiers of users, workspaces, boards, blocks and categories are UUIDs, written \
 lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is \
@@ -230,7 +238,10 @@ const SCHEMAS: &[(&str, Members)] = &[
         Members::AllBut(&["boards", "wikis", "files"]),
     ),
     ("OrganizationName", Members::All),
-    ("EmailVerified", Members::AllBut(&["containerId"])),
+    (
+        "EmailVerified",
+        Members::AllBut(&["containerId", "containerKind"]),
+    ),
     ("Block", Members::AllBut(&["editedAt"])),
     ("Body", Members::AsWritten),
     ("Container", Members::All),
@@ -277,7 +288,6 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("OidcFormerProvider", Members::All),
     ("OidcFormerProviderEnd", Members::All),
     ("OidcPendingProvider", Members::All),
-    ("OnboardingStart", Members::AsWritten),
     (
         "Problem",
         Members::Only(&["type", "title", "status", "detail"]),
@@ -290,6 +300,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
     ("SnippetPart", Members::All),
     ("Subscription", Members::All),
+    ("WelcomeBoard", Members::All),
     ("Workspace", Members::All),
     ("Team", Members::All),
     ("TeamMember", Members::All),
@@ -306,6 +317,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ReceivedPart", Members::All),
     ("UploadedFile", Members::AsWritten),
     ("User", Members::All),
+    ("PersonName", Members::All),
     ("UserSettings", Members::AsWritten),
     ("UserWorkspace", Members::All),
     ("WorkspaceMember", Members::All),
@@ -396,12 +408,15 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("CategoryType", Members::AsWritten),
     ("ContainerKind", Members::AsWritten),
     ("ContainerType", Members::AsWritten),
+    ("Credential", Members::AsWritten),
     ("Density", Members::AsWritten),
     ("HourCycle", Members::AsWritten),
     ("LinkedKind", Members::AsWritten),
     ("MinimumRole", Members::AsWritten),
+    ("NameShown", Members::AsWritten),
     ("SubscriberType", Members::AsWritten),
     ("Theme", Members::AsWritten),
+    ("Title", Members::AsWritten),
     ("WeekStart", Members::AsWritten),
 ];
 

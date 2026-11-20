@@ -14,7 +14,7 @@ use std::net::IpAddr;
 
 use fvoci_model::User;
 use fvoci_model::{
-    AcceptedInvitation, ContainerMember, ContainerRole, GUEST_INVITATION_USES,
+    AcceptedInvitation, ContainerKind, ContainerMember, ContainerRole, GUEST_INVITATION_USES,
     GuestInvitationsChange, INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount,
     Workspace, WorkspaceRole,
 };
@@ -24,6 +24,7 @@ use fvoci_store::{
 };
 
 use super::auth::account_error;
+use super::language::Language;
 use super::signups::SignupMarker;
 use super::{App, Asker, ContainerAccess};
 use crate::auth::now_millis;
@@ -429,6 +430,12 @@ impl App {
     /// `address` is where the request comes from: acceptances are counted against it
     /// as registrations are, and one of an address is under way at a time.
     ///
+    /// An account that comes into the workspace as a member by it is given its welcome
+    /// board there, if it was given none before (`App::welcome_member`): in the
+    /// language of the account's settings; where they name none, in the language of
+    /// the screen a new account was made on, if the server writes in it, or else the
+    /// one `accept_language`, the request's `Accept-Language`, prefers.
+    ///
     /// # Errors
     ///
     /// Returns one and the same 404 (reason `invitation_unavailable`) for a token that
@@ -440,8 +447,9 @@ impl App {
         token: &str,
         accepting: Accepting<'_>,
         address: Option<IpAddr>,
+        accept_language: Option<&str>,
     ) -> Result<Admission, AppError> {
-        let _attempt = self.admit_registration(address)?;
+        let attempt = self.admit_registration(address)?;
         let mut new_user = None;
         let mut settled = None;
         for _ in 0..ATTEMPTS {
@@ -477,6 +485,22 @@ impl App {
             self.metrics().registered();
         }
         app.announce_admission(&accepted).await;
+        // A guest's link names a board; a link for members names none.
+        if accepted.used && accepted.container_id.is_none() {
+            // The acceptance is done with: another from the address waits no longer.
+            drop(attempt);
+            // An account made here is written to in the language of the screen it was
+            // made on, as one whose address is confirmed first is, if the server
+            // writes in it: or else as the header has it.
+            let language = match accepting {
+                Accepting::NewAccount { language, .. } => Language::written_in(language)
+                    .map(Language::tag)
+                    .or(accept_language),
+                Accepting::SignedIn(_) => accept_language,
+            };
+            app.welcome_member(&accepted.user_id, &accepted.workspace_id, language)
+                .await;
+        }
         tracing::info!(
             user_id = %accepted.user_id,
             workspace_id = %accepted.workspace_id,
@@ -484,28 +508,35 @@ impl App {
             used = accepted.used,
             "an invitation was accepted"
         );
-        // Which address the guest goes to: a board gone meanwhile has none, and the
-        // board's address tells them so.
-        let container_kind = match &accepted.container_id {
-            Some(container_id) => match app.store().get_container(container_id).await {
-                Ok(container) => Some(container.kind),
-                Err(error) if error.is_not_found() => None,
-                Err(error) => {
-                    tracing::warn!(
-                        %container_id,
-                        %error,
-                        "the kind of an accepted invitation's board was not read"
-                    );
-                    None
-                }
-            },
-            None => None,
-        };
+        let container_kind = app.kind_of_admitted(accepted.container_id.as_deref()).await;
         Ok(Admission::LetIn(AcceptedInvitation {
             workspace_id: accepted.workspace_id,
             container_id: accepted.container_id,
             container_kind,
         }))
+    }
+
+    /// Whether what a guest was let onto is a board or a wiki, which says the address
+    /// they go to; asked of the organization this handle is of. One gone meanwhile has
+    /// no kind, and neither has one that could not be read: the board's address tells
+    /// them so.
+    pub(super) async fn kind_of_admitted(
+        &self,
+        container_id: Option<&str>,
+    ) -> Option<ContainerKind> {
+        let container_id = container_id?;
+        match self.store().get_container(container_id).await {
+            Ok(container) => Some(container.kind),
+            Err(error) if error.is_not_found() => None,
+            Err(error) => {
+                tracing::warn!(
+                    %container_id,
+                    %error,
+                    "the kind of the board or wiki somebody was let onto was not read"
+                );
+                None
+            }
+        }
     }
 
     /// One attempt of [`App::accept_invitation`]: settled, or to be tried again for a

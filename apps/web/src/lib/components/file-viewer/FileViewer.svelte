@@ -3,7 +3,11 @@
   workbook, a PowerPoint deck or a Hangul (HWP, HWPX) document, drawn in a
   frame that has no origin and no network (lib/file-viewer/session.svelte.ts,
   src/viewer-frame/). A workbook's pages are its sheets, named in tabs under
-  it and in what is announced; a deck's are its slides.
+  it and in what is announced; a deck's are its slides. A deck with slides
+  hidden from a show opens on the others, under a line that counts them and
+  a button that shows the hidden ones in place (marked in the frame and in
+  what is announced); a slide keeps its number, which jumps where slides
+  are left out.
 
   A dialog over the page on a wide screen, the whole screen on a narrow one.
   Pages and zoom are at the bottom, within reach of a thumb. The keys, while
@@ -77,11 +81,26 @@
   const sheet = $derived(session.sheets[session.page - 1]);
   /** A deck's pages are its slides, and are called so. */
   const slides = $derived(status.name === 'shown' && status.format === 'pptx');
+  /** A deck's slides, when some are hidden from a show. */
+  const order = $derived(slides ? session.slides : undefined);
+  const onHidden = $derived(order?.hidden.has(session.page) === true);
   const where = $derived(
     sheet
       ? m.viewer_sheet({ page: session.page, pages: session.pages, name: sheet.name })
-      : (slides ? m.viewer_slide : m.viewer_page)({ page: session.page, pages: session.pages }),
+      : (onHidden ? m.viewer_slide_hidden : slides ? m.viewer_slide : m.viewer_page)({
+          page: session.page,
+          pages: session.pages,
+        }),
   );
+  /** How many slides are laid out, and how many of them are hidden. */
+  const slideCount = $derived.by((): string => {
+    if (!order) return '';
+    const count = order.count(session.showHidden);
+    if (order.allHidden) return m.viewer_slides_all_hidden({ count });
+    return session.showHidden
+      ? m.viewer_slides_count_with_hidden({ count, hidden: order.hidden.size })
+      : m.viewer_slides_count({ count });
+  });
   /** What is said of the page turned to: of a sheet with drawings, that they are not shown. */
   const announced = $derived(sheet?.drawings ? `${where} ${m.viewer_sheet_drawings()}` : where);
   const previous = $derived(
@@ -148,10 +167,10 @@
   function command(key: string): boolean {
     switch (key) {
       case 'ArrowLeft':
-        session.goTo(session.page - 1);
+        session.turn(-1);
         return true;
       case 'ArrowRight':
-        session.goTo(session.page + 1);
+        session.turn(1);
         return true;
       case '+':
       case '=':
@@ -217,6 +236,28 @@
         <XIcon aria-hidden="true" />
       </IconButton>
     </header>
+    {#if status.name === 'shown' && order}
+      <div
+        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-1 text-sm"
+        data-testid="file-viewer-slides"
+      >
+        <p class="text-muted-foreground" role="status">{slideCount}</p>
+        {#if !order.allHidden}
+          <button
+            type="button"
+            class="min-h-8 rounded-md px-2 font-medium hover:bg-accent roomy:min-h-touch"
+            data-testid="file-viewer-hidden"
+            onclick={() => {
+              session.toggleHidden();
+            }}
+          >
+            {session.showHidden
+              ? m.viewer_hide_hidden()
+              : m.viewer_show_hidden({ count: order.hidden.size })}
+          </button>
+        {/if}
+      </div>
+    {/if}
 
     <div class="relative min-h-0 flex-1 bg-muted">
       {#if framed}
@@ -275,9 +316,9 @@
       <footer class="flex min-h-12 items-center justify-center gap-1 border-t p-1">
         <IconButton
           label={previous}
-          disabled={session.page <= 1}
+          disabled={!session.canTurn(-1)}
           onclick={() => {
-            session.goTo(session.page - 1);
+            session.turn(-1);
           }}
         >
           <ChevronLeftIcon aria-hidden="true" />
@@ -288,9 +329,9 @@
         </p>
         <IconButton
           label={next}
-          disabled={session.page >= session.pages}
+          disabled={!session.canTurn(1)}
           onclick={() => {
-            session.goTo(session.page + 1);
+            session.turn(1);
           }}
         >
           <ChevronRightIcon aria-hidden="true" />

@@ -1046,11 +1046,11 @@ describe('templates on the server', () => {
     deleteAt: 0,
   };
 
-  it('reads the templates, copies a board either way, and starts the welcome board', async () => {
+  it('reads the templates, copies a board either way, and makes the welcome board', async () => {
     const sent = serveRoutes([
       ['GET /api/v1/w/t/templates', [{ ...BOARD, id: 'tp', isTemplate: true, isBuiltin: true }]],
       ['POST /api/v1/w/w1/containers/', { containers: [BOARD], blocks: [] }, 201],
-      ['POST /api/v1/w/t/onboard', { workspaceId: 't', boardId: 'w1' }],
+      ['POST /api/v1/w/t/onboard', { boardId: 'w1' }],
     ]);
     const backend = serverBackend('');
     const [template] = await backend.templates('t');

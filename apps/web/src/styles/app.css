@@ -78,8 +78,10 @@
   --container-expanded: 52.5rem;
   /* pane: 544px, two kanban columns of 16rem and what is between them. */
   --container-columns: 34rem;
-  /* pane: 992px, the whole header of a view in one row. */
+  /* pane: 992px, the wide pane: kanban and table columns widen, "Share" has its word. */
   --container-header: 62rem;
+  /* pane: 704px, the header of a view in one row: the views as tabs, the tools as icons. */
+  --container-tabs: 44rem;
   /* card: 576px. From here the names of the properties get a wider column. */
   --container-card-roomy: 36rem;
 }
@@ -432,6 +434,24 @@
 @utility scrim {
   background-color: var(--scrim);
   backdrop-filter: blur(var(--scrim-blur));
+}
+
+/*
+ * What is on its way out (a sheet, a dialog, a menu, the layer behind one)
+ * takes no press, and stays as its exit left it until it is removed.
+ *
+ * It is removed some time after its exit has played, and until then it would
+ * be back where it was, over whatever opened in its place: a menu's sheet
+ * over the question its line asked. A press there went to the sheet, or began
+ * on the question's button and ended on the sheet, and did nothing. Bits UI
+ * sets `pointer-events: auto` on the element itself, hence `!important`.
+ */
+[class~='data-closed:animate-out']:where(
+  [data-state='closed'],
+  [data-closed]:not([data-closed='false'])
+) {
+  pointer-events: none !important;
+  animation-fill-mode: forwards;
 }
 
 /*

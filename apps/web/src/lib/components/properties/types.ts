@@ -3,6 +3,7 @@
  * only: nothing here reads a store or talks to a server.
  */
 import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
+import type { PersonName } from '$lib/logic/person-names.ts';
 import type { Regional } from '$lib/logic/regional.ts';
 import type { UserNames } from '$lib/logic/users.ts';
 import type { Card, PropertyOption, PropertyTemplate, PropertyValue } from '$lib/logic/wire.ts';
@@ -10,6 +11,8 @@ import type { Card, PropertyOption, PropertyTemplate, PropertyValue } from '$lib
 /** A person who can be the value of a person property. */
 export interface PropertyUser extends UserNames {
   id: string;
+  /** The parts of the name, by any of which the person is found. */
+  name?: PersonName;
 }
 
 /**

@@ -1,0 +1,603 @@
+{
+  "key": "user-research-sessions",
+  "onboarding": false,
+  "board": {
+    "id": "bh4pkixqsjift58e1qy6htrgeay",
+    "title": "User Research Sessions",
+    "description": "Use this template to manage and keep track of all your user research sessions.",
+    "icon": "🔬",
+    "showDescription": true,
+    "cardProperties": [
+      {
+        "id": "aaebj5fyx493eezx6ukxiwydgty",
+        "name": "Status",
+        "type": "select",
+        "options": [
+          {
+            "id": "af6hjb3ysuaxbwnfqpby4wwnkdr",
+            "value": "Backlog 📒",
+            "color": "propColorGray"
+          },
+          {
+            "id": "aotxum1p5bw3xuzqz3ctjw66yww",
+            "value": "Contacted 📞",
+            "color": "propColorYellow"
+          },
+          {
+            "id": "a7yq89whddzob1futao4rxk3yzc",
+            "value": "Scheduled 📅",
+            "color": "propColorBlue"
+          },
+          {
+            "id": "aseqq9hrsua56r3s6nbuirj9eec",
+            "value": "Cancelled 🚫",
+            "color": "propColorRed"
+          },
+          {
+            "id": "ap93ysuzy1xa7z818r6myrn4h4y",
+            "value": "Completed ✔️",
+            "color": "propColorGreen"
+          }
+        ]
+      },
+      {
+        "id": "akrxgi7p7w14fym3gbynb98t9fh",
+        "name": "Interview Date",
+        "type": "date",
+        "options": []
+      },
+      {
+        "id": "atg9qu6oe4bjm8jczzsn71ff5me",
+        "name": "Product Area",
+        "type": "select",
+        "options": [
+          {
+            "id": "ahn89mqg9u4igk6pdm7333t8i5h",
+            "value": "Desktop App",
+            "color": "propColorGreen"
+          },
+          {
+            "id": "aehc83ffays3gh8myz16a8j7k4e",
+            "value": "Web App",
+            "color": "propColorPurple"
+          },
+          {
+            "id": "a1sxagjgaadym5yrjak6tcup1oa",
+            "value": "Mobile App",
+            "color": "propColorBlue"
+          }
+        ]
+      },
+      {
+        "id": "acjq4t5ymytu8x1f68wkggm7ypc",
+        "name": "Email",
+        "type": "email",
+        "options": []
+      },
+      {
+        "id": "aphio1s5gkmpdbwoxynim7acw3e",
+        "name": "Interviewer",
+        "type": "multiPerson",
+        "options": []
+      },
+      {
+        "id": "aqafzdeekpyncwz7m7i54q3iqqy",
+        "name": "Recording URL",
+        "type": "url",
+        "options": []
+      },
+      {
+        "id": "aify3r761b9w43bqjtskrzi68tr",
+        "name": "Passcode",
+        "type": "text",
+        "options": []
+      }
+    ]
+  },
+  "views": [
+    {
+      "id": "vtibhoxpq67f1xmh8a8kxh39nka",
+      "type": "view",
+      "title": "All Users",
+      "fields": {
+        "cardOrder": ["ccsa77z7ubbbhbd3jq8xyx4hq8r"],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {
+          "__title": 280,
+          "aaebj5fyx493eezx6ukxiwydgty": 146,
+          "acjq4t5ymytu8x1f68wkggm7ypc": 222,
+          "akrxgi7p7w14fym3gbynb98t9fh": 131,
+          "atg9qu6oe4bjm8jczzsn71ff5me": 131
+        },
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "hiddenOptionIds": [],
+        "kanbanCalculations": {},
+        "sortOptions": [
+          {
+            "propertyId": "akrxgi7p7w14fym3gbynb98t9fh",
+            "reversed": false
+          }
+        ],
+        "viewType": "table",
+        "visibleOptionIds": [],
+        "visiblePropertyIds": [
+          "aaebj5fyx493eezx6ukxiwydgty",
+          "akrxgi7p7w14fym3gbynb98t9fh",
+          "atg9qu6oe4bjm8jczzsn71ff5me",
+          "acjq4t5ymytu8x1f68wkggm7ypc",
+          "aphio1s5gkmpdbwoxynim7acw3e",
+          "aqafzdeekpyncwz7m7i54q3iqqy",
+          "aify3r761b9w43bqjtskrzi68tr"
+        ]
+      }
+    },
+    {
+      "id": "vqi9zpn3h43bkbfc8c8jc7ci1hr",
+      "type": "view",
+      "title": "By Date",
+      "fields": {
+        "cardOrder": [],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {},
+        "dateDisplayPropertyId": "akrxgi7p7w14fym3gbynb98t9fh",
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "hiddenOptionIds": [],
+        "kanbanCalculations": {},
+        "sortOptions": [],
+        "viewType": "calendar",
+        "visibleOptionIds": [],
+        "visiblePropertyIds": ["__title"]
+      }
+    },
+    {
+      "id": "vdbpwgay6bbn8581n39yjiyxrxo",
+      "type": "view",
+      "title": "By Status",
+      "fields": {
+        "cardOrder": [],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {},
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "hiddenOptionIds": [""],
+        "kanbanCalculations": {},
+        "sortOptions": [],
+        "viewType": "board",
+        "visibleOptionIds": [
+          "af6hjb3ysuaxbwnfqpby4wwnkdr",
+          "aotxum1p5bw3xuzqz3ctjw66yww",
+          "a7yq89whddzob1futao4rxk3yzc",
+          "aseqq9hrsua56r3s6nbuirj9eec",
+          "ap93ysuzy1xa7z818r6myrn4h4y"
+        ],
+        "visiblePropertyIds": []
+      }
+    }
+  ],
+  "cards": [
+    {
+      "id": "ccsa77z7ubbbhbd3jq8xyx4hq8r",
+      "type": "card",
+      "title": "Frank Nash",
+      "fields": {
+        "icon": "👨‍💼",
+        "isTemplate": false,
+        "properties": {
+          "aaebj5fyx493eezx6ukxiwydgty": "ap93ysuzy1xa7z818r6myrn4h4y",
+          "acjq4t5ymytu8x1f68wkggm7ypc": "frank.nash@email.com",
+          "aify3r761b9w43bqjtskrzi68tr": "Password123",
+          "akrxgi7p7w14fym3gbynb98t9fh": {
+            "from": "2022-12-01"
+          },
+          "aqafzdeekpyncwz7m7i54q3iqqy": "https://user-images.githubusercontent.example.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif",
+          "atg9qu6oe4bjm8jczzsn71ff5me": "aehc83ffays3gh8myz16a8j7k4e"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Interview Notes"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cdus79hea7ib6tb6nhic4bzcjbc",
+      "type": "card",
+      "title": "Richard Parsons",
+      "fields": {
+        "icon": "👨‍🦱",
+        "isTemplate": false,
+        "properties": {
+          "aaebj5fyx493eezx6ukxiwydgty": "a7yq89whddzob1futao4rxk3yzc",
+          "acjq4t5ymytu8x1f68wkggm7ypc": "richard.parsons@email.com",
+          "aify3r761b9w43bqjtskrzi68tr": "Password123",
+          "akrxgi7p7w14fym3gbynb98t9fh": {
+            "from": "2022-12-14"
+          },
+          "aqafzdeekpyncwz7m7i54q3iqqy": "https://user-images.githubusercontent.example.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif",
+          "atg9qu6oe4bjm8jczzsn71ff5me": "a1sxagjgaadym5yrjak6tcup1oa"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Interview Notes"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cewmyr3nbybdombzmi83arq3koo",
+      "type": "card",
+      "title": "Claire Hart",
+      "fields": {
+        "icon": "👩‍🦰",
+        "isTemplate": false,
+        "properties": {
+          "aaebj5fyx493eezx6ukxiwydgty": "aseqq9hrsua56r3s6nbuirj9eec",
+          "acjq4t5ymytu8x1f68wkggm7ypc": "claire.hart@email.com",
+          "aify3r761b9w43bqjtskrzi68tr": "Password123",
+          "akrxgi7p7w14fym3gbynb98t9fh": {
+            "from": "2022-12-08"
+          },
+          "aqafzdeekpyncwz7m7i54q3iqqy": "https://user-images.githubusercontent.example.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif",
+          "atg9qu6oe4bjm8jczzsn71ff5me": "ahn89mqg9u4igk6pdm7333t8i5h"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Interview Notes"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cix9xfgh48ir55y7fdjftuje3za",
+      "type": "card",
+      "title": "Olivia Alsop",
+      "fields": {
+        "icon": "👩‍💼",
+        "isTemplate": false,
+        "properties": {
+          "aaebj5fyx493eezx6ukxiwydgty": "a7yq89whddzob1futao4rxk3yzc",
+          "acjq4t5ymytu8x1f68wkggm7ypc": "olivia.alsop@email.com",
+          "aify3r761b9w43bqjtskrzi68tr": "Password123",
+          "akrxgi7p7w14fym3gbynb98t9fh": {
+            "from": "2022-12-16"
+          },
+          "aqafzdeekpyncwz7m7i54q3iqqy": "https://user-images.githubusercontent.example.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif",
+          "atg9qu6oe4bjm8jczzsn71ff5me": "a1sxagjgaadym5yrjak6tcup1oa"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Interview Notes"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cn3skudjd9tbp5md9bocifnazpw",
+      "type": "card",
+      "title": "Bernadette Powell",
+      "fields": {
+        "icon": "🧑‍💼",
+        "isTemplate": false,
+        "properties": {
+          "aaebj5fyx493eezx6ukxiwydgty": "af6hjb3ysuaxbwnfqpby4wwnkdr",
+          "acjq4t5ymytu8x1f68wkggm7ypc": "bernadette.powell@email.com"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Interview Notes"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "files": []
+}

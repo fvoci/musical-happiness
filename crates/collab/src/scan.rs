@@ -20,7 +20,7 @@
 //! another version of the encoding, a hole in a client's changes, a clock past 31
 //! bits, a number JavaScript does not keep).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// How deep a value in an update may nest. The values of a body are attributes:
 /// numbers, truths and texts, which do not nest at all.
@@ -64,6 +64,8 @@ pub(crate) enum Refusal {
     /// It writes a member of the root, or a member of a node more often than
     /// [`MAX_FIRST_WRITES`] without the value that it replaces.
     Member,
+    /// The library read its changes to another length than this walk.
+    Lengths,
 }
 
 impl Refusal {
@@ -76,8 +78,88 @@ impl Refusal {
             Self::Unknown => "it holds content no body has",
             Self::Gap => "it leaves a gap in a client's changes",
             Self::Member => "it writes a member no editor writes so",
+            Self::Lengths => "its changes are not as long as they are written",
         }
     }
+}
+
+/// The identifier of a change: the client and its clock.
+pub(crate) type Id = (u64, u64);
+
+/// Where a change that names no neighbour says it belongs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Parent<'bytes> {
+    /// A root, by its name.
+    Root(&'bytes [u8]),
+    /// A shared type, by the change that made it.
+    Change(Id),
+}
+
+/// What a change holds, as far as its length tells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Content<'bytes> {
+    /// A stretch that was collected: no item, only its length.
+    Collected(u64),
+    /// Deleted content, by its length.
+    Deleted(u64),
+    /// Letters, as UTF-8.
+    Letters(&'bytes [u8]),
+    /// Values, as many.
+    Values(u64),
+    /// What is one place long whatever it holds: bytes, an embedded value, formatting,
+    /// a shared type.
+    One,
+}
+
+impl Content<'_> {
+    /// How far the library moves the client's clock on for it: letters count in
+    /// UTF-16 code units, values each for one.
+    pub(crate) fn length(&self) -> u64 {
+        match *self {
+            Self::Collected(length) | Self::Deleted(length) | Self::Values(length) => length,
+            Self::Letters(letters) => letters
+                .iter()
+                // Every character begins with one byte that continues none, and one
+                // of four bytes is two code units.
+                .map(|byte| u64::from(byte & 0xc0 != 0x80) + u64::from(*byte >= 0xf0))
+                .sum(),
+            Self::One => 1,
+        }
+    }
+
+    /// The length it says it has instead of holding what it is long of.
+    fn said(&self) -> u64 {
+        match *self {
+            Self::Collected(length) | Self::Deleted(length) => length,
+            Self::Letters(_) | Self::Values(_) | Self::One => 0,
+        }
+    }
+}
+
+/// One change of an update, as the walk reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Change<'bytes> {
+    /// The change to its left when it was made, if it names one.
+    pub(crate) left: Option<Id>,
+    /// The change to its right when it was made, if it names one.
+    pub(crate) right: Option<Id>,
+    /// Where it belongs, which is written only where it names no neighbour.
+    pub(crate) parent: Option<Parent<'bytes>>,
+    /// The member of its parent it is a value of, written where the parent is.
+    pub(crate) member: Option<&'bytes [u8]>,
+    /// What it holds.
+    pub(crate) content: Content<'bytes>,
+}
+
+/// What a walk found of an update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Walked {
+    /// The clock at which each client's changes in it begin.
+    pub(crate) begins: Vec<Id>,
+    /// How many changes it holds.
+    pub(crate) changes: u64,
+    /// The most changes it holds of one client.
+    pub(crate) most: u64,
 }
 
 /// Walks an update, and gives the clock at which each client's changes in it begin.
@@ -85,14 +167,33 @@ impl Refusal {
 /// # Errors
 ///
 /// Returns why the update must not be handed to the Y library.
-pub(crate) fn check(update: &[u8]) -> Result<Vec<(u64, u64)>, Refusal> {
+pub(crate) fn check(update: &[u8]) -> Result<Walked, Refusal> {
+    walk(update, |_, _| {})
+}
+
+/// Walks an update as [`check`] does, and hands `each` every change with the
+/// identifier of its first place.
+///
+/// # Errors
+///
+/// As [`check`].
+pub(crate) fn walk<'bytes>(
+    update: &'bytes [u8],
+    mut each: impl FnMut(Id, &Change<'bytes>),
+) -> Result<Walked, Refusal> {
     let mut walk = Walk {
         bytes: update,
         at: 0,
         first_writes: HashMap::new(),
     };
     let length = u64::try_from(update.len()).unwrap_or(u64::MAX);
-    let mut begins: Vec<(u64, u64)> = Vec::new();
+    let mut begins: Vec<Id> = Vec::new();
+    // The clients seen: a state names one for each that wrote, tens of thousands in a
+    // document edited for long, so that looking through `begins` for each would take
+    // the square of that.
+    let mut clients: HashSet<u64> = HashSet::new();
+    let mut count = 0_u64;
+    let mut most = 0_u64;
     for _ in 0..walk.count()? {
         let changes = walk.count()?;
         let client = walk.number(MAX_CLIENT)?;
@@ -100,16 +201,22 @@ pub(crate) fn check(update: &[u8]) -> Result<Vec<(u64, u64)>, Refusal> {
         // that says its length (`long`), or one that is no longer than its bytes.
         let clock = walk.number(MAX_CLOCK)?;
         let mut long = 0_u64;
+        let mut at = clock;
         for _ in 0..changes {
-            long = long.saturating_add(walk.change()?);
+            let change = walk.change()?;
+            each((client, at), &change);
+            long = long.saturating_add(change.content.said());
+            at = at.saturating_add(change.content.length());
         }
         if clock.saturating_add(long).saturating_add(length) > MAX_CLOCK {
             return Err(Refusal::Number);
         }
-        if begins.iter().any(|(seen, _)| *seen == client) {
+        if !clients.insert(client) {
             return Err(Refusal::Gap);
         }
         begins.push((client, clock));
+        count = count.saturating_add(changes);
+        most = most.max(changes);
     }
     // What was deleted: for each client, stretches of its clock.
     for _ in 0..walk.count()? {
@@ -122,7 +229,11 @@ pub(crate) fn check(update: &[u8]) -> Result<Vec<(u64, u64)>, Refusal> {
             }
         }
     }
-    Ok(begins)
+    Ok(Walked {
+        begins,
+        changes: count,
+        most,
+    })
 }
 
 struct Walk<'bytes> {
@@ -194,42 +305,50 @@ impl<'bytes> Walk<'bytes> {
     }
 
     /// The identifier of a change: the client and its clock.
-    fn id(&mut self) -> Result<(u64, u64), Refusal> {
+    fn id(&mut self) -> Result<Id, Refusal> {
         Ok((self.number(MAX_CLIENT)?, self.number(MAX_U32)?))
     }
 
-    /// One change: a struct of the update. Gives the length it says it has, for one
-    /// that says so instead of holding what it is long of; nothing for any other.
-    fn change(&mut self) -> Result<u64, Refusal> {
+    /// One change: a struct of the update.
+    fn change(&mut self) -> Result<Change<'bytes>, Refusal> {
         const SKIPPED: u8 = 10;
         const COLLECTED: u8 = 0;
         let info = self.byte()?;
+        let mut change = Change {
+            left: None,
+            right: None,
+            parent: None,
+            member: None,
+            content: Content::One,
+        };
         match info {
             // A stretch that is left out: what a merge of updates writes for changes it
             // does not have. A client sends its own changes, without a hole.
             SKIPPED => return Err(Refusal::Gap),
-            COLLECTED => return self.number(MAX_CLOCK),
+            COLLECTED => {
+                change.content = Content::Collected(self.number(MAX_CLOCK)?);
+                return Ok(change);
+            }
             _ => {}
         }
-        let (after, before) = (info & 0x80 != 0, info & 0x40 != 0);
-        if after {
-            self.id()?;
+        if info & 0x80 != 0 {
+            change.left = Some(self.id()?);
         }
-        if before {
-            self.id()?;
+        if info & 0x40 != 0 {
+            change.right = Some(self.id()?);
         }
-        if !after && !before {
+        if change.left.is_none() && change.right.is_none() {
             // The parent: a root by its name, or a change by its identifier; and the
             // member of it that is written, if it is one.
             let parent = if self.number(MAX_U32)? == 1 {
-                self.text()?;
-                None
+                Parent::Root(self.text()?)
             } else {
-                Some(self.id()?)
+                Parent::Change(self.id()?)
             };
+            change.parent = Some(parent);
             if info & 0x20 != 0 {
                 let member = self.text()?;
-                let Some(node) = parent else {
+                let Parent::Change(node) = parent else {
                     return Err(Refusal::Member);
                 };
                 let writes = self.first_writes.entry((node, member)).or_insert(0);
@@ -237,19 +356,30 @@ impl<'bytes> Walk<'bytes> {
                 if *writes > MAX_FIRST_WRITES {
                     return Err(Refusal::Member);
                 }
+                change.member = Some(member);
             }
         }
-        match info & 0x0f {
+        change.content = self.content(info & 0x0f)?;
+        Ok(change)
+    }
+
+    /// What a change of a kind holds, read to its end.
+    fn content(&mut self, kind: u8) -> Result<Content<'bytes>, Refusal> {
+        match kind {
             // Deleted content: its length.
-            1 => return self.number(MAX_CLOCK),
-            // Bytes, a text, an embedded value written as JSON.
-            3..=5 => {
+            1 => Ok(Content::Deleted(self.number(MAX_CLOCK)?)),
+            // Bytes, and an embedded value written as JSON.
+            3 | 5 => {
                 self.text()?;
+                Ok(Content::One)
             }
+            // A text.
+            4 => Ok(Content::Letters(self.text()?)),
             // Formatting: the name and the value written as JSON.
             6 => {
                 self.text()?;
                 self.text()?;
+                Ok(Content::One)
             }
             // A shared type; an XML element has its name. An XML hook (5), which the
             // library writes without the name that the editors' library reads after
@@ -258,24 +388,26 @@ impl<'bytes> Walk<'bytes> {
             7 => match self.byte()? {
                 3 => {
                     self.text()?;
+                    Ok(Content::One)
                 }
-                0..=2 | 4 | 6 => {}
-                _ => return Err(Refusal::Unknown),
+                0..=2 | 4 | 6 => Ok(Content::One),
+                _ => Err(Refusal::Unknown),
             },
             // Values.
             8 => {
-                for _ in 0..self.count()? {
+                let count = self.count()?;
+                for _ in 0..count {
                     self.value()?;
                 }
+                Ok(Content::Values(count))
             }
             // Texts of JSON (2), a kind of content of older versions of the encoding
             // that no editor writes: the library reads one text more than the number
             // before them says and writes as many as it says, so that a document that
             // took them could not be read again. A subdocument (9), and what version 1
             // of the encoding does not have.
-            _ => return Err(Refusal::Unknown),
+            _ => Err(Refusal::Unknown),
         }
-        Ok(0)
     }
 
     /// A whole number of a value: the sign and six bits, then seven bits a byte.
@@ -370,6 +502,10 @@ mod tests {
         bytes
     }
 
+    fn begins(update: &[u8]) -> Result<Vec<Id>, Refusal> {
+        check(update).map(|walked| walked.begins)
+    }
+
     fn nested(depth: usize) -> Vec<u8> {
         let mut value = [117, 1].repeat(depth);
         value.push(126);
@@ -378,7 +514,7 @@ mod tests {
 
     #[test]
     fn a_value_may_nest_a_little_and_no_deeper() {
-        assert_eq!(check(&nested(0)), Ok(vec![(5, 0)]));
+        assert_eq!(begins(&nested(0)), Ok(vec![(5, 0)]));
         assert!(check(&nested(MAX_VALUE_DEPTH)).is_ok(), "at the limit");
         assert_eq!(check(&nested(MAX_VALUE_DEPTH + 1)), Err(Refusal::TooDeep));
         assert_eq!(check(&nested(100_000)), Err(Refusal::TooDeep));
@@ -471,7 +607,7 @@ mod tests {
     #[test]
     fn what_is_named_but_not_there_is_refused() {
         assert_eq!(check(&[]), Err(Refusal::CutShort));
-        assert_eq!(check(&[0, 0]), Ok(Vec::new()), "the empty update");
+        assert_eq!(begins(&[0, 0]), Ok(Vec::new()), "the empty update");
         // Four thousand million clients, in five bytes.
         assert_eq!(
             check(&[0xff, 0xff, 0xff, 0xff, 0x0f, 0, 0]),

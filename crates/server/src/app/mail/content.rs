@@ -1,45 +1,6 @@
 //! Plain-text and HTML messages containing only public links and human-facing text.
 
-/// The two languages supplied by the server's mail templates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Language {
-    English,
-    Korean,
-}
-
-impl Language {
-    /// The language of the mail that `tag` names (`ko`, `ko-KR`, `en-GB`), or `None`
-    /// for one the mail is not written in (`ja`) and for `auto`.
-    pub(crate) fn written_in(tag: &str) -> Option<Self> {
-        let language = tag.split('-').next().unwrap_or_default();
-        if language.eq_ignore_ascii_case("ko") {
-            Some(Self::Korean)
-        } else if language.eq_ignore_ascii_case("en") {
-            Some(Self::English)
-        } else {
-            None
-        }
-    }
-
-    /// The language tag of the mail, as its HTML and `Content-Language` give it.
-    pub(crate) fn tag(self) -> &'static str {
-        match self {
-            Self::English => "en",
-            Self::Korean => "ko",
-        }
-    }
-
-    /// The first of `choices`, most wanted first, that the mail is written in, or
-    /// English: the recipient's setting, then the sender's setting (for invitations),
-    /// then the language of the screen the request came from.
-    pub(crate) fn first_of(choices: impl IntoIterator<Item = Option<Self>>) -> Self {
-        choices
-            .into_iter()
-            .flatten()
-            .next()
-            .unwrap_or(Self::English)
-    }
-}
+use crate::app::language::Language;
 
 /// The text of one message, in one language.
 pub(crate) struct Content {

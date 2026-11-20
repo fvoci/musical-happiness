@@ -228,6 +228,26 @@ impl StoreError {
         matches!(self, Self::Database(sqlx::Error::PoolTimedOut))
     }
 
+    /// Returns `true` if the database did not take the statement in the time it had: no
+    /// connection came free, or an SQLite file was held by another writer for longer
+    /// than the busy timeout (`SQLITE_BUSY` and its extended codes). The statement did
+    /// nothing, and may do when it is tried again.
+    #[must_use]
+    pub fn is_busy(&self) -> bool {
+        /// `SQLITE_BUSY`, the low byte of its extended codes too.
+        const SQLITE_BUSY: i32 = 5;
+        let Self::Database(error) = self else {
+            return false;
+        };
+        let held = error
+            .as_database_error()
+            .and_then(|error| error.try_downcast_ref::<sqlx::sqlite::SqliteError>())
+            .and_then(sqlx::error::DatabaseError::code)
+            .and_then(|code| code.parse::<i32>().ok())
+            .is_some_and(|code| code & 0xff == SQLITE_BUSY);
+        held || self.is_pool_timeout()
+    }
+
     /// Returns `true` if the error means a record does not exist, which the HTTP layer
     /// reports as "not found" rather than as a server error.
     pub fn is_not_found(&self) -> bool {

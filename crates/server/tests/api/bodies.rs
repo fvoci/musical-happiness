@@ -892,6 +892,70 @@ async fn a_copy_of_a_card_with_a_file_begins_with_one_version(kind: &str) {
     th.teardown().await;
 }
 
+/// A card with an attachment below it is copied with the attachment pointed at a file of
+/// its own, which is written as a patch of the attachment: the copy of the card begins
+/// with one version of its body all the same.
+#[tokio::test]
+async fn a_copy_of_a_card_with_an_attachment_below_it_begins_with_one_version() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
+    let file_id = crate::files::uploaded_id(
+        &crate::files::upload(&th.client, &board.id, "a.pdf", b"pdf").await,
+    );
+    let created: Card = new_card(
+        &th.client,
+        &board.id,
+        &json!({"title": "Card", "body": paragraph_doc("the body")}),
+    )
+    .await
+    .created_json();
+    let mut fields = serde_json::Map::new();
+    fields.insert("fileId".to_owned(), json!(file_id));
+    let attachment = fvoci_model::Block {
+        id: fvoci_model::new_id(),
+        parent_id: created.id.clone(),
+        container_id: board.id.clone(),
+        block_type: fvoci_model::BlockType::Attachment,
+        fields,
+        create_at: 1,
+        update_at: 1,
+        ..fvoci_model::Block::default()
+    };
+    th.client
+        .insert_blocks(&board.id, &[attachment])
+        .await
+        .check_created();
+
+    let copies: Vec<Value> = th
+        .client
+        .post_empty(&format!(
+            "{TEST_WS}/boards/{}/blocks/{}/duplicate",
+            board.id, created.id
+        ))
+        .await
+        .created_json();
+    let copied_file = copies
+        .iter()
+        .find(|block| block["type"] == json!("attachment"))
+        .and_then(|block| block["fields"]["fileId"].as_str())
+        .expect("the copy of the attachment");
+    assert_ne!(copied_file, file_id, "a file of its own");
+    let copy = copies
+        .iter()
+        .find(|block| block["type"] == json!("card"))
+        .and_then(|block| block["id"].as_str())
+        .expect("the copy of the card");
+    let of_copy = crate::body_versions::versions(&th.client, copy).await;
+    assert_eq!(
+        crate::body_versions::said(&of_copy),
+        [(1, Vec::<&str>::new(), true)],
+        "one version, the copy's body"
+    );
+    th.teardown().await;
+}
+
 /// The copies of files that copying a card makes are shown by the copies and are not
 /// collected, however much later; a file that was uploaded and never shown is
 /// (`docs/s6-design.md` 5.7).

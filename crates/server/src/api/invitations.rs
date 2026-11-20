@@ -19,12 +19,14 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::auth::address_of;
-use super::contract::params::{InvitationId, WorkerWorkspaceId};
+use super::contract::params::{AcceptLanguage, InvitationId, WorkerWorkspaceId};
 use super::contract::tag;
 use super::session::optional_session_of;
 use super::signup_cookie::{marker_of, with_marker};
 use super::workspace::{InContainer, InWorkspace};
-use super::{ApiResult, OptionalSession, created, decode_object, json_response, no_content};
+use super::{
+    ApiResult, OptionalSession, accept_language, created, decode_object, json_response, no_content,
+};
 use crate::app::{Accepting, Admission, App, Inviting};
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
@@ -362,11 +364,19 @@ async fn handle_preview_invitation(
 /// whatever is wrong with it: there is no such link, it ended, it was used as often as
 /// it may be, it was revoked, or who made it may no longer invite. Requests are counted
 /// by where they come from, and too many are 429.
+///
+/// An account that a link for members lets in is given its welcome board in the
+/// workspace, a private board of its own, unless it has one (`onboard` says more):
+/// written in the language of the account's settings, or else in `language` for an
+/// account made here, if that is English or Korean, or else in the one
+/// `Accept-Language` prefers. An account whose address is confirmed first is given
+/// it then (`completeEmailVerification`).
 #[utoipa::path(
     post,
     path = "/invitations/accept",
     operation_id = "acceptInvitation",
     tag = tag::WORKSPACES,
+    params(AcceptLanguage),
     request_body = AcceptInvitation,
     security((), ("sessionCookie" = []), ("bearerToken" = [])),
     responses(
@@ -421,7 +431,12 @@ async fn handle_accept_invitation(
     };
     // What is refused of the body is of the account: a name or an address that is taken.
     let admission = app
-        .accept_invitation(&request.token, accepting, address_of(client))
+        .accept_invitation(
+            &request.token,
+            accepting,
+            address_of(client),
+            accept_language(&headers),
+        )
         .await
         .map_err(|error| error.under(ACCOUNT))?;
     Ok(match admission {

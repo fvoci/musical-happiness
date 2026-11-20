@@ -1,4 +1,4 @@
-//! Scenarios: templates and onboarding, files, and archives.
+//! Scenarios: templates and the welcome board, files, and archives.
 #![expect(
     clippy::too_many_lines,
     reason = "a scenario is one request sequence; cutting it up would hide the order it pins"
@@ -80,35 +80,35 @@ pub(crate) async fn templates(s: &mut Session) {
         .post("onboard", &format!("{ROOT_API}/onboard"))
         .user(&alice)
         .await;
-    let tour_board = onboard.string("boardId");
+    let welcome_board = onboard.string("boardId");
     s.get(
-        "onboarding board",
-        &format!("{ROOT_API}/containers/{tour_board}"),
+        "welcome board",
+        &format!("{ROOT_API}/containers/{welcome_board}"),
     )
     .user(&alice)
     .await;
-    let tour = s
+    let copied = s
         .get(
-            "onboarding blocks",
-            &format!("{ROOT_API}/boards/{tour_board}/blocks"),
+            "welcome board blocks",
+            &format!("{ROOT_API}/boards/{welcome_board}/blocks"),
         )
         .user(&alice)
         .unrecorded()
         .await;
-    let tour_blocks = tour.json().as_array().map_or(0, Vec::len);
-    s.note("onboarding board block count", &json!(tour_blocks));
+    let copied_blocks = copied.json().as_array().map_or(0, Vec::len);
+    s.note("welcome board block count", &json!(copied_blocks));
     s.post("onboard again", &format!("{ROOT_API}/onboard"))
         .user(&alice)
         .unrecorded()
         .await;
     s.get(
-        "categories after onboarding",
+        "categories after the welcome board",
         &format!("{ROOT_API}/categories"),
     )
     .user(&alice)
     .await;
     s.get(
-        "config after onboarding",
+        "client state after the welcome board",
         &format!("{API}/users/me/client-state"),
     )
     .user(&alice)

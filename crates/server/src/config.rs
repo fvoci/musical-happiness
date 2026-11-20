@@ -16,10 +16,11 @@ use serde_json::{Map, Value};
 /// The prefix of the environment variables that override configuration keys.
 pub const ENV_PREFIX: &str = "FVOCI_";
 
-/// The default of `max_request_bytes`: 4 MiB. The largest block the model accepts, a
+/// The default of `max_request_bytes`: 8 MiB. The largest block the model accepts, a
 /// title of 16,383 characters and fields of 800,000, takes up to about 3.3 MB as UTF-8,
-/// so every single valid block fits. Requests of the web app measured below 1 kB.
-pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
+/// and a card's body up to 4 MiB with it, so every single valid block fits. Requests of
+/// the web app that write no body measured below 1 kB.
+pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 8 * 1024 * 1024;
 
 pub mod collab;
 mod environment;
@@ -184,8 +185,6 @@ pub struct Configuration {
     pub name_display: String,
     /// Whether user lists include email addresses.
     pub show_email_addresses: bool,
-    /// Whether user lists include first and last names.
-    pub show_full_names: bool,
     /// Whether the providers of the organizations may be reached at addresses that are
     /// not public (loopback, private networks): for an installation whose provider is
     /// on its own network. Off, such a provider is neither stored nor signed in
@@ -355,7 +354,6 @@ impl Default for Configuration {
             feature_flags: BTreeMap::new(),
             name_display: "username".to_owned(),
             show_email_addresses: false,
-            show_full_names: false,
             oidc_allow_private_addresses: false,
             oidc_extra_ca_file: String::new(),
             oidc_former_provider_days: 30,
@@ -426,7 +424,6 @@ impl std::fmt::Debug for Configuration {
             .field("feature_flags", &self.feature_flags)
             .field("name_display", &self.name_display)
             .field("show_email_addresses", &self.show_email_addresses)
-            .field("show_full_names", &self.show_full_names)
             .field(
                 "oidc_allow_private_addresses",
                 &self.oidc_allow_private_addresses,

@@ -47,8 +47,12 @@ export interface BodyEditorProps {
   revision?: number;
   /** True unless given. */
   editable?: boolean;
-  /** The people who can be mentioned. */
-  users?: readonly { id: string; name: string }[];
+  /**
+   * The people who can be mentioned: by the name they are shown by, or by one
+   * of the other names they are found by (`also`: the login name and the
+   * parts of their name).
+   */
+  users?: readonly { id: string; name: string; also?: readonly string[] }[];
   /** The name of a user a document mentions; undefined when it is not known. */
   resolveUser?: (userId: string) => string | undefined;
   /** Every change, as the document that would be stored; `null` for an empty body. Debouncing is the caller's business. */

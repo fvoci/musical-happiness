@@ -57,6 +57,7 @@
 | `UPDATE_BLOCK` | `workspaceId`, `block`(`Block` 전체) | 위와 같은 연결, 그리고 그 블록이나 그 블록의 부모를 `SUBSCRIBE_BLOCKS`로 따라가는 연결 |
 | `UPDATE_MEMBER` | `workspaceId`, `member`(`ContainerMember`) | 그 워크스페이스를 구독한 연결 가운데 사용자가 보드를 읽는 사람인 것 |
 | `DELETE_MEMBER` | `workspaceId`, `member`(`containerId`, `userId`만 뜻이 있고 역할은 모두 `false`) | 위와 같은 연결, 그리고 빠진 사용자의 연결 |
+| `UPDATE_USER` | `workspaceId`, `userId`. 이름은 싣지 않는다: 받은 클라이언트가 그 사람을 다시 읽는다(`getWorkspaceUsersById`) | 그 워크스페이스를 구독한 연결 가운데 사용자가 그 사람을 이름으로 보는 것(`permissions::sees_person`: 구성원은 모두, 손님은 같은 보드에 있는 사람). 그 사람 자신의 연결도 |
 | `UPDATE_CATEGORY` | `workspaceId`, `category`(`Category`) | 카테고리 주인의, 그 워크스페이스를 구독한 연결 모두(아래) |
 | `UPDATE_CONTAINER_CATEGORY` | `workspaceId`, `containerCategories`(`{containerId, categoryId, hidden}`의 목록). **목록은 바꾼 항목들이지 전체가 아니다**: `setContainerCategory`와 보드를 기본 카테고리에 넣는 조작은 그 카테고리의 보드 전부를, `hideContainer`·`unhideContainer`·`undeleteContainer`는 항목 하나를 싣는다. 받는 쪽은 항목마다 덮어쓴다(목록으로 갈아 끼우면 보드를 잃는다) | 그 사용자의 연결 모두 |
 | `REORDER_CATEGORIES` | `workspaceId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 모두 |
@@ -72,7 +73,7 @@
 
 - "보드의 멤버"는 메시지를 보낼 때 유효한 멤버 목록이다: 직접 역할을 받은 사람과 보드에 역할이 있는 팀의 사람. 그 조직의 구성원·역할·팀·공유 상태가 바뀌면 무효화되는 캐시(조직마다 따로이고, 휴지통 비우기 같은 시스템의 집안일은 건드리지 않는다)로 검사하며 워크스페이스 역할도 다시 확인한다. 워크스페이스를 구독하지 않은 연결은 멤버여도 받지 않는다.
 - "보드를 읽는 사람"은 보드의 멤버이고, **워크스페이스에 열린 위키**면 그 워크스페이스의 구성원(손님 아님) 모두다: 열린 위키는 참여하지 않고 읽는다(`App::container_access`와 같은 규칙). 공개 보드와 열린 템플릿은 멤버만이어서, 공개 보드라도 멤버가 아닌 사용자는 보드와 블록의 변경을 받지 않는다. 권한을 바꾸는 DB 쓰기가 취소되어 완료 여부를 모르면 그 뒤 60초 동안은 캐시를 쓰지 않고 보낼 때마다 저장소에서 다시 읽는다. 확인된 롤백은 이에 해당하지 않는다.
-- **카테고리의 네 메시지는 그 사용자의 연결 가운데 그 워크스페이스를 구독한 것 모두에 간다.** 같은 사용자의 다른 탭도 받는다(원본은 먼저 구독한 하나에만 보냈다).
+- **카테고리의 네 메시지는 그 사용자의 연결 가운데 그 워크스페이스를 구독한 것 모두에 간다.** 같은 사용자의 다른 탭도 받는다.
 - `SUBSCRIBE_BLOCKS`로 따라가는 연결 가운데 읽기 토큰만으로 읽는 독자(세션 없는 연결, 보드의 역할이 없거나 그 워크스페이스에 없거나 세션이 그 조직을 열지 못하는 사용자)가 받는 `UPDATE_BLOCK`은 HTTP의 `getBlocks`가 그 독자에게 주는 모양이다(`docs/contract-pending.md` 1절): `createdBy`, `modifiedBy`, 본문의 모든 멘션의 `userId`, 사람 속성이 가리키는 사람이 비어 있다. 사용자 ID가 가입 시각을 드러낸다. 그 보드를 멤버로 보는 사용자(보드의 역할이 있고, 그 워크스페이스에 있고, 세션이 그 조직을 연다)의 연결은 같은 링크로 따라가도 멤버가 받는 모양을 받는다.
 - 한 연결이 워크스페이스 구독과 블록 구독을 함께 해서 두 길로 다 해당하면 메시지를 두 번 받는다(보드를 멤버로 보면 둘 다 멤버의 모양, 아니면 블록 구독의 것은 사용자 ID를 비운 모양).
 - 쓴 사람 자신의 연결도 받는다. 서버는 보낸 사람을 빼지 않는다.
@@ -100,6 +101,7 @@
 | `setContainerCategory`, `hideContainer`, `unhideContainer` | `UPDATE_CONTAINER_CATEGORY` |
 | `reorderCategoryContainers` | `REORDER_CATEGORY_CONTAINERS` |
 | `setSharing`(끄기, 새 토큰) | 옛 토큰으로 따라가던 연결에 `UNSUBSCRIBED_BLOCKS` |
+| `patchMe` | 이름이 바뀌면 그 사람이 구성원인(손님 포함) 워크스페이스마다 `UPDATE_USER`. 바꾸는 것이 없는 요청은 아무것도 내지 않는다 |
 | `patchUserSettings`, `patchClientState` | 메시지 없음 |
 
 메시지는 쓰기가 끝난 뒤 보낸다. 어떤 조작은 답하기 전에 보내고(`createBoardsAndBlocks`, `createBlocks`, `createCard`, `deleteContainer`, `deleteBoardsAndBlocks`, 카테고리의 메시지 모두), 나머지는 따로 돌며 보낸다. 클라이언트는 HTTP의 답과 메시지의 순서에 기대지 않는다.
@@ -141,6 +143,7 @@
 | 받은 텍스트 메시지가 64 KiB를 넘거나, Binary 프레임이 64 KiB(설정 `collab_update_bytes`에 32바이트를 더한 것이 더 크면 그것)를 넘음 | 그 연결 |
 | 방(6절)이 보낸 것을 전혀 읽지 않아, 방에서 내보냈다는 알림만으로 기다리는 메시지가 `collab_queue_messages`의 두 배(기본 1,024개)를 넘음 | 그 연결 |
 | 90초 동안 아무것도 보내지 않음(위 "죽은 연결") | 그 연결 |
+| 보낸 변경(6절)을 받다가 문서의 작업자가 끝남(`collab_worker_timeout_ms`를 넘었거나 작업자가 깨졌다) | 그 변경을 보낸 연결(닫는 프레임 없이). 그 사용자의 변경은 10초부터 두 배씩 1시간까지 `document_unavailable`로 거절되고(그 사이가 하루를 넘으면 처음부터 다시 센다), 같은 조직에서 하루 안에 그런 사용자가 세 번째인 때부터는 그 조직 모두의 것도 거절된다 |
 | 서버가 멈춤 | 모든 연결 |
 
 ## 4. 알아 둘 것
@@ -157,10 +160,10 @@
 | # | 웹앱의 가정 | 지금 서버 |
 |---|---|---|
 | G1 | 구독은 둘: 보드나 위키 하나(`watchContainer`), 나 자신(`watchSelf`) | 구독의 단위는 **워크스페이스**(`SUBSCRIBE_WORKSPACE`)와 **블록**(`SUBSCRIBE_BLOCKS`, 읽기 토큰으로)이다. 보드 하나만 구독하는 명령은 없다. 워크스페이스를 구독하면 내가 멤버인 모든 보드의 보드·블록·멤버 변경과 내 카테고리의 변경이 온다. 그러니 `watchContainer`와 `watchSelf`는 연결 하나의 워크스페이스 구독에서 화면이 보드 ID로 갈라 쓴다. 설정(`patchUserSettings`)의 변경은 메시지가 없다. 카테고리 메시지는 그 워크스페이스를 구독한 내 연결 모두에 간다(3절) |
-| G2 | 변경의 종류 일곱 | 보드: `UPDATE_CONTAINER`(전체). 보드 삭제: `deleteAt`이 0이 아닌 `UPDATE_CONTAINER`(따로 된 종류가 없다). 블록: `UPDATE_BLOCK`이 **블록 하나씩**, `Block` 전체를 싣는다. 카드도 요약이 아니라 블록 전체이고 본문(최대 1 MiB)을 함께 싣는다. 블록 삭제: `deleteAt`이 0이 아닌 `UPDATE_BLOCK`, 지운 블록 하나만(아래 것은 싣지 않는다). 구성원: 전체 목록이 아니라 멤버 한 명씩(`UPDATE_MEMBER`, `DELETE_MEMBER`). 카테고리: 전체 목록이 아니라 카테고리 하나(`UPDATE_CATEGORY`), 보드의 자리(`UPDATE_CONTAINER_CATEGORY`), 순서(`REORDER_CATEGORIES`, `REORDER_CATEGORY_CONTAINERS`). 설정: 메시지 없음 |
+| G2 | 변경의 종류 일곱 | 보드: `UPDATE_CONTAINER`(전체). 보드 삭제: `deleteAt`이 0이 아닌 `UPDATE_CONTAINER`(따로 된 종류가 없다). 블록: `UPDATE_BLOCK`이 **블록 하나씩**, `Block` 전체를 싣는다. 카드도 요약이 아니라 블록 전체이고 본문(최대 4 MiB)을 함께 싣는다. 블록 삭제: `deleteAt`이 0이 아닌 `UPDATE_BLOCK`, 지운 블록 하나만(아래 것은 싣지 않는다). 구성원: 전체 목록이 아니라 멤버 한 명씩(`UPDATE_MEMBER`, `DELETE_MEMBER`). 카테고리: 전체 목록이 아니라 카테고리 하나(`UPDATE_CATEGORY`), 보드의 자리(`UPDATE_CONTAINER_CATEGORY`), 순서(`REORDER_CATEGORIES`, `REORDER_CATEGORY_CONTAINERS`). 설정: 메시지 없음 |
 | G3 | 내 쓰기도 내게 온다 | 맞다. 보낸 연결도 받는다 |
 | G4 | `updateAt`이 블록마다 단조 증가 | **있는 블록을 고칠 때는 그렇다**: 고칠 때마다 앞의 값보다 커진다(4절). 휴지통에서 돌아온 블록은 그때의 서버 시각을 받으므로, 시계가 뒤로 갔다면 지우기 전보다 작을 수 있다. 판을 가르는 다른 값(카운터)은 없다 |
-| G5 | 남이 본문을 고치면 카드의 요약이 온다 | **요약이 아니라 블록 전체가 온다.** 카드의 본문이 저장된 뒤로(`docs/contract-pending.md` 1절) `UPDATE_BLOCK`의 `block`은 `body`(문서 하나, 최대 1 MiB)를 싣는다. 할 일 수는 싣지 않는다(`Block`에 없다. 받는 쪽이 본문에서 센다). 요약만 보내자는 것은 메시지의 모양을 바꾸는 일이라 사용자 결정 필요(`docs/contract-pending.md` 9절의 G5) |
+| G5 | 남이 본문을 고치면 카드의 요약이 온다 | **요약이 아니라 블록 전체가 온다.** 카드의 본문이 저장된 뒤로(`docs/contract-pending.md` 1절) `UPDATE_BLOCK`의 `block`은 `body`(문서 하나, 최대 4 MiB)를 싣는다. 할 일 수는 싣지 않는다(`Block`에 없다. 받는 쪽이 본문에서 센다). 요약만 보내자는 것은 메시지의 모양을 바꾸는 일이라 사용자 결정 필요(`docs/contract-pending.md` 9절의 G5) |
 | G6 | 재연결 때 놓친 변경은 화면이 보드를 다시 읽는다 | 맞다. 서버는 놓친 구간을 다시 보내지 않는다. 순번이 없어 무엇을 놓쳤는지도 알 수 없다 |
 
 
@@ -257,7 +260,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 
 - 서버는 프레임마다 `epoch`을 싣고, 클라이언트도 자기가 쥔 세대를 싣는다. 방의 세대와 다른 변경은 `DOC_NACK`(`update_out_of_step`)이다.
 - 문서가 새로 만들어지면 방의 모두에게 새 `epoch`의 `DOC_RESET`과 문서 전체가 간다. 클라이언트는 **쥐고 있던 문서를 버리고** 온 것으로 새 문서를 만든다. 아직 답을 받지 못한 변경은 버려진 문서의 것이다(늦게 오는 그 답은 옛 `epoch`을 싣고 있다). 자기 `epoch`과 다른 프레임은 버린다. 새로 만들어진 때와 `DOC_RESET` 사이에 보낸 변경은 `DOC_NACK`(`update_out_of_step`)이다.
-- `epoch`이 그대로인 `DOC_RESET`은 같은 문서를 다시 보낸 것이다(문서를 쥔 작업자 프로세스가 죽어 서버가 저장된 것에서 다시 열었을 때 등. 까닭은 싣지 않는다). 뒤따르는 전체를 쥔 문서에 그대로 합친다(버리지 않는다). 받아들여진 변경은 모두 그 안에 있고, 그 `epoch`의 변경은 앞뒤로 그대로 받아들여진다. 작업자가 어떤 변경을 받다가 죽은 것이면 그 변경만 `DOC_NACK`(`document_unavailable`)이고 방에는 아무것도 가지 않는다.
+- `epoch`이 그대로인 `DOC_RESET`은 같은 문서를 다시 보낸 것이다(문서를 쥔 작업자 프로세스가 죽어 서버가 저장된 것에서 다시 열었을 때 등. 까닭은 싣지 않는다). 뒤따르는 전체를 쥔 문서에 그대로 합친다(버리지 않는다). 받아들여진 변경은 모두 그 안에 있고, 그 `epoch`의 변경은 앞뒤로 그대로 받아들여진다. 작업자가 어떤 변경을 받다가 죽은 것이면 그 변경은 문서에 없고 방에는 아무것도 가지 않으며, 그 변경을 보낸 연결은 닫힌다(3절의 표. 그 전에 `DOC_NACK`(`document_unavailable`)이 갈 수도 있다).
 - 방에 문서를 다시 보내려는데 열 수 없으면: 지금 다룰 수 없는 것(`document_unavailable`)이면 방은 그대로 두고 2초마다 다시 해 본다(그동안의 변경은 그 `reason`으로 거절될 수 있다). 그 밖의 까닭(서버가 문서를 더 쥘 수 없다, 카드가 없다)이면 방의 모두가 그 `reason`의 `DOC_LEFT`를 받는다. 카드를 지우면 방의 모두가 `DOC_LEFT`(`not_found`)로 나간다("방에 있는 동안").
 
 ### `reason`의 값
@@ -279,7 +282,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 | `document_full` | `DOC_REFUSED` | 그 방에 이미 `collab_connections_per_document`(기본 50)개의 연결이 들어 있다 |
 | `too_many_frames` | `DOC_REFUSED`, `DOC_LEFT` | 이 연결이 `collab_frames_per_second`(기본 50)보다 빨리 보냈다. 쉬고 난 뒤에는 그만큼을 한꺼번에, 그 뒤로 1초에 그만큼씩 보낼 수 있다. Binary 프레임은 모두 하나로(들지 않은 방의 것도, 프레임이 아닌 것도), 문서 전체로 답하는 `JOIN_DOC`과 step 1은 다섯으로, `LEAVE_DOC`은 하나로 센다(나가기는 넘어도 된다). 서버가 이 연결의 일을 하느라 읽지 못한 시간의 몫은 그대로 받는다. 넘은 `JOIN_DOC`은 거절되고, 넘은 프레임은 그 프레임의 방에서 이 연결을 내보낸다: 그 프레임이 실은 것을 방이 받지 않았으므로 다시 들어 문서를 새로 받는다. 커서 프레임만은 넘어도 버리기만 한다 |
 | `connection_too_slow` | `DOC_LEFT`, `DOC_REFUSED` | 이 연결에 보낼 방의 메시지가 `collab_queue_messages`(기본 512)개, 또는 `collab_state_bytes`의 두 배(바이트)를 넘게 쌓였다(읽지 않는 연결. step 1을 답을 읽지 않고 거듭 보내도 그렇다). 방의 다른 연결은 그대로 받는다. 다시 들면 문서 전체를 받는다 |
-| `internal` 등 | 모두 | 서버의 오류(저장소 등). 로그에 남는다 |
+| `internal` 등 | 모두 | 서버의 오류(저장소 등). 로그에 남는다. 저장소가 제때 받지 못한 것은 `database_busy`다(잠시 뒤 다시) |
 
 
 ## 7. 보드의 있음

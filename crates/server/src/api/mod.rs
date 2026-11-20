@@ -55,7 +55,7 @@ use axum::Json;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::header::CACHE_CONTROL;
-use axum::http::{HeaderValue, Method, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
@@ -342,9 +342,22 @@ pub(crate) fn no_content() -> Response {
 
 /// Returns the percent-decoded value of a query parameter, or the empty string.
 pub(crate) fn query_param(query: Option<&str>, name: &str) -> String {
+    query_option(query, name).unwrap_or_default()
+}
+
+/// Returns the percent-decoded value of a query parameter, if the query has it with a
+/// value: a parameter that is there and empty is as one that is not.
+pub(crate) fn query_option(query: Option<&str>, name: &str) -> Option<String> {
     query
         .and_then(|query| crate::auth::token::query_value(query, name))
-        .unwrap_or_default()
+        .filter(|value| !value.is_empty())
+}
+
+/// The request's `Accept-Language`, if it has one that is text.
+pub(crate) fn accept_language(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(axum::http::header::ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
 }
 
 /// Reads the `disableNotify` query flag.

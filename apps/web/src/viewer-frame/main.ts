@@ -87,6 +87,9 @@ const report: Report = {
   sheets: (sheets) => {
     tell({ kind: 'sheets', sheets });
   },
+  hidden: (pages) => {
+    tell({ kind: 'hidden', pages });
+  },
   shown: (pages) => {
     tell({ kind: 'shown', pages });
   },
@@ -150,6 +153,9 @@ function start(): void {
         break;
       case 'theme':
         setTheme(message.theme);
+        break;
+      case 'hidden':
+        drawn?.showHidden?.(message.shown);
         break;
     }
   });

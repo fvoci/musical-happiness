@@ -147,15 +147,30 @@ export class TreeWrites {
     return pages.filter((page) => !gone(page));
   }
 
+  /** The reader's deletions that the backend has not answered yet. */
+  readonly #leaving = new Set<Promise<void>>();
+
+  /**
+   * Waits for the reader's deletions under way to be answered, kept or
+   * refused: the trash read after it has what they took off the tree, which
+   * is off it before the backend knows.
+   */
+  async deletionsAnswered(): Promise<void> {
+    await Promise.allSettled([...this.#leaving]);
+  }
+
   /** Deletes a page as the reader, its echo known for theirs (`forget`). */
   async #deletePage(
     pageId: string,
     title = this.#page(this.#host.openPage()?.pageId)?.title ?? '',
   ): Promise<void> {
     this.#deleting.set(pageId, title);
+    const leaving = this.#host.wikis().deletePage(this.#host.wikiId, pageId);
+    this.#leaving.add(leaving);
     try {
-      await this.#host.wikis().deletePage(this.#host.wikiId, pageId);
+      await leaving;
     } finally {
+      this.#leaving.delete(leaving);
       // After the echo, which comes before the answer or not at all.
       setTimeout(() => {
         this.#deleting.delete(pageId);

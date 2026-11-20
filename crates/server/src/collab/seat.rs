@@ -167,6 +167,13 @@ impl Seat {
         self.connection.queue.overrun().clone()
     }
 
+    /// Cancelled when the connection is to be closed: an update it sent ended the
+    /// worker that took it, and its sender is held back for a while.
+    #[must_use]
+    pub fn ended_worker(&self) -> CancellationToken {
+        self.connection.ended_worker.clone()
+    }
+
     /// Runs a step of a room in a task of its own and waits for it: a connection that
     /// ends meanwhile leaves the step done whole.
     async fn step<T, F>(&mut self, work: F) -> Option<T>

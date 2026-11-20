@@ -434,9 +434,25 @@ async fn opening_an_upload_is_checked() {
         .check_created();
     let response = open(&ts.client, &board.id, "a.txt", 1001).await;
     response.check_request_entity_too_large();
+    let problem = response.value();
+    assert_eq!(
+        (&problem["type"], &problem["reason"], &problem["limit"]),
+        (
+            &json!("/problems/file-too-large"),
+            &json!("file_too_large"),
+            &json!(1000)
+        ),
+        "{problem}"
+    );
 
-    let refusals: [(Value, &str); 5] = [
+    let refusals: [(Value, &str); 11] = [
         (json!({"name": "", "size": 1}), "name"),
+        (json!({"name": "dir/", "size": 1}), "name"),
+        (json!({"name": r"dir\", "size": 1}), "name"),
+        (json!({"name": ".", "size": 1}), "name"),
+        (json!({"name": "dir/..", "size": 1}), "name"),
+        (json!({"name": "a\u{0}.txt", "size": 1}), "name"),
+        (json!({"name": "\u{0}", "size": 1}), "name"),
         (json!({"name": "a".repeat(256), "size": 1}), "name"),
         (json!({"name": "a.txt", "size": -1}), "size"),
         (

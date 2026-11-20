@@ -281,9 +281,10 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
 }
 
 impl Store {
-    /// The users `sight` takes in whose login name or display name contains
-    /// `search_query`, ignoring case: at most ten, the oldest accounts first; for an
-    /// empty query the ten oldest of them.
+    /// The users `sight` takes in whose login name, display name or a part of whose
+    /// name (either way round, and the name they wrote) contains `search_query`,
+    /// ignoring case: at most ten, the oldest accounts first; for an empty query the ten
+    /// oldest of them.
     ///
     /// # Errors
     ///

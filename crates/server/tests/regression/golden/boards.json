@@ -271,6 +271,100 @@
     "content_type": "application/json",
     "body": [
       {
+        "cardProperties": [
+          {
+            "id": "<id:6>",
+            "name": "Progress",
+            "options": [
+              {
+                "color": "propColorGray",
+                "id": "<id:7>",
+                "value": "To read"
+              },
+              {
+                "color": "propColorBlue",
+                "id": "<id:8>",
+                "value": "Trying it"
+              },
+              {
+                "color": "propColorGreen",
+                "id": "<id:9>",
+                "value": "Done it"
+              }
+            ],
+            "type": "select"
+          },
+          {
+            "id": "<id:10>",
+            "name": "Topic",
+            "options": [
+              {
+                "color": "propColorBlue",
+                "id": "<id:11>",
+                "value": "Boards"
+              },
+              {
+                "color": "propColorPurple",
+                "id": "<id:12>",
+                "value": "Writing"
+              },
+              {
+                "color": "propColorOrange",
+                "id": "<id:13>",
+                "value": "Files"
+              },
+              {
+                "color": "propColorGreen",
+                "id": "<id:14>",
+                "value": "Wiki"
+              },
+              {
+                "color": "propColorPink",
+                "id": "<id:15>",
+                "value": "Together"
+              }
+            ],
+            "type": "select"
+          },
+          {
+            "id": "<id:16>",
+            "name": "Day",
+            "options": [],
+            "type": "date"
+          },
+          {
+            "id": "<id:17>",
+            "name": "Minutes",
+            "options": [],
+            "type": "number"
+          },
+          {
+            "id": "<id:18>",
+            "name": "Read first",
+            "options": [],
+            "type": "relation"
+          }
+        ],
+        "createAt": "<ts>",
+        "createdBy": "<id:2>",
+        "deleteAt": 0,
+        "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
+        "icon": "👋",
+        "id": "<id:19>",
+        "isBuiltin": false,
+        "isTemplate": false,
+        "kind": "board",
+        "minimumRole": "editor",
+        "modifiedBy": "<id:2>",
+        "properties": {},
+        "showDescription": true,
+        "templateVersion": 9,
+        "title": "Getting started with fvoci",
+        "type": "P",
+        "updateAt": "<ts>",
+        "workspaceId": "<id:1>"
+      },
+      {
         "cardProperties": [],
         "createAt": "<ts>",
         "createdBy": "<id:2>",
@@ -350,6 +444,100 @@
     "status": 200,
     "content_type": "application/json",
     "body": [
+      {
+        "cardProperties": [
+          {
+            "id": "<id:6>",
+            "name": "Progress",
+            "options": [
+              {
+                "color": "propColorGray",
+                "id": "<id:7>",
+                "value": "To read"
+              },
+              {
+                "color": "propColorBlue",
+                "id": "<id:8>",
+                "value": "Trying it"
+              },
+              {
+                "color": "propColorGreen",
+                "id": "<id:9>",
+                "value": "Done it"
+              }
+            ],
+            "type": "select"
+          },
+          {
+            "id": "<id:10>",
+            "name": "Topic",
+            "options": [
+              {
+                "color": "propColorBlue",
+                "id": "<id:11>",
+                "value": "Boards"
+              },
+              {
+                "color": "propColorPurple",
+                "id": "<id:12>",
+                "value": "Writing"
+              },
+              {
+                "color": "propColorOrange",
+                "id": "<id:13>",
+                "value": "Files"
+              },
+              {
+                "color": "propColorGreen",
+                "id": "<id:14>",
+                "value": "Wiki"
+              },
+              {
+                "color": "propColorPink",
+                "id": "<id:15>",
+                "value": "Together"
+              }
+            ],
+            "type": "select"
+          },
+          {
+            "id": "<id:16>",
+            "name": "Day",
+            "options": [],
+            "type": "date"
+          },
+          {
+            "id": "<id:17>",
+            "name": "Minutes",
+            "options": [],
+            "type": "number"
+          },
+          {
+            "id": "<id:18>",
+            "name": "Read first",
+            "options": [],
+            "type": "relation"
+          }
+        ],
+        "createAt": "<ts>",
+        "createdBy": "<id:20>",
+        "deleteAt": 0,
+        "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
+        "icon": "👋",
+        "id": "<id:21>",
+        "isBuiltin": false,
+        "isTemplate": false,
+        "kind": "board",
+        "minimumRole": "editor",
+        "modifiedBy": "<id:20>",
+        "properties": {},
+        "showDescription": true,
+        "templateVersion": 9,
+        "title": "Getting started with fvoci",
+        "type": "P",
+        "updateAt": "<ts>",
+        "workspaceId": "<id:1>"
+      },
       {
         "cardProperties": [],
         "createAt": "<ts>",
@@ -679,7 +867,7 @@
         "fields": {
           "icon": "x"
         },
-        "id": "<id:6>",
+        "id": "<id:22>",
         "modifiedBy": "<id:2>",
         "parentId": "",
         "schema": 1,
@@ -698,14 +886,14 @@
       "blocks": [
         {
           "body": null,
-          "containerId": "<id:7>",
+          "containerId": "<id:23>",
           "createAt": "<ts>",
           "createdBy": "<id:2>",
           "deleteAt": 0,
           "fields": {
             "icon": "x"
           },
-          "id": "<id:8>",
+          "id": "<id:24>",
           "modifiedBy": "<id:2>",
           "parentId": "",
           "schema": 1,
@@ -729,7 +917,7 @@
           "deleteAt": 0,
           "description": "new plans",
           "icon": "🚀",
-          "id": "<id:7>",
+          "id": "<id:23>",
           "isBuiltin": false,
           "isTemplate": false,
           "kind": "board",
@@ -757,14 +945,14 @@
       "blocks": [
         {
           "body": null,
-          "containerId": "<id:9>",
+          "containerId": "<id:25>",
           "createAt": "<ts>",
           "createdBy": "<id:2>",
           "deleteAt": 0,
           "fields": {
             "icon": "x"
           },
-          "id": "<id:10>",
+          "id": "<id:26>",
           "modifiedBy": "<id:2>",
           "parentId": "",
           "schema": 1,
@@ -788,7 +976,7 @@
           "deleteAt": 0,
           "description": "new plans",
           "icon": "🚀",
-          "id": "<id:9>",
+          "id": "<id:25>",
           "isBuiltin": false,
           "isTemplate": true,
           "kind": "board",
@@ -837,20 +1025,20 @@
   },
   {
     "name": "blocks of the copy",
-    "request": "GET /api/v1/w/<id:1>/boards/<id:7>/blocks as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:23>/blocks as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "body": null,
-        "containerId": "<id:7>",
+        "containerId": "<id:23>",
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,
         "fields": {
           "icon": "x"
         },
-        "id": "<id:8>",
+        "id": "<id:24>",
         "modifiedBy": "<id:2>",
         "parentId": "",
         "schema": 1,
@@ -1009,7 +1197,7 @@
         "fields": {
           "icon": "x"
         },
-        "id": "<id:6>",
+        "id": "<id:22>",
         "modifiedBy": "<id:2>",
         "parentId": "",
         "schema": 1,
@@ -1025,6 +1213,100 @@
     "status": 200,
     "content_type": "application/json",
     "body": [
+      {
+        "cardProperties": [
+          {
+            "id": "<id:6>",
+            "name": "Progress",
+            "options": [
+              {
+                "color": "propColorGray",
+                "id": "<id:7>",
+                "value": "To read"
+              },
+              {
+                "color": "propColorBlue",
+                "id": "<id:8>",
+                "value": "Trying it"
+              },
+              {
+                "color": "propColorGreen",
+                "id": "<id:9>",
+                "value": "Done it"
+              }
+            ],
+            "type": "select"
+          },
+          {
+            "id": "<id:10>",
+            "name": "Topic",
+            "options": [
+              {
+                "color": "propColorBlue",
+                "id": "<id:11>",
+                "value": "Boards"
+              },
+              {
+                "color": "propColorPurple",
+                "id": "<id:12>",
+                "value": "Writing"
+              },
+              {
+                "color": "propColorOrange",
+                "id": "<id:13>",
+                "value": "Files"
+              },
+              {
+                "color": "propColorGreen",
+                "id": "<id:14>",
+                "value": "Wiki"
+              },
+              {
+                "color": "propColorPink",
+                "id": "<id:15>",
+                "value": "Together"
+              }
+            ],
+            "type": "select"
+          },
+          {
+            "id": "<id:16>",
+            "name": "Day",
+            "options": [],
+            "type": "date"
+          },
+          {
+            "id": "<id:17>",
+            "name": "Minutes",
+            "options": [],
+            "type": "number"
+          },
+          {
+            "id": "<id:18>",
+            "name": "Read first",
+            "options": [],
+            "type": "relation"
+          }
+        ],
+        "createAt": "<ts>",
+        "createdBy": "<id:2>",
+        "deleteAt": 0,
+        "description": "One card for each thing fvoci does. Open a card to read it, and move it to “Done it” once you have tried it. Delete this board when you are through.",
+        "icon": "👋",
+        "id": "<id:19>",
+        "isBuiltin": false,
+        "isTemplate": false,
+        "kind": "board",
+        "minimumRole": "editor",
+        "modifiedBy": "<id:2>",
+        "properties": {},
+        "showDescription": true,
+        "templateVersion": 9,
+        "title": "Getting started with fvoci",
+        "type": "P",
+        "updateAt": "<ts>",
+        "workspaceId": "<id:1>"
+      },
       {
         "cardProperties": [],
         "createAt": "<ts>",
@@ -1111,7 +1393,7 @@
         "deleteAt": 0,
         "description": "new plans",
         "icon": "🚀",
-        "id": "<id:7>",
+        "id": "<id:23>",
         "isBuiltin": false,
         "isTemplate": false,
         "kind": "board",
