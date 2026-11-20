@@ -3,7 +3,7 @@
  * policy by a worker of the app's own, in the editor and where a body is
  * only read; the language changed from the keys; the copy button; the
  * numbers of the lines; an input method and a second reader in the same
- * block; and a block the highlighter cannot finish, which stays plain while
+ * block; and a block too long to colour, which stays plain while
  * the page goes on.
  *
  * `FVOCI_SCREENS=1` also takes the pictures, wide and 390 px wide, light and
@@ -222,6 +222,43 @@ test('the numbers of the lines stay beside the first row of a line that wraps, a
   expect(places.hidden).toBe(true);
 });
 
+test('a block too long for a number at each line has them in one column, level with its lines', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fvoci:code-lines', '1');
+  });
+  const lines = Array.from(
+    { length: 400 },
+    (_, line) => `let value${String(line)} = "${'x'.repeat(90)}";`,
+  );
+  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', lines.join('\n')));
+  const column = block(body).locator(':scope > .doc-code-column');
+  await expect(column).toBeVisible();
+  const rows = await block(body).evaluate((frame) => {
+    const numbers = frame.querySelector<HTMLElement>(':scope > .doc-code-column');
+    const pre = frame.querySelector<HTMLElement>('pre');
+    const text = frame.querySelector('pre > code')?.firstChild;
+    if (!numbers || !pre || !(text instanceof Text)) return null;
+    const pitch = numbers.getBoundingClientRect().height / 400;
+    const top = (line: number): number => {
+      const range = document.createRange();
+      const at = text.data.split('\n').slice(0, line).join('\n').length + (line > 0 ? 1 : 0);
+      range.setStart(text, at);
+      range.setEnd(text, at + 1);
+      return range.getBoundingClientRect().top;
+    };
+    pre.scrollLeft = 200;
+    return {
+      lines: [1, 399].map((line) => Math.round(top(line) - top(0) - line * pitch)),
+      scrolled: pre.scrollLeft > 0,
+      covered: getComputedStyle(numbers).backgroundColor === getComputedStyle(pre).backgroundColor,
+    };
+  });
+  // Each number is level with its line; the lines do not wrap, and scroll under the numbers.
+  expect(rows).toEqual({ lines: [0, 0], scrolled: true, covered: true });
+});
+
 test('a card the reader may only look at names the language and still copies', async ({ page }) => {
   const engine = engineOf(page) ?? 'chromium';
   await page.context().grantPermissions(clipboardPermissions(engine));
@@ -347,11 +384,16 @@ test('two readers write in one block, and each sees the other’s words coloured
   await other.close();
 });
 
-test('a block the highlighter cannot finish stays plain, and the page goes on', async ({
+test('a block past the length that is coloured stays plain, and the page goes on', async ({
   page,
 }) => {
-  // One word this long takes TypeScript's grammar seconds: the worker is stopped after one.
-  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', 'a'.repeat(40_000)));
+  // Code that would be coloured, longer than the highlighter takes (CODE_HIGHLIGHT_LIMIT):
+  // it is never asked for. One that takes the worker too long is given up (code-highlight.test.ts).
+  const body = await openCardWithBody(
+    page,
+    'Welcome',
+    codeBody('ts', 'const a = 1; '.repeat(1_000)),
+  );
   await expect(body).toHaveAttribute('data-editor', 'ready');
   await body.locator('p').first().click();
   await page.keyboard.press('End');
@@ -359,7 +401,7 @@ test('a block the highlighter cannot finish stays plain, and the page goes on', 
   await page.keyboard.type(' typed');
   await expect(body.locator('p').first()).toHaveText('Before the code. typed');
   expect(Date.now() - started).toBeLessThan(5_000);
-  // Given up: no colour comes, and the page still answers.
+  // No colour comes, and the page still answers.
   await page.waitForTimeout(1_500);
   await expect(block(body).locator('pre span:not(.doc-code-line)')).toHaveCount(0);
   await expect(page.getByTestId('card-title')).toBeVisible();
