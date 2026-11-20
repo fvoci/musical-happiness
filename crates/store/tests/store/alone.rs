@@ -413,9 +413,31 @@ async fn the_schema_lets_nobody_but_its_owner_into_a_space() {
             "{statement}: {error}"
         );
     }
-    // A link of the organization people work in is not moved into the space, and none
-    // of that organization names the space's workspace. PostgreSQL's key of both
-    // refuses the second before its trigger is asked.
+    assert_eq!(
+        common::own_space_shape(&system, &owner).await,
+        common::own_space(),
+        "the space is what it was"
+    );
+    test.teardown().await;
+}
+
+/// No invitation names a space, by its organization, its workspace or a board of it,
+/// made so or changed to: one that says an organization people work in and leads
+/// into a space would let somebody in past the organization's own check.
+#[tokio::test]
+async fn no_invitation_names_a_space_by_any_of_its_keys() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let owner = common::user(store, "owner").await;
+    let system = test.system();
+    let space = "SELECT CAST(id AS TEXT) FROM organizations WHERE owner_id =";
+    let org_id = system
+        .texts_unchecked(&format!("{space} '{owner}'"))
+        .await
+        .expect("read")
+        .remove(0);
+    let workspace_id = common::own_workspace(&test, &owner).await;
+    let connection = test.database_connection();
     let link = NewLink {
         workspace_id: &test.workspace_id,
         guest_of: None,
@@ -427,22 +449,65 @@ async fn the_schema_lets_nobody_but_its_owner_into_a_space() {
         mailed: None,
     };
     let link = store.create_invitation(&link).await.expect("a link");
-    let moved = format!(
-        "UPDATE invitations SET org_id = '{org_id}', workspace_id = '{workspace_id}' \
-         WHERE id = '{}'",
-        link.id
-    );
-    let mixed = format!(
-        "INSERT INTO invitations (id, org_id, workspace_id, role, token_hash, created_by, \
-         create_at, expires_at) VALUES ('{}', '{}', '{workspace_id}', 'member', \
-         'another hash', '{owner}', 1, 2)",
-        new_id(),
-        test.org_id
-    );
-    for (statement, by_the_key) in [(&moved, false), (&mixed, true)] {
+    let in_space = store.for_org(&org_id).expect("an identifier");
+    let mut board = fvoci_model::Container {
+        id: new_id(),
+        workspace_id: workspace_id.clone(),
+        ..fvoci_model::Container::default()
+    };
+    in_space
+        .insert_container_with_admin(&mut board, &owner)
+        .await
+        .expect("a board of the space");
+    let columns = "id, org_id, workspace_id, role, container_id, container_role, token_hash, \
+                   created_by, create_at, expires_at";
+    let insert = |org: &str, workspace: &str, guest_of: Option<&str>, hash: &str| {
+        let (role, container) = match guest_of {
+            Some(board) => ("guest", format!("'{board}', 'viewer'")),
+            None => ("member", "NULL, NULL".to_owned()),
+        };
+        format!(
+            "INSERT INTO invitations ({columns}) VALUES ('{}', '{org}', '{workspace}', \
+             '{role}', {container}, '{hash}', '{owner}', 1, 2)",
+            new_id()
+        )
+    };
+    let update = |set: &str| format!("UPDATE invitations SET {set} WHERE id = '{}'", link.id);
+    let (team, team_workspace) = (&test.org_id, &test.workspace_id);
+    let board = &board.id;
+    // Each statement names the space by one thing alone, so that each part of the
+    // triggers refuses one of its own. Where PostgreSQL's keys of the organization
+    // with the workspace, and with the board, refuse before its trigger is asked,
+    // the refusal is the key's.
+    let statements = [
+        (
+            insert(&org_id, team_workspace, None, "by the organization"),
+            false,
+        ),
+        (insert(team, &workspace_id, None, "by the workspace"), true),
+        (
+            insert(team, team_workspace, Some(board), "by the board"),
+            true,
+        ),
+        (update(&format!("org_id = '{org_id}'")), false),
+        (update(&format!("workspace_id = '{workspace_id}'")), true),
+        (
+            update(&format!(
+                "role = 'guest', container_id = '{board}', container_role = 'viewer'"
+            )),
+            true,
+        ),
+        (
+            update(&format!(
+                "org_id = '{org_id}', workspace_id = '{workspace_id}'"
+            )),
+            false,
+        ),
+    ];
+    for (statement, by_the_key) in &statements {
         let refused = common::try_execute_raw(&connection, statement).await;
         let error = refused.expect_err(statement).to_string();
-        let refusal = if by_the_key && common::db_type() == DbType::Postgres {
+        let refusal = if *by_the_key && common::db_type() == DbType::Postgres {
             "foreign key"
         } else {
             "invited into the space"

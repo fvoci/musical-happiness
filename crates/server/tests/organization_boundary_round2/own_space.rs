@@ -14,8 +14,8 @@ use std::time::Duration;
 use axum::Router;
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    Block, BlockType, Category, Container, ContainerType, OrgKind, UserWorkspace, Workspace,
-    WorkspaceRole, new_id,
+    Block, BlockType, Category, Container, ContainerMember, ContainerType, OrgKind, UserWorkspace,
+    Workspace, WorkspaceRole, new_id,
 };
 use fvoci_server::app::{App, ChangeNotification, FileToUpload};
 use fvoci_store::{DbType, SharingChange, Tenant};
@@ -241,6 +241,16 @@ async fn an_administrator_elsewhere(ts: &TestServer) -> (Client, String) {
         .add_workspace_member(&workspace.id, &user_id, WorkspaceRole::Admin)
         .await
         .expect("who administers its workspace");
+    // A board of theirs: the search of bodies asks the search server for who reads one.
+    let mut board = Container {
+        id: new_id(),
+        workspace_id: workspace.id.clone(),
+        ..Container::default()
+    };
+    theirs
+        .insert_container_with_admin(&mut board, &user_id)
+        .await
+        .expect("a board of the other organization");
     (client, workspace.id)
 }
 
@@ -323,11 +333,28 @@ async fn compare_organization_routes(client: &Client, space: &Space, own_org: &s
 /// the same under a workspace they share with the others: what is of the space is
 /// found in the space, on a database without a wall between organizations as on one
 /// with it.
-async fn compare_what_is_found(client: &Client, space: &Space, workspace: &str) -> Vec<String> {
+async fn compare_what_is_found(
+    client: &Client,
+    space: &Space,
+    workspace: &str,
+    index: &FakeSearch,
+) -> Vec<String> {
     let mut violations = Vec::new();
+    // The search of bodies asks the search server only for who reads a board of the
+    // workspace, and the server here answers every asker with the space's card: what
+    // comes back is what the server let through. An answer for which the search
+    // server was not asked says nothing, and is told as a failure of the test.
+    let path = format!("/w/{workspace}/search?q={SECRET}");
+    let asked_before = index.searches().len();
+    let found = client.get(&path).await;
+    if found.status != StatusCode::OK || space.named_in(&found.text()) {
+        violations.push(format!("GET {path}: {}", found.text()));
+    }
+    if index.searches().len() == asked_before {
+        violations.push(format!("GET {path}: the search server was not asked"));
+    }
     let paths = [
         format!("/w/{workspace}/boards/search?q={SECRET}"),
-        format!("/w/{workspace}/search?q={SECRET}"),
         format!("/w/{workspace}/references/search?q={SECRET}"),
         format!("/w/{workspace}/boards"),
         format!("/w/{workspace}/wikis"),
@@ -453,7 +480,7 @@ async fn compare_for_who_waits(client: &Client, space: &Space) -> Vec<String> {
 async fn compare_routes(
     (who, asker): (&str, Asker),
     client: &Client,
-    space: &Space,
+    (space, index): (&Space, &FakeSearch),
     workspace: &str,
 ) -> Vec<String> {
     let user_id = client.me().await.id;
@@ -466,7 +493,7 @@ async fn compare_routes(
     let mut violations = compare_workspace_routes(client, &user_id, asker, hidden).await;
     violations.extend(compare_resource_routes(client, workspace, &space.items()).await);
     violations.extend(compare_organization_routes(client, space, own_org).await);
-    violations.extend(compare_what_is_found(client, space, workspace).await);
+    violations.extend(compare_what_is_found(client, space, workspace, index).await);
     violations.extend(compare_own_lists(client, space, own_org).await);
     violations
         .into_iter()
@@ -558,6 +585,19 @@ async fn nobody_but_its_owner_reaches_a_space_by_a_route() {
     let root = ROOT_WORKSPACE_ID;
 
     let guest = a_guest(&ts).await;
+    // A board under the root workspace that everybody asked there reads: without one
+    // their search of bodies is answered before the search server is asked.
+    let read_by_all = ts.create_board(root, ContainerType::Private).await;
+    for client in [&ts.client2, &guest, &space.owner] {
+        let member = ContainerMember {
+            container_id: read_by_all.id.clone(),
+            user_id: client.me().await.id,
+            scheme_viewer: true,
+            ..ContainerMember::default()
+        };
+        let saved = ts.app.store().save_member(&member).await;
+        saved.expect("a viewer of the board");
+    }
     let mut violations = Vec::new();
     for (who, asker, client) in [
         (
@@ -568,14 +608,14 @@ async fn nobody_but_its_owner_reaches_a_space_by_a_route() {
         ("a member of the organization", Asker::Outsider, &ts.client2),
         ("a guest of the organization", Asker::GuestElsewhere, &guest),
     ] {
-        violations.extend(compare_routes((who, asker), client, &space, root).await);
+        violations.extend(compare_routes((who, asker), client, (&space, &index), root).await);
     }
     // The owner under the workspace they share with the others: what is of the space
     // is not there, on a database without a wall as on one with.
     let owner = &space.owner;
     let under_root = [
         compare_resource_routes(owner, root, &space.items()).await,
-        compare_what_is_found(owner, &space, root).await,
+        compare_what_is_found(owner, &space, root, &index).await,
     ];
     for violation in under_root.into_iter().flatten() {
         violations.push(format!("the owner under another workspace: {violation}"));
@@ -598,7 +638,7 @@ async fn nobody_but_its_owner_reaches_a_space_by_a_route() {
     if db_type_of_the_tests() == DbType::Postgres {
         let (elsewhere, workspace) = an_administrator_elsewhere(&ts).await;
         let who = ("an administrator of another organization", Asker::Outsider);
-        violations.extend(compare_routes(who, &elsewhere, &space, &workspace).await);
+        violations.extend(compare_routes(who, &elsewhere, (&space, &index), &workspace).await);
     }
     check_the_owner_reaches_it(&space).await;
     ts.teardown().await;

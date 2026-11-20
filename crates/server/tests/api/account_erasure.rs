@@ -70,6 +70,7 @@ fn erase(username: &str) -> String {
 /// its session what a workspace that is not there is.
 async fn check_it_opens_no_own_space(th: &TestServer) {
     let space = crate::own_space::own_workspace(&th.client).await;
+    th.client.get(&format!("/w/{}", space.id)).await.check_ok();
     let hidden = th.client2.get(&format!("/w/{}", space.id)).await;
     let absent = th
         .client2
