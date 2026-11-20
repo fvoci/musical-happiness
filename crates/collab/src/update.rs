@@ -25,11 +25,16 @@ pub struct UpdateLimits {
     /// How many steps the Y library may have to take to place the changes of one
     /// update: changes of the document it walks past, and letters of changes it cuts,
     /// 256 a step ([`PLACING_STEPS`] for what a client sends); `None` for no count, for
-    /// what was taken before and is read again.
+    /// what was taken before and is read again. With a count, the deletions of each
+    /// client must also come in order, without overlapping, as an editor writes them.
     pub placing_steps: Option<u64>,
     /// How many clients the document an update leaves may name ([`MAX_CLIENTS`] for
     /// what a client sends); `None` for no count, for what was taken before.
     pub clients: Option<usize>,
+    /// How many changes one client may have in the document an update leaves, deleted
+    /// ones too ([`MAX_CLIENT_CHANGES`] for what a client sends); `None` for no count,
+    /// for what was taken before.
+    pub client_changes: Option<u64>,
 }
 
 /// How many clients a document an update a client sends leaves may name
@@ -42,12 +47,23 @@ pub struct UpdateLimits {
 /// well before.
 pub const MAX_CLIENTS: usize = 16 * 1024;
 
+/// How many changes one client may have in a document an update a client sends leaves,
+/// deleted ones too ([`UpdateLimits::client_changes`]). The Y library keeps the changes
+/// of a client in one array, and moves every later one of them each time it cuts one in
+/// two: 17,500 cuts of one letter each, as many as an update of 64 KiB holds, took 3 s
+/// where the client cut has 250,000 changes, 6.9 s at 520,000 and 26 s at 1,170,000
+/// (release build, an idle machine), and 1.1 s where as many were spread over a hundred
+/// clients. A body within its limits makes at most about 250,000 (50,000 nodes of
+/// three letters each, every other one with four marks), all of one client; what holds a
+/// document makes it again from its body well before an editor brings a client to it.
+pub const MAX_CLIENT_CHANGES: u64 = 512 * 1024;
+
 /// How many steps the Y library may take to place the changes of one update a client
 /// sends ([`UpdateLimits::placing_steps`]). A step past a change takes 50 to 110 ns
 /// where the update is read once, and is taken again every time the library reads
 /// the document again, where the change is of a client below the others of its list:
 /// as the update is taken, as what it leaves is read again, and as it is repaired. An
-/// update of 3 million steps of those, repaired, was taken in 1.7 s, and as many cuts
+/// update of 3 million steps of those, repaired, was taken in 1.9 to 2.0 s, and as many cuts
 /// of a text of a million letters of three bytes in 0.3 s (release build, an idle
 /// machine): within a fifth of the time a worker has for its answer. An editor's update
 /// is a handful of steps. Past it are updates of a hundred changes that each go into a
@@ -107,6 +123,18 @@ pub enum UpdateError {
         /// The limit.
         limit: usize,
     },
+    /// With the update a client of the document would have more changes than
+    /// [`UpdateLimits::client_changes`].
+    #[error(
+        "with the update a client of the document would have {changes} changes, more than \
+         the {limit} allowed"
+    )]
+    TooManyChanges {
+        /// The most changes a client would have, deleted ones too.
+        changes: u64,
+        /// The limit.
+        limit: u64,
+    },
     /// With the update the document would be larger than [`UpdateLimits::state_bytes`].
     #[error("with the update the document would be {size} bytes, more than the {limit} allowed")]
     DocumentTooLarge {
@@ -154,8 +182,9 @@ fn doc_of_state(state: &[u8]) -> Result<Doc, String> {
     read_state(state).map(|(doc, _)| doc)
 }
 
-/// [`doc_of_state`], with how many changes the state holds.
-fn read_state(state: &[u8]) -> Result<(Doc, u64), String> {
+/// [`doc_of_state`], with what the walk found of the state: how many changes it holds,
+/// and the most of one client.
+fn read_state(state: &[u8]) -> Result<(Doc, scan::Walked), String> {
     let walked = scan::check(state).map_err(|refusal| refusal.reason().to_owned())?;
     if walked.begins.iter().any(|(_, clock)| *clock > 0) {
         return Err(UpdateError::MissingChanges.to_string());
@@ -170,7 +199,7 @@ fn read_state(state: &[u8]) -> Result<(Doc, u64), String> {
             return Err(UpdateError::MissingChanges.to_string());
         }
     }
-    Ok((doc, walked.changes))
+    Ok((doc, walked))
 }
 
 /// Reads the bytes of an update for a document, after the walk that keeps from the
@@ -222,7 +251,7 @@ pub(crate) fn with_update(
     update: &[u8],
     limits: &UpdateLimits,
 ) -> Result<Doc, UpdateError> {
-    with_update_sized(doc, update, limits).map(|(doc, _)| doc)
+    with_update_sized(doc, update, limits).map(|settled| settled.doc)
 }
 
 /// [`with_update`], with the size of the state of what comes back.
@@ -230,7 +259,7 @@ pub(crate) fn with_update_sized(
     doc: &Doc,
     update: &[u8],
     limits: &UpdateLimits,
-) -> Result<(Doc, usize), UpdateError> {
+) -> Result<Settled, UpdateError> {
     if update.len() > limits.update_bytes {
         return Err(UpdateError::TooLarge {
             size: update.len(),
@@ -245,9 +274,10 @@ pub(crate) fn with_update_sized(
         return Err(UpdateError::TooManyClients { clients, limit });
     }
     let state = state_of(doc);
-    let (copy, changes) = read_state(&state).map_err(UpdateError::DocumentUnreadable)?;
+    let (copy, walked) = read_state(&state).map_err(UpdateError::DocumentUnreadable)?;
     if let Some(limit) = limits.placing_steps {
-        let steps = charged(&copy, (&state, changes), (update, &sent), limit)?;
+        deletions_in_order(&sent)?;
+        let steps = charged(&copy, (&state, walked.changes), (update, &sent), limit)?;
         if steps > limit {
             return Err(UpdateError::PlacedPastTooMany { steps, limit });
         }
@@ -271,6 +301,27 @@ pub(crate) fn with_update_sized(
         }
     }
     settled_sized(&copy, limits)
+}
+
+/// Refuses an update whose deletions of a client go back or overlap. The library walks
+/// the blocks of a client from the start of each range to its end, deleted or not, in
+/// the order the ranges are written: one range written 16,000 times over a client of
+/// 75,000 blocks took 7 to 13 s. Yjs writes the ranges of a client in order and merged,
+/// so an editor's update always passes.
+fn deletions_in_order(update: &Update) -> Result<(), UpdateError> {
+    for (client, ranges) in update.delete_set().iter() {
+        let mut end = 0;
+        for range in ranges.iter() {
+            if range.start < end {
+                return Err(UpdateError::Unreadable(format!(
+                    "the deletions of client {client} go back to clock {} from {end}",
+                    range.start
+                )));
+            }
+            end = range.end;
+        }
+    }
+    Ok(())
 }
 
 /// What the changes of an update are charged for the document of a state
@@ -302,9 +353,18 @@ fn charged(
 pub(crate) fn placing_steps(doc: &Doc, update: &[u8]) -> Result<u64, UpdateError> {
     let (sent, _) = read(doc, update)?;
     let state = state_of(doc);
-    let (copy, changes) = read_state(&state).map_err(UpdateError::DocumentUnreadable)?;
+    let (copy, walked) = read_state(&state).map_err(UpdateError::DocumentUnreadable)?;
     // Past a limit of nothing every update is counted list by list.
-    charged(&copy, (&state, changes), (update, &sent), 0)
+    charged(&copy, (&state, walked.changes), (update, &sent), 0)
+}
+
+/// A document as a server that stored it reads it ([`settled_sized`]), with the size
+/// of its state and the most changes of one of its clients.
+#[derive(Debug)]
+pub(crate) struct Settled {
+    pub(crate) doc: Doc,
+    pub(crate) state_bytes: usize,
+    pub(crate) client_changes: u64,
 }
 
 /// A document as a server that stored it reads it: its state within the limit of
@@ -312,14 +372,14 @@ pub(crate) fn placing_steps(doc: &Doc, update: &[u8]) -> Result<u64, UpdateError
 /// the second time ([`same_state`]).
 ///
 /// What the library took it may write in a form it does not read: the walk keeps out
-/// what is known of that, and this is for what is not. Gives the size of its state
-/// with it.
+/// what is known of that, and this is for what is not.
 ///
 /// # Errors
 ///
-/// Returns [`UpdateError::DocumentTooLarge`] past [`UpdateLimits::state_bytes`], and
+/// Returns [`UpdateError::DocumentTooLarge`] past [`UpdateLimits::state_bytes`],
+/// [`UpdateError::TooManyChanges`] past [`UpdateLimits::client_changes`], and
 /// [`UpdateError::LeavesUnreadable`] for a state that does not read again to itself.
-pub(crate) fn settled_sized(doc: &Doc, limits: &UpdateLimits) -> Result<(Doc, usize), UpdateError> {
+pub(crate) fn settled_sized(doc: &Doc, limits: &UpdateLimits) -> Result<Settled, UpdateError> {
     let state = state_of(doc);
     if state.len() > limits.state_bytes {
         return Err(UpdateError::DocumentTooLarge {
@@ -327,21 +387,34 @@ pub(crate) fn settled_sized(doc: &Doc, limits: &UpdateLimits) -> Result<(Doc, us
             limit: limits.state_bytes,
         });
     }
-    let again = doc_of_state(&state).map_err(UpdateError::LeavesUnreadable)?;
+    let (again, walked) = read_state(&state).map_err(UpdateError::LeavesUnreadable)?;
+    if let Some(limit) = limits.client_changes
+        && walked.most > limit
+    {
+        return Err(UpdateError::TooManyChanges {
+            changes: walked.most,
+            limit,
+        });
+    }
+    let settled = |doc, state: Vec<u8>| Settled {
+        doc,
+        state_bytes: state.len(),
+        client_changes: walked.most,
+    };
     let state_again = state_of(&again);
     if same_state(&state_again, &state) {
-        return Ok((again, state_again.len()));
+        return Ok(settled(again, state_again));
     }
     // A first reading may write the same document otherwise (neighbouring changes it
     // joins); a second must not.
-    let settled = doc_of_state(&state_again).map_err(UpdateError::LeavesUnreadable)?;
-    let state_settled = state_of(&settled);
+    let read_twice = doc_of_state(&state_again).map_err(UpdateError::LeavesUnreadable)?;
+    let state_settled = state_of(&read_twice);
     if !same_state(&state_settled, &state_again) {
         return Err(UpdateError::LeavesUnreadable(
             "its state reads to a document whose state reads to another".to_owned(),
         ));
     }
-    Ok((settled, state_settled.len()))
+    Ok(settled(read_twice, state_settled))
 }
 
 /// Whether two states are the same as far as can be told the same way every time: the
@@ -372,6 +445,7 @@ mod tests {
         body_bytes: 1024,
         placing_steps: Some(PLACING_STEPS),
         clients: Some(MAX_CLIENTS),
+        client_changes: Some(MAX_CLIENT_CHANGES),
     };
 
     /// A document that holds what the library writes in a form the walk refuses: a

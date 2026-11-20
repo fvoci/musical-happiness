@@ -436,3 +436,33 @@ async fn receive_update(peer: &mut Peer) {
         other => panic!("the connection that reads is sent the update: {other:?}"),
     }
 }
+
+/// The connection that sent an update that ended the worker that took it is closed;
+/// the other member's connection stays, and its user still writes.
+#[tokio::test]
+async fn the_connection_whose_update_ended_the_worker_is_closed() {
+    let th = Setup::native()
+        .configure(|config| config.collab.collab_worker_timeout_ms = 1000)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    let app = room_app(&th).await;
+    th.app.collab().stall_updates(&app, &t.card_id, 30_000);
+    one.write("never").await;
+    let closed = loop {
+        match one.incoming(Duration::from_secs(20)).await {
+            Incoming::Closed => break true,
+            Incoming::Nothing => break false,
+            _ => {}
+        }
+    };
+    assert!(closed, "the connection that sent it is closed");
+    th.app.collab().take_updates(&app, &t.card_id);
+    two.barrier(&th).await;
+    two.settle().await;
+    two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    two.write_acked("still written").await;
+    th.teardown().await;
+}

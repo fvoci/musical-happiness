@@ -1,6 +1,8 @@
 //! Editing a card's body together when the worker process dies or does not answer, and
 //! what is past the limits of a document.
 
+use std::time::{Duration, Instant};
+
 use fvoci_collab::testing::Editor;
 use fvoci_server::collab::DocChange;
 use fvoci_server::error::{AppError, Reason};
@@ -74,7 +76,7 @@ async fn a_killed_worker_leaves_the_server_answering_and_the_document_opens_agai
     // The server finds the worker gone (here: before the next request is asked of it,
     // which is not counted against its document).
     while e.app.collab().worker_pids().await[0].is_some() {
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
     let read = card(&th.client, &e.card_id).await;
@@ -156,6 +158,119 @@ async fn a_request_past_the_time_limit_ends_the_worker_and_is_refused() {
         .open(&other.app, &other.card_id)
         .await
         .expect("another card's document opens");
+    th.teardown().await;
+}
+
+/// An update that ends the worker that takes it, past the time limit or by breaking it,
+/// is in neither the document nor its log; its sender's updates are refused for a
+/// while, to other cards too, and another user of the organization still writes.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_update_that_ends_the_worker_is_not_kept_and_its_sender_is_held_back() {
+    const TIMEOUT: Duration = Duration::from_secs(3);
+    let th = Setup::native()
+        .configure(|config| {
+            config.collab.collab_worker_timeout_ms =
+                u64::try_from(TIMEOUT.as_millis()).expect("fits");
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let other = editing(&th, &paragraphs(&["elsewhere"])).await;
+    let collab = e.app.collab();
+    let body = |editor: &Editor| editor.body().map(|body| body.document().clone());
+
+    // Past the time limit.
+    let (editor, epoch) = joined(collab, &e.app, &e.card_id, 101).await;
+    let before = body(&editor);
+    let pid = worker_pid(&e).await;
+    collab.stall_updates(&e.app, &e.card_id, 30_000);
+    let ended = collab
+        .take(
+            &e.app,
+            &e.card_id,
+            epoch,
+            &e.user1,
+            &editor.append_paragraph("never"),
+        )
+        .await
+        .expect_err("it ended the worker");
+    assert_eq!(reason_of(&ended), Some("document_unavailable"));
+    collab.take_updates(&e.app, &e.card_id);
+    let (again, _) = joined(collab, &e.app, &e.card_id, 102).await;
+    assert_eq!(body(&again), before, "in neither the document nor its log");
+    assert_ne!(worker_pid(&e).await, pid, "another worker");
+
+    let (elsewhere, elsewhere_epoch) = joined(collab, &other.app, &other.card_id, 103).await;
+    let held = collab
+        .take(
+            &other.app,
+            &other.card_id,
+            elsewhere_epoch,
+            &e.user1,
+            &elsewhere.append_paragraph("held"),
+        )
+        .await
+        .expect_err("held back");
+    assert_eq!(reason_of(&held), Some("document_unavailable"));
+    let (by_another, by_another_epoch) = joined(collab, &other.app, &other.card_id, 104).await;
+    collab
+        .take(
+            &other.app,
+            &other.card_id,
+            by_another_epoch,
+            &e.user2,
+            &by_another.append_paragraph("by another"),
+        )
+        .await
+        .expect("another user of the organization writes");
+
+    // Broken: the worker is killed while it is on the update.
+    let before = body(&by_another);
+    let pid = worker_pid(&other).await;
+    collab.stall_updates(&other.app, &other.card_id, 30_000);
+    let started = Instant::now();
+    let ending = tokio::spawn({
+        let (collab, app, card_id, user) = (
+            collab.clone(),
+            other.app.clone(),
+            other.card_id.clone(),
+            e.user2.clone(),
+        );
+        let update = by_another.append_paragraph("broken");
+        async move {
+            collab
+                .take(&app, &card_id, by_another_epoch, &user, &update)
+                .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    kill(pid);
+    let ended = ending
+        .await
+        .expect("ended")
+        .expect_err("it ended the worker");
+    assert!(
+        started.elapsed() < TIMEOUT,
+        "broken, not past the time limit"
+    );
+    assert_eq!(reason_of(&ended), Some("document_unavailable"));
+    collab.take_updates(&other.app, &other.card_id);
+    let (again, again_epoch) = joined(collab, &other.app, &other.card_id, 105).await;
+    assert_eq!(body(&again), before, "in neither the document nor its log");
+    let held = collab
+        .take(
+            &other.app,
+            &other.card_id,
+            again_epoch,
+            &e.user2,
+            &again.append_paragraph("held"),
+        )
+        .await
+        .expect_err("held back");
+    assert_eq!(reason_of(&held), Some("document_unavailable"));
     th.teardown().await;
 }
 

@@ -39,6 +39,7 @@ mod refusals;
 mod removal;
 mod rooms;
 mod seat;
+mod senders;
 mod upkeep;
 mod versions;
 mod whole;
@@ -140,6 +141,13 @@ struct Inner {
     events: broadcast::Sender<DocEvent>,
     /// The connections that hold the documents together.
     rooms: rooms::Rooms,
+    /// Who sent updates that ended a worker, and is held back for it.
+    senders: senders::Senders,
+    /// The cards whose next updates have the worker stall for so many milliseconds
+    /// instead of taking them, by their key in the place: for the tests of an update
+    /// that ends its worker.
+    #[cfg(feature = "test-util")]
+    stalled_updates: Mutex<HashMap<String, u64>>,
     /// No body is written because it is due ([`Collab::leave_due_writes`]).
     #[cfg(feature = "test-util")]
     due_writes_left: std::sync::atomic::AtomicBool,
@@ -165,6 +173,32 @@ pub struct Loaded {
     /// Which making of the document it is: what the editor sends with its updates and
     /// its state vectors. One more each time the document is made again.
     pub epoch: i64,
+}
+
+/// Why an update was not taken.
+#[derive(Debug)]
+enum NotTaken {
+    /// It was refused, or cannot be taken for now: the error to answer with.
+    Refused(AppError),
+    /// It ended the worker that was taking it, killed after its time or broken: it is
+    /// in neither the document nor the log, its sender is held back ([`senders`]),
+    /// and the connection that sent it is closed. The error to answer with
+    /// (`document_unavailable`).
+    EndedWorker(AppError),
+}
+
+impl NotTaken {
+    fn into_error(self) -> AppError {
+        match self {
+            Self::Refused(error) | Self::EndedWorker(error) => error,
+        }
+    }
+}
+
+impl From<AppError> for NotTaken {
+    fn from(error: AppError) -> Self {
+        Self::Refused(error)
+    }
 }
 
 /// An update a document took.
@@ -259,6 +293,9 @@ impl Collab {
                 version_time_passed: Mutex::new(Duration::ZERO),
                 events: broadcast::channel(EVENTS).0,
                 rooms: rooms::Rooms::new(settings),
+                senders: senders::Senders::default(),
+                #[cfg(feature = "test-util")]
+                stalled_updates: Mutex::new(HashMap::new()),
                 #[cfg(feature = "test-util")]
                 due_writes_left: std::sync::atomic::AtomicBool::new(false),
                 #[cfg(feature = "test-util")]
@@ -451,9 +488,12 @@ impl Collab {
     ) -> Result<Taken, AppError> {
         self.take_while(app, card_id, epoch, user_id, update, None)
             .await
+            .map_err(NotTaken::into_error)
     }
 
-    /// A room that was deleted cannot write later, even if its card was restored.
+    /// A room that was deleted cannot write later, even if its card was restored. The
+    /// updates of a user whose update ended a worker are refused for a while
+    /// ([`senders`]) before anything else.
     async fn take_while(
         &self,
         app: &App,
@@ -462,7 +502,16 @@ impl Collab {
         user_id: &str,
         update: &[u8],
         gone: Option<CancellationToken>,
-    ) -> Result<Taken, AppError> {
+    ) -> Result<Taken, NotTaken> {
+        let tenant = app.store().tenant();
+        if self
+            .inner
+            .senders
+            .held_until(tenant, user_id, tokio::time::Instant::now())
+            .is_some()
+        {
+            return Err(refusals::held_back().into());
+        }
         self.held_to_update_bytes(update)?;
         let (user_id, update) = (user_id.to_owned(), update.to_vec());
         self.on_slot_while(
@@ -471,12 +520,41 @@ impl Collab {
             gone,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
-                collab
+                Ok(collab
                     .take_in(app, card_id, slot, epoch, &user_id, &update)
-                    .await
+                    .await)
             },
         )
-        .await
+        .await?
+    }
+
+    /// Has the worker stall for `millis` milliseconds instead of taking the next
+    /// updates of a card of `app`'s organization, until [`Collab::take_updates`]: for
+    /// the tests of an update that ends its worker.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub fn stall_updates(&self, app: &App, card_id: &str, millis: u64) {
+        let key = place::key_of(app.store().tenant(), card_id);
+        let mut stalled = self.inner.stalled_updates.lock().expect("not poisoned");
+        stalled.insert(key, millis);
+    }
+
+    /// Has the worker take the updates of a card again ([`Collab::stall_updates`]).
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub fn take_updates(&self, app: &App, card_id: &str) {
+        let key = place::key_of(app.store().tenant(), card_id);
+        let mut stalled = self.inner.stalled_updates.lock().expect("not poisoned");
+        stalled.remove(&key);
+    }
+
+    /// How long the worker is to stall instead of taking an update of a card
+    /// ([`Collab::stall_updates`]).
+    #[cfg(feature = "test-util")]
+    fn stall_for(&self, app: &App, card_id: &str) -> Option<u64> {
+        let key = place::key_of(app.store().tenant(), card_id);
+        let stalled = self.inner.stalled_updates.lock().expect("not poisoned");
+        stalled.get(&key).copied()
     }
 
     /// Writes the body of a card's document to the card now, if it has updates whose

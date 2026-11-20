@@ -29,6 +29,9 @@ pub struct Changed {
     pub repair: Repair,
     /// The size of its state ([`BodyDoc::state`]), in bytes.
     pub state_bytes: usize,
+    /// The most changes one of its clients has, deleted ones too
+    /// ([`crate::MAX_CLIENT_CHANGES`]).
+    pub client_changes: u64,
 }
 
 impl Default for BodyDoc {
@@ -84,6 +87,16 @@ impl BodyDoc {
         self.doc.transact().state_vector().len()
     }
 
+    /// The most changes one of its clients has, deleted ones too
+    /// ([`crate::MAX_CLIENT_CHANGES`]), counted in its state: for a document that was
+    /// not taken ([`BodyDoc::from_body`]), which [`Changed::client_changes`] says of.
+    #[must_use]
+    pub fn client_changes(&self) -> u64 {
+        // A state this crate wrote reads; were it not to, it would count as past any
+        // limit.
+        crate::scan::check(&self.state()).map_or(u64::MAX, |walked| walked.most)
+    }
+
     /// The state vector of the document, version 1: what it has of each client.
     #[must_use]
     pub fn state_vector(&self) -> Vec<u8> {
@@ -117,6 +130,7 @@ impl From<crate::Taken> for Changed {
             doc: BodyDoc { doc: taken.doc },
             repair: taken.repair,
             state_bytes: taken.state_bytes,
+            client_changes: taken.client_changes,
         }
     }
 }

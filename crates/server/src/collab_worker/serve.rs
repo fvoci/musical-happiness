@@ -5,7 +5,9 @@ use std::io::{Read, Write};
 #[cfg(feature = "test-util")]
 use std::time::Duration;
 
-use fvoci_collab::{BodyDoc, MAX_CLIENTS, PLACING_STEPS, TakeError, UpdateError, UpdateLimits};
+use fvoci_collab::{
+    BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, TakeError, UpdateError, UpdateLimits,
+};
 use fvoci_model::{Body, BodyError};
 
 use super::frame::{FrameError, read_frame, write_frame};
@@ -82,6 +84,7 @@ impl Worker {
                 body_bytes: size(limits.body_bytes),
                 placing_steps: Some(PLACING_STEPS),
                 clients: Some(MAX_CLIENTS),
+                client_changes: Some(MAX_CLIENT_CHANGES),
             },
             docs: HashMap::new(),
             held_bytes: 0,
@@ -133,6 +136,7 @@ impl Worker {
             .map_err(|error| take_refused(&error))?;
         let state_bytes = u64::try_from(changed.state_bytes).unwrap_or(u64::MAX);
         let clients = count(changed.doc.clients());
+        let client_changes = changed.client_changes;
         let files = changed
             .repair
             .body
@@ -145,6 +149,7 @@ impl Worker {
             repair: changed.repair.update,
             state_bytes,
             clients,
+            client_changes,
             files,
         })
     }
@@ -160,6 +165,7 @@ impl Worker {
             body_bytes: self.update_limits.body_bytes,
             placing_steps: None,
             clients: None,
+            client_changes: None,
         }
     }
 
@@ -231,7 +237,8 @@ impl Worker {
                     .map_err(|error| take_refused(&error))?;
                 let repaired = (changed.repair.deleted > 0).then(|| changed.doc.state());
                 let state_bytes = size_of(repaired.as_deref().unwrap_or(&stored));
-                (changed.doc, (repaired, state_bytes))
+                let client_changes = changed.client_changes;
+                (changed.doc, (repaired, state_bytes, client_changes))
             }
             Source::Body(json) => {
                 let body = json
@@ -247,16 +254,18 @@ impl Worker {
                         "the document of the body is larger than the limit",
                     ));
                 }
-                (made, (Some(state), state_bytes))
+                let client_changes = made.client_changes();
+                (made, (Some(state), state_bytes, client_changes))
             }
         };
-        let (state, state_bytes) = state;
+        let (state, state_bytes, client_changes) = state;
         let clients = count(opened.clients());
         self.hold(doc, opened, state_bytes, share)?;
         Ok(Answer::Opened {
             state,
             state_bytes,
             clients,
+            client_changes,
         })
     }
 }
@@ -287,9 +296,12 @@ fn take_refused(error: &TakeError) -> Refused {
         TakeError::Update(UpdateError::TooLarge { .. }) => Refusal::UpdateTooLarge,
         TakeError::Update(UpdateError::Unreadable(_)) => Refusal::Unreadable,
         TakeError::Update(UpdateError::MissingChanges) => Refusal::MissingChanges,
-        // A document of too many clients is one too large to read in time.
+        // A document of too many clients, or of a client of too many changes, is one too
+        // large to work on in time.
         TakeError::Update(
-            UpdateError::DocumentTooLarge { .. } | UpdateError::TooManyClients { .. },
+            UpdateError::DocumentTooLarge { .. }
+            | UpdateError::TooManyClients { .. }
+            | UpdateError::TooManyChanges { .. },
         ) => Refusal::DocumentTooLarge,
         TakeError::Body(BodyError::TooLarge | BodyError::TooManyNodes | BodyError::TooDeep)
         | TakeError::BodyTooLarge { .. } => Refusal::BodyTooLarge,

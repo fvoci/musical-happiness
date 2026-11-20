@@ -7,10 +7,11 @@ use fvoci_store::{BodyBefore, StoreError, body_digest};
 use serde_json::Value;
 use tokio::time::{Instant, sleep_until};
 
-use super::open::unexpected;
-use super::place::{Held, OpenDoc, Opening, died_over};
+use super::open::{Made, unexpected};
+use super::place::{Held, OpenDoc, Opening, Unanswered, died_over};
 use super::versions::Versioned;
-use super::{Collab, DocChange, FOLD_AFTER, REMAKE_RETRY, Taken, bytes};
+use super::worker::Blame;
+use super::{Collab, DocChange, FOLD_AFTER, NotTaken, REMAKE_RETRY, Taken, bytes};
 use crate::app::App;
 use crate::collab_worker::wire::{Answer, Request};
 use crate::error::{AppError, Reason};
@@ -22,7 +23,8 @@ const PROJECTION_TRIES: u32 = 3;
 impl Collab {
     /// Takes an update into the document of a held slot and logs it with what a repair
     /// deleted; a document whose log could not be written is closed, so that the next
-    /// request opens it as it is stored.
+    /// request opens it as it is stored. An update that ends the worker is put down to
+    /// its sender ([`super::senders`]).
     pub(super) async fn take_in(
         &self,
         app: &App,
@@ -31,34 +33,57 @@ impl Collab {
         epoch: i64,
         user_id: &str,
         update: &[u8],
-    ) -> Result<Taken, AppError> {
-        let request = |doc| Request::Take {
-            doc,
-            update: update.to_vec(),
-        };
-        self.at_epoch(app, card_id, slot, epoch).await?;
-        let answer = match self.ask(app, card_id, slot, request).await {
-            Ok(answer) => answer,
-            Err(refused) => {
-                self.remake_refused(app, card_id, slot, &refused).await;
-                return Err(refused);
+    ) -> Result<Taken, NotTaken> {
+        #[cfg(feature = "test-util")]
+        let stall = self.stall_for(app, card_id);
+        let request = |doc| {
+            #[cfg(feature = "test-util")]
+            if let Some(millis) = stall {
+                return Request::Stall(millis);
+            }
+            Request::Take {
+                doc,
+                update: update.to_vec(),
             }
         };
-        let (repair, state_bytes, clients, files) = match answer {
-            Answer::Taken {
-                repair,
-                state_bytes,
-                clients,
-                files,
-            } => (repair, state_bytes, clients, files),
-            other => return Err(unexpected(&other)),
+        self.at_epoch(app, card_id, slot, epoch).await?;
+        let answer = match self
+            .ask_blaming(app, card_id, slot, request, Blame::Sender)
+            .await
+        {
+            Ok(answer) => answer,
+            Err(Unanswered::Refused(refused)) => {
+                self.remake_refused(app, card_id, slot, &refused).await;
+                return Err(refused.into());
+            }
+            Err(Unanswered::Died(error)) => {
+                tracing::warn!(
+                    card_id,
+                    user_id,
+                    "an update ended the collab worker that took it; its sender is held back"
+                );
+                self.inner
+                    .senders
+                    .ended_worker(app.store().tenant(), user_id, Instant::now());
+                return Err(NotTaken::EndedWorker(error));
+            }
+        };
+        let Answer::Taken {
+            repair,
+            state_bytes,
+            clients,
+            client_changes,
+            files,
+        } = answer
+        else {
+            return Err(unexpected(&answer).into());
         };
         if super::place::still_at_epoch(slot, epoch).is_err() {
             // Made again while the update was asked (a worker that ended, and a card
             // written past the document): the new document took an update made against
             // the one before, which is not logged, so it is closed.
             self.forget(slot).await;
-            return Err(super::refusals::out_of_step());
+            return Err(super::refusals::out_of_step().into());
         }
         let mut entries: Vec<(&[u8], &str)> = vec![(update, user_id)];
         if let Some(repair) = &repair {
@@ -83,7 +108,7 @@ impl Collab {
             .await;
         let seqs = match logged {
             Ok(seqs) => seqs,
-            Err(error) => return Err(self.not_logged(app, card_id, slot, error).await),
+            Err(error) => return Err(self.not_logged(app, card_id, slot, error).await.into()),
         };
         if body_before == BodyBefore::Keep {
             // The store kept the body the card held, by those put down before.
@@ -94,6 +119,7 @@ impl Collab {
         open.log_end = seqs.last().copied().unwrap_or(open.log_end);
         open.state_bytes = state_bytes;
         open.clients = clients;
+        open.client_changes = client_changes;
         user_id.clone_into(&mut open.last_writer);
         open.last_update = now;
         open.first_unwritten.get_or_insert(now);
@@ -357,7 +383,12 @@ impl Collab {
         self.close_number(open.worker, open.generation, open.number)
             .await;
         let number = self.next_number();
-        let (generation, state, state_bytes) = self
+        let Made {
+            generation,
+            state,
+            state_bytes,
+            client_changes,
+        } = self
             .open_from_body(open.worker, number, body, open.share())
             .await?;
         open.generation = generation;
@@ -374,6 +405,7 @@ impl Collab {
         open.made_bytes = state_bytes;
         // The writer of the body.
         open.clients = 1;
+        open.client_changes = client_changes;
         open.first_unwritten = None;
         Ok(())
     }

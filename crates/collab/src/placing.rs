@@ -43,15 +43,17 @@
 //! `ItemContent::splice`): it counts letters from the start of the change to the cut,
 //! a nanosecond each, and copies both halves. Each such cut is charged the length of
 //! the change it falls in, a step for every [`PLACES_PER_STEP`] letters, and a run of
-//! values [`VALUE_PLACES`] times as much: two thousand deletions of a letter each, from
-//! the end of a text of four million back to its start, took 25 seconds before they
-//! were charged.
+//! values [`VALUE_PLACES`] times as much: fourteen thousand deletions of a letter each,
+//! from the end of a text of four million back to its start, took 25 seconds before
+//! they were charged (deletions that go back are refused for their order now).
 //!
 //! The lists are read from the document's state, which names for each change its
 //! neighbours and, where it names none, its parent: a change belongs to the list of
 //! the neighbour it names. Reading them is a walk of the whole state, so it is left out
-//! where every change that is charged a list, charged the whole document, is within
-//! the limit already: an editor's update, which has a handful.
+//! where every change that is charged a list, charged the whole document, and every
+//! cut, charged as a run of values as long as the longest change of the document, are
+//! within the limit already: an editor's update, which has a handful, unless the
+//! document holds a change of more than about 800,000 letters.
 //!
 //! [`UpdateLimits::placing_steps`]: crate::UpdateLimits::placing_steps
 

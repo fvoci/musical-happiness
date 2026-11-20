@@ -42,6 +42,7 @@ impl Hub {
         let (mut docs, docs_outbox) = app.collab().seat(app, who.asker());
         let token = who.token.take();
         let docs_overrun = docs.overrun();
+        let docs_ended_worker = docs.ended_worker();
         self.watch_access_changes(app);
 
         let id = self.add_listener(Listener {
@@ -101,6 +102,7 @@ impl Hub {
             _ = &mut writer => Disconnect::ReadError,
             never = Box::pin(self.presence_loop(app, id)) => match never {},
             () = docs_overrun.cancelled() => Disconnect::SlowConsumer,
+            () = docs_ended_worker.cancelled() => Disconnect::EndedWorker,
             reason = self.read_commands(app, id, &mut inbound, &mut docs) => reason,
             // The session ended by its idle or absolute limit, which nobody announces:
             // the sessions that ended so are deleted only by the hourly clean-up.

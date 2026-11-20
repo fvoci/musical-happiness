@@ -5,6 +5,7 @@
 //! ```text
 //! cargo test --release -p fvoci-collab --test cost -- --ignored --nocapture times
 //! cargo test --release -p fvoci-collab --test cost -- --ignored --nocapture memory
+//! cargo test --release -p fvoci-collab --test cost -- --ignored --nocapture honest
 //! ```
 //!
 //! The times are of one thread.
@@ -17,12 +18,13 @@ use std::time::{Duration, Instant};
 
 use fvoci_collab::testing::{changes_of, placing_steps, to_body};
 use fvoci_collab::{
-    MAX_CLIENTS, PLACING_STEPS, UpdateLimits, from_body, from_state, new_doc, state_of, take_update,
+    BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, UpdateLimits, from_body, from_state,
+    new_doc, state_of, take_update,
 };
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES};
 use serde_json::{Value, json};
 use support::wire::{Change, Content, Parent, Update};
-use support::{body_of, edited};
+use support::{body_of, edited, honest};
 use yrs::{Doc, XmlElementPrelim, XmlFragment, XmlTextPrelim};
 
 /// The limits the server holds an update to with its settings as they come.
@@ -32,6 +34,7 @@ const LIMITS: UpdateLimits = UpdateLimits {
     body_bytes: BODY_MAX_BYTES,
     placing_steps: Some(PLACING_STEPS),
     clients: Some(MAX_CLIENTS),
+    client_changes: Some(MAX_CLIENT_CHANGES),
 };
 
 /// The nodes a shape leaves free: a paragraph with a text is appended to it.
@@ -162,6 +165,42 @@ fn times() {
     }
 }
 
+/// How long what editors send to the largest documents takes ([`support::honest`]),
+/// and making such a document again from its body, as the restore of a version does:
+/// each within [`honest::LONGEST`].
+#[test]
+#[ignore = "a measurement, run by name in a release build"]
+fn honest() {
+    println!("| document | edit | bytes | ms |");
+    println!("| --- | --- | --- | --- |");
+    let mut slow = Vec::new();
+    for (name, document) in honest::bodies() {
+        let body = body_of(&document);
+        let (made, _) = timed(|| {
+            let made = BodyDoc::from_body(Some(&body));
+            (made.state(), made.client_changes())
+        });
+        println!("| {name} | made again from its body | | {} |", millis(made));
+        if made > honest::LONGEST {
+            slow.push((name, "made again from its body"));
+        }
+        let doc = honest::document(&document);
+        for edit in honest::edits(&doc, &LIMITS) {
+            let (took, _) = timed(|| take_update(&edit.doc, &edit.update, &LIMITS).expect("taken"));
+            println!(
+                "| {name} | {} | {} | {} |",
+                edit.name,
+                edit.update.len(),
+                millis(took)
+            );
+            if took > honest::LONGEST {
+                slow.push((name, edit.name));
+            }
+        }
+    }
+    assert!(slow.is_empty(), "past {:?}: {slow:?}", honest::LONGEST);
+}
+
 fn mega(bytes: usize) -> f64 {
     f64::from(u32::try_from(bytes).expect("a size of megabytes")) / 1e6
 }
@@ -198,6 +237,7 @@ fn typed_in_order(children: usize) -> Doc {
         state_bytes: usize::MAX,
         placing_steps: None,
         clients: None,
+        client_changes: None,
         ..LIMITS
     };
     take_update(&new_doc(), &Update::of(7, 0, changes).bytes(), &roomy)

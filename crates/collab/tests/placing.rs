@@ -475,6 +475,7 @@ fn what_was_taken_before_is_read_again() {
     let before = UpdateLimits {
         placing_steps: None,
         clients: None,
+        client_changes: None,
         ..ROOMY
     };
     let taken = take_update(&doc, &update, &before).expect("taken without the count");
@@ -549,8 +550,9 @@ fn refused_past_the_limit(doc: &Doc, update: &[u8]) -> Duration {
 /// The library cuts a change in two where a deletion ends inside it, counting its
 /// letters from its start to the cut and copying both halves: each cut is charged the
 /// length of the change it falls in, and so many cuts of a long text are refused
-/// before the library is asked, from its end back to its start too, which it takes the
-/// longest for. As many in short paragraphs are taken.
+/// before the library is asked. From its end back to its start, which the library takes
+/// the longest for, they are refused for their order before they are counted. As many
+/// in short paragraphs are taken.
 #[test]
 fn cuts_inside_a_long_text_are_charged_its_length() {
     const LETTERS: u64 = 400_000;
@@ -568,8 +570,18 @@ fn cuts_inside_a_long_text_are_charged_its_length() {
         "{longer} steps in twice the text, {steps} in it"
     );
 
-    let backwards = deleting(spread(DELETIONS).rev());
-    let took = refused_past_the_limit(&doc, &backwards);
+    let took = refused_past_the_limit(&doc, &deleting(spread(DELETIONS)));
+    assert!(took < Duration::from_secs(1), "refused in {took:?}");
+    let start = Instant::now();
+    let backwards = take_update(&doc, &deleting(spread(DELETIONS).rev()), &ROOMY).map(|_| ());
+    let took = start.elapsed();
+    assert!(
+        matches!(
+            backwards,
+            Err(TakeError::Update(UpdateError::Unreadable(_)))
+        ),
+        "{backwards:?}"
+    );
     assert!(took < Duration::from_secs(1), "refused in {took:?}");
 
     // As many letters deleted, one in each of as many paragraphs: what a replacement of
@@ -620,6 +632,53 @@ fn cuts_inside_a_run_of_values_are_charged_more_than_inside_letters() {
     let spread = (1..=many).map(|at| 1 + at * (VALUES / (many + 1)));
     let took = refused_past_the_limit(&doc, &deleting(spread));
     assert!(took < Duration::from_secs(1), "refused in {took:?}");
+}
+
+/// The library walks the blocks of a client from the start of each range of its
+/// deletions to its end, in the order the ranges are written: ranges that go back or
+/// overlap make it walk the same blocks again and again, and are refused. Ranges in
+/// order are taken, also where one ends where the next begins. A client named twice is
+/// read as the library reads it: the second time alone.
+#[test]
+fn deletions_of_a_client_that_go_back_or_overlap_are_refused() {
+    const LETTERS: u64 = 1000;
+    let doc = one_text(LETTERS);
+    // The letters are clocks 2 on.
+    let taken = |deleted: Vec<(u64, Vec<(u64, u64)>)>| {
+        let update = Update {
+            runs: Vec::new(),
+            deleted,
+        };
+        take_update(&doc, &update.bytes(), &ROOMY).map(|taken| {
+            let body = to_body(&taken.doc).expect("a body").expect("not empty");
+            body.document()["content"][0]["content"][0]["text"]
+                .as_str()
+                .map_or(0, str::len)
+        })
+    };
+    let refused = |deleted: Vec<(u64, Vec<(u64, u64)>)>| {
+        let refused = taken(deleted.clone());
+        assert!(
+            matches!(refused, Err(TakeError::Update(UpdateError::Unreadable(_)))),
+            "{deleted:?}: {refused:?}"
+        );
+    };
+    let left = taken(vec![(WRITER, vec![(10, 1), (11, 1), (20, 5)])]).expect("in order");
+    assert_eq!(left, 993);
+    refused(vec![(WRITER, vec![(10, 5), (12, 1)])]);
+    refused(vec![(WRITER, vec![(20, 1), (10, 1)])]);
+    refused(vec![(WRITER, vec![(2, LETTERS); 1000])]);
+
+    let left = taken(vec![
+        (WRITER, vec![(2, LETTERS); 1000]),
+        (WRITER, vec![(10, 1)]),
+    ])
+    .expect("the second alone is read");
+    assert_eq!(left, 999);
+    refused(vec![
+        (WRITER, vec![(10, 1)]),
+        (WRITER, vec![(20, 1), (10, 1)]),
+    ]);
 }
 
 /// A document of `children` empty paragraphs typed by `client` one after the other:

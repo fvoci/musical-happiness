@@ -371,6 +371,43 @@ fn an_update_is_refused_past_the_clients_a_document_may_name() {
     with_update(&hundred, &again.bytes(), &limits).expect("a client it names");
 }
 
+/// The changes of a client are counted in the document an update leaves, deleted ones
+/// too, and an update that leaves a client with more than the limit is refused: the
+/// library moves every later change of a client each time it cuts one.
+#[test]
+fn an_update_is_refused_past_the_changes_a_client_may_have() {
+    let limits = UpdateLimits {
+        client_changes: Some(100),
+        ..ROOMY
+    };
+    // Changes of deleted content that each name the body as their parent and no
+    // neighbour: none is joined to the one before it.
+    let of = |clock: u64, count: usize| {
+        support::wire::Update::of(
+            1,
+            clock,
+            vec![Change::under(Parent::body(), Content::Deleted(1)); count],
+        )
+        .bytes()
+    };
+    let sixty = with_update(&new_doc(), &of(0, 60), &limits).expect("60");
+    let hundred = with_update(&sixty, &of(60, 40), &limits).expect("100");
+    assert_eq!(
+        with_update(&hundred, &of(100, 1), &limits).err(),
+        Some(UpdateError::TooManyChanges {
+            changes: 101,
+            limit: 100,
+        })
+    );
+    // Another client's changes are its own.
+    let other = support::wire::Update::of(
+        2,
+        0,
+        vec![Change::under(Parent::body(), Content::Deleted(1)); 100],
+    );
+    with_update(&hundred, &other.bytes(), &limits).expect("another client's hundred");
+}
+
 /// An update of a hundred thousand clients is walked in the time it takes to read it,
 /// and refused before the document is read, which would take the square of them.
 #[test]

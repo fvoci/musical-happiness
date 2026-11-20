@@ -42,7 +42,9 @@ pub use build::{from_body, from_body_by, new_doc};
 pub use doc::{BodyDoc, Changed};
 pub use repair::Repair;
 pub use take::{TakeError, Taken, from_state, take_update};
-pub use update::{MAX_CLIENTS, PLACING_STEPS, UpdateError, UpdateLimits, state_of};
+pub use update::{
+    MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, UpdateError, UpdateLimits, state_of,
+};
 pub use yrs;
 
 /// The steps of [`take_update`] one by one, for this crate's tests: what each does

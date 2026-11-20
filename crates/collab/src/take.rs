@@ -8,7 +8,7 @@ use yrs::Doc;
 use crate::build::new_doc;
 use crate::project::to_body;
 use crate::repair::{Repair, repaired};
-use crate::update::{UpdateError, UpdateLimits, settled_sized, with_update_sized};
+use crate::update::{Settled, UpdateError, UpdateLimits, settled_sized, with_update_sized};
 
 /// A document that took an update, with its body.
 #[derive(Debug)]
@@ -22,6 +22,9 @@ pub struct Taken {
     pub repair: Repair,
     /// The size of the state of `doc` ([`crate::state_of`]), in bytes.
     pub state_bytes: usize,
+    /// The most changes one client has in `doc`, deleted ones too
+    /// ([`UpdateLimits::client_changes`]).
+    pub client_changes: u64,
 }
 
 /// Why an update, or a stored state, is not taken. The document it was given for is as
@@ -61,7 +64,9 @@ pub enum TakeError {
 /// others of its list by walking past them, so that an update made for it has every
 /// change walk a long list (59 kB of changes that each named the root of 50,000
 /// children took 12 seconds): [`UpdateLimits::placing_steps`] is what an update may
-/// be made to walk, and the most it takes is under two seconds. What calls this keeps
+/// be made to walk, and an update made to walk that much took up to two seconds. Not
+/// every way to make the library slow is counted: what calls this also gives it a time
+/// to take an update in, and holds back the sender of one that takes longer. It keeps
 /// [`UpdateLimits::update_bytes`] and [`UpdateLimits::state_bytes`] small and does not
 /// hold anything others wait for while it runs.
 ///
@@ -106,6 +111,7 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
         update_bytes: state.len(),
         placing_steps: None,
         clients: None,
+        client_changes: None,
         ..*limits
     };
     take_update(&new_doc(), state, &limits)
@@ -119,14 +125,14 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
 /// than when it deletes in a document it holds. What is given back is what a server
 /// that stored it reads, with the body of that; if that is no body, the update is
 /// refused.
-fn to_taken((with, with_bytes): (Doc, usize), limits: &UpdateLimits) -> Result<Taken, TakeError> {
-    let (mut repair, repaired) = repaired(&with)?;
-    let (doc, state_bytes) = match repaired {
-        None => (with, with_bytes),
+fn to_taken(with: Settled, limits: &UpdateLimits) -> Result<Taken, TakeError> {
+    let (mut repair, repaired) = repaired(&with.doc)?;
+    let settled = match repaired {
+        None => with,
         Some(copy) => {
-            let (again, again_bytes) = settled_sized(&copy, limits)?;
-            repair.body = to_body(&again)?;
-            (again, again_bytes)
+            let again = settled_sized(&copy, limits)?;
+            repair.body = to_body(&again.doc)?;
+            again
         }
     };
     if let Some(body) = &repair.body {
@@ -139,9 +145,10 @@ fn to_taken((with, with_bytes): (Doc, usize), limits: &UpdateLimits) -> Result<T
         }
     }
     Ok(Taken {
-        doc,
+        doc: settled.doc,
         repair,
-        state_bytes,
+        state_bytes: settled.state_bytes,
+        client_changes: settled.client_changes,
     })
 }
 

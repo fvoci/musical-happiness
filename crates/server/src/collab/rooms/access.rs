@@ -507,6 +507,8 @@ mod tests {
 
     use super::super::{Joined, Turn};
     use super::*;
+    use tokio_util::sync::CancellationToken;
+
     use crate::collab::queue::{Capacity, Queue};
 
     /// A room with one member, `user`'s connection.
@@ -520,6 +522,7 @@ mod tests {
                 bytes: 1024,
             }),
             joined: Mutex::new(Joined::default()),
+            ended_worker: CancellationToken::new(),
         });
         Turn {
             members: vec![Member {

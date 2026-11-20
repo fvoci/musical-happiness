@@ -60,7 +60,12 @@ impl Collab {
         worker: usize,
         number: DocNumber,
     ) -> Result<OpenDoc, Opening> {
-        let (generation, state, state_bytes) = self
+        let Made {
+            generation,
+            state,
+            state_bytes,
+            client_changes,
+        } = self
             .open_from_body(worker, number, block.body.as_ref(), Share::Kept)
             .await?;
         let digest = body_digest(block.body.as_ref());
@@ -85,6 +90,7 @@ impl Collab {
             made_bytes: state_bytes,
             // The writer of the body.
             clients: 1,
+            client_changes,
             last_writer: block.modified_by.clone(),
             first_unwritten: None,
             last_update: Instant::now(),
@@ -137,6 +143,7 @@ impl Collab {
             state_bytes: 0,
             made_bytes: 0,
             clients: 0,
+            client_changes: 0,
             // Who sent the last update logged, which the fold of the log keeps.
             last_writer: if stored.last_writer.is_empty() {
                 block.modified_by.clone()
@@ -229,6 +236,7 @@ impl Collab {
                 state,
                 state_bytes,
                 clients,
+                client_changes,
             },
         ) = opened
         else {
@@ -237,6 +245,7 @@ impl Collab {
         open.generation = generation;
         open.state_bytes = state_bytes;
         open.clients = clients;
+        open.client_changes = client_changes;
         let state_seq = open.state_seq;
         self.replay(app, card_id, open, state, state_seq, updates)
             .await
@@ -274,11 +283,13 @@ impl Collab {
                     Answer::Taken {
                         state_bytes,
                         clients,
+                        client_changes,
                         ..
                     },
                 ) => {
                     open.state_bytes = state_bytes;
                     open.clients = clients;
+                    open.client_changes = client_changes;
                 }
                 (_, other) => return Err(unexpected(&other).into()),
             }
@@ -289,15 +300,14 @@ impl Collab {
         Ok(())
     }
 
-    /// Opens a document made from a body in a worker, counted in `share`: its
-    /// generation, state and size.
+    /// Opens a document made from a body in a worker, counted in `share`.
     pub(super) async fn open_from_body(
         &self,
         worker: usize,
         number: DocNumber,
         body: Option<&Body>,
         share: Share,
-    ) -> Result<(u64, Vec<u8>, u64), Opening> {
+    ) -> Result<Made, Opening> {
         let json = body
             .map(|body| serde_json::to_vec(body.document()))
             .transpose()
@@ -313,9 +323,15 @@ impl Collab {
                 Answer::Opened {
                     state: Some(state),
                     state_bytes,
+                    client_changes,
                     ..
                 },
-            ) => Ok((generation, state, state_bytes)),
+            ) => Ok(Made {
+                generation,
+                state,
+                state_bytes,
+                client_changes,
+            }),
             (_, other) => Err(unexpected(&other).into()),
         }
     }
@@ -391,4 +407,17 @@ fn refused_for_good(failed: &Opening) -> bool {
         error.reason(),
         Some(Reason::UpdateRefused | Reason::UpdateOutOfStep)
     )
+}
+
+/// A document made from a body in a worker ([`Collab::open_from_body`]).
+#[derive(Debug)]
+pub(super) struct Made {
+    /// The generation of the worker that holds it.
+    pub(super) generation: u64,
+    /// Its state.
+    pub(super) state: Vec<u8>,
+    /// The size of its state.
+    pub(super) state_bytes: u64,
+    /// The most changes of one of its clients ([`OpenDoc::client_changes`]).
+    pub(super) client_changes: u64,
 }

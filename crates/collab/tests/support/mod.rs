@@ -7,6 +7,7 @@
 )]
 
 pub(crate) mod explore;
+pub(crate) mod honest;
 pub(crate) mod random;
 pub(crate) mod wire;
 
@@ -27,6 +28,7 @@ pub(crate) const ROOMY: UpdateLimits = UpdateLimits {
     body_bytes: 64 * 1024 * 1024,
     placing_steps: Some(fvoci_collab::PLACING_STEPS),
     clients: Some(fvoci_collab::MAX_CLIENTS),
+    client_changes: Some(fvoci_collab::MAX_CLIENT_CHANGES),
 };
 
 /// A file of the contracts both sides read.

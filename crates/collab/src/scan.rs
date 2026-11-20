@@ -158,6 +158,8 @@ pub(crate) struct Walked {
     pub(crate) begins: Vec<Id>,
     /// How many changes it holds.
     pub(crate) changes: u64,
+    /// The most changes it holds of one client.
+    pub(crate) most: u64,
 }
 
 /// Walks an update, and gives the clock at which each client's changes in it begin.
@@ -191,6 +193,7 @@ pub(crate) fn walk<'bytes>(
     // the square of that.
     let mut clients: HashSet<u64> = HashSet::new();
     let mut count = 0_u64;
+    let mut most = 0_u64;
     for _ in 0..walk.count()? {
         let changes = walk.count()?;
         let client = walk.number(MAX_CLIENT)?;
@@ -213,6 +216,7 @@ pub(crate) fn walk<'bytes>(
         }
         begins.push((client, clock));
         count = count.saturating_add(changes);
+        most = most.max(changes);
     }
     // What was deleted: for each client, stretches of its clock.
     for _ in 0..walk.count()? {
@@ -228,6 +232,7 @@ pub(crate) fn walk<'bytes>(
     Ok(Walked {
         begins,
         changes: count,
+        most,
     })
 }
 

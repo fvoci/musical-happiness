@@ -50,7 +50,7 @@ use super::frame::{self, Sync};
 use super::messages::{self, reason_of};
 use super::queue::{Capacity, NotQueued, Queue, Queued};
 use super::versions::Left;
-use super::{Collab, DocChange, DocEvent, Loaded, admission, refusals};
+use super::{Collab, DocChange, DocEvent, Loaded, NotTaken, admission, refusals};
 use crate::app::{App, Asker};
 use crate::config::collab::CollabSettings;
 use crate::error::{AppError, Reason};
@@ -151,6 +151,9 @@ pub(super) struct Connection {
     pub(super) made_through: Option<String>,
     pub(super) queue: Queue,
     joined: Mutex<Joined>,
+    /// Cancelled when the connection is to be closed: an update it sent ended the
+    /// worker that took it.
+    pub(super) ended_worker: CancellationToken,
 }
 
 /// The rooms a connection is in.
@@ -428,6 +431,7 @@ impl Collab {
                     .saturating_mul(QUEUE_DOCUMENTS),
             }),
             joined: Mutex::new(Joined::default()),
+            ended_worker: CancellationToken::new(),
         })
     }
 
@@ -832,7 +836,12 @@ impl Collab {
                     Some(room.gone.clone()),
                 )
                 .await
-                .map_err(|error| {
+                .map_err(|not_taken| {
+                    if matches!(not_taken, NotTaken::EndedWorker(_)) {
+                        // Answered first, and closed once the step is done.
+                        connection.ended_worker.cancel();
+                    }
+                    let error = not_taken.into_error();
                     error.log();
                     reason_of(&error)
                 }),
