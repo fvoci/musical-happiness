@@ -8,7 +8,7 @@ use serde_json::Value;
 use tokio::time::{Instant, sleep_until};
 
 use super::open::{Made, unexpected};
-use super::place::{Asker, Held, OpenDoc, Opening, Unanswered, died_over};
+use super::place::{AskedFor, Held, OpenDoc, Opening, Unanswered, died_over};
 use super::versions::Versioned;
 use super::{Collab, DocChange, FOLD_AFTER, REMAKE_RETRY, Taken, bytes};
 use crate::app::App;
@@ -47,7 +47,7 @@ impl Collab {
         };
         self.at_epoch(app, card_id, slot, epoch).await?;
         let answer = match self
-            .ask_as(app, card_id, slot, request, Asker::Sender(user_id))
+            .ask_for(app, card_id, slot, request, AskedFor::Sender(user_id))
             .await
         {
             Err(Unanswered::Refused(refused)) => {

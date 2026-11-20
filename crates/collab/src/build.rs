@@ -135,7 +135,8 @@ fn push_element(txn: &mut TransactionMut<'_>, parent: &impl XmlFragment, node: &
 /// that what is written does not depend on the order in which a map happens to hand its
 /// members out. A pass goes along the text once: written letter by letter at an index,
 /// the library would walk the text from its start for each (8,000 letters of five
-/// marks took 9 s).
+/// marks took 9 s). Each run of a mark still cuts the text, and the library moves the
+/// writer's changes after a cut, so a paragraph of 49,600 runs takes 0.6 s (release).
 fn push_text(txn: &mut TransactionMut<'_>, parent: &impl XmlFragment, nodes: &[Value]) {
     let whole: String = nodes.iter().map(letters_of).collect();
     let text = parent.push_front(txn, XmlTextPrelim::new(whole));

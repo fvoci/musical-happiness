@@ -5,7 +5,7 @@
 //! no more than a worker's time limit to anybody else (the worker is started again at
 //! once for it, [`super::worker::Blame::Sender`]); this keeps its sender from sending
 //! it again and again. Updates a sender sent together are refused as they reach the
-//! worker after the first that ended it ([`super::place::Asker::Sender`]); those
+//! worker after the first that ended it ([`super::place::AskedFor::Sender`]); those
 //! under way on other workers at that time may end them too.
 
 use std::collections::HashMap;

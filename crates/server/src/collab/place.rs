@@ -268,12 +268,12 @@ impl Collab {
         slot: &mut Held,
         request: impl Fn(DocNumber) -> Request,
     ) -> Result<Answer, AppError> {
-        self.ask_as(app, card_id, slot, request, Asker::Server)
+        self.ask_for(app, card_id, slot, request, AskedFor::Server)
             .await
             .map_err(Unanswered::into_error)
     }
 
-    /// [`Collab::ask`] for an [`Asker`], telling a death of the worker over the request
+    /// [`Collab::ask`] for an [`AskedFor`], telling a death of the worker over the request
     /// apart.
     ///
     /// # Errors
@@ -281,21 +281,21 @@ impl Collab {
     /// Returns [`Unanswered::Died`] if the worker ended over the request, and the
     /// errors of [`Collab::ask`] otherwise as [`Unanswered::Refused`]; for a sender
     /// held back, `document_unavailable` before the request is sent.
-    pub(super) async fn ask_as(
+    pub(super) async fn ask_for(
         &self,
         app: &App,
         card_id: &str,
         slot: &mut Held,
         request: impl Fn(DocNumber) -> Request,
-        asker: Asker<'_>,
+        asked_for: AskedFor<'_>,
     ) -> Result<Answer, Unanswered> {
-        let blame = match asker {
-            Asker::Server => Blame::Worker,
-            Asker::Sender(_) => Blame::Sender,
+        let blame = match asked_for {
+            AskedFor::Server => Blame::Worker,
+            AskedFor::Sender(_) => Blame::Sender,
         };
         for _ in 0..2 {
             self.ensure_open(app, card_id, slot).await?;
-            if let Asker::Sender(user_id) = asker {
+            if let AskedFor::Sender(user_id) = asked_for {
                 // Again after the waits for the document and for a worker started again:
                 // of the updates a sender sent together, those after the first that ended
                 // a worker are not sent to the next.
@@ -325,7 +325,7 @@ impl Collab {
                     tracing::warn!(%death, card_id, "a collab worker ended over a card's document");
                     self.lost(slot);
                     died_over(slot);
-                    if let Asker::Sender(user_id) = asker {
+                    if let AskedFor::Sender(user_id) = asked_for {
                         tracing::warn!(
                             card_id,
                             user_id,
@@ -490,7 +490,7 @@ pub(super) fn died_over(slot: &mut Slot) {
     }
 }
 
-/// Why a request about a document got no answer ([`Collab::ask_blaming`]).
+/// Why a request about a document got no answer ([`Collab::ask_for`]).
 #[derive(Debug)]
 pub(super) enum Unanswered {
     /// It was refused, the document could not be opened, no worker could be started,
@@ -505,7 +505,7 @@ pub(super) enum Unanswered {
 
 /// Who a request is asked for, and so whom a death of the worker over it is put down to.
 #[derive(Debug, Clone, Copy)]
-pub(super) enum Asker<'user> {
+pub(super) enum AskedFor<'user> {
     /// The server, for itself or for what an editor reads: the worker
     /// ([`Blame::Worker`]).
     Server,
