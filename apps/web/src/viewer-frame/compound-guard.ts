@@ -8,10 +8,11 @@
  * own) otherwise than this does; the file it gets is one it takes as written.
  *
  * The streams of an HWP document are deflated inside (the records of its
- * text, its pictures). rhwp (0.8.7) unpacks them itself: the text (DocInfo,
+ * text, its pictures). rhwp (0.9.0) unpacks them itself: the text (DocInfo,
  * BodyText, ViewText) within a budget of its own (256 MiB a stream, 512 MiB
- * in all), but the pictures (BinData) with none, and a file it reads leniently
- * (one its compound file reader refuses) the same. So what every stream
+ * in all), and each picture (BinData) when a page first needs it, with no
+ * budget for them together and, on some of its paths, none for one; a file
+ * it reads leniently (one its compound file reader refuses) the same. So what every stream
  * unpacks to is counted here first, as rhwp unpacks it (raw deflate, then
  * zlib, and as it came when neither reads it), by reading its codes without
  * unpacking it (deflated-size.ts). What comes out before a stream fails to

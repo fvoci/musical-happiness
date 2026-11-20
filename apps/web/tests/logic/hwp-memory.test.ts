@@ -13,10 +13,10 @@ import { describe, expect, it } from 'vitest';
 import { HwpReader } from '../../src/viewer-frame/hwp-document.ts';
 
 import { koreanHwpx, rewriteArchive } from '../support/hwp-files.ts';
-import { rhwpWasmHex } from '../../tools/build/rhwp-wasm.ts';
+import { rhwpWasmBytes } from '../../tools/build/rhwp-wasm.ts';
 
-const WASM = rhwpWasmHex(64 << 20);
-initSync({ module: Buffer.from(WASM, 'hex') });
+const WASM = rhwpWasmBytes(64 << 20).buffer;
+initSync({ module: WASM });
 
 /** A picture of 8 MiB that does not compress, which rhwp writes into the page whole. */
 const PICTURE = Buffer.concat([

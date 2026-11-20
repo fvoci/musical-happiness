@@ -3,7 +3,7 @@
  * without unpacking it: what the compound guard (compound-guard.ts) holds
  * an HWP document's streams to before rhwp reads them.
  *
- * rhwp (0.8.7) unpacks a stream with flate2's readers, which decode as zlib
+ * rhwp (0.9.0) unpacks a stream with flate2's readers, which decode as zlib
  * does (zlib-rs): as raw deflate, then as zlib. A reader stops at the end of
  * the last block and passes over whatever follows it, and takes a stream cut
  * short as far as it goes. Hancom's own streams have bytes after their last

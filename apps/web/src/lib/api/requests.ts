@@ -27,10 +27,12 @@ import type {
 import type { Registered } from '../state/account-types.ts';
 import { BackendError } from '../state/backend.ts';
 import type { BodyVersions } from '../state/body-versions.ts';
+import type { FileVersions } from '../state/file-versions.ts';
 import type { People } from '../state/people-types.ts';
 import type { References } from '../state/references.ts';
 
 import { ServerBodyVersions } from './body-versions.ts';
+import { ServerFileVersions } from './file-versions.ts';
 import { containerOf, workspacesOf, userOf, type Schemas } from './convert.ts';
 import type { ApiPath, Http, RequestOptions } from './http.ts';
 import { ServerPeople } from './people.ts';
@@ -78,6 +80,7 @@ export class ServerRequests implements TrashReads {
   readonly wiki: ServerWikis;
   /** The versions kept of the bodies of cards. */
   readonly bodyVersions: BodyVersions;
+  readonly fileVersions: FileVersions;
   /** What bodies name, as the reader may see it. */
   readonly references: References;
   /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
@@ -94,6 +97,10 @@ export class ServerRequests implements TrashReads {
     this.people = new ServerPeople(http);
     this.bodyVersions = new ServerBodyVersions((path, params, options) =>
       this.inWorkspace(path, params, options),
+    );
+    this.fileVersions = new ServerFileVersions(
+      (path, params, options) => this.inWorkspace(path, params, options),
+      (path, params, signal) => this.inWorkspaceBytes(path, params, signal),
     );
     this.references = new ServerReferences((path, params, options, workspaceId) =>
       this.inWorkspace(path, params, options, workspaceId),

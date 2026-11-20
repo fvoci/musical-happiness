@@ -2,6 +2,10 @@
  * What the HWP renderer (hwp.ts) and its worker (hwp-worker.ts) say to each
  * other. The worker answers each message with one: `open` with `opened` or
  * `failed`, `page` with `page` or `failed`.
+ *
+ * The editor's frame (src/editor-frame/main.ts) asks the same worker for the
+ * check alone, before the editor reads a file: `check`, answered with
+ * `checked` or `failed`.
  */
 
 export type HwpFormat = 'hwp' | 'hwpx';
@@ -25,12 +29,15 @@ export interface TextRun {
 }
 
 export type ToWorker =
-  /** The file, and the renderer's WebAssembly as hexadecimal text (virtual:rhwp-wasm). */
-  | { kind: 'open'; format: HwpFormat; bytes: ArrayBuffer; wasm: string }
+  /** The file, and rhwp's WebAssembly as the app fetched it ($lib/file-viewer/engine.ts). */
+  | { kind: 'open'; format: HwpFormat; bytes: ArrayBuffer; wasm: ArrayBuffer }
   /** A page, from 1. */
-  | { kind: 'page'; page: number };
+  | { kind: 'page'; page: number }
+  /** The file, to be checked as `open` checks it and handed back as rhwp may read it. */
+  | { kind: 'check'; format: HwpFormat; bytes: ArrayBuffer };
 
 export type FromWorker =
   | { kind: 'opened'; pages: PageSize[] }
   | { kind: 'page'; svg: string; text: TextRun[] }
+  | { kind: 'checked'; bytes: ArrayBuffer }
   | { kind: 'failed'; reason: 'locked' | 'unreadable' | 'too-large' | 'renderer' };

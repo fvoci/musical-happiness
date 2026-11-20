@@ -90,15 +90,21 @@ const officePackage = (member: string): Kind => ({
 const HWPX_MEDIA_TYPE = 'application/hwp+zip';
 const ascii = new TextDecoder('ascii');
 
+/** The list of an HWPX package's parts: what rhwp, and the frame's check before it, read first. */
+const HWPX_PACKAGE = 'Contents/content.hpf';
+
 /**
  * HWPX: an archive whose part `mimetype` holds its media type, stored as it
- * is (not deflated), as the format (like EPUB and ODF) writes it.
+ * is (not deflated), as the format (like EPUB and ODF) writes it; or one that
+ * has the package's list. Writers other than Hancom's deflate `mimetype` or
+ * leave it out, and rhwp opens their files by the list alone.
  */
 const hwpx: Kind = {
   parts: ({ entries, bytes }) => {
     const entry = entries.find((each) => each.name === 'mimetype');
     const held = entry && storedPart(bytes, entry, HWPX_MEDIA_TYPE.length);
-    return held !== undefined && ascii.decode(held) === HWPX_MEDIA_TYPE;
+    if (held !== undefined && ascii.decode(held) === HWPX_MEDIA_TYPE) return true;
+    return entries.some((each) => each.name === HWPX_PACKAGE);
   },
 };
 
@@ -190,3 +196,7 @@ export function examine(bytes: Uint8Array): Examined {
 export function isFormatId(value: unknown): value is FormatId {
   return typeof value === 'string' && (FORMAT_IDS as string[]).includes(value);
 }
+
+/** The formats read by rhwp's engine, which the app hands to the frame with the file (engine.ts). */
+export const needsEngine = (format: FormatId): format is 'hwp' | 'hwpx' =>
+  format === 'hwp' || format === 'hwpx';

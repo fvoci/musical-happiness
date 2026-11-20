@@ -42,9 +42,11 @@ RUN corepack enable
 WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/
+COPY vendor/rhwp-studio/package.json vendor/rhwp-studio/
 RUN --mount=type=cache,id=fvoci-pnpm-store,target=/root/.cache/pnpm-store \
     pnpm install --frozen-lockfile --store-dir /root/.cache/pnpm-store
 COPY apps/web apps/web
+COPY vendor vendor
 # The licences the bundle may ship under.
 COPY deny.toml ./
 RUN --mount=type=cache,id=fvoci-web-fonts,target=/src/target/web-fonts \

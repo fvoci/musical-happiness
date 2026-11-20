@@ -3,13 +3,35 @@
 
 use std::time::Duration;
 
-use fvoci_store::{Access, Call, DbType, Observer, Outcome};
+use fvoci_store::{Access, Call, DbType, Observer, Outcome, Store};
 
+use crate::config::Configuration;
 use crate::metrics::{Database, DbAccess, DbOutcome, Metrics};
+
+/// The metrics the configuration asks for, which do nothing without `metrics_address`;
+/// kept ones are told the store's database and count its calls.
+///
+/// # Errors
+///
+/// Returns an error if `metrics_address` is no address, or if the metrics cannot be kept.
+pub(super) fn set_up(config: &Configuration, store: &Store) -> anyhow::Result<Metrics> {
+    let metrics = if config.metrics_listen_address()?.is_some() {
+        Metrics::kept()?
+    } else {
+        Metrics::none()
+    };
+    if metrics.is_kept() {
+        metrics.db_known(database(store.db_type()));
+        if !store.observe(Box::new(StoreMetrics(metrics.clone()))) {
+            tracing::warn!("the store has an observer already; its calls are not measured");
+        }
+    }
+    Ok(metrics)
+}
 
 /// Counts the calls of a store into the metrics.
 #[derive(Debug)]
-pub(super) struct StoreMetrics(pub(super) Metrics);
+struct StoreMetrics(Metrics);
 
 impl Observer for StoreMetrics {
     fn called(&self, call: Call) {
@@ -32,7 +54,7 @@ impl Observer for StoreMetrics {
 }
 
 /// The kind of database, as the metrics name it.
-pub(super) fn database(db: DbType) -> Database {
+fn database(db: DbType) -> Database {
     match db {
         DbType::Sqlite => Database::Sqlite,
         DbType::Postgres => Database::Postgres,

@@ -24,7 +24,7 @@ file 2599 crates/server/tests/api/blocks.rs
 file 3201 crates/server/tests/api/boards.rs
 file 2621 crates/server/tests/api/sidebar.rs
 file 4052 crates/store/tests/store/blocks.rs
-file 4146 crates/store/tests/store/boards.rs
+file 4142 crates/store/tests/store/boards.rs
 function 322 crates/server/tests/regression/blocks.rs blocks
 function 221 crates/server/tests/regression/permissions.rs request
 function 221 crates/server/tests/regression/trash.rs trash

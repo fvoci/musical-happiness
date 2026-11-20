@@ -147,13 +147,17 @@ describe('the pages of an HWP document, once shown', () => {
 });
 
 describe('the renderer of HWP documents', () => {
+  it('fails, its worker never started, when the app handed it no engine', async () => {
+    const worker = vi.fn(() => new FakeWorker());
+    const render = renderer('hwp', null, { worker, limit: 30_000 });
+    const opening = render(new ArrayBuffer(4), document.createElement('main'), report(), LABELS);
+    await expect(opening).rejects.toThrow('no engine');
+    expect(worker).not.toHaveBeenCalled();
+  });
+
   it('stops its worker when the frame goes (pagehide), even while it opens a file', async () => {
     const worker = new FakeWorker();
-    const render = renderer('hwpx', {
-      worker: () => worker,
-      wasm: async () => '00',
-      limit: 30_000,
-    });
+    const render = renderer('hwpx', new ArrayBuffer(1), { worker: () => worker, limit: 30_000 });
     const opening = render(new ArrayBuffer(4), document.createElement('main'), report(), LABELS);
     await vi.waitFor(() => {
       expect(worker.sent).toHaveLength(1);
@@ -166,7 +170,7 @@ describe('the renderer of HWP documents', () => {
   it('shows a document whose first page is too large to draw, that page saying so', async () => {
     vi.stubGlobal('IntersectionObserver', FakeObserver);
     const worker = new FakeWorker();
-    const render = renderer('hwp', { worker: () => worker, wasm: async () => '00', limit: 30_000 });
+    const render = renderer('hwp', new ArrayBuffer(1), { worker: () => worker, limit: 30_000 });
     const told = report();
     const place = document.createElement('main');
     const opening = render(new ArrayBuffer(4), place, told, LABELS);

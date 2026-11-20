@@ -5,7 +5,7 @@
  *
  * The SVG is rhwp's output for a document someone uploaded, so it is not
  * taken as it is. It is parsed as XML and copied element by element: only
- * the elements and attributes a page is drawn with (those rhwp 0.8.7 writes)
+ * the elements and attributes a page is drawn with (those rhwp 0.9.0 writes)
  * are copied, links give way to what they hold, a reference goes only to
  * something on the same page, and a picture only to bytes the page carries
  * (`data:image/…`). The frame's policy would stop scripts and the network as

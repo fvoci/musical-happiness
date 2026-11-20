@@ -17,7 +17,7 @@ import type { FromWorker, ToWorker } from './hwp-messages.ts';
 
 /** The worker's own scope, as much of it as this uses. */
 const scope = self as unknown as {
-  postMessage(message: FromWorker): void;
+  postMessage(message: FromWorker, transfer?: Transferable[]): void;
   reportError(error: unknown): void;
   addEventListener(type: 'message', listener: (event: MessageEvent<ToWorker>) => void): void;
 };
@@ -27,7 +27,8 @@ const reader = new HwpReader();
 scope.addEventListener('message', (event) => {
   void reader.answer(event.data).then(
     (answer) => {
-      scope.postMessage(answer);
+      // Checked bytes are handed over, not copied.
+      scope.postMessage(answer, answer.kind === 'checked' ? [answer.bytes] : []);
     },
     (error: unknown) => {
       scope.reportError(error);
