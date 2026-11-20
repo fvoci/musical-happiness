@@ -3,7 +3,9 @@
 
 use std::time::Duration;
 
-use fvoci_collab::{MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, UpdateLimits, take_update};
+use fvoci_collab::{
+    MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateLimits, take_update,
+};
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_NODES};
 use serde_json::{Value, json};
 use yrs::{Doc, Text, XmlElementPrelim, XmlFragment, XmlOut, XmlTextPrelim};
@@ -18,6 +20,7 @@ pub(crate) const SERVED: UpdateLimits = UpdateLimits {
     placing_steps: Some(PLACING_STEPS),
     clients: Some(MAX_CLIENTS),
     client_changes: Some(MAX_CLIENT_CHANGES),
+    reading_steps: Some(READING_STEPS),
 };
 
 /// The longest an editor's update may take on a document at the limits, and the

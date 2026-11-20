@@ -138,6 +138,9 @@ pub enum Answer {
         clients: u64,
         /// The most changes one of its clients has, deleted ones too.
         client_changes: u64,
+        /// The steps the Y library takes to read it from its state
+        /// ([`fvoci_collab::READING_STEPS`]).
+        reading_steps: u64,
     },
     /// An update was taken.
     Taken {
@@ -149,6 +152,8 @@ pub enum Answer {
         clients: u64,
         /// The most changes one of its clients has now, deleted ones too.
         client_changes: u64,
+        /// The steps the Y library takes to read it from its state now.
+        reading_steps: u64,
         /// The files the images and file blocks of its body name now, by their stored
         /// names.
         files: Vec<String>,
@@ -384,18 +389,21 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
             state_bytes,
             clients,
             client_changes,
+            reading_steps,
         }) => {
             out.tag(2)
                 .optional(state.as_deref())
                 .number(*state_bytes)
                 .number(*clients)
-                .number(*client_changes);
+                .number(*client_changes)
+                .number(*reading_steps);
         }
         Ok(Answer::Taken {
             repair,
             state_bytes,
             clients,
             client_changes,
+            reading_steps,
             files,
         }) => {
             out.tag(3)
@@ -403,6 +411,7 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
                 .number(*state_bytes)
                 .number(*clients)
                 .number(*client_changes)
+                .number(*reading_steps)
                 .names(files);
         }
         Ok(Answer::Bytes(bytes)) => {
@@ -434,12 +443,14 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, Malformed> {
             state_bytes: input.number()?,
             clients: input.number()?,
             client_changes: input.number()?,
+            reading_steps: input.number()?,
         }),
         3 => Ok(Answer::Taken {
             repair: input.optional()?,
             state_bytes: input.number()?,
             clients: input.number()?,
             client_changes: input.number()?,
+            reading_steps: input.number()?,
             files: input.names()?,
         }),
         4 => Ok(Answer::Bytes(input.bytes()?)),
@@ -628,18 +639,21 @@ mod tests {
                 state_bytes: 1,
                 clients: 1,
                 client_changes: 5,
+                reading_steps: 9,
             }),
             Ok(Answer::Opened {
                 state: None,
                 state_bytes: 2,
                 clients: 0,
                 client_changes: 0,
+                reading_steps: 0,
             }),
             Ok(Answer::Taken {
                 repair: None,
                 state_bytes: 3,
                 clients: 2,
                 client_changes: 600_000,
+                reading_steps: 800_000,
                 files: Vec::new(),
             }),
             Ok(Answer::Taken {
@@ -647,6 +661,7 @@ mod tests {
                 state_bytes: 4,
                 clients: 70_000,
                 client_changes: 1,
+                reading_steps: 0,
                 files: vec!["7a.png".to_owned(), "7b.png".to_owned()],
             }),
             Ok(Answer::Bytes(vec![4, 5])),

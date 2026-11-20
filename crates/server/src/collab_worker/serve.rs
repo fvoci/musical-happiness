@@ -6,7 +6,8 @@ use std::io::{Read, Write};
 use std::time::Duration;
 
 use fvoci_collab::{
-    BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, TakeError, UpdateError, UpdateLimits,
+    BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, STORED_READING_STEPS,
+    TakeError, UpdateError, UpdateLimits,
 };
 use fvoci_model::{Body, BodyError};
 
@@ -85,6 +86,7 @@ impl Worker {
                 placing_steps: Some(PLACING_STEPS),
                 clients: Some(MAX_CLIENTS),
                 client_changes: Some(MAX_CLIENT_CHANGES),
+                reading_steps: Some(READING_STEPS),
             },
             docs: HashMap::new(),
             held_bytes: 0,
@@ -98,8 +100,12 @@ impl Worker {
                 "the worker is configured once",
             )),
             Request::Open { doc, source, share } => self.open(doc, source, share),
-            Request::Take { doc, update } => self.take(doc, &update, self.update_limits),
-            Request::Retake { doc, update } => self.take(doc, &update, self.logged_limits()),
+            Request::Take { doc, update } => {
+                self.take(doc, &update, self.update_limits, take_refused)
+            }
+            Request::Retake { doc, update } => {
+                self.take(doc, &update, self.logged_limits(), logged_refused)
+            }
             Request::StateVector(doc) => Ok(Answer::Bytes(self.doc(doc)?.state_vector())),
             Request::Diff { doc, state_vector } => self
                 .doc(doc)?
@@ -128,15 +134,23 @@ impl Worker {
         }
     }
 
-    /// Takes an update into a document within `limits`.
-    fn take(&mut self, doc: DocNumber, update: &[u8], limits: UpdateLimits) -> Response {
+    /// Takes an update into a document within `limits`; `refused` is what one that
+    /// is not taken is answered with.
+    fn take(
+        &mut self,
+        doc: DocNumber,
+        update: &[u8],
+        limits: UpdateLimits,
+        refused: fn(&TakeError) -> Refused,
+    ) -> Response {
         let changed = self
             .doc(doc)?
             .take(update, &limits)
-            .map_err(|error| take_refused(&error))?;
+            .map_err(|error| refused(&error))?;
         let state_bytes = u64::try_from(changed.state_bytes).unwrap_or(u64::MAX);
         let clients = count(changed.doc.clients());
         let client_changes = changed.client_changes;
+        let reading_steps = changed.reading_steps;
         let files = changed
             .repair
             .body
@@ -150,13 +164,17 @@ impl Worker {
             state_bytes,
             clients,
             client_changes,
+            reading_steps,
             files,
         })
     }
 
     /// The limits of what the server stored and logged before: an update and a state
     /// as large as the worker's memory for documents, a body as large as a body may
-    /// be, and its changes placed past as many as they are.
+    /// be, and its changes placed past as many as they are. Its reading is counted
+    /// all the same, before the library reads it: a state stored before readings were
+    /// counted may take longer to read than this worker has
+    /// ([`STORED_READING_STEPS`]).
     fn logged_limits(&self) -> UpdateLimits {
         let held = usize::try_from(self.limits.held_bytes).unwrap_or(usize::MAX);
         UpdateLimits {
@@ -166,6 +184,7 @@ impl Worker {
             placing_steps: None,
             clients: None,
             client_changes: None,
+            reading_steps: Some(STORED_READING_STEPS),
         }
     }
 
@@ -234,11 +253,11 @@ impl Worker {
             Source::State(stored) => {
                 // What the server stored is opened whatever the limits are now.
                 let changed = BodyDoc::from_state(&stored, &self.logged_limits())
-                    .map_err(|error| take_refused(&error))?;
+                    .map_err(|error| logged_refused(&error))?;
                 let repaired = (changed.repair.deleted > 0).then(|| changed.doc.state());
                 let state_bytes = size_of(repaired.as_deref().unwrap_or(&stored));
-                let client_changes = changed.client_changes;
-                (changed.doc, (repaired, state_bytes, client_changes))
+                let counts = (changed.client_changes, changed.reading_steps);
+                (changed.doc, (repaired, state_bytes, counts))
             }
             Source::Body(json) => {
                 let body = json
@@ -256,10 +275,16 @@ impl Worker {
                 }
                 let client_changes = fvoci_collab::client_changes(&state)
                     .map_err(|error| take_refused(&TakeError::Update(error)))?;
-                (made, (Some(state), state_bytes, client_changes))
+                // None, as a body's own document is made: counted, not taken for it.
+                let reading_steps = fvoci_collab::reading_steps(&state, READING_STEPS)
+                    .map_err(|error| take_refused(&TakeError::Update(error)))?;
+                (
+                    made,
+                    (Some(state), state_bytes, (client_changes, reading_steps)),
+                )
             }
         };
-        let (state, state_bytes, client_changes) = state;
+        let (state, state_bytes, (client_changes, reading_steps)) = state;
         let clients = count(opened.clients());
         self.hold(doc, opened, state_bytes, share)?;
         Ok(Answer::Opened {
@@ -267,6 +292,7 @@ impl Worker {
             state_bytes,
             clients,
             client_changes,
+            reading_steps,
         })
     }
 }
@@ -300,12 +326,13 @@ fn take_refused(error: &TakeError) -> Refused {
             Refusal::Unreadable
         }
         TakeError::Update(UpdateError::MissingChanges) => Refusal::MissingChanges,
-        // A document of too many clients, or of a client of too many changes, is one too
-        // large to work on in time.
+        // A document of too many clients, of a client of too many changes, or that
+        // takes too many steps to read, is one too large to work on in time.
         TakeError::Update(
             UpdateError::DocumentTooLarge { .. }
             | UpdateError::TooManyClients { .. }
-            | UpdateError::TooManyChanges { .. },
+            | UpdateError::TooManyChanges { .. }
+            | UpdateError::TooManyReadingSteps { .. },
         ) => Refusal::DocumentTooLarge,
         TakeError::Body(BodyError::TooLarge | BodyError::TooManyNodes | BodyError::TooDeep)
         | TakeError::BodyTooLarge { .. } => Refusal::BodyTooLarge,
@@ -315,6 +342,19 @@ fn take_refused(error: &TakeError) -> Refused {
         _ => Refusal::Unappliable,
     };
     refused(refusal, &error.to_string())
+}
+
+/// The refusal of what the server stored or logged before and this worker does not
+/// take again. A state, or a logged update, past the steps a stored document may take
+/// to read ([`STORED_READING_STEPS`]) is one this worker does not apply, whenever it
+/// is asked: the room makes the document again from its card.
+fn logged_refused(error: &TakeError) -> Refused {
+    match error {
+        TakeError::Update(UpdateError::TooManyReadingSteps { .. }) => {
+            refused(Refusal::Unappliable, &error.to_string())
+        }
+        other => take_refused(other),
+    }
 }
 
 #[cfg(test)]

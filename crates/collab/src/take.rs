@@ -8,7 +8,9 @@ use yrs::Doc;
 use crate::build::new_doc;
 use crate::project::to_body;
 use crate::repair::{Repair, repaired};
-use crate::update::{Settled, UpdateError, UpdateLimits, settled_sized, with_update_sized};
+use crate::update::{
+    Settled, UpdateError, UpdateLimits, settled_sized, with_update_sized, within_reading_steps,
+};
 
 /// A document that took an update, with its body.
 #[derive(Debug)]
@@ -25,6 +27,9 @@ pub struct Taken {
     /// The most changes one client has in `doc`, deleted ones too
     /// ([`UpdateLimits::client_changes`]).
     pub client_changes: u64,
+    /// The steps the Y library takes to read `doc` from its state
+    /// ([`UpdateLimits::reading_steps`]); 0 where the limits have no count of them.
+    pub reading_steps: u64,
 }
 
 /// Why an update, or a stored state, is not taken. The document it was given for is as
@@ -64,8 +69,12 @@ pub enum TakeError {
 /// others of its list by walking past them, so that an update made for it has every
 /// change walk a long list (59 kB of changes that each named the root of 50,000
 /// children took 12 seconds): [`UpdateLimits::placing_steps`] is what an update may
-/// be made to walk, and an update made to walk that much took up to two seconds. Not
-/// every way to make the library slow is counted: what calls this also gives it a time
+/// be made to walk. The library walks so again every time it reads the document from
+/// its state, here and as the document is opened, so that updates within that limit
+/// added up to a document no worker opened in its time:
+/// [`UpdateLimits::reading_steps`] is what the document an update leaves may take to
+/// read, counted from its state before the library reads it. Not every way to make
+/// the library slow may be counted: what calls this also gives it a time
 /// to take an update in, and holds back the sender of one that takes longer. It keeps
 /// [`UpdateLimits::update_bytes`] and [`UpdateLimits::state_bytes`] small and does not
 /// hold anything others wait for while it runs.
@@ -74,16 +83,21 @@ pub enum TakeError {
 ///
 /// Returns [`TakeError::Update`] if the update cannot be taken at all (see
 /// [`UpdateError`]: among them one whose changes would take more steps to place than
-/// [`UpdateLimits::placing_steps`]), [`TakeError::Body`] if the document with it is no body and a
+/// [`UpdateLimits::placing_steps`], and one that leaves a document that takes more
+/// steps to read than [`UpdateLimits::reading_steps`]), [`TakeError::Body`] if the
+/// document with it is no body and a
 /// repair does not make it one, and [`TakeError::BodyTooLarge`] if its body is past
 /// [`UpdateLimits::body_bytes`].
 ///
 /// A document keeps what was deleted from it, so it grows with every edit: typing and
 /// deleting 10 kB a hundred times leaves a body of two letters in a state of 1 MB. Once
 /// it is near [`UpdateLimits::state_bytes`], every update is refused with
-/// [`UpdateError::DocumentTooLarge`], deletions too. What holds the document then makes
+/// [`UpdateError::DocumentTooLarge`], deletions too; and changes made to be walked stay
+/// in it, so that near [`UpdateLimits::reading_steps`] updates are refused with
+/// [`UpdateError::TooManyReadingSteps`]. What holds the document then makes
 /// it again from its body ([`crate::from_body`]), which starts without what was
-/// deleted, and has the editors that hold the old one load the new one: an update made
+/// deleted and is read in no such steps ([`Taken::reading_steps`] tells it how near
+/// the document is), and has the editors that hold the old one load the new one: an update made
 /// against the old document is refused by the new one
 /// ([`UpdateError::MissingChanges`]).
 pub fn take_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeError> {
@@ -94,7 +108,9 @@ pub fn take_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Ta
 /// Opens the document of a stored state ([`crate::state_of`]), as an update to an
 /// empty document is taken: with the same checks and repair, and the update's own
 /// limits left out, as a state may be as large as [`UpdateLimits::state_bytes`] and
-/// its changes were placed when they were taken.
+/// its changes were placed when they were taken. The steps its reading takes are
+/// counted first ([`UpdateLimits::reading_steps`]): the library does not read a state
+/// past them.
 ///
 /// # Errors
 ///
@@ -107,6 +123,7 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
         }
         .into());
     }
+    within_reading_steps(state, limits)?;
     let limits = UpdateLimits {
         update_bytes: state.len(),
         placing_steps: None,
@@ -149,6 +166,7 @@ fn to_taken(with: Settled, limits: &UpdateLimits) -> Result<Taken, TakeError> {
         repair,
         state_bytes: settled.state_bytes,
         client_changes: settled.client_changes,
+        reading_steps: settled.reading_steps,
     })
 }
 

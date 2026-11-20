@@ -7,8 +7,8 @@ mod support;
 
 use fvoci_collab::testing::{placing_steps, to_body};
 use fvoci_collab::{
-    PLACING_STEPS, TakeError, UpdateError, UpdateLimits, from_body, from_body_by, from_state,
-    new_doc, state_of, take_update,
+    PLACING_STEPS, READING_STEPS, TakeError, UpdateError, UpdateLimits, from_body, from_body_by,
+    from_state, new_doc, state_of, take_update,
 };
 use fvoci_model::BODY_MAX_NODES;
 use serde_json::{Value, json};
@@ -476,6 +476,7 @@ fn what_was_taken_before_is_read_again() {
         placing_steps: None,
         clients: None,
         client_changes: None,
+        reading_steps: None,
         ..ROOMY
     };
     let taken = take_update(&doc, &update, &before).expect("taken without the count");
@@ -744,10 +745,12 @@ fn a_change_between_two_typed_one_after_the_other_is_charged_a_step() {
 /// The changes of a client below the others of their list are walked past again every
 /// time the library reads the document again: once as the update is taken and twice
 /// as what it leaves is read again, and twice more where it is repaired. An update of
-/// them at the limit, repaired, is taken in less than half of the time a worker has
-/// for its answer (10 s).
+/// them at the limit of what an update may walk leaves a document that takes three
+/// times the steps to read that a document may ([`READING_STEPS`]), and is refused once
+/// it is applied; the most of them that leave a document within its steps, repaired,
+/// are taken. Each in less than half of the time a worker has for its answer (10 s).
 #[test]
-fn an_update_at_the_limit_of_a_client_below_the_document_is_taken_in_time() {
+fn an_update_of_a_client_below_the_document_is_refused_or_taken_in_time() {
     let doc = typed_in_order(7, count(CHILDREN));
     let middle = count(CHILDREN) / 2;
     let walking = |changes: u64| {
@@ -767,23 +770,55 @@ fn an_update_at_the_limit_of_a_client_below_the_document_is_taken_in_time() {
         ));
         Update::of(1, 0, walking).bytes()
     };
-    let within =
-        |changes: u64| placing_steps(&doc, &walking(changes)).expect("counted") <= PLACING_STEPS;
-    // The most changes within the limit: each walks about half the list.
-    let (mut most, mut past) = (1_u64, 2 * PLACING_STEPS / count(CHILDREN) + 2);
-    assert!(!within(past), "{past} changes are within the limit");
-    while past - most > 1 {
-        let changes = most.midpoint(past);
-        if within(changes) {
-            most = changes;
-        } else {
-            past = changes;
+    let most_within = |within: &dyn Fn(u64) -> bool| {
+        let (mut most, mut past) = (1_u64, 2 * PLACING_STEPS / count(CHILDREN) + 2);
+        assert!(!within(past), "{past} changes are within the limit");
+        while past - most > 1 {
+            let changes = most.midpoint(past);
+            if within(changes) {
+                most = changes;
+            } else {
+                past = changes;
+            }
         }
-    }
-    assert!(most > 100, "{most} changes");
+        most
+    };
+    // The most changes an update may walk: each walks about half the list.
+    let placed = most_within(&|changes| {
+        placing_steps(&doc, &walking(changes)).expect("counted") <= PLACING_STEPS
+    });
+    assert!(placed > 100, "{placed} changes");
+    let start = Instant::now();
+    let refused = take_update(&doc, &walking(placed), &ROOMY).expect_err("too many steps");
+    let took = start.elapsed();
+    assert!(
+        matches!(
+            refused,
+            TakeError::Update(UpdateError::TooManyReadingSteps { .. })
+        ),
+        "{refused}"
+    );
+    assert!(took < Duration::from_secs(5), "refused in {took:?}");
+    // The most changes that leave a document within its steps: a third as many.
+    let read = most_within(&|changes| {
+        placing_steps(&doc, &walking(changes)).expect("counted") <= READING_STEPS
+    });
+    let most = (1..=read)
+        .rev()
+        .find(|changes| take_update(&doc, &walking(*changes), &ROOMY).is_ok())
+        .expect("a change is taken");
+    assert!(
+        most * 4 > placed && read - most < 3,
+        "{most} of {read} changes"
+    );
     let start = Instant::now();
     let taken = take_update(&doc, &walking(most), &ROOMY).expect("taken");
     let took = start.elapsed();
     assert_eq!(taken.repair.deleted, 1);
+    assert!(
+        taken.reading_steps * 10 > READING_STEPS * 9,
+        "{} steps",
+        taken.reading_steps
+    );
     assert!(took < Duration::from_secs(5), "taken in {took:?}");
 }

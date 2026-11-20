@@ -65,6 +65,7 @@ impl Collab {
             state,
             state_bytes,
             client_changes,
+            reading_steps,
         } = self
             .open_from_body(worker, number, block.body.as_ref(), Share::Kept)
             .await?;
@@ -91,6 +92,7 @@ impl Collab {
             // The writer of the body.
             clients: 1,
             client_changes,
+            reading_steps,
             last_writer: block.modified_by.clone(),
             first_unwritten: None,
             last_update: Instant::now(),
@@ -105,10 +107,12 @@ impl Collab {
     /// A stored document, with the updates logged after its state taken again.
     ///
     /// What was stored and logged is taken again whatever the limits are now: what was
-    /// taken is taken (a document past the limit of a state is written to its card and
-    /// made again from it once it is open). A document that cannot be opened so is made
-    /// again from its card's body when its card holds all of it, or when what is stored
-    /// cannot be read (bytes that are no update, or that build on what is not there):
+    /// taken is taken (a document past the limit of a state, or that takes many steps
+    /// to read, is written to its card and made again from it once it is open). A
+    /// document that cannot be opened so is made again from its card's body when its
+    /// card holds all of it, or when what is stored cannot be read (bytes that are no
+    /// update, that build on what is not there, or that the Y library would take longer
+    /// to read than a worker has, [`fvoci_collab::STORED_READING_STEPS`]):
     /// the updates the card does not hold are then dropped, and that is logged.
     /// Otherwise (a worker that is full or ended, the store) the open fails, and the
     /// next one tries again.
@@ -144,6 +148,7 @@ impl Collab {
             made_bytes: 0,
             clients: 0,
             client_changes: 0,
+            reading_steps: 0,
             // Who sent the last update logged, which the fold of the log keeps.
             last_writer: if stored.last_writer.is_empty() {
                 block.modified_by.clone()
@@ -237,6 +242,7 @@ impl Collab {
                 state_bytes,
                 clients,
                 client_changes,
+                reading_steps,
             },
         ) = opened
         else {
@@ -246,6 +252,7 @@ impl Collab {
         open.state_bytes = state_bytes;
         open.clients = clients;
         open.client_changes = client_changes;
+        open.reading_steps = reading_steps;
         let state_seq = open.state_seq;
         self.replay(app, card_id, open, state, state_seq, updates)
             .await
@@ -284,12 +291,14 @@ impl Collab {
                         state_bytes,
                         clients,
                         client_changes,
+                        reading_steps,
                         ..
                     },
                 ) => {
                     open.state_bytes = state_bytes;
                     open.clients = clients;
                     open.client_changes = client_changes;
+                    open.reading_steps = reading_steps;
                 }
                 (_, other) => return Err(unexpected(&other).into()),
             }
@@ -324,6 +333,7 @@ impl Collab {
                     state: Some(state),
                     state_bytes,
                     client_changes,
+                    reading_steps,
                     ..
                 },
             ) => Ok(Made {
@@ -331,6 +341,7 @@ impl Collab {
                 state,
                 state_bytes,
                 client_changes,
+                reading_steps,
             }),
             (_, other) => Err(unexpected(&other).into()),
         }
@@ -420,4 +431,6 @@ pub(super) struct Made {
     pub(super) state_bytes: u64,
     /// The most changes of one of its clients ([`OpenDoc::client_changes`]).
     pub(super) client_changes: u64,
+    /// The steps the Y library takes to read it ([`OpenDoc::reading_steps`]).
+    pub(super) reading_steps: u64,
 }

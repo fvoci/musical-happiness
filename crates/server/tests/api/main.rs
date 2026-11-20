@@ -29,6 +29,7 @@ mod collab;
 mod collab_deaths;
 mod collab_folds;
 mod collab_images;
+mod collab_slow;
 mod collab_upkeep;
 mod collab_whole;
 mod collab_written_past;

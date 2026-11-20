@@ -61,6 +61,7 @@ impl Collab {
             state_bytes,
             clients,
             client_changes,
+            reading_steps,
             files,
         } = answer
         else {
@@ -108,6 +109,7 @@ impl Collab {
         open.state_bytes = state_bytes;
         open.clients = clients;
         open.client_changes = client_changes;
+        open.reading_steps = reading_steps;
         user_id.clone_into(&mut open.last_writer);
         open.last_update = now;
         open.first_unwritten.get_or_insert(now);
@@ -151,8 +153,8 @@ impl Collab {
         }
     }
 
-    /// Makes the document again from its body if its state is near its limit or it
-    /// names many clients ([`OpenDoc::crowded`]), and folds its log into its state if
+    /// Makes the document again from its body if its state is near its limit, it
+    /// names many clients or it takes many steps to read ([`OpenDoc::crowded`]), and folds its log into its state if
     /// it is long; whether it was made again. The
     /// update before is logged whatever happens here: what fails is logged, and tried
     /// again after a later update.
@@ -376,6 +378,7 @@ impl Collab {
             state,
             state_bytes,
             client_changes,
+            reading_steps,
         } = self
             .open_from_body(open.worker, number, body, open.share())
             .await?;
@@ -394,6 +397,7 @@ impl Collab {
         // The writer of the body.
         open.clients = 1;
         open.client_changes = client_changes;
+        open.reading_steps = reading_steps;
         open.first_unwritten = None;
         Ok(())
     }

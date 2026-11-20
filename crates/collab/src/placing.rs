@@ -73,7 +73,7 @@ pub(crate) const PLACES_PER_STEP: u64 = 256;
 /// copies every value of the run, at 30 ns each, and keeps 47 bytes of it for each cut
 /// until the update is taken (yrs 0.28.1). So many cuts of a run of 20,000 values took
 /// 190 MB.
-const VALUE_PLACES: u64 = 2 * PLACES_PER_STEP;
+pub(crate) const VALUE_PLACES: u64 = 2 * PLACES_PER_STEP;
 
 /// A document as its state, with what the library read of it.
 #[derive(Debug, Clone, Copy)]
