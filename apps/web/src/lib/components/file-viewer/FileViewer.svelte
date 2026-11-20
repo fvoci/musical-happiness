@@ -52,11 +52,7 @@
   import { display } from '$lib/display.svelte.ts';
   import type { EditedFile } from '$lib/file-viewer/editing.svelte.ts';
   import { LeaseWatch, startEditing, type EditLease } from '$lib/file-viewer/lease.svelte.ts';
-  import {
-    frameAddress,
-    ViewerSession,
-    type ViewedFile,
-  } from '$lib/file-viewer/session.svelte.ts';
+  import { frameAddress, ViewerSession, type ViewedFile } from '$lib/file-viewer/session.svelte.ts';
   import {
     VersionsList,
     type FileVersion,
