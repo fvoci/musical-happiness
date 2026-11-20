@@ -70,6 +70,7 @@
           <button
             type="button"
             role="menuitem"
+            aria-label={action.ariaLabel}
             data-action={action.id}
             disabled={action.disabled}
             class={[
@@ -115,6 +116,7 @@
         <DropdownMenu.Item
           variant={action.destructive ? 'destructive' : 'default'}
           disabled={action.disabled}
+          aria-label={action.ariaLabel}
           data-action={action.id}
           class="roomy:min-h-touch roomy:gap-2.5 roomy:px-2.5"
           onSelect={() => {

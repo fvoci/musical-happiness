@@ -51,6 +51,26 @@ export function firstChoiceOf(
 }
 
 /**
+ * Starts an organization by `start` (`Organizations.createOrganization`) and puts its
+ * workspace among the reader's, which are read again in the backend's order;
+ * the workspace made, to go to. Where the list cannot be read, the workspace
+ * is put among those the page has, as it was answered.
+ */
+export async function startOrganization(
+  workspace: { workspaces: WorkspaceInfo[]; readonly backend: Backend },
+  start: (name: string) => Promise<WorkspaceInfo>,
+  name: string,
+): Promise<WorkspaceInfo> {
+  const made = await start(name);
+  try {
+    workspace.workspaces = await workspace.backend.workspaces();
+  } catch {
+    workspace.workspaces = [...workspace.workspaces.filter((one) => one.id !== made.id), made];
+  }
+  return made;
+}
+
+/**
  * The boards and the wikis of a workspace the reader can see, the two lists
  * of the sidebar together (a wiki is a board of the kind `wiki`).
  */

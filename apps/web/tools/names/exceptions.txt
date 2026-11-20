@@ -43,3 +43,4 @@ tools/licenses/rhwp-wasm-crates.txt | BLAKE3-team
 # The kind of an organization that people work in together, as the contract names it
 # (`kind`: `team`, beside `personal` for a user's own space).
 ** | kind: 'team'
+src/lib/state/workspace-types.ts | 'team' | 'personal'

@@ -6,7 +6,7 @@
 import { m } from '$lib/i18n/paraglide/messages.js';
 
 export function nameOfWorkspace(
-  workspace: { readonly title: string; readonly kind?: 'team' | 'personal' } | undefined,
+  workspace: { readonly title: string; readonly kind?: string } | undefined,
   unnamed: () => string,
 ): string {
   if (workspace?.kind === 'personal') return m.own_space_name();

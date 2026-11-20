@@ -5,6 +5,8 @@ export interface MenuAction {
   /** Names the line among its siblings; also `data-action` in the markup, for tests. */
   id: string;
   label: string;
+  /** What a screen reader says in place of `label`, where the line means more than it shows. */
+  ariaLabel?: string;
   icon?: Component<{ class?: string }>;
   /** Shown at the end of the line: a shortcut, a count, the current choice. */
   hint?: string;

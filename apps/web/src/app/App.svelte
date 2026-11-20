@@ -35,6 +35,7 @@
     isBackendError,
     isSignedOut,
     providePeople,
+    startOrganization,
     whileHere,
     Workspace,
     type AcceptedInvitation,
@@ -51,8 +52,9 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import { acceptedRoute } from './accepted-route.ts';
+  import { followAddress } from './address.svelte.ts';
   import { resendLink, startBackend } from './backend.ts';
-  import { lastWorkspace, rememberWorkspace } from './last-workspace.ts';
+  import { lastWorkspace } from './last-workspace.ts';
   import {
     browserLocale,
     currentLocale,
@@ -218,29 +220,10 @@
   /** The token of the invitation the address is the link of, if it is one. */
   const invitation = $derived(router.route.invitation);
 
-  // The root address: to the workspace the reader starts in, in its place.
-  $effect(() => {
-    if (workspace?.status !== 'ready' || router.route.unknown || router.route.workspaceId) return;
-    if (invitation !== undefined) return;
-    if (router.route.orgId) return;
-    const chosen = workspace.firstChoice();
-    if (chosen) router.go({ workspaceId: chosen }, { replace: true });
-  });
-
-  // Another workspace in the address (a link, back or forward): it is entered.
-  $effect(() => {
-    const asked = router.route.workspaceId;
-    if (workspace?.status === 'ready' && asked && asked !== workspace.asked) {
-      void workspace.enter(asked);
-    }
-  });
-
-  // The workspace entered is the one to come back to on this browser.
-  $effect(() => {
-    if (workspace?.entered === 'ready' && workspace.me && workspace.info) {
-      rememberWorkspace(workspace.me.id, workspace.info.id);
-    }
-  });
+  followAddress(
+    () => router,
+    () => workspace,
+  );
 
   // Once signed in: is there an organization the reader administers? Asked once.
   let askedAdministered = false;
@@ -273,6 +256,18 @@
     // Once the reader is signed in: before that the organization is not there for them.
     if (workspace?.status === 'ready') void orgAdmin?.load();
   });
+
+  /** Starts an organization from the switcher, and goes to its workspace. */
+  async function createOrganization(name: string): Promise<void> {
+    const [shown, api] = [workspace, organizations];
+    if (!shown || !api) return;
+    const made = await signedIn(() =>
+      startOrganization(shown, (named) => api.createOrganization(named), name),
+    );
+    // The reader administers it: the sidebar leads there, unless to another already.
+    administered ??= made.orgId;
+    router.go({ workspaceId: made.id });
+  }
 
   const openContainer = (container: ContainerPlace): void => {
     router.openContainer(container);
@@ -451,6 +446,7 @@
     onSwitchWorkspace={(workspaceId: string) => {
       router.go({ workspaceId });
     }}
+    onCreateOrganization={organizations ? createOrganization : undefined}
     readRecords={organizations
       ? (workspaceId: string) => organizations?.workspaceRecords(workspaceId) ?? Promise.resolve([])
       : undefined}

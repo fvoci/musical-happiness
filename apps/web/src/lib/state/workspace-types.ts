@@ -4,7 +4,7 @@ import type { WorkspaceRole } from './people-types.ts';
 /**
  * What the organization of a workspace is: `personal` for the reader's own
  * space ("My space"), which is theirs alone and has nobody to administer it;
- * `team` for every other.
+ * for every other, the kind of an organization that people work in together.
  */
 export type OrgKind = 'team' | 'personal';
 
@@ -14,7 +14,7 @@ export interface WorkspaceInfo {
   title: string;
   /** The organization the workspace belongs to, where the backend has organizations (the server). */
   orgId?: string;
-  /** What that organization is; left out by a backend that does not say, as for a `team`. */
+  /** What that organization is; left out by a backend that does not say, as for one of people. */
   kind?: OrgKind;
   /**
    * The workspace is closed to this session: its organization takes no
@@ -31,7 +31,7 @@ export interface WorkspaceInfo {
 
 /**
  * Whether the workspace is the reader's own space: nobody else is in it, so
- * there is nobody to invite, no team and no organization to administer;
+ * there is nobody to invite, no group of people and no organization to administer;
  * what is in it is shown to others by a public link alone.
  */
 export const isOwnSpace = (workspace: WorkspaceInfo | undefined): boolean =>

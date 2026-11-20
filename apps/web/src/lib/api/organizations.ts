@@ -15,9 +15,10 @@ import type {
   OrgWorkspace,
 } from '../state/organization.ts';
 
-import { personNameOf, type Schemas } from './convert.ts';
+import { personNameOf, workspaceOf, type Schemas } from './convert.ts';
 import type { Http } from './http.ts';
 import type { OidcProvider, OidcSettings } from '../state/oidc.ts';
+import type { WorkspaceInfo } from '../state/workspace-types.ts';
 
 /** How many of the newest audit records a screen shows: one page of that many. */
 const RECENT_RECORDS = { page: 0, perPage: 200 };
@@ -48,6 +49,16 @@ export class ServerOrganizations implements Organizations {
       }
     }
     return undefined;
+  }
+
+  async createOrganization(name: string): Promise<WorkspaceInfo> {
+    const json: Schemas['NewOrganization'] = { name };
+    const made = await this.#http.request<Schemas['UserWorkspace']>(
+      '/api/v1/org',
+      {},
+      { method: 'POST', json },
+    );
+    return workspaceOf(made);
   }
 
   organization(orgId: string): Promise<Organization> {

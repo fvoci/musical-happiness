@@ -83,6 +83,8 @@
     orgHref?: string;
     /** Goes to another workspace of the reader's. */
     onSwitchWorkspace?: (workspaceId: string) => void;
+    /** Starts an organization and goes to its workspace, where the backend can. */
+    onCreateOrganization?: (name: string) => Promise<void>;
     /** Reads the workspace's records. Without it (no server) they are not offered. */
     readRecords?: (workspaceId: string) => Promise<AuditRecord[]>;
     /** The button of the search of the workspace, in the top bar; none where there is no search. */
@@ -107,6 +109,7 @@
     settingsOpen = $bindable(false),
     orgHref,
     onSwitchWorkspace,
+    onCreateOrganization,
     readRecords,
     search,
     children,
@@ -342,6 +345,7 @@
       onOpenSettings={openSettings}
       {orgHref}
       {onSwitchWorkspace}
+      {onCreateOrganization}
     />
   </div>
 

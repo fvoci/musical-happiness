@@ -79,16 +79,21 @@ export function userOf(user: Schemas['User']): User {
   };
 }
 
-/** The workspaces the reader is in, those they are a guest of too, in the server's order. */
-export function workspacesOf(workspaces: Schemas['UserWorkspace'][]): WorkspaceInfo[] {
-  return workspaces.map((workspace) => ({
+/** A workspace the reader is in, or a guest of. */
+export function workspaceOf(workspace: Schemas['UserWorkspace']): WorkspaceInfo {
+  return {
     id: workspace.id,
     title: workspace.name,
     role: workspace.role,
     orgId: workspace.orgId,
     kind: workspace.kind,
     ssoRequired: workspace.ssoRequired,
-  }));
+  };
+}
+
+/** The workspaces the reader is in, those they are a guest of too, in the server's order. */
+export function workspacesOf(workspaces: Schemas['UserWorkspace'][]): WorkspaceInfo[] {
+  return workspaces.map(workspaceOf);
 }
 
 export function containerOf(board: Schemas['Container']): Container {

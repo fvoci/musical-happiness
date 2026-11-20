@@ -251,7 +251,7 @@ describe('the workspace to start in', () => {
 
   describe('beside the reader’s own space, listed last', () => {
     const own: WorkspaceInfo = { id: 'own', title: '', kind: 'personal', role: 'admin' };
-    const team = (
+    const shared = (
       id: string,
       role: 'admin' | 'member' | 'guest',
       closed = false,
@@ -260,25 +260,25 @@ describe('the workspace to start in', () => {
       kind: 'team',
     });
 
-    it('is the workspace of a new account’s team, not its own space', () => {
-      expect(firstChoiceOf([team('made', 'admin'), own], undefined)).toBe('made');
+    it('is the workspace of the organization a new account started, not its own space', () => {
+      expect(firstChoiceOf([shared('made', 'admin'), own], undefined)).toBe('made');
     });
 
     it('is the workspace an account is only a guest of, not its own space', () => {
-      expect(firstChoiceOf([team('invited', 'guest'), own], undefined)).toBe('invited');
+      expect(firstChoiceOf([shared('invited', 'guest'), own], undefined)).toBe('invited');
     });
 
-    it('is a team’s workspace closed to the session before the own space', () => {
-      expect(firstChoiceOf([team('closed', 'member', true), own], undefined)).toBe('closed');
+    it('is a shared workspace closed to the session before the own space', () => {
+      expect(firstChoiceOf([shared('closed', 'member', true), own], undefined)).toBe('closed');
     });
 
-    it('is the own space of an account in no team, and the own space it was last in', () => {
+    it('is the own space of an account in no organization, and the own space it was last in', () => {
       expect(firstChoiceOf([own], undefined)).toBe('own');
-      expect(firstChoiceOf([team('made', 'admin'), own], 'own')).toBe('own');
+      expect(firstChoiceOf([shared('made', 'admin'), own], 'own')).toBe('own');
     });
 
-    it('is a team’s workspace also where the list puts the own space first', () => {
-      expect(firstChoiceOf([own, team('made', 'member')], undefined)).toBe('made');
+    it('is a shared workspace also where the list puts the own space first', () => {
+      expect(firstChoiceOf([own, shared('made', 'member')], undefined)).toBe('made');
     });
   });
 });

@@ -1,9 +1,10 @@
 <!--
-  The sidebar: the name of the app (or, for who works in several workspaces, the
-  one shown, to switch to another: `WorkspaceSwitcher.svelte`), a field that narrows the boards down by
+  The sidebar: the name of the app (or, for who works in several workspaces or may
+  start an organization, the one shown, to switch to another: `WorkspaceSwitcher.svelte`), a field that narrows the boards down by
   title (and asks the backend for the boards it finds beyond them), the categories with their boards, and at the foot "Add board",
   the trash of boards (`TrashDialog.svelte`), the way to the organization's screen for
-  its administrators, and the reader's account (which opens the settings).
+  its administrators, and the reader's account (which opens the settings). In the
+  reader's own space there are no people to manage and no organization to go to.
 
   This is the content only. Where it sits (beside the board, or over the page
   as a drawer) is the shell's business, and nothing in here is drawn anew
@@ -33,6 +34,7 @@
     administers,
     containerTrash,
     isGuest,
+    isOwnSpace,
     peopleOf,
     shownWiki,
     whileHere,
@@ -63,8 +65,10 @@
     onOpenSettings: () => void;
     /** The address of the organization's screen, for whoever administers it. */
     orgHref?: string | undefined;
-    /** Goes to another workspace; with more than one, the head of the sidebar chooses. */
+    /** Goes to another workspace; the head of the sidebar chooses (`WorkspaceSwitcher`). */
     onSwitchWorkspace?: ((workspaceId: string) => void) | undefined;
+    /** Starts an organization and goes to its workspace, where the backend can (the switcher offers it). */
+    onCreateOrganization?: ((name: string) => Promise<void>) | undefined;
   }
 
   let {
@@ -78,7 +82,11 @@
     onOpenSettings,
     orgHref,
     onSwitchWorkspace,
+    onCreateOrganization,
   }: Props = $props();
+
+  /** The reader's own space: nobody else is in it, and no organization to administer. */
+  const ownSpace = $derived(isOwnSpace(workspace.info));
 
   let query = $state('');
   /**
@@ -191,11 +199,12 @@
 </script>
 
 <div class="flex shrink-0 items-center gap-1 px-2 pt-2 pb-1">
-  {#if onSwitchWorkspace && workspace.workspaces.length > 1}
+  {#if onSwitchWorkspace && (workspace.workspaces.length > 1 || onCreateOrganization)}
     <WorkspaceSwitcher
       workspaces={workspace.workspaces}
       current={workspace.info?.id}
       onSwitch={onSwitchWorkspace}
+      {onCreateOrganization}
     />
   {:else}
     <span class="min-w-0 flex-1 truncate pl-2 text-lg font-semibold tracking-tight" translate="no">
@@ -305,7 +314,7 @@
       <span class="min-w-0 flex-1 truncate">{m.shell_trash()}</span>
     </button>
   {/if}
-  {#if access && !isGuest(workspace) && (administers(workspace) || access.people.teams)}
+  {#if access && !isGuest(workspace) && !ownSpace && (administers(workspace) || access.people.teams)}
     <button
       type="button"
       data-testid="open-people"
@@ -319,7 +328,7 @@
       <span class="min-w-0 flex-1 truncate">{m.people_title()}</span>
     </button>
   {/if}
-  {#if orgHref}
+  {#if orgHref && !ownSpace}
     <a
       href={orgHref}
       data-testid="open-organization"

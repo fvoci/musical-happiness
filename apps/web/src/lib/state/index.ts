@@ -80,7 +80,7 @@ export {
 export type { LinkedBlock } from './references.ts';
 export { byCreation, byTitle, type SidebarCategory } from './order.ts';
 export { type Transfer } from './transfers.svelte.ts';
-export { type EnterStatus } from './workspace-entry.ts';
+export { startOrganization, type EnterStatus } from './workspace-entry.ts';
 export { containerTrash, cardTrash, pageTrash, Trash, type TrashStatus } from './trash.svelte.ts';
 export {
   Workspace,
