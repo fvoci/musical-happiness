@@ -1,6 +1,8 @@
 /** Signing in and out and making an account, where a backend has accounts (part of `backend.ts`). */
 import type { ContainerKind } from '../logic/wire.ts';
 
+import type { OrgKind } from './workspace-types.ts';
+
 /** What an account is made with. */
 export interface NewAccount {
   /** The name to sign in with. */
@@ -90,7 +92,9 @@ export interface SignInOrganization {
 /** An organization the deletion of the account is about, as the reader is told it. */
 export interface LeavingOrganization {
   id: string;
-  /** Empty if it was given none. */
+  /** `personal` for the account's own space, which always goes with it. */
+  kind: OrgKind;
+  /** Empty if it was given none, as the own space always is. */
   name: string;
   /**
    * How much is in it, which goes with it. Absent when the session does not

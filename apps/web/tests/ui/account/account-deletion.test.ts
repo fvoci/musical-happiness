@@ -3,7 +3,7 @@
  * the request sends, what a refusal is told as, and what the account that
  * waits is shown.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import AccountDeletion from '$lib/features/account/AccountDeletion.svelte';
@@ -67,10 +67,10 @@ describe('the settings', () => {
     await opened({
       ...open,
       organizations: [
-        { id: 'a', name: 'Alone', boards: 3, wikis: 1, files: 12 },
-        { id: 'd', name: 'Small', boards: 1, wikis: 0, files: 1 },
-        { id: 'b', name: 'Walled' },
-        { id: 'c', name: '', boards: 0, wikis: 0, files: 0 },
+        { id: 'a', kind: 'team', name: 'Alone', boards: 3, wikis: 1, files: 12 },
+        { id: 'd', kind: 'team', name: 'Small', boards: 1, wikis: 0, files: 1 },
+        { id: 'b', kind: 'team', name: 'Walled' },
+        { id: 'c', kind: 'team', name: '', boards: 0, wikis: 0, files: 0 },
       ],
     });
     const list = await screen.findByTestId('account-deletion-organizations');
@@ -79,6 +79,34 @@ describe('the settings', () => {
     expect(list).toHaveTextContent('Small: 1 board, 0 wikis, 1 file');
     expect(list).toHaveTextContent('Walled: sign in through its single sign-on');
     expect(list).toHaveTextContent('Unnamed organization: 0 boards, 0 wikis, 0 files');
+  });
+
+  it('say that the own space goes with the account, apart from the organizations with nobody else', async () => {
+    await opened({
+      ...open,
+      organizations: [
+        { id: 'a', kind: 'team', name: 'Alone', boards: 1, wikis: 0, files: 0 },
+        { id: 'own', kind: 'personal', name: '', boards: 4, wikis: 1, files: 2 },
+      ],
+    });
+    expect(await screen.findByTestId('account-deletion-own-space')).toHaveTextContent(
+      'My space is deleted with your account, with everything in it: 4 boards, 1 wiki, 2 files',
+    );
+    const list = screen.getByTestId('account-deletion-organizations');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+    expect(list).toHaveTextContent('Alone: 1 board, 0 wikis, 0 files');
+    expect(list).not.toHaveTextContent('Unnamed');
+  });
+
+  it('say the own space alone where nothing else goes with the account', async () => {
+    await opened({
+      ...open,
+      organizations: [{ id: 'own', kind: 'personal', name: '' }],
+    });
+    expect(await screen.findByTestId('account-deletion-own-space')).toHaveTextContent(
+      'My space is deleted with your account, with everything in it.',
+    );
+    expect(screen.queryByTestId('account-deletion-organizations')).toBeNull();
   });
 
   it('give the only administrator no form, and say of what', async () => {
@@ -244,7 +272,10 @@ describe('the account that waits', () => {
     ...open,
     requestedAt: Date.now() - DAY,
     deleteAfter: Date.now() + 29 * DAY - 1000,
-    organizations: [{ id: 'a', name: 'Alone', boards: 1, wikis: 0, files: 0 }],
+    organizations: [
+      { id: 'own', kind: 'personal', name: '', boards: 2, wikis: 0, files: 0 },
+      { id: 'a', kind: 'team', name: 'Alone', boards: 1, wikis: 0, files: 0 },
+    ],
   };
 
   it('is told when it is deleted and what goes with it, and takes the deletion back', async () => {
@@ -263,7 +294,12 @@ describe('the account that waits', () => {
     expect(await screen.findByTestId('account-leaving-text')).toHaveTextContent(
       /It is deleted in 29 days, on \w+ \d+, \d{4}\./u,
     );
-    expect(screen.getByTestId('account-leaving-organizations')).toHaveTextContent('Alone');
+    expect(screen.getByTestId('account-leaving-own-space')).toHaveTextContent(
+      'My space is deleted with it, with everything in it.',
+    );
+    const alone = screen.getByTestId('account-leaving-organizations');
+    expect(alone).toHaveTextContent('Alone');
+    expect(alone).not.toHaveTextContent('Unnamed');
 
     await fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(onSignOut).toHaveBeenCalledTimes(1);
