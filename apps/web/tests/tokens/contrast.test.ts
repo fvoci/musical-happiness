@@ -14,6 +14,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { AVATAR_COLORS } from '$lib/components/avatar/avatar.ts';
+import { TOKEN_KINDS } from '$lib/editor/code-tokens.ts';
 
 import { contrast, over, parseOklch, type Color } from '../support/color.ts';
 
@@ -76,6 +77,8 @@ const TEXT_PAIRS: [string, string][] = [
   ['foreground', 'option-purple'],
   ['foreground', 'option-pink'],
   ['foreground', 'option-red'],
+  // The colours of code, on the surface of a code block (editor/code-block.css).
+  ...TOKEN_KINDS.map((kind): [string, string] => [`code-${kind}`, 'muted']),
 ];
 
 /** [indicator, surface] */

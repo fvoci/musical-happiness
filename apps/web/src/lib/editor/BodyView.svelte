@@ -8,7 +8,8 @@
 
   `renderBody` only makes room for formulas and diagrams; once the body is in
   the page, `drawEmbeds` (embeds.ts) draws them. The libraries for that are
-  fetched only when a body has a formula or a diagram.
+  fetched only when a body has a formula or a diagram. So are the bar, the
+  colours and the line numbers of a code block (code-later.ts).
 
   A reference is an element that holds an identifier; what it names is drawn
   into it from `references` (reference-chip.ts), and again whenever what the
@@ -22,6 +23,8 @@
   import { on } from 'svelte/events';
 
   import './editor.css';
+  import { CODE_COPY_TEXTS } from './code-copy-texts.ts';
+  import { drawCodeBlocksLater } from './code-later.ts';
   import { drawEmbeds } from './embeds.ts';
   import { drawFileBlocks } from './file-view.ts';
   import { drawReferences, openClickedReference, type ReferenceDrawing } from './reference-chip.ts';
@@ -92,5 +95,6 @@
       return drawEmbeds(element);
     }}
     {@attach (element: HTMLElement) => referencesIn(element, references, nodes)}
+    {@attach (element: HTMLElement) => drawCodeBlocksLater(element, CODE_COPY_TEXTS, nodes)}
   ></div>
 {/if}

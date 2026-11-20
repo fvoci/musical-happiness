@@ -544,8 +544,9 @@ impl Collab {
     }
 
     /// Writes the body of a card's document to the card, keeps it as a version if the
-    /// document took updates no version holds, folds its log into its state, and
-    /// closes the document. The next request opens it again from what is stored. A
+    /// document took updates no version holds, folds its log into its state (or makes
+    /// the document again from the body, if many sessions wrote it), and closes the
+    /// document. The next request opens it again from what is stored. A
     /// body that cannot be written now is still in the stored state (the card is
     /// marked as not holding it) and is written when the document is opened again, or
     /// when the server starts: the document is closed all the same.
@@ -562,6 +563,7 @@ impl Collab {
                 let written = collab.write_now(app, card_id, slot).await;
                 if written.is_ok() {
                     collab.version_as_left(app, card_id, slot).await;
+                    collab.remake_worn(app, card_id, slot).await;
                 }
                 collab.fold_as_it_closes(app, card_id, slot).await;
                 collab.forget(slot).await;

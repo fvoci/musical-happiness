@@ -141,6 +141,25 @@
   --option-purple: oklch(0.89 0.06 300);
   --option-pink: oklch(0.9 0.06 350);
   --option-red: oklch(0.88 0.07 25);
+  /*
+   * The colours of code (editor/code-block.css), each at least 4.5:1 on the
+   * surface of a code block (--muted). Only the colour tells one kind of
+   * text from another; the words are what carries the meaning.
+   */
+  --code-comment: oklch(0.5 0.02 250);
+  --code-keyword: oklch(0.52 0.2 25);
+  --code-string: oklch(0.42 0.13 255);
+  --code-number: oklch(0.48 0.16 255);
+  --code-title: oklch(0.5 0.2 300);
+  --code-type: oklch(0.5 0.12 55);
+  --code-builtin: oklch(0.5 0.12 55);
+  --code-property: oklch(0.48 0.16 255);
+  --code-variable: oklch(0.5 0.12 55);
+  --code-meta: oklch(0.45 0.08 250);
+  --code-regexp: oklch(0.46 0.1 200);
+  --code-tag: oklch(0.47 0.13 150);
+  --code-added: oklch(0.47 0.13 150);
+  --code-removed: oklch(0.5 0.19 25);
 
   --radius: 0.5rem;
 
@@ -215,6 +234,20 @@
   --option-purple: oklch(0.4 0.09 300);
   --option-pink: oklch(0.42 0.09 350);
   --option-red: oklch(0.42 0.1 25);
+  --code-comment: oklch(0.72 0.02 250);
+  --code-keyword: oklch(0.76 0.14 25);
+  --code-string: oklch(0.86 0.07 240);
+  --code-number: oklch(0.8 0.1 245);
+  --code-title: oklch(0.81 0.1 300);
+  --code-type: oklch(0.81 0.12 60);
+  --code-builtin: oklch(0.81 0.12 60);
+  --code-property: oklch(0.8 0.1 245);
+  --code-variable: oklch(0.81 0.12 60);
+  --code-meta: oklch(0.8 0.1 245);
+  --code-regexp: oklch(0.84 0.08 200);
+  --code-tag: oklch(0.85 0.14 145);
+  --code-added: oklch(0.85 0.14 145);
+  --code-removed: oklch(0.77 0.13 20);
 }
 
 /* ------------------------------------------------------------------ type */

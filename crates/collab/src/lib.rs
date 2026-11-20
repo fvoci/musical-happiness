@@ -40,7 +40,7 @@ mod take;
 mod update;
 
 pub use build::{from_body, from_body_by, new_doc};
-pub use doc::{BodyDoc, Changed, client_changes, reading_steps};
+pub use doc::{BodyDoc, Changed, client_changes, reading_steps, steps_ahead};
 pub use repair::Repair;
 pub use take::{TakeError, Taken, from_state, take_update};
 pub use update::{
@@ -136,6 +136,17 @@ pub mod testing {
     /// Returns why the bytes are no whole state.
     pub fn reading(state: &[u8]) -> Result<(u64, Vec<List>), &'static str> {
         crate::reading::lists(state).map_err(crate::scan::Refusal::reason)
+    }
+
+    /// How many entries of the stack of waiting changes the reading of a state looks
+    /// through, and how many changes and clients the state has: what
+    /// [`crate::steps_ahead`] holds the first to by the others.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the bytes are no whole state.
+    pub fn looked(state: &[u8]) -> Result<(u64, (u64, u64)), &'static str> {
+        crate::reading::looked(state).map_err(crate::scan::Refusal::reason)
     }
 
     /// How many changes a state or an update holds.
