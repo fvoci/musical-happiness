@@ -361,6 +361,82 @@ async fn an_account_starts_organizations_and_no_more_than_three() {
     th.teardown().await;
 }
 
+/// An organization is counted to who made it after they have left it: an account that
+/// made three hands one to somebody else, who is let in, made its administrator, takes
+/// the maker's role and removes them from its workspace. The maker is listed the two
+/// that are left, finds the third no more, and is still refused a fourth with the
+/// answer of the limit. Who took it over did not make it: it is not counted to them.
+#[tokio::test]
+async fn an_organization_is_counted_to_who_made_it_after_they_left_it() {
+    if db_type_of_the_tests() != DbType::Postgres {
+        return;
+    }
+    let WithOneAlone { th, alice, carol } = with_one_alone().await;
+    let gamma: UserWorkspace = start(&carol, "Gamma").await.created_json();
+    for name in ["Delta", "Epsilon"] {
+        start(&carol, name).await.check_created();
+    }
+    check_too_many(&start(&carol, "Zeta").await);
+
+    let (alice_id, carol_id) = (alice.me().await.id, carol.me().await.id);
+    let (workspace, organization) = (format!("/w/{}", gamma.id), format!("/org/{}", gamma.org_id));
+    let link = carol
+        .post(
+            &format!("{workspace}/invitations"),
+            &json!({"role": "member"}),
+        )
+        .await;
+    link.check_created();
+    alice
+        .post(
+            "/invitations/accept",
+            &json!({"token": link.value()["token"]}),
+        )
+        .await
+        .check_ok();
+    let admin = json!({"role": "admin"});
+    carol
+        .put(&format!("{organization}/members/{alice_id}/role"), &admin)
+        .await
+        .check_no_content();
+    carol
+        .put(&format!("{workspace}/members/{alice_id}"), &admin)
+        .await
+        .check_ok();
+    alice
+        .put(
+            &format!("{organization}/members/{carol_id}/role"),
+            &json!({"role": "member"}),
+        )
+        .await
+        .check_no_content();
+    alice
+        .delete(&format!("{workspace}/members/{carol_id}"))
+        .await
+        .check_no_content();
+
+    let (listed, _) = workspaces_and_own(&carol).await;
+    let names: Vec<&str> = listed
+        .iter()
+        .map(|workspace| workspace.name.as_str())
+        .collect();
+    assert_eq!(names, ["Delta", "Epsilon"], "the two that are left");
+    carol.get(&workspace).await.check_not_found();
+    carol
+        .get(&format!("{organization}/members"))
+        .await
+        .check_not_found();
+    check_too_many(&start(&carol, "Zeta").await);
+
+    // Alice made the one she registered with, and none of Gamma: two more are hers.
+    for name in ["Beta", "Eta"] {
+        start(&alice, name).await.check_created();
+    }
+    check_too_many(&start(&alice, "Theta").await);
+    assert_eq!(organizations_of_people(&th).await, 6);
+    th.teardown().await;
+}
+
 /// On a server that asks registrations to confirm their address, one that names no
 /// organization waits as the others do, and its link makes the account with its own
 /// space alone: the answer leads into that space and says no organization was
