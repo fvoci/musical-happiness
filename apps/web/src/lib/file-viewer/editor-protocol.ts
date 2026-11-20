@@ -27,17 +27,25 @@ export const EDIT_FAILURES = ['unreadable', 'locked', 'too-large', 'editor'] as 
 export type EditFailure = (typeof EDIT_FAILURES)[number];
 
 /**
- * What rhwp says a saved file loses, as its report words it (rhwp-studio,
- * core/export-content-loss.ts): a picture or other binary data written empty,
- * a control left out, the parameters of a field reduced.
+ * What a saved file loses: as rhwp's report words it (rhwp-studio,
+ * core/export-content-loss.ts), a picture or other binary data written empty,
+ * a control left out, the parameters of a field reduced; and, as the frame
+ * finds it, a part of an HWPX package that rhwp does not keep
+ * (`partOmitted`, editor-frame/parts.ts), which its report does not name.
  */
-export const LOSS_CODES = ['binaryContentEmptied', 'controlOmitted', 'metadataReduced'] as const;
-export const LOSS_SUBJECTS = ['binaryData', 'control', 'fieldParameters'] as const;
+export const LOSS_CODES = [
+  'binaryContentEmptied',
+  'controlOmitted',
+  'metadataReduced',
+  'partOmitted',
+] as const;
+export const LOSS_SUBJECTS = ['binaryData', 'control', 'fieldParameters', 'packagePart'] as const;
 export const LOSS_REASONS = [
   'resourceReadFailedOrLimitExceeded',
   'storedCompressionMismatch',
   'rawPassthroughUnavailable',
   'unsupportedByOutputFormat',
+  'notKeptByEditor',
 ] as const;
 
 export interface Loss {

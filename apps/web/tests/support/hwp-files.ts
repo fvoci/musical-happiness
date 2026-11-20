@@ -119,6 +119,44 @@ export function koreanHwpx(): Buffer {
   return rewriteArchive(exported, (member) => (member.name === RHWP_ORIGIN ? undefined : member));
 }
 
+/** Parts rhwp does not keep, and a piece of data it keeps under a name of its own. */
+const OTHER_PARTS: ZipMember[] = [
+  {
+    name: 'Contents/history.xml',
+    data: Buffer.from(
+      '<?xml version="1.0" encoding="UTF-8"?><hhs:history xmlns:hhs="http://www.hancom.co.kr/hwpml/2011/history"/>',
+    ),
+  },
+  { name: 'Custom/notes.xml', data: Buffer.from('<?xml version="1.0"?><notes>기록</notes>') },
+  { name: 'BinData/attachment.pdf', data: Buffer.from('%PDF-1.4 attached') },
+];
+/** How the package's manifest names the history and the data; the notes it does not name. */
+const OTHER_ITEMS =
+  '<opf:item id="history" href="Contents/history.xml" media-type="application/xml"/>' +
+  '<opf:item id="attachment" href="BinData/attachment.pdf" media-type="application/pdf" isEmbeded="1"/>';
+
+/**
+ * The Korean HWPX with parts another program wrote and rhwp does not read: a
+ * history the package's manifest names, notes it does not name, and a piece
+ * of data it names, which rhwp keeps under a name of its own.
+ */
+export function koreanHwpxWithOtherParts(): Buffer {
+  const members: ZipMember[] = [];
+  rewriteArchive(koreanHwpx(), (member) => {
+    if (member.name !== 'Contents/content.hpf') {
+      members.push(member);
+      return member;
+    }
+    const listed = member.data
+      .toString('utf8')
+      .replace('</opf:manifest>', `${OTHER_ITEMS}</opf:manifest>`);
+    if (!listed.includes(OTHER_ITEMS)) throw new Error('the package lists its parts otherwise');
+    members.push({ ...member, data: Buffer.from(listed) });
+    return member;
+  });
+  return zip([...members, ...OTHER_PARTS]);
+}
+
 export function koreanHwp(): Buffer {
   return Buffer.from(koreanDocument().exportHwp());
 }

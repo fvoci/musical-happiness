@@ -2,9 +2,10 @@
   What the editor (FileEditor.svelte) asks before a save that is not a plain
   new version, over the editor:
 
-  - rhwp says the saved file loses something of the document: what, where
-    and why, as its report names them, and the choice between a new version
-    all the same, a file of its own beside this one, and not saving;
+  - the saved file loses something of the document (as rhwp's report names
+    it, or a part of the package rhwp does not keep): what, where and why,
+    and the choice between a new version all the same, a file of its own
+    beside this one, and not saving;
   - the file got a newer version than the one edited: the choice between
     keeping the edit as a file of its own and not saving.
 
@@ -35,12 +36,14 @@
     binaryContentEmptied: m.file_editor_loss_binary,
     controlOmitted: m.file_editor_loss_control,
     metadataReduced: m.file_editor_loss_metadata,
+    partOmitted: m.file_editor_loss_part,
   };
   const WHY: Record<Loss['reason'], () => string> = {
     resourceReadFailedOrLimitExceeded: m.file_editor_loss_reason_read,
     storedCompressionMismatch: m.file_editor_loss_reason_compression,
     rawPassthroughUnavailable: m.file_editor_loss_reason_passthrough,
     unsupportedByOutputFormat: m.file_editor_loss_reason_format,
+    notKeptByEditor: m.file_editor_loss_reason_kept,
   };
 </script>
 

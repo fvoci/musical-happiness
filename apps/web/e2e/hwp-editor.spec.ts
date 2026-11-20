@@ -7,7 +7,13 @@
  */
 import { expect, test, type Frame, type Locator, type Page } from '@playwright/test';
 
-import { HWP_TEXT, koreanHwp, koreanHwpx, rewriteArchive } from '../tests/support/hwp-files.ts';
+import {
+  HWP_TEXT,
+  koreanHwp,
+  koreanHwpx,
+  koreanHwpxWithOtherParts,
+  rewriteArchive,
+} from '../tests/support/hwp-files.ts';
 
 import { attach, frameOf, openCard, viewer } from './file-viewer.support.ts';
 
@@ -250,6 +256,26 @@ test('a save that loses part of the document says what, and saves only what the 
   await expect(row).toBeAttached();
 });
 
+test('a save that leaves out parts of the file rhwp does not keep names them, and asks first', async ({
+  page,
+}) => {
+  await openCard(page);
+  // Parts another program wrote: rhwp reads none of them, and its report of the save is empty.
+  await edit(page, '다른 부분.hwpx', koreanHwpxWithOtherParts(), HWPX_TYPE);
+  await type(page, TYPED);
+  await page.getByTestId('file-editor-save').click();
+  const losses = page.getByTestId('file-editor-losses');
+  await expect(losses).toContainText('what is in the 2 places below');
+  const listed = losses.locator('li');
+  await expect(listed).toHaveText([
+    /^A part of the file is left out: the editor keeps only what it reads\s*Contents\/history\.xml$/,
+    /^A part of the file is left out: the editor keeps only what it reads\s*Custom\/notes\.xml$/,
+  ]);
+  await losses.getByRole('button', { name: 'Cancel' }).click();
+  await expect(losses).toHaveCount(0);
+  await expect(said(page)).toHaveText('There are unsaved changes');
+});
+
 test('the frame the editor runs in reaches no network, no storage and nothing of the app', async ({
   page,
 }) => {
@@ -312,7 +338,9 @@ test('the frame the editor runs in reaches no network, no storage and nothing of
       try {
         const made = new Worker(address);
         made.onerror = (event) => {
-          resolve(event instanceof ErrorEvent && event.message ? 'got: a run' : 'refused: not loaded');
+          resolve(
+            event instanceof ErrorEvent && event.message ? 'got: a run' : 'refused: not loaded',
+          );
         };
       } catch (error) {
         resolve(`refused: ${error instanceof Error ? error.name : String(error)}`);

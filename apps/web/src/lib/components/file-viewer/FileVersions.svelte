@@ -234,12 +234,15 @@
               {/if}
             </p>
             <div class="flex gap-1">
+              <!-- Unavailable rather than disabled, here and below: a button disabled under the
+                   focus drops it to the page, and the keyboard's place in the list with it. -->
               <IconButton
                 label={m.file_version_view({ version: version.version, when: at })}
-                disabled={shown === version.version}
+                aria-disabled={shown === version.version ? 'true' : undefined}
+                class="aria-disabled:opacity-50"
                 data-testid="file-version-view"
                 onclick={() => {
-                  onView(version);
+                  if (shown !== version.version) onView(version);
                 }}
               >
                 <EyeIcon aria-hidden="true" />
@@ -256,9 +259,11 @@
               {#if source.canWrite && !version.isCurrent}
                 <IconButton
                   label={m.file_version_restore({ version: version.version, when: at })}
-                  disabled={busy}
+                  aria-disabled={busy ? 'true' : undefined}
+                  class="aria-disabled:opacity-50"
                   data-testid="file-version-restore"
                   onclick={() => {
+                    if (busy) return;
                     asked = version;
                     asking = true;
                   }}

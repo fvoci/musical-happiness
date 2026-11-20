@@ -55,12 +55,18 @@ function sourceOf(more: Partial<VersionsSource> = {}): VersionsSource {
 async function shown(source = sourceOf(), shownVersion = 3) {
   const list = new VersionsList(source);
   const calls = { onView: vi.fn(), onDownload: vi.fn(), onWritten: vi.fn(), onClose: vi.fn() };
-  render(FileVersions, { list, source, shown: shownVersion, accept: '.txt', ...calls });
+  const { rerender } = render(FileVersions, {
+    list,
+    source,
+    shown: shownVersion,
+    accept: '.txt',
+    ...calls,
+  });
   await vi.waitFor(() => {
     expect(screen.getByTestId('file-versions-list')).toBeTruthy();
   });
   const rows = [...screen.getByTestId('file-versions-list').querySelectorAll('li')];
-  return { list, calls, rows };
+  return { list, calls, rows, rerender };
 }
 
 afterEach(cleanup);
@@ -93,7 +99,11 @@ describe('the list of the versions of a file', () => {
   it('lets a version be looked at and downloaded, but for the one on screen', async () => {
     const { rows, calls } = await shown();
     const [newest, , first] = three(rows);
-    expect(within(newest).getByTestId<HTMLButtonElement>('file-version-view').disabled).toBe(true);
+    expect(within(newest).getByTestId('file-version-view').getAttribute('aria-disabled')).toBe(
+      'true',
+    );
+    within(newest).getByTestId('file-version-view').click();
+    expect(calls.onView).not.toHaveBeenCalled();
     within(first).getByTestId('file-version-view').click();
     within(first).getByTestId('file-version-download').click();
     expect(calls.onView.mock.calls[0]?.[0]).toMatchObject({ version: 1 });
@@ -103,6 +113,20 @@ describe('the list of the versions of a file', () => {
       // Noon in Greenwich is the first or, far east, the second.
       /^View version 1, of January 0[12] at /,
     );
+  });
+
+  it('keeps the focus on the button of the version it showed, which is then unavailable', async () => {
+    const { rows, calls, rerender } = await shown();
+    const [, , first] = three(rows);
+    const view = within(first).getByTestId<HTMLButtonElement>('file-version-view');
+    view.focus();
+    view.click();
+    expect(calls.onView).toHaveBeenCalledTimes(1);
+    await rerender({ shown: 1 });
+    expect(view.getAttribute('aria-disabled')).toBe('true');
+    expect(document.activeElement).toBe(view);
+    view.click();
+    expect(calls.onView).toHaveBeenCalledTimes(1);
   });
 
   it('offers going back and a new version to who may write, and to nobody else', async () => {

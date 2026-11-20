@@ -87,6 +87,8 @@
 
   const address = editorAddress(document);
   const compact = $derived(page.stage === 'compact');
+  /** Short of the widest screens, what the editor says has a line of its own, whole. */
+  const sayApart = $derived(page.stage !== 'expanded');
   const status = $derived(session.status);
   const saving = $derived(session.saving);
   /** Asked whether to close over changes that are not saved. */
@@ -171,14 +173,21 @@
     ]}
     interactOutsideBehavior="ignore"
   >
-    <header {@attach asHeader} class="flex min-h-12 items-center gap-2 border-b py-1 pr-1 pl-4">
+    <header
+      {@attach asHeader}
+      class={[
+        'flex min-h-12 items-center gap-x-2 border-b py-1 pr-1 pl-4',
+        sayApart && 'flex-wrap',
+      ]}
+    >
       <Dialog.Title class="min-w-0 flex-1 truncate text-base font-semibold"
         >{file.name}</Dialog.Title
       >
       <Dialog.Description class="sr-only">{m.file_editor_description()}</Dialog.Description>
       <p
         class={[
-          'min-w-0 shrink truncate text-sm',
+          'min-w-0 text-sm',
+          sayApart ? 'order-last basis-full pr-3' : 'shrink truncate',
           saving.name === 'failed' || lease?.lost ? 'text-destructive' : 'text-muted-foreground',
         ]}
         role="status"

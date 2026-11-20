@@ -28,11 +28,14 @@ import {
   type ToEditor,
 } from '$lib/file-viewer/editor-protocol.ts';
 
+import type { ZipEntry } from '$lib/file-viewer/zip-directory.ts';
+
 import type { FromWorker, ToWorker } from '../viewer-frame/hwp-messages.ts';
 import HwpWorker from '../viewer-frame/hwp-worker.ts?worker&inline';
 import { WorkerClient } from '../viewer-frame/worker-client.ts';
 
 import { lossesOf } from './losses.ts';
+import { packageParts, partsLeftOut, withPartsLeftOut } from './parts.ts';
 import { provide } from './rhwp.ts';
 import { memoryStorage } from './storage.ts';
 
@@ -143,8 +146,17 @@ async function opens(
   }
 }
 
-/** The editor at work on one document: answers the app's requests to export and to mark it stored. */
-function serve(host: Host, format: EditFormat, engine: ArrayBuffer): (message: ToEditor) => void {
+/**
+ * The editor at work on one document: answers the app's requests to export and to mark it stored.
+ * `parts` are what the package held as it was opened (an HWPX's; none for an HWP), for what a
+ * save leaves out (parts.ts).
+ */
+function serve(
+  host: Host,
+  format: EditFormat,
+  engine: ArrayBuffer,
+  parts: readonly ZipEntry[] | undefined,
+): (message: ToEditor) => void {
   host.onDirtyChanged((dirty) => {
     tell({ kind: 'changed', dirty });
   });
@@ -185,7 +197,10 @@ function serve(host: Host, format: EditFormat, engine: ArrayBuffer): (message: T
   const exportFor = async (request: number): Promise<void> => {
     try {
       const exported = host.exportWithReport(format);
-      const { count, losses } = lossesOf(exported.contentLoss);
+      const report = lossesOf(exported.contentLoss);
+      const { count, losses } = parts
+        ? withPartsLeftOut(report, partsLeftOut(parts, exported.bytes))
+        : report;
       const bytes = exported.bytes.slice().buffer;
       const at = changes;
       if (!(await opens(format, bytes.slice(0), engine.slice(0)))) throw new Error('not opened');
@@ -251,9 +266,11 @@ function listen(): void {
       try {
         // The loader reads the bytes and leaves them whole: saves are read back with them.
         provide(engine);
+        // The check writes the package anew with every part it had.
+        const parts = format === 'hwpx' ? packageParts(new Uint8Array(file)) : undefined;
         const host = await startEditor(theme, lang);
         const { pageCount } = await host.load(new Uint8Array(file), name);
-        serving = serve(host, format, engine);
+        serving = serve(host, format, engine, parts);
         tell({ kind: 'opened', pages: pageCount });
       } catch {
         tell({ kind: 'failed', reason: 'editor' });
