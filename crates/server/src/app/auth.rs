@@ -9,7 +9,7 @@ use fvoci_model::{
 use fvoci_store::{Founding, SignupLookup, StoreError, Taken};
 
 use super::App;
-use super::oidc_pending::FRESH_SIGN_IN_MILLIS;
+use super::oidc_pending::require_fresh_sign_in;
 use crate::auth::hash_queue::QueueError;
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
@@ -616,14 +616,7 @@ impl App {
         // The session vouches while it is the provider's word of a moment ago, as for
         // deleting such an account: a password outlives the session that sets it, ends
         // the account's other sessions and is the proof of what comes after.
-        let made_just_now = session.login.is_some()
-            && now_millis().saturating_sub(session.created_at) <= FRESH_SIGN_IN_MILLIS;
-        if !made_just_now {
-            return Err(AppError::forbidden(
-                "sign in through the provider again to set a password",
-            )
-            .with_reason(Reason::SignInAgain));
-        }
+        require_fresh_sign_in(session, now_millis(), "set a password")?;
         let token = new_secret();
         let set = self
             .store()
