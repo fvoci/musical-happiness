@@ -1359,6 +1359,31 @@ async fn fill(alone_store: &Store, alone: &str, alone_workspace: &str, leaver: &
         .expect("a record");
 }
 
+/// Fills the own space of `owner` with what one holds, a board with a card and a file
+/// and what its owner wrote on the card, and returns the space's organization.
+async fn fill_the_space_of(test: &TestStore, owner: &str) -> String {
+    let query = format!("SELECT CAST(id AS TEXT) FROM organizations WHERE owner_id = '{owner}'");
+    let found = test.system().texts_unchecked(&query).await;
+    let org = found.expect("read").remove(0);
+    let workspace = common::own_workspace(test, owner).await;
+    let space = test.for_org(&org).expect("an organization");
+    let (board, card) = board_of(&space, &workspace, owner).await;
+    work_on(&space, &board, &card, owner).await;
+    let saved = space.save_file_info(&file_of(&board)).await;
+    saved.expect("a file of the space");
+    org
+}
+
+/// No column of any table names the space `org` any more, but what the storage is
+/// still to be told.
+async fn check_nothing_names(system: &Store, org: &str) {
+    assert_eq!(
+        holding(system, org).await,
+        keeps_the_organization(),
+        "nothing names the space but what the storage is to be told"
+    );
+}
+
 /// The organization of others, and the test's own, hold the rows they held (`kept`,
 /// in that order), but for the leaver's own membership of the test's.
 async fn check_the_others_keep(test: &TestStore, third: &str, kept: Vec<Vec<(String, i64)>>) {
@@ -1406,6 +1431,7 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
     let alone_store = test.for_org(&alone).expect("an organization");
     let before = rows_of_every_table(&system).await;
     fill(&alone_store, &alone, &alone_workspace, &leaver).await;
+    let space = fill_the_space_of(&test, &leaver).await;
     for table in HELD_BY_AN_ORGANIZATION {
         assert!(
             alone_store.count_rows(table).await.expect("counted") > 0,
@@ -1456,13 +1482,14 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
         .iter()
         .filter(|from| from.removed.is_some())
         .collect();
-    // The organization, and the leaver's own space, which holds nothing.
+    // The organization, and the leaver's own space with what it holds.
     assert_eq!(removed.len(), 2, "two organizations went: {erased:?}");
     let files: Vec<_> = removed
         .iter()
         .flat_map(|from| &from.removed.as_ref().expect("removed").files)
         .collect();
-    assert_eq!(files.len(), 1, "its file is doomed: {files:?}");
+    assert_eq!(files.len(), 2, "the file of each is doomed: {files:?}");
+    check_nothing_names(&system, &space).await;
     assert_eq!(
         holding(&system, &alone).await,
         keeps_the_organization(),

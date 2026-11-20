@@ -28,6 +28,7 @@ use super::common::{
     ApiResponse, Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID, carried_out,
 };
 use super::fake_search::{FakeSearch, document};
+use super::fake_smtp::FakeSmtp;
 use super::routes::{
     Asker, Items, WORKSPACE_ROUTES, a_comment_on, a_page_in, archive_entries,
     compare_resource_routes, compare_workspace_routes, fill_with_nothing,
@@ -746,6 +747,70 @@ async fn receive(
 ) -> axum::http::StatusCode {
     sender.send(block).await.expect("the test receiver is open");
     axum::http::StatusCode::NO_CONTENT
+}
+
+/// No mail names anything of a space. The mail the server sends is of invitations, of
+/// passwords, of addresses and of the operator's, and none of it carries what a
+/// workspace holds: with a space filled, the invitation an administrator of the
+/// organization mails and the mail that recovers the owner's password arrive and name
+/// nothing of the space, and the space itself mails nobody an invitation.
+#[tokio::test]
+async fn no_mail_names_anything_of_a_space() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let ts = Setup::native()
+        .smtp(smtp.settings())
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let space = Space::of_a_new_member(&ts).await;
+    let invitations = format!("/w/{ROOT_WORKSPACE_ID}/invitations");
+    let link = ts
+        .client
+        .post(&invitations, &json!({"role": "member"}))
+        .await;
+    let token = link.value()["token"]
+        .as_str()
+        .expect("the invitation's token")
+        .to_owned();
+    let mailed = json!({"token": token, "recipients": ["newcomer@sample.com"]});
+    ts.client
+        .post(&format!("{invitations}/mail"), &mailed)
+        .await
+        .check_no_content();
+    // The address `Space::of_a_new_member` registers its owner with.
+    let owner = "space-owner@sample.com";
+    ts.anonymous()
+        .post("/password-reset/request", &json!({"email": owner}))
+        .await
+        .check_no_content();
+
+    // From the space nobody is invited, by a link of its own or by another's.
+    let own = format!("/w/{}/invitations", space.workspace.id);
+    let made = space.owner.post(&own, &json!({"role": "member"})).await;
+    made.check_not_found();
+    let sent = space.owner.post(&format!("{own}/mail"), &mailed).await;
+    sent.check_not_found();
+
+    // Both have arrived, and whatever else was sent by the time nothing is under way.
+    smtp.received(2).await;
+    assert!(ts.app.finish_background(Duration::from_secs(5)).await);
+    let letters = smtp.messages().await;
+    let mut recipients: Vec<&str> = letters
+        .iter()
+        .map(|letter| letter.recipient.as_str())
+        .collect();
+    recipients.sort_unstable();
+    assert_eq!(recipients, ["newcomer@sample.com", owner]);
+    for letter in &letters {
+        assert!(
+            !space.named_in(&letter.decoded) && !space.named_in(&letter.message),
+            "mail to {} names the space: {}",
+            letter.recipient,
+            letter.decoded
+        );
+    }
+    smtp.stop().await;
 }
 
 /// The server operator's webhooks are posted the changes of the organizations people
