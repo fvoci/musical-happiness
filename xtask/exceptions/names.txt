@@ -289,6 +289,10 @@ crates/server/src/api/users.rs | through a team of its workspace
 crates/server/src/api/users.rs | (`synthetic`, with the team's role in
 crates/server/src/api/users.rs | a guest is in no team
 
+# Who edits a file is named to a guest as presence names people, a role through a team of
+# the workspace included: the test gives the editor the board through such a team.
+crates/server/tests/api/file_leases.rs | team
+
 # The signing string of OCI's published example request, which the signature test
 # verifies byte for byte: its instances are named so in Oracle's documentation.
 crates/server/src/app/mail/provider/http_signature.rs | displayName=TeamXInstances

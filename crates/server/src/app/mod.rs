@@ -239,17 +239,7 @@ impl App {
     /// are configured and their HTTP client cannot be set up, or if `metrics_address`
     /// is no address.
     pub fn new(config: Configuration, store: Store, files: FileBackend) -> anyhow::Result<Self> {
-        let metrics = if config.metrics_listen_address()?.is_some() {
-            Metrics::kept()?
-        } else {
-            Metrics::none()
-        };
-        if metrics.is_kept() {
-            metrics.db_known(store_metrics::database(store.db_type()));
-            if !store.observe(Box::new(store_metrics::StoreMetrics(metrics.clone()))) {
-                tracing::warn!("the store has an observer already; its calls are not measured");
-            }
-        }
+        let metrics = store_metrics::set_up(&config, &store)?;
         store.set_comment_versions_kept(config.max_comment_versions);
         store.set_body_versions_kept(config.collab.collab_body_versions);
         store.set_file_versions_kept(config.max_file_versions);
