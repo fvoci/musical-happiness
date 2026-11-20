@@ -16,41 +16,67 @@
   close. A file that cannot be shown here says why and offers itself as a
   download.
 
+  Where the file has versions to show (`versions`: not for who reads by a
+  public link), the file is read as its newest version by that version's
+  number, so that the version on screen is known and not guessed. A button in
+  the header opens their list (FileVersions.svelte) beside the document, or
+  over it on a narrow screen. A version picked there is shown in the file's
+  place, in a frame of its own; the header says when what is shown is not the
+  newest.
+
+  A Hangul document can be edited by who may write the file's versions: "Edit"
+  takes the file's lease (one editor at a time, lib/file-viewer/lease.svelte.ts)
+  and hands the version on screen to the editor (FileEditor.svelte), which
+  takes the viewer's place until it is closed. Where a newer version was saved
+  meanwhile, that one is shown instead, to be edited from there. A line under
+  the header says who edits the file; "Edit" stays where it is meanwhile,
+  unavailable and described by that line, so that a focus on it stays.
+
   It is mounted for one file and closed by unmounting it, which takes the
   frame out of the page and stops whatever the frame was doing.
 -->
 <script lang="ts">
-  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
-  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import DownloadIcon from '@lucide/svelte/icons/download';
+  import HistoryIcon from '@lucide/svelte/icons/history';
+  import PencilIcon from '@lucide/svelte/icons/pencil';
   import XIcon from '@lucide/svelte/icons/x';
-  import ZoomInIcon from '@lucide/svelte/icons/zoom-in';
-  import ZoomOutIcon from '@lucide/svelte/icons/zoom-out';
-  import { untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
 
+  import EditingNote from './EditingNote.svelte';
+  import PageControls from './PageControls.svelte';
   import SheetTabs from './SheetTabs.svelte';
+  import SlideCount from './SlideCount.svelte';
+  import ViewerNotice from './ViewerNotice.svelte';
   import { display } from '$lib/display.svelte.ts';
+  import type { EditedFile } from '$lib/file-viewer/editing.svelte.ts';
+  import { LeaseWatch, startEditing, type EditLease } from '$lib/file-viewer/lease.svelte.ts';
+  import { frameAddress, ViewerSession, type ViewedFile } from '$lib/file-viewer/session.svelte.ts';
   import {
-    frameAddress,
-    LIMITS,
-    ViewerSession,
-    type Status,
-    type ViewedFile,
-  } from '$lib/file-viewer/session.svelte.ts';
+    VersionsList,
+    type FileVersion,
+    type VersionsSource,
+  } from '$lib/file-viewer/versions.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
-  import { humanFileSize } from '$lib/logic/format.ts';
   import { saveBlob } from '$lib/save.ts';
   import * as Dialog from '$lib/ui/dialog/index.js';
+
+  import FileVersions from './FileVersions.svelte';
 
   interface Props {
     /** The file; the viewer is made for one and is not handed another. */
     file: ViewedFile;
+    /** The file's versions, where the reader may see them. */
+    versions?: VersionsSource | undefined;
     onClose: () => void;
+    /** Opens the editor on the version shown, with the file's lease; without it the viewer offers no editing. */
+    onEdit?: ((edited: EditedFile, lease: EditLease) => void) | undefined;
+    /** A lease of the reader's being let go of: who edits the file is asked once it went. */
+    released?: Promise<void>;
     /**
      * Gives the focus back as the viewer goes, once its hold on the focus is let go of; without
      * it, the focus goes back to what had it when the viewer opened.
@@ -58,25 +84,95 @@
     returnFocus?: () => void;
   }
 
-  let { file, onClose, returnFocus }: Props = $props();
+  let { file, versions, onClose, onEdit, released, returnFocus }: Props = $props();
 
-  const session = untrack(
-    () =>
-      new ViewerSession(file, {
-        theme: () => display.resolved.theme,
-        lang: getLocale,
-        onKey: (key) => {
-          command(key);
-        },
-        onDownload: () => {
-          download();
-        },
-      }),
+  const uid = $props.id();
+
+  const sessionOf = (viewed: ViewedFile): ViewerSession =>
+    new ViewerSession(viewed, {
+      theme: () => display.resolved.theme,
+      lang: getLocale,
+      onKey: (key) => {
+        command(key);
+      },
+      onDownload: () => {
+        download();
+      },
+    });
+
+  /** The list of versions, read as the viewer opens: the file is read by what it says. */
+  const list = untrack(() => (versions ? new VersionsList(versions) : undefined));
+  /** The number of the version on screen, where it is known: the one read, then whichever was picked. */
+  let shownVersion = $state<number>();
+  /** What is on screen: the file as it was opened, then whichever version was picked. */
+  let session = $state.raw(untrack(() => sessionOf(opening())));
+  let listed = $state(false);
+  let panel = $state<HTMLElement>();
+  /** Who edits the file, asked of a Hangul document whose versions the reader sees. */
+  const watch = untrack(() =>
+    versions && /\.hwpx?$/i.test(file.name) ? new LeaseWatch(versions) : undefined,
   );
+  $effect(() => watch?.watch(untrack(() => released)));
+  /** "Edit" is under way: its lease is asked for. */
+  let taking = $state(false);
+  /** What came of the last "Edit", where it is to be said. */
+  let editNote = $state<'failed' | 'newer'>();
+  /** The viewer is closed: what ends after shows nothing. */
+  let closed = false;
+  onDestroy(() => {
+    closed = true;
+  });
+
+  /**
+   * The file as the viewer opens it. Where its versions are listed it is read
+   * as the newest of them by number, and that number is the version on
+   * screen; where the list could not be read, as the file is, its version
+   * unknown.
+   */
+  function opening(): ViewedFile {
+    const source = versions;
+    if (!source || !list) return file;
+    const { name, size, read } = file;
+    let opened: FileVersion | undefined;
+    return {
+      name,
+      size,
+      read: async (signal) => {
+        await list.first;
+        // The same version however often it is read: the download is of what is on screen.
+        opened ??= list.current;
+        if (!opened) return read(signal);
+        const blob = await source.bytes(opened.version, signal);
+        // Not over a version picked meanwhile.
+        if (blob) shownVersion ??= opened.version;
+        return blob;
+      },
+    };
+  }
+
+  /** What is on screen is not the file's newest version. */
+  const older = $derived(
+    shownVersion !== undefined &&
+      list?.current !== undefined &&
+      shownVersion !== list.current.version,
+  );
+  const extension = $derived(/\.[^./\\]+$/.exec(file.name)?.[0] ?? '');
+
   const address = frameAddress(document);
   const compact = $derived(page.stage === 'compact');
   const status = $derived(session.status);
   const framed = $derived(status.name === 'opening' || status.name === 'shown');
+  /**
+   * What "Edit" opens the editor on: the Hangul document on screen, for who may write its
+   * versions, once it is shown and its version is known (a new version is written from it).
+   * Not an earlier version: an edit of one could not become a version.
+   */
+  const editable = $derived.by(() => {
+    if (!onEdit || !versions?.canWrite || status.name !== 'shown' || older) return undefined;
+    const { format } = status;
+    if ((format !== 'hwp' && format !== 'hwpx') || shownVersion === undefined) return undefined;
+    return session.blob ? { format, blob: session.blob, version: shownVersion } : undefined;
+  });
   /** The sheet shown, when the file is a workbook. */
   const sheet = $derived(session.sheets[session.page - 1]);
   /** A deck's pages are its slides, and are called so. */
@@ -92,15 +188,6 @@
           pages: session.pages,
         }),
   );
-  /** How many slides are laid out, and how many of them are hidden. */
-  const slideCount = $derived.by((): string => {
-    if (!order) return '';
-    const count = order.count(session.showHidden);
-    if (order.allHidden) return m.viewer_slides_all_hidden({ count });
-    return session.showHidden
-      ? m.viewer_slides_count_with_hidden({ count, hidden: order.hidden.size })
-      : m.viewer_slides_count({ count });
-  });
   /** What is said of the page turned to: of a sheet with drawings, that they are not shown. */
   const announced = $derived(sheet?.drawings ? `${where} ${m.viewer_sheet_drawings()}` : where);
   const previous = $derived(
@@ -120,6 +207,13 @@
       onClose();
     },
   );
+  // Narrow, the list is over the document: back shows the document again.
+  closeOnBack(
+    () => compact && listed,
+    () => {
+      closeVersions();
+    },
+  );
 
   $effect(() => {
     const theme = display.resolved.theme;
@@ -129,29 +223,12 @@
     });
   });
 
-  $effect(() => () => {
-    session.close();
-  });
-
-  /** What the viewer says when it cannot show the file. */
-  const FAILURE: Record<Extract<Status, { name: 'failed' }>['reason'], () => string> = {
-    unread: m.viewer_unread,
-    unreadable: m.viewer_unreadable,
-    locked: m.viewer_locked,
-    'too-large': m.viewer_unpacks_too_large,
-    slow: m.viewer_slow,
-    renderer: m.viewer_failed,
-  };
-
-  /** What the viewer says instead of the document, if anything. */
-  const notice = $derived.by((): string | undefined => {
-    if (status.name === 'too-large')
-      return status.what === 'file'
-        ? m.viewer_too_large({ size: humanFileSize(LIMITS.bytes) })
-        : m.viewer_unpacks_too_large();
-    if (status.name === 'unknown') return m.viewer_unknown();
-    if (status.name === 'failed') return FAILURE[status.reason]();
-    return undefined;
+  // A session ends when another takes its place, and with the viewer.
+  $effect(() => {
+    const current = session;
+    return () => {
+      current.close();
+    };
   });
 
   function download(): void {
@@ -159,9 +236,72 @@
       saveBlob(session.blob, file.name);
       return;
     }
-    void file.read().then((blob) => {
+    void session.file.read().then((blob) => {
       if (blob) saveBlob(blob, file.name);
     });
+  }
+
+  /**
+   * Takes the file's lease and opens the editor on the version shown, unless
+   * the file has a newer one by then: that one is shown instead.
+   */
+  async function edit(): Promise<void> {
+    const edited = editable;
+    if (!edited || !versions || !list || taking || watch?.editing) return;
+    taking = true;
+    editNote = undefined;
+    const started = await startEditing(versions, edited.version, async () => {
+      await list.read();
+      return list.current?.version;
+    });
+    taking = false;
+    if (started.as !== 'held') {
+      if (closed) return;
+      if (started.as === 'newer' && list.current) view(list.current);
+      if (started.as !== 'editing') editNote = started.as;
+      void watch?.read();
+      return;
+    }
+    const { format, blob, version } = edited;
+    const bytes = await blob.arrayBuffer().catch(() => undefined);
+    if (bytes && !closed) onEdit?.({ name: file.name, format, bytes, version }, started.lease);
+    else void started.lease.release();
+  }
+
+  /** Shows a version in the file's place. */
+  function view(version: FileVersion): void {
+    const source = versions;
+    // A write that ended after the viewer was closed has nowhere to be shown.
+    if (!source || closed) return;
+    shownVersion = version.version;
+    session = sessionOf({
+      name: file.name,
+      size: version.size,
+      read: (signal) => source.bytes(version.version, signal),
+    });
+    // Narrow, the document is under the list.
+    if (compact) closeVersions();
+  }
+
+  function downloadVersion(version: FileVersion): void {
+    void versions?.bytes(version.version).then((blob) => {
+      if (blob) saveBlob(blob, file.name);
+    });
+  }
+
+  async function openVersions(): Promise<void> {
+    if (!list) return;
+    // What it said when it was last shown may be so no more.
+    void list.read();
+    listed = true;
+    await tick();
+    panel?.querySelector<HTMLElement>('h2')?.focus();
+  }
+
+  function closeVersions(): void {
+    listed = false;
+    // The list is gone with its focus: back to the button it was opened from.
+    document.getElementById(`${uid}-versions`)?.focus();
   }
 
   function command(key: string): boolean {
@@ -229,6 +369,40 @@
         >{file.name}</Dialog.Title
       >
       <Dialog.Description class="sr-only">{m.viewer_description()}</Dialog.Description>
+      {#if older}
+        <p
+          class="shrink-0 rounded-sm border px-1.5 py-0.5 text-xs font-medium"
+          data-testid="file-viewer-older"
+        >
+          {m.viewer_older_version()}
+        </p>
+      {/if}
+      {#if editable}
+        <IconButton
+          label={m.viewer_edit()}
+          aria-disabled={taking || watch?.editing ? 'true' : undefined}
+          aria-describedby={watch?.editing ? `${uid}-editing` : undefined}
+          class="aria-disabled:opacity-50"
+          data-testid="file-viewer-edit"
+          onclick={edit}
+        >
+          <PencilIcon aria-hidden="true" />
+        </IconButton>
+      {/if}
+      {#if versions}
+        <IconButton
+          id="{uid}-versions"
+          label={m.viewer_versions()}
+          aria-expanded={listed}
+          data-testid="file-viewer-versions"
+          onclick={() => {
+            if (listed) closeVersions();
+            else void openVersions();
+          }}
+        >
+          <HistoryIcon aria-hidden="true" />
+        </IconButton>
+      {/if}
       <IconButton label={m.viewer_download()} data-testid="file-viewer-download" onclick={download}>
         <DownloadIcon aria-hidden="true" />
       </IconButton>
@@ -237,63 +411,60 @@
       </IconButton>
     </header>
     {#if status.name === 'shown' && order}
-      <div
-        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-1 text-sm"
-        data-testid="file-viewer-slides"
-      >
-        <p class="text-muted-foreground" role="status">{slideCount}</p>
-        {#if !order.allHidden}
-          <button
-            type="button"
-            class="min-h-8 rounded-md px-2 font-medium hover:bg-accent roomy:min-h-touch"
-            data-testid="file-viewer-hidden"
-            onclick={() => {
-              session.toggleHidden();
-            }}
-          >
-            {session.showHidden
-              ? m.viewer_hide_hidden()
-              : m.viewer_show_hidden({ count: order.hidden.size })}
-          </button>
-        {/if}
-      </div>
+      <SlideCount {session} {order} />
+    {/if}
+    {#if watch}
+      <EditingNote
+        id="{uid}-editing"
+        {watch}
+        note={editNote}
+        userName={(userId: string) => versions?.userName(userId)}
+      />
     {/if}
 
-    <div class="relative min-h-0 flex-1 bg-muted">
-      {#if framed}
-        <iframe
-          {@attach session.attach}
-          src={address}
-          sandbox="allow-scripts"
-          referrerpolicy="no-referrer"
-          title={m.viewer_frame_title({ name: file.name })}
-          class={['size-full border-0', status.name !== 'shown' && 'invisible']}
-          data-testid="file-viewer-frame"
-        ></iframe>
-      {/if}
-      {#if status.name === 'reading' || status.name === 'opening'}
-        <p
-          class="absolute inset-0 flex items-center justify-center text-muted-foreground"
-          role="status"
-        >
-          {m.viewer_opening()}
-        </p>
-      {:else if notice}
-        <div
-          class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center"
-          role="status"
-          data-testid="file-viewer-notice"
-        >
-          <p class="font-medium">{notice}</p>
-          <p class="text-muted-foreground">{m.viewer_download_instead()}</p>
-          <button
-            type="button"
-            class="inline-flex min-h-9 items-center gap-2 rounded-md border bg-background px-3 hover:bg-accent roomy:min-h-touch"
-            onclick={download}
+    <div class="relative flex min-h-0 flex-1">
+      <!-- Narrow, the list is over the document: nothing under it takes the focus. -->
+      <div class="relative min-h-0 min-w-0 flex-1 bg-muted" inert={compact && listed}>
+        {#if framed}
+          <!-- A frame is one session's: another version is drawn in a new one. -->
+          {#key session}
+            <iframe
+              {@attach session.attach}
+              src={address}
+              sandbox="allow-scripts"
+              referrerpolicy="no-referrer"
+              title={m.viewer_frame_title({ name: file.name })}
+              class={['size-full border-0', status.name !== 'shown' && 'invisible']}
+              data-testid="file-viewer-frame"
+            ></iframe>
+          {/key}
+        {/if}
+        {#if status.name === 'reading' || status.name === 'opening'}
+          <p
+            class="absolute inset-0 flex items-center justify-center text-muted-foreground"
+            role="status"
           >
-            <DownloadIcon class="size-4" aria-hidden="true" />
-            {m.viewer_download()}
-          </button>
+            {m.viewer_opening()}
+          </p>
+        {:else}
+          <ViewerNotice {status} onDownload={download} />
+        {/if}
+      </div>
+      {#if listed && list && versions}
+        <div
+          bind:this={panel}
+          class={compact ? 'absolute inset-0 z-10 flex' : 'flex w-80 shrink-0 border-s'}
+        >
+          <FileVersions
+            {list}
+            source={versions}
+            shown={shownVersion}
+            accept={extension}
+            onView={view}
+            onDownload={downloadVersion}
+            onWritten={view}
+            onClose={closeVersions}
+          />
         </div>
       {/if}
     </div>
@@ -313,60 +484,7 @@
       />
     {/if}
     {#if status.name === 'shown'}
-      <footer class="flex min-h-12 items-center justify-center gap-1 border-t p-1">
-        <IconButton
-          label={previous}
-          disabled={!session.canTurn(-1)}
-          onclick={() => {
-            session.turn(-1);
-          }}
-        >
-          <ChevronLeftIcon aria-hidden="true" />
-        </IconButton>
-        <p class="min-w-16 text-center text-sm tabular-nums" data-testid="file-viewer-page">
-          <span aria-hidden="true">{session.page} / {session.pages}</span>
-          <span class="sr-only">{where}</span>
-        </p>
-        <IconButton
-          label={next}
-          disabled={!session.canTurn(1)}
-          onclick={() => {
-            session.turn(1);
-          }}
-        >
-          <ChevronRightIcon aria-hidden="true" />
-        </IconButton>
-        <span class="mx-2 h-6 w-px bg-border" aria-hidden="true"></span>
-        <IconButton
-          label={m.viewer_zoom_out()}
-          disabled={!session.canZoomOut}
-          onclick={() => {
-            session.zoomBy(-1);
-          }}
-        >
-          <ZoomOutIcon aria-hidden="true" />
-        </IconButton>
-        <button
-          type="button"
-          class="min-h-8 min-w-14 rounded-md text-sm tabular-nums hover:bg-accent roomy:min-h-touch"
-          aria-label={m.viewer_zoom_reset({ percent: Math.round(session.zoom * 100) })}
-          data-testid="file-viewer-zoom"
-          onclick={() => {
-            session.zoomBy(0);
-          }}
-        >
-          {Math.round(session.zoom * 100)}%
-        </button>
-        <IconButton
-          label={m.viewer_zoom_in()}
-          disabled={!session.canZoomIn}
-          onclick={() => {
-            session.zoomBy(1);
-          }}
-        >
-          <ZoomInIcon aria-hidden="true" />
-        </IconButton>
-      </footer>
+      <PageControls {session} {where} {previous} {next} />
     {/if}
   </Dialog.Content>
 </Dialog.Root>

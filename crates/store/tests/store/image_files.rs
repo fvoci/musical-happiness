@@ -23,6 +23,7 @@ fn record_of(board_id: &str, stored_name: &str) -> FileInfo {
         name: "upload.png".to_owned(),
         extension: ".png".to_owned(),
         size: 7,
+        ..FileInfo::default()
     }
 }
 

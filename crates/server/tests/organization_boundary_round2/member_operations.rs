@@ -142,6 +142,8 @@ impl Named {
             .replace("{teamId}", &self.team)
             .replace("{partNumber}", "1")
             .replace("{version}", "1")
+            // A lease never given: its release is the member's answer as an editor's or not.
+            .replace("{leaseId}", "a-lease-never-given")
     }
 
     fn body(&self, operation: &str) -> Value {

@@ -66,7 +66,10 @@ export function giveCopiesFiles(world: World, sourceId: string, copyId: string):
     if (made === undefined) {
       made = world.newId();
       copies.set(fileId, made);
-      world.files.set(made, { ...file, fileId: made, containerId: copyId });
+      // The newest version alone, by nobody, as the server copies a file.
+      const copied = { ...file, fileId: made, containerId: copyId, createdBy: '' };
+      delete copied.versions;
+      world.files.set(made, copied);
     }
     return made;
   };

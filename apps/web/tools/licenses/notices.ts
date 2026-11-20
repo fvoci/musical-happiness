@@ -20,7 +20,9 @@
  * Every package has to carry a licence from the list in the repository's
  * `deny.toml`; there are no exceptions for anything that ships. The fonts are
  * under the SIL Open Font License, which that list does not have because no
- * Rust crate needs it; they are accepted by name here and nothing else is.
+ * Rust crate needs it; they are accepted by name here. The HWP renderer's
+ * WebAssembly holds work under a few licences more, each accepted for it alone
+ * and named with the reason (rhwp-wasm.ts, rhwp-notices.json). Nothing else is.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -34,6 +36,7 @@ import { readPackageLicense, statedLicense, type PackageLicense } from './packag
 import { bundledWorkerPackages } from './worker-packages.ts';
 import { pdfjsDataLicenses } from './pdfjs-data.ts';
 import { prebuiltLicenses } from './prebuilt.ts';
+import { rhwpStudioLicenses } from './rhwp-studio.ts';
 import { rhwpWasmLicenses } from './rhwp-wasm.ts';
 import { isAllowed, readAllowedLicenses } from './policy.ts';
 
@@ -129,6 +132,8 @@ export function thirdPartyNotices(): Plugin {
         for (const item of pdfjsDataLicenses(bundledModules)) byName.set(item.name, item);
         // The HWP renderer: its worker is a build of its own, and its WebAssembly holds crates.
         for (const item of rhwpWasmLicenses(bundledModules)) byName.set(item.name, item);
+        // The HWP editor: built from a package of this repository, which the report does not list.
+        for (const item of rhwpStudioLicenses(bundledModules)) byName.set(item.name, item);
         // Packages in the app's workers, which reach the bundle as text (worker-packages.ts).
         for (const item of bundledWorkerPackages()) {
           if (!byName.has(item.name)) byName.set(item.name, item);
@@ -139,7 +144,9 @@ export function thirdPartyNotices(): Plugin {
         }
 
         const allowed = new Set(readAllowedLicenses());
-        const refused = [...byName.values()].filter((item) => !isAllowed(item.identifier, allowed));
+        const refused = [...byName.values()].filter(
+          (item) => !isAllowed(item.identifier, new Set([...allowed, ...(item.accepted ?? [])])),
+        );
         if (refused.length > 0) {
           this.error(
             `packages in the bundle with a licence that deny.toml does not allow (a package whose package.json names none: read its licence file and list it under "stated" in tools/licenses/exceptions.json):\n  ${refused

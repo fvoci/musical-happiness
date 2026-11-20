@@ -1832,14 +1832,9 @@ impl FullBoard {
             .expect("the blocks are stored");
 
         let file = FileInfo {
-            id: new_id(),
-            container_id: board.id.clone(),
-            stored_name: "7f3a9c.png".to_owned(),
             name: "diagram.png".to_owned(),
-            extension: ".png".to_owned(),
-            size: 2048,
-            path: format!("boards/{}/7f3a9c.png", board.id),
             create_at: board.create_at,
+            ..file_of(&board.id, "7f3a9c.png")
         };
         store
             .save_file_info(&file)
@@ -2778,6 +2773,7 @@ fn file_of(board_id: &str, stored_name: &str) -> FileInfo {
         size: 2048,
         path: format!("boards/{board_id}/{stored_name}"),
         create_at: 1,
+        ..FileInfo::default()
     }
 }
 

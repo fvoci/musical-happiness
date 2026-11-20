@@ -6,7 +6,7 @@ import { compoundFile as readCompound } from '$lib/file-viewer/compound-file.ts'
 import { examine, type FormatId } from '$lib/file-viewer/formats.ts';
 import { readFromFrame } from '$lib/file-viewer/protocol.ts';
 import { checkCompound } from '../../src/viewer-frame/compound-guard.ts';
-import { fromHex, HwpReader } from '../../src/viewer-frame/hwp-document.ts';
+import { HwpReader } from '../../src/viewer-frame/hwp-document.ts';
 import type { FromWorker, HwpFormat } from '../../src/viewer-frame/hwp-messages.ts';
 import { SlowRenderer } from '../../src/viewer-frame/renderer.ts';
 import {
@@ -26,9 +26,10 @@ import {
   koreanHwpx,
   lockedHwp,
   lockedHwpx,
+  rewriteArchive,
 } from '../support/hwp-files.ts';
 import { zip } from '../support/viewer-files.ts';
-import { rhwpWasmHex } from '../../tools/build/rhwp-wasm.ts';
+import { rhwpWasmBytes } from '../../tools/build/rhwp-wasm.ts';
 
 const bytes = (buffer: Buffer): Uint8Array =>
   new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -45,24 +46,44 @@ const hwpxArchive = (mimetype: Buffer, stored = true): Buffer =>
     { name: 'mimetype', data: mimetype, stored },
     { name: 'Contents/section0.xml', data: Buffer.from('<hs:sec/>') },
   ]);
+const SECTION = { name: 'Contents/section0.xml', data: Buffer.from('<hs:sec/>') };
+const LIST = { name: 'Contents/content.hpf', data: Buffer.from('<opf:package/>') };
 
-describe('HWPX is told apart by its first bytes', () => {
+describe('HWPX is told apart by its parts', () => {
   it('HWPX: a ZIP archive whose stored mimetype is application/hwp+zip', () => {
     expect(sniffFormat(koreanHwpx())).toBe('hwpx');
     expect(sniffFormat(hwpxArchive(MIMETYPE))).toBe('hwpx');
   });
 
-  it('a mimetype that is deflated, another type, or missing is no HWPX', () => {
+  it('a mimetype that is deflated, another type, or missing is no HWPX by itself', () => {
     expect(sniffFormat(hwpxArchive(MIMETYPE, false))).toBeUndefined();
     expect(sniffFormat(hwpxArchive(Buffer.from('application/epub+zip')))).toBeUndefined();
     expect(sniffFormat(hwpxArchive(Buffer.from('application/hwp+zip\n')))).toBeUndefined();
-    const without = zip([{ name: 'Contents/section0.xml', data: Buffer.from('<hs:sec/>') }]);
-    expect(sniffFormat(without)).toBeUndefined();
+    expect(sniffFormat(zip([SECTION]))).toBeUndefined();
+  });
+
+  it('HWPX also: an archive with the list of its parts, whatever its mimetype', () => {
+    // As writers other than Hancom's make them: the mimetype deflated, or left out.
+    const deflated = { name: 'mimetype', data: MIMETYPE, stored: false };
+    expect(sniffFormat(zip([deflated, LIST, SECTION]))).toBe('hwpx');
+    expect(sniffFormat(zip([LIST, SECTION]))).toBe('hwpx');
+    // A Word document that has such a part is still a Word document.
+    const word = { name: 'word/document.xml', data: Buffer.from('<w:document/>') };
+    expect(sniffFormat(zip([word, LIST]))).toBe('docx');
+  });
+
+  it('an HWPX whose writer left the mimetype out is opened as any other', async () => {
+    const without = rewriteArchive(koreanHwpx(), (member) =>
+      member.name === 'mimetype' ? undefined : member,
+    );
+    expect(sniffFormat(without)).toBe('hwpx');
+    const opened = await open(new HwpReader(), 'hwpx', without);
+    expect(opened).toMatchObject({ kind: 'opened' });
   });
 });
 
 /** rhwp's WebAssembly, as the build hands it to the frame. */
-const WASM = rhwpWasmHex();
+const WASM = rhwpWasmBytes().buffer;
 
 const open = (reader: HwpReader, format: HwpFormat, data: Buffer): Promise<FromWorker> =>
   reader.answer({ kind: 'open', format, bytes: buffer(data), wasm: WASM });
@@ -305,21 +326,6 @@ describe("the frame's client of a renderer's worker", () => {
     failing.fail();
     expect(failing.terminated).toBe(true);
     await expect(pending).rejects.toBeInstanceOf(WorkerFailed);
-  });
-});
-
-describe("rhwp's WebAssembly, as the build writes it", () => {
-  it("is read back from its hexadecimal text, with or without the browser's own reader", () => {
-    const all = Uint8Array.from({ length: 256 }, (_, index) => index);
-    const text = Buffer.from(all).toString('hex');
-    expect(fromHex(text)).toEqual(all);
-    const own = Object.getOwnPropertyDescriptor(Uint8Array, 'fromHex');
-    Reflect.deleteProperty(Uint8Array, 'fromHex');
-    try {
-      expect(fromHex(text)).toEqual(all);
-    } finally {
-      if (own) Object.defineProperty(Uint8Array, 'fromHex', own);
-    }
   });
 });
 

@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockPatchBatch, Body, Container, FileInfo, FileKey, JsonMap,
-    new_id,
+    Upload, new_id,
 };
 use serde_json::Value;
 use tokio::io::AsyncRead;
@@ -95,6 +95,22 @@ impl App {
         container_id: &str,
         filename: &str,
     ) -> Result<String, AppError> {
+        self.save_file_by(reader, container_id, filename, "").await
+    }
+
+    /// [`App::save_file`], with who uploads the file: who its first version is by.
+    /// Empty where nobody is known to.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::save_file`].
+    pub async fn save_file_by(
+        &self,
+        reader: &mut (dyn AsyncRead + Send + Unpin),
+        container_id: &str,
+        filename: &str,
+        user_id: &str,
+    ) -> Result<String, AppError> {
         let place = self.new_file_place(container_id, filename).await?;
         self.mark_writing(&place.path).await?;
         let write = self.files().write(&place.path, reader);
@@ -112,7 +128,7 @@ impl App {
                 )));
             }
         };
-        let info = file_info(container_id, place, size);
+        let info = file_info(container_id, place, size, user_id);
         self.record_written(&info).await?;
         Ok(info.stored_name)
     }
@@ -164,22 +180,61 @@ impl App {
             })
     }
 
-    /// Records the file of `size` bytes stored at `place` as a file of `container_id`, and
-    /// returns its stored name. For an object whose place an upload session holds,
-    /// which is its mark: the place is not marked as being written.
+    /// A new key in the file storage for bytes of a file of `container_id`: where a
+    /// version made by going back to an older one goes. A key says nothing of the
+    /// file's name or extension.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::new_file_place`].
+    pub(super) async fn new_version_place(&self, container_id: &str) -> Result<String, AppError> {
+        let org_id = self.org_of_container(container_id).await?;
+        let secret = new_secret();
+        let key = FileKey {
+            org_id: &org_id,
+            container_id,
+            secret: &secret,
+        };
+        Ok(key.to_string())
+    }
+
+    /// Records the file of `size` bytes stored at `place` as the file of `upload`: of
+    /// its board or wiki, by who opened it. Returns its stored name. For an object whose
+    /// place the upload session holds, which is its mark: the place is not marked as
+    /// being written.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the record cannot be written.
     pub(crate) async fn record_file(
         &self,
-        container_id: &str,
+        upload: &Upload,
         place: FilePlace,
         size: u64,
     ) -> Result<String, AppError> {
-        let info = file_info(container_id, place, size);
+        let info = file_info(&upload.container_id, place, size, &upload.user_id);
         self.store().save_file_info(&info).await?;
         Ok(info.stored_name)
+    }
+
+    /// Stores the bytes of `upload`, read from `reader`, as [`App::save_file_by`] stores
+    /// a file: of its board or wiki, under its name, by who opened it.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::save_file`].
+    pub(crate) async fn save_upload(
+        &self,
+        reader: &mut (dyn AsyncRead + Send + Unpin),
+        upload: &Upload,
+    ) -> Result<String, AppError> {
+        let Upload {
+            container_id,
+            name,
+            user_id,
+            ..
+        } = upload;
+        self.save_file_by(reader, container_id, name, user_id).await
     }
 
     /// Returns the record of the file a board has under a stored name, or `None` if the
@@ -508,6 +563,10 @@ impl App {
             stored_name: format!("{secret}{}", source.extension),
             path: key.to_string(),
             create_at: now_millis(),
+            // A file of its own, with the newest bytes of the one it copies as its
+            // only version, by nobody.
+            version: 1,
+            created_by: String::new(),
             ..source.clone()
         };
         if let Err(error) = self.mark_writing(&copy.path).await {
@@ -536,8 +595,14 @@ impl App {
     }
 }
 
-/// The record of a file of `container_id` of `size` bytes stored at `place`, made now.
-pub(super) fn file_info(container_id: &str, place: FilePlace, size: u64) -> FileInfo {
+/// The record of a file of `container_id` of `size` bytes stored at `place`, made now,
+/// that `user_id` uploaded (empty for nobody known).
+pub(super) fn file_info(
+    container_id: &str,
+    place: FilePlace,
+    size: u64,
+    user_id: &str,
+) -> FileInfo {
     FileInfo {
         id: new_id(),
         container_id: container_id.to_owned(),
@@ -547,6 +612,8 @@ pub(super) fn file_info(container_id: &str, place: FilePlace, size: u64) -> File
         name: place.name,
         extension: place.extension,
         create_at: now_millis(),
+        version: 1,
+        created_by: user_id.to_owned(),
     }
 }
 

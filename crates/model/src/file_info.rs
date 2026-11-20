@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// What the server records about an uploaded file.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct FileInfo {
     /// The record's identifier.
@@ -27,6 +27,32 @@ pub struct FileInfo {
     pub extension: String,
     /// The size of the file in bytes.
     pub size: i64,
+    /// The number of the file's newest version, from 1: what `path` and `size` are of.
+    /// Never sent to clients in this record; the list of the file's versions has it.
+    #[serde(skip)]
+    pub version: i64,
+    /// Who uploaded the file; empty where nobody is known to have. Never sent to
+    /// clients in this record; the file's first version names them.
+    #[serde(skip)]
+    pub created_by: String,
+}
+
+impl Default for FileInfo {
+    /// A record of nothing, at its first version.
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            container_id: String::new(),
+            stored_name: String::new(),
+            create_at: 0,
+            path: String::new(),
+            name: String::new(),
+            extension: String::new(),
+            size: 0,
+            version: 1,
+            created_by: String::new(),
+        }
+    }
 }
 
 /// Whether `path` is a place of the file storage written the one way the storage takes:
@@ -129,6 +155,8 @@ mod tests {
             name: "picture.png".to_owned(),
             extension: ".png".to_owned(),
             size: 4,
+            version: 3,
+            created_by: "somebody".to_owned(),
         };
         let encoded = serde_json::to_value(&file_info).expect("a file info serializes");
         assert_eq!(

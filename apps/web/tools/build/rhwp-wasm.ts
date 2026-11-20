@@ -1,27 +1,33 @@
 /**
- * The HWP renderer's WebAssembly for the file viewer's frame, which cannot
- * fetch it (src/viewer-frame/hwp.ts).
+ * rhwp's WebAssembly, the engine of the HWP renderer and of the HWP editor,
+ * as the app hands it to their frames.
  *
- * The module `virtual:rhwp-wasm` holds the bytes of `@rhwp/core`'s
- * `rhwp_bg.wasm` as hexadecimal text, its default export:
+ * The frames cannot fetch it, as they cannot fetch anything
+ * (static/viewer-frame.html). The app can: the build puts the bytes of
+ * `@rhwp/core`'s `rhwp_bg.wasm` among its files (`rhwp-wasm-<hash>.wasm`),
+ * the module `virtual:rhwp-wasm` gives that file's address, and the app
+ * fetches it the first time a Hangul document is opened and hands a copy to
+ * each frame with the document (src/lib/file-viewer/engine.ts).
  *
- *   export default '0061736d…';
- *
- * Hexadecimal rather than Base64: it is twice the size before compression
- * and smaller after it, as each byte stays a pair of characters the
- * compressors see repeat (Brotli: 3.3 MB against 4.2 MB for Base64 and
- * 3.1 MB for the WebAssembly itself, rhwp 0.8.7).
+ * It was a module of the frame's own bundle before, its bytes as hexadecimal
+ * text. At rhwp 0.9.0 the file is 26.8 MB, and that text 53.7 MB: a frame
+ * took four seconds to read the module and a second and a half more to pass
+ * the text on to its worker, for every document opened. Fetched as bytes it
+ * is a third of a second, once a visit, and 7.0 MB on the wire (Brotli)
+ * against 7.8 MB.
  *
  * Its memory is given a maximum (`RHWP_MEMORY_LIMIT_BYTES`, wasm-memory.ts):
  * past it rhwp traps, and the worker it runs in is stopped, rather than a
  * file growing it until the tab's process runs out. A page with the largest
- * picture a file the viewer takes can hold needs about 650 MB (rhwp 0.8.7).
+ * picture a file the viewer takes can hold needs about 650 MB (measured at
+ * rhwp 0.8.7; tests/logic/hwp-memory.test.ts holds at 0.9.0).
  *
  * The package's own loader would fetch the file from beside itself when it is
  * given nothing to load (`new URL('rhwp_bg.wasm', import.meta.url)`), and
- * that address alone makes the build copy the 12 MB file into the output. The
- * worker always gives it the bytes, so that branch is cut out of the loader;
- * the build fails if the loader no longer reads as expected.
+ * that address alone makes the build copy the file as it is, without the
+ * maximum, into the output. The loader is always given the bytes, so that
+ * branch is cut out of it; the build fails if the loader no longer reads as
+ * expected.
  */
 import { readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -33,6 +39,9 @@ import { withMemoryLimit } from './wasm-memory.ts';
 
 const ID = 'virtual:rhwp-wasm';
 const RESOLVED = `\0${ID}`;
+/** The file's name in the output, before its hash, and its address where it is served instead. */
+export const ASSET_NAME = 'rhwp-wasm.wasm';
+const SERVED = '/@fvoci/rhwp-wasm.wasm';
 
 /** The loader's fallback to an address beside it, in `rhwp.js`. */
 const DEFAULT_ADDRESS = "module_or_path = new URL('rhwp_bg.wasm', import.meta.url);";
@@ -49,22 +58,36 @@ export function rhwpDirectory(): string {
 /** The file of rhwp's WebAssembly, as the package has it. */
 export const rhwpWasmFile = (): string => path.join(rhwpDirectory(), 'rhwp_bg.wasm');
 
-/** rhwp's WebAssembly as the frame gets it: its memory held to the limit, as hexadecimal text. */
-export function rhwpWasmHex(limit = RHWP_MEMORY_LIMIT_BYTES): string {
-  return Buffer.from(withMemoryLimit(readFileSync(rhwpWasmFile()), limit)).toString('hex');
+/** rhwp's WebAssembly as the frames get it: its memory held to the limit. */
+export function rhwpWasmBytes(limit = RHWP_MEMORY_LIMIT_BYTES): Uint8Array<ArrayBuffer> {
+  return Uint8Array.from(withMemoryLimit(readFileSync(rhwpWasmFile()), limit));
 }
 
 export function rhwpWasm(): Plugin {
+  /** Whether the output is written (a build) or served (the dev server, the tests). */
+  let building = false;
   return {
     name: 'fvoci:rhwp-wasm',
+    configResolved(config) {
+      building = config.command === 'build';
+    },
+    // Served, the file has an address of its own: there is no output to put it in.
+    configureServer(server) {
+      server.middlewares.use(SERVED, (_request, response) => {
+        response.setHeader('Content-Type', 'application/wasm');
+        response.end(rhwpWasmBytes());
+      });
+    },
     resolveId(id) {
       return id === ID ? RESOLVED : undefined;
     },
     load(id) {
       if (id !== RESOLVED) return undefined;
       this.addWatchFile(rhwpWasmFile());
+      if (!building) return { code: `export default ${JSON.stringify(SERVED)};` };
+      const file = this.emitFile({ type: 'asset', name: ASSET_NAME, source: rhwpWasmBytes() });
       return {
-        code: `export default ${JSON.stringify(rhwpWasmHex())};`,
+        code: `export default import.meta.ROLLUP_FILE_URL_${file};`,
         moduleSideEffects: false,
       };
     },

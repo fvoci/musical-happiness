@@ -527,6 +527,7 @@ const ORDERS: &[(&str, &str)] = &[
         "getDeletedPages",
         "The last deleted first; the pages cut that order",
     ),
+    ("getFileVersions", "The newest first"),
     ("getInvitations", "The newest first"),
     ("getMembers", "By the identifier of the user"),
     ("getMyIdentities", "Oldest first"),

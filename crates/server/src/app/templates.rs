@@ -376,7 +376,7 @@ fn place_assets<'b>(
                 format_args!("names the file {}, which is too large", asset.asset),
             )
         })?;
-        let info = file_info(board_id, place, size);
+        let info = file_info(board_id, place, size, "");
         if stored_names
             .insert(&asset.asset, info.stored_name.clone())
             .is_some()

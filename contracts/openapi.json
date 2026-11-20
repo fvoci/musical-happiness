@@ -1686,6 +1686,96 @@
         ],
         "type": "object"
       },
+      "FileLease": {
+        "description": "Whether somebody has a file open in the editor now, and who.",
+        "properties": {
+          "editing": {
+            "description": "Whether somebody holds the file's lease: has it open in the editor.",
+            "type": "boolean"
+          },
+          "editorId": {
+            "description": "Who holds it, where the caller may see who that is (the caller included); empty\nfor nobody, and for somebody the caller does not see.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "editing",
+          "editorId"
+        ],
+        "type": "object"
+      },
+      "FileLeaseRequest": {
+        "description": "The lease a caller asks to hold: one held already, to be held on, or none.",
+        "properties": {
+          "leaseId": {
+            "description": "The lease the caller holds, as `holdFileLease` gave it; empty to take one.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaseId"
+        ],
+        "type": "object"
+      },
+      "FileVersion": {
+        "description": "A version kept of a file: the bytes the file had, when they were written and by\nwhom.",
+        "properties": {
+          "createAt": {
+            "description": "When the version was written, in milliseconds since the Unix epoch: for the\nfirst, when the file was uploaded.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "createdBy": {
+            "description": "Who wrote the version; empty where nobody is known to have (the first version\nof a file from before versions were kept, and of a copy).",
+            "type": "string"
+          },
+          "isCurrent": {
+            "description": "Whether the version is the file's newest: what `getFile` gives.",
+            "type": "boolean"
+          },
+          "restoredFrom": {
+            "description": "The version whose bytes this one took, for one made by `restoreFileVersion`;\n`null` for any other.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "size": {
+            "description": "The size of the version in bytes.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The place of the version among the file's, counted from 1. The server keeps the\nnewest ones: the lowest numbers go as new versions come.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "createAt",
+          "createdBy",
+          "isCurrent",
+          "restoredFrom",
+          "size",
+          "version"
+        ],
+        "type": "object"
+      },
+      "FileVersionBase": {
+        "description": "From which version a file is taken back to an older one.",
+        "properties": {
+          "baseVersion": {
+            "description": "The number of the file's newest version, as `getFileVersions` gave it.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "baseVersion"
+        ],
+        "type": "object"
+      },
       "FinishPasswordReset": {
         "properties": {
           "password": {
@@ -1713,6 +1803,26 @@
         },
         "required": [
           "enabled"
+        ],
+        "type": "object"
+      },
+      "HeldFileLease": {
+        "description": "A lease the caller holds.",
+        "properties": {
+          "leaseId": {
+            "description": "The lease, to hold on to it and to let it go with.",
+            "type": "string"
+          },
+          "seconds": {
+            "description": "How many seconds it lasts from now unless held on to again.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "leaseId",
+          "seconds"
         ],
         "type": "object"
       },
@@ -2412,6 +2522,25 @@
         "required": [
           "containers",
           "blocks"
+        ],
+        "type": "object"
+      },
+      "NewFileVersion": {
+        "description": "An uploaded file that is to become a file's new version.",
+        "properties": {
+          "baseVersion": {
+            "description": "The number of the version the new one was made from: the file's newest, as\n`getFileVersions` gave it when the bytes were read.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "fileId": {
+            "description": "The identifier of the uploaded file whose bytes become the version, as\n`uploadFile` or `completeUpload` answered it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseVersion",
+          "fileId"
         ],
         "type": "object"
       },
@@ -3530,6 +3659,16 @@
             "reason": "upload_in_parts",
             "title": "File to be uploaded in parts",
             "type": "/problems/upload-in-parts"
+          },
+          {
+            "reason": "file_version_stale",
+            "title": "The file has a newer version",
+            "type": "/problems/file-version-stale"
+          },
+          {
+            "reason": "file_being_edited",
+            "title": "Somebody else is editing the file",
+            "type": "/problems/file-being-edited"
           },
           {
             "reason": "export_running",
@@ -10794,6 +10933,551 @@
           }
         },
         "summary": "What is known about a file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/lease": {
+      "get": {
+        "description": "Whether somebody holds the file's lease (`holdFileLease`): has it open in the\neditor. Who, only where the caller sees that person among the people of the\nworkspace, as presence names them, and where it is the caller; else `editorId` is\nempty and the caller is to say \"somebody else\". For who reads the board or the wiki.",
+        "operationId": "getFileLease",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board or the wiki.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.",
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileLease"
+                }
+              }
+            },
+            "description": "Whether somebody edits the file, and who."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Whether somebody edits a file",
+        "tags": [
+          "files"
+        ]
+      },
+      "put": {
+        "description": "With an empty `leaseId`, takes the file's lease if nobody holds it; with the lease\nthe caller holds, holds on to it. Either way the lease lasts `seconds` from now,\nand is held on to before then (the web app does so every 30 seconds while the\neditor is open). A lease that ended and that nobody else took meanwhile is taken\nanew, under a new `leaseId`. A lease is one editor's: the caller's other window is\nrefused as anybody else is. 409 with the reason `file_being_edited` while another\nlease of the file is held; `getFileLease` then says who. For editors.",
+        "operationId": "holdFileLease",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board or the wiki.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.",
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileLeaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeldFileLease"
+                }
+              }
+            },
+            "description": "The lease the caller holds now."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Another lease of the file is held: `reason` is `file_being_edited`."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Hold the lease of a file to edit it",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/lease/{leaseId}": {
+      "delete": {
+        "description": "The editor is closed: whoever asks next may edit the file. A lease that is the\ncaller's no more (it ended, and maybe another took the file's), or never was, is\nleft as it is, and the answer is the same. For editors.",
+        "operationId": "releaseFileLease",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board or the wiki.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.",
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The lease of the file, as `holdFileLease` gave it.",
+            "in": "path",
+            "name": "leaseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The caller holds no lease of the file."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Let the lease of a file go",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/versions": {
+      "get": {
+        "description": "The newest first, each with when it was written, by whom and its size, without the\nbytes (`getFileVersion`). A file that was never written anew has one version, the\nupload. The server keeps the newest versions of a file (its setting\n`max_file_versions`, fifty unless set otherwise), so the numbers may begin above 1.\nFor who reads the board or the wiki; a file of another is 404.",
+        "operationId": "getFileVersions",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board or the wiki.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.",
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FileVersion"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The versions, the newest first."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The versions kept of a file",
+        "tags": [
+          "files"
+        ]
+      },
+      "post": {
+        "description": "Makes a file that was uploaded to the same board or wiki (`uploadFile`,\n`completeUpload`) the new version of the file of the path: its bytes are what\n`getFile` gives from now on, wherever the file is shown, and the version before\nstays to be read (`getFileVersion`) and gone back to (`restoreFileVersion`). The\nuploaded file is no file of its own after: its `fileId` names nothing. The file of\nthe path keeps its `fileId` and the name it was uploaded with. Versions past those\nthe server keeps go, the oldest first.\n\n`baseVersion` is the version the new one was made from. If the file has a newer\none by now, nothing changes: 409 with the reason `file_version_stale`, and the\nuploaded file is still a file of the board, to be attached on its own.\n\nThe uploaded file is one that no block shows and that has no versions of its own,\nand its `fileId` ends in the same extension as the file's; any other, and one the\nboard does not have, is 400 at `/fileId`. For editors.",
+        "operationId": "addFileVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board or the wiki.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.",
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewFileVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileVersion"
+                }
+              }
+            },
+            "description": "The new version, the file's newest."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The file has a newer version than `baseVersion`: `reason` is `file_version_stale`."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Write a new version of a file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/versions/{version}": {
+      "get": {
+        "description": "As `getFile` gives the newest version: sent as `application/octet-stream`, offered\nas a download under the name the file was uploaded with, with one range honoured. For whom\n`getFileVersions` is for. A number the file has no version of, or has none of any\nmore, is 404.",
+        "operationId": "getFileVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board or the wiki.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.",
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the version of the file, as `getFileVersions` lists it.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "description": "The bytes of a file, as the body of an answer.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The bytes of the version."
+          },
+          "206": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "description": "The bytes of a file, as the body of an answer.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The range of them that was asked for."
+          },
+          "304": {
+            "description": "As `getFile` answers it. No body."
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "As `getFile` answers it."
+          },
+          "416": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "As `getFile` answers it."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The bytes of a version of a file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/versions/{version}/restore": {
+      "post": {
+        "description": "Makes the bytes of the version the file's newest version again, as a new version\nby the caller (`restoredFrom` names the one gone back to): the versions between\nstay. A file whose newest version is the one asked for is left as it is, and that\nversion is the answer. `baseVersion` is the file's newest version as the caller\nread it; if the file has a newer one by now, nothing changes: 409 with the reason\n`file_version_stale`. A number the file has no version of, or has none of any more,\nis 404. For editors.",
+        "operationId": "restoreFileVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board or the wiki.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.",
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the version of the file, as `getFileVersions` lists it.",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileVersionBase"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileVersion"
+                }
+              }
+            },
+            "description": "The file's newest version as it is now."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The file has a newer version than `baseVersion`: `reason` is `file_version_stale`."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Go back to a version of a file",
         "tags": [
           "files"
         ]
