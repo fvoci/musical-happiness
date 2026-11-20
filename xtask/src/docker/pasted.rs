@@ -270,7 +270,7 @@ fn read_past(trial: &Trial, text: &str, env: &Path, directory: &Path) -> Result<
 }
 
 /// fvoci's image and its files' storage, as `ops.sh` reads them from compose's files
-/// with `env`: "<image> <local or s3>".
+/// with `env`: `<image> <local or s3>`.
 fn image_and_storage(trial: &Trial, env: &Path) -> Result<String> {
     let mut command = Command::new("sh");
     trial.scrub(&mut command);
