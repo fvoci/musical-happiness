@@ -268,28 +268,39 @@ impl Collab {
         slot: &mut Held,
         request: impl Fn(DocNumber) -> Request,
     ) -> Result<Answer, AppError> {
-        self.ask_blaming(app, card_id, slot, request, Blame::Worker)
+        self.ask_as(app, card_id, slot, request, Asker::Server)
             .await
             .map_err(Unanswered::into_error)
     }
 
-    /// [`Collab::ask`], with whom a death of the worker over the request is put down
-    /// to ([`Blame`]), and which tells that death apart.
+    /// [`Collab::ask`] for an [`Asker`], telling a death of the worker over the request
+    /// apart.
     ///
     /// # Errors
     ///
     /// Returns [`Unanswered::Died`] if the worker ended over the request, and the
-    /// errors of [`Collab::ask`] otherwise as [`Unanswered::Refused`].
-    pub(super) async fn ask_blaming(
+    /// errors of [`Collab::ask`] otherwise as [`Unanswered::Refused`]; for a sender
+    /// held back, `document_unavailable` before the request is sent.
+    pub(super) async fn ask_as(
         &self,
         app: &App,
         card_id: &str,
         slot: &mut Held,
         request: impl Fn(DocNumber) -> Request,
-        blame: Blame,
+        asker: Asker<'_>,
     ) -> Result<Answer, Unanswered> {
+        let blame = match asker {
+            Asker::Server => Blame::Worker,
+            Asker::Sender(_) => Blame::Sender,
+        };
         for _ in 0..2 {
             self.ensure_open(app, card_id, slot).await?;
+            if let Asker::Sender(user_id) = asker {
+                // Again after the waits for the document and for a worker started again:
+                // of the updates a sender sent together, those after the first that ended
+                // a worker are not sent to the next.
+                self.held_back(app, user_id)?;
+            }
             let open = slot.open.as_ref().expect("the document is open");
             let worker = &self.inner.workers[open.worker];
             match worker
@@ -314,6 +325,18 @@ impl Collab {
                     tracing::warn!(%death, card_id, "a collab worker ended over a card's document");
                     self.lost(slot);
                     died_over(slot);
+                    if let Asker::Sender(user_id) = asker {
+                        tracing::warn!(
+                            card_id,
+                            user_id,
+                            "the update ended the worker; its sender is held back"
+                        );
+                        self.inner.senders.ended_worker(
+                            app.store().tenant(),
+                            user_id,
+                            Instant::now(),
+                        );
+                    }
                     return Err(Unanswered::Died(refusals::unavailable()));
                 }
                 Err(CallError::Unavailable(error)) => {
@@ -470,12 +493,25 @@ pub(super) fn died_over(slot: &mut Slot) {
 /// Why a request about a document got no answer ([`Collab::ask_blaming`]).
 #[derive(Debug)]
 pub(super) enum Unanswered {
-    /// It was refused, the document could not be opened, or no worker could be
-    /// started: the error to answer with.
+    /// It was refused, the document could not be opened, no worker could be started,
+    /// or its sender is held back: the error to answer with.
     Refused(AppError),
-    /// The worker ended over it: killed after its time, or broken. The error to answer
-    /// with (`document_unavailable`).
+    /// The worker ended over it: killed after its time, or broken. An update that did
+    /// is in neither the document nor the log, its sender is held back
+    /// ([`super::senders`]), and the connection that sent it is closed. The error to
+    /// answer with (`document_unavailable`).
     Died(AppError),
+}
+
+/// Who a request is asked for, and so whom a death of the worker over it is put down to.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Asker<'user> {
+    /// The server, for itself or for what an editor reads: the worker
+    /// ([`Blame::Worker`]).
+    Server,
+    /// The user whose update the request takes ([`Blame::Sender`]): held back for a
+    /// death, and refused while held back.
+    Sender(&'user str),
 }
 
 impl Unanswered {

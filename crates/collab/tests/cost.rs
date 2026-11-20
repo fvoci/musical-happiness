@@ -23,6 +23,7 @@ use fvoci_collab::{
 };
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES};
 use serde_json::{Value, json};
+use support::honest::Between;
 use support::wire::{Change, Content, Parent, Update};
 use support::{body_of, edited, honest};
 use yrs::{Doc, XmlElementPrelim, XmlFragment, XmlTextPrelim};
@@ -91,7 +92,18 @@ fn shapes() -> Vec<(&'static str, Value)> {
                 json!({"type": "paragraph", "content": vec![json!({"type": "hardBreak"}); nodes - 1]}),
             ]),
         ),
-        ("marks", honest::marked(nodes, BODY_MAX_BYTES - 1024)),
+        (
+            "marks",
+            honest::marked(Between::Letter, nodes, BODY_MAX_BYTES - 1024),
+        ),
+        (
+            "marks and breaks",
+            honest::marked(Between::Break, nodes, BODY_MAX_BYTES - 1024),
+        ),
+        (
+            "marks and formulas",
+            honest::marked(Between::Math, nodes, BODY_MAX_BYTES - 1024),
+        ),
         (
             "marked line",
             honest::marked_paragraph(nodes, BODY_MAX_BYTES - 1024),
@@ -184,7 +196,9 @@ fn honest() {
         let body = body_of(&document);
         let (made, (state, changes)) = timed(|| {
             let made = BodyDoc::from_body(Some(&body));
-            (made.state().len(), made.client_changes())
+            let state = made.state();
+            let changes = fvoci_collab::client_changes(&state).expect("a state made here");
+            (state.len(), changes)
         });
         println!(
             "| {name} | made again from its body: a state of {state} B, {changes} changes of its writer | | {} |",

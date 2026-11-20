@@ -39,7 +39,7 @@ mod take;
 mod update;
 
 pub use build::{from_body, from_body_by, new_doc};
-pub use doc::{BodyDoc, Changed};
+pub use doc::{BodyDoc, Changed, client_changes};
 pub use repair::Repair;
 pub use take::{TakeError, Taken, from_state, take_update};
 pub use update::{

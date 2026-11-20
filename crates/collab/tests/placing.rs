@@ -578,7 +578,7 @@ fn cuts_inside_a_long_text_are_charged_its_length() {
     assert!(
         matches!(
             backwards,
-            Err(TakeError::Update(UpdateError::Unreadable(_)))
+            Err(TakeError::Update(UpdateError::DeletionsOutOfOrder { .. }))
         ),
         "{backwards:?}"
     );
@@ -659,7 +659,10 @@ fn deletions_of_a_client_that_go_back_or_overlap_are_refused() {
     let refused = |deleted: Vec<(u64, Vec<(u64, u64)>)>| {
         let refused = taken(deleted.clone());
         assert!(
-            matches!(refused, Err(TakeError::Update(UpdateError::Unreadable(_)))),
+            matches!(
+                refused,
+                Err(TakeError::Update(UpdateError::DeletionsOutOfOrder { .. }))
+            ),
             "{deleted:?}: {refused:?}"
         );
     };

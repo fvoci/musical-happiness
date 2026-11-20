@@ -25,9 +25,9 @@ pub(crate) const SERVED: UpdateLimits = UpdateLimits {
 pub(crate) const LONGEST: Duration = Duration::from_millis(500);
 
 /// The documents of [`bodies`] held to [`LONGEST`]: those of the shapes people write.
-/// The body of the most changes ([`marked`]) is no such document; how long its edits
-/// take is measured and told, not held (up to 0.65 s: each update reads its state of
-/// 7.4 MB again, twice).
+/// The bodies of the most changes ([`marked`]) are no such documents; how long their
+/// edits take is measured and told, not held (each update reads their state of 7 to 8
+/// MB again, twice).
 pub(crate) const WRITTEN: [&str; 2] = ["50,000 nodes", "4 MiB"];
 
 /// The paragraphs of the largest paste: what fills an update of 64 KiB.
@@ -63,45 +63,80 @@ pub(crate) fn bodies() -> Vec<(&'static str, Value)> {
             "4 MiB",
             json!({"type": "doc", "content": vec![paragraph(&long); long_count]}),
         ),
-        (
-            "marks",
-            marked(BODY_MAX_NODES - room_nodes, BODY_MAX_BYTES - room_bytes),
-        ),
     ]
+    .into_iter()
+    .chain(Between::ALL.map(|between| {
+        let name = match between {
+            Between::Letter => "marks",
+            Between::Break => "marks and breaks",
+            Between::Math => "marks and formulas",
+        };
+        let body = marked(
+            between,
+            BODY_MAX_NODES - room_nodes,
+            BODY_MAX_BYTES - room_bytes,
+        );
+        (name, body)
+    }))
+    .collect()
 }
 
-/// The body that makes the most changes of the client that writes it, and the largest
-/// state, within `nodes` and `bytes`: paragraphs of letters each in turn with every
-/// mark and with none. Every mark is a change where it begins and another where it
-/// ends.
-pub(crate) fn marked(nodes: usize, bytes: usize) -> Value {
-    marked_by(Some(200), nodes, bytes)
+/// What stands between the letters of every mark in [`marked`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Between {
+    /// A letter of no mark.
+    Letter,
+    /// A line break: of the shapes tried, the most changes of the client that writes it
+    /// (each letter its own text).
+    Break,
+    /// A formula: of the shapes tried, the most memory to take an update for.
+    Math,
 }
 
-/// [`marked`] in a single paragraph, as long as `nodes` and `bytes` let it be: the
-/// marks of one text, which the library finds its places in by walking from the start
-/// of the text.
+impl Between {
+    pub(crate) const ALL: [Self; 3] = [Self::Letter, Self::Break, Self::Math];
+
+    fn node(self) -> Value {
+        match self {
+            Self::Letter => json!({"type": "text", "text": "a"}),
+            Self::Break => json!({"type": "hardBreak"}),
+            Self::Math => json!({"type": "inlineMath", "attrs": {"latex": "x"}}),
+        }
+    }
+}
+
+/// The bodies that make the most changes of the client that writes them, within
+/// `nodes` and `bytes`: paragraphs of 200 nodes, letters each with every mark in turn
+/// with what stands `between`. Every mark is a change where it begins and another where
+/// it ends.
+pub(crate) fn marked(between: Between, nodes: usize, bytes: usize) -> Value {
+    marked_by(between, Some(200), nodes, bytes)
+}
+
+/// [`marked`] by letters in a single paragraph, as long as `nodes` and `bytes` let it
+/// be: the marks of one text, which the library finds its places in by walking from the
+/// start of the text.
 pub(crate) fn marked_paragraph(nodes: usize, bytes: usize) -> Value {
-    marked_by(None, nodes, bytes)
+    marked_by(Between::Letter, None, nodes, bytes)
 }
 
-/// Paragraphs of `letters` letters each, or one of as many as fit.
-fn marked_by(letters: Option<usize>, nodes: usize, bytes: usize) -> Value {
+/// Paragraphs of `length` nodes each, or one of as many as fit.
+fn marked_by(between: Between, length: Option<usize>, nodes: usize, bytes: usize) -> Value {
     let every = json!({"type": "text", "text": "a", "marks": [
         {"type": "bold"}, {"type": "italic"}, {"type": "strike"}, {"type": "code"},
         {"type": "link", "attrs": {"href": "/"}},
     ]});
-    let none = json!({"type": "text", "text": "a"});
+    let other = between.node();
     let size = |value: &Value| serde_json::to_vec(value).expect("JSON").len() + 1;
     // The document's own bytes and node.
     let (bytes, nodes) = (bytes - 64, nodes - 1);
-    let letters = letters.unwrap_or_else(|| {
-        let pair = size(&every) + size(&none);
+    let length = length.unwrap_or_else(|| {
+        let pair = size(&every) + size(&other);
         (nodes - 1).min(bytes / pair * 2)
     });
-    let content: Vec<Value> = [every, none].into_iter().cycle().take(letters).collect();
+    let content: Vec<Value> = [every, other].into_iter().cycle().take(length).collect();
     let paragraph = json!({"type": "paragraph", "content": content});
-    let count = (bytes / size(&paragraph)).min(nodes / (letters + 1));
+    let count = (bytes / size(&paragraph)).min(nodes / (length + 1));
     json!({"type": "doc", "content": vec![paragraph; count]})
 }
 

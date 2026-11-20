@@ -48,9 +48,10 @@ use tokio_util::sync::CancellationToken;
 
 use super::frame::{self, Sync};
 use super::messages::{self, reason_of};
+use super::place::Unanswered;
 use super::queue::{Capacity, NotQueued, Queue, Queued};
 use super::versions::Left;
-use super::{Collab, DocChange, DocEvent, Loaded, NotTaken, admission, refusals};
+use super::{Collab, DocChange, DocEvent, Loaded, admission, refusals};
 use crate::app::{App, Asker};
 use crate::config::collab::CollabSettings;
 use crate::error::{AppError, Reason};
@@ -837,7 +838,7 @@ impl Collab {
                 )
                 .await
                 .map_err(|not_taken| {
-                    if matches!(not_taken, NotTaken::EndedWorker(_)) {
+                    if matches!(not_taken, Unanswered::Died(_)) {
                         // Answered first, and closed once the step is done.
                         connection.ended_worker.cancel();
                     }

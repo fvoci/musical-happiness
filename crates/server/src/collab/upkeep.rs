@@ -8,10 +8,9 @@ use serde_json::Value;
 use tokio::time::{Instant, sleep_until};
 
 use super::open::{Made, unexpected};
-use super::place::{Held, OpenDoc, Opening, Unanswered, died_over};
+use super::place::{Asker, Held, OpenDoc, Opening, Unanswered, died_over};
 use super::versions::Versioned;
-use super::worker::Blame;
-use super::{Collab, DocChange, FOLD_AFTER, NotTaken, REMAKE_RETRY, Taken, bytes};
+use super::{Collab, DocChange, FOLD_AFTER, REMAKE_RETRY, Taken, bytes};
 use crate::app::App;
 use crate::collab_worker::wire::{Answer, Request};
 use crate::error::{AppError, Reason};
@@ -33,7 +32,7 @@ impl Collab {
         epoch: i64,
         user_id: &str,
         update: &[u8],
-    ) -> Result<Taken, NotTaken> {
+    ) -> Result<Taken, Unanswered> {
         #[cfg(feature = "test-util")]
         let stall = self.stall_for(app, card_id);
         let request = |doc| {
@@ -48,25 +47,14 @@ impl Collab {
         };
         self.at_epoch(app, card_id, slot, epoch).await?;
         let answer = match self
-            .ask_blaming(app, card_id, slot, request, Blame::Sender)
+            .ask_as(app, card_id, slot, request, Asker::Sender(user_id))
             .await
         {
-            Ok(answer) => answer,
             Err(Unanswered::Refused(refused)) => {
                 self.remake_refused(app, card_id, slot, &refused).await;
                 return Err(refused.into());
             }
-            Err(Unanswered::Died(error)) => {
-                tracing::warn!(
-                    card_id,
-                    user_id,
-                    "an update ended the collab worker that took it; its sender is held back"
-                );
-                self.inner
-                    .senders
-                    .ended_worker(app.store().tenant(), user_id, Instant::now());
-                return Err(NotTaken::EndedWorker(error));
-            }
+            answered => answered?,
         };
         let Answer::Taken {
             repair,

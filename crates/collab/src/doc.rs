@@ -87,16 +87,6 @@ impl BodyDoc {
         self.doc.transact().state_vector().len()
     }
 
-    /// The most changes one of its clients has, deleted ones too
-    /// ([`crate::MAX_CLIENT_CHANGES`]), counted in its state: for a document that was
-    /// not taken ([`BodyDoc::from_body`]), which [`Changed::client_changes`] says of.
-    #[must_use]
-    pub fn client_changes(&self) -> u64 {
-        // A state this crate wrote reads; were it not to, it would count as past any
-        // limit.
-        crate::scan::check(&self.state()).map_or(u64::MAX, |walked| walked.most)
-    }
-
     /// The state vector of the document, version 1: what it has of each client.
     #[must_use]
     pub fn state_vector(&self) -> Vec<u8> {
@@ -133,6 +123,19 @@ impl From<crate::Taken> for Changed {
             client_changes: taken.client_changes,
         }
     }
+}
+
+/// The most changes one client has in a document's `state`, deleted ones too
+/// ([`crate::MAX_CLIENT_CHANGES`]): for a document that was not taken
+/// ([`BodyDoc::from_body`]), as [`Changed::client_changes`] is for one that was.
+///
+/// # Errors
+///
+/// Returns [`UpdateError::Unreadable`] if the bytes are no state the crate reads.
+pub fn client_changes(state: &[u8]) -> Result<u64, UpdateError> {
+    crate::scan::check(state)
+        .map(|walked| walked.most)
+        .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))
 }
 
 /// Reads a state vector from anybody. The library reserves room for as many entries as

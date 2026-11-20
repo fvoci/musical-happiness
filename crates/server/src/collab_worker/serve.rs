@@ -254,7 +254,8 @@ impl Worker {
                         "the document of the body is larger than the limit",
                     ));
                 }
-                let client_changes = made.client_changes();
+                let client_changes = fvoci_collab::client_changes(&state)
+                    .map_err(|error| take_refused(&TakeError::Update(error)))?;
                 (made, (Some(state), state_bytes, client_changes))
             }
         };
@@ -294,7 +295,10 @@ fn refused(refusal: Refusal, message: &str) -> Refused {
 fn take_refused(error: &TakeError) -> Refused {
     let refusal = match error {
         TakeError::Update(UpdateError::TooLarge { .. }) => Refusal::UpdateTooLarge,
-        TakeError::Update(UpdateError::Unreadable(_)) => Refusal::Unreadable,
+        // Deletions out of order are what no encoder writes.
+        TakeError::Update(UpdateError::Unreadable(_) | UpdateError::DeletionsOutOfOrder { .. }) => {
+            Refusal::Unreadable
+        }
         TakeError::Update(UpdateError::MissingChanges) => Refusal::MissingChanges,
         // A document of too many clients, or of a client of too many changes, is one too
         // large to work on in time.

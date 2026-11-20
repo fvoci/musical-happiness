@@ -66,7 +66,7 @@ use crate::app::App;
 use crate::collab_worker::wire::{ASIDE_DOCUMENTS, Answer, Limits, Refusal, Refused, Request};
 use crate::config::collab::CollabSettings;
 use crate::error::AppError;
-use place::{Held, Slot};
+use place::{Held, Slot, Unanswered};
 use worker::{Worker, WorkerCommand, WorkerSettings};
 
 /// How many updates the log of a document holds before they are folded into its state.
@@ -173,32 +173,6 @@ pub struct Loaded {
     /// Which making of the document it is: what the editor sends with its updates and
     /// its state vectors. One more each time the document is made again.
     pub epoch: i64,
-}
-
-/// Why an update was not taken.
-#[derive(Debug)]
-enum NotTaken {
-    /// It was refused, or cannot be taken for now: the error to answer with.
-    Refused(AppError),
-    /// It ended the worker that was taking it, killed after its time or broken: it is
-    /// in neither the document nor the log, its sender is held back ([`senders`]),
-    /// and the connection that sent it is closed. The error to answer with
-    /// (`document_unavailable`).
-    EndedWorker(AppError),
-}
-
-impl NotTaken {
-    fn into_error(self) -> AppError {
-        match self {
-            Self::Refused(error) | Self::EndedWorker(error) => error,
-        }
-    }
-}
-
-impl From<AppError> for NotTaken {
-    fn from(error: AppError) -> Self {
-        Self::Refused(error)
-    }
 }
 
 /// An update a document took.
@@ -488,12 +462,12 @@ impl Collab {
     ) -> Result<Taken, AppError> {
         self.take_while(app, card_id, epoch, user_id, update, None)
             .await
-            .map_err(NotTaken::into_error)
+            .map_err(Unanswered::into_error)
     }
 
     /// A room that was deleted cannot write later, even if its card was restored. The
     /// updates of a user whose update ended a worker are refused for a while
-    /// ([`senders`]) before anything else.
+    /// ([`senders`]) before anything else, and again as they are sent to the worker.
     async fn take_while(
         &self,
         app: &App,
@@ -502,16 +476,8 @@ impl Collab {
         user_id: &str,
         update: &[u8],
         gone: Option<CancellationToken>,
-    ) -> Result<Taken, NotTaken> {
-        let tenant = app.store().tenant();
-        if self
-            .inner
-            .senders
-            .held_until(tenant, user_id, tokio::time::Instant::now())
-            .is_some()
-        {
-            return Err(refusals::held_back().into());
-        }
+    ) -> Result<Taken, Unanswered> {
+        self.held_back(app, user_id)?;
         self.held_to_update_bytes(update)?;
         let (user_id, update) = (user_id.to_owned(), update.to_vec());
         self.on_slot_while(
@@ -826,6 +792,20 @@ impl Collab {
             },
         )
         .await
+    }
+
+    /// Refuses the updates of a user of `app`'s organization while they, or their
+    /// organization, are held back for updates that ended a worker ([`senders`]).
+    fn held_back(&self, app: &App, user_id: &str) -> Result<(), AppError> {
+        let now = tokio::time::Instant::now();
+        match self
+            .inner
+            .senders
+            .held_until(app.store().tenant(), user_id, now)
+        {
+            Some(_) => Err(refusals::held_back()),
+            None => Ok(()),
+        }
     }
 
     /// Refuses what an editor sends that is larger than an update may be, before it is

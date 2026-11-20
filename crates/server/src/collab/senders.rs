@@ -1,10 +1,12 @@
 //! Who sent an update that ended a worker, by taking longer than it may or by breaking
 //! it: their updates are refused for a little while, ten seconds the first time (and the
 //! connection that sent it is closed), twice as long each further time, and so are
-//! those of everyone in their organization from its third time. An update is no
-//! more than a worker's time limit to anybody else (the worker is started again at
+//! those of everyone in their organization from its third such sender. An update is
+//! no more than a worker's time limit to anybody else (the worker is started again at
 //! once for it, [`super::worker::Blame::Sender`]); this keeps its sender from sending
-//! it again and again.
+//! it again and again. Updates a sender sent together are refused as they reach the
+//! worker after the first that ended it ([`super::place::Asker::Sender`]); those
+//! under way on other workers at that time may end them too.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -25,9 +27,11 @@ const LONGEST_HOLD: Duration = Duration::from_mins(60);
 /// sender held that long is held again at the next.
 const REMEMBERED: Duration = Duration::from_hours(24);
 
-/// How many deaths of an organization's updates are not held against everyone in it:
-/// those of its senders are held against them alone. One that sends from many users
-/// gets no more than that before the organization is held.
+/// How many of an organization's users whose updates ended a worker are held back
+/// alone: from the next, everyone in it is. One that sends from many users gets no
+/// more than that before the organization is held; one user is held alone however
+/// often. A user without a session counts each time, as one cannot be told from
+/// another.
 const ORGANIZATION_SPARED: u32 = 2;
 
 /// Whose deaths are counted.
@@ -71,26 +75,41 @@ impl Senders {
             .max()
     }
 
-    /// Puts down that an update of a user of an organization ended a worker at `now`.
+    /// Puts down that an update of a user of an organization ended a worker at `now`:
+    /// a death of the user, and of the organization if the user is not remembered for
+    /// one already.
     pub(super) fn ended_worker(&self, tenant: Tenant, user_id: &str, now: Instant) {
         let mut deaths = self.deaths.lock().expect("the deaths are not poisoned");
         deaths.retain(|_, deaths| now.duration_since(deaths.last) <= REMEMBERED);
-        for whose in whose(tenant, user_id) {
-            let spared = match whose {
-                Whose::Sender(..) => 0,
-                Whose::Organization(_) => ORGANIZATION_SPARED,
-            };
-            let entry = deaths.entry(whose).or_insert(Deaths {
-                count: 0,
-                last: now,
-                held_until: None,
-            });
-            entry.count = entry.count.saturating_add(1);
-            entry.last = now;
-            if let Some(hold) = hold(entry.count, spared) {
-                entry.held_until = Some(now + hold);
-            }
+        let sender = (!user_id.is_empty()).then(|| Whose::Sender(tenant, user_id.to_owned()));
+        let new_sender = sender
+            .as_ref()
+            .is_none_or(|sender| !deaths.contains_key(sender));
+        if let Some(sender) = sender {
+            died(&mut deaths, sender, 0, now);
         }
+        if new_sender {
+            died(
+                &mut deaths,
+                Whose::Organization(tenant),
+                ORGANIZATION_SPARED,
+                now,
+            );
+        }
+    }
+}
+
+/// Counts a death of `whose` at `now`, and holds it back past its first `spared`.
+fn died(deaths: &mut HashMap<Whose, Deaths>, whose: Whose, spared: u32, now: Instant) {
+    let entry = deaths.entry(whose).or_insert(Deaths {
+        count: 0,
+        last: now,
+        held_until: None,
+    });
+    entry.count = entry.count.saturating_add(1);
+    entry.last = now;
+    if let Some(hold) = hold(entry.count, spared) {
+        entry.held_until = Some(now + hold);
     }
 }
 
@@ -151,12 +170,25 @@ mod tests {
     }
 
     #[test]
-    fn the_organization_is_held_from_its_third_time() {
+    fn the_organization_is_held_from_its_third_sender() {
         let senders = Senders::default();
         let now = Instant::now();
-        senders.ended_worker(ONE, "ann", now);
+        for _ in 0..5 {
+            senders.ended_worker(ONE, "ann", now);
+        }
+        assert!(senders.held_until(ONE, "ann", now).is_some());
+        assert_eq!(
+            senders.held_until(ONE, "cat", now),
+            None,
+            "one user is held alone however often"
+        );
         senders.ended_worker(ONE, "bob", now);
-        assert_eq!(senders.held_until(ONE, "ann", now), Some(now + FIRST_HOLD));
+        assert_eq!(senders.held_until(ONE, "bob", now), Some(now + FIRST_HOLD));
+        assert_eq!(
+            senders.held_until(ONE, "ann", now),
+            Some(now + FIRST_HOLD * 16),
+            "her fifth"
+        );
         assert_eq!(
             senders.held_until(ONE, "cat", now),
             None,

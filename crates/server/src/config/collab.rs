@@ -74,11 +74,11 @@ pub struct CollabSettings {
     pub worker_command: Option<crate::collab::worker::WorkerCommand>,
 }
 
-/// The default of `collab_state_bytes`: 8 MiB. The document of the largest body is
-/// 4.2 MB (4 MiB of text), 1.3 MB (50,000 nodes) or, of the most changes (letters in
-/// turn with five marks and with none), 7.4 MB: 88% of this, which it starts at and is
-/// not made again for until it grew by a quarter. Others are made again from their body
-/// at three quarters of this. It is no larger because a worker pays for a state of
+/// The default of `collab_state_bytes`: 8 MiB. The largest document of a body is 7.4 MB
+/// (letters of five marks in turn with letters of none): 88% of this, which it starts
+/// at and is not made again for until it grew by a quarter. Of 4 MiB of text it is 4.2
+/// MB, of 50,000 nodes 1.3 MB. Others are made again from their body at three quarters
+/// of this. It is no larger because a worker pays for a state of
 /// many small changes in memory far more than for its bytes ([`MEMORY_PER_STATE_BYTE`]).
 pub(super) const DEFAULT_STATE_BYTES: u64 = 8 * 1024 * 1024;
 
@@ -127,7 +127,7 @@ pub(super) const MOST_BODY_VERSIONS: u32 = 1000;
 pub(super) const MOST_VERSION_MINUTES: u32 = 24 * 60;
 
 /// How many bytes of a worker's memory every byte of the states of the documents it
-/// holds takes: a document of nodes in memory is 20 to 23 times its state (27 MB for
+/// holds takes: a document of nodes in memory is 20 to 25 times its state (27 MB for
 /// the 1.3 MB of 50,000 nodes; a document of text is little more than its state), as
 /// the program asks for it, and what the allocator keeps around that comes on top.
 ///
@@ -140,9 +140,9 @@ pub(super) const MEMORY_PER_STATE_BYTE: u64 = 32;
 /// update it takes at a time: an update makes a copy of its document, reads the copy
 /// again from its state, and a repair does both once more. It goes with the changes of
 /// the document: for a body of 50,000 nodes that is 187 MB above the document (39 MB
-/// for 4 MiB of text), and for the body of the most changes (letters in turn with five
-/// marks and with none, a state of 7.4 MB) 359 MB for a letter typed and 663 MB to
-/// repair an update. Every body is so taken, by a worker that holds as many documents
+/// for 4 MiB of text), and for the body that takes the most (of the bodies measured:
+/// letters of five marks in turn with formulas, a state of 5.9 MB held in 103 MB) 380
+/// MB for a letter typed and 721 MB to repair an update. Every body is so taken, by a worker that holds as many documents
 /// as it counts room for; the executable and what the allocator keeps come on top.
 ///
 /// A state grown by what was deleted from it takes more than its body: 414 MB to repair

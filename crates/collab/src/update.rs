@@ -53,9 +53,10 @@ pub const MAX_CLIENTS: usize = 16 * 1024;
 /// two: 17,500 cuts of one letter each, as many as an update of 64 KiB holds, took 3 s
 /// where the client cut has 250,000 changes, 6.9 s at 520,000 and 26 s at 1,170,000
 /// (release build, an idle machine), and 1.1 s where as many were spread over a hundred
-/// clients. A body within its limits makes at most about 250,000 (50,000 nodes of
-/// three letters each, every other one with four marks), all of one client; what holds a
-/// document makes it again from its body well before an editor brings a client to it.
+/// clients. A body within its limits makes at most about 323,000, all of one client (of
+/// the bodies measured: letters of five marks in turn with line breaks), 0.82 of the
+/// three quarters at which what holds a document makes it again from its body, well
+/// before an editor brings a client to this.
 pub const MAX_CLIENT_CHANGES: u64 = 512 * 1024;
 
 /// How many steps the Y library may take to place the changes of one update a client
@@ -88,6 +89,17 @@ pub enum UpdateError {
     /// The update cannot be applied to the document.
     #[error("the update cannot be applied: {0}")]
     Unappliable(String),
+    /// The deletions of a client in the update go back or overlap, which Yjs never
+    /// writes: the library would walk the client's changes again for each.
+    #[error("the deletions of client {client} go back to clock {start} from {end}")]
+    DeletionsOutOfOrder {
+        /// The client.
+        client: u64,
+        /// Where the range that goes back starts.
+        start: u32,
+        /// Where the range before it ends.
+        end: u32,
+    },
     /// The update builds on changes the document does not have: a client's changes
     /// begin later than where the document has them, or part of the update waits for
     /// changes of another client instead of taking effect. A client sends what it has
@@ -313,10 +325,11 @@ fn deletions_in_order(update: &Update) -> Result<(), UpdateError> {
         let mut end = 0;
         for range in ranges.iter() {
             if range.start < end {
-                return Err(UpdateError::Unreadable(format!(
-                    "the deletions of client {client} go back to clock {} from {end}",
-                    range.start
-                )));
+                return Err(UpdateError::DeletionsOutOfOrder {
+                    client: client.get(),
+                    start: range.start,
+                    end,
+                });
             }
             end = range.end;
         }
