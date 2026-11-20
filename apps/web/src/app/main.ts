@@ -2,6 +2,7 @@ import { mount } from 'svelte';
 
 import '../styles/app.css';
 import { watchDisplay } from '$lib/display.svelte.ts';
+import { startCodeLines } from '$lib/editor/code-lines.svelte.ts';
 import { loadFontFaces } from '$lib/fonts.js';
 import { watchKeyboard } from '$lib/layout/keyboard.ts';
 import { insets, page } from '$lib/layout/room.svelte.ts';
@@ -20,6 +21,7 @@ if (!target) throw new Error('index.html has no #app element');
 const locale = startLocale();
 watchSystemTheme();
 watchDisplay();
+startCodeLines();
 watchKeyboard((height) => {
   insets.keyboard = height;
 });

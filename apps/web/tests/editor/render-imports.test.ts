@@ -16,6 +16,8 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { CODE_GRAMMARS } from '../../src/lib/editor/code-languages.ts';
+
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const LIB = path.join(ROOT, 'src/lib');
 
@@ -73,7 +75,9 @@ function specifiersOf(source: string): string[] {
   return [...found];
 }
 
-function resolve(from: string, specifier: string): string | undefined {
+function resolve(from: string, given: string): string | undefined {
+  // What a module is fetched as (`?worker`) is no part of its file's name.
+  const specifier = given.replace(/\?[a-z&]+$/, '');
   if (specifier.startsWith(MESSAGES)) return undefined;
   if (specifier.startsWith('$lib/')) return path.join(LIB, specifier.slice('$lib/'.length));
   if (specifier.startsWith('.')) return path.resolve(path.dirname(from), specifier);
@@ -143,10 +147,22 @@ describe('what the read-only view is made of', () => {
     });
   });
 
-  it('adds, for the component, the framework, the style sheets, what draws a reference and a file block, and the two libraries that draw formulas and diagrams', () => {
+  it('adds, for the component, the framework, the style sheets, what draws a reference, a file block and a code block, and the libraries that draw formulas, diagrams and colours of code', () => {
     expect(graphOf('src/lib/editor/BodyView.svelte')).toEqual({
       files: [
         'src/lib/editor/BodyView.svelte',
+        // What draws a code block's bar, colours and line numbers, fetched when there is one.
+        'src/lib/editor/code-block.css',
+        'src/lib/editor/code-copy-texts.ts',
+        'src/lib/editor/code-copy.ts',
+        'src/lib/editor/code-highlight-worker.ts',
+        'src/lib/editor/code-highlighter.ts',
+        'src/lib/editor/code-languages.ts',
+        'src/lib/editor/code-later.ts',
+        'src/lib/editor/code-lines.ts',
+        'src/lib/editor/code-paint.ts',
+        'src/lib/editor/code-tokens.ts',
+        'src/lib/editor/code-view.ts',
         'src/lib/editor/diagram-kind.ts',
         'src/lib/editor/diagram.ts',
         'src/lib/editor/drawing.ts',
@@ -162,18 +178,32 @@ describe('what the read-only view is made of', () => {
         'src/lib/editor/schema.ts',
         // What a finger's press on a file's name does in a body being written; nothing it imports.
         'src/lib/editor/touch-press.ts',
+        'src/lib/keys.ts',
         'src/lib/logic/file-size.ts',
         'src/lib/save.ts',
       ],
       packages: [
         '$lib/i18n/paraglide/messages.js',
+        ...CODE_GRAMMARS.map((grammar) => `highlight.js/lib/languages/${grammar}`),
         'katex',
+        'lowlight',
         'mermaid',
         'svelte',
         'svelte/elements',
         'svelte/events',
-      ],
+      ].sort(),
     });
+  });
+
+  it('fetches what draws code blocks with no messages and nothing of the framework, so that the first screen keeps its files', () => {
+    // Fetched on its own, a module that reached either would split what the
+    // first screen loads of them into more files, one of them too small to
+    // be compressed (e2e/shell.spec.ts).
+    const { files, packages } = graphOf('src/lib/editor/code-view.ts');
+    expect(files.filter((file) => /\.svelte(\.ts)?$/.test(file))).toEqual([]);
+    expect(
+      packages.filter((name) => name.startsWith(MESSAGES) || /^svelte(\/|$)/.test(name)),
+    ).toEqual([]);
   });
 
   it('fetches the two libraries only on demand, each from one module', () => {
@@ -199,6 +229,39 @@ describe('what the read-only view is made of', () => {
         new RegExp(`^import (?!type )[^;]*'${module.replace('.', '\\.')}'`, 'm').test(embeds),
       ]).toEqual([module, false]);
     }
+  });
+
+  it('fetches what draws code only for a body with code, and colours it in a worker of its own', () => {
+    const files = graphOf('src/lib/editor/BodyView.svelte').files.filter((file) =>
+      /\.(ts|svelte)$/.test(file),
+    );
+    const sources = files.map((file): [string, string] => [
+      file,
+      readFileSync(path.join(ROOT, file), 'utf8'),
+    ]);
+    /** The files that import a module, and whether they do it only through `import()`. */
+    const importers = (pattern: RegExp): [string, boolean][] =>
+      sources
+        .filter(([, source]) => specifiersOf(source).some((name) => pattern.test(name)))
+        .map(([file, source]) => [
+          file,
+          !new RegExp(`^import (?!type )[^;]*['"]${pattern.source}`, 'm').test(source) &&
+            new RegExp(`import\\(['"]${pattern.source}`).test(source),
+        ]);
+    expect(importers(/\.\/code-view\.ts/)).toEqual([['src/lib/editor/code-later.ts', true]]);
+    expect(importers(/\.\/code-highlight-worker\.ts/)).toEqual([
+      ['src/lib/editor/code-highlighter.ts', true],
+    ]);
+    // The highlighter and its grammars are in the worker and nowhere else.
+    const library = /^(lowlight|highlight\.js)/;
+    const users = sources.filter(([, source]) =>
+      specifiersOf(source).some((name) => library.test(name)),
+    );
+    expect(users.map(([file]) => file)).toEqual(['src/lib/editor/code-highlight-worker.ts']);
+    // And the worker is started from a file of the app's own, not from a `blob:`.
+    const highlighter = readFileSync(path.join(LIB, 'editor/code-highlighter.ts'), 'utf8');
+    expect(highlighter).toContain("import('./code-highlight-worker.ts?worker')");
+    expect(highlighter).not.toContain('&inline');
   });
 
   it.each(ENTRIES)('%s reaches neither the editor nor the Markdown reader', (entry) => {

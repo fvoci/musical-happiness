@@ -3,7 +3,8 @@
   (`workspace.changeSettings`): it shows immediately and goes back, with a
   line telling so, if the server refuses it.
 
-  - Theme, density, haptics: how the app looks and feels here.
+  - Theme, density, haptics: how the app looks and feels here. The line
+    numbers of code blocks are this device's alone (code-lines.ts).
   - How a card opens: only the dialog in the middle is built. The other two
     answers are shown, so that the place is known, and cannot be chosen.
   - Time zone, first day of the week, way of writing hours: `Automatic`
@@ -33,6 +34,7 @@
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
+  import { codeLines } from '$lib/editor/code-lines.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack, isOverlayEntry } from '$lib/layout/back.svelte.ts';
   import { userDisplayName } from '$lib/logic/users.ts';
@@ -274,6 +276,18 @@
         <Switch
           checked={settings.haptics}
           onCheckedChange={(haptics: boolean) => void workspace.changeSettings({ haptics })}
+        />
+      </label>
+      <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch" data-setting="codeLines">
+        <span class="grid min-w-0 flex-1 gap-0.5">
+          <span class="font-medium">{m.shell_settings_code_lines()}</span>
+          <span class="text-xs text-muted-foreground">{m.shell_settings_code_lines_hint()}</span>
+        </span>
+        <Switch
+          checked={codeLines.shown}
+          onCheckedChange={(shown: boolean) => {
+            codeLines.set(shown);
+          }}
         />
       </label>
 

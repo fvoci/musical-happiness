@@ -62,6 +62,12 @@
  *     alone, and the same module draws into it once the body is in the page
  *     (file-view.ts, tested in editor-file-blocks.test.ts). The place is
  *     compared: the element and the identifier.
+ * 15. The bar of a code block: the editor draws the block inside an element
+ *     of its own (`doc-code`), with the button that names and changes its
+ *     language and the button that copies it above the text; only the block
+ *     in it is compared. The view puts its blocks in the same frame, with the
+ *     language's name and the copy button, once the body is in the page
+ *     (code-view.ts, tested in body-code.test.ts).
  *
  * On both sides:
  *
@@ -134,6 +140,7 @@ const LEFT_OUT = {
   'block formula around its drawing': 0, // 12
   'what a reference shows': 0, // 13
   'what a file block shows': 0, // 14
+  'bar of a code block': 0, // 15
 };
 type LeftOut = keyof typeof LEFT_OUT;
 const leaveOut = (entry: LeftOut): void => {
@@ -198,6 +205,12 @@ function shapeOf(node: Node, side: 'editor' | 'view'): Shape | undefined {
     source.classList.remove('doc-diagram-source');
     source.querySelector('code')?.removeAttribute('aria-label');
     return shapeOf(source, side);
+  }
+  if (ofEditor && node.tagName === 'DIV' && node.classList.contains('doc-code')) {
+    leaveOut('bar of a code block');
+    const block = node.querySelector(':scope > pre');
+    if (!block) throw new Error('a code block without its text');
+    return shapeOf(block, side);
   }
   if (ofEditor && node.tagName === 'DIV' && node.classList.contains('doc-math-block')) {
     leaveOut('block formula around its drawing');

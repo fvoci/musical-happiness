@@ -18,7 +18,7 @@ use crate::common::{Setup, TestServer};
 const TYPIST: u64 = 7;
 const WALKER: u64 = 1 << 40;
 
-fn number(out: &mut Vec<u8>, mut number: u64) {
+pub(crate) fn number(out: &mut Vec<u8>, mut number: u64) {
     while number >= 0x80 {
         out.push(number.to_le_bytes()[0] | 0x80);
         number >>= 7;
@@ -28,15 +28,15 @@ fn number(out: &mut Vec<u8>, mut number: u64) {
 
 /// The changes of one client from `clock` on in an update, as the Y library writes
 /// them (version 1).
-struct Run {
-    client: u64,
-    clock: u64,
-    count: u64,
-    changes: Vec<u8>,
+pub(crate) struct Run {
+    pub(crate) client: u64,
+    pub(crate) clock: u64,
+    pub(crate) count: u64,
+    pub(crate) changes: Vec<u8>,
 }
 
 /// An update of the changes of clients, with nothing deleted.
-fn update_of(runs: &[Run]) -> Vec<u8> {
+pub(crate) fn update_of(runs: &[Run]) -> Vec<u8> {
     let mut out = Vec::new();
     number(&mut out, u64::try_from(runs.len()).expect("a count fits"));
     for run in runs {
@@ -104,7 +104,7 @@ fn reason_of(error: &AppError) -> Option<&'static str> {
 }
 
 /// A server that takes an update large enough to type a long list in.
-async fn roomy() -> TestServer {
+pub(crate) async fn roomy() -> TestServer {
     Setup::native()
         .configure(|config| config.collab.collab_update_bytes = 1024 * 1024)
         .start()
@@ -113,7 +113,7 @@ async fn roomy() -> TestServer {
         .await
 }
 
-fn paragraphs_of(body: Option<&Value>) -> usize {
+pub(crate) fn paragraphs_of(body: Option<&Value>) -> usize {
     body.and_then(|body| body["content"].as_array())
         .map_or(0, Vec::len)
 }
@@ -236,6 +236,19 @@ async fn a_document_whose_update_is_refused_for_its_steps_is_made_again_from_its
 /// its card holds, `walkers` changes that walk the list, and after that state a logged
 /// update of one more paragraph, which its card does not hold. No worker runs.
 async fn stored_slow(th: &TestServer, walkers: u64) -> (Editing, Vec<u8>) {
+    let typed = typed_in_order(CHILDREN);
+    stored_before(th, Some(&typed), &walking(0, walkers, CHILDREN)).await
+}
+
+/// A card whose document is stored as a server before this one left it: what `typed`
+/// wrote through this server, which its card holds, then `left`, an update taken with
+/// no count of clients or steps, and after that state a logged update of one more
+/// paragraph, which its card does not hold. No worker runs.
+pub(crate) async fn stored_before(
+    th: &TestServer,
+    typed: Option<&[u8]>,
+    left: &[u8],
+) -> (Editing, Vec<u8>) {
     let uncounted = UpdateLimits {
         update_bytes: 1024 * 1024,
         state_bytes: 8 * 1024 * 1024,
@@ -248,16 +261,12 @@ async fn stored_slow(th: &TestServer, walkers: u64) -> (Editing, Vec<u8>) {
     let e = editing(th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
     let loaded = collab.open(&e.app, &e.card_id).await.expect("opened");
-    collab
-        .take(
-            &e.app,
-            &e.card_id,
-            loaded.epoch,
-            &e.user1,
-            &typed_in_order(CHILDREN),
-        )
-        .await
-        .expect("typed");
+    if let Some(typed) = typed {
+        collab
+            .take(&e.app, &e.card_id, loaded.epoch, &e.user1, typed)
+            .await
+            .expect("typed");
+    }
     collab.close(&e.app, &e.card_id).await.expect("written");
     collab.abandon().await;
     let before = stored(&e).await;
@@ -268,7 +277,7 @@ async fn stored_slow(th: &TestServer, walkers: u64) -> (Editing, Vec<u8>) {
     let state = BodyDoc::from_state(&before.state, &uncounted)
         .expect("read")
         .doc
-        .take(&walking(0, walkers, CHILDREN), &uncounted)
+        .take(left, &uncounted)
         .expect("taken before the steps were counted")
         .doc
         .state();
