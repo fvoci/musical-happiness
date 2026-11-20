@@ -5,18 +5,22 @@
 //! search that finds them; a reset link mailed by each provider's settings to a fake
 //! provider, and no start with `email_verification` and no mail. Then it looks at what
 //! the installation must not do (secrets in the images, a database role past the wall,
-//! ports open to the host, processes as root), reads the profile `tunnel` without starting it, and takes everything down
-//! with its volumes, whatever happened. `--push-plan` prints how the images go to GHCR.
+//! ports open to the host, processes as root), reads the profile `tunnel` without
+//! starting it, backs up, restores into new volumes and updates with the scripts of
+//! `docker/`, and takes everything down with its volumes, whatever happened.
+//! `--push-plan` prints how the images go to GHCR.
 //!
 //! It needs `docker` with compose 2.24 or newer, `curl`, `git` and `tar`. The images are built
 //! natively, for the processor of the machine; the other one is built on a machine of
 //! that kind. The images stay, to be pushed (`--push-plan`); `docker image rm` removes
 //! them.
 
+mod backup;
 mod checks;
 mod freshness;
 mod images;
 mod mail;
+mod pasted;
 mod scenario;
 mod tunnel;
 
@@ -26,7 +30,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result, bail, ensure};
 
 use crate::steps::{self, Captured, capture, say};
 
@@ -98,6 +102,27 @@ impl Trial {
             .arg("--file")
             .arg(self.root.join("docker/compose.yaml"))
             .args(arguments);
+        self.scrub(&mut command);
+        command
+    }
+
+    /// One of the scripts of `docker/` (`backup.sh`, ...) on the trial's project, files
+    /// and `.env`, as an operator runs it, with nothing of the caller's environment that
+    /// would override them.
+    fn script(&self, name: &str, arguments: &[&str]) -> Command {
+        let mut command = Command::new(self.root.join("docker").join(name));
+        command
+            .args(["--project-name", &self.project, "--env-file"])
+            .arg(&self.env_file)
+            .arg("--file")
+            .arg(self.root.join("docker/compose.yaml"))
+            .args(arguments);
+        self.scrub(&mut command);
+        command
+    }
+
+    /// Takes out of `command`'s environment what would win over the trial's file.
+    fn scrub(&self, command: &mut Command) {
         for name in self
             .env_names
             .iter()
@@ -116,7 +141,6 @@ impl Trial {
                 command.env_remove(&name);
             }
         }
-        command
     }
 
     /// Runs `docker compose` on the trial's project, and returns what it wrote.
@@ -170,14 +194,22 @@ impl Drop for Teardown<'_> {
 }
 
 /// Removes the trial's files: its secrets and the session of a server that is gone.
+/// Each is tried whatever the others did: both hold secrets.
 fn remove_files(trial: &Trial, directory: &Path) -> Result<()> {
     let _ = fs::remove_file(directory.join("cookies.txt"));
-    match fs::remove_file(&trial.env_file) {
+    let env = match fs::remove_file(&trial.env_file) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
             Err(error).context("removing the file of the trial's secrets")
         }
         _ => Ok(()),
-    }
+    };
+    let backups = backup::folder(directory);
+    let removed = match fs::remove_dir_all(&backups) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error)
+            .with_context(|| format!("removing the trial's backups, {}", backups.display())),
+        _ => Ok(()),
+    };
+    env.and(removed)
 }
 
 /// Builds, starts, tries and takes down the installation.
@@ -322,6 +354,14 @@ fn try_installation(trial: &Trial, directory: &Path) -> Result<()> {
             steps::Step::new("the profile tunnel, and nothing of it without", || {
                 tunnel::profile(trial)
             }),
+            steps::Step::new(
+                "lines pasted wrong in the .env: each script stops, hiding them",
+                || pasted::refused_hidden(trial, directory),
+            ),
+            // Last: it takes the volumes away and makes the installation anew.
+            steps::Step::new("back up, take the volumes away, restore, update", || {
+                backup::round_trip(trial, directory)
+            }),
         ],
     );
     if checks.is_err() {
@@ -362,6 +402,9 @@ fn take_down(trial: &Trial) -> Result<()> {
     if !status.success() {
         bail!("docker compose down ended with {status}");
     }
+    // The name update.sh gave the image it replaced, the trial's own: the image keeps
+    // its other names. Absent unless the update ran.
+    let _ = capture("docker", &["image", "rm", &backup::kept_tag(trial)]);
     let label = trial.label();
     let listings: [&[&str]; 3] = [
         &["container", "ls", "--all"],
@@ -380,6 +423,60 @@ fn take_down(trial: &Trial) -> Result<()> {
         }
     }
     fake_left
+}
+
+/// What a script wrote, both streams, and whether it succeeded.
+fn script_output(mut command: Command, name: &str) -> Result<(bool, String)> {
+    let output = command
+        .output()
+        .with_context(|| format!("starting {name}"))?;
+    let said = String::from_utf8_lossy(&output.stdout) + String::from_utf8_lossy(&output.stderr);
+    Ok((output.status.success(), said.into_owned()))
+}
+
+/// Fails if `text` holds one of the trial's secrets, saying what wrote it.
+fn no_secret_in(trial: &Trial, what: &str, text: &str) -> Result<()> {
+    if trial
+        .secrets
+        .iter()
+        .any(|secret| text.contains(secret.as_str()))
+    {
+        bail!("{what} wrote one of the trial's secrets");
+    }
+    Ok(())
+}
+
+/// fvoci's container and when it started.
+fn fvoci_started(trial: &Trial) -> Result<String> {
+    let container = trial.compose(&["ps", "--quiet", "fvoci"])?;
+    ensure!(
+        container.succeeded && !container.output.is_empty(),
+        "fvoci has no container: {}",
+        container.error
+    );
+    let started = capture(
+        "docker",
+        &[
+            "inspect",
+            "--format",
+            "{{.Id}} {{.State.StartedAt}}",
+            &container.output,
+        ],
+    )?;
+    ensure!(
+        started.succeeded,
+        "docker inspect failed: {}",
+        started.error
+    );
+    Ok(started.output)
+}
+
+/// A path for a file that holds the trial's secrets, in the folder of its backups,
+/// which the take-down removes however the trial ended.
+fn secrets_file(directory: &Path, name: &str) -> Result<PathBuf> {
+    let folder = backup::folder(directory);
+    fs::create_dir_all(&folder).with_context(|| format!("creating {}", folder.display()))?;
+    Ok(folder.join(name))
 }
 
 /// A port of the loopback interface that nothing listens on now.

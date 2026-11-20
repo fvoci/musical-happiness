@@ -26,9 +26,10 @@ use anyhow::{Context as _, Result, bail, ensure};
 
 use crate::steps::{self, capture, say};
 
-/// The file that is changed, and the start of the line in it that gets the mark.
+/// The file that is changed, and the version that ping reports in it, which gets the
+/// mark in front.
 const MARKED_FILE: &str = "crates/server/src/app/mod.rs";
-const VERSION_LINE: &str = "pub const SERVER_VERSION: &str = \"";
+const VERSION: &str = "env!(\"CARGO_PKG_VERSION\")";
 
 /// The files of the image's build that come from the checkout rather than the commit,
 /// so that what is tried is the Dockerfile as it is now.
@@ -187,10 +188,10 @@ fn unpack_commit(root: &Path, directory: &Path) -> Result<()> {
 fn put_mark(file: &Path, mark: &str) -> Result<()> {
     let text = fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
     ensure!(
-        text.matches(VERSION_LINE).count() == 1,
-        "{MARKED_FILE} has no single line starting `{VERSION_LINE}`, which the probe marks"
+        text.matches(VERSION).count() == 1,
+        "{MARKED_FILE} has not one `{VERSION}`, which the probe marks"
     );
-    let marked = text.replacen(VERSION_LINE, &format!("{VERSION_LINE}{mark}-"), 1);
+    let marked = text.replacen(VERSION, &format!("concat!(\"{mark}-\", {VERSION})"), 1);
     fs::write(file, marked).with_context(|| format!("writing {}", file.display()))
 }
 
