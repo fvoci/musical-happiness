@@ -2,9 +2,11 @@
 //! lines, a quote never closed, a `$` read as a variable): `backup.sh`, `update.sh` and
 //! `restore.sh` stop before anything changes, and say what compose said without a word
 //! of what was pasted. The table is compose's messages as the trial's compose writes
-//! them.
+//! them. And values of many lines, which compose takes, whose lines read like fvoci's
+//! settings: the scripts read past them.
 
 use std::path::Path;
+use std::process::Command;
 
 use anyhow::{Context as _, Result, ensure};
 
@@ -37,6 +39,16 @@ const TABLE: &[Pasted] = &[
     Pasted {
         what: "a second quoted value",
         line: |w| format!("FVOCI_PASTED=\"x\" \"{}\"", w[0]),
+        shown: ": unexpected character <hidden> in variable name <hidden>",
+    },
+    Pasted {
+        what: "a key's line ended by CR LF",
+        line: |w| format!("MIIEvQ+{}=\r", w[0]),
+        shown: ": unexpected character <hidden> in variable name <hidden>",
+    },
+    Pasted {
+        what: "a line after a byte order mark",
+        line: |w| format!("\u{feff}FVOCI_PASTED={}", w[0]),
         shown: ": unexpected character <hidden> in variable name <hidden>",
     },
     Pasted {
@@ -106,13 +118,61 @@ const TABLE: &[Pasted] = &[
     },
 ];
 
-/// Gives each script an `.env` with each line of [`TABLE`] in turn.
+/// A value of many lines, which compose takes and writes below its key (`KEY: |-`, or
+/// on one line in double quotes when it holds a CR). Its lines read like fvoci's
+/// settings and come before them (`E` before `F`, `environment` before `image`).
+struct ManyLines {
+    what: &'static str,
+    line: fn(&[String; 3]) -> String,
+}
+
+const MANY_LINES: &[ManyLines] = &[
+    ManyLines {
+        what: "a value of lines written \\n in double quotes",
+        line: |w| {
+            format!(
+                "FVOCI_EMAIL_VERIFICATION=\"{}\\nFVOCI_FILE_STORAGE: s3\\nimage: {}\\n{}\"",
+                w[0], w[1], w[2]
+            )
+        },
+    },
+    ManyLines {
+        what: "a value of lines in double quotes",
+        line: |w| {
+            format!(
+                "FVOCI_EMAIL_VERIFICATION=\"{}\nFVOCI_FILE_STORAGE: s3\nimage: {}\n{}\"",
+                w[0], w[1], w[2]
+            )
+        },
+    },
+    ManyLines {
+        what: "a value of lines in single quotes",
+        line: |w| {
+            format!(
+                "FVOCI_EMAIL_VERIFICATION='{}\nFVOCI_FILE_STORAGE: s3\nimage: {}\n{}'",
+                w[0], w[1], w[2]
+            )
+        },
+    },
+    ManyLines {
+        what: "a value of lines ended by CR LF",
+        line: |w| {
+            format!(
+                "FVOCI_EMAIL_VERIFICATION=\"{}\r\nFVOCI_FILE_STORAGE: s3\r\nimage: {}\r\n{}\"\r",
+                w[0], w[1], w[2]
+            )
+        },
+    },
+];
+
+/// Gives each script an `.env` with each line of [`TABLE`] in turn, then each of
+/// [`MANY_LINES`].
 ///
 /// # Errors
 ///
 /// Fails at the first script that does not stop, shows a word of what was pasted or
-/// shows compose's complaint otherwise than the table says, or if fvoci was made or
-/// started anew.
+/// shows compose's complaint otherwise than the table says, or reads a line of a value
+/// as fvoci's setting, or if fvoci was made or started anew.
 pub(super) fn refused_hidden(trial: &Trial, directory: &Path) -> Result<()> {
     let before = fvoci_started(trial)?;
     let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
@@ -120,7 +180,8 @@ pub(super) fn refused_hidden(trial: &Trial, directory: &Path) -> Result<()> {
     let backups = super::backup::folder(directory).join("pasted-wrong");
     let outcome = TABLE
         .iter()
-        .try_for_each(|pasted| try_line(trial, &text, &env, &backups, pasted));
+        .try_for_each(|pasted| try_line(trial, &text, &env, &backups, pasted))
+        .and_then(|()| read_past(trial, &text, &env, directory));
     let _ = std::fs::remove_file(&env);
     outcome?;
     ensure!(
@@ -136,7 +197,81 @@ pub(super) fn refused_hidden(trial: &Trial, directory: &Path) -> Result<()> {
         "    {} lines pasted wrong, each in backup.sh, update.sh and restore.sh: refused, hidden",
         TABLE.len()
     ));
+    say(&format!(
+        "    {} values of many lines that read like fvoci's settings: read past (fvoci's image, its files' storage)",
+        MANY_LINES.len()
+    ));
     Ok(())
+}
+
+/// Each of [`MANY_LINES`] after the trial's `.env`: `ops.sh` reads fvoci's image and
+/// storage as without it, and `restore.sh`, given a backup without the files' archive,
+/// says the installation keeps its files in its volume, with no word of the value.
+fn read_past(trial: &Trial, text: &str, env: &Path, directory: &Path) -> Result<()> {
+    let own = image_and_storage(trial, &trial.env_file)?;
+    ensure!(
+        own.ends_with(" local") && !own.starts_with(' '),
+        "ops.sh read the trial's own image and storage as \"{own}\""
+    );
+    let backup = super::backup::folder(directory).join("lines-backup");
+    std::fs::create_dir_all(&backup).context("making a backup without files")?;
+    super::write_private(&backup.join("db.dump"), "")?;
+    let backup_text = backup.to_string_lossy();
+    let env_text = env.to_string_lossy();
+    for value in MANY_LINES {
+        let words = [word()?, word()?, word()?];
+        super::write_private(env, &format!("{text}\n{}\n", (value.line)(&words)))?;
+        let hidden = |said: String| {
+            words
+                .iter()
+                .fold(said, |said, word| said.replace(word.as_str(), "<pasted>"))
+        };
+        let read = image_and_storage(trial, env)?;
+        ensure!(
+            read == own,
+            "ops.sh read fvoci's image and storage in {} as \"{}\", not \"{own}\"",
+            value.what,
+            hidden(read)
+        );
+        let arguments = ["--env-file", env_text.as_ref(), backup_text.as_ref()];
+        let (succeeded, said) =
+            script_output(trial.script("restore.sh", &arguments), "restore.sh")?;
+        no_secret_in(trial, "restore.sh", &said)?;
+        let shown = words.iter().any(|word| said.contains(word.as_str()));
+        ensure!(
+            !succeeded
+                && !shown
+                && said.contains("while this installation keeps them in its volume"),
+            "restore.sh with {} in the .env did not say the files are in the volume, without a word of it: {}",
+            value.what,
+            hidden(said)
+        );
+    }
+    let _ = std::fs::remove_dir_all(&backup);
+    Ok(())
+}
+
+/// fvoci's image and its files' storage, as `ops.sh` reads them from compose's files
+/// with `env`: "<image> <local or s3>".
+fn image_and_storage(trial: &Trial, env: &Path) -> Result<String> {
+    let mut command = Command::new("sh");
+    trial.scrub(&mut command);
+    command
+        .args([
+            "-c",
+            ". \"$0\"; script=ops.sh; env_file=$1
+            installation=$(compose config --format yaml 2>/dev/null) || exit 1
+            check_image_names
+            printf '%s %s' \"$fvoci_image\" \"$(file_storage)\"",
+        ])
+        .arg(trial.root.join("docker/ops.sh"))
+        .arg(env)
+        .env("COMPOSE_FILE", trial.root.join("docker/compose.yaml"))
+        .env("COMPOSE_PROJECT_NAME", &trial.project);
+    let (succeeded, said) = script_output(command, "ops.sh")?;
+    no_secret_in(trial, "ops.sh", &said)?;
+    ensure!(succeeded, "ops.sh did not read compose's files");
+    Ok(said)
 }
 
 /// Runs the three scripts with the trial's `.env` and `pasted`'s line after it.

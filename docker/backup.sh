@@ -19,6 +19,11 @@ while [ $# -gt 0 ]; do
     shift "$shift_by"
 done
 check_shared_options
+# find would take a folder named -x or ! for a part of its expression.
+case $backup_dir in
+/* | ./*) ;;
+*) backup_dir=./$backup_dir ;;
+esac
 
 started=$(now_ms)
 storage=$(file_storage)
@@ -26,8 +31,9 @@ running postgres || fail "PostgreSQL of the project $project does not run (docke
 
 umask 077
 if [ -d "$backup_dir" ]; then
-    # Someone else's folder keeps its mode; one that others may read is said.
-    open=$(find "$backup_dir" -maxdepth 0 -perm /077)
+    # Someone else's folder keeps its mode; one that others may read is said. -H: the
+    # folder a link names, not the link.
+    open=$(find -H "$backup_dir" -maxdepth 0 -perm /077)
     [ -z "$open" ] || say "warning: $backup_dir may be read by others than its owner, and a backup holds every secret"
 else
     mkdir -p -- "$backup_dir"
@@ -104,14 +110,15 @@ say "made $backup_dir/$name (${size} KiB: the database, $files_said) in $(second
 if [ "$keep_days" -gt 0 ]; then
     # This project's backups, and what a backup that was killed left, and nothing else.
     stamp_glob="[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z"
-    old=$(find "$backup_dir" -mindepth 1 -maxdepth 1 -type d \
+    # -H: into the folder a link names. find hands the names over itself: a name may
+    # hold any byte, a line end too.
+    # shellcheck disable=SC2016 # the inner shell's.
+    find -H "$backup_dir" -mindepth 1 -maxdepth 1 -type d \
         \( -name "$project-$stamp_glob" -o -name ".$project-$stamp_glob.*" \) \
-        -mmin +$((keep_days * 1440)))
-    while IFS= read -r gone; do
-        [ -n "$gone" ] || continue
-        rm -rf -- "$gone"
-        say "removed $gone, older than $keep_days days"
-    done <<END
-$old
-END
+        -mmin +$((keep_days * 1440)) -exec sh -c '
+            days=$1
+            shift
+            for gone; do
+                rm -rf -- "$gone" && printf "%s: removed %s, older than %s days\n" "$0" "$gone" "$days"
+            done' "$script" "$keep_days" {} +
 fi

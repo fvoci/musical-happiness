@@ -3,6 +3,11 @@
 # to use them): the options they share, compose on the installation they name, and the
 # helpers they share. Nothing here prints a secret.
 
+# Bytes, whatever the locale: sed and awk leave a line that is not of its encoding
+# unchanged, which would print it whole.
+LC_ALL=C
+export LC_ALL
+
 # The installation: compose's project, its files and its .env, as the options say.
 project=""
 compose_files=""
@@ -163,13 +168,22 @@ compose_said() {
         }'
 }
 
+# compose writes its YAML two spaces a level: a service at two, its settings at four,
+# its environment's variables at six. A value that holds line ends is written deeper
+# (`KEY: |-` and its lines below), and its lines may read like a setting: only a line
+# at its own depth is read.
+
 # Fails, without showing it, if an image the files and .env name is not a name: compose
 # takes a line such as FVOCI_IMAGE=<pasted> ghcr.io/..., which `pull`, `run` and this
-# script's messages would then say.
+# script's messages would then say. Sets fvoci_image to the service fvoci's.
 check_image_names() {
-    names=$(printf '%s\n' "$installation" | sed -n 's/^    image: //p')
-    while IFS= read -r name; do
-        [ -n "$name" ] || continue
+    names=$(printf '%s\n' "$installation" | awk '
+        /^[^ ]/ { top = $1 }
+        /^  [^ ]/ { service = $1; sub(/:$/, "", service) }
+        top == "services:" && index($0, "    image: ") == 1 { print service " " substr($0, 12) }')
+    fvoci_image=""
+    while IFS=' ' read -r service name; do
+        [ -n "$service" ] || continue
         name=${name#[\"\']}
         name=${name%[\"\']}
         case $name in
@@ -177,20 +191,24 @@ check_image_names() {
             fail "an image named by the files or .env (FVOCI_IMAGE, FVOCI_SEARCH_IMAGE...) is not a name of letters, digits and ._/:@- (it is not shown: it may hold what was pasted beside it). Nothing was changed"
             ;;
         esac
+        [ "$service" != fvoci ] || fvoci_image=$name
     done <<END
 $names
 END
-    unset names name
+    unset names service name
 }
 
-# A setting of the service fvoci as compose reads its files and .env: "image", or a
-# variable of its environment. Empty when it has none.
+# A variable of the service fvoci's environment as compose reads its files and .env,
+# its quotes taken off. Empty when it has none.
 fvoci_setting() {
-    printf '%s\n' "$installation" | awk -v key="$1:" '
+    printf '%s\n' "$installation" | awk -v line="      $1:" '
         /^[^ ]/ { top = $1 }
         /^  [^ ]/ { service = $1 }
-        top == "services:" && service == "fvoci:" && $1 == key {
-            value = $0; sub(/^[^:]*:[ ]*/, "", value); gsub(/["\047]/, "", value)
+        /^    [^ ]/ { setting = $1 }
+        top == "services:" && service == "fvoci:" && setting == "environment:" &&
+        index($0 " ", line " ") == 1 {
+            value = substr($0, length(line) + 1); sub(/^ */, "", value)
+            gsub(/["\047]/, "", value)
             print value; exit
         }'
 }

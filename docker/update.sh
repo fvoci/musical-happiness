@@ -47,7 +47,7 @@ check_shared_options
 # lacks one, and `up` would stop half-way.
 needed=$(printf '%s\n' "$installation" | awk '
     /^[^ ]/ { secrets = ($1 == "secrets:") }
-    secrets && $1 == "environment:" { print $2 }')
+    secrets && index($0, "    environment: ") == 1 { print $2 }')
 # The variables compose sees (.env and the shell's), names only: the values are
 # printed nowhere.
 defined=$(compose config --environment) ||
@@ -71,7 +71,9 @@ for service in $runs; do
     printf '%s\n' "$seen" | grep -qx -- "$service" ||
         fail "$service runs, but compose does not see it here: its profile is off (give --profile, or COMPOSE_PROFILES in the .env), or the new files no longer have it (docker compose rm --stop it first). Nothing was changed"
 done
-image=$(fvoci_setting image)
+# The name check_image_names took for fvoci's.
+image=$fvoci_image
+[ -n "$image" ] || fail "compose names no image for fvoci. Nothing was changed"
 old_container=$(compose ps --quiet fvoci)
 old_image=$(docker inspect --format '{{.Image}}' "$old_container")
 schema_before=$(schema_version)
