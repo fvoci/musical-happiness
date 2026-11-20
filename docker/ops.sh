@@ -67,6 +67,10 @@ check_shared_options() {
     # environment or the .env, else the files' name.
     if [ -z "$project" ]; then
         project=$(printf '%s\n' "$installation" | sed -n 's/^name: //p' | head -n 1)
+        # YAML quotes a name that would read as something else ("123", 'yes').
+        case $project in
+        \"*\" | \'*\') project=${project#?}; project=${project%?} ;;
+        esac
         case $project in
         '' | *[!a-z0-9_-]*) fail "compose names no project this script can use" ;;
         esac
@@ -108,10 +112,16 @@ checked_config() {
     complaint=$(compose config "$@" 2>&1 >/dev/null) || refused=yes
     if [ "$refused" = yes ] || [ -n "$complaint" ]; then
         printf '%s\n' "$complaint" | compose_said >&2
+        case $complaint in
+        *"variable is not set"*)
+            say "a \$ in a value of the .env starts a variable, which compose replaces (with nothing when it is not set): the services get the value without it. To keep what they get, take the \$ and the name after it out of the value; to give them the \$, write \$\$ or put the value in single quotes (a secret key or a password changed so no longer opens what it sealed)" >&2
+            ;;
+        esac
         unset complaint
+        said_as_is="COMPOSE_FILE=$COMPOSE_FILE docker compose --env-file $env_file config -q shows all of it as compose writes it, values and all"
         [ "$refused" = no ] ||
-            fail "compose refuses its files or .env (above, without what it quotes of them). Nothing was changed"
-        fail "compose warns of its files or .env (above, without what it quotes of them). A \$ in a value of the .env starts a variable: write \$\$ for one, or put the value in single quotes. Nothing was changed"
+            fail "compose refuses its files or .env (above, without what it quotes of them; $said_as_is). Nothing was changed"
+        fail "compose warns of its files or .env (above, without what it quotes of them; $said_as_is). Nothing was changed"
     fi
     # The same files and .env, which compose has just read without a word.
     compose config "$@" 2>/dev/null ||
@@ -145,7 +155,7 @@ compose_said() {
         }
         { hidden++ }
         END {
-            if (hidden) print "compose: " hidden " line(s) hidden: they may quote a value of the .env (docker compose config -q shows them as compose writes them)"
+            if (hidden) print "compose: " hidden " line(s) hidden: they may quote a value of the .env"
         }'
 }
 

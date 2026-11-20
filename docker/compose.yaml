@@ -90,11 +90,15 @@
 # unless named), the .env (--env-file; the one beside the first file) and the profiles
 # (--profile, repeated; or COMPOSE_PROFILES in the .env, which plain compose commands
 # read too). They stop, changing nothing, when compose refuses the files and .env or
-# warns of them (a `$` in a value is a variable to compose: `$$` is one `$`, or quote
-# the value in single quotes), and show what it said without what it quotes, which may
-# be a secret pasted wrong: a line number and its words for what they know, a count
-# for the rest (`docker compose config -q` shows them). update.sh refuses a running
-# service that compose does not see (its profile off, or gone from the new files); with
+# warns of them. The commonest warning is a `$` in a value, a variable to compose,
+# which gives the services the value without it: take it out to keep what they get,
+# or write `$$` or single quotes to give them the `$` (a secret key or a password
+# changed so no longer opens what it sealed). What compose said is shown without what
+# it quotes, which may be a secret pasted wrong: a line number and its words for what
+# they know, a count for the rest (`docker compose config -q` shows them). The
+# project's name and the images' (FVOCI_IMAGE, FVOCI_SEARCH_IMAGE) are names, shown as
+# they are: never put a secret on their lines. update.sh refuses a running service
+# that compose does not see (its profile off, or gone from the new files); with
 # cloudflared they warn when the range of edge, which `down` may change, is not trusted.
 #   docker/backup.sh [--dir ~/fvoci-backups] [--keep-days 14]
 #     while fvoci runs or not: the database (pg_dump -Fc), the files of the volume (not

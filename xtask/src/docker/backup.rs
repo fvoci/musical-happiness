@@ -12,8 +12,8 @@ use std::process::Command;
 use anyhow::{Context as _, Result, bail, ensure};
 use serde_json::json;
 
-use super::Trial;
 use super::scenario::{self, Client};
+use super::{Trial, fvoci_started, no_secret_in, script_output, secrets_file};
 use crate::steps::say;
 
 /// What the tables hold, table by table, as PostgreSQL's superuser counts; but the
@@ -58,6 +58,7 @@ pub(super) fn round_trip(trial: &Trial, directory: &Path) -> Result<()> {
     check_private(&backups, &backup, trial)?;
     say(&format!("    {}", last_said(&made, "backup")));
     backs_up_no_files_from_s3(trial, directory)?;
+    names_a_quoted_project(trial, directory)?;
     reads_the_key_as_compose_does(trial, directory)?;
     refuses_a_full_installation(trial, directory, &backup, &rows)?;
 
@@ -113,7 +114,7 @@ fn refuses_a_full_installation(
     rows: &str,
 ) -> Result<()> {
     let backup = backup.to_string_lossy();
-    let other_env = directory.join("another-key.env");
+    let other_env = secrets_file(directory, "another-key.env")?;
     let refusals = [
         ("FVOCI_SECRET_KEY is not the backup's", Before::AnotherKey),
         ("fvoci has a container", Before::Nothing),
@@ -181,9 +182,10 @@ struct KeyCase {
 /// written through a variable is the same key; a `$` that compose reads as a variable
 /// makes another key, though the backup's text is the value of the `.env` given; and
 /// the environment's key, which compose gives fvoci over the `.env`'s, is compared with
-/// the backup's own. Each backup is a folder of empty files and an `env`: the key is
-/// compared before they are read, and the same key is refused next for fvoci's
-/// container.
+/// the backup's own; a backup's `.env` that compose refuses is refused without a word of
+/// it. Each backup is a folder of empty files and an `env`: the key is compared before
+/// they are read, and the same key is refused next for fvoci's container. No case may
+/// pass by not finding the key.
 fn reads_the_key_as_compose_does(trial: &Trial, directory: &Path) -> Result<()> {
     let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
     let key = text
@@ -191,6 +193,7 @@ fn reads_the_key_as_compose_does(trial: &Trial, directory: &Path) -> Result<()> 
         .find_map(|line| line.strip_prefix("FVOCI_SECRET_KEY="))
         .context("the trial's .env has no FVOCI_SECRET_KEY")?;
     let other = super::base64(&super::random::<32>()?);
+    let pasted = format!("S{}", super::hex(&super::random::<8>()?));
     let with = |lines: &str| -> String {
         text.lines()
             .filter(|line| !line.starts_with("FVOCI_SECRET_KEY="))
@@ -224,8 +227,15 @@ fn reads_the_key_as_compose_does(trial: &Trial, directory: &Path) -> Result<()> 
             shell: Some(other.clone()),
             refusal: another,
         },
+        KeyCase {
+            what: "a key's line pasted wrong in the backup's .env",
+            backup: format!("FVOCI_SECRET_KEY={key}\nMIIEvQ+{pasted}="),
+            given: None,
+            shell: None,
+            refusal: "compose cannot read",
+        },
     ];
-    let given_env = directory.join("key-given.env");
+    let given_env = secrets_file(directory, "key-given.env")?;
     for (at, case) in cases.iter().enumerate() {
         let backup = folder(directory).join(format!("key-{at}"));
         std::fs::create_dir_all(&backup).context("making a backup's folder")?;
@@ -249,17 +259,22 @@ fn reads_the_key_as_compose_does(trial: &Trial, directory: &Path) -> Result<()> 
         let (succeeded, said) = outcome?;
         no_secret_in(trial, "restore.sh", &said)?;
         ensure!(
-            !said.contains(&other),
-            "restore.sh wrote the environment's key"
+            !said.contains(&other) && !said.contains(&pasted),
+            "restore.sh wrote the environment's key or a word pasted in the backup's .env"
         );
         ensure!(
-            !succeeded && said.contains(case.refusal) && said.contains("Nothing was changed"),
+            !succeeded
+                && said.contains(case.refusal)
+                && said.contains("Nothing was changed")
+                && !said.contains("does not say FVOCI_SECRET_KEY"),
             "restore.sh with {} did not refuse saying \"{}\": {said}",
             case.what,
             case.refusal
         );
     }
-    say("    restore.sh reads a backup's key as compose does (a variable, a $, the environment's)");
+    say(
+        "    restore.sh reads a backup's key as compose does (a variable, a $, the environment's, a line pasted wrong)",
+    );
     Ok(())
 }
 
@@ -440,26 +455,6 @@ fn run_script(trial: &Trial, name: &str, arguments: &[&str]) -> Result<String> {
     Ok(said)
 }
 
-/// What a script wrote, both streams, and whether it succeeded.
-pub(super) fn script_output(mut command: Command, name: &str) -> Result<(bool, String)> {
-    let output = command
-        .output()
-        .with_context(|| format!("starting {name}"))?;
-    let said = String::from_utf8_lossy(&output.stdout) + String::from_utf8_lossy(&output.stderr);
-    Ok((output.status.success(), said.into_owned()))
-}
-
-pub(super) fn no_secret_in(trial: &Trial, what: &str, text: &str) -> Result<()> {
-    if trial
-        .secrets
-        .iter()
-        .any(|secret| text.contains(secret.as_str()))
-    {
-        bail!("{what} wrote one of the trial's secrets");
-    }
-    Ok(())
-}
-
 /// The last line a script wrote itself (`backup: ...`), not compose's.
 fn last_said<'text>(text: &'text str, script: &str) -> &'text str {
     text.lines()
@@ -517,7 +512,7 @@ fn check_private(backups: &Path, backup: &Path, trial: &Trial) -> Result<()> {
 /// `backup.sh` with an `.env` that keeps the files in S3 dumps the database alone, and
 /// says the bucket is the operator's.
 fn backs_up_no_files_from_s3(trial: &Trial, directory: &Path) -> Result<()> {
-    let env = directory.join("s3.env");
+    let env = secrets_file(directory, "s3.env")?;
     let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
     super::write_private(&env, &format!("{text}\nFVOCI_FILE_STORAGE=s3\n"))?;
     let backups = folder(directory).join("s3");
@@ -545,11 +540,38 @@ fn backs_up_no_files_from_s3(trial: &Trial, directory: &Path) -> Result<()> {
     Ok(())
 }
 
+/// `backup.sh` without `-p` takes the project compose names, also one that compose's
+/// YAML quotes (`0123`): of a project that does not run, it says PostgreSQL does not.
+fn names_a_quoted_project(trial: &Trial, directory: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
+    let env = secrets_file(directory, "quoted-name.env")?;
+    super::write_private(&env, &format!("{text}\nCOMPOSE_PROJECT_NAME=0123\n"))?;
+    let mut command = Command::new(trial.root.join("docker/backup.sh"));
+    command
+        .arg("--env-file")
+        .arg(&env)
+        .arg("--file")
+        .arg(trial.root.join("docker/compose.yaml"))
+        .arg("--dir")
+        .arg(folder(directory).join("quoted-name"));
+    trial.scrub(&mut command);
+    let outcome = script_output(command, "backup.sh");
+    let _ = std::fs::remove_file(&env);
+    let (succeeded, said) = outcome?;
+    no_secret_in(trial, "backup.sh", &said)?;
+    ensure!(
+        !succeeded && said.contains("PostgreSQL of the project 0123 does not run"),
+        "backup.sh without -p did not take the project 0123 that compose names: {said}"
+    );
+    say("    without -p, backup.sh takes the project compose names, one its YAML quotes too");
+    Ok(())
+}
+
 /// `update.sh` with an `.env` that lacks a secret's line names it and stops before
 /// anything changes: fvoci is the same container, started when it was.
 fn refuses_a_lacking_env(trial: &Trial, directory: &Path) -> Result<()> {
     let before = fvoci_started(trial)?;
-    let env = directory.join("lacking.env");
+    let env = secrets_file(directory, "lacking.env")?;
     let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
     let line = format!("{LACKING}=");
     let lines: Vec<&str> = text
@@ -681,31 +703,6 @@ fn remove_mailpit(trial: &Trial) -> Result<()> {
         left.error
     );
     Ok(())
-}
-
-/// fvoci's container and when it started.
-pub(super) fn fvoci_started(trial: &Trial) -> Result<String> {
-    let container = trial.compose(&["ps", "--quiet", "fvoci"])?;
-    ensure!(
-        container.succeeded && !container.output.is_empty(),
-        "fvoci has no container: {}",
-        container.error
-    );
-    let started = crate::steps::capture(
-        "docker",
-        &[
-            "inspect",
-            "--format",
-            "{{.Id}} {{.State.StartedAt}}",
-            &container.output,
-        ],
-    )?;
-    ensure!(
-        started.succeeded,
-        "docker inspect failed: {}",
-        started.error
-    );
-    Ok(started.output)
 }
 
 /// The rows of every table, by table.

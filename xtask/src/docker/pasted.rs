@@ -8,95 +8,94 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, ensure};
 
-use super::Trial;
-use super::backup::{fvoci_started, no_secret_in, script_output};
+use super::{Trial, fvoci_started, no_secret_in, script_output, secrets_file};
 use crate::steps::say;
 
-/// One line pasted wrong: what it is, the line with `{0}`, `{1}`, `{2}` standing for
-/// words of a secret, and what the scripts show of compose's complaint.
+/// One line pasted wrong: what it is, the line made of three words of a secret, and
+/// what the scripts show of compose's complaint.
 struct Pasted {
     what: &'static str,
-    line: &'static str,
+    line: fn(&[String; 3]) -> String,
     shown: &'static str,
 }
 
-/// The lines, each after the trial's `.env`. compose quotes each one's words but the
+/// The lines, each after the trial's `.env`. compose quotes the words of each but the
 /// space's (it names the line), and the port's and the address's (lines it does not
 /// know are counted, not shown).
-const TABLE: [Pasted; 15] = [
+const TABLE: &[Pasted] = &[
     Pasted {
         what: "a key's line",
-        line: "MIIEvQ+{0}=",
+        line: |w| format!("MIIEvQ+{}=", w[0]),
         shown: ": unexpected character <hidden> in variable name <hidden>",
     },
     Pasted {
         what: "a key's line in quotes",
-        line: "\"{0}\"=x",
+        line: |w| format!("\"{}\"=x", w[0]),
         shown: ": unexpected character <hidden> in variable name <hidden>",
     },
     Pasted {
         what: "a second quoted value",
-        line: "FVOCI_PASTED=\"x\" \"{0}\"",
+        line: |w| format!("FVOCI_PASTED=\"x\" \"{}\"", w[0]),
         shown: ": unexpected character <hidden> in variable name <hidden>",
     },
     Pasted {
         what: "a space in a key's line",
-        line: "{0} {1}=x",
+        line: |w| format!("{} {}=x", w[0], w[1]),
         shown: ": key cannot contain a space",
     },
     Pasted {
         what: "a double quote never closed",
-        line: "FVOCI_PASTED=\"{0}",
+        line: |w| format!("FVOCI_PASTED=\"{}", w[0]),
         shown: ": unterminated quoted value <hidden>",
     },
     Pasted {
         what: "a double quote never closed, a quote escaped inside",
-        line: "FVOCI_PASTED=\"{0}\\\"{1}",
+        line: |w| format!("FVOCI_PASTED=\"{}\\\"{}", w[0], w[1]),
         shown: ": unterminated quoted value <hidden>",
     },
     Pasted {
         what: "a single quote never closed, a quote escaped inside",
-        line: "FVOCI_PASTED='{0}\\'{1}",
+        line: |w| format!("FVOCI_PASTED='{}\\'{}", w[0], w[1]),
         shown: ": unterminated quoted value <hidden>",
     },
     Pasted {
         what: "single quotes inside a double quote never closed",
-        line: "FVOCI_PASTED=\"{0}'{1}'{2}",
+        line: |w| format!("FVOCI_PASTED=\"{}'{}'{}", w[0], w[1], w[2]),
         shown: ": unterminated quoted value <hidden>",
     },
     Pasted {
         what: "double quotes inside a single quote never closed",
-        line: "FVOCI_PASTED='{0}\"{1}\"{2}",
+        line: |w| format!("FVOCI_PASTED='{}\"{}\"{}", w[0], w[1], w[2]),
         shown: ": unterminated quoted value <hidden>",
     },
     Pasted {
         what: "a ${ never closed",
-        line: "FVOCI_PASTED={0}${{1}",
+        line: |w| format!("FVOCI_PASTED={}${{{}", w[0], w[1]),
         shown: "compose: Invalid template: <hidden>",
     },
     Pasted {
         what: "a ${:?} whose variable and message are pasted",
-        line: "FVOCI_PASTED=${{0}:?{1} {2}}",
+        line: |w| format!("FVOCI_PASTED=${{{}:?{} {}}}", w[0], w[1], w[2]),
         shown: "compose: required variable <hidden> is missing a value",
     },
     Pasted {
         what: "a $ read as a variable",
-        line: "FVOCI_PASTED={0}${1}",
+        line: |w| format!("FVOCI_PASTED={}${}", w[0], w[1]),
         shown: "compose: warning: The <hidden> variable is not set.",
     },
     Pasted {
         what: "a ${} read as a variable in double quotes",
-        line: "FVOCI_PASTED=\"{0}${{1}}{2}\"",
+        line: |w| format!("FVOCI_PASTED=\"{}${{{}}}{}\"", w[0], w[1], w[2]),
         shown: "compose: warning: The <hidden> variable is not set.",
     },
     Pasted {
         what: "a port pasted",
-        line: "FVOCI_HOST_PORT={0}",
+        line: |w| format!("FVOCI_HOST_PORT={}", w[0]),
         shown: "compose: 1 line(s) hidden: they may quote a value of the .env",
     },
     Pasted {
         what: "an address pasted",
-        line: "FVOCI_BIND={0}",
+        line: |w| format!("FVOCI_BIND={}", w[0]),
         shown: "compose: 1 line(s) hidden: they may quote a value of the .env",
     },
 ];
@@ -111,7 +110,7 @@ const TABLE: [Pasted; 15] = [
 pub(super) fn refused_hidden(trial: &Trial, directory: &Path) -> Result<()> {
     let before = fvoci_started(trial)?;
     let text = std::fs::read_to_string(&trial.env_file).context("reading the trial's .env")?;
-    let env = directory.join("pasted-wrong.env");
+    let env = secrets_file(directory, "pasted-wrong.env")?;
     let backups = super::backup::folder(directory).join("pasted-wrong");
     let outcome = TABLE
         .iter()
@@ -137,12 +136,7 @@ pub(super) fn refused_hidden(trial: &Trial, directory: &Path) -> Result<()> {
 /// Runs the three scripts with the trial's `.env` and `pasted`'s line after it.
 fn try_line(trial: &Trial, text: &str, env: &Path, backups: &Path, pasted: &Pasted) -> Result<()> {
     let words = [word()?, word()?, word()?];
-    let line = words
-        .iter()
-        .enumerate()
-        .fold(pasted.line.to_owned(), |line, (at, word)| {
-            line.replace(&format!("{{{at}}}"), word)
-        });
+    let line = (pasted.line)(&words);
     super::write_private(env, &format!("{text}\n{line}\n"))?;
     let env_text = env.to_string_lossy();
     let backups_text = backups.to_string_lossy();

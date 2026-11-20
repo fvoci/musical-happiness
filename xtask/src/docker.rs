@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result, bail, ensure};
 
 use crate::steps::{self, Captured, capture, say};
 
@@ -420,6 +420,60 @@ fn take_down(trial: &Trial) -> Result<()> {
         }
     }
     fake_left
+}
+
+/// What a script wrote, both streams, and whether it succeeded.
+fn script_output(mut command: Command, name: &str) -> Result<(bool, String)> {
+    let output = command
+        .output()
+        .with_context(|| format!("starting {name}"))?;
+    let said = String::from_utf8_lossy(&output.stdout) + String::from_utf8_lossy(&output.stderr);
+    Ok((output.status.success(), said.into_owned()))
+}
+
+/// Fails if `text` holds one of the trial's secrets, saying what wrote it.
+fn no_secret_in(trial: &Trial, what: &str, text: &str) -> Result<()> {
+    if trial
+        .secrets
+        .iter()
+        .any(|secret| text.contains(secret.as_str()))
+    {
+        bail!("{what} wrote one of the trial's secrets");
+    }
+    Ok(())
+}
+
+/// fvoci's container and when it started.
+fn fvoci_started(trial: &Trial) -> Result<String> {
+    let container = trial.compose(&["ps", "--quiet", "fvoci"])?;
+    ensure!(
+        container.succeeded && !container.output.is_empty(),
+        "fvoci has no container: {}",
+        container.error
+    );
+    let started = capture(
+        "docker",
+        &[
+            "inspect",
+            "--format",
+            "{{.Id}} {{.State.StartedAt}}",
+            &container.output,
+        ],
+    )?;
+    ensure!(
+        started.succeeded,
+        "docker inspect failed: {}",
+        started.error
+    );
+    Ok(started.output)
+}
+
+/// A path for a file that holds the trial's secrets, in the folder of its backups,
+/// which the take-down removes however the trial ended.
+fn secrets_file(directory: &Path, name: &str) -> Result<PathBuf> {
+    let folder = backup::folder(directory);
+    fs::create_dir_all(&folder).with_context(|| format!("creating {}", folder.display()))?;
+    Ok(folder.join(name))
 }
 
 /// A port of the loopback interface that nothing listens on now.

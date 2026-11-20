@@ -94,7 +94,8 @@ docker tag "$old_image" "$kept_tag"
 
 # The dump holds what was written before it began.
 backed_up=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-backup_said=$("$here/backup.sh" --env-file "$env_file" --dir "$backup_dir" --keep-days "$keep_days") ||
+backup_said=$("$here/backup.sh" -p "$project" --env-file "$env_file" --dir "$backup_dir" \
+    --keep-days "$keep_days") ||
     fail "the backup failed: fvoci still runs, nothing was changed"
 printf '%s\n' "$backup_said"
 backup=$(printf '%s\n' "$backup_said" | sed -n 's/^backup: made \(.*\) ([0-9]* KiB: .*/\1/p')

@@ -456,10 +456,14 @@ impl<'a> Fake<'a> {
             ],
         )?;
         ensure!(
-            mounts.succeeded && !mounts.output.contains("volume"),
-            "the fake provider has a volume, which its removal would leave: {} {}",
-            mounts.output,
+            mounts.succeeded,
+            "the fake provider's mounts could not be read: {}",
             mounts.error
+        );
+        ensure!(
+            !mounts.output.contains("volume"),
+            "the fake provider has a volume, which its removal would leave: {}",
+            mounts.output
         );
         let since = Instant::now();
         loop {

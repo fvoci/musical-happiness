@@ -57,7 +57,7 @@ if [ -f "$backup/env" ]; then
     backup_key=$(
         unset FVOCI_SECRET_KEY
         docker compose --env-file "$backup/env" config --environment 2>/dev/null
-    ) || fail "compose cannot read $backup/env (docker compose --env-file $backup/env config -q says why, quoting it). Nothing was changed"
+    ) || fail "compose cannot read $backup/env (COMPOSE_FILE=$COMPOSE_FILE docker compose --env-file $backup/env config -q says why, quoting it). Nothing was changed"
     backup_key=$(printf '%s\n' "$backup_key" | listed_key) || backup_key=""
 fi
 if [ -n "$backup_key" ]; then
