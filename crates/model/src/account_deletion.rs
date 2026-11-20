@@ -5,6 +5,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::org_kind::OrgKind;
 use crate::refusal::{RefusalReason, Refusals};
 
 /// How long an account waits between the asking and the erasing, in days: until then
@@ -77,14 +78,17 @@ pub struct OrganizationName {
 }
 
 /// An organization that goes with the account of its only member, and how much is in
-/// it. The numbers are left out for an organization the session that asks does not
+/// it: the account's own space, and an organization of people that has nobody else. The
+/// numbers are left out for an organization the session that asks does not
 /// open (one that takes only sessions made through its provider).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LeavingOrganization {
     /// The organization's identifier.
     pub id: String,
-    /// Its name; empty if it was given none.
+    /// What it is: `personal` for the account's own space, which always goes with it.
+    pub kind: OrgKind,
+    /// Its name; empty if it was given none, as the account's own space always is.
     pub name: String,
     /// How many boards it has in use, templates not counted.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -101,11 +105,12 @@ pub struct LeavingOrganization {
 }
 
 impl LeavingOrganization {
-    /// The organization named, with nothing told of what is in it.
+    /// The organization named, of the `kind`, with nothing told of what is in it.
     #[must_use]
-    pub fn closed(organization: OrganizationName) -> Self {
+    pub fn closed(organization: OrganizationName, kind: OrgKind) -> Self {
         Self {
             id: organization.id,
+            kind,
             name: organization.name,
             boards: None,
             wikis: None,
@@ -142,7 +147,9 @@ pub struct AccountDeletion {
     /// administrator of each before the account can be deleted.
     pub sole_admin_of: Vec<OrganizationName>,
     /// The organizations that have nobody but the account, which go with it, and
-    /// everything in them. The server's own first organization is never one.
+    /// everything in them: the account's own space (`kind` `personal`) always, and
+    /// every other organization it is alone in. The server's own first organization
+    /// is never one.
     pub organizations: Vec<LeavingOrganization>,
 }
 

@@ -166,6 +166,31 @@ Every list comes in an order, and the description of each operation says which. 
 says nothing else, the order is that of creation, oldest first, and by identifier among \
 what was created in the same millisecond.
 
+## The user's own space
+
+Every account has a space of its own from the moment it is made, however it was made: \
+an organization of the `kind` `personal` with the account as its only member and one \
+workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace \
+like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, \
+the trash, export and import, and sharing by a public link (`setSharing`) work in it as \
+anywhere. It has no name (a client calls it by the reader's language) and takes none.
+
+What it has not is other people, and anybody to administer it. Its identifier is 404 \
+for every operation under `/org/{orgId}` (the organization and its settings, its \
+members, its workspaces, joining one as an administrator, its audit log, its provider \
+of sign-ins), for its owner as for anybody else, and no answer of those operations \
+names it. Under its workspace these are 404, as for a workspace that is not there: \
+`createInvitation`, `getInvitations`, `revokeInvitation`, `sendInvitationMail`, \
+`setGuestInvitations`, the operations on teams (`/w/{workspaceId}/teams` and what is \
+under it) and on the teams of a board or a wiki \
+(`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page \
+(`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is \
+moved to or from another organization but by export and import, and no reference \
+reaches into it from outside or out of it.
+
+It goes with its account: `getAccountDeletion` names it among `organizations` always, \
+and while the account waits to be deleted it is closed with the account.
+
 ## Bodies edited together
 
 While people edit a card's body together the server holds it as a Y document. What it \
@@ -323,6 +348,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("WorkspaceMember", Members::All),
     ("WorkspaceRole", Members::AsWritten),
     ("OrgRole", Members::AsWritten),
+    ("OrgKind", Members::AsWritten),
     ("Page", Members::All),
     ("PageNode", Members::All),
     ("LinkedBlock", Members::All),

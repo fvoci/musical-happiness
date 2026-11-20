@@ -283,10 +283,14 @@ fn malformed_path() -> AppError {
 ///
 /// The workspaces the user of the session is a member of, in every organization, with
 /// what the user is in each. By organization, the oldest first, and in each the oldest
-/// workspace first. A workspace of an organization that takes only sessions made
+/// workspace first; the one workspace of the user's own space (`kind` `personal`, see
+/// "The user's own space") comes last, whenever it was made, and a client puts it where
+/// it shows it. Every account has one, so the list is never empty. A workspace of an
+/// organization that takes only sessions made
 /// through its provider is listed for any session, with `ssoRequired` true for one that
 /// was not made so: what is under it answers 401 with the reason `sso_required` until
-/// the user signs in through the provider of `orgId`.
+/// the user signs in through the provider of `orgId`. The user's own space takes any
+/// session of the account: its `ssoRequired` is false.
 #[utoipa::path(
     get,
     path = "/users/me/workspaces",

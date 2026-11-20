@@ -4,7 +4,7 @@ use std::net::IpAddr;
 
 use fvoci_model::{
     ACCOUNT_DELETION_GRACE_DAYS, AccountDeletion, AccountDeletionAsked, DeleteAccountRequest,
-    DeletionProof, Leaving, LeavingOrganization, Session, User,
+    DeletionProof, Leaving, LeavingOrganization, OrgKind, Session, User,
 };
 use fvoci_store::{DeletionAsking, DeletionStanding};
 
@@ -46,7 +46,7 @@ impl App {
             };
             organizations.push(match within {
                 Some(within) => within.store().leaving_organization(organization).await?,
-                None => LeavingOrganization::closed(organization),
+                None => LeavingOrganization::closed(organization, OrgKind::Team),
             });
         }
         Ok(AccountDeletion {

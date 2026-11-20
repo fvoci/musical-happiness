@@ -292,3 +292,11 @@ crates/server/src/api/users.rs | a guest is in no team
 # The signing string of OCI's published example request, which the signature test
 # verifies byte for byte: its instances are named so in Oracle's documentation.
 crates/server/src/app/mail/provider/http_signature.rs | displayName=TeamXInstances
+
+# The kind of an organization that people work in together, `team`, beside the space of
+# one account (`personal`): the plan of 2026-11-19 names the two, and the contract and
+# the schema carry them.
+crates/model/src/org_kind.rs
+** | OrgKind::Team
+** | "kind": "team"
+crates/model/src/organization.rs | `team` for every other

@@ -51,6 +51,7 @@ impl PartialSchema for PerPageCount {
 
 parameter!(WorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.");
 parameter!(WorkerWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.");
+parameter!(PeopleWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group.");
 parameter!(MemberWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.");
 parameter!(BoardId: Path "boardId", String, True, "The identifier of the board.");
 parameter!(ContainerId: Path "containerId", String, True, "The identifier of the board or the wiki.");
@@ -69,7 +70,7 @@ parameter!(FileId: Path "fileId", String, True, "The identifier of the file, as 
 parameter!(SubscriberId: Path "subscriberId", String, True, "The identifier of the subscriber: the user of the session.");
 parameter!(UploadId: Path "uploadId", String, True, "The identifier of the upload, as opening it answered. Only the user who opened it may use it.");
 parameter!(PartNumber: Path "partNumber", i64, True, "The number of the part, from 1 to the `partCount` of the upload.");
-parameter!(OrgId: Path "orgId", String, True, "The identifier of the organization. 404 unless the user of the session administers it.");
+parameter!(OrgId: Path "orgId", String, True, "The identifier of the organization. 404 unless the user of the session administers it; and 404 for the user's own space, which nobody administers.");
 parameter!(OrgWorkspaceId: Path "workspaceId", String, True, "The identifier of a workspace of the organization. 404 for one of no other organization.");
 
 // -- in the headers --------------------------------------------------------------------
@@ -79,8 +80,8 @@ parameter!(ContentDigest: Header "Content-Digest", String, True, "The SHA-256 di
 
 // -- in the query ----------------------------------------------------------------------
 
-parameter!(LoginOrg: Query "org", String, False, "The identifier of the organization the login page is for.");
-parameter!(StartOrg: Query "org", String, True, "The identifier of the organization whose provider the person signs in through.");
+parameter!(LoginOrg: Query "org", String, False, "The identifier of the organization the login page is for. A user's own space has no login page: its identifier is that of no organization here.");
+parameter!(StartOrg: Query "org", String, True, "The identifier of the organization whose provider the person signs in through. A user's own space has no provider.");
 parameter!(CallbackOrg: Path "orgId", String, True, "The organization the sign-in was started for: each has an address of its own to come back to (its provider's `redirectUri`).");
 parameter!(OidcIssuer: Query "iss", String, False, "The issuer that answered (RFC 9207), if the provider says: it must be the provider's.");
 parameter!(OidcState: Query "state", String, False, "The `state` the sign-in was started with, as the provider sends it back.");

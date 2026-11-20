@@ -21,7 +21,7 @@
 //! Nothing here writes a row of an organization.
 
 use fvoci_model::{
-    ContainerKind, Leaving, LeavingOrganization, OrgRole, OrganizationName, Session,
+    ContainerKind, Leaving, LeavingOrganization, OrgKind, OrgRole, OrganizationName, Session,
 };
 
 use crate::db::{Id, Scope, Sql};
@@ -123,6 +123,7 @@ impl Store {
             };
             Ok(LeavingOrganization {
                 id: organization.id,
+                kind: OrgKind::Team,
                 name: organization.name,
                 boards: Some(boards),
                 wikis: Some(wikis),

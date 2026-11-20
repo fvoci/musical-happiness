@@ -15,8 +15,8 @@
 use std::collections::BTreeSet;
 
 use fvoci_model::{
-    ContainerKind, ContainerKinds, ContainerMember, ContainerType, OrgRole, User, UserWorkspace,
-    Workspace, WorkspaceRole, new_id,
+    ContainerKind, ContainerKinds, ContainerMember, ContainerType, OrgKind, OrgRole, User,
+    UserWorkspace, Workspace, WorkspaceRole, new_id,
 };
 use subtle::ConstantTimeEq as _;
 
@@ -441,6 +441,7 @@ impl Store {
                         Ok(UserWorkspace {
                             id: row.id(0)?,
                             org_id: row.id(1)?,
+                            kind: OrgKind::Team,
                             name: row.text(2)?,
                             role: role(row, 3)?,
                             sso_required: !required.is_empty()

@@ -19,7 +19,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::auth::address_of;
-use super::contract::params::{AcceptLanguage, InvitationId, WorkerWorkspaceId};
+use super::contract::params::{AcceptLanguage, InvitationId, PeopleWorkspaceId};
 use super::contract::tag;
 use super::session::optional_session_of;
 use super::signup_cookie::{marker_of, with_marker};
@@ -78,7 +78,7 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
     path = "/w/{workspaceId}/invitations",
     operation_id = "createInvitation",
     tag = tag::WORKSPACES,
-    params(WorkerWorkspaceId),
+    params(PeopleWorkspaceId),
     request_body = NewInvitation,
     responses((status = 201, description = "The invitation, with its token.", body = Invitation)),
 )]
@@ -180,7 +180,7 @@ async fn guest_of<'r>(
     path = "/w/{workspaceId}/invitations",
     operation_id = "getInvitations",
     tag = tag::WORKSPACES,
-    params(WorkerWorkspaceId),
+    params(PeopleWorkspaceId),
     responses((status = 200, description = "The invitations.", body = Vec<Invitation>)),
 )]
 async fn handle_get_invitations(ws: InWorkspace) -> ApiResult {
@@ -213,7 +213,7 @@ struct InvitationPlace {
     path = "/w/{workspaceId}/invitations/{invitationId}",
     operation_id = "revokeInvitation",
     tag = tag::WORKSPACES,
-    params(WorkerWorkspaceId, InvitationId),
+    params(PeopleWorkspaceId, InvitationId),
     responses((status = 204, description = "The invitation is revoked.")),
 )]
 async fn handle_revoke_invitation(
@@ -246,7 +246,7 @@ async fn handle_revoke_invitation(
     path = "/w/{workspaceId}/guest-invitations",
     operation_id = "setGuestInvitations",
     tag = tag::WORKSPACES,
-    params(WorkerWorkspaceId),
+    params(PeopleWorkspaceId),
     request_body = GuestInvitationsChange,
     responses((status = 200, description = "The workspace.", body = Workspace)),
 )]

@@ -32,6 +32,7 @@ mod linked;
 mod name;
 mod oidc;
 mod org_admin;
+mod org_kind;
 mod organization;
 mod page;
 mod page_tree;
@@ -118,6 +119,7 @@ pub use org_admin::{
     OrgRoleChange, OrgWorkspace, Organization, OrganizationPatch, UnknownAuditAction,
     WorkspaceName,
 };
+pub use org_kind::{OrgKind, UnknownOrgKind};
 pub use organization::{
     OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
 };
