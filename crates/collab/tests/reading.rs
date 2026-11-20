@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use fvoci_collab::testing::{placing_steps, reading};
 use fvoci_collab::{
     PLACING_STEPS, READING_STEPS, TakeError, UpdateError, UpdateLimits, from_body, from_state,
-    new_doc, reading_steps, state_of, take_update,
+    new_doc, reading_steps, state_of, steps_ahead, take_update,
 };
 use fvoci_model::BODY_MAX_NODES;
 use serde_json::json;
@@ -357,6 +357,10 @@ fn the_lists_of_a_state_are_read_here_as_the_library_reads_them() {
             continue;
         }
         whole += 1;
+        // What one more client may leave it with is no less than it takes now.
+        let steps = reading(&state).expect("a whole state").0;
+        let ahead = steps_ahead(&state).expect("a whole state");
+        assert!(steps <= ahead, "seed {seed}: {steps} steps, {ahead} ahead");
         let library = of_library(&doc);
         let read = of_reading(&planned, &state, &library);
         for (parent, children) in &library.children {
@@ -655,6 +659,16 @@ fn what_editors_write_one_session_after_the_other_is_read_in_few_steps() {
 /// its number; and after them the first paragraph of one more session, of the client
 /// `next`.
 fn sessions_then(sessions: u64, each: u64, client_of: impl Fn(u64) -> u64, next: u64) -> Vec<u8> {
+    sessions_written(sessions, each, client_of, Some(next))
+}
+
+/// As [`sessions_then`], with or without the one more session.
+fn sessions_written(
+    sessions: u64,
+    each: u64,
+    client_of: impl Fn(u64) -> u64,
+    next: Option<u64>,
+) -> Vec<u8> {
     let paragraph = || Content::element("paragraph");
     let last_of = |session: u64| (client_of(session), each - 1);
     let mut runs: Vec<Run> = (0..sessions)
@@ -672,11 +686,13 @@ fn sessions_then(sessions: u64, each: u64, client_of: impl Fn(u64) -> u64, next:
             }
         })
         .collect();
-    runs.push(Run {
-        client: next,
-        clock: 0,
-        changes: vec![Change::after(last_of(sessions - 1), paragraph())],
-    });
+    if let Some(next) = next {
+        runs.push(Run {
+            client: next,
+            clock: 0,
+            changes: vec![Change::after(last_of(sessions - 1), paragraph())],
+        });
+    }
     Update {
         runs,
         deleted: Vec::new(),
@@ -720,4 +736,43 @@ fn a_session_read_before_the_thousands_it_wrote_after_takes_a_document_past_its_
         steps * 16 < READING_STEPS,
         "400 sessions of 50: {steps} steps"
     );
+}
+
+/// What one more session may leave a document with is counted before it writes
+/// ([`steps_ahead`]): every change of the document once for each of its clients, as
+/// each may wait behind each. A document of sessions that wrote one after the other
+/// and are read in that order takes no steps, and is that many ahead; the first
+/// paragraph of a session read before the others leaves it with no more than that,
+/// and past the steps a document may take where the update was refused. What holds a
+/// document makes it again from its body at an eighth of those steps ahead as it is
+/// closed: 410 sessions of 100 changes, 916 of 20, 1,449 of 8. One session short of
+/// that, the session read first leaves it far from the limit.
+#[test]
+fn what_one_more_session_may_leave_a_document_with_is_counted_before_it_writes() {
+    let client_of = |session: u64| 1_000_000 - session;
+    let steps = |state: &[u8]| reading_steps(state, u64::MAX).expect("a state");
+    let ahead = |state: &[u8]| steps_ahead(state).expect("a state");
+    for (sessions, each) in [(4_000, 20), (8_000, 8), (2_500, 100)] {
+        let before = sessions_written(sessions, each, client_of, None);
+        assert_eq!(steps(&before), 0, "{sessions} sessions of {each}");
+        let after = steps(&sessions_then(sessions, each, client_of, 2_000_000));
+        let ahead = ahead(&before);
+        assert!(
+            after > READING_STEPS && after <= ahead,
+            "{sessions} sessions of {each}: {after} steps with one read first, {ahead} ahead"
+        );
+    }
+    for (sessions, each) in [(410, 100), (916, 20), (1_449, 8)] {
+        let at_rest = READING_STEPS / 8;
+        let made_again = sessions_written(sessions, each, client_of, None);
+        assert!(ahead(&made_again) >= at_rest, "{sessions} of {each}");
+        let before = sessions_written(sessions - 1, each, client_of, None);
+        let ahead = ahead(&before);
+        let after = steps(&sessions_then(sessions - 1, each, client_of, 2_000_000));
+        assert!(
+            after <= ahead && ahead < at_rest,
+            "{} sessions of {each}: {after} steps with one read first, {ahead} ahead",
+            sessions - 1
+        );
+    }
 }

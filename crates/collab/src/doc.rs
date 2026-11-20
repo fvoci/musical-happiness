@@ -35,6 +35,9 @@ pub struct Changed {
     /// The steps the Y library takes to read it from its state
     /// ([`crate::READING_STEPS`]); 0 where the limits had no count of them.
     pub reading_steps: u64,
+    /// The most steps the library may take to read it once one more client has
+    /// written into it ([`steps_ahead`]); 0 where the limits had no count.
+    pub steps_ahead: u64,
 }
 
 impl Default for BodyDoc {
@@ -125,6 +128,7 @@ impl From<crate::Taken> for Changed {
             state_bytes: taken.state_bytes,
             client_changes: taken.client_changes,
             reading_steps: taken.reading_steps,
+            steps_ahead: taken.steps_ahead,
         }
     }
 }
@@ -152,6 +156,26 @@ pub fn client_changes(state: &[u8]) -> Result<u64, UpdateError> {
 pub fn reading_steps(state: &[u8], stop_past: u64) -> Result<u64, UpdateError> {
     crate::reading::count(state, stop_past)
         .map(|read| read.steps)
+        .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))
+}
+
+/// The most steps the Y library may take to read a document once one more client has
+/// written into it, whatever that client's identifier and wherever it wrote: the steps
+/// its `state` takes to read now ([`reading_steps`]), with every change of it looked
+/// at once for every client it names while changes wait for another client's. A
+/// document that thousands of sessions wrote one after the other is read in few
+/// steps, or in none, until a session whose client is read before the others writes
+/// after the last of them: the update that brings it past [`crate::READING_STEPS`] is
+/// refused, though nothing in it was made to be slow. What holds a document makes it
+/// again from its body while this is far from that limit, so that no such update is.
+/// Counted no further than a little past [`crate::READING_STEPS`].
+///
+/// # Errors
+///
+/// Returns [`UpdateError::Unreadable`] if the bytes are no whole state the crate reads.
+pub fn steps_ahead(state: &[u8]) -> Result<u64, UpdateError> {
+    crate::reading::count(state, crate::READING_STEPS)
+        .map(|read| read.ahead)
         .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))
 }
 

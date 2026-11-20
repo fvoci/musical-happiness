@@ -150,7 +150,7 @@ impl Worker {
         let state_bytes = u64::try_from(changed.state_bytes).unwrap_or(u64::MAX);
         let clients = count(changed.doc.clients());
         let client_changes = changed.client_changes;
-        let reading_steps = changed.reading_steps;
+        let steps_ahead = changed.steps_ahead;
         let files = changed
             .repair
             .body
@@ -164,7 +164,7 @@ impl Worker {
             state_bytes,
             clients,
             client_changes,
-            reading_steps,
+            steps_ahead,
             files,
         })
     }
@@ -257,7 +257,7 @@ impl Worker {
                     .map_err(|error| logged_refused(&error))?;
                 let repaired = (changed.repair.deleted > 0).then(|| changed.doc.state());
                 let state_bytes = size_of(repaired.as_deref().unwrap_or(&stored));
-                let counts = (changed.client_changes, changed.reading_steps);
+                let counts = (changed.client_changes, changed.steps_ahead);
                 (changed.doc, (repaired, state_bytes, counts))
             }
             Source::Body(json) => {
@@ -276,16 +276,17 @@ impl Worker {
                 }
                 let client_changes = fvoci_collab::client_changes(&state)
                     .map_err(|error| take_refused(&TakeError::Update(error)))?;
-                // None, as a body's own document is made: counted, not taken for it.
-                let reading_steps = fvoci_collab::reading_steps(&state, READING_STEPS)
+                // A body's own document is read in no steps, and in few once another
+                // client has written into it: counted, not taken for it.
+                let steps_ahead = fvoci_collab::steps_ahead(&state)
                     .map_err(|error| take_refused(&TakeError::Update(error)))?;
                 (
                     made,
-                    (Some(state), state_bytes, (client_changes, reading_steps)),
+                    (Some(state), state_bytes, (client_changes, steps_ahead)),
                 )
             }
         };
-        let (state, state_bytes, (client_changes, reading_steps)) = state;
+        let (state, state_bytes, (client_changes, steps_ahead)) = state;
         let clients = count(opened.clients());
         self.hold(doc, opened, state_bytes, share)?;
         Ok(Answer::Opened {
@@ -293,7 +294,7 @@ impl Worker {
             state_bytes,
             clients,
             client_changes,
-            reading_steps,
+            steps_ahead,
         })
     }
 }

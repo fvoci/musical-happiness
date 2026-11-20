@@ -91,6 +91,9 @@ pub(crate) struct Read {
     /// The steps the library takes to read it: counted exactly up to the count asked
     /// for, and past it no further than is needed to know that it is past.
     pub(crate) steps: u64,
+    /// The most steps its reading may take once one more client has written into it
+    /// ([`Replay::ahead`]).
+    pub(crate) ahead: u64,
     /// Where each client's changes end in it, by the lengths counted here.
     pub(crate) ends: Vec<Id>,
 }
@@ -110,6 +113,7 @@ pub(crate) fn count(state: &[u8], stop_past: u64) -> Result<Read, Refusal> {
     Ok(Read {
         walked,
         steps: replay.steps(),
+        ahead: replay.ahead(),
         ends: replay.ends(),
     })
 }
@@ -457,6 +461,32 @@ impl<'bytes> Replay<'bytes> {
     fn steps(&self) -> u64 {
         self.walked
             .saturating_add(self.looked.div_ceil(LOOKED_PER_STEP))
+            .saturating_add(self.moved.div_ceil(MOVED_PER_STEP))
+            .saturating_add(self.copied.div_ceil(PLACES_PER_STEP))
+            .saturating_add(self.emptied.div_ceil(EMPTIED_PER_STEP))
+    }
+
+    /// The most steps the reading may take once one more client has written into the
+    /// state, wherever, and is read before the others: the steps counted, with the
+    /// stack looked through as often as it can be.
+    ///
+    /// Every round of the reading ([`Self::run`]) takes one change, after it took at
+    /// most one off the stack, and what is put on the stack is taken off it in a later
+    /// round: no more changes are put on it than there are changes. It holds one
+    /// change of a client at the most, and none of the client waited for, so each is
+    /// put on a stack of fewer changes than there are clients. With one more client,
+    /// that is as many as there are now, for each change of the state; the changes the
+    /// one more client writes are few beside them. Which changes wait is a matter of
+    /// which client is read first, the one of the highest identifier, and a client
+    /// draws its identifier by chance: a document read in few steps is read in these
+    /// if the next client's is the highest and it wrote after the last of a line of
+    /// clients that each wrote after the one before.
+    fn ahead(&self) -> u64 {
+        let changes = self.pieces.iter().filter(|piece| !piece.continues).count();
+        let clients = self.runs.iter().filter(|run| !run.is_empty()).count();
+        let looked = u64::from(small(changes)).saturating_mul(u64::from(small(clients)));
+        self.walked
+            .saturating_add(looked.div_ceil(LOOKED_PER_STEP))
             .saturating_add(self.moved.div_ceil(MOVED_PER_STEP))
             .saturating_add(self.copied.div_ceil(PLACES_PER_STEP))
             .saturating_add(self.emptied.div_ceil(EMPTIED_PER_STEP))

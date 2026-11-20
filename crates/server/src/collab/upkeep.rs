@@ -61,7 +61,7 @@ impl Collab {
             state_bytes,
             clients,
             client_changes,
-            reading_steps,
+            steps_ahead,
             files,
         } = answer
         else {
@@ -109,7 +109,7 @@ impl Collab {
         open.state_bytes = state_bytes;
         open.clients = clients;
         open.client_changes = client_changes;
-        open.reading_steps = reading_steps;
+        open.steps_ahead = steps_ahead;
         user_id.clone_into(&mut open.last_writer);
         open.last_update = now;
         open.first_unwritten.get_or_insert(now);
@@ -154,8 +154,9 @@ impl Collab {
     }
 
     /// Makes the document again from its body if its state is near its limit, it
-    /// names many clients or it takes many steps to read ([`OpenDoc::crowded`]), and folds its log into its state if
-    /// it is long; whether it was made again. The
+    /// names many clients or one more client may leave it with many steps to read
+    /// ([`OpenDoc::crowded`]), and folds its log into its state if it is long; whether
+    /// it was made again. The
     /// update before is logged whatever happens here: what fails is logged, and tried
     /// again after a later update.
     async fn keep_up(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
@@ -242,6 +243,23 @@ impl Collab {
                 slot.remake_failed_at = Some(Instant::now());
                 false
             }
+        }
+    }
+
+    /// Makes the open document of a slot again from its body if it is worn
+    /// ([`OpenDoc::worn`]), for a document that is closed next with its body on its
+    /// card and nobody in its room: nobody holds the document it was, so nothing an
+    /// editor wrote is lost and nobody loads it anew, and the next to open it finds
+    /// one that no session's update brings past the steps it may take to read. Its
+    /// versions and what else its card holds are as they were. One that could not be
+    /// made again is left as it is stored, or folded by what closes it.
+    ///
+    /// A connection that dropped and comes back with the document it held, and with
+    /// changes the server did not take, finds another making of it and loads that:
+    /// those changes are lost, as they are after any making again.
+    pub(super) async fn remake_worn(&self, app: &App, card_id: &str, slot: &mut Held) {
+        if slot.open.as_ref().is_some_and(OpenDoc::worn) {
+            self.remake_and_tell(app, card_id, slot).await;
         }
     }
 
@@ -387,7 +405,7 @@ impl Collab {
             state,
             state_bytes,
             client_changes,
-            reading_steps,
+            steps_ahead,
         } = self
             .open_from_body(open.worker, number, body, open.share())
             .await?;
@@ -406,7 +424,7 @@ impl Collab {
         // The writer of the body.
         open.clients = 1;
         open.client_changes = client_changes;
-        open.reading_steps = reading_steps;
+        open.steps_ahead = steps_ahead;
         open.first_unwritten = None;
         Ok(())
     }

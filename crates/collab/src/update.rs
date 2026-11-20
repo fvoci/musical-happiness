@@ -114,11 +114,14 @@ pub const PLACING_STEPS: u64 = 3 * 1024 * 1024;
 /// the others brings the steps past the limit with its first paragraph, whatever
 /// they were (4,000 sessions of 20 changes, 2,500 of 100: `tests/reading.rs`). That
 /// is as long for the library as steps of its walk, and that update is refused as
-/// one made for it is: an editor loses what it sent, once in thousands of sessions
-/// of a document.
+/// one made for it is, and the editor loses what it sent.
 ///
-/// What holds a document makes it again from its body, which has none and one
-/// client, at three quarters of this, and when an update is refused for it.
+/// So that it does not come to that, what holds a document goes by the steps one more
+/// client may leave it with ([`crate::steps_ahead`]: each change looked at once for
+/// each client, whichever is read first), and makes the document again from its
+/// body, which has no steps and one client: at an eighth of this ahead as the
+/// document is closed with nobody holding it, at three quarters under its editors,
+/// and when an update is refused for it all the same.
 ///
 /// A stored state past it is refused before the library reads it, in the time of the
 /// count, which stops a little past the limit whatever the state holds: one that was
@@ -295,6 +298,8 @@ struct Counted {
     client_changes: u64,
     /// The steps the reading took; 0 where they are not counted.
     reading_steps: u64,
+    /// The most steps it may take once one more client has written; 0 likewise.
+    steps_ahead: u64,
 }
 
 /// Reads a state an update left, after its reading is counted
@@ -307,6 +312,7 @@ fn read_counted(state: &[u8], limits: &UpdateLimits) -> Result<Counted, UpdateEr
             doc,
             client_changes: walked.most,
             reading_steps: 0,
+            steps_ahead: 0,
         });
     };
     let read = reading::count(state, limit).map_err(unreadable)?;
@@ -332,6 +338,7 @@ fn read_counted(state: &[u8], limits: &UpdateLimits) -> Result<Counted, UpdateEr
         doc,
         client_changes: read.walked.most,
         reading_steps: read.steps,
+        steps_ahead: read.ahead,
     })
 }
 
@@ -510,14 +517,16 @@ pub(crate) fn placing_steps(doc: &Doc, update: &[u8]) -> Result<u64, UpdateError
 }
 
 /// A document as a server that stored it reads it ([`settled_sized`]), with the size
-/// of its state, the most changes of one of its clients, and the steps the library
-/// takes to read it from its state (0 where they are not counted).
+/// of its state, the most changes of one of its clients, the steps the library takes
+/// to read it from its state, and the most it may take once one more client has
+/// written into it (0 where they are not counted).
 #[derive(Debug)]
 pub(crate) struct Settled {
     pub(crate) doc: Doc,
     pub(crate) state_bytes: usize,
     pub(crate) client_changes: u64,
     pub(crate) reading_steps: u64,
+    pub(crate) steps_ahead: u64,
 }
 
 /// A document as a server that stored it reads it: its state within the limit of
@@ -555,6 +564,7 @@ pub(crate) fn settled_sized(doc: &Doc, limits: &UpdateLimits) -> Result<Settled,
         state_bytes: state.len(),
         client_changes: again.client_changes,
         reading_steps: read.reading_steps,
+        steps_ahead: read.steps_ahead,
     };
     let state_again = state_of(&again.doc);
     if same_state(&state_again, &state) {
@@ -563,6 +573,7 @@ pub(crate) fn settled_sized(doc: &Doc, limits: &UpdateLimits) -> Result<Settled,
             state_bytes: state_again.len(),
             client_changes,
             reading_steps: again.reading_steps,
+            steps_ahead: again.steps_ahead,
             doc: again.doc,
         });
     }

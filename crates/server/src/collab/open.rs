@@ -65,7 +65,7 @@ impl Collab {
             state,
             state_bytes,
             client_changes,
-            reading_steps,
+            steps_ahead,
         } = self
             .open_from_body(worker, number, block.body.as_ref(), Share::Kept)
             .await?;
@@ -92,7 +92,7 @@ impl Collab {
             // The writer of the body.
             clients: 1,
             client_changes,
-            reading_steps,
+            steps_ahead,
             last_writer: block.modified_by.clone(),
             first_unwritten: None,
             last_update: Instant::now(),
@@ -148,7 +148,7 @@ impl Collab {
             made_bytes: 0,
             clients: 0,
             client_changes: 0,
-            reading_steps: 0,
+            steps_ahead: 0,
             // Who sent the last update logged, which the fold of the log keeps.
             last_writer: if stored.last_writer.is_empty() {
                 block.modified_by.clone()
@@ -242,7 +242,7 @@ impl Collab {
                 state_bytes,
                 clients,
                 client_changes,
-                reading_steps,
+                steps_ahead,
             },
         ) = opened
         else {
@@ -252,7 +252,7 @@ impl Collab {
         open.state_bytes = state_bytes;
         open.clients = clients;
         open.client_changes = client_changes;
-        open.reading_steps = reading_steps;
+        open.steps_ahead = steps_ahead;
         let state_seq = open.state_seq;
         self.replay(app, card_id, open, state, state_seq, updates)
             .await
@@ -291,14 +291,14 @@ impl Collab {
                         state_bytes,
                         clients,
                         client_changes,
-                        reading_steps,
+                        steps_ahead,
                         ..
                     },
                 ) => {
                     open.state_bytes = state_bytes;
                     open.clients = clients;
                     open.client_changes = client_changes;
-                    open.reading_steps = reading_steps;
+                    open.steps_ahead = steps_ahead;
                 }
                 (_, other) => return Err(unexpected(&other).into()),
             }
@@ -333,7 +333,7 @@ impl Collab {
                     state: Some(state),
                     state_bytes,
                     client_changes,
-                    reading_steps,
+                    steps_ahead,
                     ..
                 },
             ) => Ok(Made {
@@ -341,7 +341,7 @@ impl Collab {
                 state,
                 state_bytes,
                 client_changes,
-                reading_steps,
+                steps_ahead,
             }),
             (_, other) => Err(unexpected(&other).into()),
         }
@@ -431,6 +431,6 @@ pub(super) struct Made {
     pub(super) state_bytes: u64,
     /// The most changes of one of its clients ([`OpenDoc::client_changes`]).
     pub(super) client_changes: u64,
-    /// The steps the Y library takes to read it ([`OpenDoc::reading_steps`]).
-    pub(super) reading_steps: u64,
+    /// The steps the Y library takes to read it ([`OpenDoc::steps_ahead`]).
+    pub(super) steps_ahead: u64,
 }
