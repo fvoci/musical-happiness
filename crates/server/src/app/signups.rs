@@ -10,7 +10,7 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{RegisterRequest, Session, User, new_id};
+use fvoci_model::{ContainerKind, RegisterRequest, Session, User, new_id};
 use fvoci_store::{
     Accepted, Confirmed, Founding, InvitedConfirmation, Proof, SIGNUP_LIFETIME_MILLIS, Signup,
     SignupStart, StoreError,
@@ -18,7 +18,8 @@ use fvoci_store::{
 
 use super::App;
 use super::auth::{PasswordHolder, account_error, incorrect_login};
-use super::mail::{Content, Language, Letter};
+use super::language::Language;
+use super::mail::{Content, Letter};
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
@@ -271,7 +272,11 @@ impl App {
         // Nothing of the registration is touched before its registrant is known: what
         // confirming finds (a link that lets nobody in, a server that has its first
         // user) removes it.
-        if !made_here {
+        if made_here {
+            // Nothing is tried at a password: another from the address waits no
+            // longer, and not for the welcome board of this one.
+            drop(turn);
+        } else {
             if registrant.password.is_empty() {
                 return Err(password_required());
             }
@@ -323,9 +328,13 @@ impl App {
                 "the account was changed in the meantime; sign in",
             ));
         }
+        let container_kind = self
+            .kind_of_admitted_in(&confirmed.org_id, confirmed.container_id.as_deref())
+            .await?;
         Ok(ConfirmedSignup {
             session_token,
             confirmed,
+            container_kind,
             made_here,
         })
     }
@@ -374,6 +383,18 @@ impl App {
                 first = confirmed.user.is_admin,
                 "a registration was confirmed"
             );
+            // Whoever starts an organization asks for their welcome board (`onboard`);
+            // whoever comes into one as a member is given it here, in the language of
+            // the screen the registration was made from. A guest's link names a board.
+            if !confirmed.started_organization && confirmed.container_id.is_none() {
+                self.welcome_member_in(
+                    &confirmed.org_id,
+                    &confirmed.user.id,
+                    &confirmed.workspace_id,
+                    Some(&signup.language),
+                )
+                .await;
+            }
         }
         Ok(confirmed)
     }
@@ -541,6 +562,8 @@ pub struct ConfirmedSignup {
     pub session_token: String,
     /// The account, and where it was let in.
     pub confirmed: Confirmed,
+    /// For a guest's link: whether a board or a wiki let it in.
+    pub container_kind: Option<ContainerKind>,
     /// Whether the browser was the one the registration was made from: its cookie has
     /// nothing left to show.
     pub made_here: bool,
@@ -577,7 +600,7 @@ fn waiting(
         id: user.id.clone(),
         username: user.username.clone(),
         email: user.email.clone(),
-        display_name: user.display_name.clone(),
+        custom_name: user.name.custom_name.clone(),
         password_hash: user.password_hash.clone(),
         language: Language::written_in(language)
             .map(Language::tag)

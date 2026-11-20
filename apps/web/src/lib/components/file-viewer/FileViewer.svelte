@@ -3,7 +3,11 @@
   workbook, a PowerPoint deck or a Hangul (HWP, HWPX) document, drawn in a
   frame that has no origin and no network (lib/file-viewer/session.svelte.ts,
   src/viewer-frame/). A workbook's pages are its sheets, named in tabs under
-  it and in what is announced; a deck's are its slides.
+  it and in what is announced; a deck's are its slides. A deck with slides
+  hidden from a show opens on the others, under a line that counts them and
+  a button that shows the hidden ones in place (marked in the frame and in
+  what is announced); a slide keeps its number, which jumps where slides
+  are left out.
 
   A dialog over the page on a wide screen, the whole screen on a narrow one.
   Pages and zoom are at the bottom, within reach of a thumb. The keys, while
@@ -38,6 +42,7 @@
 
   import PageControls from './PageControls.svelte';
   import SheetTabs from './SheetTabs.svelte';
+  import SlideCount from './SlideCount.svelte';
   import { display } from '$lib/display.svelte.ts';
   import type { EditedFile } from '$lib/file-viewer/editing.svelte.ts';
   import {
@@ -161,10 +166,16 @@
   const sheet = $derived(session.sheets[session.page - 1]);
   /** A deck's pages are its slides, and are called so. */
   const slides = $derived(status.name === 'shown' && status.format === 'pptx');
+  /** A deck's slides, when some are hidden from a show. */
+  const order = $derived(slides ? session.slides : undefined);
+  const onHidden = $derived(order?.hidden.has(session.page) === true);
   const where = $derived(
     sheet
       ? m.viewer_sheet({ page: session.page, pages: session.pages, name: sheet.name })
-      : (slides ? m.viewer_slide : m.viewer_page)({ page: session.page, pages: session.pages }),
+      : (onHidden ? m.viewer_slide_hidden : slides ? m.viewer_slide : m.viewer_page)({
+          page: session.page,
+          pages: session.pages,
+        }),
   );
   /** What is said of the page turned to: of a sheet with drawings, that they are not shown. */
   const announced = $derived(sheet?.drawings ? `${where} ${m.viewer_sheet_drawings()}` : where);
@@ -287,10 +298,10 @@
   function command(key: string): boolean {
     switch (key) {
       case 'ArrowLeft':
-        session.goTo(session.page - 1);
+        session.turn(-1);
         return true;
       case 'ArrowRight':
-        session.goTo(session.page + 1);
+        session.turn(1);
         return true;
       case '+':
       case '=':
@@ -383,6 +394,9 @@
         <XIcon aria-hidden="true" />
       </IconButton>
     </header>
+    {#if status.name === 'shown' && order}
+      <SlideCount {session} {order} />
+    {/if}
 
     <div class="relative flex min-h-0 flex-1">
       <!-- Narrow, the list is over the document: nothing under it takes the focus. -->

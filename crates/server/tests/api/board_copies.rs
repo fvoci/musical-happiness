@@ -176,7 +176,7 @@ async fn duplicate_container_base_case_and_as_template() {
 
     let (copy, members) = th
         .app
-        .duplicate_container(&board.id, &user, TEST_WORKSPACE_ID, DuplicateAs::Copy)
+        .duplicate_container(&board.id, &user, TEST_WORKSPACE_ID, DuplicateAs::Copy, None)
         .await
         .expect("the board is duplicated");
     assert_eq!(copy.containers.len(), 1, "one board");
@@ -190,7 +190,13 @@ async fn duplicate_container_base_case_and_as_template() {
 
     let (template, members) = th
         .app
-        .duplicate_container(&board.id, &user, TEST_WORKSPACE_ID, DuplicateAs::Template)
+        .duplicate_container(
+            &board.id,
+            &user,
+            TEST_WORKSPACE_ID,
+            DuplicateAs::Template,
+            None,
+        )
         .await
         .expect("the board is duplicated as a template");
     assert!(template.containers[0].is_template, "a template");
@@ -199,6 +205,140 @@ async fn duplicate_container_base_case_and_as_template() {
         category_name_of(&th, &user, TEST_WORKSPACE_ID, &template.containers[0].id).await,
         None,
         "a template is filed nowhere"
+    );
+    th.teardown().await;
+}
+
+/// `duplicateContainer` of `board_id` by `client`, with an `Accept-Language` if one is
+/// given: the title of the copy.
+async fn copy_title(
+    client: &crate::common::Client,
+    board_id: &str,
+    query: &str,
+    accept_language: Option<&str>,
+) -> String {
+    let path = format!("{TEST_WS}/containers/{board_id}/duplicate{query}");
+    let mut request = client.request(reqwest::Method::POST, &path);
+    if let Some(accept_language) = accept_language {
+        request = request.header(reqwest::header::ACCEPT_LANGUAGE, accept_language);
+    }
+    let copy: ContainersAndBlocks = crate::common::Client::send(request).await.created_json();
+    copy.containers[0].title.clone()
+}
+
+/// The words a copy's title is given are in the language of the account's settings.
+/// Where the settings leave the language to the device, or name one the server writes
+/// nothing in, they are in the language the request accepts first, and failing both in
+/// English. A board made from a template keeps the template's title in any language.
+#[tokio::test]
+async fn a_copy_is_titled_in_the_language_of_whoever_asked() {
+    const SETTINGS: &str = "/users/me/settings";
+    let th = Setup::native().start().await.init_basic().await;
+    let board: Container = th
+        .client
+        .create_board(&new_board(TEST_WORKSPACE_ID, ContainerType::Open, "로드맵"))
+        .await
+        .created_json();
+    let wiki = crate::search_pages::new_wiki(&th.client).await;
+    let wiki_title: Container = th
+        .client
+        .patch(
+            &format!("{TEST_WS}/containers/{wiki}"),
+            &serde_json::json!({"title": "Handbook"}),
+        )
+        .await
+        .json();
+    assert_eq!(wiki_title.title, "Handbook", "the wiki has a title");
+    let set_language = async |language: serde_json::Value| {
+        th.client
+            .patch(SETTINGS, &serde_json::json!({"language": language}))
+            .await
+            .check_ok();
+    };
+    let template = "?asTemplate=true";
+
+    // Nothing says a language: English.
+    assert_eq!(
+        copy_title(&th.client, &board.id, "", None).await,
+        "로드맵 copy"
+    );
+    assert_eq!(
+        copy_title(&th.client, &board.id, template, None).await,
+        "New board template"
+    );
+
+    // The settings leave it to the device: what the request accepts.
+    let korean_first = Some("ja, ko-KR;q=0.9, en;q=0.8");
+    assert_eq!(
+        copy_title(&th.client, &board.id, "", korean_first).await,
+        "로드맵 사본"
+    );
+    assert_eq!(
+        copy_title(&th.client, &board.id, template, korean_first).await,
+        "새 보드 템플릿"
+    );
+    assert_eq!(
+        copy_title(&th.client, &wiki, "", korean_first).await,
+        "Handbook 사본",
+        "a wiki is titled as a board is"
+    );
+    assert_eq!(
+        copy_title(&th.client, &board.id, "", Some("ja, de;q=0.5")).await,
+        "로드맵 copy",
+        "no language of the server's is accepted"
+    );
+
+    // The settings name a language of the server's: the request's is not looked at.
+    set_language("en-GB".into()).await;
+    assert_eq!(
+        copy_title(&th.client, &board.id, "", korean_first).await,
+        "로드맵 copy"
+    );
+    set_language("ko".into()).await;
+    assert_eq!(
+        copy_title(&th.client, &board.id, "", Some("en")).await,
+        "로드맵 사본"
+    );
+    assert_eq!(
+        copy_title(&th.client, &wiki, "", None).await,
+        "Handbook 사본"
+    );
+    let made: ContainersAndBlocks = duplicate_board(&th.client, &board.id, template)
+        .await
+        .created_json();
+    assert_eq!(made.containers[0].title, "새 보드 템플릿");
+    // A template of a template is a copy of its kind, and a board of a template keeps
+    // the template's title.
+    let made = &made.containers[0].id;
+    assert_eq!(
+        copy_title(&th.client, made, template, None).await,
+        "새 보드 템플릿 사본"
+    );
+    assert_eq!(
+        copy_title(&th.client, made, "", None).await,
+        "새 보드 템플릿"
+    );
+
+    // The settings name a language the server writes nothing in: as left to the device.
+    set_language("ja".into()).await;
+    assert_eq!(
+        copy_title(&th.client, &board.id, "", korean_first).await,
+        "로드맵 사본"
+    );
+    assert_eq!(
+        copy_title(&th.client, &board.id, "", None).await,
+        "로드맵 copy"
+    );
+
+    // Another account's settings are its own.
+    th.client
+        .add_member(&editor(&board.id, &th.client2.me().await.id))
+        .await
+        .check_ok();
+    set_language("ko".into()).await;
+    assert_eq!(
+        copy_title(&th.client2, &board.id, "", None).await,
+        "로드맵 copy"
     );
     th.teardown().await;
 }

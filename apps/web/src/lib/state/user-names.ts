@@ -2,6 +2,7 @@
 import type { DocNode } from '../editor/schema.ts';
 import { isGone, userDisplayName } from '../logic/users.ts';
 
+import { takeUser } from './account.ts';
 import { isBackendError, type User, type WorkspaceInfo } from './backend.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
@@ -64,6 +65,8 @@ export class UserNames {
   readonly #answered = new WeakMap<WorkspaceInfo, Set<string>>();
 
   readonly #goneName: (() => string) | undefined;
+  /** Readings again (`reread`) begun, by person: the latest is the one that counts. */
+  readonly #rereads = new Map<string, number>();
 
   /**
    * `goneName` names somebody whose account was deleted, in the app's
@@ -121,6 +124,36 @@ export class UserNames {
       for (const id of ids) pending.set(id, reading);
     }
     await Promise.all(missing.flatMap((id) => pending.get(id) ?? []));
+  }
+
+  /**
+   * Reads again the people whose names may have changed, as any reading of
+   * them (whom the reader sees is the backend's rule): `userIds` when one
+   * was told to have changed (a `user` change), everyone held when changes
+   * may have been missed (`resync`). Of two readings of one person, the later
+   * one counts; somebody the backend leaves out stays as they were.
+   */
+  async reread(userIds?: readonly string[]): Promise<void> {
+    const workspace = this.#workspace;
+    const visit = workspace.info;
+    const ids = userIds ?? workspace.users.filter((user) => !isGone(user)).map((user) => user.id);
+    if (!visit || ids.length === 0) return;
+    const turns = new Map(ids.map((id) => [id, (this.#rereads.get(id) ?? 0) + 1]));
+    for (const [id, turn] of turns) this.#rereads.set(id, turn);
+    for (let start = 0; start < ids.length; start += 200) {
+      try {
+        const found = await workspace.backend.usersById(visit.id, ids.slice(start, start + 200));
+        if (workspace.info !== visit) return;
+        for (const user of found) {
+          if (this.#rereads.get(user.id) === turns.get(user.id)) takeUser(workspace, user);
+        }
+      } catch (error) {
+        // The next change, or the next reading, brings them; a session that is over signs out.
+        if (isBackendError(error) && error.status === 401) workspace.report('load', error);
+        else if (!isBackendError(error)) console.error(error);
+        return;
+      }
+    }
   }
 
   async #read(visit: WorkspaceInfo, ids: string[], answered: Set<string>): Promise<void> {

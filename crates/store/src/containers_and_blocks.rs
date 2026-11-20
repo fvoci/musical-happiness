@@ -9,7 +9,7 @@ use fvoci_model::{
 };
 
 use crate::Store;
-use crate::blocks::{self, BlockFilter, DuplicateAs};
+use crate::blocks::{self, BlockFilter, CopyChanges, CopyTitles, DuplicateAs};
 use crate::body_versions::BodyWrite;
 use crate::card_values;
 use crate::containers;
@@ -33,19 +33,30 @@ impl Store {
     /// while it reads, decides, removes and stores: of two servers or requests that find
     /// the templates missing at once, the second finds them stored and keeps them.
     ///
+    /// `files` are the records of the files the new templates show, whose objects were
+    /// written at places marked with [`Store::mark_writing`]: they are recorded with the
+    /// templates, which takes their marks away, so that no template is stored whose
+    /// bodies name a file that is not there.
+    ///
     /// Returns `None` if the templates were kept, or the records of the files the
     /// removed templates had, whose records went with them and whose objects are doomed
     /// in the same transaction.
     ///
     /// # Errors
     ///
-    /// Returns the store's error, or [`StoreError::InvalidBlock`] for a block that fails
-    /// validation; nothing is removed or stored then.
+    /// Returns the store's error, [`StoreError::InvalidBlock`] for a block that fails
+    /// validation, [`StoreError::InvalidPath`] for a file at a place spelled otherwise
+    /// than the one way, or [`StoreError::NotFound`] for a file whose place is no longer
+    /// marked; nothing is removed or stored then.
     pub async fn replace_builtin_templates(
         &self,
         templates: &mut ContainersAndBlocks,
+        files: &[FileInfo],
         needed: impl FnOnce(&[Container]) -> bool + Send,
     ) -> Result<Option<Vec<FileInfo>>, StoreError> {
+        for file in files {
+            file_info::check_new_path(&file.path)?;
+        }
         self.transaction(async |scope| {
             // On SQLite the transaction holds the database from its start.
             if scope.dialect() == Dialect::Postgres {
@@ -60,17 +71,28 @@ impl Store {
             if !needed(&stored) {
                 return Ok(None);
             }
-            let mut files = Vec::new();
+            let mut removed = Vec::new();
             for container in &stored {
-                files.extend(file_info::file_infos_of_container(scope, &container.id).await?);
+                removed.extend(file_info::file_infos_of_container(scope, &container.id).await?);
             }
             // The records go with the templates; their objects are doomed now.
-            let doomed: Vec<_> = files.iter().map(|file| (file.path.clone(), None)).collect();
+            let doomed: Vec<_> = removed
+                .iter()
+                .map(|file| (file.path.clone(), None))
+                .collect();
             loose_objects::doom(scope, &doomed).await?;
             containers::remove_builtin_templates(scope).await?;
-            // Their bodies are pointed at the templates' files once those are stored.
+            // The files their bodies name are recorded just below.
             create_containers_and_blocks(scope, templates, "", NewBodyFiles::Unchecked).await?;
-            Ok(Some(files))
+            for file in files {
+                if !loose_objects::record_written(scope, file).await? {
+                    return Err(StoreError::NotFound(format!(
+                        "mark of the template file {}",
+                        file.path
+                    )));
+                }
+            }
+            Ok(Some(removed))
         })
         .await
     }
@@ -161,9 +183,11 @@ impl Store {
     /// copies and the membership that makes `user_id` an administrator of the new board.
     ///
     /// The copy is a private board created by `user_id`, in `to_workspace`
-    /// or else in the workspace of the original. A copy of the same kind as the original has
-    /// " copy" appended to its title, and a template made from a board is titled "New
-    /// board template".
+    /// or else in the workspace of the original. A copy of the same kind as the original is
+    /// titled by `titles.copy_of` from the original's title, as it stands when it is
+    /// copied; a template made from a board is titled `titles.new_template`, and a board
+    /// made from a template keeps the title. The copy is made without the properties
+    /// of the board that `changes` names, its days as many days later as it says.
     ///
     /// # Errors
     ///
@@ -176,9 +200,20 @@ impl Store {
         user_id: &str,
         to_workspace: Option<&str>,
         duplicate_as: DuplicateAs,
+        titles: &CopyTitles,
+        changes: CopyChanges<'_>,
     ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), StoreError> {
         self.transaction(async |scope| {
-            duplicate_container(scope, container_id, user_id, to_workspace, duplicate_as).await
+            duplicate_container(
+                scope,
+                container_id,
+                user_id,
+                to_workspace,
+                duplicate_as,
+                titles,
+                changes,
+            )
+            .await
         })
         .await
     }
@@ -299,16 +334,21 @@ pub(crate) async fn duplicate_container(
     user_id: &str,
     to_workspace: Option<&str>,
     duplicate_as: DuplicateAs,
+    titles: &CopyTitles,
+    changes: CopyChanges<'_>,
 ) -> Result<(ContainersAndBlocks, Vec<ContainerMember>), StoreError> {
     let mut container = containers::get_container(scope, container_id).await?;
+    for name in changes.without_properties {
+        container.properties.remove(*name);
+    }
 
     let as_template = duplicate_as == DuplicateAs::Template;
     if as_template == container.is_template {
         // board -> board or template -> template
-        container.title.push_str(" copy");
+        container.title = (titles.copy_of)(&container.title);
     } else if as_template {
         // template from board
-        "New board template".clone_into(&mut container.title);
+        titles.new_template.clone_into(&mut container.title);
     }
 
     // The copy is private to the user who made it.
@@ -329,6 +369,10 @@ pub(crate) async fn duplicate_container(
         .filter(|block| block.block_type != BlockType::Comment)
         .collect();
     card_values::clear_copied_values(&mut blocks, &container.card_properties);
+    let dates = fvoci_model::date_property_ids(&container.card_properties);
+    for block in &mut blocks {
+        fvoci_model::move_dates(&mut block.fields, &dates, changes.days_later);
+    }
 
     // A board without blocks, or with comments only, is copied as a board without
     // blocks. The original refuses it, because it regenerates the identifiers with the

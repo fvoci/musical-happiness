@@ -1,7 +1,7 @@
 //! Erasing an account: by the housekeeping once its wait ran out, and at once on the
 //! operator's word; what is left of it for the people it worked with.
 
-use fvoci_model::{Block, BlockType, Container, ContainerType, User, new_id};
+use fvoci_model::{Block, BlockType, Container, ContainerType, PersonName, Title, User, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -78,8 +78,15 @@ async fn the_operator_erases_an_account_and_what_it_wrote_stays_under_no_name() 
         .post_empty(&format!("{ROOT_WS}/containers/{}/join", board.id))
         .await
         .check_ok();
+    let full_name = json!({
+        "firstName": "Leaver-First", "lastName": "Leaver-Last",
+        "latinFirstName": "Leaver-Latin-First", "latinLastName": "Leaver-Latin-Last",
+        "customName": "Leaver Shown", "title": "prof", "credentials": ["phd", "kr_cpa"],
+    });
+    th.client2.patch("/users/me", &full_name).await.check_ok();
     let before = named(&th.client, &[&user2.id]).await;
     assert_eq!(before[0].username, USER2_USERNAME);
+    assert_eq!(before[0].name.title, Some(Title::Prof), "seen by a member");
 
     socket_request(&socket, "POST", &erase("USER2"), "")
         .await
@@ -115,6 +122,11 @@ async fn the_operator_erases_an_account_and_what_it_wrote_stays_under_no_name() 
         "nothing of the person"
     );
     assert_eq!(
+        gone[0].name,
+        PersonName::default(),
+        "nothing of the name, not even which of it was shown"
+    );
+    assert_eq!(
         (gone[0].create_at, gone[0].update_at, gone[0].delete_at),
         (0, 0, 0),
         "nor when it came, or went"
@@ -128,12 +140,14 @@ async fn the_operator_erases_an_account_and_what_it_wrote_stays_under_no_name() 
             .collect::<Vec<_>>(),
         ["user1"]
     );
-    let found: Vec<User> = th
-        .client
-        .get(&format!("{ROOT_WS}/users?search=user2"))
-        .await
-        .ok_json();
-    assert!(found.is_empty(), "{found:?}");
+    for query in ["user2", "Leaver-First", "Leaver-Latin", "Leaver Shown"] {
+        let found: Vec<User> = th
+            .client
+            .get(&format!("{ROOT_WS}/users?search={query}"))
+            .await
+            .ok_json();
+        assert!(found.is_empty(), "{query}: {found:?}");
+    }
 
     // There is nothing to erase twice, and nobody of that name.
     socket_request(&socket, "POST", &erase(USER2_USERNAME), "")

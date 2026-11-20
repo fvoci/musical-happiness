@@ -65,8 +65,12 @@ const nested = (depth: number): string =>
 
 /** Every hostile deck, by the ceiling it passes (the name `TooMuch` is thrown with). */
 export const HOSTILE_PPTX: Record<string, () => Buffer> = {
+  // Stored: unpacking two thousand deflated parts one by one, twice, is most of a second.
   slides: () =>
-    deck({ slides: Array.from({ length: DECK_LIMITS.slides + 1 }, () => ({ shapes: '' })) }),
+    deck({
+      slides: Array.from({ length: DECK_LIMITS.slides + 1 }, () => ({ shapes: '' })),
+      stored: true,
+    }),
   elements: () =>
     one(
       textBox(

@@ -506,6 +506,10 @@ async fn updated(socket: &mut Socket, phase: &str) {
         while let Some(frame) = socket.next().await {
             if let Message::Text(text) = frame.expect("update frame") {
                 let message: Value = serde_json::from_str(&text).expect("JSON update");
+                // A user who renamed themselves is told too; that is not this test's.
+                if message["action"] == "UPDATE_USER" {
+                    continue;
+                }
                 assert_eq!(message["action"], "UPDATE_BLOCK", "{phase}: a block update");
                 return;
             }
@@ -590,13 +594,18 @@ async fn writes_elsewhere_read_nothing(
         "another organization's write is not this one's revision"
     );
     ts.client
-        .patch("/users/me", &json!({"displayName": "renamed"}))
+        .patch("/users/me", &json!({"customName": "renamed"}))
         .await
         .check_ok();
     assert_eq!(
         revision,
         ts.app.store().visibility_version().await,
         "a user's own row is no authorization"
+    );
+    // What the rename tells, in the background, reads whom each follower sees.
+    assert!(
+        ts.app.finish_background(WAIT).await,
+        "the rename is told in time"
     );
     reads.0.store(0, Ordering::Relaxed);
     ts.app

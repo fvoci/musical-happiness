@@ -5,13 +5,11 @@
 //! board.
 
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
 
 use fvoci_model::{
     Container, ContainerError, ContainerKind, ContainerKinds, ContainerMember, ContainerPatch,
     ContainerRole, ContainerType, JsonMap, MinimumRole,
 };
-use md5::{Digest as _, Md5};
 use serde_json::Value;
 
 use crate::Store;
@@ -97,9 +95,8 @@ impl Store {
     /// alone, and `container` comes back with those.
     ///
     /// A template stored on behalf of no user (the empty `user_id`) is a built-in
-    /// template: `is_builtin` is set, whatever `container` says, and it gets a
-    /// `trackingTemplateId` property derived from its title. No other board is built-in,
-    /// and an update never changes whether a board is.
+    /// template: `is_builtin` is set, whatever `container` says. No other board is
+    /// built-in, and an update never changes whether a board is.
     ///
     /// # Errors
     ///
@@ -604,13 +601,6 @@ pub(crate) async fn insert_container(
         Some(existing) => existing.is_builtin,
         None => user_id.is_empty() && container.is_template,
     };
-    // The built-in templates are told apart by a hash of their title.
-    if container.is_template && container.is_builtin {
-        container.properties.insert(
-            "trackingTemplateId".to_owned(),
-            Value::String(md5_hex(&container.title)),
-        );
-    }
     let now = now_millis();
     user_id.clone_into(&mut container.modified_by);
     container.update_at = now;
@@ -659,17 +649,6 @@ pub(crate) async fn insert_container(
         container.create_at = now;
         insert_container_row(scope, container).await
     }
-}
-
-/// The lowercase hexadecimal MD5 digest of `text`.
-fn md5_hex(text: &str) -> String {
-    let digest = Md5::digest(text.as_bytes());
-    let mut hex = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        // Writing to a `String` cannot fail.
-        let _ = write!(hex, "{byte:02x}");
-    }
-    hex
 }
 
 /// Inserts a board row with every column as `container` has it. For a new board, and for

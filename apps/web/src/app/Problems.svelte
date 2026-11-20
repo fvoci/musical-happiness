@@ -1,7 +1,7 @@
 <!--
   Tells the reader what went wrong: a change that was refused and taken back,
-  a file that did not upload. One line each, in a live region, until
-  dismissed or a while has passed.
+  a file that did not upload, one given up with the page it was going up for.
+  One line each, in a live region, until dismissed or a while has passed.
 -->
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
@@ -39,7 +39,7 @@
       return m.app_problem_upload_too_large({ limit: humanFileSize(error.limit) });
     }
     if (problem.action === 'import' && error?.status === 413) {
-      return error.reason === 'over_import_limit' && error.limit
+      return error.reason === 'archive_too_large' && error.limit
         ? m.app_problem_import_too_large({ limit: humanFileSize(error.limit) })
         : m.app_problem_import_too_big();
     }
@@ -60,6 +60,8 @@
         return m.app_problem_undo();
       case 'upload':
         return m.app_problem_upload();
+      case 'left':
+        return m.app_problem_upload_left();
       default:
         return m.app_problem_save();
     }

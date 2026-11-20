@@ -75,6 +75,7 @@ parameter!(OrgWorkspaceId: Path "workspaceId", String, True, "The identifier of 
 
 // -- in the headers --------------------------------------------------------------------
 
+parameter!(AcceptLanguage: Header "Accept-Language", String, False, "The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English.");
 parameter!(ContentDigest: Header "Content-Digest", String, True, "The SHA-256 digest of the part, as RFC 9530 writes it: `sha-256=:<base64 of the 32 bytes>:`. Other algorithms in the header are not looked at.");
 
 // -- in the query ----------------------------------------------------------------------

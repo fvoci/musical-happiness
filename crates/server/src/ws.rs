@@ -164,6 +164,16 @@ struct UnsubscribedBlocksMessage<'a> {
     reason: &'static str,
 }
 
+/// That a person's name changed: the client reads the person again, through the same
+/// route and rule as any other reading of them.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateUserMessage<'a> {
+    action: &'static str,
+    workspace_id: &'a str,
+    user_id: &'a str,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateClientConfigMessage<'a> {
@@ -190,6 +200,7 @@ outgoing!(
     UpdateBlockMessage,
     UpdateContainerMessage,
     UpdateMemberMessage,
+    UpdateUserMessage,
     UpdateCategoryMessage,
     CategoryReorderMessage,
     CategoryContainersReorderMessage,
@@ -670,6 +681,26 @@ impl Hub {
                 workspace: workspace_id,
                 readers: Readers::Now(container_id),
                 also: Some(user_id),
+            },
+        )
+        .await;
+    }
+
+    /// Tells whoever follows the workspace and sees the person, a member of it
+    /// (`permissions::sees_person`, by name), that the person's name changed.
+    pub async fn broadcast_person_change(&self, workspace_id: &str, user_id: &str) {
+        let message = UpdateUserMessage {
+            action: "UPDATE_USER",
+            workspace_id,
+            user_id,
+        };
+        let recipients = self.workspace_listeners(workspace_id);
+        self.send(
+            &recipients,
+            &message,
+            Access::Seers {
+                workspace: workspace_id,
+                person: user_id,
             },
         )
         .await;

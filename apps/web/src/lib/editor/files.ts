@@ -16,8 +16,8 @@
  *   one case where the address carries something: its read token, in the
  *   query of `getSharedFile` (`/shared/{containerId}/files/{fileId}`), which the
  *   reader's screen sets (src/app/SharedApp.svelte). (Saving a file under its
- *   own name reads its bytes by script, lib/save.ts: the server names the
- *   download after the file's identifier.)
+ *   own name reads its bytes by script, lib/save.ts; the server offers a
+ *   download under that name too.)
  * - `GET` needs no extra request header, which is what lets a tag fetch a file.
  * - The API lives under `/api/v1`, below the base path the server is given.
  * - A file goes up in parts through an upload session (`api/upload.ts`). It

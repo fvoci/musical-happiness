@@ -29,6 +29,7 @@
   import { avatarColor } from '$lib/components/avatar/avatar.ts';
   import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { searchedNames } from '$lib/logic/person-names.ts';
   import type { BodyReferences } from '$lib/editor/body-editor.ts';
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -93,12 +94,16 @@
   // Somebody not known (gone, or a mention that names nobody, as an anonymous reader gets them).
   const resolveUser = (userId: string): string =>
     workspace.userName(userId) ?? m['centerPanel.unknown-user']();
-  /** Who can be mentioned: the members of the board. */
+  /** Who can be mentioned: the members of the board, found by any of their names. */
   const people = $derived(
-    container.orderedMembers.map((member) => ({
-      id: member.userId,
-      name: workspace.userName(member.userId) ?? m['centerPanel.unknown-user'](),
-    })),
+    container.orderedMembers.map((member) => {
+      const user = workspace.user(member.userId);
+      return {
+        id: member.userId,
+        name: workspace.userName(member.userId) ?? m['centerPanel.unknown-user'](),
+        also: user ? [user.username, ...(user.name ? searchedNames(user.name) : [])] : [],
+      };
+    }),
   );
 
   /** The workspace the room is asked for in; the room opens once it is known. */

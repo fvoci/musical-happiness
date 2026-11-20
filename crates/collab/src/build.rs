@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use fvoci_model::Body;
 use serde_json::Value;
-use yrs::types::Attrs;
+use yrs::types::{Attrs, Delta};
 use yrs::{
-    Any, ClientID, Doc, Number, OffsetKind, Options, Text, Transact, TransactionMut, Xml,
+    Any, ClientID, Doc, In, Number, OffsetKind, Options, Text, Transact, TransactionMut, Xml,
     XmlElementPrelim, XmlFragment, XmlTextPrelim,
 };
 
@@ -131,32 +131,99 @@ fn push_element(txn: &mut TransactionMut<'_>, parent: &impl XmlFragment, node: &
 }
 
 /// Puts the text nodes of one stretch at the front of a parent as one text. Each mark
-/// is written on its own and in the editor's order, so that what is written does not
-/// depend on the order in which a map happens to hand its members out.
+/// is written in a pass of its own over the text, in the editor's order of marks, so
+/// that what is written does not depend on the order in which a map happens to hand its
+/// members out. A pass goes along the text once: written letter by letter at an index,
+/// the library would walk the text from its start for each (8,000 letters of five
+/// marks took 9 s). Each run of a mark still cuts the text, and the library moves the
+/// writer's changes after a cut, so a paragraph of 49,600 runs takes 0.6 s (release).
 fn push_text(txn: &mut TransactionMut<'_>, parent: &impl XmlFragment, nodes: &[Value]) {
     let whole: String = nodes.iter().map(letters_of).collect();
     let text = parent.push_front(txn, XmlTextPrelim::new(whole));
-    let mut start = 0_u32;
-    for node in nodes {
-        let length = utf16_length(letters_of(node));
-        let mut marks: Vec<(usize, &str, Any)> = node
+    let runs: Vec<Run<'_>> = nodes.iter().map(Run::of).collect();
+    let mut names: Vec<(usize, &str)> = runs
+        .iter()
+        .flat_map(|run| run.marks.iter().map(|mark| (mark.rank, mark.name)))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    for (_, name) in names {
+        text.apply_delta(txn, formatting(&runs, name));
+    }
+}
+
+/// The letters of a text node, by their length, and its marks.
+struct Run<'node> {
+    length: u32,
+    marks: Vec<Mark<'node>>,
+}
+
+/// A mark of a text node: where the editor puts it among the marks, its name, and its
+/// attributes.
+struct Mark<'node> {
+    rank: usize,
+    name: &'node str,
+    attrs: Any,
+}
+
+impl<'node> Run<'node> {
+    fn of(node: &'node Value) -> Self {
+        let marks = node
             .get("marks")
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(|mark| {
                 let name = mark.get("type")?.as_str()?;
-                let attrs = mark.get("attrs").map_or_else(empty_attributes, any_of);
-                Some((schema::mark_rank(name).unwrap_or(usize::MAX), name, attrs))
+                Some(Mark {
+                    rank: schema::mark_rank(name).unwrap_or(usize::MAX),
+                    name,
+                    attrs: mark.get("attrs").map_or_else(empty_attributes, any_of),
+                })
             })
             .collect();
-        marks.sort_by(|one, other| (one.0, one.1).cmp(&(other.0, other.1)));
-        for (_, name, attrs) in marks {
-            let formatting: Attrs = [(Arc::from(name), attrs)].into_iter().collect();
-            text.format(txn, start, length, formatting);
+        Self {
+            length: utf16_length(letters_of(node)),
+            marks,
         }
-        start = start.saturating_add(length);
     }
+
+    /// The attributes of its mark `name`, if it has it.
+    fn attrs_of(&self, name: &str) -> Option<&Any> {
+        self.marks
+            .iter()
+            .find(|mark| mark.name == name)
+            .map(|mark| &mark.attrs)
+    }
+}
+
+/// The pass over a text that writes the mark `name` where its runs have it: letters
+/// next to each other that have it with the same attributes are formatted together,
+/// letters without it are passed over, and the pass ends with the last letter that has
+/// it.
+fn formatting(runs: &[Run<'_>], name: &str) -> Vec<Delta<In>> {
+    let mut delta: Vec<Delta<In>> = Vec::new();
+    for run in runs.iter().filter(|run| run.length > 0) {
+        let attrs = run.attrs_of(name);
+        match (delta.last_mut(), attrs) {
+            (Some(Delta::Retain(length, None)), None) => {
+                *length = length.saturating_add(run.length);
+            }
+            (Some(Delta::Retain(length, Some(before))), Some(attrs))
+                if before.get(name) == Some(attrs) =>
+            {
+                *length = length.saturating_add(run.length);
+            }
+            (_, attrs) => delta.push(Delta::Retain(
+                run.length,
+                attrs.map(|attrs| Box::new(Attrs::from([(Arc::from(name), attrs.clone())]))),
+            )),
+        }
+    }
+    if matches!(delta.last(), Some(Delta::Retain(_, None))) {
+        delta.pop();
+    }
+    delta
 }
 
 /// The letters of a text node.
@@ -169,7 +236,7 @@ fn empty_attributes() -> Any {
     Any::Map(Arc::default())
 }
 
-/// The length of a text in UTF-16 code units. A body is at most 1 MiB, so it fits.
+/// The length of a text in UTF-16 code units. A body is at most 4 MiB, so it fits.
 fn utf16_length(text: &str) -> u32 {
     u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
 }

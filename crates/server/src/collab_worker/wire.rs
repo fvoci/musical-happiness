@@ -134,6 +134,10 @@ pub enum Answer {
         state: Option<Vec<u8>>,
         /// The size of its state.
         state_bytes: u64,
+        /// How many clients it names.
+        clients: u64,
+        /// The most changes one of its clients has, deleted ones too.
+        client_changes: u64,
     },
     /// An update was taken.
     Taken {
@@ -141,6 +145,10 @@ pub enum Answer {
         repair: Option<Vec<u8>>,
         /// The size of the document's state now.
         state_bytes: u64,
+        /// How many clients it names now.
+        clients: u64,
+        /// The most changes one of its clients has now, deleted ones too.
+        client_changes: u64,
         /// The files the images and file blocks of its body name now, by their stored
         /// names.
         files: Vec<String>,
@@ -371,17 +379,30 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
         Ok(Answer::Done) => {
             out.tag(1);
         }
-        Ok(Answer::Opened { state, state_bytes }) => {
-            out.tag(2).optional(state.as_deref()).number(*state_bytes);
+        Ok(Answer::Opened {
+            state,
+            state_bytes,
+            clients,
+            client_changes,
+        }) => {
+            out.tag(2)
+                .optional(state.as_deref())
+                .number(*state_bytes)
+                .number(*clients)
+                .number(*client_changes);
         }
         Ok(Answer::Taken {
             repair,
             state_bytes,
+            clients,
+            client_changes,
             files,
         }) => {
             out.tag(3)
                 .optional(repair.as_deref())
                 .number(*state_bytes)
+                .number(*clients)
+                .number(*client_changes)
                 .names(files);
         }
         Ok(Answer::Bytes(bytes)) => {
@@ -411,10 +432,14 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, Malformed> {
         2 => Ok(Answer::Opened {
             state: input.optional()?,
             state_bytes: input.number()?,
+            clients: input.number()?,
+            client_changes: input.number()?,
         }),
         3 => Ok(Answer::Taken {
             repair: input.optional()?,
             state_bytes: input.number()?,
+            clients: input.number()?,
+            client_changes: input.number()?,
             files: input.names()?,
         }),
         4 => Ok(Answer::Bytes(input.bytes()?)),
@@ -601,19 +626,27 @@ mod tests {
             Ok(Answer::Opened {
                 state: Some(vec![1]),
                 state_bytes: 1,
+                clients: 1,
+                client_changes: 5,
             }),
             Ok(Answer::Opened {
                 state: None,
                 state_bytes: 2,
+                clients: 0,
+                client_changes: 0,
             }),
             Ok(Answer::Taken {
                 repair: None,
                 state_bytes: 3,
+                clients: 2,
+                client_changes: 600_000,
                 files: Vec::new(),
             }),
             Ok(Answer::Taken {
                 repair: Some(vec![6]),
                 state_bytes: 4,
+                clients: 70_000,
+                client_changes: 1,
                 files: vec!["7a.png".to_owned(), "7b.png".to_owned()],
             }),
             Ok(Answer::Bytes(vec![4, 5])),

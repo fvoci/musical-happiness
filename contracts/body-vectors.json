@@ -1,5 +1,5 @@
 {
-  "description": "Shared test vectors for the body of a card or a comment: documents and what the server and the web app's validator must do with them. expect is accept (stored as sent), empty (stored as no body) or reject; a rejection names its kind in reason: notDocument, tooLarge, tooDeep, tooManyNodes, invalidNode. An accepted case may give text, the plain text the server stores for searching : a line per paragraph, heading, code block and formula block, the lines of blocks without words left out; a hard break is a line break kept inside its block's line, a formula inside a line gives its source there, and a mention and a reference give nothing. Whole numbers count however they are written (1, 1.0, 1e0). Lengths are UTF-16 code units. The limits of depth (32), nodes (20,000) and size (1 MiB) are tested with documents each side builds from a case's build, which stands for body: {depth: n} is a document nesting n deep (doc, then n-2 blockquotes, then an empty paragraph); {nodes: n} is a document of n nodes (doc, then one paragraph of n-2 hardBreaks); {bytes: n} is a document of one paragraph of one text of the letter a, as long as makes its JSON without whitespace n bytes of UTF-8. The server's test is crates/model/tests/body_vectors.rs. Either side that finds the two disagree adds a case. The allowlist is docs/s6-design.md 5.7; bodyVersion is the version of it the cases are written for.",
+  "description": "Shared test vectors for the body of a card or a comment: documents and what the server and the web app's validator must do with them. expect is accept (stored as sent), empty (stored as no body) or reject; a rejection names its kind in reason: notDocument, tooLarge, tooDeep, tooManyNodes, invalidNode. An accepted case may give text, the plain text the server stores for searching : a line per paragraph, heading, code block and formula block, the lines of blocks without words left out; a hard break is a line break kept inside its block's line, a formula inside a line gives its source there, and a mention and a reference give nothing. Whole numbers count however they are written (1, 1.0, 1e0). Lengths are UTF-16 code units. The limits of depth (60), nodes (50,000) and size (4 MiB) are tested with documents each side builds from a case's build, which stands for body: {depth: n} is a document nesting n deep (doc, then n-2 blockquotes, then an empty paragraph); {nodes: n} is a document of n nodes (doc, then one paragraph of n-2 hardBreaks); {bytes: n} is a document of one paragraph of one text of the letter a, as long as makes its JSON without whitespace n bytes of UTF-8. The server's test is crates/model/tests/body_vectors.rs. Either side that finds the two disagree adds a case. The allowlist is docs/s6-design.md 5.7; bodyVersion is the version of it the cases are written for.",
   "bodyVersion": 4,
   "cases": [
     {
@@ -2497,46 +2497,46 @@
       "reason": "invalidNode"
     },
     {
-      "name": "a depth of 32",
+      "name": "a depth of 60",
       "build": {
-        "depth": 32
+        "depth": 60
       },
       "expect": "accept"
     },
     {
-      "name": "a depth of 33",
+      "name": "a depth of 61",
       "build": {
-        "depth": 33
+        "depth": 61
       },
       "expect": "reject",
       "reason": "tooDeep"
     },
     {
-      "name": "20000 nodes",
+      "name": "50000 nodes",
       "build": {
-        "nodes": 20000
+        "nodes": 50000
       },
       "expect": "accept"
     },
     {
-      "name": "20001 nodes",
+      "name": "50001 nodes",
       "build": {
-        "nodes": 20001
+        "nodes": 50001
       },
       "expect": "reject",
       "reason": "tooManyNodes"
     },
     {
-      "name": "1 MiB",
+      "name": "4 MiB",
       "build": {
-        "bytes": 1048576
+        "bytes": 4194304
       },
       "expect": "accept"
     },
     {
-      "name": "1 MiB and one byte",
+      "name": "4 MiB and one byte",
       "build": {
-        "bytes": 1048577
+        "bytes": 4194305
       },
       "expect": "reject",
       "reason": "tooLarge"

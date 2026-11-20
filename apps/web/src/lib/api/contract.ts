@@ -55,7 +55,9 @@ export interface paths {
          *     Where nothing is carried over it goes to the login page with
          *     `oidc_carry_over_refused`, and where the sign-in itself failed (refused by the
          *     former provider, its token not taken, not this browser's) with that reason, as
-         *     any sign-in does.
+         *     any sign-in does. An account that comes into the organization by the sign-in, as a
+         *     member, is given its welcome board unless it has one (`onboard` says more): in the
+         *     language of its settings, or else in the one `Accept-Language` prefers.
          */
         get: operations["finishOidcLogin"];
         put?: never;
@@ -131,6 +133,10 @@ export interface paths {
          *     sign-in is refused with otherwise (`oidc_join_closed`, `oidc_email_missing`,
          *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_unavailable`); 429 when this
          *     address made too many sign-ins of late.
+         *
+         *     An account that comes into the organization by this, as a member, is given its
+         *     welcome board unless it has one (`onboard` says more): in the language of its
+         *     settings, or else in the one `Accept-Language` prefers.
          */
         post: operations["finishHeldOidcLogin"];
         delete?: never;
@@ -241,6 +247,10 @@ export interface paths {
          *     (revoked, or who made it may no longer invite), the registration is removed and the
          *     answer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as
          *     registrations are, and too many are 429.
+         *
+         *     An account that a link for members lets in so is given its welcome board in the
+         *     workspace, unless it has one (`onboard` says more): written in the `language` of
+         *     the acceptance if that was English or Korean, or else in English.
          */
         post: operations["completeEmailVerification"];
         delete?: never;
@@ -350,6 +360,13 @@ export interface paths {
          *     whatever is wrong with it: there is no such link, it ended, it was used as often as
          *     it may be, it was revoked, or who made it may no longer invite. Requests are counted
          *     by where they come from, and too many are 429.
+         *
+         *     An account that a link for members lets in is given its welcome board in the
+         *     workspace, a private board of its own, unless it has one (`onboard` says more):
+         *     written in the language of the account's settings, or else in `language` for an
+         *     account made here, if that is English or Korean, or else in the one
+         *     `Accept-Language` prefers. An account whose address is confirmed first is given
+         *     it then (`completeEmailVerification`).
          */
         post: operations["acceptInvitation"];
         delete?: never;
@@ -1216,13 +1233,19 @@ export interface paths {
         head?: never;
         /**
          * Change the user's account
-         * @description Changes what the body names of the user of the session: `displayName`, the name to
-         *     be shown by. White space around it is dropped, and empty or `null` is none. At most
-         *     64 UTF-16 code units, without control characters and without characters that show
-         *     nothing, break a line or turn the text around (U+00AD, U+200B–U+200F,
-         *     U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). Not unique. A member that is
-         *     no such thing, or a name that breaks these rules, is refused (400 naming it) and
-         *     changes nothing. Answers the user as `getMe` does.
+         * @description Changes what the body names of the user of the session's name: its parts
+         *     (`firstName`, `lastName`, `latinFirstName`, `latinLastName`), the name they wrote to
+         *     be shown by (`customName`), which of them they are shown by (`nameShown`), the title
+         *     and the credentials. White space around a part is dropped, and empty or `null` is
+         *     none. A part has at most 64 UTF-16 code units, without control characters and
+         *     without characters that show nothing, break a line or turn the text around (U+00AD,
+         *     U+034F, U+061C, U+115F, U+1160, U+180E, U+200B–U+200F, U+2028–U+202E, U+2060–U+206F,
+         *     U+2800, U+3164, U+FEFF, U+FFA0, U+FFF9–U+FFFB). `title` is a
+         *     code of its list or `null`; `credentials` at most three codes of their list, each
+         *     once, in the order they are written, or `null` for none. `displayName` follows: the
+         *     server makes it from these (`contracts/name-vectors.json`). A member that is no such
+         *     thing, or a value that breaks these rules, is refused (400 naming it) and changes
+         *     nothing. Answers the user as `getMe` does.
          */
         patch: operations["patchMe"];
         trace?: never;
@@ -1566,7 +1589,8 @@ export interface paths {
          *     `version.json` are 400, and nothing of them is stored. An archive of more than
          *     10,000 entries, whose entries unpack to more than 1 GiB together, or with a
          *     `board.jsonl` of more than 64 MiB or a file larger than `maxFileBytes` is 413 with
-         *     the `limit` passed, and nothing of it is stored. The blocks that show files are
+         *     the `limit` passed, and nothing of it is stored; for the entry that is too large the
+         *     reason is `archive_entry_too_large`. The blocks that show files are
          *     pointed at the board's new copies of them, the images and file blocks of bodies
          *     included. A file the board's line lists under `missingFiles` is not stored, even when
          *     the archive has an entry of its name, and what shows it ends up showing no file. A card value that does not fit its property's kind is cleared, as a copy
@@ -1609,7 +1633,8 @@ export interface paths {
          * Open an upload of an archive
          * @description Opens an upload of an archive to import into the workspace, sent in parts as a file is
          *     with `createUpload`, and imported with `importArchive` once every part is received.
-         *     An archive larger than `maxImportBytes` of `getClientConfig` is 413. It counts
+         *     An archive larger than `maxImportBytes` of `getClientConfig` is 413 with the reason
+         *     `archive_too_large`. It counts
          *     toward the same limits as the uploads of files, which hold back at most twice the
          *     larger of `maxFileBytes` and `maxImportBytes` for a user. For users of the workspace who
          *     are not guests, as `importArchive`.
@@ -2324,7 +2349,7 @@ export interface paths {
          *     and the files the blocks show, those of the images and file blocks of bodies among
          *     them. A board's line also carries `fileNames`: the name of each of its files, by
          *     stored name, which an import gives the files it stores. A name an upload could not
-         *     have (blank, with U+0000, over 255 characters, or of another extension than the
+         *     have (blank, `.` or `..` after its last `/` or `\`, with U+0000, over 255 characters, or of another extension than the
          *     stored name) is passed over and its file keeps the name of its entry, and an archive
          *     without the member is read as before. A file a block shows that the board does not
          *     have, its record or its bytes gone, gets no entry: it is listed under `missingFiles`
@@ -2363,8 +2388,11 @@ export interface paths {
          *     user becomes the admin of the copy, which is always private. A copy of the same kind
          *     has the title of the original with ` copy` after it; a template made from a board is
          *     titled `New board template`, and a board made from a template keeps the title. The
-         *     board's members may copy it; an open template is for everyone in its workspace, and a
-         *     built-in template for everyone.
+         *     server writes those words in English and in Korean (` 사본`, `새 보드 템플릿`), and
+         *     chooses by the language of the user's settings; where the settings leave the language
+         *     to the device, or name one the server does not write in, by the first of the two that
+         *     `Accept-Language` prefers; failing both, English. The board's members may copy it; an
+         *     open template is for everyone in its workspace, and a built-in template for everyone.
          *
          *     A wiki is copied as a board is, with its pages as they stand: their tree and order,
          *     titles, icons and bodies, the images and file blocks of the bodies given files of
@@ -2395,12 +2423,15 @@ export interface paths {
         /**
          * Upload a file
          * @description Stores a file with the board. The request is a `multipart/form-data` form whose
-         *     part `file` carries the file and a file name. The file is limited to one part of an
+         *     part `file` carries the file and a file name of at most 255 characters, without
+         *     U+0000, of which what follows its last `/` is kept. A name whose last segment,
+         *     parted by `/` or `\`, is blank (`dir/`), `.` or `..` is 400, as is one too long or
+         *     with U+0000. The file is limited to one part of an
          *     upload in parts (8 MiB unless the server is configured otherwise), and to the
          *     `maxFileBytes` of `getClientConfig` where that is less; a larger one is 413. Where
          *     the limit is the part, the refusal has the reason `upload_in_parts`: a file within
-         *     `maxFileBytes` can be sent with `createUpload`. A file that is refused or cut off is
-         *     not kept. The `fileId` of the answer ends in the extension of the file name, in lower
+         *     `maxFileBytes` can be sent with `createUpload`. Where it is `maxFileBytes`, the
+         *     reason is `file_too_large`. A file that is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower
          *     case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
          *     anything but letters and digits in it, is left off. For editors.
          */
@@ -2424,8 +2455,10 @@ export interface paths {
          *     through its own board only: through another board it is not there.
          *
          *     Every file is sent as `application/octet-stream` and offered as a download
-         *     (`Content-Disposition: attachment`) under its `fileId`, not under the name it was
-         *     uploaded with, which `getFileInfo` has. The answer honours `Range` with one range,
+         *     (`Content-Disposition: attachment`) under the name it was uploaded with, which
+         *     `getFileInfo` has: `filename*` carries that name, and `filename` the `fileId` for a
+         *     reader that knows no `filename*`. A file whose record has no name, or one of more
+         *     than 255 characters, is offered under its `fileId`. The answer honours `Range` with one range,
          *     unless the request has `If-Range`. It may be cached by the browser of who asked but
          *     must be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no
          *     download: the `Last-Modified` of an answer is the time of that answer, so a request
@@ -2513,7 +2546,7 @@ export interface paths {
         /**
          * The bytes of a version of a file
          * @description As `getFile` gives the newest version: sent as `application/octet-stream`, offered
-         *     as a download under the `fileId`, with one range honoured. For whom
+         *     as a download under the name the file was uploaded with, with one range honoured. For whom
          *     `getFileVersions` is for. A number the file has no version of, or has none of any
          *     more, is 404.
          */
@@ -2784,7 +2817,7 @@ export interface paths {
          * @description Opens an upload of a file to the board in parts. The answer says how large the
          *     parts are and how many; send each with `putUploadPart`, in any order and again
          *     after a failure, then `completeUpload`. A file larger than `maxFileBytes` of
-         *     `getClientConfig` is 413. A user has at most 8
+         *     `getClientConfig` is 413 with the reason `file_too_large`. A user has at most 8
          *     uploads open, holding back at most twice `maxFileBytes` together, and the server's
          *     open uploads hold back at most what it is configured for: an upload over one of
          *     these is 429, with the reason `too_many_uploads`, `uploads_pending` or
@@ -3029,11 +3062,18 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Start the tour
-         * @description Copies the built-in welcome board for the user, as a private board of their own,
-         *     and notes in the client's state (`getClientState`) that the tour has begun:
-         *     `onboardingTourStarted` is `1`, `onboardingTourStep` is `0` and `tourCategory` is
-         *     `onboarding`. Every request makes another copy.
+         * Make the welcome board
+         * @description Copies the built-in welcome board for the user, as a private board of their own in
+         *     the workspace: what a new account starts on. It is written in the language of the
+         *     user's settings; where that is left to the device, or is one the board is not
+         *     written in, in the one `Accept-Language` prefers; failing both, in English. Every
+         *     request makes another copy.
+         *
+         *     Whoever starts an organization asks for it. An account that comes into an
+         *     organization as a member (by a link, by a registration made by a link, or by
+         *     signing in through the organization's provider) is given one without asking, in
+         *     the workspace it comes into, unless it has one: an account is given one once,
+         *     whatever it comes into after, and a guest none.
          */
         post: operations["onboard"];
         delete?: never;
@@ -3340,6 +3380,11 @@ export interface paths {
          * The templates of a workspace
          * @description The workspace's template boards the user may see, then the built-in templates, which
          *     every workspace is offered. Each of the two oldest first.
+         *
+         *     The built-in templates are written in several languages (`templateLanguage` among a
+         *     board's `properties`), and those of one are listed: the language of the user's
+         *     settings; where that is left to the device, or is one the templates are not written
+         *     in, the one `Accept-Language` prefers; failing both, English.
          */
         get: operations["getTemplates"];
         put?: never;
@@ -3467,9 +3512,10 @@ export interface paths {
          * The users of a workspace
          * @description Up to ten of the users the user sees in the workspace: whoever works there sees its
          *     members and who is on a board of it with them, a guest only who is on a board of it
-         *     with them; and the user. With `search` those whose login name or display name has
-         *     that text in it, whatever the case of the letters, without it the ten oldest
-         *     accounts. Oldest account first.
+         *     with them; and the user. With `search` those whose login name, display name or a
+         *     part of whose name (either way round, and the name they wrote) has that text in it,
+         *     whatever the case of the letters, without it the ten oldest accounts. Oldest account
+         *     first.
          */
         get: operations["getWorkspaceUsers"];
         put?: never;
@@ -3486,7 +3532,8 @@ export interface paths {
          *
          *     An account that was deleted is answered to whoever asks by its identifier, seen
          *     before or not, as what is left of it: the identifier, an empty `username`, `email`
-         *     and `displayName`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
+         *     and `displayName`, every part of the name empty, no title nor credentials,
+         *     `nameShown` `name`, and `createAt`, `updateAt` and `deleteAt` all zero: no time of
          *     the account is answered, neither when it went nor when it was asked to (the
          *     identifier is kept as it was made). The empty `username` is what tells it, not a
          *     time: a page shows a deleted user where it wrote or is mentioned.
@@ -3941,7 +3988,8 @@ export interface components {
             /**
              * @description The language tag of the screen the request comes from (`ko`, `en-GB`): the
              *     language of the mail that confirms a new account's address, where the server asks
-             *     for that (English, Korean); English for any other.
+             *     for that (English, Korean); English for any other. A new account's welcome
+             *     board is written in it too, if it is English or Korean.
              */
             language?: string;
             /** @description The token of the link. */
@@ -3955,13 +4003,28 @@ export interface components {
             /** @description The workspace. */
             workspaceId: string;
         };
-        /** @description What a user changes of their account. A member that is left out stays as it is. */
+        /** @description What a user changes of their name. A member that is left out stays as it is. */
         AccountChange: {
             /**
-             * @description The name to be shown by: at most 64 UTF-16 code units without control
-             *     characters. Empty or `null` for none, and the login name is shown.
+             * @description The degrees and qualifications written after the name: at most three, each once,
+             *     in the order they are written. `null` or empty for none.
              */
-            displayName?: string | null;
+            credentials?: components["schemas"]["Credential"][] | null;
+            /** @description The name the person wrote to be shown by; as `firstName`. */
+            customName?: string | null;
+            /**
+             * @description The given name, in the letters the person writes it in: at most 64 UTF-16 code
+             *     units without control characters. Empty or `null` for none.
+             */
+            firstName?: string | null;
+            /** @description The family name, in the letters the person writes it in; as `firstName`. */
+            lastName?: string | null;
+            /** @description The given name in Latin letters; as `firstName`. */
+            latinFirstName?: string | null;
+            /** @description The family name in Latin letters; as `firstName`. */
+            latinLastName?: string | null;
+            nameShown?: components["schemas"]["NameShown"] | null;
+            title?: components["schemas"]["Title"] | null;
         };
         /**
          * @description What deleting the account of the session comes to: what stands in its way, what
@@ -4182,7 +4245,7 @@ export interface components {
             /** @description The patches, one per identifier. */
             blockPatches: components["schemas"]["BlockPatch"][];
         };
-        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 1 MiB as JSON, 32 levels deep and 20,000 nodes. */
+        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 4 MiB as JSON, 60 levels deep and 50,000 nodes. */
         Body: {
             [key: string]: unknown;
         };
@@ -4649,6 +4712,11 @@ export interface components {
             /** @description The boards. */
             containers: components["schemas"]["Container"][];
         };
+        /**
+         * @description A degree or a professional qualification written after a person's name.
+         * @enum {string}
+         */
+        Credential: "phd" | "md" | "dds" | "jd" | "edd" | "mba" | "ms" | "ma" | "cpa" | "cfa" | "pe" | "rn" | "kr_attorney" | "kr_patent_attorney" | "kr_tax_accountant" | "kr_cpa" | "kr_architect" | "kr_professional_engineer" | "kr_pharmacist" | "kr_korean_medicine_doctor";
         /** @description A request to delete the account of the session. */
         DeleteAccountRequest: {
             /**
@@ -4725,8 +4793,9 @@ export interface components {
         Density: "auto" | "compact" | "comfortable";
         /** @description Where a confirmed registration's account was let in. */
         EmailVerified: {
-            /** @description For a guest's link: the board it was let onto. */
+            /** @description For a guest's link: the board or the wiki it was let onto. */
             containerId?: string | null;
+            containerKind?: components["schemas"]["ContainerKind"] | null;
             /**
              * @description Whether the registration started its organization, rather than joining one by
              *     the link of an invitation.
@@ -5076,6 +5145,12 @@ export interface components {
          */
         MinimumRole: "viewer" | "commenter" | "editor";
         /**
+         * @description Which name a person is shown by. When it is empty the next one down the list is
+         *     taken; the login name is the last.
+         * @enum {string}
+         */
+        NameShown: "name" | "latin_name" | "custom_name" | "username";
+        /**
          * @description The account somebody asks for: who registers, and who accepts an invitation
          *     without having one.
          */
@@ -5316,14 +5391,16 @@ export interface components {
              */
             contentType?: string;
             /**
-             * @description The name of the file, 1 to 255 characters. The stored file keeps its extension,
-             *     as `uploadFile` keeps it.
+             * @description The name of the file, as `uploadFile` takes one: 1 to 255 characters, without
+             *     U+0000, of which what follows its last `/` is kept. A name whose last segment,
+             *     parted by `/` or `\`, is blank (`dir/`), `.` or `..` is refused. The stored file
+             *     keeps its extension, as `uploadFile` keeps it.
              */
             name: string;
             /**
              * Format: int64
              * @description The size of the file in bytes. More than `maxFileBytes` of `getClientConfig` is
-             *     413.
+             *     413 (`file_too_large`).
              */
             size: number;
         };
@@ -5487,15 +5564,8 @@ export interface components {
              */
             linkPassword?: string;
         };
-        /** @description What starting the tour answers: where the tour's board is. */
-        OnboardingStart: {
-            /** @description The identifier of the board the tour goes through. */
-            boardId: string;
-            /** @description The identifier of the workspace. */
-            workspaceId: string;
-        };
         /** @description A member of an organization, as its administrators list them. */
-        OrgMember: {
+        OrgMember: components["schemas"]["PersonName"] & {
             /** @description The name the user shows; empty for none. */
             displayName: string;
             /** @description What the user is in the organization. */
@@ -5708,6 +5778,27 @@ export interface components {
             containerIds: string[];
             /** @description The board patches, one per board identifier. */
             containerPatches: components["schemas"]["ContainerPatch"][];
+        };
+        /** @description A person's name, every part of which may be empty. */
+        PersonName: {
+            /**
+             * @description The degrees and qualifications written after the name, in the person's order: at
+             *     most three, each once.
+             */
+            credentials: components["schemas"]["Credential"][];
+            /** @description The name the person wrote to be shown by. */
+            customName: string;
+            /** @description The given name, in the letters the person writes it in. */
+            firstName: string;
+            /** @description The family name, in the letters the person writes it in. */
+            lastName: string;
+            /** @description The given name in Latin letters. */
+            latinFirstName: string;
+            /** @description The family name in Latin letters. */
+            latinLastName: string;
+            /** @description Which name the person is shown by. */
+            nameShown: components["schemas"]["NameShown"];
+            title: components["schemas"]["Title"] | null;
         };
         /**
          * @description The JSON body the server sends with every error status of the API, as
@@ -6046,6 +6137,11 @@ export interface components {
          * @enum {string}
          */
         Theme: "auto" | "light" | "dark";
+        /**
+         * @description A title written before a person's name.
+         * @enum {string}
+         */
+        Title: "dr" | "prof";
         /** @description A request to remove an identity from the account of the session. */
         UnlinkRequest: {
             /** @description The issuer of the identity. */
@@ -6129,7 +6225,7 @@ export interface components {
          *     The JSON form carries only the public members. The email address, password hash and
          *     the other authentication members are never serialized and are ignored when decoding.
          */
-        User: {
+        User: components["schemas"]["PersonName"] & {
             /**
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch; zero for a deleted account
@@ -6144,8 +6240,10 @@ export interface components {
              */
             deleteAt: number;
             /**
-             * @description The name the user chose to be shown by; empty for none, and then the login name
-             *     is shown. At most 64 UTF-16 code units, not unique.
+             * @description The name the user is shown by, by the rule of `PersonName::shown`: empty when
+             *     that is the login name, which is shown then. Kept with the account and made anew
+             *     whenever its name changes; what a request says of it is not taken over. At most
+             *     129 UTF-16 code units (a name's two parts and a space), not unique.
              */
             displayName: string;
             /** @description The user's identifier. */
@@ -6228,6 +6326,11 @@ export interface components {
          * @enum {string}
          */
         WeekStart: "auto" | "sunday" | "monday" | "saturday";
+        /** @description What asking for a first board answers: where it is. */
+        WelcomeBoard: {
+            /** @description The identifier of the new board. */
+            boardId: string;
+        };
         /** @description A workspace of an organization. */
         Workspace: {
             /** @description Whether the admins of the workspace's boards may invite guests to them. */
@@ -6249,7 +6352,7 @@ export interface components {
             updateAt: number;
         };
         /** @description A member of a workspace, as its administrators list them. */
-        WorkspaceMember: {
+        WorkspaceMember: components["schemas"]["PersonName"] & {
             /**
              * Format: int64
              * @description When the user became a member, in milliseconds since the Unix epoch.
@@ -6305,7 +6408,10 @@ export interface operations {
                 /** @description The issuer that answered (RFC 9207), if the provider says: it must be the provider's. */
                 iss?: string;
             };
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path: {
                 /** @description The organization the sign-in was started for: each has an address of its own to come back to (its provider's `redirectUri`). */
                 orgId: string;
@@ -6405,7 +6511,10 @@ export interface operations {
                 /** @description The identifier of the organization whose provider the person signs in through. */
                 org: string;
             };
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -6668,7 +6777,10 @@ export interface operations {
     acceptInvitation: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9973,7 +10085,10 @@ export interface operations {
                 /** @description The workspace the copy goes to: one the user works in. Left out, the workspace of the path. */
                 toWorkspace?: string;
             };
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
@@ -11093,7 +11208,10 @@ export interface operations {
     onboard: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
@@ -11102,13 +11220,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Where the tour's board is. */
+            /** @description Where the new board is. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OnboardingStart"];
+                    "application/json": components["schemas"]["WelcomeBoard"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -11618,7 +11736,10 @@ export interface operations {
     getTemplates: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The languages the reader takes, as RFC 9110 writes them (`ko-KR, ko;q=0.9, en;q=0.8`). Read where the user's settings name no language the server writes in: the range of the highest `q` that names English or Korean decides, the first of them for equal `q`, and `*` is English. */
+                "Accept-Language"?: string;
+            };
             path: {
                 /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;

@@ -131,6 +131,60 @@ describe('the trash of pages in an open wiki', () => {
     expect(titles(made.store.pages)).toEqual(['A', '  B']);
   });
 
+  it('lists a page whose deletion the backend has not answered yet', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.page('B', a);
+    await made.store.load();
+    // The backend holds the deletion until it is let go.
+    const wikis = made.backend.wiki;
+    const deletePage = wikis.deletePage.bind(wikis);
+    let letGo = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    wikis.deletePage = async (wikiId, pageId) => {
+      await held;
+      await deletePage(wikiId, pageId);
+    };
+    const deleted = made.store.deletePage(a);
+    await settle();
+    // Off the tree at once; the trash, opened now, is read once the deletion is in it.
+    expect(titles(made.store.pages)).toEqual([]);
+    const trash = pageTrash(made.store);
+    const read = trash.read();
+    await settle();
+    expect(trash.status).toBe('loading');
+    letGo();
+    await read;
+    expect(trash.items.map((item) => [item.title, item.below])).toEqual([['A', 1]]);
+    expect(await deleted).toBe(true);
+  });
+
+  it('reads the trash all the same when a deletion under way is refused', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.store.load();
+    const wikis = made.backend.wiki;
+    let refuse = (): void => undefined;
+    const held = new Promise<void>((_resolve, reject) => {
+      refuse = () => {
+        reject(new BackendError(403, undefined));
+      };
+    });
+    wikis.deletePage = () => held;
+    const deleted = made.store.deletePage(a);
+    await settle();
+    const trash = pageTrash(made.store);
+    const read = trash.read();
+    refuse();
+    await read;
+    expect(trash.status).toBe('ready');
+    expect(trash.items).toEqual([]);
+    expect(await deleted).toBe(false);
+    expect(titles(made.store.pages)).toEqual(['A']);
+  });
+
   it('follows a page somebody else brings back, and tells a refusal', async () => {
     const made = await openWiki();
     const a = await made.page('A');

@@ -4,7 +4,9 @@
 use std::time::{Duration, Instant};
 
 use fvoci_collab::testing::Editor;
-use fvoci_server::collab::worker::{CallError, Death, Worker, WorkerCommand, WorkerSettings};
+use fvoci_server::collab::worker::{
+    Blame, CallError, Death, Worker, WorkerCommand, WorkerSettings,
+};
 use fvoci_server::collab_worker::wire::{Answer, Limits, Refusal, Request, Share, Source};
 use serde_json::{Value, json};
 
@@ -228,6 +230,37 @@ async fn a_worker_that_takes_too_long_is_killed_and_the_request_fails() {
     assert_ne!(next, generation);
     assert_ne!(worker.pid().await, Some(first));
     worker.end().await;
+}
+
+/// A worker that keeps dying is started again later each time, so that one that cannot
+/// run is not started over and over: after six deaths in a row, 1.6 s later. A death
+/// put down to the sender of an update ([`Blame::Sender`]), whom the server holds back
+/// instead, does not make the next start wait, which every document of the worker would
+/// wait for.
+#[tokio::test]
+async fn a_death_put_down_to_a_sender_does_not_make_the_next_worker_wait() {
+    const DEATHS: usize = 6;
+    for (blame, waits) in [(Blame::Sender, false), (Blame::Worker, true)] {
+        let worker = worker(Duration::from_millis(200), 10);
+        for _ in 0..DEATHS {
+            let stalled = worker
+                .call_blaming(None, &Request::Stall(30_000), blame)
+                .await;
+            assert_eq!(stalled, Err(CallError::Died(Death::TimedOut)), "{blame:?}");
+        }
+        let began = Instant::now();
+        worker
+            .call(None, &Request::Stall(0))
+            .await
+            .expect("the next worker answers");
+        let took = began.elapsed();
+        assert_eq!(
+            took >= Duration::from_millis(1500),
+            waits,
+            "{blame:?}: started in {took:?}"
+        );
+        worker.end().await;
+    }
 }
 
 /// A caller that gives up waiting leaves the worker to finish the request: the next
@@ -542,6 +575,7 @@ async fn the_cost_of_taking_updates_is_measured() {
     let Answer::Opened {
         state: Some(state),
         state_bytes,
+        ..
     } = opened
     else {
         panic!("a document made from a body comes with its state: {opened:?}");

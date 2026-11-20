@@ -3,11 +3,11 @@
 //! what a sign-in knows of the account it ends in, with the address the provider
 //! vouches for. The sign-in is in `oidc.rs`.
 
-use fvoci_model::{Session, User, display_name, is_email_valid, new_id};
-use fvoci_store::{Applied, Identity, OidcAccount, StoreError, StoredProvider, Taken};
+use fvoci_model::{PersonName, Session, User, is_email_valid, new_id};
+use fvoci_store::{Identity, OidcAccount, StoreError, StoredProvider, Taken};
 
 use super::App;
-use super::oidc::{Ending, LoginFailure, logged, refused};
+use super::oidc::{Ended, Ending, LoginFailure, logged, refused};
 use crate::auth::oidc::provider::IdClaims;
 use crate::auth::secret::new_secret;
 use crate::error::Reason;
@@ -31,7 +31,7 @@ impl App {
         ending: Ending<'_>,
         session: &mut Session,
         digest: &str,
-    ) -> Result<Option<Applied>, LoginFailure> {
+    ) -> Result<Ended, LoginFailure> {
         let base = username_base(claims, email);
         for attempt in 0..3 {
             let username = if attempt == 0 {
@@ -48,11 +48,11 @@ impl App {
             let mut user = User {
                 id: new_id(),
                 username,
-                display_name: claims
-                    .name
-                    .as_deref()
-                    .and_then(|name| display_name(name).ok())
-                    .unwrap_or_default(),
+                name: PersonName::from_provider(
+                    claims.name.as_deref(),
+                    claims.given_name.as_deref(),
+                    claims.family_name.as_deref(),
+                ),
                 ..User::default()
             };
             let account = OidcAccount::New {
@@ -67,7 +67,10 @@ impl App {
                 Ok(Ok((_, applied))) => {
                     self.metrics().registered();
                     tracing::info!(user_id = %user.id, org_id = %stored.org_id, issuer = %stored.issuer, "an account was made at its first sign-in through a provider, and joined the organization");
-                    return Ok(applied);
+                    return Ok(Ended {
+                        applied,
+                        joined: true,
+                    });
                 }
                 Ok(Err(refusal)) => return Err(refused(refusal, stored)),
                 Err(StoreError::Conflict(Taken::Username)) => {}
@@ -152,6 +155,8 @@ mod tests {
             email: None,
             email_verified: None,
             name: None,
+            given_name: None,
+            family_name: None,
             preferred_username: preferred.map(str::to_owned),
         }
     }

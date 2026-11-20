@@ -27,6 +27,7 @@
     EDIT_LIMITS,
     editorAddress,
     EditingSession,
+    markedName,
     type EditedFile,
     type EditStatus,
     type SaveFailure,
@@ -53,9 +54,7 @@
 
   /** The name a file of its own is kept under: the edited file's, marked as an edit. */
   function apartName(name: string): string {
-    const dot = name.lastIndexOf('.');
-    const [stem, extension] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
-    return `${m.file_editor_apart_name({ stem })}${extension}`;
+    return markedName(name, (stem) => m.file_editor_apart_name({ stem }));
   }
 
   /** The header: where the focus goes when the writer asks out of the document (F6). */

@@ -8,6 +8,7 @@
 */
 :root {
   --page-shadow: 0 1px 3px color-mix(in srgb, CanvasText 25%, transparent);
+  --slide-hidden-edge: color-mix(in srgb, CanvasText 55%, transparent);
   color-scheme: light;
   font-family: 'Noto Sans KR', sans-serif;
 }
@@ -42,6 +43,39 @@ body {
 /* A slide is drawn at its own size and scaled to its box (pptx-view.ts). */
 .slide {
   overflow: hidden;
+}
+
+.slide[hidden] {
+  display: none;
+}
+
+/*
+  A slide hidden from a show, when the hidden slides are shown: faded, its
+  edge dashed, and a word over its upper right corner (not its colour
+  alone): in sight where the slide starts, off a title set to the left. Dark on the slide in either theme: a slide
+  keeps its own colours.
+*/
+.slide-hidden {
+  outline: 2px dashed var(--slide-hidden-edge);
+  outline-offset: 3px;
+}
+
+.slide-hidden > :not(.slide-mark) {
+  opacity: 0.45;
+}
+
+.slide-mark {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: black;
+  color: white;
+  font:
+    600 13px/1.4 'Noto Sans KR',
+    sans-serif;
 }
 
 .page canvas {

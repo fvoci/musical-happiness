@@ -160,7 +160,10 @@ async fn upload_file_reaching_the_max_file_size() {
     let response = upload(&ts.client, &board.id, "test.txt", b"test").await;
     response.check_request_entity_too_large();
     // Sending it in parts would not help: the file is over the limit of any upload.
-    assert_eq!(response.error_reason(), "");
+    assert_eq!(response.error_reason(), "file_too_large");
+    let problem = response.value();
+    assert_eq!(problem["type"], "/problems/file-too-large", "{problem}");
+    assert_eq!(problem["limit"], 1, "{problem}");
     ts.teardown().await;
 }
 
@@ -269,6 +272,90 @@ async fn upload_name_with_path_separators_is_reduced_to_its_base() {
     ts.teardown().await;
 }
 
+/// A name that ends in a directory names no file: what would be kept of it is blank,
+/// or a directory's own name. One longer than an upload in parts takes is refused as
+/// that refuses it.
+#[tokio::test]
+async fn an_upload_name_that_names_no_file_is_refused() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
+    let too_long = "가".repeat(256);
+    for name in [
+        "dir/",
+        "a/b/ ",
+        "/",
+        " ",
+        r"dir\",
+        ".",
+        "..",
+        "dir/..",
+        r"dir\.",
+        too_long.as_str(),
+    ] {
+        let response = upload(&ts.client, &board.id, name, b"x").await;
+        response.check_bad_request();
+        assert_eq!(response.refused_at(), "parameter file", "{name:?}");
+    }
+    // A name in a directory is its last segment, as before, and the longest is taken.
+    let longest = "가".repeat(255);
+    for name in ["dir/a.txt", r"dir\a.txt", "...", longest.as_str()] {
+        upload(&ts.client, &board.id, name, b"x")
+            .await
+            .check_created();
+    }
+    ts.teardown().await;
+}
+
+/// A download is offered under the name its file was uploaded with, also to who reads
+/// the board by its public link; the file id is the name for a reader that knows no
+/// `filename*`.
+#[tokio::test]
+async fn a_download_is_offered_under_the_name_of_the_upload() {
+    let ts = Setup::local_mode().start().await.init_basic().await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
+    let file_id = uploaded_id(&upload(&ts.client, &board.id, "docs/분기 보고서.pdf", b"pdf").await);
+    let expected = format!(
+        "attachment;filename=\"{file_id}\"; \
+         filename*=UTF-8''%EB%B6%84%EA%B8%B0%20%EB%B3%B4%EA%B3%A0%EC%84%9C.pdf"
+    );
+    let own = ts
+        .client
+        .get(&format!(
+            "{TEST_WS}/containers/{}/files/{file_id}",
+            board.id
+        ))
+        .await;
+    own.check_ok();
+    assert_eq!(own.header("content-disposition"), expected);
+
+    let shared = ts
+        .client
+        .post(
+            &format!("{TEST_WS}/containers/{}/sharing", board.id),
+            &json!({"enabled": true}),
+        )
+        .await;
+    shared.check_ok();
+    let read_token = shared.value()["token"]
+        .as_str()
+        .expect("a token")
+        .to_owned();
+    let by_link = ts
+        .anonymous()
+        .get(&format!(
+            "/shared/{}/files/{file_id}?readToken={read_token}",
+            board.id
+        ))
+        .await;
+    by_link.check_ok();
+    assert_eq!(by_link.header("content-disposition"), expected);
+    ts.teardown().await;
+}
+
 // -- info ------------------------------------------------------------------------------
 
 /// `TestFileInfo/"Retrieving file info"`: there is no info of a name no file has. (The
@@ -368,11 +455,12 @@ async fn download_has_the_originals_headers() {
     );
     assert_eq!(response.header("accept-ranges"), "bytes", "accept ranges");
     assert_eq!(response.header("content-length"), "20", "content length");
-    // The original builds the disposition from the name in the URL, which is the file id.
+    // Saved under the name it was uploaded with; the file id is for a reader that knows
+    // no `filename*`.
     assert_eq!(
         response.header("content-disposition"),
-        format!("attachment;filename=\"{file_id}\"; filename*=UTF-8''{file_id}"),
-        "the disposition names the file id"
+        format!("attachment;filename=\"{file_id}\"; filename*=UTF-8''pic.png"),
+        "the disposition names the file"
     );
     assert!(
         !response.header("last-modified").is_empty(),

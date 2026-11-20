@@ -5,7 +5,8 @@
  * `allow-same-origin`) and without the network. The app hands it a file's
  * bytes, the few words of its own it may show (`Labels`) and a few commands;
  * the frame answers with what the app shows around it: how many pages there
- * are (a workbook's are its sheets, which it names), which one is in view,
+ * are (a workbook's are its sheets, which it names; which of a deck's slides
+ * are hidden), which one is in view,
  * that it failed, the keys the reader pressed while the frame had the focus,
  * and that the reader asked for the file to download. Nothing else crosses.
  *
@@ -56,6 +57,8 @@ export interface Labels {
   pageTooLarge: string;
   /** The button there that saves the file. */
   download: string;
+  /** On a deck's hidden slide, when the hidden slides are shown. */
+  hidden: string;
 }
 
 /** The longest a label may be. */
@@ -77,12 +80,20 @@ export type ToFrame =
     }
   | { kind: 'page'; page: number }
   | { kind: 'zoom'; zoom: number }
-  | { kind: 'theme'; theme: Theme };
+  | { kind: 'theme'; theme: Theme }
+  /**
+   * Show a deck's hidden slides in place, or leave them out. The frame keeps
+   * the slide in view where it is (or, when it is left out, puts the slide
+   * the reader lands on in its place) and tells the page it is on.
+   */
+  | { kind: 'hidden'; shown: boolean };
 
 export type FromFrame =
   | { kind: 'ready' }
   /** A workbook's sheets, its pages in order: told before it is shown. */
   | { kind: 'sheets'; sheets: SheetSummary[] }
+  /** A deck's hidden slides, by number, in order: told before it is shown. */
+  | { kind: 'hidden'; pages: number[] }
   | { kind: 'shown'; pages: number }
   | { kind: 'page'; page: number }
   | { kind: 'failed'; reason: Failure }
@@ -113,13 +124,16 @@ const isLanguage = (value: unknown): value is string =>
 const isLabel = (value: unknown): value is string =>
   typeof value === 'string' && value !== '' && value.length <= LABEL_LIMIT;
 
-const LABEL_KEYS = ['chart', 'pageTooLarge', 'download'] as const;
+const LABEL_KEYS = ['chart', 'pageTooLarge', 'download', 'hidden'] as const;
 
 function readLabels(data: unknown): Labels | undefined {
   const fields = exactly(data, LABEL_KEYS);
   if (!fields || !LABEL_KEYS.every((key) => isLabel(fields[key]))) return undefined;
-  const { chart, pageTooLarge, download } = fields as Record<(typeof LABEL_KEYS)[number], string>;
-  return { chart, pageTooLarge, download };
+  const { chart, pageTooLarge, download, hidden } = fields as Record<
+    (typeof LABEL_KEYS)[number],
+    string
+  >;
+  return { chart, pageTooLarge, download, hidden };
 }
 
 const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T =>
@@ -141,6 +155,18 @@ function sheetsOf(data: unknown): SheetSummary[] | undefined {
   return read.every((sheet) => sheet !== undefined) ? read : undefined;
 }
 
+/** Page numbers, at least one and in order, each once. */
+function pagesOf(data: unknown): number[] | undefined {
+  const pages = exactly(data, ['kind', 'pages'])?.pages;
+  if (!Array.isArray(pages) || pages.length < 1 || pages.length > PAGE_LIMIT) return undefined;
+  let before = 0;
+  for (const page of pages) {
+    if (!isPage(page) || page <= before) return undefined;
+    before = page;
+  }
+  return pages as number[];
+}
+
 function kindOf(data: unknown): unknown {
   return typeof data === 'object' && data !== null ? (data as Fields).kind : undefined;
 }
@@ -153,6 +179,10 @@ export function readFromFrame(data: unknown): FromFrame | undefined {
     case 'sheets': {
       const sheets = sheetsOf(data);
       return sheets ? { kind: 'sheets', sheets } : undefined;
+    }
+    case 'hidden': {
+      const pages = pagesOf(data);
+      return pages ? { kind: 'hidden', pages } : undefined;
     }
     case 'shown': {
       const pages = exactly(data, ['kind', 'pages'])?.pages;
@@ -215,6 +245,10 @@ export function readToFrame(data: unknown): ToFrame | undefined {
     case 'theme': {
       const theme = exactly(data, ['kind', 'theme'])?.theme;
       return isTheme(theme) ? { kind: 'theme', theme } : undefined;
+    }
+    case 'hidden': {
+      const shown = exactly(data, ['kind', 'shown'])?.shown;
+      return typeof shown === 'boolean' ? { kind: 'hidden', shown } : undefined;
     }
     default:
       return undefined;

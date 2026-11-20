@@ -76,6 +76,7 @@ type Message = { workspaceId?: string } & (
   | { action: 'UPDATE_CONTAINER'; container: Schemas['Container'] }
   | { action: 'UPDATE_BLOCK'; block: Schemas['Block'] }
   | { action: 'UPDATE_MEMBER' | 'DELETE_MEMBER'; member: Schemas['ContainerMember'] }
+  | { action: 'UPDATE_USER'; userId: string }
   | { action: string }
 );
 
@@ -348,7 +349,9 @@ export class LiveChanges {
       this.#tellAll({ kind: 'resync' });
       return;
     }
-    if ('container' in message) {
+    if (message.action === 'UPDATE_USER' && 'userId' in message) {
+      this.#tellSelf({ kind: 'user', userId: message.userId });
+    } else if ('container' in message) {
       const { container } = message;
       // A deleted board or wiki carries only its identifier and times.
       const change: Change =

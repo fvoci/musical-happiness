@@ -29,6 +29,9 @@ pub struct Changed {
     pub repair: Repair,
     /// The size of its state ([`BodyDoc::state`]), in bytes.
     pub state_bytes: usize,
+    /// The most changes one of its clients has, deleted ones too
+    /// ([`crate::MAX_CLIENT_CHANGES`]).
+    pub client_changes: u64,
 }
 
 impl Default for BodyDoc {
@@ -78,6 +81,12 @@ impl BodyDoc {
         state_of(&self.doc)
     }
 
+    /// How many clients the document names: each that wrote to it.
+    #[must_use]
+    pub fn clients(&self) -> usize {
+        self.doc.transact().state_vector().len()
+    }
+
     /// The state vector of the document, version 1: what it has of each client.
     #[must_use]
     pub fn state_vector(&self) -> Vec<u8> {
@@ -111,8 +120,22 @@ impl From<crate::Taken> for Changed {
             doc: BodyDoc { doc: taken.doc },
             repair: taken.repair,
             state_bytes: taken.state_bytes,
+            client_changes: taken.client_changes,
         }
     }
+}
+
+/// The most changes one client has in a document's `state`, deleted ones too
+/// ([`crate::MAX_CLIENT_CHANGES`]): for a document that was not taken
+/// ([`BodyDoc::from_body`]), as [`Changed::client_changes`] is for one that was.
+///
+/// # Errors
+///
+/// Returns [`UpdateError::Unreadable`] if the bytes are no state the crate reads.
+pub fn client_changes(state: &[u8]) -> Result<u64, UpdateError> {
+    crate::scan::check(state)
+        .map(|walked| walked.most)
+        .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))
 }
 
 /// Reads a state vector from anybody. The library reserves room for as many entries as

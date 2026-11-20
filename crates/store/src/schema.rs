@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 43] = [
+const STEPS: [Step; 47] = [
     Step {
         version: 1,
         description: "baseline",
@@ -294,9 +294,33 @@ const STEPS: [Step; 43] = [
     },
     Step {
         version: 45,
+        description: "person names",
+        sqlite: include_str!("../schema/sqlite/0045_person_names.sql"),
+        postgres: include_str!("../schema/postgres/0045_person_names.sql"),
+    },
+    Step {
+        version: 46,
+        description: "nameless shown by name",
+        sqlite: include_str!("../schema/sqlite/0046_nameless_shown_by_name.sql"),
+        postgres: include_str!("../schema/postgres/0046_nameless_shown_by_name.sql"),
+    },
+    Step {
+        version: 47,
+        description: "template files",
+        sqlite: include_str!("../schema/sqlite/0047_template_files.sql"),
+        postgres: include_str!("../schema/postgres/0047_template_files.sql"),
+    },
+    Step {
+        version: 48,
+        description: "welcomed accounts",
+        sqlite: include_str!("../schema/sqlite/0048_welcomed_accounts.sql"),
+        postgres: include_str!("../schema/postgres/0048_welcomed_accounts.sql"),
+    },
+    Step {
+        version: 49,
         description: "file versions",
-        sqlite: include_str!("../schema/sqlite/0045_file_versions.sql"),
-        postgres: include_str!("../schema/postgres/0045_file_versions.sql"),
+        sqlite: include_str!("../schema/sqlite/0049_file_versions.sql"),
+        postgres: include_str!("../schema/postgres/0049_file_versions.sql"),
     },
 ];
 

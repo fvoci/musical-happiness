@@ -234,6 +234,14 @@
     "content_type": "application/json",
     "body": [
       {
+        "containerId": "<id:7>",
+        "schemeAdmin": true,
+        "schemeCommenter": false,
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "userId": "<id:5>"
+      },
+      {
         "containerId": "<id:3>",
         "schemeAdmin": false,
         "schemeCommenter": false,
@@ -468,7 +476,7 @@
       "deleteAt": 0,
       "description": "",
       "icon": "",
-      "id": "<id:7>",
+      "id": "<id:8>",
       "isBuiltin": false,
       "isTemplate": false,
       "kind": "board",
@@ -485,7 +493,7 @@
   },
   {
     "name": "minimum role: none",
-    "request": "PATCH /api/v1/w/<id:1>/containers/<id:7> as members-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers/<id:8> as members-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -506,7 +514,7 @@
   },
   {
     "name": "minimum role: admin",
-    "request": "PATCH /api/v1/w/<id:1>/containers/<id:7> as members-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers/<id:8> as members-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -548,7 +556,7 @@
   },
   {
     "name": "minimum role: commenter",
-    "request": "PATCH /api/v1/w/<id:1>/containers/<id:7> as members-alice",
+    "request": "PATCH /api/v1/w/<id:1>/containers/<id:8> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -558,7 +566,7 @@
       "deleteAt": 0,
       "description": "",
       "icon": "",
-      "id": "<id:7>",
+      "id": "<id:8>",
       "isBuiltin": false,
       "isTemplate": false,
       "kind": "board",
@@ -575,11 +583,11 @@
   },
   {
     "name": "add below the minimum role: admin adds a viewer",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:7>/members as members-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:8>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "containerId": "<id:7>",
+      "containerId": "<id:8>",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": false,
@@ -589,7 +597,7 @@
   },
   {
     "name": "a viewer on the board cannot comment",
-    "request": "POST /api/v1/w/<id:1>/boards/<id:7>/blocks as members-bob",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:8>/blocks as members-bob",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -603,11 +611,11 @@
   },
   {
     "name": "join again: raised to the minimum role",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:7>/join as members-bob",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:8>/join as members-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "containerId": "<id:7>",
+      "containerId": "<id:8>",
       "schemeAdmin": false,
       "schemeCommenter": true,
       "schemeEditor": false,
@@ -617,11 +625,11 @@
   },
   {
     "name": "join once more: nothing changes",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:7>/join as members-bob",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:8>/join as members-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "containerId": "<id:7>",
+      "containerId": "<id:8>",
       "schemeAdmin": false,
       "schemeCommenter": true,
       "schemeEditor": false,
@@ -631,11 +639,11 @@
   },
   {
     "name": "join: a new member gets the minimum role",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:7>/join as members-carol",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:8>/join as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "containerId": "<id:7>",
+      "containerId": "<id:8>",
       "schemeAdmin": false,
       "schemeCommenter": true,
       "schemeEditor": false,
@@ -645,11 +653,11 @@
   },
   {
     "name": "make an editor",
-    "request": "PUT /api/v1/w/<id:1>/containers/<id:7>/members/<id:6> as members-alice",
+    "request": "PUT /api/v1/w/<id:1>/containers/<id:8>/members/<id:6> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "containerId": "<id:7>",
+      "containerId": "<id:8>",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": true,
@@ -659,11 +667,11 @@
   },
   {
     "name": "join above the minimum role: not lowered",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:7>/join as members-carol",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:8>/join as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "containerId": "<id:7>",
+      "containerId": "<id:8>",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": true,
@@ -673,11 +681,11 @@
   },
   {
     "name": "join: the admin stays the admin",
-    "request": "POST /api/v1/w/<id:1>/containers/<id:7>/join as members-alice",
+    "request": "POST /api/v1/w/<id:1>/containers/<id:8>/join as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "containerId": "<id:7>",
+      "containerId": "<id:8>",
       "schemeAdmin": true,
       "schemeCommenter": false,
       "schemeEditor": true,
@@ -687,12 +695,12 @@
   },
   {
     "name": "members of the role board",
-    "request": "GET /api/v1/w/<id:1>/containers/<id:7>/members as members-alice",
+    "request": "GET /api/v1/w/<id:1>/containers/<id:8>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
-        "containerId": "<id:7>",
+        "containerId": "<id:8>",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
@@ -700,7 +708,7 @@
         "userId": "<id:2>"
       },
       {
-        "containerId": "<id:7>",
+        "containerId": "<id:8>",
         "schemeAdmin": false,
         "schemeCommenter": true,
         "schemeEditor": false,
@@ -708,7 +716,7 @@
         "userId": "<id:5>"
       },
       {
-        "containerId": "<id:7>",
+        "containerId": "<id:8>",
         "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": true,

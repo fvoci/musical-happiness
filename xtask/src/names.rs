@@ -1,7 +1,7 @@
-//! `cargo xtask check`, the step "names": the name the original gave the workspace.
+//! `cargo xtask check`, the step "names": the former name of the workspace.
 //!
-//! The original gives a workspace the name [`FORMER`]; here it is a workspace
-//! everywhere, and that name will be a group of people's. It is refused in any case, in
+//! A workspace once had the name [`FORMER`]; it is a workspace everywhere now, and
+//! that name will be a group of people's. It is refused in any case, in
 //! plurals and compounds, in every file git tracks or would track but the web app's,
 //! which its own check holds to a list of its own. What stays is listed in
 //! [`EXCEPTIONS`], each under the reason it stays; an entry that nothing needs any more
@@ -78,7 +78,7 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         steps::say(&format!("    {line}"));
     }
     steps::say(&format!(
-        "    a workspace is a workspace; what keeps the original's name is listed in {EXCEPTIONS} with its reason"
+        "    a workspace is a workspace; what keeps the former name is listed in {EXCEPTIONS} with its reason"
     ));
     bail!(
         "{} places have {FORMER}, {} exceptions are stale",
@@ -129,9 +129,20 @@ fn parse(listed: &str) -> Result<Vec<Exception>> {
 }
 
 /// The files git tracks or would track, by their paths from the root.
-fn tracked_files(root: &Path) -> Result<Vec<String>> {
+///
+/// The paths are asked for as they are written, ended by a NUL: listed by lines, git
+/// quotes a path that has a letter outside ASCII, and the quoted path names no file.
+pub(crate) fn tracked_files(root: &Path) -> Result<Vec<String>> {
     let output = Command::new("git")
-        .args(["ls-files", "--cached", "--others", "--exclude-standard"])
+        .args([
+            "-c",
+            "core.quotePath=false",
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ])
         .current_dir(root)
         .output()
         .context("running git ls-files")?;
@@ -142,7 +153,11 @@ fn tracked_files(root: &Path) -> Result<Vec<String>> {
         );
     }
     let listed = String::from_utf8(output.stdout).context("git lists the files as text")?;
-    let mut files: Vec<String> = listed.lines().map(str::to_owned).collect();
+    let mut files: Vec<String> = listed
+        .split('\0')
+        .filter(|file| !file.is_empty())
+        .map(str::to_owned)
+        .collect();
     files.sort();
     Ok(files)
 }
@@ -221,7 +236,7 @@ fn matches_name(pattern: &str, name: &str) -> bool {
 /// link to a folder, as the skills' under `.claude/skills/`, has no text of its own),
 /// a file its bytes read as text whatever their encoding, as the web app's check reads,
 /// and a file deleted from the working tree none, though its name is still checked.
-fn tracked_text(path: &Path) -> std::io::Result<String> {
+pub(crate) fn tracked_text(path: &Path) -> std::io::Result<String> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_symlink() => {
             Ok(std::fs::read_link(path)?.to_string_lossy().into_owned())

@@ -30,9 +30,10 @@ pub struct CollabSettings {
     /// How many worker processes hold the documents. 1 to 64.
     pub collab_workers: u32,
     /// How many documents one worker holds at once. At least 1. A worker also holds no
-    /// more of their states, together, than an eighth of `collab_worker_memory_bytes`.
+    /// more of their states, together, than its memory has room for
+    /// ([`CollabSettings::held_bytes`]).
     pub collab_documents_per_worker: u32,
-    /// The largest document, in bytes of its stored state. 2 MiB to 1 GiB.
+    /// The largest document, in bytes of its stored state. 8 MiB to 1 GiB.
     pub collab_state_bytes: u64,
     /// The largest update a client sends, in bytes. At least 1, at most
     /// `collab_state_bytes`.
@@ -41,7 +42,8 @@ pub struct CollabSettings {
     /// kills the worker and starts another. At least 1.
     pub collab_worker_timeout_ms: u64,
     /// The address space a worker may take, in bytes, where the system limits it
-    /// (Unix). At least 256 MiB.
+    /// (Unix). At least 512 MiB, and room for a document of `collab_state_bytes`
+    /// ([`CollabSettings::held_bytes`]).
     pub collab_worker_memory_bytes: u64,
     /// How often, in seconds, the server asks again whether each connection in the
     /// room of a body may be there, and how. 1 to 3600.
@@ -72,27 +74,33 @@ pub struct CollabSettings {
     pub worker_command: Option<crate::collab::worker::WorkerCommand>,
 }
 
-/// The default of `collab_state_bytes`: 8 MiB.
+/// The default of `collab_state_bytes`: 8 MiB. The largest document of a body is 7.4 MB
+/// (letters of five marks in turn with letters of none): 88% of this, which it starts
+/// at and is not made again for until it grew by a quarter. Of 4 MiB of text it is 4.2
+/// MB, of 50,000 nodes 1.3 MB. Others are made again from their body at three quarters
+/// of this. It is no larger because a worker pays for a state of
+/// many small changes in memory far more than for its bytes ([`MEMORY_PER_STATE_BYTE`]).
 pub(super) const DEFAULT_STATE_BYTES: u64 = 8 * 1024 * 1024;
 
-/// The default of `collab_update_bytes`: 64 KiB. An update made to place many changes
-/// where many others claim the same place costs the worker the square of its size.
+/// The default of `collab_update_bytes`: 64 KiB. What an update of this size may be
+/// made to cost a worker is held by the steps its changes take to place: changes
+/// walked past and letters cut (`fvoci_collab::PLACING_STEPS`), not by its size.
 pub(super) const DEFAULT_UPDATE_BYTES: u64 = 64 * 1024;
 
 /// The most workers.
 pub(super) const MOST_WORKERS: u32 = 64;
 
-/// The least `collab_state_bytes`: a body may be 1 MiB of JSON, and its document is
-/// larger than that.
-pub(super) const LEAST_STATE_BYTES: u64 = 2 * 1024 * 1024;
+/// The least `collab_state_bytes`: a body may be 4 MiB of JSON, its document is
+/// larger than that, and it grows by what is deleted from it until it is made again.
+pub(super) const LEAST_STATE_BYTES: u64 = 8 * 1024 * 1024;
 
 /// The most `collab_state_bytes`: a frame between the server and a worker counts its
 /// length in four bytes.
 pub(super) const MOST_STATE_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// The least `collab_worker_memory_bytes`: the executable and a document at its limit,
-/// with the copies an update makes of it.
-pub(super) const LEAST_WORKER_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
+/// The least `collab_worker_memory_bytes`: [`UPDATE_MEMORY_BYTES`] and a document of
+/// the least `collab_state_bytes`.
+pub(super) const LEAST_WORKER_MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// The least `collab_frames_per_second`: a connection comes into a room (which
 /// counts as five) and writes at once.
@@ -118,11 +126,32 @@ pub(super) const MOST_BODY_VERSIONS: u32 = 1000;
 /// The most `collab_version_minutes`: a day.
 pub(super) const MOST_VERSION_MINUTES: u32 = 24 * 60;
 
-/// How many bytes of a worker's memory every byte of the states of its documents
-/// takes: a document in memory is larger than its state, and an update makes a copy of
-/// it and reads its state again. A worker holds states of `collab_worker_memory_bytes`
-/// divided by this, together.
-pub(super) const MEMORY_PER_STATE_BYTE: u64 = 8;
+/// How many bytes of a worker's memory every byte of the states of the documents it
+/// holds takes: a document of nodes in memory is 20 to 25 times its state (27 MB for
+/// the 1.3 MB of 50,000 nodes; a document of text is little more than its state), as
+/// the program asks for it, and what the allocator keeps around that comes on top.
+///
+/// A state of many changes of a few bytes each takes more than this (a change is some
+/// hundred bytes in memory however short), which is not counted: it is what a client
+/// makes on purpose, and the worker that runs out of memory for it is started again.
+pub(super) const MEMORY_PER_STATE_BYTE: u64 = 32;
+
+/// The memory of a worker that is kept free of the documents it holds, for the one
+/// update it takes at a time: an update makes a copy of its document, reads the copy
+/// again from its state, and a repair does both once more. It goes with the changes of
+/// the document: for a body of 50,000 nodes that is 187 MB above the document (39 MB
+/// for 4 MiB of text), and for the body that takes the most (of the bodies measured:
+/// letters of five marks in turn with formulas, a state of 5.9 MB held in 103 MB) 380
+/// MB for a letter typed and 721 MB to repair an update. Every body is so taken, by a
+/// worker that holds as many documents as it counts room for; the executable and what
+/// the allocator keeps come on top.
+///
+/// A state grown by what was deleted from it takes more than its body: 414 MB to repair
+/// an update for one of 5.8 MB of deleted nodes, 788 MB for one of 6 MB of deleted
+/// texts. That is not counted, as [`MEMORY_PER_STATE_BYTE`] does not count it: the
+/// worker that runs out of memory for it is started again, and the sender of the update
+/// it was taking is held back for a little while (`collab::senders`).
+pub(super) const UPDATE_MEMORY_BYTES: u64 = 768 * 1024 * 1024;
 
 impl Default for CollabSettings {
     fn default() -> Self {
@@ -132,7 +161,7 @@ impl Default for CollabSettings {
             collab_state_bytes: DEFAULT_STATE_BYTES,
             collab_update_bytes: DEFAULT_UPDATE_BYTES,
             collab_worker_timeout_ms: 10_000,
-            collab_worker_memory_bytes: 1024 * 1024 * 1024,
+            collab_worker_memory_bytes: 1536 * 1024 * 1024,
             collab_recheck_seconds: 30,
             collab_documents_per_connection: 8,
             collab_connections_per_document: 50,
@@ -147,10 +176,14 @@ impl Default for CollabSettings {
 }
 
 impl CollabSettings {
-    /// The bytes of the states of all its documents a worker may hold together.
+    /// The bytes of the states of all its documents a worker may hold together: what
+    /// of its memory is not kept for the update it takes (768 MiB), divided by what a
+    /// byte of a state takes in memory (32). 24 MiB with the memory of the default.
     #[must_use]
     pub fn held_bytes(&self) -> u64 {
-        self.collab_worker_memory_bytes / MEMORY_PER_STATE_BYTE
+        self.collab_worker_memory_bytes
+            .saturating_sub(UPDATE_MEMORY_BYTES)
+            / MEMORY_PER_STATE_BYTE
     }
 
     /// How long after the first change no version of a body holds the next is due.
@@ -190,10 +223,13 @@ impl CollabSettings {
         if self.collab_worker_timeout_ms == 0 {
             bail!("collab_worker_timeout_ms must be at least 1");
         }
-        if self.collab_worker_memory_bytes / MEMORY_PER_STATE_BYTE < self.collab_state_bytes {
+        if self.held_bytes() < self.collab_state_bytes {
             bail!(
-                "collab_worker_memory_bytes must be at least {MEMORY_PER_STATE_BYTE} times \
-                 collab_state_bytes ({}), not {}",
+                "collab_worker_memory_bytes must be at least {} ({UPDATE_MEMORY_BYTES} and \
+                 {MEMORY_PER_STATE_BYTE} times collab_state_bytes, {}), not {}",
+                self.collab_state_bytes
+                    .saturating_mul(MEMORY_PER_STATE_BYTE)
+                    .saturating_add(UPDATE_MEMORY_BYTES),
                 self.collab_state_bytes,
                 self.collab_worker_memory_bytes
             );
@@ -300,6 +336,34 @@ mod tests {
             "collab_worker_memory_bytes",
         );
         refused(|s| s.collab_recheck_seconds = 0, "collab_recheck_seconds");
+    }
+
+    /// A worker's memory has room for the update it takes and for a document at its
+    /// limit: a state of the default is held with the least memory, and a larger one
+    /// only with more.
+    #[test]
+    fn the_memory_of_a_worker_has_room_for_a_document_at_its_limit() {
+        let defaults = CollabSettings::default();
+        assert_eq!(defaults.held_bytes(), 24 * 1024 * 1024);
+        let with = |state: u64, memory: u64| CollabSettings {
+            collab_state_bytes: state,
+            collab_worker_memory_bytes: memory,
+            ..CollabSettings::default()
+        };
+        let least = with(LEAST_STATE_BYTES, LEAST_WORKER_MEMORY_BYTES);
+        least.check().expect("the least of both");
+        assert!(least.held_bytes() >= LEAST_STATE_BYTES);
+        let needed = |state: u64| UPDATE_MEMORY_BYTES + MEMORY_PER_STATE_BYTE * state;
+        let larger = 64 * 1024 * 1024;
+        with(larger, needed(larger)).check().expect("room for it");
+        let error = with(larger, needed(larger) - 1)
+            .check()
+            .expect_err("a byte short")
+            .to_string();
+        assert!(
+            error.contains(&format!("at least {}", needed(larger))),
+            "{error}"
+        );
     }
 
     #[test]

@@ -74,7 +74,8 @@ import { downloadWithProgress } from './download.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
 import { ServerRequests, underWorkspace } from './requests.ts';
-import { importInParts, uploadInParts } from './upload.ts';
+import { makeWelcomeBoard, templatesOf } from './templates.ts';
+import { importInParts, tooLarge, uploadInParts } from './upload.ts';
 
 /** How many files go up at once; the server allows a reader 8 open uploads. */
 const UPLOADS_AT_ONCE = 3;
@@ -84,13 +85,13 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /** The last change of each card or view on its way, settled either way (`#inTurn`). */
   readonly #writes = new Map<string, Promise<void>>();
 
-  /** `basePath` is the path the app is served under (`<meta name="fvoci:base">`). */
   readonly #live: LiveChanges;
   readonly presence: Backend['presence'];
   readonly search: Backend['search'];
   /** The server's settings for clients, read once. */
   readonly #config: ClientConfig;
 
+  /** `basePath` is the path the app is served under. */
   constructor(basePath: string) {
     const http = new Http(basePath);
     super(http);
@@ -232,11 +233,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return boards.map(containerOf);
   }
 
-  async templates(workspaceId: string): Promise<Container[]> {
-    const boards = await this.#http.request<Schemas['Container'][]>(underWorkspace('/templates'), {
-      workspaceId,
-    });
-    return boards.map(containerOf);
+  templates(workspaceId: string): Promise<Container[]> {
+    return templatesOf(this.#http, workspaceId);
   }
 
   /** `duplicateContainer` into the workspace `to` (`toWorkspace`). The copy is the first board of the answer. */
@@ -251,13 +249,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return containerOf(board);
   }
 
-  async onboard(workspaceId: string): Promise<string> {
-    const started = await this.#http.request<Schemas['OnboardingStart']>(
-      underWorkspace('/onboard'),
-      { workspaceId },
-      { method: 'POST' },
-    );
-    return started.boardId;
+  onboard(workspaceId: string): Promise<string> {
+    return makeWelcomeBoard(this.#http, workspaceId);
   }
 
   /** To the server's trash, with its blocks and members (`deleteContainer`, board admins only). */
@@ -819,12 +812,12 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /**
    * Uploads a file in parts (`upload.ts`). A file over the server's limit
    * (`getClientConfig`'s `maxFileBytes`) is refused before anything is sent,
-   * with the limit, as the server would refuse it (413).
+   * with the limit and the reason, as the server would refuse it (413).
    */
   async upload(containerId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {
     const limit = (await this.#config.read()).maxFileBytes;
     if (file.size > limit) {
-      throw new BackendError(413, { detail: 'the file is too large', limit });
+      throw tooLarge('file', limit);
     }
     // A few at a time: the server keeps only so many open uploads of a reader (429).
     await this.#uploadTurn(options?.signal);
@@ -896,12 +889,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
     const limit = (await this.#config.read()).maxImportBytes;
     if (file.size > limit) {
-      // The reason is this app's: the server's 413 may count entries, this one counts bytes.
-      throw new BackendError(413, {
-        detail: 'the archive is too large',
-        reason: 'over_import_limit',
-        limit,
-      });
+      throw tooLarge('archive', limit);
     }
     await this.#uploadTurn(options?.signal);
     try {

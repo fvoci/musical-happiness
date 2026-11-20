@@ -113,6 +113,22 @@ const MIME: Record<EditFormat, string> = {
   hwpx: 'application/hwp+zip',
 };
 
+/** The longest name the server takes for a file, in characters. */
+export const NAME_LIMIT = 255;
+
+/**
+ * The name a file of its own is kept under: `name` with its stem marked as an edit by
+ * `mark`, its extension kept, and the stem cut short where the whole would be longer
+ * than the server takes.
+ */
+export function markedName(name: string, mark: (stem: string) => string): string {
+  const dot = name.lastIndexOf('.');
+  const [stem, extension] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+  const over = Array.from(mark(stem) + extension).length - NAME_LIMIT;
+  const kept = over > 0 ? Array.from(stem).slice(0, -over).join('') : stem;
+  return mark(kept) + extension;
+}
+
 /** The address of the editor's frame: the editor's profile for a host that owns opening and saving. */
 export function editorAddress(document: Document): string {
   return `${frameAddress(document).replace('viewer-frame.html', 'editor-frame.html')}?chrome=embed`;

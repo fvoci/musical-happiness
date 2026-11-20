@@ -597,7 +597,7 @@ impl App {
 
 /// The record of a file of `container_id` of `size` bytes stored at `place`, made now,
 /// that `user_id` uploaded (empty for nobody known).
-fn file_info(container_id: &str, place: FilePlace, size: u64, user_id: &str) -> FileInfo {
+pub(super) fn file_info(container_id: &str, place: FilePlace, size: u64, user_id: &str) -> FileInfo {
     FileInfo {
         id: new_id(),
         container_id: container_id.to_owned(),

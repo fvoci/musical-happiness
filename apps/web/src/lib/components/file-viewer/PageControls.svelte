@@ -28,9 +28,9 @@
 <footer class="flex min-h-12 items-center justify-center gap-1 border-t p-1">
   <IconButton
     label={previous}
-    disabled={session.page <= 1}
+    disabled={!session.canTurn(-1)}
     onclick={() => {
-      session.goTo(session.page - 1);
+      session.turn(-1);
     }}
   >
     <ChevronLeftIcon aria-hidden="true" />
@@ -41,9 +41,9 @@
   </p>
   <IconButton
     label={next}
-    disabled={session.page >= session.pages}
+    disabled={!session.canTurn(1)}
     onclick={() => {
-      session.goTo(session.page + 1);
+      session.turn(1);
     }}
   >
     <ChevronRightIcon aria-hidden="true" />

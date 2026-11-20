@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   EditingSession,
   editorAddress,
+  markedName,
+  NAME_LIMIT,
   type EditedFile,
   type EditLimits,
 } from '$lib/file-viewer/editing.svelte.ts';
@@ -492,5 +494,24 @@ describe('a file that got a newer version while it was edited', () => {
     await settled();
     expect(session.saving).toEqual({ name: 'failed', reason: 'refused' });
     expect(session.saved).toBeUndefined();
+  });
+});
+
+describe('the name of an edit kept as a file of its own', () => {
+  const mark = (stem: string): string => `${stem} (편집본)`;
+
+  it('marks the stem and keeps the extension', () => {
+    expect(markedName('회의록.hwpx', mark)).toBe('회의록 (편집본).hwpx');
+    expect(markedName('.hwp', mark)).toBe('.hwp (편집본)');
+    expect(markedName('메모', mark)).toBe('메모 (편집본)');
+  });
+
+  it('cuts the stem, by characters, so that the whole is no longer than the server takes', () => {
+    const long = `${'가'.repeat(NAME_LIMIT - 6)}😀.hwpx`;
+    const marked = markedName(long, mark);
+    expect(Array.from(marked)).toHaveLength(NAME_LIMIT);
+    expect(marked.endsWith(' (편집본).hwpx')).toBe(true);
+    // A character is cut whole, not a half of its pair.
+    expect(marked).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u);
   });
 });

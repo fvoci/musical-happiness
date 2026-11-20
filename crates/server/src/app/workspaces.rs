@@ -1,10 +1,12 @@
-//! Workspaces: which a user is a member of and the way into one. And the way
-//! into an organization: for its administrators, and for a sign-in through its
-//! provider.
+//! Workspaces: which a user is a member of and the way into one, and what is told in
+//! each of a user's. And the way into an organization: for its administrators, and for
+//! a sign-in through its provider.
 
 use std::collections::HashSet;
 
-use fvoci_model::{Container, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole};
+use fvoci_model::{
+    Container, ContainerKind, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole,
+};
 use fvoci_store::{PublicContainers, Tenant};
 
 use super::{App, Asker, as_managed, sso};
@@ -155,6 +157,37 @@ impl App {
             .transpose()
     }
 
+    /// Tells, in each workspace the user is a member of in any organization, whoever
+    /// follows it and sees the user that their name changed.
+    pub(super) fn broadcast_person_change_in_background(&self, user_id: String) {
+        let app = self.clone();
+        self.spawn_background(async move {
+            let workspaces = match app.store().workspaces_of_user(&user_id, None).await {
+                Ok(workspaces) => workspaces,
+                Err(error) => {
+                    tracing::error!(%error, user_id = %user_id, "reading the workspaces of a renamed user failed");
+                    return;
+                }
+            };
+            for workspace in workspaces {
+                match app.in_organization(&workspace.org_id) {
+                    Ok(scoped) => {
+                        scoped
+                            .ws()
+                            .broadcast_person_change(&workspace.id, &user_id)
+                            .await;
+                    }
+                    Err(error) => tracing::error!(
+                        %error,
+                        user_id = %user_id,
+                        org_id = %workspace.org_id,
+                        "a renamed user's organization"
+                    ),
+                }
+            }
+        });
+    }
+
     /// The application behind the wall of the organization the store named.
     pub(crate) fn in_organization(&self, org_id: &str) -> Result<Self, AppError> {
         // What the store answered is an identifier; one that is none is the server's
@@ -164,6 +197,42 @@ impl App {
                 .context("the organization of a row as the store has it")
         })?;
         Ok(self.scoped(tenant))
+    }
+
+    /// [`App::kind_of_admitted`] asked behind the wall of `org_id`, the organization the
+    /// store said an account just confirmed is of.
+    ///
+    /// # Errors
+    ///
+    /// Returns an internal error if `org_id` is no identifier.
+    pub(super) async fn kind_of_admitted_in(
+        &self,
+        org_id: &str,
+        container_id: Option<&str>,
+    ) -> Result<Option<ContainerKind>, AppError> {
+        let within = self.in_organization(org_id)?;
+        Ok(within.kind_of_admitted(container_id).await)
+    }
+
+    /// [`App::welcome_member`] behind the wall of `org_id`, the organization the store
+    /// said an account just confirmed came into as a member.
+    pub(super) async fn welcome_member_in(
+        &self,
+        org_id: &str,
+        user_id: &str,
+        workspace_id: &str,
+        accept_language: Option<&str>,
+    ) {
+        match self.in_organization(org_id) {
+            Ok(within) => {
+                within
+                    .welcome_member(user_id, workspace_id, accept_language)
+                    .await;
+            }
+            Err(error) => {
+                tracing::warn!(user_id, %error, "a new member was not given their welcome board");
+            }
+        }
     }
 
     /// Whether the user works in the workspace: a member of the workspace who is no guest.

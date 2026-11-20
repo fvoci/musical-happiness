@@ -36,6 +36,7 @@ mod org_admin;
 mod organization;
 mod page;
 mod page_tree;
+mod person_name;
 mod problem;
 mod refusal;
 mod relation;
@@ -53,6 +54,7 @@ pub use account_deletion::{
     ACCOUNT_DELETION_GRACE_DAYS, AccountDeletion, AccountDeletionAsked, DeleteAccountRequest,
     DeletionProof, Leaving, LeavingOrganization, OrganizationName,
 };
+pub use allowlist::body_node_types;
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
     AuthParamError, ChangePasswordRequest, DISPLAY_NAME_MAX_LENGTH, LoginRequest,
@@ -95,7 +97,8 @@ pub use containers_and_blocks::{
     renew_containers_and_blocks_ids, renew_containers_and_blocks_ids_told,
 };
 pub use date_value::{
-    DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
+    DateValueError, check_date_value, date_property_ids, day_at, days_between, move_dates,
+    rewrite_previous_date_values,
 };
 pub use deleted_item::DeletedItem;
 pub use file_info::{FileInfo, FileKey, is_storage_path};
@@ -125,6 +128,10 @@ pub use page::{
     PageMove, PageNode, PagePatch, order_between, sort_pages,
 };
 pub use page_tree::{DEFAULT_PAGE_DEPTH, DEFAULT_WIKI_PAGES, PageLimits, PageTree, Place};
+pub use person_name::{
+    Credential, MAX_CREDENTIALS, NAME_PART_MAX_LENGTH, NameShown, PersonName, PersonNameChange,
+    Title, UnknownCode,
+};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{

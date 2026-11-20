@@ -13,9 +13,9 @@
   | 쪽 | 명령 | 명령의 설명과 기대 결과 |
   |---|---|---|
   | 서버 | `cargo xtask check`, `cargo xtask test` | 이 문서의 1절 |
-  | 웹앱 | `pnpm install --frozen-lockfile` 뒤에 `pnpm --filter web run check`, `test`, `build`, `e2e` | `apps/web/PORTING.md`의 "검증 명령"과 "마지막 검증". `pnpm`을 놓는 법은 `apps/web/docs/handoff.md`의 "도구가 있는 곳" |
+  | 웹앱 | `pnpm install --frozen-lockfile` 뒤에 `pnpm --filter web run check`, `test`, `build`, `e2e` | `apps/web/docs/notes.md`의 "검증 명령". `pnpm`을 놓는 법은 `apps/web/docs/handoff.md`의 "도구가 있는 곳" |
 
-- **보관 폴더.** 커밋되지 않는 파일은 이 기기의 보관 폴더(`musical-happiness-carry/`) 아래에 있다. `server/`에는 템플릿 아카이브와 조사 자료가, `web/`에는 글꼴 산출물과 그 원본, 마지막 검증의 출력이 있다. 새 워크트리에 놓는 명령은 각 폴더의 `README.md` 3절에 있다. 서버는 템플릿 아카이브 없이 컴파일되고(템플릿은 `crates/server/assets/templates/`에 있다), 웹앱은 글꼴을 놓으면 `build`가 글꼴을 받으러 네트워크에 나가지 않는다.
+- **보관 폴더.** 커밋되지 않는 파일은 이 기기의 보관 폴더(`musical-happiness-carry/`) 아래에 있다. `server/`에는 조사 자료가, `web/`에는 글꼴 산출물과 그 원본, 마지막 검증의 출력이 있다. 새 워크트리에 놓는 명령은 각 폴더의 `README.md` 3절에 있다. 서버는 그 폴더 없이 컴파일되고, 웹앱은 글꼴을 놓으면 `build`가 글꼴을 받으러 네트워크에 나가지 않는다.
 - **무시 규칙.** 저장소 루트의 `.gitignore`가 `target/`, `node_modules/`를 무시한다. 웹앱의 빌드 산출물과 글꼴은 `apps/web/.gitignore`가 맡는다.
 - **컨테이너.** 필요할 때 만들고 그 일이 끝나면 닫는다. `cargo xtask test`가 PostgreSQL과 S3 컨테이너를 스스로 준비하고, 돌린 세션이 일을 마칠 때 멈춘다(2절). 웹앱의 실서버 검증에는 PostgreSQL도 필요하다.
 
@@ -43,7 +43,7 @@
 
 - **작업 자리.** 저장소는 `fvoci/musical-happiness`(비공개)이고 브랜치는 `master`다. 일마다 `master`에서 워크트리를 새로 만들고 끝나면 `master`에 합친다.
 - **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다. 강제 푸시는 하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않는다.** 고칠 것은 새 커밋으로 얹는다.
-- **내장 템플릿은 `crates/server/assets/templates/` 한 곳에 있다.** 서버가 바이너리에 넣고 웹앱의 메모리 구현도 같은 파일을 읽는다. 글은 그 파일에서 고친다(그 폴더의 `README.md`). 새 워크트리에서도 그대로 컴파일된다. 변환기와 옛 아카이브는 더 없다.
+- **내장 템플릿은 `crates/server/assets/templates/` 한 곳에 있다.** 일곱 개가 한국어와 영어로 한 파일씩이고, 본문이 보이는 그림과 문서는 그 아래 `files/`에 있다. 서버가 바이너리에 넣는다. 글은 그 파일에서 고친다(그 폴더의 `README.md`). 웹앱의 메모리 구현은 제 폴더(`apps/web/src/lib/state/memory/seed/`)의 보드로 시작한다. 새 워크트리에서도 그대로 컴파일된다.
 - **CI.** 이 저장소에는 워크플로 파일이 없다. 검증은 1절의 명령을 손으로 돌린다.
 
 ## 이 문서가 담는 것
@@ -52,22 +52,18 @@
 
 | 알고 싶은 것 | 있는 곳 |
 |---|---|
-| 서버가 지금 어떻게 동작하나, 왜 그렇게 정했나, 리뷰의 지적과 처리, 남긴 문제 | `PORTING.md`의 "S6: 서버 정리"(A–Q절) |
 | 결정된 설계와 구현 순서 | `docs/s6-design.md` |
 | API의 계약 | `contracts/openapi.json` |
 | 계약에서 곧 바뀔 부분, 그대로 둔 불규칙, 알려진 결함 | `docs/contract-pending.md` |
-| 라우트와 영역별 세부, 결정 대기 항목의 지금 동작 | `crates/server/PORTING.md` |
-| 스토어, 모델 | `crates/store/PORTING.md`, `crates/model/PORTING.md` |
 | CDN과 프록시 뒤에 둘 때 | `docs/fvoci-cdn.md` |
 | 웹앱의 계획 | 저장소 밖, 사용자의 계획 폴더의 `fvoci-web-svelte.md` |
-| 웹앱의 편집기 스파이크, 날짜 모델, 계약에 대한 가정 | 웹앱의 문서 `apps/web/docs/spike-editor.md`, `apps/web/PORTING.md`, `apps/web/docs/contract-assumptions.md` |
-| 원본(Focalboard의 Go 서버)과 견줄 때 쓰던 도구 | 7절 |
+| 웹앱의 편집기 스파이크, 날짜 모델, 계약에 대한 가정 | 웹앱의 문서 `apps/web/docs/spike-editor.md`, `apps/web/docs/notes.md`, `apps/web/docs/contract-assumptions.md` |
 
 ## 1. 검증
 
 ```bash
 cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 층, 길이, 계약, 라이선스·권고. 외부 서비스 없음
-cargo xtask measure  # 길이의 예외 목록(xtask/exceptions/lengths.txt)을 지금 코드로 다시 쓴다. 천장을 올리는 유일한 길이고, 따로 잰 묶음들을 합친 뒤 한 번만 돌린다. 웹앱의 것은 pnpm --filter web run lengths:measure
+cargo xtask measure  # 길이의 예외 목록(xtask/exceptions/lengths.txt)을 지금 코드로 다시 쓴다. 따로 잰 묶음들을 합친 뒤 한 번만 돌린다. 웹앱의 것은 pnpm --filter web run lengths:measure
 cargo xtask test     # 컨테이너 준비 → SQLite 전체 → PostgreSQL(store, server) → S3 저장소 테스트
 cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르면 실패. --write 가 고쳐 쓴다
 ```
@@ -76,7 +72,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 
 | 무엇 | 결과 |
 |---|---|
-| `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(손으로는 줄이거나, 코드가 옮겨 간 파일로 줄을 함께 옮기기만 한다. 길이의 천장을 올리는 것은 `measure`뿐이다. 손으로 더한 줄이나 올린 수는 검사가 가려내지 못하므로 그 파일의 diff에서 본다) |
+| `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(손으로는 줄이거나, 코드가 옮겨 간 파일로 줄을 함께 옮긴다. 길이의 천장은 나누는 것이 먼저이고, 나누면 코드가 더 나빠질 때만 그 코드를 들이는 커밋에서 한 줄을 손으로, 검사가 찍은 길이로 올리거나 더하고, 커밋 본문에 증거를 적는다: 더한 코드가 무엇인지, 나눌 이음매와 그 비용. 검사는 올린 수를 가려내지 못하므로 합치는 쪽이 그 파일의 diff를 증거와 견준다) |
 | `cargo xtask test` | SQLite 1,367건, PostgreSQL 1,113건, S3 10건, 실패 0(2026-11-12 02:36 KST, `fvoci/files-fix`) |
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |
@@ -109,12 +105,12 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 2. 기록한다: `FVOCI_REGRESSION_UPDATE=1 cargo test -p fvoci-server --test regression`. 다시 쓴 파일마다 `recorded <파일>: CHANGED|unchanged|NEW (not compared)` 한 줄이 나온다. 이 실행은 무엇을 받든 통과하므로 검증이 아니다.
 3. `git diff -- crates/server/tests/regression/golden`을 **읽는다.** 단계별 요약은 `golden_diff.py <전 디렉터리> <뒤 디렉터리> [status|all]`로 뽑는다. 스크립트는 5절의 조사 자료에 있다. 전 것은 `git show <커밋>:<경로>`로 꺼낸다.
 4. 변수 없이 다시 돌려 통과를 확인하고, PostgreSQL에서도 돌린다(`cargo xtask test`). 한 DB에서 기록한 것이 다른 DB에서 어긋나면 그 응답의 순서나 값이 DB에 달린 것이다.
-5. 코드와 **같은 커밋**에 넣고, 무엇이 왜 바뀌었는지 `PORTING.md`에 적는다.
+5. 코드와 **같은 커밋**에 넣고, 무엇이 왜 바뀌었는지 커밋 메시지에 적는다.
 
 주의:
 
 - 변수는 정확히 `1`이어야 한다. 다른 값(`0`, `true`)은 오류이고 `CI`에서는 기록을 거부한다. 셸에 `export`해 두지 않는다.
-- 하네스는 목록을 **온 순서대로** 기록한다. 목록을 돌려주는 라우트마다 순서가 정해져 있고(`PORTING.md` M절, 계약의 라우트 설명) 스냅샷이 그 순서를 고정한다.
+- 하네스는 목록을 **온 순서대로** 기록한다. 목록을 돌려주는 라우트마다 순서가 정해져 있고(계약의 라우트 설명) 스냅샷이 그 순서를 고정한다.
 - 새 목록 라우트를 만들면 스토어의 쿼리에 순서를 넣고 `crates/store/tests/store/order.rs`에 테스트를 더한다. 순서 없는 목록은 두 DB에서 스냅샷이 어긋나는 것으로 드러난다.
 - 타임스탬프는 모두 `<ts>`, ID는 `<id:N>`, `requestId`는 `<request-id>`로 바뀐다. 응답 본문을 **문자열로** 기록하는 관찰 단계는 이 정규화를 지나지 않는다. 한 번 그래서 요청마다 다른 `requestId`가 스냅샷에 들어가 다음 실행이 실패했다(`cards`의 "list: bad page"). JSON으로 기록하게 고쳤다.
 - 권한 표의 준비 요청은 성공해야 한다. 실패하면 단언으로 멈춘다. 칸이 엉뚱한 이유의 상태 코드를 기록하지 않게 한 것이다.
@@ -122,7 +118,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 
 ### 계약을 고치는 절차
 
-`contracts/openapi.json`은 손으로 고치지 않는다. 핸들러의 `#[utoipa::path]`와 문서 주석, 와이어 타입, `api/contract.rs`의 표에서 나온다. 만드는 방식은 `PORTING.md` O절에 있다.
+`contracts/openapi.json`은 손으로 고치지 않는다. 핸들러의 `#[utoipa::path]`와 문서 주석, 와이어 타입, `api/contract.rs`의 표에서 나온다.
 
 1. 라우트를 더하거나 고친다. 핸들러에 `#[utoipa::path(...)]`를 달고 `routes()`에 `routes!(핸들러)`로 넣는다. 주석 없는 핸들러는 `routes!`가 받지 않는다.
 2. 새 스키마가 생기면 `api/contract.rs`의 `SCHEMAS`에 늘 있는 멤버를 적는다. 빠뜨리면 문서를 만드는 일이 실패하고 무엇이 빠졌는지 말한다.
@@ -143,7 +139,7 @@ cargo xtask docker   # 이미지 둘(서버+웹앱, 검색 서버)을 빌드해 
 
 ## 2. 이 기기의 상태
 
-**평소에 떠 있는 컨테이너는 없다.** 2026-11-11 03:28 KST에 사용자가 이 작업의 컨테이너 다섯(`hafgufa-pg`, `hafgufa-s3`, `focalboard-port-maria`, `focalboard-port-mysql`, `focalboard-port-pg`)과 다 쓴 볼륨을 모두 지웠다. 테스트가 PostgreSQL에 쌓아 둔 `t_*` 스키마도 함께 사라졌다. 그 뒤로는 `cargo xtask test`가 둘을 만들고(PostgreSQL은 `postgres:18`), 테스트 실행이 시작하거나 만든 것은 그것을 쓰는 마지막 실행이 끝날 때 멈춘다(tracer-bullet 11). 멈춘 채 남아 있는 것은 다음 `cargo xtask test`가 다시 시작한다. 이름은 2026-11-11 12:10 KST에 `hafgufa-pg`, `hafgufa-s3`에서 `fvoci-test-pg`, `fvoci-test-s3`로 바뀌었다. 옛 이름의 둘은 멈춘 채 이 기기에 남아 있고 더 쓰이지 않는다(지울지는 사용자가 정한다. 같은 포트를 쓰므로 옛 것을 띄우면 새 것이 시작하지 못한다).
+**평소에 떠 있는 컨테이너는 없다.** `cargo xtask test`가 둘을 만들고(PostgreSQL은 `postgres:18`), 테스트 실행이 시작하거나 만든 것은 그것을 쓰는 마지막 실행이 끝날 때 멈춘다. 멈춘 채 남아 있는 것은 다음 `cargo xtask test`가 다시 시작한다.
 
 **컨테이너를 쓰는 규칙(사용자 결정).**
 
@@ -167,9 +163,8 @@ cargo xtask docker   # 이미지 둘(서버+웹앱, 검색 서버)을 빌드해 
 - 패닉으로 끝난 테스트는 PostgreSQL에 `t_*` 스키마를 남긴다. 해는 없다. 컨테이너를 지우면 함께 없어진다.
 - `/tmp`는 RAM이다. 빌드 산출물과 큰 파일은 워크트리의 `target/` 아래에 둔다.
 - **빌드 크기.** `[profile.dev]`의 `debug = "line-tables-only"`(2026-11-11 12:49 KST). 깨끗한 빌드에서 잰 값: 디버그 정보 전부(2) 빌드 89초·`target` 6.6 GB·서버 바이너리 317 MB, `line-tables-only` 56초·3.78 GB·124 MB, `1` 59초·4.41 GB·185 MB, `0` 57초·2.80 GB·76 MB. clippy는 어느 것이나 28–34초.
-- 태그 `parity-s5`는 이 저장소의 원격에도 있다.
 
-컨테이너를 만드는 명령과 새 클론에서 처음 빌드할 때 알아 둘 것은 보관 폴더의 `server/README.md` 4–5절에 있다. 그 문서는 컨테이너를 지우기 전(03:12–03:19 KST)에 쓰였다. 컨테이너가 떠 있다는 말과 스키마의 수는 지금과 다르다.
+컨테이너는 `cargo xtask test`가 만든다(`xtask/src/containers.rs`). 새 클론에서 처음 빌드할 때 알아 둘 것은 보관 폴더의 `server/README.md` 4–5절에 있다. 그 문서의 컨테이너가 떠 있다는 말과 스키마의 수는 지금과 다르다.
 
 ## 3. 걸렸던 함정
 
@@ -200,7 +195,7 @@ cargo xtask docker   # 이미지 둘(서버+웹앱, 검색 서버)을 빌드해 
 
 ## 4. 리뷰를 맡긴 방식
 
-`beautiful-rust:rust-review` 스킬을 하위 에이전트에게 맡겼다. 결과와 처리는 `PORTING.md`의 F절, J절, P절에 있다. 여기에는 방식만 적는다.
+`beautiful-rust:rust-review` 스킬을 하위 에이전트에게 맡긴다. 결과와 처리는 커밋 메시지의 본문에 적는다. 여기에는 방식만 적는다.
 
 - 에이전트는 `general-purpose`이고 모델을 `fable`로 지정했다(Fable 5.2). 보고 끝에 자기 모델과 스킬을 읽었는지 적게 했다.
 - 범위를 겹치지 않게 나눴다. 예: 하나는 커밋 둘의 `git diff`, 하나는 앞서 리뷰하지 않은 커밋들을 "지금의 코드로". 뒤의 것은 뒤 커밋이 이미 고친 줄을 지적하지 않게 하려는 것이다.
@@ -231,10 +226,10 @@ cargo xtask docker   # 이미지 둘(서버+웹앱, 검색 서버)을 빌드해 
 | `research/raw/` | 받은 원문. 목록은 표 아래 | 인용문의 앞뒤를 볼 때. 다시 받으면 판이 달라졌을 수 있다(초안 둘은 RFC가 아니다) |
 | `gz/` | 형제 저장소 GroundZero의 `contracts/openapi.json`과 xtask 일부 | OpenAPI 도구의 구성을 다시 볼 때(설계 5.5). 코드를 복사하지 않고 구성만 참고한다 |
 | `golden_diff.py` | 스냅샷 두 벌을 단계별로 비교해 상태 코드의 전이를 센다 | 스냅샷을 갱신한 뒤의 요약(1절) |
-| `hashtime/` | Argon2id 한 번의 시간을 잰 작은 프로그램 | 해시 대기열의 수치를 다시 볼 때(`PORTING.md` I절) |
+| `hashtime/` | Argon2id 한 번의 시간을 잰 작은 프로그램 | 해시 대기열의 수치를 다시 볼 때 |
 | `xtask-test-*.log` 등 단계마다의 출력 | 전체 테스트와 검사의 출력 | 그때의 수를 대조할 때 |
 | `7d/annotate.py`, `7d/*.spec` | 핸들러의 문서 주석과 `#[utoipa::path]`를 영역별 명세 파일에서 넣은 스크립트 | 볼 일이 거의 없다. 주석은 이제 소스에서 직접 고친다 |
-| `review-todo.md`, `review-final/todo.md` | 리뷰의 지적을 모은 목록. `PORTING.md` J절의 번호(M1, S1 등)가 앞의 것이다 | 지적의 원문을 볼 때 |
+| `review-todo.md`, `review-final/todo.md` | 리뷰의 지적을 모은 목록 | 지적의 원문을 볼 때 |
 
 - `research/raw/`에 든 것: 쿠키 규격 초안 6265bis, RFC 6455·7239, WHATWG WebSockets·Fetch, OWASP 문서 넷과 ASVS V7, NIST 800-63B, SQLite·PostgreSQL의 외래 키와 부분 색인, S3·R2의 멀티파트, Cloudflare와 CloudFront의 한도, tus, IETF 재개 업로드 초안, `chrono-tz`·`jiff`의 레지스트리 정보.
 - 그 밖에 옮기지 않은 것은 지워도 되는 것들이다: 계약에서 `openapi-typescript`로 뽑아 본 타입(`7d/ts/api.d.ts`), 단계 앞의 스냅샷 사본(`golden-*`), 요청 크기를 재려고 임시로 고친 빌드(`fvoci-server-measure`, 설계 4.1), 작업 중의 사본(`final/`, `s4/`).
@@ -244,7 +239,7 @@ cargo xtask docker   # 이미지 둘(서버+웹앱, 검색 서버)을 빌드해 
 **끝난 작업 묶음.** 설계의 "구현 순서" 8단계와 9단계는 `fvoci/server-next`가 했다. 바뀐 조작과 멤버는 `docs/contract-pending.md`에 있다. 커밋마다 계약 파일과 그 문서를 함께 고친다.
 
 1. **(끝났다)** **본문 저장과 날짜 값**(설계 3.7, 5.7). 허용 목록 판 2와 공유 벡터 `contracts/body-vectors.json`이 들어갔다(맨 앞 "지금 상태"의 tracer-bullet 목록).
-2. **(끝났다)** **템플릿 받기**(설계 3.10, 5.7). 웹앱의 변환기가 낸 산출물을 받아 넣고, 저장소 밖의 템플릿 아카이브에 대한 의존을 끊었다. 새 클론에서 서버가 그대로 컴파일된다.
+2. **(끝났다)** **템플릿 받기**(설계 3.10, 5.7). 내장 템플릿은 저장소의 파일이다(`crates/server/assets/templates/`). 새 클론에서 서버가 그대로 컴파일된다.
 3. **(끝났다)** **청크 업로드, 스트리밍, 파일 한도**(설계 4.3, 5.6).
 4. **(끝났다, tracer-bullet 10)** **응답 압축에 zstd를 더한다.** 결정된 것은 gzip, brotli, zstd 셋이다. 정적 파일은 웹앱의 빌드가 `.zst`를 이미 만든다. 서버는 지금 미리 압축된 brotli와 gzip 파일만 골라 보낸다(`crates/server/src/web.rs`). `.zst`를 골라 보내는 일이 남았다.
 5. **(끝났다, tracer-bullet 11)** **`cargo xtask test`가 스스로 띄운 컨테이너를 끝날 때 멈추게 한다.** 함께 컨테이너 이름에서 옛 워크트리 이름(`hafgufa-`)을 뗀다. 이름의 기본값은 `xtask/src/containers.rs`에 있다.
@@ -255,27 +250,12 @@ cargo xtask docker   # 이미지 둘(서버+웹앱, 검색 서버)을 빌드해 
 - 타입 생성은 웹앱 쪽이 한다. `openapi-typescript` 7.13.0이 이 파일을 받는 것은 확인했다.
 - 날짜 값의 시각 표기는 UTC 밀리초 정수다(설계 5.7).
 - WebSocket의 메시지는 OpenAPI 밖의 `contracts/websocket.md`와 `websocket.json`에 있다. 카드 본문을 함께 고치는 방(명령, 메시지, Binary 프레임, 세대, 한도)은 그 6절이고, 웹앱(R3)이 붙을 자리다.
-- 바꾸는 요청은 `fetch`의 기본 방식(`cors`)으로 보낸다. 서버가 페이지에 `Referrer-Policy: no-referrer`를 붙인다. 그래서 다른 방식(`same-origin`, `no-cors`, 브라우저가 직접 보내는 폼)의 요청은 `Origin: null`이 되어 403이다(계약의 머리말, `PORTING.md` P절).
-- API 밖의 주소는 `/ws`, `/static/…`, 웹앱의 화면뿐이다. `hello`와 `ping`도 `/api/v1` 아래에 있다(`PORTING.md` Q절).
+- 바꾸는 요청은 `fetch`의 기본 방식(`cors`)으로 보낸다. 서버가 페이지에 `Referrer-Policy: no-referrer`를 붙인다. 그래서 다른 방식(`same-origin`, `no-cors`, 브라우저가 직접 보내는 폼)의 요청은 `Origin: null`이 되어 403이다(계약의 머리말).
+- API 밖의 주소는 `/ws`, `/static/…`, 웹앱의 화면뿐이다. `hello`와 `ping`도 `/api/v1` 아래에 있다.
 
 **남은 문제를 찾는 곳.**
 
-- 마지막 리뷰의 지적과 반영, 남긴 것과 까닭: `PORTING.md` P절.
 - 서버의 결함으로 남은 것: `docs/contract-pending.md` 8절.
-- 알려진 채로 남긴 불규칙: `docs/contract-pending.md` 7절과 `PORTING.md`의 S6 각 절.
-- 사용자의 확인이 필요한 채로 남은 것: `PORTING.md`의 "S6: 서버 정리" 머리에 모았다.
+- 알려진 채로 남긴 불규칙: `docs/contract-pending.md` 7절.
+- 리뷰가 짚었으나 고치지 않고 넘긴 것: 컨테이너 줄 잠금(`lock_container`)이 트랜잭션 안에서만 불린다는 것을 타입이 보장하지 않는다. 관리자 소켓은 만든 뒤에 권한을 좁힌다(그 사이의 틈). S3 저장은 시험 컨테이너의 호환 저장소로만 확인했고 실제 S3와 R2에서는 돌려 보지 않았다. 로그인 제한(설계 5.2)은 여러 주소에서 한 계정을 계속 잠글 수 있고, IPv6 `/64` 여럿으로 해시 대기열을 채울 수 있다. 세션 쿠키의 갱신이 같은 때 온 다른 응답의 더 새 쿠키를 덮을 수 있다.
 - 큰 것 셋: 요청 스키마를 손으로 쓴 것(해석 쪽과 어긋나도 검사가 없다), 멤버십에 시각이 없어 멤버 목록이 ID 순서인 것, WebSocket 메시지가 계약 밖인 것.
-
-## 7. 원본(Focalboard의 Go 서버)과 견줄 때 쓰던 것
-
-태그 `parity-s5`까지는 서버의 응답을 원본 서버와 견줘 맞췄다. 그 뒤로는 원본과의 호환을 지키지 않으므로 아래의 것은 더 쓰지 않는다. 기록으로만 남긴다.
-
-| 무엇 | 있는 곳 |
-|---|---|
-| 원본 서버(오라클)를 다시 빌드하는 법, 차등 비교 스크립트, 개발 서버 스크립트의 전문 | 앞선 판의 1절 "레거시", 3절, 4절 |
-| 스크립트 자체(`scripts/`) | 태그 `parity-s5` |
-| S5의 검증 결과, DB 왕복의 데이터, Cypress 로그, 플러그인 저장소 PR의 사본(`target/reference/`), 하위 에이전트에게 준 지침서(`target/agent-brief.md`) | 보관 폴더 `server/` 아래의 같은 경로 |
-| 회귀 테스트를 세울 때 Python 차등 비교와 대조한 기록(`baseline-differential.txt`, `baseline-permissions.txt`, `crosscheck.txt`) | 보관 폴더의 `target/s6/` |
-| 원본 서버의 바이너리와 Go 캐시(`target/oracle/`), 원본 화면을 눌러 보던 개발 서버 둘의 데이터(`target/dev/`) | 옛 저장소의 서버 워크트리에만 있다. 옮기지 않았다 |
-
-원본 화면을 눌러 보던 개발 서버 둘(포트 8002의 Rust 서버 + 원본 React 번들, 포트 8001의 원본 Go 서버)은 2026-11-10 19:41 KST에 멈췄다. 호환을 끝낸 뒤의 서버는 원본 번들과 맞지 않는다(오류 본문, 404 규칙, 없앤 라우트). 다시 띄울 일이 없다.

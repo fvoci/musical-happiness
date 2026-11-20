@@ -22,6 +22,7 @@ import type { DocNode } from '../editor/schema.ts';
 import type { DisplaySettings } from '../logic/display.ts';
 import type { LanguageSettings } from '../logic/language.ts';
 import type { RegionalSettings } from '../logic/regional.ts';
+import type { NameChange, PersonName } from '../logic/person-names.ts';
 import type { UserNames } from '../logic/users.ts';
 import type {
   Block,
@@ -77,6 +78,12 @@ export * from './problems.ts';
 export interface User extends UserNames {
   id: string;
   email: string;
+  /**
+   * The parts of the name, which of them the user is shown by
+   * (`displayName` is made of them), the title and the credentials: whoever
+   * sees the user sees these. Left out where nothing told them.
+   */
+  name?: PersonName;
   /** Only on the reader's own user. */
   isAdmin?: boolean;
   createAt: number;
@@ -286,8 +293,11 @@ export interface Backend
     VersionsOfFiles {
   // The reader and the people around them.
   me(): Promise<User>;
-  /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */
-  patchMe(patch: { displayName: string | null }): Promise<User>;
+  /**
+   * Changes what the patch names of the reader's name, as the server reads it
+   * (`patchMe`); the user as they are now, `displayName` made anew.
+   */
+  patchMe(patch: NameChange): Promise<User>;
   workspaces(): Promise<WorkspaceInfo[]>;
   /** The people of a workspace: who can be mentioned or set as a person. */
   users(workspaceId: string): Promise<User[]>;

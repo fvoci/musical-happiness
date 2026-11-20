@@ -1,12 +1,12 @@
 /**
- * The data the in-memory backend starts with: the built-in templates, as
- * boards a small team is working on.
+ * The data the in-memory backend starts with: the boards of `./seed/`, as
+ * boards a small team is working on. The tests are written against them.
  *
- * The boards, views, cards and bodies are the built-in templates the server
- * embeds (`crates/server/assets/templates/`), read as they are. What a
- * template does not have is added here so that the screens have something to
- * show: six people, who made and was last on each card, the people a person
- * property points at, a few comments, one attachment, and a sidebar.
+ * The boards, views, cards and bodies are the files of `./seed/`, read as
+ * they are. What a file does not have is added here so that the screens have
+ * something to show: six people, who made and was last on each card, the
+ * people a person property points at, a few comments, one attachment, and a
+ * sidebar.
  *
  * The result is the same on every run: identifiers and times come from a
  * counter, not from the clock.
@@ -26,7 +26,7 @@ import { seedUsers } from './users.ts';
 import { memberOf } from './backend.ts';
 import { World, type StoredBlock } from './world.ts';
 
-/** One template file of `crates/server/assets/templates/`. */
+/** One board of `./seed/`, in the shape it is written in. */
 export interface SeedTemplate {
   key: string;
   onboarding: boolean;
@@ -53,12 +53,9 @@ export interface SeedTemplate {
   files: { fileId: string; archiveMember: string; bytes: number }[];
 }
 
-const templateFiles = import.meta.glob<SeedTemplate>(
-  '../../../../../../crates/server/assets/templates/[0-9]*.json',
-  { import: 'default' },
-);
+const templateFiles = import.meta.glob<SeedTemplate>('./seed/[0-9]*.json', { import: 'default' });
 
-/** The built-in templates, in the order of their file names. */
+/** The boards of `./seed/`, in the order of their file names. */
 export async function loadTemplates(): Promise<SeedTemplate[]> {
   const names = Object.keys(templateFiles).sort();
   return Promise.all(

@@ -11,7 +11,7 @@ import type {
   WorkspaceRole,
 } from '../state/people-types.ts';
 
-import type { Schemas } from './convert.ts';
+import { personNameOf, type Schemas } from './convert.ts';
 import type { Http } from './http.ts';
 import { ServerInvitationMail } from './invitation-mail.ts';
 import { ServerTeams } from './teams.ts';
@@ -32,6 +32,18 @@ function invitationOf(link: Schemas['Invitation']): Invitation {
   };
 }
 
+/** A member of a workspace, the parts of their name gathered. */
+function memberOf(member: Schemas['WorkspaceMember']): WorkspaceMember {
+  return {
+    userId: member.userId,
+    username: member.username,
+    displayName: member.displayName,
+    name: personNameOf(member),
+    role: member.role,
+    joinedAsOrgAdmin: member.joinedAsOrgAdmin,
+  };
+}
+
 export class ServerPeople implements People {
   readonly #http: Http;
   readonly teams: ServerTeams;
@@ -44,9 +56,11 @@ export class ServerPeople implements People {
   }
 
   async members(workspaceId: string): Promise<WorkspaceMember[]> {
-    return this.#http.request<Schemas['WorkspaceMember'][]>('/api/v1/w/{workspaceId}/members', {
-      workspaceId,
-    });
+    const members = await this.#http.request<Schemas['WorkspaceMember'][]>(
+      '/api/v1/w/{workspaceId}/members',
+      { workspaceId },
+    );
+    return members.map(memberOf);
   }
 
   async setRole(
@@ -55,11 +69,12 @@ export class ServerPeople implements People {
     role: WorkspaceRole,
   ): Promise<WorkspaceMember> {
     const request: Schemas['WorkspaceRoleChange'] = { role };
-    return this.#http.request<Schemas['WorkspaceMember']>(
+    const member = await this.#http.request<Schemas['WorkspaceMember']>(
       '/api/v1/w/{workspaceId}/members/{userId}',
       { workspaceId, userId },
       { method: 'PUT', json: request },
     );
+    return memberOf(member);
   }
 
   async removeMember(workspaceId: string, userId: string): Promise<void> {

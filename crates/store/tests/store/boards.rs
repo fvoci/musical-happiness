@@ -1132,12 +1132,11 @@ async fn delete_member() {
 // Characterization tests: behavior of the original that its test suite does not cover,
 // or what this server does in its place.
 
-/// The original stamps the templates of its global workspace
-/// (`server/services/store/sqlstore/board.go:299-303`). There is no global workspace here:
-/// the templates the server ships with are the ones stored on behalf of no user, and
-/// those are stamped.
+/// A template stored on behalf of no user is one the server ships with: it is built in,
+/// whatever the caller says of it, and nothing else is. It stays built in whoever
+/// writes it later.
 #[tokio::test]
-async fn insert_container_stamps_templates_of_the_global_workspace_with_a_tracking_id() {
+async fn a_template_stored_on_behalf_of_nobody_is_built_in_and_stays_so() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let workspace_id = common::workspace(&test).await;
@@ -1155,11 +1154,10 @@ async fn insert_container_stamps_templates_of_the_global_workspace_with_a_tracki
         "a board stored on behalf of no user is built in"
     );
     assert_eq!(builtin.created_by, "", "nobody made it");
-    // The MD5 of the title, in hexadecimal.
-    let tracking_id = json!("5d41402abc4b2a76b9719d911017c592");
-    assert_eq!(
-        builtin.properties["trackingTemplateId"], tracking_id,
-        "the caller's board is stamped"
+    assert!(
+        builtin.properties.is_empty(),
+        "and it has the properties it came with, none: {:?}",
+        builtin.properties
     );
     let stored = test
         .get_container(&builtin.id)
@@ -1178,10 +1176,6 @@ async fn insert_container_stamps_templates_of_the_global_workspace_with_a_tracki
         .await
         .expect("the template is inserted");
     assert!(!of_user.is_builtin, "a user's template is not built in");
-    assert!(
-        !of_user.properties.contains_key("trackingTemplateId"),
-        "only built-in templates are stamped"
-    );
 
     let mut board = Container {
         title: "hello".to_owned(),
@@ -1190,12 +1184,9 @@ async fn insert_container_stamps_templates_of_the_global_workspace_with_a_tracki
     test.insert_container(&mut board, "")
         .await
         .expect("the board is inserted");
-    assert!(
-        !board.properties.contains_key("trackingTemplateId"),
-        "only templates are stamped"
-    );
+    assert!(!board.is_builtin, "only a template is built in");
 
-    // A built-in template stays one whoever writes it later, and is stamped again.
+    // A built-in template stays one whoever writes it later.
     let mut renamed = Container {
         title: "world".to_owned(),
         is_template: true,
@@ -1205,11 +1196,6 @@ async fn insert_container_stamps_templates_of_the_global_workspace_with_a_tracki
         .await
         .expect("the template is updated");
     assert!(renamed.is_builtin, "the template is still built in");
-    assert_eq!(
-        renamed.properties["trackingTemplateId"],
-        json!("7d793037a0760186574b0282f2f435e7"),
-        "the stamp follows the title"
-    );
 
     test.teardown().await;
 }

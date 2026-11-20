@@ -2,9 +2,6 @@
  * The definitions of a board's properties changed through the board store,
  * on the in-memory backend: adding, naming, changing the kind, deleting, and
  * the options of a select. Each is one step for "undo".
- *
- * These take over what the original tested in its property menu and its
- * card detail properties (docs/card-test-mapping.md).
  */
 import { describe, expect, it } from 'vitest';
 

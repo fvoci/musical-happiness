@@ -1,0 +1,476 @@
+{
+  "key": "company-goals-okrs",
+  "onboarding": false,
+  "board": {
+    "id": "bcm39o11e4ib8tye8mt6iyuec9o",
+    "title": "Company Goals & OKRs",
+    "description": "Use this template to plan your company goals and OKRs more efficiently.",
+    "icon": "⛳",
+    "showDescription": true,
+    "cardProperties": [
+      {
+        "id": "a6amddgmrzakw66cidqzgk6p4ge",
+        "name": "Objective",
+        "type": "select",
+        "options": [
+          {
+            "id": "auw3afh3kfhrfgmjr8muiz137jy",
+            "value": "Grow Revenue",
+            "color": "propColorGreen"
+          },
+          {
+            "id": "apqfjst8massbjjhpcsjs3y1yqa",
+            "value": "Delight Customers",
+            "color": "propColorOrange"
+          },
+          {
+            "id": "ao9b5pxyt7tkgdohzh9oaustdhr",
+            "value": "Drive Product Adoption",
+            "color": "propColorPurple"
+          }
+        ]
+      },
+      {
+        "id": "a17ryhi1jfsboxkwkztwawhmsxe",
+        "name": "Status",
+        "type": "select",
+        "options": [
+          {
+            "id": "a6robxx81diugpjq5jkezz3j1fo",
+            "value": "Not Started",
+            "color": "propColorGray"
+          },
+          {
+            "id": "a8nukezwwmknqwjsygg7eaxs9te",
+            "value": "In Progress",
+            "color": "propColorBlue"
+          },
+          {
+            "id": "apnt1f7na9rzgk1rt49keg7xbiy",
+            "value": "At Risk",
+            "color": "propColorYellow"
+          },
+          {
+            "id": "axbz3m1amss335wzwf9s7pqjzxr",
+            "value": "Missed",
+            "color": "propColorRed"
+          },
+          {
+            "id": "abzfwnn6rmtfzyq5hg8uqmpsncy",
+            "value": "Complete 🙌",
+            "color": "propColorGreen"
+          }
+        ]
+      },
+      {
+        "id": "azzbawji5bksj69sekcs4srm1ky",
+        "name": "Department",
+        "type": "select",
+        "options": [
+          {
+            "id": "aw5i7hmpadn6mbwbz955ubarhme",
+            "value": "Engineering",
+            "color": "propColorBrown"
+          },
+          {
+            "id": "afkxpcjqjypu7hhar7banxau91h",
+            "value": "Product",
+            "color": "propColorBlue"
+          },
+          {
+            "id": "aehoa17cz18rqnrf75g7dwhphpr",
+            "value": "Marketing",
+            "color": "propColorOrange"
+          },
+          {
+            "id": "agrfeaoj7d8p5ianw5iaf3191ae",
+            "value": "Sales",
+            "color": "propColorGreen"
+          },
+          {
+            "id": "agm9p6gcq15ueuzqq3wd4be39wy",
+            "value": "Support",
+            "color": "propColorYellow"
+          },
+          {
+            "id": "aucop7kw6xwodcix6zzojhxih6r",
+            "value": "Design",
+            "color": "propColorPink"
+          },
+          {
+            "id": "afust91f3g8ht368mkn5x9tgf1o",
+            "value": "Finance",
+            "color": "propColorPurple"
+          },
+          {
+            "id": "acocxxwjurud1jixhp7nowdig7y",
+            "value": "Human Resources",
+            "color": "propColorGray"
+          }
+        ]
+      },
+      {
+        "id": "adp5ft3kgz7r5iqq3tnwg551der",
+        "name": "Priority",
+        "type": "select",
+        "options": [
+          {
+            "id": "a8zg3rjtf4swh7smsjxpsn743rh",
+            "value": "P1 🔥",
+            "color": "propColorRed"
+          },
+          {
+            "id": "as555ipyzopjjpfb5rjtssecw5e",
+            "value": "P2",
+            "color": "propColorYellow"
+          },
+          {
+            "id": "a1ts3ftyr8nocsicui98c89uxjy",
+            "value": "P3",
+            "color": "propColorGray"
+          }
+        ]
+      },
+      {
+        "id": "aqxyzkdrs4egqf7yk866ixkaojc",
+        "name": "Quarter",
+        "type": "select",
+        "options": [
+          {
+            "id": "ahfbn1jsmhydym33ygxwg5jt3kh",
+            "value": "Q1",
+            "color": "propColorBlue"
+          },
+          {
+            "id": "awfu37js3fomfkkczm1zppac57a",
+            "value": "Q2",
+            "color": "propColorBrown"
+          },
+          {
+            "id": "anruuoyez51r3yjxuoc8zoqnwaw",
+            "value": "Q3",
+            "color": "propColorGreen"
+          },
+          {
+            "id": "acb6dqqs6yson7bbzx6jk9bghjh",
+            "value": "Q4",
+            "color": "propColorPurple"
+          }
+        ]
+      },
+      {
+        "id": "adu6mebzpibq6mgcswk69xxmnqe",
+        "name": "Due Date",
+        "type": "date",
+        "options": []
+      },
+      {
+        "id": "asope3bddhm4gpsng5cfu4hf6rh",
+        "name": "Assignee",
+        "type": "multiPerson",
+        "options": []
+      },
+      {
+        "id": "ajwxp866f9obs1kutfwaa5ru7fe",
+        "name": "Target",
+        "type": "number",
+        "options": []
+      },
+      {
+        "id": "azqnyswk6s1boiwuthscm78qwuo",
+        "name": "Actual",
+        "type": "number",
+        "options": []
+      },
+      {
+        "id": "ahz3fmjnaguec8hce7xq3h5cjdr",
+        "name": "Completion (%)",
+        "type": "text",
+        "options": []
+      },
+      {
+        "id": "a17bfcgnzmkwhziwa4tr38kiw5r",
+        "name": "Note",
+        "type": "text",
+        "options": []
+      }
+    ]
+  },
+  "views": [
+    {
+      "id": "vangk4cpd5fgpbr7635tx6oxg7c",
+      "type": "view",
+      "title": "By Quarter",
+      "fields": {
+        "cardOrder": [],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {
+          "__title": 452,
+          "a17ryhi1jfsboxkwkztwawhmsxe": 148,
+          "a6amddgmrzakw66cidqzgk6p4ge": 230,
+          "azzbawji5bksj69sekcs4srm1ky": 142
+        },
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "groupById": "aqxyzkdrs4egqf7yk866ixkaojc",
+        "hiddenOptionIds": [""],
+        "kanbanCalculations": {},
+        "sortOptions": [],
+        "viewType": "table",
+        "visibleOptionIds": [],
+        "visiblePropertyIds": [
+          "a6amddgmrzakw66cidqzgk6p4ge",
+          "a17ryhi1jfsboxkwkztwawhmsxe",
+          "azzbawji5bksj69sekcs4srm1ky",
+          "adp5ft3kgz7r5iqq3tnwg551der",
+          "aqxyzkdrs4egqf7yk866ixkaojc",
+          "adu6mebzpibq6mgcswk69xxmnqe",
+          "asope3bddhm4gpsng5cfu4hf6rh",
+          "ajwxp866f9obs1kutfwaa5ru7fe",
+          "azqnyswk6s1boiwuthscm78qwuo",
+          "ahz3fmjnaguec8hce7xq3h5cjdr",
+          "a17bfcgnzmkwhziwa4tr38kiw5r"
+        ]
+      }
+    },
+    {
+      "id": "vr1jnxkxi8pf9z83fhr4qbsbxao",
+      "type": "view",
+      "title": "By Objectives",
+      "fields": {
+        "cardOrder": [],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {
+          "__title": 387,
+          "a17ryhi1jfsboxkwkztwawhmsxe": 134,
+          "a6amddgmrzakw66cidqzgk6p4ge": 183,
+          "aqxyzkdrs4egqf7yk866ixkaojc": 100
+        },
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "groupById": "a6amddgmrzakw66cidqzgk6p4ge",
+        "hiddenOptionIds": [""],
+        "kanbanCalculations": {},
+        "sortOptions": [],
+        "viewType": "table",
+        "visibleOptionIds": [],
+        "visiblePropertyIds": [
+          "a6amddgmrzakw66cidqzgk6p4ge",
+          "a17ryhi1jfsboxkwkztwawhmsxe",
+          "azzbawji5bksj69sekcs4srm1ky",
+          "adp5ft3kgz7r5iqq3tnwg551der",
+          "aqxyzkdrs4egqf7yk866ixkaojc",
+          "adu6mebzpibq6mgcswk69xxmnqe",
+          "asope3bddhm4gpsng5cfu4hf6rh",
+          "ajwxp866f9obs1kutfwaa5ru7fe",
+          "azqnyswk6s1boiwuthscm78qwuo",
+          "ahz3fmjnaguec8hce7xq3h5cjdr",
+          "a17bfcgnzmkwhziwa4tr38kiw5r"
+        ]
+      }
+    },
+    {
+      "id": "vx4ng6gtakbntt8k98znkzszc1a",
+      "type": "view",
+      "title": "Departments",
+      "fields": {
+        "cardOrder": ["cpa534b5natgmunis8u1ixb55pw"],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {},
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "groupById": "azzbawji5bksj69sekcs4srm1ky",
+        "hiddenOptionIds": [""],
+        "kanbanCalculations": {},
+        "sortOptions": [],
+        "viewType": "board",
+        "visibleOptionIds": [
+          "aw5i7hmpadn6mbwbz955ubarhme",
+          "afkxpcjqjypu7hhar7banxau91h",
+          "aehoa17cz18rqnrf75g7dwhphpr",
+          "agrfeaoj7d8p5ianw5iaf3191ae",
+          "agm9p6gcq15ueuzqq3wd4be39wy",
+          "aucop7kw6xwodcix6zzojhxih6r",
+          "afust91f3g8ht368mkn5x9tgf1o",
+          "acocxxwjurud1jixhp7nowdig7y"
+        ],
+        "visiblePropertyIds": []
+      }
+    }
+  ],
+  "cards": [
+    {
+      "id": "c3m6mgymw978wjecydz16io868h",
+      "type": "card",
+      "title": "Improve customer NPS score",
+      "fields": {
+        "icon": "💯",
+        "isTemplate": false,
+        "properties": {
+          "a17ryhi1jfsboxkwkztwawhmsxe": "a8nukezwwmknqwjsygg7eaxs9te",
+          "a6amddgmrzakw66cidqzgk6p4ge": "apqfjst8massbjjhpcsjs3y1yqa",
+          "adp5ft3kgz7r5iqq3tnwg551der": "as555ipyzopjjpfb5rjtssecw5e",
+          "ahz3fmjnaguec8hce7xq3h5cjdr": "82%",
+          "ajwxp866f9obs1kutfwaa5ru7fe": "8.5",
+          "aqxyzkdrs4egqf7yk866ixkaojc": "anruuoyez51r3yjxuoc8zoqnwaw",
+          "azqnyswk6s1boiwuthscm78qwuo": "7",
+          "azzbawji5bksj69sekcs4srm1ky": "agm9p6gcq15ueuzqq3wd4be39wy"
+        }
+      },
+      "body": null
+    },
+    {
+      "id": "ce9u86wofitrb5ns4qp5w1ij1nh",
+      "type": "card",
+      "title": "Generate more Marketing Qualified Leads (MQLs)",
+      "fields": {
+        "icon": "🛣️",
+        "isTemplate": false,
+        "properties": {
+          "a17ryhi1jfsboxkwkztwawhmsxe": "a8nukezwwmknqwjsygg7eaxs9te",
+          "a6amddgmrzakw66cidqzgk6p4ge": "auw3afh3kfhrfgmjr8muiz137jy",
+          "adp5ft3kgz7r5iqq3tnwg551der": "as555ipyzopjjpfb5rjtssecw5e",
+          "ahz3fmjnaguec8hce7xq3h5cjdr": "65%",
+          "ajwxp866f9obs1kutfwaa5ru7fe": "100",
+          "aqxyzkdrs4egqf7yk866ixkaojc": "ahfbn1jsmhydym33ygxwg5jt3kh",
+          "azqnyswk6s1boiwuthscm78qwuo": "65",
+          "azzbawji5bksj69sekcs4srm1ky": "aehoa17cz18rqnrf75g7dwhphpr"
+        }
+      },
+      "body": null
+    },
+    {
+      "id": "cjkscjjex6fg8i8aa3umxof9wfc",
+      "type": "card",
+      "title": "Increase customer retention",
+      "fields": {
+        "icon": "😀",
+        "isTemplate": false,
+        "properties": {
+          "a17ryhi1jfsboxkwkztwawhmsxe": "a8nukezwwmknqwjsygg7eaxs9te",
+          "a6amddgmrzakw66cidqzgk6p4ge": "apqfjst8massbjjhpcsjs3y1yqa",
+          "adp5ft3kgz7r5iqq3tnwg551der": "a8zg3rjtf4swh7smsjxpsn743rh",
+          "ahz3fmjnaguec8hce7xq3h5cjdr": "66%",
+          "ajwxp866f9obs1kutfwaa5ru7fe": "90% customer retention rate",
+          "aqxyzkdrs4egqf7yk866ixkaojc": "acb6dqqs6yson7bbzx6jk9bghjh",
+          "azqnyswk6s1boiwuthscm78qwuo": "60%",
+          "azzbawji5bksj69sekcs4srm1ky": "afkxpcjqjypu7hhar7banxau91h"
+        }
+      },
+      "body": null
+    },
+    {
+      "id": "ckxdhpf5bhf8i7n13fgbs4155ec",
+      "type": "card",
+      "title": "Hit company global sales target",
+      "fields": {
+        "icon": "💰",
+        "isTemplate": false,
+        "properties": {
+          "a17ryhi1jfsboxkwkztwawhmsxe": "a6robxx81diugpjq5jkezz3j1fo",
+          "a6amddgmrzakw66cidqzgk6p4ge": "auw3afh3kfhrfgmjr8muiz137jy",
+          "adp5ft3kgz7r5iqq3tnwg551der": "a8zg3rjtf4swh7smsjxpsn743rh",
+          "ahz3fmjnaguec8hce7xq3h5cjdr": "15%",
+          "ajwxp866f9obs1kutfwaa5ru7fe": "50MM",
+          "aqxyzkdrs4egqf7yk866ixkaojc": "awfu37js3fomfkkczm1zppac57a",
+          "azqnyswk6s1boiwuthscm78qwuo": "7.5MM",
+          "azzbawji5bksj69sekcs4srm1ky": "agrfeaoj7d8p5ianw5iaf3191ae"
+        }
+      },
+      "body": null
+    },
+    {
+      "id": "cn1x4niym7tnpjg61jf1su67wcr",
+      "type": "card",
+      "title": "Increase user signups by 30%",
+      "fields": {
+        "icon": "💳",
+        "isTemplate": false,
+        "properties": {
+          "a17ryhi1jfsboxkwkztwawhmsxe": "a6robxx81diugpjq5jkezz3j1fo",
+          "a6amddgmrzakw66cidqzgk6p4ge": "ao9b5pxyt7tkgdohzh9oaustdhr",
+          "adp5ft3kgz7r5iqq3tnwg551der": "as555ipyzopjjpfb5rjtssecw5e",
+          "ahz3fmjnaguec8hce7xq3h5cjdr": "0%",
+          "ajwxp866f9obs1kutfwaa5ru7fe": "1,000",
+          "aqxyzkdrs4egqf7yk866ixkaojc": "acb6dqqs6yson7bbzx6jk9bghjh",
+          "azqnyswk6s1boiwuthscm78qwuo": "0",
+          "azzbawji5bksj69sekcs4srm1ky": "afkxpcjqjypu7hhar7banxau91h"
+        }
+      },
+      "body": null
+    },
+    {
+      "id": "cpa534b5natgmunis8u1ixb55pw",
+      "type": "card",
+      "title": "Add 10 new customers in the EU",
+      "fields": {
+        "icon": "🌍",
+        "isTemplate": false,
+        "properties": {
+          "a17ryhi1jfsboxkwkztwawhmsxe": "apnt1f7na9rzgk1rt49keg7xbiy",
+          "a6amddgmrzakw66cidqzgk6p4ge": "auw3afh3kfhrfgmjr8muiz137jy",
+          "adp5ft3kgz7r5iqq3tnwg551der": "a1ts3ftyr8nocsicui98c89uxjy",
+          "ahz3fmjnaguec8hce7xq3h5cjdr": "30%",
+          "ajwxp866f9obs1kutfwaa5ru7fe": "10",
+          "aqxyzkdrs4egqf7yk866ixkaojc": "acb6dqqs6yson7bbzx6jk9bghjh",
+          "azqnyswk6s1boiwuthscm78qwuo": "3",
+          "azzbawji5bksj69sekcs4srm1ky": "agrfeaoj7d8p5ianw5iaf3191ae"
+        }
+      },
+      "body": null
+    },
+    {
+      "id": "cq4krpnzqqfne3khfyhnn3c6r5r",
+      "type": "card",
+      "title": "Launch 3 key features",
+      "fields": {
+        "icon": "🚀",
+        "isTemplate": false,
+        "properties": {
+          "a17ryhi1jfsboxkwkztwawhmsxe": "apnt1f7na9rzgk1rt49keg7xbiy",
+          "a6amddgmrzakw66cidqzgk6p4ge": "ao9b5pxyt7tkgdohzh9oaustdhr",
+          "adp5ft3kgz7r5iqq3tnwg551der": "a8zg3rjtf4swh7smsjxpsn743rh",
+          "ahz3fmjnaguec8hce7xq3h5cjdr": "33%",
+          "ajwxp866f9obs1kutfwaa5ru7fe": "3",
+          "aqxyzkdrs4egqf7yk866ixkaojc": "anruuoyez51r3yjxuoc8zoqnwaw",
+          "azqnyswk6s1boiwuthscm78qwuo": "1",
+          "azzbawji5bksj69sekcs4srm1ky": "aw5i7hmpadn6mbwbz955ubarhme"
+        }
+      },
+      "body": null
+    },
+    {
+      "id": "cugiq6j98utg1zdekbpjpufo51y",
+      "type": "card",
+      "title": "Reduce bug backlog by 50%",
+      "fields": {
+        "icon": "🐞",
+        "isTemplate": false,
+        "properties": {
+          "a17ryhi1jfsboxkwkztwawhmsxe": "abzfwnn6rmtfzyq5hg8uqmpsncy",
+          "a6amddgmrzakw66cidqzgk6p4ge": "apqfjst8massbjjhpcsjs3y1yqa",
+          "adp5ft3kgz7r5iqq3tnwg551der": "a1ts3ftyr8nocsicui98c89uxjy",
+          "ahz3fmjnaguec8hce7xq3h5cjdr": "100%",
+          "ajwxp866f9obs1kutfwaa5ru7fe": "75",
+          "aqxyzkdrs4egqf7yk866ixkaojc": "awfu37js3fomfkkczm1zppac57a",
+          "azqnyswk6s1boiwuthscm78qwuo": "75",
+          "azzbawji5bksj69sekcs4srm1ky": "aw5i7hmpadn6mbwbz955ubarhme"
+        }
+      },
+      "body": null
+    }
+  ],
+  "files": []
+}

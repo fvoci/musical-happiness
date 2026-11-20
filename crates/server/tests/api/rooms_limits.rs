@@ -220,6 +220,73 @@ async fn frames_past_the_rate_put_a_connection_out_of_the_room() {
     th.teardown().await;
 }
 
+/// An update of `count` changes of a client that each name the root of the body as
+/// their parent and no neighbour, as its bytes: the Y library walks past every child
+/// of the root to place each.
+fn crowding(client: u64, count: u64) -> Vec<u8> {
+    let number = |out: &mut Vec<u8>, mut number: u64| {
+        while number >= 0x80 {
+            out.push(number.to_le_bytes()[0] | 0x80);
+            number >>= 7;
+        }
+        out.push(number.to_le_bytes()[0]);
+    };
+    let mut out = Vec::new();
+    // The changes of one client, from its first clock.
+    number(&mut out, 1);
+    number(&mut out, count);
+    number(&mut out, client);
+    number(&mut out, 0);
+    for _ in 0..count {
+        // Deleted content of one place, under the root by its name.
+        out.extend_from_slice(&[1, 1]);
+        let root = fvoci_collab::FIELD.as_bytes();
+        number(
+            &mut out,
+            u64::try_from(root.len()).expect("the length of a name"),
+        );
+        out.extend_from_slice(root);
+        out.push(1);
+    }
+    // Nothing deleted.
+    out.push(0);
+    out
+}
+
+/// An update made to have the worker walk the children of the root for each of its
+/// changes is refused by its name before it is placed, goes to nobody, and the room
+/// goes on; the same changes in a number the worker places in time are taken.
+#[tokio::test]
+async fn an_update_made_to_walk_a_long_list_is_refused_and_the_room_goes_on() {
+    let th = Setup::native().start().await.init_basic().await;
+    let lines = vec!["x"; 20_000];
+    let (_t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&lines)).await;
+    // 900 changes past 20,000 children are 18 million steps, past the 3 Mi of
+    // `fvoci_collab::PLACING_STEPS`; 59 kB of them past 50,000 took 12 seconds.
+    let began = std::time::Instant::now();
+    one.send_update(&crowding(1 << 40, 900)).await;
+    let nack = one.text("DOC_NACK").await;
+    assert_eq!(
+        nack,
+        json!({"action": "DOC_NACK", "doc": one.doc, "epoch": 1, "reason": "update_refused"})
+    );
+    assert!(
+        began.elapsed() < Duration::from_secs(5),
+        "refused without the walk: {:?}",
+        began.elapsed()
+    );
+    assert_eq!(
+        two.incoming(QUIET).await,
+        Incoming::Nothing,
+        "sent to nobody"
+    );
+    one.send_update(&crowding(1 << 40, 20)).await;
+    let ack = one.text("DOC_ACK").await;
+    assert_eq!(ack["doc"], json!(one.doc), "{ack}");
+    two.write_acked("goes on").await;
+    th.teardown().await;
+}
+
 /// An update larger than an update may be is refused by its name and goes to nobody;
 /// a frame larger than the websocket takes ends the connection, and the other in the
 /// room goes on.
@@ -275,6 +342,9 @@ async fn a_connection_that_does_not_read_is_put_out_and_the_others_go_on() {
             config.collab.collab_frames_per_second = 1_000_000;
             // The bytes that may wait are far off: it is the messages that count.
             config.collab.collab_state_bytes = 64 * 1024 * 1024;
+            // A worker's memory has room for a document that large (256 MiB and 32
+            // times the state).
+            config.collab.collab_worker_memory_bytes = 3 * 1024 * 1024 * 1024;
         })
         .start()
         .await
@@ -365,4 +435,34 @@ async fn receive_update(peer: &mut Peer) {
         }
         other => panic!("the connection that reads is sent the update: {other:?}"),
     }
+}
+
+/// The connection that sent an update that ended the worker that took it is closed;
+/// the other member's connection stays, and its user still writes.
+#[tokio::test]
+async fn the_connection_whose_update_ended_the_worker_is_closed() {
+    let th = Setup::native()
+        .configure(|config| config.collab.collab_worker_timeout_ms = 1000)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    let app = room_app(&th).await;
+    th.app.collab().stall_updates(&app, &t.card_id, 30_000);
+    one.write("never").await;
+    let closed = loop {
+        match one.incoming(Duration::from_secs(20)).await {
+            Incoming::Closed => break true,
+            Incoming::Nothing => break false,
+            _ => {}
+        }
+    };
+    assert!(closed, "the connection that sent it is closed");
+    th.app.collab().take_updates(&app, &t.card_id);
+    two.barrier(&th).await;
+    two.settle().await;
+    two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    two.write_acked("still written").await;
+    th.teardown().await;
 }

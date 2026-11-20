@@ -2,10 +2,7 @@
 //!
 //! A card's content is its body (`docs/s6-design.md` 5.7), so there are no content
 //! blocks to order and the route `moveContentBlock` was taken out with the card's
-//! `contentOrder` (`docs/contract-pending.md` 1). The ports of
-//! `server/integrationtests/content_blocks_test.go` and
-//! `server/app/content_blocks_test.go` went with it; `crates/server/PORTING.md` lists
-//! them.
+//! `contentOrder` (`docs/contract-pending.md` 1).
 
 use fvoci_model::{Block, BlockType, ContainerType, new_id};
 

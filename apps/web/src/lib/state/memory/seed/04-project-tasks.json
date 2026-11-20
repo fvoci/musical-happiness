@@ -1,0 +1,947 @@
+{
+  "key": "project-tasks",
+  "onboarding": false,
+  "board": {
+    "id": "bc41mwxg9ybb69pn9j5zna6d36c",
+    "title": "Project Tasks",
+    "description": "Use this template to stay on top of your project tasks and progress.",
+    "icon": "🎯",
+    "showDescription": true,
+    "cardProperties": [
+      {
+        "id": "a972dc7a-5f4c-45d2-8044-8c28c69717f1",
+        "name": "Status",
+        "type": "select",
+        "options": [
+          {
+            "id": "ayz81h9f3dwp7rzzbdebesc7ute",
+            "value": "Not Started",
+            "color": "propColorBlue"
+          },
+          {
+            "id": "ar6b8m3jxr3asyxhr8iucdbo6yc",
+            "value": "In Progress",
+            "color": "propColorYellow"
+          },
+          {
+            "id": "afi4o5nhnqc3smtzs1hs3ij34dh",
+            "value": "Blocked",
+            "color": "propColorRed"
+          },
+          {
+            "id": "adeo5xuwne3qjue83fcozekz8ko",
+            "value": "Completed 🙌",
+            "color": "propColorGreen"
+          },
+          {
+            "id": "ahpyxfnnrzynsw3im1psxpkgtpe",
+            "value": "Archived",
+            "color": "propColorBrown"
+          }
+        ]
+      },
+      {
+        "id": "d3d682bf-e074-49d9-8df5-7320921c2d23",
+        "name": "Priority",
+        "type": "select",
+        "options": [
+          {
+            "id": "d3bfb50f-f569-4bad-8a3a-dd15c3f60101",
+            "value": "1. High 🔥",
+            "color": "propColorRed"
+          },
+          {
+            "id": "87f59784-b859-4c24-8ebe-17c766e081dd",
+            "value": "2. Medium",
+            "color": "propColorYellow"
+          },
+          {
+            "id": "98a57627-0f76-471d-850d-91f3ed9fd213",
+            "value": "3. Low",
+            "color": "propColorGray"
+          }
+        ]
+      },
+      {
+        "id": "axkhqa4jxr3jcqe4k87g8bhmary",
+        "name": "Assignee",
+        "type": "person",
+        "options": []
+      },
+      {
+        "id": "a8daz81s4xjgke1ww6cwik5w7ye",
+        "name": "Estimated Hours",
+        "type": "number",
+        "options": []
+      },
+      {
+        "id": "a3zsw7xs8sxy7atj8b6totp3mby",
+        "name": "Due Date",
+        "type": "date",
+        "options": []
+      },
+      {
+        "id": "a7gdnz8ff8iyuqmzddjgmgo9ery",
+        "name": "Created By",
+        "type": "createdBy",
+        "options": []
+      },
+      {
+        "id": "2a5da320-735c-4093-8787-f56e15cdfeed",
+        "name": "Date Created",
+        "type": "createdTime",
+        "options": []
+      }
+    ]
+  },
+  "views": [
+    {
+      "id": "vcuoise4b8jn1ffzujfuacymmmr",
+      "type": "view",
+      "title": "Project Priorities",
+      "fields": {
+        "cardOrder": [],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {},
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "groupById": "d3d682bf-e074-49d9-8df5-7320921c2d23",
+        "hiddenOptionIds": [],
+        "kanbanCalculations": {
+          "": {
+            "calculation": "sum",
+            "propertyId": "a8daz81s4xjgke1ww6cwik5w7ye"
+          },
+          "87f59784-b859-4c24-8ebe-17c766e081dd": {
+            "calculation": "sum",
+            "propertyId": "a8daz81s4xjgke1ww6cwik5w7ye"
+          },
+          "98a57627-0f76-471d-850d-91f3ed9fd213": {
+            "calculation": "sum",
+            "propertyId": "a8daz81s4xjgke1ww6cwik5w7ye"
+          },
+          "d3bfb50f-f569-4bad-8a3a-dd15c3f60101": {
+            "calculation": "sum",
+            "propertyId": "a8daz81s4xjgke1ww6cwik5w7ye"
+          }
+        },
+        "sortOptions": [],
+        "viewType": "board",
+        "visibleOptionIds": [
+          "d3bfb50f-f569-4bad-8a3a-dd15c3f60101",
+          "87f59784-b859-4c24-8ebe-17c766e081dd",
+          "98a57627-0f76-471d-850d-91f3ed9fd213",
+          ""
+        ],
+        "visiblePropertyIds": [
+          "a972dc7a-5f4c-45d2-8044-8c28c69717f1",
+          "a8daz81s4xjgke1ww6cwik5w7ye"
+        ]
+      }
+    },
+    {
+      "id": "vey61xzc6u38ptnpjqaik6ap91e",
+      "type": "view",
+      "title": "Progress Tracker",
+      "fields": {
+        "cardOrder": [
+          "cfk8kwmuhcfd8m8qicz5aqw4mar",
+          "cdwqxf4b3utbbxdrgbwtmk9y9eo",
+          "c68gyx34srjgjxmrs1z8pj7nbce",
+          "ckcntrrmcjbywpciau57gw5suoo",
+          "c6w7rxrootfdw7j4fsftc5gsyoo"
+        ],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {},
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "groupById": "a972dc7a-5f4c-45d2-8044-8c28c69717f1",
+        "hiddenOptionIds": [],
+        "kanbanCalculations": {
+          "": {
+            "calculation": "sum",
+            "propertyId": "a8daz81s4xjgke1ww6cwik5w7ye"
+          },
+          "adeo5xuwne3qjue83fcozekz8ko": {
+            "calculation": "sum",
+            "propertyId": "a8daz81s4xjgke1ww6cwik5w7ye"
+          },
+          "afi4o5nhnqc3smtzs1hs3ij34dh": {
+            "calculation": "sum",
+            "propertyId": "a8daz81s4xjgke1ww6cwik5w7ye"
+          },
+          "ahpyxfnnrzynsw3im1psxpkgtpe": {
+            "calculation": "sum",
+            "propertyId": "a8daz81s4xjgke1ww6cwik5w7ye"
+          },
+          "ar6b8m3jxr3asyxhr8iucdbo6yc": {
+            "calculation": "sum",
+            "propertyId": "a8daz81s4xjgke1ww6cwik5w7ye"
+          },
+          "ayz81h9f3dwp7rzzbdebesc7ute": {
+            "calculation": "sum",
+            "propertyId": "a8daz81s4xjgke1ww6cwik5w7ye"
+          }
+        },
+        "sortOptions": [],
+        "viewType": "board",
+        "visibleOptionIds": [
+          "ayz81h9f3dwp7rzzbdebesc7ute",
+          "ar6b8m3jxr3asyxhr8iucdbo6yc",
+          "afi4o5nhnqc3smtzs1hs3ij34dh",
+          "adeo5xuwne3qjue83fcozekz8ko",
+          "ahpyxfnnrzynsw3im1psxpkgtpe",
+          ""
+        ],
+        "visiblePropertyIds": [
+          "d3d682bf-e074-49d9-8df5-7320921c2d23",
+          "a8daz81s4xjgke1ww6cwik5w7ye"
+        ]
+      }
+    },
+    {
+      "id": "vfztxwjnegbdh38nfccu3bq1auc",
+      "type": "view",
+      "title": "Task Overview",
+      "fields": {
+        "cardOrder": [
+          "c6w7rxrootfdw7j4fsftc5gsyoo",
+          "ckcntrrmcjbywpciau57gw5suoo",
+          "c68gyx34srjgjxmrs1z8pj7nbce",
+          "cfk8kwmuhcfd8m8qicz5aqw4mar",
+          "cdwqxf4b3utbbxdrgbwtmk9y9eo"
+        ],
+        "collapsedOptionIds": [],
+        "columnCalculations": {
+          "a8daz81s4xjgke1ww6cwik5w7ye": "sum"
+        },
+        "columnWidths": {
+          "2a5da320-735c-4093-8787-f56e15cdfeed": 196,
+          "__title": 280,
+          "a8daz81s4xjgke1ww6cwik5w7ye": 139,
+          "a972dc7a-5f4c-45d2-8044-8c28c69717f1": 141,
+          "d3d682bf-e074-49d9-8df5-7320921c2d23": 110
+        },
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "groupById": "",
+        "hiddenOptionIds": [],
+        "kanbanCalculations": {},
+        "sortOptions": [],
+        "viewType": "table",
+        "visibleOptionIds": [],
+        "visiblePropertyIds": [
+          "a972dc7a-5f4c-45d2-8044-8c28c69717f1",
+          "d3d682bf-e074-49d9-8df5-7320921c2d23",
+          "2a5da320-735c-4093-8787-f56e15cdfeed",
+          "a3zsw7xs8sxy7atj8b6totp3mby",
+          "axkhqa4jxr3jcqe4k87g8bhmary",
+          "a7gdnz8ff8iyuqmzddjgmgo9ery",
+          "a8daz81s4xjgke1ww6cwik5w7ye"
+        ]
+      }
+    },
+    {
+      "id": "vi49i1138jpnbiqhyd81beme9zy",
+      "type": "view",
+      "title": "Task Calendar",
+      "fields": {
+        "cardOrder": [],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {},
+        "dateDisplayPropertyId": "a3zsw7xs8sxy7atj8b6totp3mby",
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "hiddenOptionIds": [],
+        "kanbanCalculations": {},
+        "sortOptions": [],
+        "viewType": "calendar",
+        "visibleOptionIds": [],
+        "visiblePropertyIds": ["__title"]
+      }
+    }
+  ],
+  "cards": [
+    {
+      "id": "c68gyx34srjgjxmrs1z8pj7nbce",
+      "type": "card",
+      "title": "Identify dependencies",
+      "fields": {
+        "icon": "🔗",
+        "isTemplate": false,
+        "properties": {
+          "a8daz81s4xjgke1ww6cwik5w7ye": "16",
+          "a972dc7a-5f4c-45d2-8044-8c28c69717f1": "ayz81h9f3dwp7rzzbdebesc7ute",
+          "d3d682bf-e074-49d9-8df5-7320921c2d23": "98a57627-0f76-471d-850d-91f3ed9fd213"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Description"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description of this task]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "horizontalRule"
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Checklist"
+              }
+            ]
+          },
+          {
+            "type": "taskList",
+            "content": [
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 1]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 2]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 3]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "c6w7rxrootfdw7j4fsftc5gsyoo",
+      "type": "card",
+      "title": "Define project scope",
+      "fields": {
+        "icon": "🔬",
+        "isTemplate": false,
+        "properties": {
+          "a8daz81s4xjgke1ww6cwik5w7ye": "32",
+          "a972dc7a-5f4c-45d2-8044-8c28c69717f1": "ar6b8m3jxr3asyxhr8iucdbo6yc",
+          "d3d682bf-e074-49d9-8df5-7320921c2d23": "87f59784-b859-4c24-8ebe-17c766e081dd"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Description"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description of this task]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "horizontalRule"
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Checklist"
+              }
+            ]
+          },
+          {
+            "type": "taskList",
+            "content": [
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 1]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 2]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 3]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cdwqxf4b3utbbxdrgbwtmk9y9eo",
+      "type": "card",
+      "title": "Requirements sign-off",
+      "fields": {
+        "icon": "🖋️",
+        "isTemplate": false,
+        "properties": {
+          "a8daz81s4xjgke1ww6cwik5w7ye": "8",
+          "a972dc7a-5f4c-45d2-8044-8c28c69717f1": "ayz81h9f3dwp7rzzbdebesc7ute",
+          "d3d682bf-e074-49d9-8df5-7320921c2d23": "d3bfb50f-f569-4bad-8a3a-dd15c3f60101"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Description"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description of this task]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "horizontalRule"
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Checklist"
+              }
+            ]
+          },
+          {
+            "type": "taskList",
+            "content": [
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 1]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 2]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 3]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cfk8kwmuhcfd8m8qicz5aqw4mar",
+      "type": "card",
+      "title": "Project budget approval",
+      "fields": {
+        "icon": "💵",
+        "isTemplate": false,
+        "properties": {
+          "a8daz81s4xjgke1ww6cwik5w7ye": "16",
+          "a972dc7a-5f4c-45d2-8044-8c28c69717f1": "ayz81h9f3dwp7rzzbdebesc7ute",
+          "d3d682bf-e074-49d9-8df5-7320921c2d23": "d3bfb50f-f569-4bad-8a3a-dd15c3f60101"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Description"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description of this task]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "horizontalRule"
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Checklist"
+              }
+            ]
+          },
+          {
+            "type": "taskList",
+            "content": [
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 1]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 2]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 3]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ckcntrrmcjbywpciau57gw5suoo",
+      "type": "card",
+      "title": "Conduct market analysis",
+      "fields": {
+        "icon": "📈",
+        "isTemplate": false,
+        "properties": {
+          "a8daz81s4xjgke1ww6cwik5w7ye": "40",
+          "a972dc7a-5f4c-45d2-8044-8c28c69717f1": "ar6b8m3jxr3asyxhr8iucdbo6yc",
+          "d3d682bf-e074-49d9-8df5-7320921c2d23": "87f59784-b859-4c24-8ebe-17c766e081dd"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Description"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Brief description of this task]",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "horizontalRule"
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Checklist"
+              }
+            ]
+          },
+          {
+            "type": "taskList",
+            "content": [
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 1]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 2]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "[Subtask 3]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "files": []
+}

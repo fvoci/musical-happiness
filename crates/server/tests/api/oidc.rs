@@ -4,7 +4,9 @@
 //! the requests to the provider.
 
 use base64::Engine as _;
-use fvoci_model::{LoginOptions, OidcProvider, OidcStart, User, UserWorkspace, Workspace, new_id};
+use fvoci_model::{
+    LoginOptions, NameShown, OidcProvider, OidcStart, User, UserWorkspace, Workspace, new_id,
+};
 use fvoci_server::app::secret_context;
 use fvoci_server::auth::sealed::SecretKey;
 use fvoci_server::auth::secret::token_digest;
@@ -1400,4 +1402,56 @@ async fn a_subject_too_long_is_refused_and_an_address_too_long_is_none() {
         matches!(known_long_email, Outcome::SignedIn(_)),
         "{known_long_email:?}"
     );
+}
+
+/// The first sign-in fills the parts of the name from what the provider gives; a part
+/// the provider gives that a person may not give is left empty. The account is shown by
+/// the parts when both came through, else by the provider's whole name. A later
+/// sign-in changes nothing of the name: it is the person's.
+#[tokio::test]
+async fn the_first_sign_in_takes_the_parts_of_the_name_and_later_ones_leave_them() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let browser = Browser::new(&ts, &fake);
+
+    let mut person = Person::new("subject-kim", "kim@example.com");
+    person.given_name = Some(" 영환 ".to_owned());
+    person.family_name = Some("김\u{202E}".to_owned());
+    fake.sign_in_as(person);
+    let first = browser.sign_in(&org_id).await;
+    let me = ts.client_with_token(first.token()).me().await;
+    assert_eq!(
+        (
+            me.name.first_name.as_str(),
+            me.name.last_name.as_str(),
+            me.name.custom_name.as_str(),
+            me.display_name.as_str()
+        ),
+        ("영환", "", "Person subject-kim", "Person subject-kim"),
+        "a family name that turns the text around is none, and half a name is not shown"
+    );
+
+    let mut whole = Person::new("subject-lee", "lee@example.com");
+    whole.given_name = Some("서연".to_owned());
+    whole.family_name = Some("이".to_owned());
+    fake.sign_in_as(whole);
+    let both = browser.sign_in(&org_id).await;
+    let lee = ts.client_with_token(both.token()).me().await;
+    assert_eq!(
+        (lee.name.name_shown, lee.display_name.as_str()),
+        (NameShown::Name, "이서연"),
+        "both parts: shown by them"
+    );
+
+    let mut again = Person::new("subject-kim", "kim@example.com");
+    again.given_name = Some("Other".to_owned());
+    again.family_name = Some("Name".to_owned());
+    fake.sign_in_as(again);
+    let second = browser.sign_in(&org_id).await;
+    let after = ts.client_with_token(second.token()).me().await;
+    assert_eq!(after.id, me.id);
+    assert_eq!(after.name, me.name, "the name stays the person's");
+    ts.teardown().await;
 }

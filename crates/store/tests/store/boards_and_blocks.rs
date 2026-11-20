@@ -16,9 +16,18 @@ use fvoci_model::{
     ContainerMember, ContainerPatch, ContainerType, ContainersAndBlocks, ContainersAndBlocksError,
     DeleteContainersAndBlocks, PatchContainersAndBlocks, is_id, new_id,
 };
-use fvoci_store::{BlockFilter, DuplicateAs, NewBodyFiles, PublicContainers, Store, StoreError};
+use fvoci_store::{
+    BlockFilter, CopyChanges, CopyTitles, DuplicateAs, NewBodyFiles, PublicContainers, Store,
+    StoreError,
+};
 
 use crate::common;
+
+/// The titles of copies, in English, as a caller of the store brings them.
+const TITLES: CopyTitles = CopyTitles {
+    copy_of: |title| format!("{title} copy"),
+    new_template: "New board template",
+};
 
 /// New identifiers, as many as the pattern they are bound to names.
 fn new_ids<const N: usize>() -> [String; N] {
@@ -708,7 +717,14 @@ async fn duplicate_container() {
     {
         common::works_in(&test, &workspace_id, &user_id).await;
         let (bab, members) = test
-            .duplicate_container(&board1, &user_id, Some(&workspace_id), DuplicateAs::Copy)
+            .duplicate_container(
+                &board1,
+                &user_id,
+                Some(&workspace_id),
+                DuplicateAs::Copy,
+                &TITLES,
+                CopyChanges::default(),
+            )
             .await
             .expect("the board is duplicated");
         assert_eq!(members.len(), 1, "got {members:?}");
@@ -729,6 +745,8 @@ async fn duplicate_container() {
                 &user_id,
                 Some(&workspace_id),
                 DuplicateAs::Template,
+                &TITLES,
+                CopyChanges::default(),
             )
             .await
             .expect("the board is duplicated");
@@ -741,7 +759,14 @@ async fn duplicate_container() {
     // "duplicate not existing board"
     {
         let error = test
-            .duplicate_container(&new_id(), &user_id, Some(&workspace_id), DuplicateAs::Copy)
+            .duplicate_container(
+                &new_id(),
+                &user_id,
+                Some(&workspace_id),
+                DuplicateAs::Copy,
+                &TITLES,
+                CopyChanges::default(),
+            )
             .await
             .expect_err("there is no such board");
         assert!(error.is_not_found(), "got {error:?}");
@@ -799,7 +824,14 @@ async fn duplicate_container_copies_under_new_ids_as_a_private_board_of_the_user
     // board -> board, same workspace
     common::works_in(&test, &workspace_id, &copier).await;
     let (copy, members) = test
-        .duplicate_container(&source_id, &copier, None, DuplicateAs::Copy)
+        .duplicate_container(
+            &source_id,
+            &copier,
+            None,
+            DuplicateAs::Copy,
+            &TITLES,
+            CopyChanges::default(),
+        )
         .await
         .expect("the board is duplicated");
     let board = &copy.containers[0];
@@ -889,6 +921,8 @@ async fn duplicate_container_copies_under_new_ids_as_a_private_board_of_the_user
             &copier,
             Some(&other_workspace_id),
             DuplicateAs::Template,
+            &TITLES,
+            CopyChanges::default(),
         )
         .await
         .expect("the board is duplicated");
@@ -902,7 +936,14 @@ async fn duplicate_container_copies_under_new_ids_as_a_private_board_of_the_user
 
     // template -> template
     let (template_copy, _) = test
-        .duplicate_container(&template.id, &copier, None, DuplicateAs::Template)
+        .duplicate_container(
+            &template.id,
+            &copier,
+            None,
+            DuplicateAs::Template,
+            &TITLES,
+            CopyChanges::default(),
+        )
         .await
         .expect("the template is duplicated");
     assert_eq!(
@@ -916,7 +957,14 @@ async fn duplicate_container_copies_under_new_ids_as_a_private_board_of_the_user
 
     // template -> board
     let (from_template, _) = test
-        .duplicate_container(&template.id, &copier, None, DuplicateAs::Copy)
+        .duplicate_container(
+            &template.id,
+            &copier,
+            None,
+            DuplicateAs::Copy,
+            &TITLES,
+            CopyChanges::default(),
+        )
         .await
         .expect("the template is duplicated");
     assert_eq!(
@@ -973,7 +1021,14 @@ async fn duplicate_container_copies_a_board_without_blocks() {
     common::works_in(&test, &workspace_id, &user_id).await;
     for (board_id, what) in [(&empty_id, "empty"), (&only_comments_id, "comments only")] {
         let (copy, members) = test
-            .duplicate_container(board_id, &user_id, None, DuplicateAs::Copy)
+            .duplicate_container(
+                board_id,
+                &user_id,
+                None,
+                DuplicateAs::Copy,
+                &TITLES,
+                CopyChanges::default(),
+            )
             .await
             .expect("a board without blocks to copy is copied");
         assert_eq!(copy.containers.len(), 1, "{what}: one board");
@@ -1288,7 +1343,14 @@ async fn duplicate_container_copies_a_block_that_is_older_than_its_parent() {
 
     common::works_in(&test, &workspace_id, &user_id).await;
     let (copy, _) = test
-        .duplicate_container(&board_id, &user_id, None, DuplicateAs::Copy)
+        .duplicate_container(
+            &board_id,
+            &user_id,
+            None,
+            DuplicateAs::Copy,
+            &TITLES,
+            CopyChanges::default(),
+        )
         .await
         .expect("the board is duplicated");
     let stored = test

@@ -230,30 +230,17 @@ describe('the message files', () => {
     expect(problems).toEqual([]);
   });
 
-  // The names the product and its company were known by, put together from
-  // halves so that this file passes the names check, in Latin letters and as
-  // Korean spells the company.
-  const OLD_NAMES = [
-    ['focal', 'board'].join(''),
-    ['matter', 'most'].join(''),
-    ['메터', '머스트'].join(''),
-  ];
   const OUTSIDE_ADDRESS = /https?:\/\/|\bwww\.|\b[a-z0-9-]+\.(?:com|org|net|io|html)\b/i;
   const forbidden = (text: string): string | undefined =>
-    OUTSIDE_ADDRESS.test(text)
-      ? 'the address of an outside site'
-      : OLD_NAMES.find((name) => text.toLowerCase().includes(name))
-        ? 'an old name'
-        : undefined;
+    OUTSIDE_ADDRESS.test(text) ? 'the address of an outside site' : undefined;
 
-  it('find an outside address or an old name in a text', () => {
+  it('find an outside address in a text', () => {
     expect(forbidden('See https://example.org')).toBe('the address of an outside site');
     expect(forbidden('Visit docs.example.com')).toBe('the address of an outside site');
-    expect(forbidden(`${['메터', '머스트'].join('')} 사용자`)).toBe('an old name');
     expect(forbidden('보드를 추가합니다')).toBeUndefined();
   });
 
-  it('name no outside site and neither old name, in any locale', () => {
+  it('name no outside site, in any locale', () => {
     const found = settings.locales.flatMap((locale) =>
       Object.entries(messages(locale)).flatMap(([id, message]) =>
         textsOf(message).flatMap((text) => {

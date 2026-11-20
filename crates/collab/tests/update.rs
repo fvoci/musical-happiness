@@ -3,9 +3,12 @@
 
 mod support;
 
-use fvoci_collab::testing::{copy_of, to_body, with_update};
-use fvoci_collab::{FIELD, UpdateError, UpdateLimits, from_body, new_doc, state_of};
+use std::time::{Duration, Instant};
+
+use fvoci_collab::testing::{changes_of, copy_of, to_body, with_update};
+use fvoci_collab::{FIELD, MAX_CLIENTS, UpdateError, UpdateLimits, from_body, new_doc, state_of};
 use serde_json::json;
+use support::wire::{Change, Content, Parent, Run};
 use support::{ROOMY, body_of, json_of};
 use yrs::updates::decoder::Decode;
 use yrs::{
@@ -264,7 +267,7 @@ fn a_document_may_cross_threads() {
 }
 
 /// What the room that holds a document pays for each update, measured on bodies of
-/// text and of nodes up to the largest (1 MiB of text, and the most nodes), each with
+/// text and of nodes up to the largest (the most text, and the most nodes), each with
 /// room left for a paragraph more, and printed: run with
 /// `--release -- --nocapture` to read it. Nothing is asserted about the times.
 #[test]
@@ -285,9 +288,9 @@ fn the_cost_of_taking_an_update_into_the_largest_bodies() {
     for (name, document) in [
         ("4 KiB of text", of_text(4 * 1024)),
         ("64 KiB of text", of_text(64 * 1024)),
-        ("1 MiB of text", of_text(BODY_MAX_BYTES)),
+        ("the most text", of_text(BODY_MAX_BYTES)),
         ("1,000 nodes", paragraphs(1000)),
-        ("20,000 nodes", paragraphs(BODY_MAX_NODES - 3)),
+        ("the most nodes", paragraphs(BODY_MAX_NODES - 3)),
     ] {
         let body = body_of(&document);
         let timed = Instant::now();
@@ -319,4 +322,111 @@ fn the_cost_of_taking_an_update_into_the_largest_bodies() {
             update.len()
         );
     }
+}
+
+/// An update of the clients `clients`, each of one change of deleted content after the
+/// change of the client before; the first after `after`, or at the front of the body.
+fn of_clients(clients: std::ops::RangeInclusive<u64>, after: Option<(u64, u64)>) -> Vec<u8> {
+    let mut before = after;
+    let runs = clients
+        .map(|client| {
+            let change = match before {
+                None => Change::under(Parent::body(), Content::Deleted(1)),
+                Some(left) => Change::after(left, Content::Deleted(1)),
+            };
+            before = Some((client, 0));
+            Run {
+                client,
+                clock: 0,
+                changes: vec![change],
+            }
+        })
+        .collect();
+    support::wire::Update {
+        runs,
+        deleted: Vec::new(),
+    }
+    .bytes()
+}
+
+/// The clients a document names with an update are those it names and those of the
+/// update it does not, and an update that leaves more than the limit is refused.
+#[test]
+fn an_update_is_refused_past_the_clients_a_document_may_name() {
+    let limits = UpdateLimits {
+        clients: Some(100),
+        ..ROOMY
+    };
+    let sixty = with_update(&new_doc(), &of_clients(1..=60, None), &limits).expect("60");
+    let hundred = with_update(&sixty, &of_clients(61..=100, Some((60, 0))), &limits).expect("100");
+    assert_eq!(
+        with_update(&sixty, &of_clients(61..=101, Some((60, 0))), &limits).err(),
+        Some(UpdateError::TooManyClients {
+            clients: 101,
+            limit: 100,
+        })
+    );
+    // A client the document names already is not counted again.
+    let again = support::wire::Update::of(1, 1, vec![Change::after((1, 0), Content::Deleted(1))]);
+    with_update(&hundred, &again.bytes(), &limits).expect("a client it names");
+}
+
+/// The changes of a client are counted in the document an update leaves, deleted ones
+/// too, and an update that leaves a client with more than the limit is refused: the
+/// library moves every later change of a client each time it cuts one.
+#[test]
+fn an_update_is_refused_past_the_changes_a_client_may_have() {
+    let limits = UpdateLimits {
+        client_changes: Some(100),
+        ..ROOMY
+    };
+    // Changes of deleted content that each name the body as their parent and no
+    // neighbour: none is joined to the one before it.
+    let of = |clock: u64, count: usize| {
+        support::wire::Update::of(
+            1,
+            clock,
+            vec![Change::under(Parent::body(), Content::Deleted(1)); count],
+        )
+        .bytes()
+    };
+    let sixty = with_update(&new_doc(), &of(0, 60), &limits).expect("60");
+    let hundred = with_update(&sixty, &of(60, 40), &limits).expect("100");
+    assert_eq!(
+        with_update(&hundred, &of(100, 1), &limits).err(),
+        Some(UpdateError::TooManyChanges {
+            changes: 101,
+            limit: 100,
+        })
+    );
+    // Another client's changes are its own.
+    let other = support::wire::Update::of(
+        2,
+        0,
+        vec![Change::under(Parent::body(), Content::Deleted(1)); 100],
+    );
+    with_update(&hundred, &other.bytes(), &limits).expect("another client's hundred");
+}
+
+/// An update of a hundred thousand clients is walked in the time it takes to read it,
+/// and refused before the document is read, which would take the square of them.
+#[test]
+fn an_update_of_many_clients_is_refused_before_the_document_is_read() {
+    const CLIENTS: u64 = 100_000;
+    let many = of_clients(1..=CLIENTS, None);
+    let start = Instant::now();
+    assert_eq!(changes_of(&many), CLIENTS);
+    let refused = with_update(&new_doc(), &many, &ROOMY);
+    let took = start.elapsed();
+    assert_eq!(
+        refused.err(),
+        Some(UpdateError::TooManyClients {
+            clients: usize::try_from(CLIENTS).expect("a count fits"),
+            limit: MAX_CLIENTS,
+        })
+    );
+    assert!(
+        took < Duration::from_secs(3),
+        "walked and refused in {took:?}"
+    );
 }

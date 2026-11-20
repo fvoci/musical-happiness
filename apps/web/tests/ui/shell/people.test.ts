@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import PeoplePanel from '$lib/features/shell/PeoplePanel.svelte';
+import { emptyName } from '$lib/logic/person-names.ts';
 import {
   BackendError,
   type Invitation,
@@ -17,7 +18,13 @@ import {
 afterEach(cleanup);
 
 const MEMBERS: WorkspaceMember[] = [
-  { userId: 'u1', username: 'ada', displayName: 'Ada', role: 'admin' },
+  {
+    userId: 'u1',
+    username: 'ada',
+    displayName: 'Ada',
+    name: { ...emptyName(), customName: 'Ada', latinLastName: 'Lovelace', title: 'dr' },
+    role: 'admin',
+  },
   { userId: 'u2', username: 'grace', displayName: '', role: 'member' },
   { userId: 'u3', username: 'visitor', displayName: '', role: 'guest' },
 ];
@@ -56,6 +63,8 @@ function mount(overrides: Partial<ReturnType<typeof requests>> = {}) {
     info: { id: 'w1', title: 'Acme', role: 'admin' },
     containers: [],
     me: { id: 'u1' },
+    // Nobody read yet: the rows are the list's.
+    user: () => undefined,
     locale: 'en',
     regional: { timeZone: 'UTC', hourCycle: 'h23' },
   } as unknown as Workspace;
@@ -71,8 +80,9 @@ describe('the people of a workspace', () => {
     const list = await screen.findByTestId('people-members');
     expect(screen.getByRole('heading', { name: 'People in Acme' })).toBeVisible();
     expect(screen.getByText(/Anyone who opens the link can join Acme/)).toBeVisible();
-    const rows = within(list).getAllByRole('listitem');
-    expect(rows.map((row) => row.textContent.includes('Ada (@ada)'))).toEqual([true, false, false]);
+    // The title is in the list; the login name beside a name shown, not for one without.
+    expect(within(list).getByRole('button', { name: 'Dr. Ada @ada' })).toBeVisible();
+    expect(within(list).getByRole('button', { name: 'grace' })).toBeVisible();
     const options = (name: string): string[] =>
       within(screen.getByLabelText(`Role of ${name}`))
         .getAllByRole('option')
@@ -90,6 +100,28 @@ describe('the people of a workspace', () => {
     expect(within(screen.getByTestId('people-guest-links')).getAllByRole('listitem')).toHaveLength(
       1,
     );
+  });
+
+  it("opens a member's profile from their name, and Escape gives the focus back", async () => {
+    mount();
+    const list = await screen.findByTestId('people-members');
+    const opener = within(list).getByRole('button', { name: 'Dr. Ada @ada' });
+    expect(opener).toHaveAttribute('aria-haspopup', 'dialog');
+    opener.focus();
+    await fireEvent.click(opener);
+    const card = await screen.findByRole('dialog', { name: 'Dr. Ada' });
+    expect(within(card).getByText('In Latin letters').nextElementSibling).toHaveTextContent(
+      'Lovelace',
+    );
+    expect(within(card).getByText('Title').nextElementSibling).toHaveTextContent('Dr.');
+    expect(within(card).queryByText('Degrees and qualifications')).toBeNull();
+    await fireEvent.keyDown(card, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    await waitFor(() => {
+      expect(opener).toHaveFocus();
+    });
   });
 
   it('shows the address of a link once it is made, and revokes one', async () => {

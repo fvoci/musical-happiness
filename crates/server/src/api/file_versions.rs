@@ -21,7 +21,8 @@ use super::contract::tag;
 use super::files::{require_file_reader, serve_stored};
 use super::workspace::InContainer;
 use super::{ApiResult, created, json_response, require_container_permission};
-use crate::app::App;
+use crate::app::{App, FILE};
+use crate::error::AppError;
 use crate::permissions::ContainerPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -58,7 +59,7 @@ async fn handle_get_file_versions(
 /// The bytes of a version of a file
 ///
 /// As `getFile` gives the newest version: sent as `application/octet-stream`, offered
-/// as a download under the `fileId`, with one range honoured. For whom
+/// as a download under the name the file was uploaded with, with one range honoured. For whom
 /// `getFileVersions` is for. A number the file has no version of, or has none of any
 /// more, is 404.
 #[utoipa::path(
@@ -81,11 +82,14 @@ async fn handle_get_file_version(
     headers: HeaderMap,
 ) -> ApiResult {
     require_file_reader(&ws.app, &ws.session.user_id, &container_id).await?;
+    let Some(info) = ws.app.file_info(&container_id, &file_id).await? else {
+        return Err(AppError::not_found(FILE));
+    };
     let kept = ws
         .app
         .kept_file_version(&container_id, &file_id, version_number(&version)?)
         .await?;
-    serve_stored(&ws.app, &file_id, &kept.path, &headers).await
+    serve_stored(&ws.app, &info, &kept.path, &headers).await
 }
 
 /// Write a new version of a file

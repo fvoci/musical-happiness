@@ -7,7 +7,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
-use super::content::Language;
+use crate::app::language::Language;
 
 /// One message to one recipient, as every way of sending takes it.
 pub(crate) struct Outgoing {

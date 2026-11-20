@@ -8,7 +8,7 @@ use yrs::Doc;
 use crate::build::new_doc;
 use crate::project::to_body;
 use crate::repair::{Repair, repaired};
-use crate::update::{UpdateError, UpdateLimits, settled_sized, with_update_sized};
+use crate::update::{Settled, UpdateError, UpdateLimits, settled_sized, with_update_sized};
 
 /// A document that took an update, with its body.
 #[derive(Debug)]
@@ -22,6 +22,9 @@ pub struct Taken {
     pub repair: Repair,
     /// The size of the state of `doc` ([`crate::state_of`]), in bytes.
     pub state_bytes: usize,
+    /// The most changes one client has in `doc`, deleted ones too
+    /// ([`UpdateLimits::client_changes`]).
+    pub client_changes: u64,
 }
 
 /// Why an update, or a stored state, is not taken. The document it was given for is as
@@ -54,19 +57,24 @@ pub enum TakeError {
 /// document, the one that sent the update too: they did not make them.
 ///
 /// How long this takes grows with the document as well as with the update: the copy
-/// and the reading again each read the whole state (17 ms for 20,000 nodes, release
-/// build), and the walk refuses the known ways to make that reading cost the square of
-/// the state (a member written over and over). And the Y library places a change among
-/// the others that claim the same place by looking at each of them, so that an update
-/// made for it can take the square of its size (112 kB of changes that all claim the
-/// end of a parent of 16,000 children took 29 seconds). What calls this keeps
+/// and the reading again each read the whole state (a paragraph typed into 50,000
+/// nodes is taken in 0.15 s, and a repair there in up to 1.3 s, release build), and
+/// the walk refuses the known ways to make that reading cost the square of the state
+/// (a member written over and over). And the Y library places a change among the
+/// others of its list by walking past them, so that an update made for it has every
+/// change walk a long list (59 kB of changes that each named the root of 50,000
+/// children took 12 seconds): [`UpdateLimits::placing_steps`] is what an update may
+/// be made to walk, and an update made to walk that much took up to two seconds. Not
+/// every way to make the library slow is counted: what calls this also gives it a time
+/// to take an update in, and holds back the sender of one that takes longer. It keeps
 /// [`UpdateLimits::update_bytes`] and [`UpdateLimits::state_bytes`] small and does not
 /// hold anything others wait for while it runs.
 ///
 /// # Errors
 ///
 /// Returns [`TakeError::Update`] if the update cannot be taken at all (see
-/// [`UpdateError`]), [`TakeError::Body`] if the document with it is no body and a
+/// [`UpdateError`]: among them one whose changes would take more steps to place than
+/// [`UpdateLimits::placing_steps`]), [`TakeError::Body`] if the document with it is no body and a
 /// repair does not make it one, and [`TakeError::BodyTooLarge`] if its body is past
 /// [`UpdateLimits::body_bytes`].
 ///
@@ -85,8 +93,8 @@ pub fn take_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Ta
 
 /// Opens the document of a stored state ([`crate::state_of`]), as an update to an
 /// empty document is taken: with the same checks and repair, and the update's own
-/// limit of size left out, as a state may be as large as
-/// [`UpdateLimits::state_bytes`].
+/// limits left out, as a state may be as large as [`UpdateLimits::state_bytes`] and
+/// its changes were placed when they were taken.
 ///
 /// # Errors
 ///
@@ -101,6 +109,9 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
     }
     let limits = UpdateLimits {
         update_bytes: state.len(),
+        placing_steps: None,
+        clients: None,
+        client_changes: None,
         ..*limits
     };
     take_update(&new_doc(), state, &limits)
@@ -114,14 +125,14 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
 /// than when it deletes in a document it holds. What is given back is what a server
 /// that stored it reads, with the body of that; if that is no body, the update is
 /// refused.
-fn to_taken((with, with_bytes): (Doc, usize), limits: &UpdateLimits) -> Result<Taken, TakeError> {
-    let (mut repair, repaired) = repaired(&with)?;
-    let (doc, state_bytes) = match repaired {
-        None => (with, with_bytes),
+fn to_taken(with: Settled, limits: &UpdateLimits) -> Result<Taken, TakeError> {
+    let (mut repair, repaired) = repaired(&with.doc)?;
+    let settled = match repaired {
+        None => with,
         Some(copy) => {
-            let (again, again_bytes) = settled_sized(&copy, limits)?;
-            repair.body = to_body(&again)?;
-            (again, again_bytes)
+            let again = settled_sized(&copy, limits)?;
+            repair.body = to_body(&again.doc)?;
+            again
         }
     };
     if let Some(body) = &repair.body {
@@ -134,9 +145,10 @@ fn to_taken((with, with_bytes): (Doc, usize), limits: &UpdateLimits) -> Result<T
         }
     }
     Ok(Taken {
-        doc,
+        doc: settled.doc,
         repair,
-        state_bytes,
+        state_bytes: settled.state_bytes,
+        client_changes: settled.client_changes,
     })
 }
 

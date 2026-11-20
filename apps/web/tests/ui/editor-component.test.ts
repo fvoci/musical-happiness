@@ -265,6 +265,28 @@ describe('BodyEditor', () => {
     expect(JSON.stringify(editorIn(container).getJSON())).not.toContain('김하늘');
   });
 
+  it('finds a person to mention by any of their names, not the shown one alone', async () => {
+    const users = [
+      { id: 'u-kim', name: '김영환', also: ['yhkim', 'Younghwan Kim', 'Kim Younghwan'] },
+      { id: 'u-lee', name: 'Lee', also: ['lee'] },
+    ];
+    const { container } = render(BodyEditor, { doc: doc(paragraph()), users });
+    const editor = editorIn(container);
+    const offered = (): (string | null)[] =>
+      Array.from(document.querySelectorAll('[data-suggestions="mention"] [role="option"]')).map(
+        (option) => option.textContent,
+      );
+    editor.commands.focus();
+    editor.commands.insertContent('@kim');
+    await vi.waitFor(() => {
+      expect(offered()).toEqual(['김영환']);
+    });
+    editor.commands.insertContent(' x @yhk');
+    await vi.waitFor(() => {
+      expect(offered()).toEqual(['김영환']);
+    });
+  });
+
   it('tells the caller about focus coming and going', () => {
     const onFocus = vi.fn();
     const onBlur = vi.fn();

@@ -36,6 +36,12 @@ const BLOCKS: &[&str] = &[
 /// The nodes that stand inside a line.
 const INLINE: &[&str] = &["text", "hardBreak", "mention", "reference", "inlineMath"];
 
+/// The types of node a body may hold besides the document itself and the items of its
+/// lists: those that stand as blocks, then those that stand inside a line.
+pub fn body_node_types() -> impl Iterator<Item = &'static str> {
+    BLOCKS.iter().chain(INLINE).copied()
+}
+
 /// The longest source of a formula.
 const LATEX_MAX: usize = 4000;
 

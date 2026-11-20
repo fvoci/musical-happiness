@@ -15,7 +15,7 @@ import type {
   OrgWorkspace,
 } from '../state/organization.ts';
 
-import type { Schemas } from './convert.ts';
+import { personNameOf, type Schemas } from './convert.ts';
 import type { Http } from './http.ts';
 import type { OidcProvider, OidcSettings } from '../state/oidc.ts';
 
@@ -108,14 +108,21 @@ export class ServerOrganizations implements Organizations {
   }
 
   /** Every member, a page after another until one is not full. */
-  members(orgId: string): Promise<OrgMember[]> {
-    return allPages((paging) =>
+  async members(orgId: string): Promise<OrgMember[]> {
+    const members = await allPages((paging) =>
       this.#http.request<Schemas['OrgMember'][]>(
         '/api/v1/org/{orgId}/members',
         { orgId },
         { query: { ...paging } },
       ),
     );
+    return members.map((member) => ({
+      userId: member.userId,
+      username: member.username,
+      displayName: member.displayName,
+      name: personNameOf(member),
+      role: member.role,
+    }));
   }
 
   async setRole(orgId: string, userId: string, role: OrgRole): Promise<void> {

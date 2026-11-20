@@ -15,6 +15,32 @@ export function copiedBlocks(world: World, container: { id: string }): StoredBlo
   return world.blocksOf(container.id).filter((block) => block.type !== 'comment');
 }
 
+/** The language of a tag among the two the server writes its own words in. */
+function writtenIn(tag: string): 'en' | 'ko' | undefined {
+  const language = tag.split('-')[0]?.toLowerCase();
+  return language === 'ko' || language === 'en' ? language : undefined;
+}
+
+/**
+ * The title of a copy, as the server titles it: a copy of the same kind is
+ * the original's with "copy" after it, a template made from a board "New
+ * board template", and a board made from a template keeps the title. The
+ * words are English or Korean: by the account's `language`; where that is
+ * left to the device or is another language, by the first of the two the
+ * browser asks for (its `Accept-Language`); failing both, English.
+ */
+export function copyTitle(
+  source: { title: string; isTemplate: boolean },
+  asTemplate: boolean,
+  language: string,
+): string {
+  if (source.isTemplate !== asTemplate && !asTemplate) return source.title;
+  const asked = typeof navigator === 'undefined' ? [] : navigator.languages;
+  const korean = (writtenIn(language) ?? asked.map(writtenIn).find(Boolean)) === 'ko';
+  if (source.isTemplate !== asTemplate) return korean ? '새 보드 템플릿' : 'New board template';
+  return `${source.title} ${korean ? '사본' : 'copy'}`;
+}
+
 /** The body with the files its images and file blocks name renamed, where `rename` has another name. */
 function renameFiles(node: DocNode, rename: (id: string) => string): DocNode {
   const attrs = namesFile(node)

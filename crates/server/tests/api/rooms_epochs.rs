@@ -146,7 +146,9 @@ async fn a_killed_worker_has_the_room_sent_the_document_again() {
 async fn a_document_made_again_for_its_size_is_sent_to_the_room() {
     let th = Setup::native()
         .configure(|config| {
-            config.collab.collab_state_bytes = 2 * 1024 * 1024;
+            // Large updates, so that few of them bring the document near its limit:
+            // every update is paid for by the size of the document.
+            config.collab.collab_update_bytes = 1024 * 1024;
             // The test writes faster than an editor does.
             config.collab.collab_frames_per_second = 1_000_000;
         })
@@ -155,13 +157,13 @@ async fn a_document_made_again_for_its_size_is_sent_to_the_room() {
         .init_basic()
         .await;
     let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["kept"])).await;
-    // Each round leaves 60 KiB deleted in the state: three quarters of 2 MiB is
-    // reached in the twenty-sixth.
-    let line = "z".repeat(60 * 1024);
+    // Each round leaves 480 KiB deleted in the state: three quarters of the 8 MiB a
+    // state may be is reached in the thirteenth.
+    let line = "z".repeat(480 * 1024);
     let mut updates = 0;
     while one.epoch == 1 {
         assert!(
-            updates < 120,
+            updates < 60,
             "made again before the state reached its limit"
         );
         let update = if updates % 2 == 0 {
@@ -180,7 +182,7 @@ async fn a_document_made_again_for_its_size_is_sent_to_the_room() {
         }
     }
     assert!(
-        updates >= 48,
+        updates >= 24,
         "only once it was near the limit: {updates} updates"
     );
     for peer in [&mut one, &mut two] {

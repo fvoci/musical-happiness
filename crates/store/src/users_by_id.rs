@@ -9,10 +9,13 @@ use crate::users::{fetch_users, user_not_found};
 
 /// The columns of [`crate::users::USER_COLUMNS`], in its order, with the times of an erased
 /// account read as zero.
-const ERASED_AS_NOBODY: &str = "id, username, email, password_hash, \
+const ERASED_AS_NOBODY: &str = concat!(
+    "id, username, email, password_hash, \
      CASE WHEN erased_at > 0 THEN 0 ELSE create_at END, \
      CASE WHEN erased_at > 0 THEN 0 ELSE update_at END, \
-     CASE WHEN erased_at > 0 THEN 0 ELSE delete_at END, is_admin, display_name";
+     CASE WHEN erased_at > 0 THEN 0 ELSE delete_at END, is_admin, display_name, ",
+    crate::person_names::name_columns!()
+);
 
 /// The users with the given identifiers among those `narrow` keeps, oldest first.
 ///

@@ -6,6 +6,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use crate::organization::{OrgRole, WorkspaceRole};
+use crate::person_name::PersonName;
 
 /// An organization as its administrators see it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -48,6 +49,10 @@ pub struct OrgMember {
     pub username: String,
     /// The name the user shows; empty for none.
     pub display_name: String,
+    /// The parts of the user's name, and their title and credentials: the
+    /// administrators see the user's name.
+    #[serde(flatten)]
+    pub name: PersonName,
     /// What the user is in the organization.
     pub role: OrgRole,
 }

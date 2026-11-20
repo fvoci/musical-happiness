@@ -59,6 +59,7 @@ mod page_places;
 mod page_trash;
 mod pages;
 mod password_reset;
+mod person_names;
 mod schema;
 mod search_docs;
 mod search_outbox;
@@ -76,6 +77,7 @@ mod uploads;
 mod users;
 mod users_by_id;
 mod visibility;
+mod welcome;
 mod workspace_membership;
 mod workspaces;
 
@@ -90,7 +92,9 @@ pub use account_deletion::{DeletionAsking, DeletionStanding};
 pub use account_erasure::{ErasedFrom, Erasing, ErasureEnd, ErasureStart, HandedOver};
 pub use accounts::Founding;
 pub use audit::{AuditEntry, AuditPlace};
-pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
+pub use blocks::{
+    BlockFilter, BodyPreview, CopyChanges, CopyTitles, DuplicateAs, ListedBlock, Paging, Previews,
+};
 pub use body_digest::body_digest;
 pub use body_docs::{DocAsRead, LoggedUpdate, StoredDoc};
 pub use body_versions::{BodyBefore, DEFAULT_BODY_VERSIONS_KEPT, KeptVersion};
@@ -127,6 +131,7 @@ pub use page_copies::PageCopies;
 pub use page_trash::PageRestore;
 pub use pages::PageWrite;
 pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
+pub use person_names::ChangedName;
 pub use search_docs::SearchDocument;
 pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};
 pub use search_text::{TextFound, TextSearch};

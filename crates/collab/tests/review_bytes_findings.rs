@@ -171,9 +171,14 @@ fn a_taken_document_opens_to_the_same_body_each_time() {
     let update =
         from_base64("AgEAAMEHEgcLBQMBAAcBB2RlZmF1bHQDCGxpc3RJdGVtiAAAAXtDQAAAAAAAAIQAAAV3b3JkIAA=");
     let opened = from_state(&before, &ROOMY).expect("a body");
-    // The document as the server made it of its body, by the writer the search gives.
-    let base = from_body_by(opened.repair.body.as_ref().expect("a body"), 7);
+    let body = opened.repair.body.expect("a body");
+    // The document as the server made it of its body, by the writer the search gives,
+    // before it wrote each mark in a pass of its own: what it stored so is still opened.
+    let base = support::doc_of(&before);
     assert_eq!(state_of(&base), before);
+    // Made of the same body now, it is a document of that body.
+    let made = from_body_by(&body, 7);
+    assert_eq!(to_body(&made), Ok(Some(body)), "the same body");
     if let Ok(taken) = take_update(&base, &update, &ROOMY) {
         let mut state = state_of(&taken.doc);
         for time in 0..3 {

@@ -39,6 +39,7 @@ mod refusals;
 mod removal;
 mod rooms;
 mod seat;
+mod senders;
 mod upkeep;
 mod versions;
 mod whole;
@@ -65,7 +66,7 @@ use crate::app::App;
 use crate::collab_worker::wire::{ASIDE_DOCUMENTS, Answer, Limits, Refusal, Refused, Request};
 use crate::config::collab::CollabSettings;
 use crate::error::AppError;
-use place::{Held, Slot};
+use place::{Held, Slot, Unanswered};
 use worker::{Worker, WorkerCommand, WorkerSettings};
 
 /// How many updates the log of a document holds before they are folded into its state.
@@ -140,6 +141,13 @@ struct Inner {
     events: broadcast::Sender<DocEvent>,
     /// The connections that hold the documents together.
     rooms: rooms::Rooms,
+    /// Who sent updates that ended a worker, and is held back for it.
+    senders: senders::Senders,
+    /// The cards whose next updates have the worker stall for so many milliseconds
+    /// instead of taking them, by their key in the place: for the tests of an update
+    /// that ends its worker.
+    #[cfg(feature = "test-util")]
+    stalled_updates: Mutex<HashMap<String, u64>>,
     /// No body is written because it is due ([`Collab::leave_due_writes`]).
     #[cfg(feature = "test-util")]
     due_writes_left: std::sync::atomic::AtomicBool,
@@ -259,6 +267,9 @@ impl Collab {
                 version_time_passed: Mutex::new(Duration::ZERO),
                 events: broadcast::channel(EVENTS).0,
                 rooms: rooms::Rooms::new(settings),
+                senders: senders::Senders::default(),
+                #[cfg(feature = "test-util")]
+                stalled_updates: Mutex::new(HashMap::new()),
                 #[cfg(feature = "test-util")]
                 due_writes_left: std::sync::atomic::AtomicBool::new(false),
                 #[cfg(feature = "test-util")]
@@ -451,9 +462,12 @@ impl Collab {
     ) -> Result<Taken, AppError> {
         self.take_while(app, card_id, epoch, user_id, update, None)
             .await
+            .map_err(Unanswered::into_error)
     }
 
-    /// A room that was deleted cannot write later, even if its card was restored.
+    /// A room that was deleted cannot write later, even if its card was restored. The
+    /// updates of a user whose update ended a worker are refused for a while
+    /// ([`senders`]) before anything else, and again as they are sent to the worker.
     async fn take_while(
         &self,
         app: &App,
@@ -462,7 +476,8 @@ impl Collab {
         user_id: &str,
         update: &[u8],
         gone: Option<CancellationToken>,
-    ) -> Result<Taken, AppError> {
+    ) -> Result<Taken, Unanswered> {
+        self.held_back(app, user_id)?;
         self.held_to_update_bytes(update)?;
         let (user_id, update) = (user_id.to_owned(), update.to_vec());
         self.on_slot_while(
@@ -471,12 +486,41 @@ impl Collab {
             gone,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
-                collab
+                Ok(collab
                     .take_in(app, card_id, slot, epoch, &user_id, &update)
-                    .await
+                    .await)
             },
         )
-        .await
+        .await?
+    }
+
+    /// Has the worker stall for `millis` milliseconds instead of taking the next
+    /// updates of a card of `app`'s organization, until [`Collab::take_updates`]: for
+    /// the tests of an update that ends its worker.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub fn stall_updates(&self, app: &App, card_id: &str, millis: u64) {
+        let key = place::key_of(app.store().tenant(), card_id);
+        let mut stalled = self.inner.stalled_updates.lock().expect("not poisoned");
+        stalled.insert(key, millis);
+    }
+
+    /// Has the worker take the updates of a card again ([`Collab::stall_updates`]).
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub fn take_updates(&self, app: &App, card_id: &str) {
+        let key = place::key_of(app.store().tenant(), card_id);
+        let mut stalled = self.inner.stalled_updates.lock().expect("not poisoned");
+        stalled.remove(&key);
+    }
+
+    /// How long the worker is to stall instead of taking an update of a card
+    /// ([`Collab::stall_updates`]).
+    #[cfg(feature = "test-util")]
+    fn stall_for(&self, app: &App, card_id: &str) -> Option<u64> {
+        let key = place::key_of(app.store().tenant(), card_id);
+        let stalled = self.inner.stalled_updates.lock().expect("not poisoned");
+        stalled.get(&key).copied()
     }
 
     /// Writes the body of a card's document to the card now, if it has updates whose
@@ -706,6 +750,17 @@ impl Collab {
         pids
     }
 
+    /// How many of the first worker's processes ended, and its deaths in a row: for the
+    /// tests of whom a death is put down to.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub async fn first_worker_ended(&self) -> worker::Ended {
+        self.inner.workers[0]
+            .ended()
+            .await
+            .expect("the worker's task runs")
+    }
+
     /// Has the first worker take `millis` milliseconds over a request, for the tests
     /// of a worker that does not answer in time.
     ///
@@ -748,6 +803,22 @@ impl Collab {
             },
         )
         .await
+    }
+
+    /// Refuses the updates of a user of `app`'s organization while they, or their
+    /// organization, are held back for updates that ended a worker ([`senders`]).
+    fn held_back(&self, app: &App, user_id: &str) -> Result<(), AppError> {
+        let now = tokio::time::Instant::now();
+        let tenant = app.store().tenant();
+        if self
+            .inner
+            .senders
+            .held_until(tenant, user_id, now)
+            .is_some()
+        {
+            return Err(refusals::held_back());
+        }
+        Ok(())
     }
 
     /// Refuses what an editor sends that is larger than an update may be, before it is

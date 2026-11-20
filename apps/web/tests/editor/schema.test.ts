@@ -9,6 +9,7 @@ import {
   MARK_SPECS,
   MAX_DEPTH,
   MAX_LATEX,
+  MAX_NODES,
   NODE_SPECS,
   plainText,
   storedSize,
@@ -175,8 +176,9 @@ describe('validating a document', () => {
   });
 
   it('refuses a document with more nodes than the limit', () => {
-    const many = doc(...Array.from({ length: 10_001 }, () => paragraph(text('x'))));
-    expect(validateDoc(many).join('\n')).toContain('more than 20000 nodes');
+    // Each paragraph is two nodes with its text.
+    const many = doc(...Array.from({ length: MAX_NODES / 2 }, () => paragraph(text('x'))));
+    expect(validateDoc(many).join('\n')).toContain(`more than ${MAX_NODES} nodes`);
   });
 });
 

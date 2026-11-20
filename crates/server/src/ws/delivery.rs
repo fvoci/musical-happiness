@@ -17,6 +17,11 @@ pub(super) enum Access<'a> {
         also: Option<&'a str>,
     },
     Public(&'a str),
+    /// Who follows the workspace and sees `person`, a member of it, in it.
+    Seers {
+        workspace: &'a str,
+        person: &'a str,
+    },
     All,
 }
 
@@ -324,12 +329,13 @@ impl Hub {
                     .iter()
                     .find(|permit| permit.container == container)
                     .map(|permit| Following::Link(permit.clone())),
-                Access::Workspace(workspace) => {
-                    following_workspace(listener, workspace, ContainerOnly::No)
-                }
+                Access::Workspace(workspace) => following_workspace(listener, workspace, Told::All),
                 Access::Members {
                     workspace, also, ..
-                } => following_workspace(listener, workspace, ContainerOnly::Readers { also }),
+                } => following_workspace(listener, workspace, Told::Readers { also }),
+                Access::Seers { workspace, person } => {
+                    following_workspace(listener, workspace, Told::Seers { person })
+                }
             }
         };
         match following {
@@ -340,7 +346,7 @@ impl Hub {
                 user,
                 role,
                 login_provider,
-                container_only,
+                told,
             }) => {
                 if !self
                     .still_in_workspace(id, workspace, &user, role, login_provider.as_deref())
@@ -348,11 +354,12 @@ impl Hub {
                 {
                     return false;
                 }
-                match container_only {
-                    ContainerOnly::No => true,
-                    ContainerOnly::Readers { also } => {
+                match told {
+                    Told::All => true,
+                    Told::Readers { also } => {
                         also == Some(user.as_str()) || known.reads(&user, role)
                     }
+                    Told::Seers { person } => self.sees(id, &user, workspace, role, person).await,
                 }
             }
         }
@@ -378,6 +385,30 @@ impl Hub {
                     container_id = %permit.container,
                     "websocket: reading a board's sharing failed"
                 );
+                self.close_unread(&[id]);
+                false
+            }
+        }
+    }
+
+    /// Whether `user`, in `role` in the workspace, sees `person`, a member of it, by name;
+    /// one whose sight cannot be read now is closed as retryable, and reads anew.
+    async fn sees(
+        &self,
+        id: ListenerId,
+        user: &str,
+        workspace: &str,
+        role: WorkspaceRole,
+        person: &str,
+    ) -> bool {
+        match self
+            .audience
+            .sees_member(user, workspace, role, person)
+            .await
+        {
+            Ok(sees) => sees,
+            Err(error) => {
+                tracing::error!(%error, workspace_id = workspace, "websocket: reading whom a user sees failed");
                 self.close_unread(&[id]);
                 false
             }
@@ -433,17 +464,21 @@ enum Following<'a> {
         user: String,
         role: WorkspaceRole,
         login_provider: Option<String>,
-        container_only: ContainerOnly<'a>,
+        told: Told<'a>,
     },
 }
 
-/// Whether a change of a workspace is told only to who reads its board.
+/// Who of those that follow a workspace is told a change of it.
 #[derive(Clone, Copy)]
-enum ContainerOnly<'a> {
-    No,
-    /// Only to the board's readers ([`Readers`]), and to `also` (who made it).
+enum Told<'a> {
+    All,
+    /// Only the board's readers ([`Readers`]), and `also` (who made it).
     Readers {
         also: Option<&'a str>,
+    },
+    /// Only who sees `person`, a member of the workspace, in it.
+    Seers {
+        person: &'a str,
     },
 }
 
@@ -456,7 +491,7 @@ fn unread(container: &str, error: &impl std::fmt::Display) {
 fn following_workspace<'a>(
     listener: &super::Listener,
     workspace: &'a str,
-    container_only: ContainerOnly<'a>,
+    told: Told<'a>,
 ) -> Option<Following<'a>> {
     let role = listener.workspace_roles.get(workspace)?;
     Some(Following::Workspace {
@@ -464,6 +499,6 @@ fn following_workspace<'a>(
         user: listener.user_id.clone(),
         role: *role,
         login_provider: listener.login_provider().map(str::to_owned),
-        container_only,
+        told,
     })
 }

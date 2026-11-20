@@ -49,7 +49,6 @@ libc = "0.2"
 # The `openidconnect` crate is not used: its 4.x line depends on `rsa` 0.9, which has an
 # advisory (RUSTSEC-2023-0071) with no fixed 0.9 release, and on reqwest 0.12. License: MIT.
 jsonwebtoken = { version = "12", default-features = false, features = ["aws_lc_rs"] }
-md-5 = { version = "0.11", default-features = false }
 mime_guess = "2"
 clap = { version = "4", features = ["derive"] }
 # Ctrl-C, SIGTERM and SIGHUP in xtask, so that a test run stops the containers it
@@ -179,4 +178,14 @@ debug = "line-tables-only"
 opt-level = 3
 
 [profile.dev.package.blake2]
+opt-level = 3
+
+# The names check of `cargo xtask check` digests the words of every file.
+[profile.dev.package.sha2]
+opt-level = 3
+
+# The Y library walks the lists of a document to place an update; unoptimized it takes
+# ten times as long, and the tests that hold an update to the time a worker has measure
+# it as it is built for the server.
+[profile.dev.package.yrs]
 opt-level = 3

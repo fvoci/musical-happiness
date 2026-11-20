@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
 use fvoci_model::{
-    ContainerMember, LinkedIdentity, Problem, RefusalReason, Refusals, UnlinkRequest, User,
-    UserPreferencesPatch, UserSettings, UserSettingsPatch, display_name, shown_name,
+    ContainerMember, LinkedIdentity, PersonNameChange, Problem, UnlinkRequest, User,
+    UserPreferencesPatch, UserSettings, UserSettingsPatch,
 };
 use fvoci_store::{InstanceRole, Preference};
 use serde::Deserialize;
@@ -71,13 +71,19 @@ async fn handle_get_me(
 
 /// Change the user's account
 ///
-/// Changes what the body names of the user of the session: `displayName`, the name to
-/// be shown by. White space around it is dropped, and empty or `null` is none. At most
-/// 64 UTF-16 code units, without control characters and without characters that show
-/// nothing, break a line or turn the text around (U+00AD, U+200B–U+200F,
-/// U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). Not unique. A member that is
-/// no such thing, or a name that breaks these rules, is refused (400 naming it) and
-/// changes nothing. Answers the user as `getMe` does.
+/// Changes what the body names of the user of the session's name: its parts
+/// (`firstName`, `lastName`, `latinFirstName`, `latinLastName`), the name they wrote to
+/// be shown by (`customName`), which of them they are shown by (`nameShown`), the title
+/// and the credentials. White space around a part is dropped, and empty or `null` is
+/// none. A part has at most 64 UTF-16 code units, without control characters and
+/// without characters that show nothing, break a line or turn the text around (U+00AD,
+/// U+034F, U+061C, U+115F, U+1160, U+180E, U+200B–U+200F, U+2028–U+202E, U+2060–U+206F,
+/// U+2800, U+3164, U+FEFF, U+FFA0, U+FFF9–U+FFFB). `title` is a
+/// code of its list or `null`; `credentials` at most three codes of their list, each
+/// once, in the order they are written, or `null` for none. `displayName` follows: the
+/// server makes it from these (`contracts/name-vectors.json`). A member that is no such
+/// thing, or a value that breaks these rules, is refused (400 naming it) and changes
+/// nothing. Answers the user as `getMe` does.
 #[utoipa::path(
     patch,
     path = "/users/me",
@@ -92,32 +98,11 @@ async fn handle_patch_me(
     body: Bytes,
 ) -> ApiResult {
     let members = json_object(decode_json(&body)?)?;
-    let mut requested = None;
-    // Every member that is refused, not the first alone.
-    let mut refused = Refusals::new();
-    for (name, value) in &members {
-        match (name.as_str(), value) {
-            ("displayName", serde_json::Value::Null) => requested = Some(String::new()),
-            ("displayName", serde_json::Value::String(name)) => match display_name(name) {
-                Ok(name) => requested = Some(name),
-                Err(error) => refused.push(error.into()),
-            },
-            ("displayName", _) => refused.refuse(
-                "displayName",
-                RefusalReason::Invalid,
-                "displayName must be a string or null",
-            ),
-            (other, _) => refused.refuse(
-                other,
-                RefusalReason::Unknown,
-                format!("there is no member {:?}", shown_name(other)),
-            ),
-        }
-    }
-    refused.into_result()?;
-    let mut user = match requested {
-        Some(name) => app.set_display_name(&session.user_id, &name).await?,
-        None => app.user(&session.user_id).await?,
+    let change = PersonNameChange::from_members(&members)?;
+    let mut user = if change.is_empty() {
+        app.user(&session.user_id).await?
+    } else {
+        app.change_person_name(&session.user_id, &change).await?
     };
     crate::app::sanitize(&mut user);
     Ok(json_response(&user))

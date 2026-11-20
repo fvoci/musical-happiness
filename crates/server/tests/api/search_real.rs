@@ -336,8 +336,18 @@ async fn korean_questions_find_their_cards_on_a_real_search_server() {
     }
     // A body as long as one may be: longer than what the highlighter of either search
     // server reads unless the index says otherwise.
-    let long = format!("{} zyzzyva", "refund policy words ".repeat(51_500));
-    assert!(long.len() > 1_000_000, "{}", long.len());
+    let word = " zyzzyva";
+    let line = "refund policy words ";
+    // The JSON around the text of a body of one paragraph.
+    let frame =
+        r#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":""}]}]}"#;
+    let room = fvoci_model::BODY_MAX_BYTES - frame.len() - word.len();
+    let long = format!(
+        "{}{}{word}",
+        line.repeat(room / line.len()),
+        "x".repeat(room % line.len())
+    );
+    assert_eq!(long.len() + frame.len(), fvoci_model::BODY_MAX_BYTES);
     new_card(&th.client, &board.id, "긴 본문", &long).await;
     sent_and_shown(&th, &settings).await;
     let in_the_long_one: Vec<SearchHit> = search(&th.client, TEST_WS, "zyzzyva").await.ok_json();

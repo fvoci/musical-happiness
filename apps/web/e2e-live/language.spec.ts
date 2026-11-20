@@ -54,6 +54,11 @@ test('the account keeps the language: another device signs in to it, and auto fo
   await page.getByRole('option', { name: 'Deutsch' }).click();
   await expect.poll(() => language(api)).toBe('de');
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+  // The page that loaded again for it is up, and reads nothing any more, before it is
+  // loaded once more: what a load cuts off on its way (the test's own doing here) is
+  // told as errors by Safari's engine.
+  await expect(page.getByTestId('app-shell')).toBeVisible();
+  await page.waitForLoadState('networkidle');
   await page.reload();
   await expect(page.getByTestId('app-shell')).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');

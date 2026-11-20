@@ -202,8 +202,17 @@ fn describe_reason(reason: Reason) -> &'static str {
             "Status 409. The change would leave the board, the workspace or the server \
              without an administrator. Make somebody else one first."
         }
-        Reason::AccountDeletionPending | Reason::SignInAgain => {
-            describe_account_deletion(reason).unwrap_or_default()
+        Reason::AccountDeletionPending => {
+            "Status 401, with a session that is good: its account was asked to be deleted \
+             and waits. Every operation answers so but `getAccountDeletion`, which says \
+             until when it waits, `cancelAccountDeletion`, which puts the account in use \
+             again as it was, and `logout`."
+        }
+        Reason::SignInAgain => {
+            "Status 403, asking to delete an account that has no password \
+             (`requestAccountDeletion`): the session was not made through a provider in \
+             the last five minutes. Sign in through the provider again (`startOidcLogin`) \
+             and send the request from the session that comes of it."
         }
         Reason::AdminRequired => "Status 403. Only an administrator of the server may do this.",
         Reason::TeamSelfJoining => {
@@ -214,15 +223,6 @@ fn describe_reason(reason: Reason) -> &'static str {
             "Status 403. Sharing a board with whoever has its link is turned off in the \
              configuration of this server."
         }
-        Reason::TooManyUploads
-        | Reason::UploadsPending
-        | Reason::ServerUploadsPending
-        | Reason::UploadInParts
-        | Reason::FileVersionStale
-        | Reason::ExportRunning
-        | Reason::ServerExportsBusy
-        | Reason::ImportRunning
-        | Reason::ServerImportsBusy => describe_transfer(reason).unwrap_or_default(),
         Reason::SecretKeyRequired
         | Reason::OidcIssuerUnverified
         | Reason::OidcUnavailable
@@ -257,36 +257,18 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::DefaultWorkspace
         | Reason::LastOrgAdmin
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
-        // The rest are the reasons of the search of bodies, of the limits of a wiki's tree
-        // and of a body edited together, which the functions below name one by one: a
-        // reason that is none of theirs fails the tests.
+        // The rest are the reasons of uploads and archives, of the search of bodies, of
+        // the limits of a wiki's tree and of a body edited together, which the functions
+        // below name one by one: a reason that is none of theirs fails the tests.
         _ => describe_the_rest(reason),
     }
 }
 
-/// The descriptions of the reasons of deleting an account.
-fn describe_account_deletion(reason: Reason) -> Option<&'static str> {
-    Some(match reason {
-        Reason::AccountDeletionPending => {
-            "Status 401, with a session that is good: its account was asked to be deleted \
-             and waits. Every operation answers so but `getAccountDeletion`, which says \
-             until when it waits, `cancelAccountDeletion`, which puts the account in use \
-             again as it was, and `logout`."
-        }
-        Reason::SignInAgain => {
-            "Status 403, asking to delete an account that has no password \
-             (`requestAccountDeletion`): the session was not made through a provider in \
-             the last five minutes. Sign in through the provider again (`startOidcLogin`) \
-             and send the request from the session that comes of it."
-        }
-        _ => return None,
-    })
-}
-
-/// The description of a reason of the search of bodies, of the limits of a wiki's tree
-/// or of a body edited together.
+/// The description of a reason of uploads and archives, of the search of bodies, of the
+/// limits of a wiki's tree or of a body edited together.
 fn describe_the_rest(reason: Reason) -> &'static str {
-    describe_search(reason)
+    describe_transfer(reason)
+        .or_else(|| describe_search(reason))
         .or_else(|| describe_page_tree(reason))
         .unwrap_or_else(|| describe_editing_together(reason))
 }
@@ -373,6 +355,34 @@ fn describe_transfer(reason: Reason) -> Option<&'static str> {
         }
         Reason::ServerImportsBusy => {
             "Status 429. The server runs as many imports as it may at once. Try again later."
+        }
+        Reason::FileTooLarge => {
+            "Status 413. The file is larger than the largest the server stores (`limit`, the \
+             `maxFileBytes` of `getClientConfig`), sent in one request or in parts."
+        }
+        Reason::ArchiveTooLarge => {
+            "Status 413. The archive is larger than the largest the server imports (`limit`, \
+             the `maxImportBytes` of `getClientConfig`)."
+        }
+        Reason::ArchiveEntryTooLarge => {
+            "Status 413. An entry of the archive unpacks to more than an entry of its kind \
+             may (`limit`, in bytes): a file to more than the largest the server stores (the \
+             `maxFileBytes` of `getClientConfig`), a `board.jsonl` to more than the server \
+             reads of one. Nothing of the archive is stored."
+        }
+        Reason::RequestTooLarge => {
+            "Status 413. The body of the request is larger than its route reads (`limit`, in \
+             bytes), by the length it declares or by what it sends. A request without a \
+             session is read no further than the sign-in and the registration need. A file \
+             is not sent in such a body: `uploadFile` and the parts of an upload have limits \
+             and reasons of their own."
+        }
+        Reason::DatabaseBusy => {
+            "Status 503. The database did not take a statement of the request in the time \
+             it had: another write held an SQLite file for longer than the busy timeout of \
+             `database_connection`, or no connection to the database was to be had (all in \
+             use, or the database not reached). That statement did nothing, and may be \
+             taken a moment later; what the request had done before it is done."
         }
         _ => return None,
     })

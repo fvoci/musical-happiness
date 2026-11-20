@@ -223,6 +223,42 @@ test('a PDF in a card opens over the card, which stays open when the viewer clos
   await expect(card).toBeVisible();
 });
 
+test('a finger on the name in a body not being written opens the file, and the body takes no focus', async ({
+  page,
+  hasTouch,
+}) => {
+  test.skip(!hasTouch, 'a finger needs a touch screen');
+  const body = await cardBody(page);
+  const block = await putFile(page, body, NAME, koreanPdf(1), 'application/pdf');
+  // Out of the body, as when the card was only opened.
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    document.getSelection()?.removeAllRanges();
+  });
+  const where = (): Promise<{ focused: boolean; selected: boolean }> =>
+    body.evaluate((root) => {
+      const selection = document.getSelection();
+      const anchor = selection && selection.rangeCount > 0 ? selection.anchorNode : null;
+      return {
+        focused: document.activeElement === root,
+        selected: anchor !== null && root.contains(anchor),
+      };
+    });
+  const name = block.getByRole('button', { name: `View ${NAME}` });
+  await name.scrollIntoViewIfNeeded();
+  expect(await where()).toEqual({ focused: false, selected: false });
+
+  await name.tap();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  expect(await where()).toEqual({ focused: false, selected: false });
+  await page.getByTestId('file-viewer-close').tap();
+  await expect(viewer(page)).toHaveCount(0);
+  // The focus is back on the name, not in the body: no keyboard comes up.
+  await expect(name).toBeFocused();
+  expect(await where()).toEqual({ focused: false, selected: false });
+  await expect(block).not.toHaveClass(/ProseMirror-selectednode/);
+});
+
 /** The other kinds a file block opens, each with what its first page is called and shows. */
 const OTHERS = [
   {

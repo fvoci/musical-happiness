@@ -3,6 +3,7 @@
 //! [`App`] holds the server's shared state. Its operations are spread over the modules of
 //! this directory by area, mirroring the original's `server/app` package.
 
+mod accept_language;
 mod access;
 mod account_deletion;
 mod account_erasure;
@@ -19,11 +20,13 @@ mod containers_and_blocks;
 mod doomed;
 mod download;
 mod export;
+mod file_name;
 mod file_versions;
 mod files;
 mod housekeeping;
 mod import;
 mod invitations;
+mod language;
 mod limits;
 mod list_page;
 mod loose_objects;
@@ -48,6 +51,7 @@ mod slots;
 mod snapshots;
 
 pub(crate) use download::download;
+pub use mail::UnsentMail;
 pub(crate) use presence::PresenceAccess;
 pub(crate) use server_lock::HeldLock;
 pub(crate) use server_lock::take_server_lock;
@@ -55,6 +59,7 @@ use slots::Busy;
 pub use slots::Slot;
 pub use startup::migrate_database;
 pub(crate) use startup::{open_store, prepare_store};
+pub(crate) use template_stock::start_restock as start_template_restock;
 mod shared_reads;
 mod sharing;
 mod signups;
@@ -63,6 +68,7 @@ mod startup;
 mod store_metrics;
 mod subscriptions;
 mod teams;
+mod template_stock;
 mod templates;
 mod trash;
 mod uploads;
@@ -76,6 +82,7 @@ pub use blocks::ChangeNotification;
 pub use cards::CardPreviews;
 pub use category_containers::DEFAULT_CATEGORY_CONTAINERS;
 pub use export::ExportedArchive;
+pub(crate) use file_name::check_file_name;
 pub(crate) use files::FILE;
 pub use housekeeping::WorkspacesPurged;
 pub use import::Imported;
@@ -175,6 +182,8 @@ struct Inner {
     part_memory: Arc<tokio::sync::Semaphore>,
     /// The last answer of the readiness checks.
     readiness: readiness::Kept,
+    /// Whether the built-in templates are owed.
+    template_stock: template_stock::TemplateStock,
     /// The exports that run.
     exports: slots::Slots,
     /// The imports that run.
@@ -314,6 +323,7 @@ impl App {
                 upload_turns: uploads::UploadTurns::default(),
                 part_memory: Arc::new(tokio::sync::Semaphore::new(part_memory)),
                 readiness: readiness::Kept::default(),
+                template_stock: template_stock::TemplateStock::default(),
                 exports,
                 imports,
                 collab,
@@ -497,6 +507,25 @@ impl App {
         work: impl Future<Output = T> + Send + 'static,
     ) -> tokio::task::JoinHandle<T> {
         self.inner.background.spawn(work)
+    }
+
+    /// The mail queued and not yet delivered or given up: for the shutdown to say what
+    /// it leaves unsent.
+    pub fn unsent_mail(&self) -> UnsentMail {
+        self.inner.mail.unsent()
+    }
+
+    /// Logs how much mail still holds a place in its queue, if any: once the shutdown
+    /// stops waiting for it, it is not sent.
+    pub fn warn_of_unsent_mail(&self) {
+        let unsent = self.unsent_mail();
+        if !unsent.is_empty() {
+            tracing::warn!(
+                recovery = unsent.recovery,
+                invitations = unsent.invitations,
+                "mail still queued at shutdown: it is kept in memory and will not be sent"
+            );
+        }
     }
 
     /// Waits until all background work has finished, or `timeout` has passed. Returns

@@ -18,6 +18,8 @@ proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1", default-features = false }
 # Reading what docker and the server answer in `cargo xtask docker`.
 serde_json.workspace = true
+# The digests by which the names check knows the words it bans.
+sha2.workspace = true
 syn = { version = "3", default-features = false, features = ["full", "parsing", "printing", "visit"] }
 
 [lints]

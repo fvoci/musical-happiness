@@ -1,6 +1,6 @@
 /**
- * The cases of the original `cardFilter.test.ts`, one to one and under the
- * same names. See the test mapping in PORTING.md.
+ * The filter of cards: a clause on a property of options, text, people or
+ * dates, groups of clauses, and the properties a new card takes from a filter.
  */
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -536,10 +536,8 @@ describe('src/cardFilter', () => {
     });
   });
 
-  // Q16 in PORTING.md: these three cases are unchanged from the original, but
-  // under the original's rule they only held within twelve hours of UTC. The
-  // filter now compares calendar days in the reader's time zone, and they
-  // hold everywhere.
+  // Q16 in docs/notes.md: the filter compares calendar days in the reader's
+  // time zone, so these three cases hold in every time zone.
   describe('verify isClauseMet method - (createdTime) date property', () => {
     // The day the card was created on, for the reader: 7 December 2023.
     const checkDate = calendarDate(2023, 12, 7);
