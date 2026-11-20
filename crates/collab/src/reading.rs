@@ -39,9 +39,13 @@
 //! machine does besides. Counting stops a little past the count it is asked for, so
 //! that a state made to be counted for long is not.
 //!
-//! Measured (`tests/cost.rs`, `reading`, release build), the library takes 130 to 270 ns
-//! for a step counted here where the steps are of its walk, and less where they are of
-//! what is charged beside it: no way tried to make it slow took it longer for a step.
+//! Measured (`tests/cost.rs`, `reading`, release build), the library takes 110 to 230 ns
+//! for a step counted here where the steps are of its walk in a list of 50,000, and
+//! less where they are of what is charged beside it. A step takes longer the more
+//! changes the document has that lie far from their neighbours, as the walk goes
+//! from one to the next wherever it is: 0.5 µs in a list of 200,000 such, 0.7 to 0.9 µs
+//! in one of 700,000 (`scattered`). That is the document's size, which the count does
+//! not weigh: a document of that many changes is slow to read with no steps at all.
 //! The lists the reading here leaves are held to the library's own, state by state
 //! (`tests/reading.rs`). What editors write is a few thousand steps at the most, of
 //! the changes that wait for another client's (`tests/honest.rs`); a body's own

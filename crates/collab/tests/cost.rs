@@ -9,6 +9,7 @@
 //! cargo test --release -p fvoci-collab --test cost -- --ignored --nocapture reading
 //! cargo test --release -p fvoci-collab --test cost -- --ignored --nocapture accumulated
 //! cargo test --release -p fvoci-collab --test cost -- --ignored --nocapture at_its_steps
+//! cargo test --release -p fvoci-collab --test cost -- --ignored --nocapture scattered
 //! ```
 //!
 //! The times are of one thread.
@@ -21,8 +22,8 @@ use std::time::{Duration, Instant};
 
 use fvoci_collab::testing::{changes_of, placing_steps, to_body};
 use fvoci_collab::{
-    BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, STORED_READING_STEPS,
-    UpdateLimits, from_body, from_state, new_doc, state_of, take_update,
+    BodyDoc, MAX_CLIENT_CHANGES, MAX_CLIENTS, PLACING_STEPS, READING_STEPS, UpdateLimits,
+    from_body, from_state, new_doc, state_of, take_update,
 };
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES};
 use serde_json::{Value, json};
@@ -672,6 +673,100 @@ fn slow_states(changes: u64) -> Vec<(&'static str, Vec<u8>)> {
     states
 }
 
+/// How long the library takes to read a state, the middle of three readings.
+fn read_by_the_library(state: &[u8]) -> Duration {
+    use yrs::updates::decoder::Decode as _;
+    use yrs::{ReadTxn as _, Transact as _};
+
+    timed(|| {
+        let doc = new_doc();
+        let update = yrs::Update::decode_v1(state).expect("an update");
+        let mut txn = doc.transact_mut();
+        txn.apply_update(update).expect("applied");
+        assert!(!txn.has_missing_updates(), "changes are left waiting");
+    })
+    .0
+}
+
+/// A list of `children` deleted places that two clients make in turn, each put after
+/// a place made before it, whichever, as an editor puts it between that place and the
+/// one after it; and the place that is last in the list, which is the last made, so
+/// that what names it is read after all of the list.
+fn scattered_list(children: u64) -> (Vec<Run>, (u64, u64)) {
+    const NONE: usize = usize::MAX;
+    let id = |made: usize| {
+        let made = u64::try_from(made).expect("a count fits");
+        (7 + made % 2, made / 2)
+    };
+    let children = usize::try_from(children).expect("a count fits");
+    let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+    let mut next: Vec<usize> = Vec::with_capacity(children);
+    let mut changes = [Vec::new(), Vec::new()];
+    let mut last = 0;
+    for made in 0..children {
+        let change = if made == 0 {
+            next.push(NONE);
+            named(None, None)
+        } else {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let anywhere = usize::try_from(seed >> 33).expect("31 bits fit") % made;
+            let after = if made + 2 < children { anywhere } else { last };
+            let right = next[after];
+            next.push(right);
+            next[after] = made;
+            if right == NONE {
+                last = made;
+            }
+            named(Some(id(after)), (right != NONE).then(|| id(right)))
+        };
+        changes[made % 2].push(change);
+    }
+    let runs = changes
+        .into_iter()
+        .zip([7, 8])
+        .map(|(changes, client)| Run {
+            client,
+            clock: 0,
+            changes,
+        })
+        .collect();
+    (runs, id(last))
+}
+
+/// How long the library takes for a step where the changes of a list lie far from
+/// their neighbours: changes that walk a list of [`scattered_list`], as many as make
+/// about three quarters of the steps a document may take, beside the list without
+/// them. The time of a step grows with the list, and so does the reading without.
+#[test]
+#[ignore = "a measurement, run by name in a release build"]
+fn scattered() {
+    println!(
+        "| list | changes | bytes | read ms | without ms | steps | ns a step | counted in ms |"
+    );
+    println!("| --- | --- | --- | --- | --- | --- | --- | --- |");
+    for children in [50_000, 200_000, 390_000, 700_000] {
+        let changes = (READING_STEPS * 3 / 4 / children).max(1);
+        let without = read_by_the_library(&state_of_runs(scattered_list(children).0));
+        let (mut runs, last) = scattered_list(children);
+        runs.push(made(ABOVE, changes, |_| named(None, Some(last))));
+        let state = state_of_runs(runs);
+        let took = read_by_the_library(&state);
+        let (counting, steps) =
+            timed(|| fvoci_collab::reading_steps(&state, u64::MAX).expect("a state"));
+        let more = took.saturating_sub(without).as_nanos();
+        println!(
+            "| {children} | {changes} | {} | {} | {} | {steps} | {} | {} |",
+            state.len(),
+            millis(took),
+            millis(without),
+            more.checked_div(u128::from(steps)).unwrap_or(0),
+            millis(counting),
+        );
+    }
+}
+
 /// How long the library takes to read a state made to be slow, beside the steps that
 /// are counted of it before: a way to make it slow whose time grows where the steps do
 /// not is not counted. `FVOCI_COST_SLOW` names the ways measured, by a part of their
@@ -679,21 +774,9 @@ fn slow_states(changes: u64) -> Vec<(&'static str, Vec<u8>)> {
 #[test]
 #[ignore = "a measurement, run by name in a release build"]
 fn reading() {
-    use yrs::updates::decoder::Decode as _;
-    use yrs::{ReadTxn as _, Transact as _};
-
     println!("| made slow by | changes | bytes | read ms | steps | ns a step | counted in ms |");
     println!("| --- | --- | --- | --- | --- | --- | --- |");
-    let read = |state: &[u8]| {
-        timed(|| {
-            let doc = new_doc();
-            let update = yrs::Update::decode_v1(state).expect("an update");
-            let mut txn = doc.transact_mut();
-            txn.apply_update(update).expect("applied");
-            assert!(!txn.has_missing_updates(), "changes are left waiting");
-        })
-        .0
-    };
+    let read = read_by_the_library;
     let only = std::env::var("FVOCI_COST_SLOW").ok();
     let measured = |name: &str| {
         only.as_ref()
@@ -762,7 +845,7 @@ fn accumulated() {
         placing_steps: None,
         clients: None,
         client_changes: None,
-        reading_steps: limits.reading_steps.map(|_| STORED_READING_STEPS),
+        reading_steps: limits.reading_steps,
         ..LIMITS
     };
     println!("| limits | update | bytes | take ms | outcome | steps to read | open ms |");
@@ -807,7 +890,6 @@ fn at_its_steps() {
         placing_steps: None,
         clients: None,
         client_changes: None,
-        reading_steps: Some(STORED_READING_STEPS),
         ..LIMITS
     };
     let four = |clock: u64| {

@@ -38,9 +38,8 @@ pub struct UpdateLimits {
     pub client_changes: Option<u64>,
     /// How many steps the Y library may take to read the document an update leaves
     /// from its state, as it does for every update after it and every time the
-    /// document is opened ([`READING_STEPS`] for what a client sends, and
-    /// [`STORED_READING_STEPS`] for what was taken before); `None` for no count. The
-    /// steps are counted from the state before the library reads it.
+    /// document is opened ([`READING_STEPS`]); `None` for no count. The steps are
+    /// counted from the state before the library reads it.
     pub reading_steps: Option<u64>,
 }
 
@@ -80,36 +79,38 @@ pub const MAX_CLIENT_CHANGES: u64 = 512 * 1024;
 /// list of tens of thousands, or of hundreds of cuts of a text of a million letters.
 pub const PLACING_STEPS: u64 = 3 * 1024 * 1024;
 
-/// How many steps the Y library may take to read the document an update a client sends
-/// leaves ([`UpdateLimits::reading_steps`]). The library places a change by walking
-/// past the changes between the neighbours it names, and walks so again every time it
-/// reads the document from its state: two or three times for every update, five where
-/// the update is repaired, and twice as the document is opened. A step takes 100 to
-/// 270 ns (release build), so each reading of a document at this many steps takes 0.1
-/// to 0.3 s more than the document's size asks: a paragraph typed into a list of
-/// 50,000 at these steps was taken in 0.31 s where it took 0.06 s, repaired in 0.74 s
-/// where it took 0.23 s, and the document was opened in 0.30 s where it took 0.10 s.
-/// With the slowest update of the largest body (2.3 s, repaired) that is within half
-/// the time a worker has for its answer (10 s), also at the 270 ns of a loaded
-/// machine. What editors write is placed in a step or two where two people wrote at
-/// one place: the largest documents measured, edited, are under 5,000 steps (the
-/// changes of the body's client, looked at once each while an edit waits for the one
-/// it names), and a body's own document is none. Past it are documents with changes
-/// made to walk: 62 changes of 383 bytes that name the last of 50,000 children to
-/// their right and nothing to their left are three million steps. What holds a
-/// document makes it again from its body, which has none, at three quarters of this.
+/// How many steps the Y library may take to read a document from its state: the
+/// document an update a client sends leaves, and one that was stored
+/// ([`UpdateLimits::reading_steps`]). The library places a change by walking past the
+/// changes between the neighbours it names, and walks so again every time it reads the
+/// document from its state: two or three times for every update, five where the update
+/// is repaired, and twice as the document is opened. A step takes 110 to 230 ns in a
+/// list of 50,000 (release build), so each reading of such a document at this many
+/// steps takes 0.1 to 0.25 s more than the document's size asks: a paragraph typed
+/// into a list of 50,000 at these steps was taken in 0.31 s where it took 0.06 s,
+/// repaired in 0.74 s where it took 0.23 s, and the document was opened in 0.30 s
+/// where it took 0.10 s. With the slowest update of the largest body (2.3 s, repaired)
+/// that is within half the time a worker has for its answer (10 s). A step takes
+/// longer the more changes a document has that lie far from their neighbours, 0.5 µs
+/// in a list of 200,000 such and 0.7 to 0.9 µs in one of 700,000
+/// (`tests/cost.rs`, `scattered`): such a document is slow by its size before its
+/// steps are counted, 1.4 s a reading, which the limits of size and of a client's
+/// changes are for, not this one.
+///
+/// What editors write is placed in a step or two where two people wrote at one place:
+/// the largest documents measured, edited, are under 5,000 steps (the changes of the
+/// body's client, looked at once each while an edit waits for the one it names), and
+/// a body's own document is none. Past it are documents with changes made to walk: 62
+/// changes of 383 bytes that name the last of 50,000 children to their right and
+/// nothing to their left are three million steps. What holds a document makes it
+/// again from its body, which has none, at three quarters of this, and when an update
+/// is refused for it.
+///
+/// A stored state past it is refused before the library reads it, in the time of the
+/// count, which stops a little past the limit whatever the state holds: one that was
+/// stored before the steps were counted, as every update taken since leaves a
+/// document within it.
 pub const READING_STEPS: u64 = 1024 * 1024;
-
-/// How many steps the Y library may take to read a document that was taken before, as
-/// its stored state is opened and as the updates logged after it are taken again
-/// ([`UpdateLimits::reading_steps`]): four times what an update may leave
-/// ([`READING_STEPS`]), 0.4 to 1.1 s a reading. A document stored before its readings
-/// were counted may be past what an update may leave: up to this it is opened, so that
-/// what holds it writes its body and makes it again, and past it it is refused before
-/// the library reads it, as opening it would take much of the time a worker has, or
-/// more than it: the steps are counted to the limit and no further, so that it is
-/// refused in the time of the count whatever it holds.
-pub const STORED_READING_STEPS: u64 = 4 * READING_STEPS;
 
 /// Why an update is refused.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]

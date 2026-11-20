@@ -178,6 +178,9 @@ pub enum Refusal {
     Unappliable,
     /// The document would be larger than the limit.
     DocumentTooLarge,
+    /// The document would take more steps to read than it may: with an update that is
+    /// refused for it, it is made again from its body, which takes none.
+    TooManySteps,
     /// The document would be no body.
     NoBody,
     /// The body would be larger than the limit.
@@ -329,7 +332,7 @@ const REFUSED: u8 = 0x7f;
 impl Refusal {
     /// Every refusal, for the tests of its byte.
     #[cfg(test)]
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 11] = [
         Self::UpdateTooLarge,
         Self::Unreadable,
         Self::MissingChanges,
@@ -340,6 +343,7 @@ impl Refusal {
         Self::TooManyDocuments,
         Self::UnknownDocument,
         Self::OutOfOrder,
+        Self::TooManySteps,
     ];
 
     /// The byte of the refusal in an answer.
@@ -355,6 +359,7 @@ impl Refusal {
             Self::TooManyDocuments => 7,
             Self::UnknownDocument => 8,
             Self::OutOfOrder => 9,
+            Self::TooManySteps => 10,
         }
     }
 
@@ -371,6 +376,7 @@ impl Refusal {
             7 => Self::TooManyDocuments,
             8 => Self::UnknownDocument,
             9 => Self::OutOfOrder,
+            10 => Self::TooManySteps,
             _ => return None,
         })
     }

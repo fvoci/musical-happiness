@@ -112,7 +112,7 @@ impl Collab {
     /// document that cannot be opened so is made again from its card's body when its
     /// card holds all of it, or when what is stored cannot be read (bytes that are no
     /// update, that build on what is not there, or that the Y library would take longer
-    /// to read than a worker has, [`fvoci_collab::STORED_READING_STEPS`]):
+    /// to read than a document may, [`fvoci_collab::READING_STEPS`]):
     /// the updates the card does not hold are then dropped, and that is logged.
     /// Otherwise (a worker that is full or ended, the store) the open fails, and the
     /// next one tries again.

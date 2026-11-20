@@ -12,7 +12,7 @@ use super::versions::Versioned;
 use super::worker::{Blame, CallError};
 use super::{Collab, DocChange, DocEvent, refusals, taken_from};
 use crate::app::App;
-use crate::collab_worker::wire::{Answer, DocNumber, Request, Share};
+use crate::collab_worker::wire::{Answer, DocNumber, Refusal, Request, Share};
 use crate::error::AppError;
 
 /// How long a document that ended its worker twice, the second within
@@ -323,7 +323,11 @@ impl Collab {
                     }
                 }
                 Err(CallError::Refused(refused)) => {
-                    return Err(refusals::refused(&refused, &self.inner.limits).into());
+                    let error = refusals::refused(&refused, &self.inner.limits);
+                    return Err(match refused.refusal {
+                        Refusal::TooManySteps => Unanswered::TooManySteps(error),
+                        _ => Unanswered::Refused(error),
+                    });
                 }
                 Err(CallError::Died(death)) => {
                     tracing::warn!(%death, card_id, "a collab worker ended over a card's document");
@@ -500,6 +504,11 @@ pub(super) enum Unanswered {
     /// It was refused, the document could not be opened, no worker could be started,
     /// or its sender is held back: the error to answer with.
     Refused(AppError),
+    /// It was refused as the document would take more steps to read with it than it
+    /// may ([`fvoci_collab::READING_STEPS`]): the error to answer with
+    /// (`document_too_large`). The document is made again from its body
+    /// ([`Collab::remake_refused`]).
+    TooManySteps(AppError),
     /// The worker ended over it: killed after its time, or broken. An update that did
     /// is in neither the document nor the log, its sender is held back
     /// ([`super::senders`]), and the connection that sent it is closed. The error to
@@ -532,7 +541,7 @@ impl Unanswered {
     /// The error to answer with.
     pub(super) fn into_error(self) -> AppError {
         match self {
-            Self::Refused(error) | Self::Died(error) => error,
+            Self::Refused(error) | Self::TooManySteps(error) | Self::Died(error) => error,
         }
     }
 }

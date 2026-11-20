@@ -1,10 +1,10 @@
 //! Documents made slow to read: changes that each walk a long list every time the Y
-//! library reads the document from its state. An update that leaves one is refused, a
-//! document near the steps it may take is made again from its body, and one stored
-//! before the steps were counted is opened without ending a worker.
+//! library reads the document from its state. An update that leaves one is refused
+//! and the document made again from its body, as one near the steps it may take is,
+//! and one stored before the steps were counted is opened without ending a worker.
 
 use fvoci_collab::testing::Editor;
-use fvoci_collab::{BodyDoc, READING_STEPS, STORED_READING_STEPS, UpdateLimits, reading_steps};
+use fvoci_collab::{BodyDoc, READING_STEPS, UpdateLimits, reading_steps};
 use fvoci_server::collab::DocChange;
 use fvoci_server::error::{AppError, Reason};
 use fvoci_store::BodyBefore;
@@ -26,21 +26,32 @@ fn number(out: &mut Vec<u8>, mut number: u64) {
     out.push(number.to_le_bytes()[0]);
 }
 
-/// An update of one client's changes from `clock` on, as the Y library writes one
-/// (version 1), with nothing deleted.
-fn update_of(client: u64, clock: u64, count: u64, changes: &[u8]) -> Vec<u8> {
-    let mut out = vec![1];
-    for value in [count, client, clock] {
-        number(&mut out, value);
+/// The changes of one client from `clock` on in an update, as the Y library writes
+/// them (version 1).
+struct Run {
+    client: u64,
+    clock: u64,
+    count: u64,
+    changes: Vec<u8>,
+}
+
+/// An update of the changes of clients, with nothing deleted.
+fn update_of(runs: &[Run]) -> Vec<u8> {
+    let mut out = Vec::new();
+    number(&mut out, u64::try_from(runs.len()).expect("a count fits"));
+    for run in runs {
+        for value in [run.count, run.client, run.clock] {
+            number(&mut out, value);
+        }
+        out.extend_from_slice(&run.changes);
     }
-    out.extend_from_slice(changes);
     number(&mut out, 0);
     out
 }
 
 /// `children` empty paragraphs typed one after the other by one client, the first as
 /// a child of the root: each names the one before it to its left.
-fn typed_in_order(children: u64) -> Vec<u8> {
+fn typing(children: u64) -> Run {
     const PARAGRAPH: &[u8] = b"\x03\x09paragraph";
     let mut changes = Vec::new();
     // A shared type (7) under the root of that name.
@@ -53,13 +64,22 @@ fn typed_in_order(children: u64) -> Vec<u8> {
         number(&mut changes, clock - 1);
         changes.extend_from_slice(PARAGRAPH);
     }
-    update_of(TYPIST, 0, children, &changes)
+    Run {
+        client: TYPIST,
+        clock: 0,
+        count: children,
+        changes,
+    }
+}
+
+fn typed_in_order(children: u64) -> Vec<u8> {
+    update_of(&[typing(children)])
 }
 
 /// `count` changes from `clock` on, each deleted content of one place (1) that names
 /// the last of `children` typed paragraphs to its right (0x40) and nothing to its left:
 /// the library walks the whole list to place each, every time it reads the document.
-fn walking(clock: u64, count: u64, children: u64) -> Vec<u8> {
+fn walkers(clock: u64, count: u64, children: u64) -> Run {
     let mut changes = Vec::new();
     for _ in 0..count {
         changes.push(0x41);
@@ -67,7 +87,16 @@ fn walking(clock: u64, count: u64, children: u64) -> Vec<u8> {
         number(&mut changes, children - 1);
         number(&mut changes, 1);
     }
-    update_of(WALKER, clock, count, &changes)
+    Run {
+        client: WALKER,
+        clock,
+        count,
+        changes,
+    }
+}
+
+fn walking(clock: u64, count: u64, children: u64) -> Vec<u8> {
+    update_of(&[walkers(clock, count, children)])
 }
 
 fn reason_of(error: &AppError) -> Option<&'static str> {
@@ -89,9 +118,8 @@ fn paragraphs_of(body: Option<&Value>) -> usize {
         .map_or(0, Vec::len)
 }
 
-/// An update that would leave a document past the steps it may take to read is
-/// refused, and the document is as it was; one that leaves it at three quarters of
-/// them is taken, and the document is made again from its body, which takes none: the
+/// An update that leaves a document at three quarters of the steps it may take to
+/// read is taken, and the document is made again from its body, which takes none: the
 /// room is told, and an editor that loads it again goes on.
 #[tokio::test]
 async fn a_document_that_takes_many_steps_to_read_is_made_again_from_its_body() {
@@ -108,13 +136,6 @@ async fn a_document_that_takes_many_steps_to_read_is_made_again_from_its_body() 
     };
     let typed = take(typed_in_order(CHILDREN)).await.expect("typed");
     assert!(!typed.remade, "a list typed in order takes no steps");
-
-    let past = READING_STEPS / CHILDREN + 5;
-    let refused = take(walking(0, past, CHILDREN))
-        .await
-        .expect_err("past the steps a document may take");
-    assert_eq!(reason_of(&refused), Some("document_too_large"));
-    assert_eq!(stored(&e).await.epoch, loaded.epoch, "not made again");
 
     let near = READING_STEPS * 3 / 4 / CHILDREN + 1;
     let taken = take(walking(0, near, CHILDREN)).await.expect("taken");
@@ -142,6 +163,68 @@ async fn a_document_that_takes_many_steps_to_read_is_made_again_from_its_body() 
             &e.user1,
             &again.append_paragraph("on"),
         )
+        .await
+        .expect("an editor that loaded it again goes on");
+    assert!(!on.remade, "not made again at every update");
+    th.teardown().await;
+}
+
+/// An update that would leave a document past the steps it may take to read is
+/// refused, and the document, which was under three quarters of them, is made again
+/// from its body all the same: the update may be what an editor wrote, whose client
+/// is read before many others its changes wait for, and would be refused again. The
+/// room is told, the body is what it was, and an editor that loads it again goes on.
+/// A document that is as its body made it is not made again for such an update.
+#[tokio::test]
+async fn a_document_whose_update_is_refused_for_its_steps_is_made_again_from_its_body() {
+    const CHILDREN: u64 = 10_000;
+    let past = READING_STEPS / CHILDREN + 5;
+    let th = roomy().await;
+    let e = editing(&th, &paragraphs(&["kept"])).await;
+    let collab = e.app.collab();
+    let mut events = collab.subscribe();
+    let mut told = || {
+        std::iter::from_fn(|| events.try_recv().ok())
+            .any(|event| event.card_id == e.card_id && event.change == DocChange::Remade)
+    };
+    let loaded = collab.open(&e.app, &e.card_id).await.expect("opened");
+    let take = async |epoch: i64, update: Vec<u8>| {
+        collab
+            .take(&e.app, &e.card_id, epoch, &e.user1, &update)
+            .await
+    };
+
+    // As its body made it: the list and what walks it, in one update.
+    let both = update_of(&[walkers(0, past, CHILDREN), typing(CHILDREN)]);
+    let refused = take(loaded.epoch, both)
+        .await
+        .expect_err("past the steps a document may take");
+    assert_eq!(reason_of(&refused), Some("document_too_large"));
+    assert_eq!(stored(&e).await.epoch, loaded.epoch, "not made again");
+    assert!(!told(), "the room is told nothing");
+
+    let typed = take(loaded.epoch, typed_in_order(CHILDREN))
+        .await
+        .expect("typed");
+    assert!(!typed.remade, "a list typed in order takes no steps");
+    let refused = take(loaded.epoch, walking(0, past, CHILDREN))
+        .await
+        .expect_err("past the steps a document may take");
+    assert_eq!(reason_of(&refused), Some("document_too_large"));
+    assert!(told(), "the room is told");
+    let made = stored(&e).await;
+    assert_eq!(made.epoch, loaded.epoch + 1, "made again");
+    assert_eq!(
+        reading_steps(&made.state, u64::MAX).expect("a state"),
+        0,
+        "a body's own document"
+    );
+    let (again, again_epoch) = joined(collab, &e.app, &e.card_id, 102).await;
+    assert_eq!(again_epoch, made.epoch);
+    let body = again.body().map(|body| body.document().clone());
+    assert_eq!(paragraphs_of(body.as_ref()), 10_001, "without the update");
+    assert_eq!(body_of(&card(&th.client, &e.card_id).await), body);
+    let on = take(again_epoch, again.append_paragraph("on"))
         .await
         .expect("an editor that loaded it again goes on");
     assert!(!on.remade, "not made again at every update");
@@ -228,17 +311,17 @@ fn last_text(body: Option<&Value>) -> Option<&str> {
 }
 
 /// A document stored before the steps of a reading were counted, which takes more
-/// steps to read than an update may leave and fewer than a stored one may take, is
-/// opened with all it holds: its body, with the update its card did not hold yet, is
+/// than three quarters of the steps a document may take to read and no more than
+/// them, is opened with all it holds: its body, with the update its card did not hold yet, is
 /// written to the card, and it is made again from that body. The worker that opened it
 /// runs on.
 #[tokio::test]
 async fn a_stored_document_that_takes_many_steps_to_read_is_written_and_made_again() {
     let th = roomy().await;
-    let (e, state) = stored_slow(&th, READING_STEPS / CHILDREN + 8).await;
+    let (e, state) = stored_slow(&th, READING_STEPS * 9 / 10 / CHILDREN).await;
     let steps = reading_steps(&state, u64::MAX).expect("a state");
     assert!(
-        steps > READING_STEPS && steps < STORED_READING_STEPS,
+        steps * 4 > READING_STEPS * 3 && steps <= READING_STEPS,
         "{steps} steps"
     );
     let before = stored(&e).await;
@@ -268,16 +351,16 @@ async fn a_stored_document_that_takes_many_steps_to_read_is_written_and_made_aga
     th.teardown().await;
 }
 
-/// A document stored before the steps of a reading were counted that would take a
-/// worker longer to read than it has is not read: it is made again from its card's
+/// A document stored before the steps of a reading were counted that would take more
+/// of them than a document may is not read: it is made again from its card's
 /// body, without the update the card did not hold, and the log after it is dropped.
 /// The worker it was opened in runs on, and the document is edited.
 #[tokio::test]
-async fn a_stored_document_no_worker_reads_in_time_is_made_again_from_its_card() {
+async fn a_stored_document_past_the_steps_it_may_take_is_made_again_from_its_card() {
     let th = roomy().await;
-    let (e, state) = stored_slow(&th, STORED_READING_STEPS / CHILDREN + 8).await;
+    let (e, state) = stored_slow(&th, READING_STEPS / CHILDREN + 8).await;
     let steps = reading_steps(&state, u64::MAX).expect("a state");
-    assert!(steps > STORED_READING_STEPS, "{steps} steps");
+    assert!(steps > READING_STEPS, "{steps} steps");
     let before = stored(&e).await;
     let collab = e.app.collab();
     let worker = worker_of(&th, &e).await;
@@ -313,16 +396,16 @@ async fn a_stored_document_no_worker_reads_in_time_is_made_again_from_its_card()
 }
 
 /// Updates that were logged before the steps of a reading were counted, and together
-/// leave a document no worker reads in time, are not taken again as the document is
+/// leave a document past the steps it may take to read, are not taken again as the document is
 /// opened: it is made again from its card's body, and the worker runs on.
 #[tokio::test]
-async fn logged_updates_that_leave_a_document_no_worker_reads_are_not_taken_again() {
+async fn logged_updates_that_leave_a_document_past_its_steps_are_not_taken_again() {
     let th = roomy().await;
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
     collab.open(&e.app, &e.card_id).await.expect("opened");
     collab.abandon().await;
-    let each = STORED_READING_STEPS / CHILDREN / 2 + 8;
+    let each = READING_STEPS / CHILDREN / 2 + 8;
     let updates = [
         typed_in_order(CHILDREN),
         walking(0, each, CHILDREN),

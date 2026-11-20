@@ -9,8 +9,8 @@ use std::collections::HashMap;
 
 use fvoci_collab::testing::{placing_steps, reading};
 use fvoci_collab::{
-    PLACING_STEPS, READING_STEPS, STORED_READING_STEPS, TakeError, UpdateError, UpdateLimits,
-    from_body, from_state, new_doc, reading_steps, state_of, take_update,
+    PLACING_STEPS, READING_STEPS, TakeError, UpdateError, UpdateLimits, from_body, from_state,
+    new_doc, reading_steps, state_of, take_update,
 };
 use fvoci_model::BODY_MAX_NODES;
 use serde_json::json;
@@ -390,7 +390,6 @@ const STORED: UpdateLimits = UpdateLimits {
     placing_steps: None,
     clients: None,
     client_changes: None,
-    reading_steps: Some(STORED_READING_STEPS),
     ..SERVED
 };
 
@@ -526,16 +525,16 @@ fn updates_at_the_limit_one_after_the_other_leave_a_document_read_in_its_steps()
 }
 
 /// What was taken before the steps of a reading were counted is stored: a document
-/// one update at the limit left is opened, with its steps told, so that what holds it
-/// makes it again from its body; one that more of them left would take longer to read
-/// than a worker has, and is refused before the library reads it, counted no further
-/// than past the limit.
+/// that updates at the limit left would take longer to read than a document may, and
+/// is refused before the library reads it, counted no further than past the limit. One
+/// that fewer changes left, under the limit, is opened with its steps told, so that
+/// what holds it makes it again from its body.
 #[test]
 fn a_stored_document_past_the_steps_it_may_take_is_not_read() {
     let mut doc = typed_in_order(CHILDREN);
     let mut stored = Vec::new();
     let mut changes = 0;
-    for _ in 0..3 {
+    for _ in 0..2 {
         let most = most_placed(&doc, changes, CHILDREN);
         let update = before_the_last(ABOVE, changes, most, CHILDREN);
         doc = take_update(&doc, &update, &UNCOUNTED)
@@ -544,25 +543,32 @@ fn a_stored_document_past_the_steps_it_may_take_is_not_read() {
         changes += most;
         stored.push((changes, state_of(&doc)));
     }
-    let (changes, state) = &stored[0];
-    let after_one = from_state(state, &STORED).expect("opened");
-    assert!(walks_the_list(after_one.reading_steps, *changes));
-    assert!(
-        after_one.reading_steps > READING_STEPS && after_one.reading_steps <= STORED_READING_STEPS,
-        "{} steps",
-        after_one.reading_steps
-    );
-    for (changes, state) in stored.iter().skip(1) {
+    for (changes, state) in &stored {
         let refused = from_state(state, &STORED).expect_err("past the steps");
         let TakeError::Update(UpdateError::TooManyReadingSteps { steps, limit }) = refused else {
             panic!("{changes} changes: {refused}");
         };
-        assert_eq!(limit, STORED_READING_STEPS);
+        assert_eq!(limit, READING_STEPS);
         assert!(steps <= limit + CHILDREN + changes, "{steps} steps counted");
         // The whole of it, counted to the end.
         let steps = reading_steps(state, u64::MAX).expect("a state");
         assert!(walks_the_list(steps, *changes), "{steps} steps");
     }
+    // At nine tenths of the limit: past where a document is made again, and opened.
+    let changes = READING_STEPS * 9 / 10 / CHILDREN;
+    let under = take_update(
+        &typed_in_order(CHILDREN),
+        &before_the_last(ABOVE, 0, changes, CHILDREN),
+        &UNCOUNTED,
+    )
+    .expect("taken before the steps were counted");
+    let opened = from_state(&state_of(&under.doc), &STORED).expect("opened");
+    assert!(walks_the_list(opened.reading_steps, changes));
+    assert!(
+        opened.reading_steps * 4 > READING_STEPS * 3 && opened.reading_steps <= READING_STEPS,
+        "{} steps",
+        opened.reading_steps
+    );
 }
 
 /// Whether `steps` are those of `changes` changes that each walk the list of

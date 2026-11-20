@@ -50,9 +50,9 @@ impl Collab {
             .ask_for(app, card_id, slot, request, AskedFor::Sender(user_id))
             .await
         {
-            Err(Unanswered::Refused(refused)) => {
+            Err(refused @ (Unanswered::Refused(_) | Unanswered::TooManySteps(_))) => {
                 self.remake_refused(app, card_id, slot, &refused).await;
-                return Err(refused.into());
+                return Err(refused.into_error().into());
             }
             answered => answered?,
         };
@@ -185,24 +185,31 @@ impl Collab {
     }
 
     /// Makes a document whose update was refused for the size of its state again from
-    /// its body, if it grew since it was made (what was deleted is in its state), so
-    /// that the editors who load it again can go on; whether it was made again.
+    /// its body, if it grew since it was made (what was deleted is in its state), and
+    /// one whose update was refused for the steps its reading would take, if it is not
+    /// as it was made (the steps are of what was written into it, and a body's own
+    /// document has none: such an update may be the paragraph of an editor whose
+    /// client is read before a thousand others its changes wait for), so that the
+    /// editors who load it again can go on; whether it was made again.
     pub(super) async fn remake_refused(
         &self,
         app: &App,
         card_id: &str,
         slot: &mut Held,
-        refused: &AppError,
+        refused: &Unanswered,
     ) -> bool {
         let limit = self.inner.limits.state_bytes;
-        let grown = slot.open.as_ref().is_some_and(|open| {
-            open.state_bytes > open.made_bytes
-                && open.state_bytes.saturating_mul(4) >= limit.saturating_mul(3)
-                || open.crowded()
+        let wanted = slot.open.as_ref().is_some_and(|open| match refused {
+            Unanswered::TooManySteps(_) => open.state_bytes > open.made_bytes,
+            Unanswered::Refused(error) => {
+                error.reason() == Some(Reason::DocumentTooLarge)
+                    && (open.state_bytes > open.made_bytes
+                        && open.state_bytes.saturating_mul(4) >= limit.saturating_mul(3)
+                        || open.crowded())
+            }
+            Unanswered::Died(_) => false,
         });
-        refused.reason() == Some(Reason::DocumentTooLarge)
-            && grown
-            && self.remake_and_tell(app, card_id, slot).await
+        wanted && self.remake_and_tell(app, card_id, slot).await
     }
 
     /// Makes the document again from its body and tells the room, unless that failed
