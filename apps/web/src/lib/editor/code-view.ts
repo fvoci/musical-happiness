@@ -13,13 +13,16 @@
  * later otherwise. Until then, and for a language it does not know, the text
  * is plain, as it was before there were colours. A diagram is not touched.
  *
- * Built from elements and text nodes only, as `renderBody` is.
+ * Built from elements and text nodes only, as `renderBody` is. It imports no
+ * messages and nothing of the framework (the words of its button are given):
+ * fetched on its own, it would otherwise split what the first screen loads
+ * of them into more files.
  */
-import { copyControls, type CopyControls } from './code-copy.ts';
+import { copyControls, type CopyControls, type CopyTexts } from './code-copy.ts';
 import { knownTokens, tokensFor } from './code-highlighter.ts';
 import { CODE_BLOCK_SELECTOR } from './code-later.ts';
 import { codeLanguageOf } from './code-languages.ts';
-import { codeLinesShown, onCodeLinesChange } from './code-lines.svelte.ts';
+import { codeLinesShown, onCodeLinesChange } from './code-lines.ts';
 import './code-block.css';
 import { codeBar, codeFrame, lineDigits, lineStarts, paintCode } from './code-paint.ts';
 import type { CodeTokens } from './code-tokens.ts';
@@ -46,7 +49,7 @@ function selectText(code: HTMLElement): void {
   selection?.selectAllChildren(code);
 }
 
-function show(page: Document, code: HTMLElement): Shown | undefined {
+function show(page: Document, code: HTMLElement, texts: CopyTexts): Shown | undefined {
   const pre = code.parentElement;
   if (!pre || pre.parentElement?.classList.contains('doc-code')) return undefined;
   const text = code.textContent;
@@ -56,6 +59,7 @@ function show(page: Document, code: HTMLElement): Shown | undefined {
   if (stored !== undefined)
     named.append(page.createTextNode(codeLanguageOf(stored)?.label ?? stored));
   const copy = copyControls(page, {
+    texts,
     text: () => text,
     select: () => {
       selectText(code);
@@ -71,13 +75,14 @@ function show(page: Document, code: HTMLElement): Shown | undefined {
 }
 
 /**
- * Draws the code blocks under `root`, a body that `renderBody` drew. Returns
- * what undoes it: call it before the body is replaced or removed.
+ * Draws the code blocks under `root`, a body that `renderBody` drew, with
+ * `texts` for their copy buttons (code-copy-texts.ts). Returns what undoes
+ * it: call it before the body is replaced or removed.
  */
-export function drawCodeBlocks(root: HTMLElement): () => void {
+export function drawCodeBlocks(root: HTMLElement, texts: CopyTexts): () => void {
   const page = root.ownerDocument;
   const shown = Array.from(root.querySelectorAll<HTMLElement>(CODE_BLOCK_SELECTOR)).flatMap(
-    (code) => show(page, code) ?? [],
+    (code) => show(page, code, texts) ?? [],
   );
   const stop = new AbortController();
   const paint = (block: Shown): void => {

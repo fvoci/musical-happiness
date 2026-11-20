@@ -9,9 +9,10 @@
  * copy of a selection is tried; when that fails too, the text is left
  * selected and the line says to copy it with the keys. It never fails
  * without saying so.
+ *
+ * Its words are given (code-copy-texts.ts): what draws a body that is only
+ * shown, fetched when the body has code, holds no messages of its own.
  */
-import { m } from '$lib/i18n/paraglide/messages.js';
-import { shortcutLabel } from '$lib/keys.ts';
 
 /** How long the tick and the line stay, in milliseconds; what to do instead takes longer to read. */
 const COPIED_FOR = 2000;
@@ -53,7 +54,18 @@ export interface CopyControls {
   destroy(): void;
 }
 
+/** What the button says, read at each use, so that it is in the reader's language of the moment. */
+export interface CopyTexts {
+  /** The button's name. */
+  copy: () => string;
+  /** The line once the text is on the clipboard. */
+  copied: () => string;
+  /** The line when it could not be put there: the text is selected, to be copied with the keys. */
+  failed: () => string;
+}
+
 export interface CopyOptions {
+  texts: CopyTexts;
   /** The text to copy, as it is at the press. */
   text: () => string;
   /** Selects the block's text, for the browser's copy and for the reader's keys. */
@@ -85,8 +97,8 @@ export function copyControls(page: Document, options: CopyOptions): CopyControls
   const button = page.createElement('button');
   button.setAttribute('type', 'button');
   button.setAttribute('class', 'doc-code-copy');
-  button.setAttribute('aria-label', m.editor_code_copy());
-  button.setAttribute('title', m.editor_code_copy());
+  button.setAttribute('aria-label', options.texts.copy());
+  button.setAttribute('title', options.texts.copy());
   button.append(
     icon(page, 'copy', [
       ['rect', { width: '14', height: '14', x: '8', y: '8', rx: '2', ry: '2' }],
@@ -116,10 +128,10 @@ export function copyControls(page: Document, options: CopyOptions): CopyControls
     event.preventDefault();
     void write(page, options.text(), options.select).then((copied) => {
       if (gone) return;
-      if (copied) say(m.editor_code_copied(), true);
+      if (copied) say(options.texts.copied(), true);
       else {
         options.select();
-        say(m.editor_code_copy_failed({ shortcut: shortcutLabel('C') }), false);
+        say(options.texts.failed(), false);
       }
     });
   });

@@ -14,6 +14,7 @@ import type { EditorView, NodeView, ViewMutationRecord } from '@tiptap/pm/view';
 
 import './code-block.css';
 import { copyControls, type CopyControls } from './code-copy.ts';
+import { CODE_COPY_TEXTS } from './code-copy-texts.ts';
 import { LanguagePicker } from './code-language-picker.ts';
 import {
   codeBar,
@@ -74,6 +75,7 @@ export class CodeBlockView implements NodeView {
       },
     });
     this.#copy = copyControls(page, {
+      texts: CODE_COPY_TEXTS,
       text: () => this.#node.textContent,
       select: () => {
         this.#selectText();

@@ -11,8 +11,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import BodyView from '$lib/editor/BodyView.svelte';
 import { answer } from '$lib/editor/code-highlight-worker.ts';
 import { useHighlighter, type Highlighter } from '$lib/editor/code-highlighter.ts';
-import { CODE_LINES_ATTRIBUTE } from '$lib/editor/code-lines.svelte.ts';
+import { CODE_LINES_ATTRIBUTE } from '$lib/editor/code-lines.ts';
 import { lineStarts } from '$lib/editor/code-paint.ts';
+import { CODE_COPY_TEXTS } from '$lib/editor/code-copy-texts.ts';
 import { drawCodeBlocks } from '$lib/editor/code-view.ts';
 import { renderBody } from '$lib/editor/render.ts';
 
@@ -56,7 +57,7 @@ function shown(...content: Parameters<typeof doc>): HTMLElement {
 describe('a code block that is only shown', () => {
   it('is framed with its language and a copy button, and coloured once the tokens come', async () => {
     const root = shown(code('ts', SOURCE));
-    drawCodeBlocks(root);
+    drawCodeBlocks(root, CODE_COPY_TEXTS);
     const frame = root.querySelector('.doc-code');
     expect(frame?.querySelector('.doc-code-name')?.textContent).toBe('TypeScript');
     const copy = frame?.querySelector<HTMLButtonElement>('button.doc-code-copy');
@@ -75,19 +76,19 @@ describe('a code block that is only shown', () => {
 
   it('is coloured at once when its text was coloured before', async () => {
     const first = shown(code('ts', SOURCE));
-    drawCodeBlocks(first);
+    drawCodeBlocks(first, CODE_COPY_TEXTS);
     await vi.waitFor(() => {
       expect(first.querySelector('.doc-code-keyword')).not.toBeNull();
     });
     const again = shown(code('typescript', SOURCE));
-    drawCodeBlocks(again);
+    drawCodeBlocks(again, CODE_COPY_TEXTS);
     expect(again.querySelector('.doc-code-keyword')).not.toBeNull();
     expect(asked).toEqual([SOURCE]);
   });
 
   it('stays plain in a language it does not know, or none, and never asks', async () => {
     const root = shown(code('klingon', 'qaplah'), code(undefined, 'plain'));
-    drawCodeBlocks(root);
+    drawCodeBlocks(root, CODE_COPY_TEXTS);
     const names = [...root.querySelectorAll('.doc-code-name')].map((each) => each.textContent);
     expect(names).toEqual(['klingon', '']);
     await Promise.resolve();
@@ -98,14 +99,14 @@ describe('a code block that is only shown', () => {
   it('leaves a diagram alone', () => {
     const root = shown(code('mermaid', 'graph TD; A-->B'));
     const before = root.innerHTML;
-    drawCodeBlocks(root);
+    drawCodeBlocks(root, CODE_COPY_TEXTS);
     expect(root.querySelector('.doc-code')).toBeNull();
     expect(root.innerHTML).toBe(before);
   });
 
   it('numbers its lines while the reader has them on, out of the text and of what is read out', async () => {
     const root = shown(code('ts', SOURCE), code(undefined, 'one\n'));
-    drawCodeBlocks(root);
+    drawCodeBlocks(root, CODE_COPY_TEXTS);
     expect(root.querySelector('.doc-code-line')).toBeNull();
     document.documentElement.setAttribute(CODE_LINES_ATTRIBUTE, '');
     await vi.waitFor(() => {
@@ -129,7 +130,7 @@ describe('a code block that is only shown', () => {
   it('copies the whole text exactly, without the numbers, and says so', async () => {
     document.documentElement.setAttribute(CODE_LINES_ATTRIBUTE, '');
     const root = shown(code('ts', SOURCE));
-    drawCodeBlocks(root);
+    drawCodeBlocks(root, CODE_COPY_TEXTS);
     const written = clipboardOf(window);
     const button = root.querySelector<HTMLButtonElement>('button.doc-code-copy');
     button?.click();
@@ -143,7 +144,7 @@ describe('a code block that is only shown', () => {
   it('puts back what it found when the body goes', () => {
     const root = shown(paragraph(text('before')), code('ts', SOURCE));
     const before = root.innerHTML;
-    const undo = drawCodeBlocks(root);
+    const undo = drawCodeBlocks(root, CODE_COPY_TEXTS);
     expect(root.innerHTML).not.toBe(before);
     undo();
     expect(root.innerHTML).toBe(before);

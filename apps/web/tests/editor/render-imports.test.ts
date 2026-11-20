@@ -153,12 +153,13 @@ describe('what the read-only view is made of', () => {
         'src/lib/editor/BodyView.svelte',
         // What draws a code block's bar, colours and line numbers, fetched when there is one.
         'src/lib/editor/code-block.css',
+        'src/lib/editor/code-copy-texts.ts',
         'src/lib/editor/code-copy.ts',
         'src/lib/editor/code-highlight-worker.ts',
         'src/lib/editor/code-highlighter.ts',
         'src/lib/editor/code-languages.ts',
         'src/lib/editor/code-later.ts',
-        'src/lib/editor/code-lines.svelte.ts',
+        'src/lib/editor/code-lines.ts',
         'src/lib/editor/code-paint.ts',
         'src/lib/editor/code-tokens.ts',
         'src/lib/editor/code-view.ts',
@@ -192,6 +193,17 @@ describe('what the read-only view is made of', () => {
         'svelte/events',
       ].sort(),
     });
+  });
+
+  it('fetches what draws code blocks with no messages and nothing of the framework, so that the first screen keeps its files', () => {
+    // Fetched on its own, a module that reached either would split what the
+    // first screen loads of them into more files, one of them too small to
+    // be compressed (e2e/shell.spec.ts).
+    const { files, packages } = graphOf('src/lib/editor/code-view.ts');
+    expect(files.filter((file) => /\.svelte(\.ts)?$/.test(file))).toEqual([]);
+    expect(
+      packages.filter((name) => name.startsWith(MESSAGES) || /^svelte(\/|$)/.test(name)),
+    ).toEqual([]);
   });
 
   it('fetches the two libraries only on demand, each from one module', () => {

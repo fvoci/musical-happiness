@@ -18,8 +18,9 @@ import BodyEditor from '$lib/editor/BodyEditor.svelte';
 import { codeHighlight, codeHighlightKey } from '$lib/editor/code-highlight.ts';
 import { answer } from '$lib/editor/code-highlight-worker.ts';
 import { useHighlighter, type Highlighter } from '$lib/editor/code-highlighter.ts';
-import { CODE_LINES_ATTRIBUTE } from '$lib/editor/code-lines.svelte.ts';
+import { CODE_LINES_ATTRIBUTE } from '$lib/editor/code-lines.ts';
 import { lineStarts } from '$lib/editor/code-paint.ts';
+import { CODE_COPY_TEXTS } from '$lib/editor/code-copy-texts.ts';
 import { drawCodeBlocks } from '$lib/editor/code-view.ts';
 import { bodyExtensions } from '$lib/editor/extensions.ts';
 import { renderBody } from '$lib/editor/render.ts';
@@ -104,7 +105,7 @@ describe('a code block in the editor', () => {
     if (!drawn.ok) throw new Error('the body cannot be drawn');
     root.append(drawn.fragment);
     document.body.append(root);
-    drawCodeBlocks(root);
+    drawCodeBlocks(root, CODE_COPY_TEXTS);
     const shown = [...root.querySelectorAll('pre > code')];
     for (const [index, view] of shown.entries()) {
       expect(codeRuns(codeOf(target, index))).toEqual(codeRuns(view));

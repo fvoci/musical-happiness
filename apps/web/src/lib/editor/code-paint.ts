@@ -10,7 +10,7 @@
  * the gutter at the height of the line's start: a line that wraps keeps its
  * number on its first row, the number is never part of the text that is
  * selected or copied, and it is hidden from assistive technology. The numbers
- * are drawn only while the reader has asked for them (code-lines.svelte.ts).
+ * are drawn only while the reader has asked for them (code-lines.ts).
  *
  * Above the text, in both, is a bar with the language and the copy button.
  */

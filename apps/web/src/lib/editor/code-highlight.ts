@@ -20,7 +20,7 @@
  *
  * The numbers of the lines are widgets at the start of each line, drawn as
  * where a body is only shown (code-paint.ts), while the reader has asked for
- * them (code-lines.svelte.ts); a block too long for that has them in one
+ * them (code-lines.ts); a block too long for that has them in one
  * column, which its view draws (`numberedInColumn`).
  */
 import type { Node as DocumentNode } from '@tiptap/pm/model';
@@ -30,7 +30,7 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { CODE_CONTROLS, codeBlocksEditable } from './code-block-view.ts';
 import { knownTokens, tokensFor } from './code-highlighter.ts';
 import { codeLanguageOf, type CodeLanguage } from './code-languages.ts';
-import { codeLinesShown, onCodeLinesChange } from './code-lines.svelte.ts';
+import { codeLinesShown, onCodeLinesChange } from './code-lines.ts';
 import { lineMarker, lineStarts, numberedInColumn } from './code-paint.ts';
 import { readPage } from './moves-kept.ts';
 import { moveTokens, tokenClassAt, type CodeTokens } from './code-tokens.ts';

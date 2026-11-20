@@ -23,6 +23,7 @@
   import { on } from 'svelte/events';
 
   import './editor.css';
+  import { CODE_COPY_TEXTS } from './code-copy-texts.ts';
   import { drawCodeBlocksLater } from './code-later.ts';
   import { drawEmbeds } from './embeds.ts';
   import { drawFileBlocks } from './file-view.ts';
@@ -94,6 +95,6 @@
       return drawEmbeds(element);
     }}
     {@attach (element: HTMLElement) => referencesIn(element, references, nodes)}
-    {@attach (element: HTMLElement) => drawCodeBlocksLater(element, nodes)}
+    {@attach (element: HTMLElement) => drawCodeBlocksLater(element, CODE_COPY_TEXTS, nodes)}
   ></div>
 {/if}

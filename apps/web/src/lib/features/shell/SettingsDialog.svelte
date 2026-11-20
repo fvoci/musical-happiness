@@ -4,7 +4,7 @@
   line telling so, if the server refuses it.
 
   - Theme, density, haptics: how the app looks and feels here. The line
-    numbers of code blocks are this device's alone (code-lines.svelte.ts).
+    numbers of code blocks are this device's alone (code-lines.ts).
   - How a card opens: only the dialog in the middle is built. The other two
     answers are shown, so that the place is known, and cannot be chosen.
   - Time zone, first day of the week, way of writing hours: `Automatic`

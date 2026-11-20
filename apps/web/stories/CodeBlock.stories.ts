@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/svelte';
 import { expect } from 'storybook/test';
 
-import { CODE_LINES_ATTRIBUTE } from '$lib/editor/code-lines.svelte.ts';
+import { CODE_LINES_ATTRIBUTE } from '$lib/editor/code-lines.ts';
 
 import BodySample from './BodySample.svelte';
 import { storyElement } from './interactions.ts';
