@@ -61,6 +61,9 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getFileVersion", Reaches::Both),
     ("addFileVersion", Reaches::Both),
     ("restoreFileVersion", Reaches::Both),
+    ("getFileLease", Reaches::Both),
+    ("holdFileLease", Reaches::Both),
+    ("releaseFileLease", Reaches::Both),
     ("createUpload", Reaches::Both),
     ("getUpload", Reaches::Both),
     ("putUploadPart", Reaches::Both),
@@ -383,7 +386,8 @@ impl World {
             .replace("{categoryId}", &self.category)
             .replace("{subscriberId}", &self.me)
             .replace("{partNumber}", "1")
-            .replace("{version}", "1");
+            .replace("{version}", "1")
+            .replace("{leaseId}", "no-lease");
         assert!(
             !path.contains('{'),
             "{operation}: a parameter of {path} is not filled in"
@@ -419,6 +423,7 @@ impl World {
             // The file itself is no version of it: refused as what it is, where the file is.
             "addFileVersion" => json!({"baseVersion": 1, "fileId": things.file}),
             "restoreFileVersion" => json!({"baseVersion": 1}),
+            "holdFileLease" => json!({"leaseId": ""}),
             "patchBlocks" => {
                 json!({"blockIds": [things.block], "blockPatches": [{"title": "changed"}]})
             }

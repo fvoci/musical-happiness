@@ -6,13 +6,20 @@
  * attachments that give a file say the size of its newest version.
  */
 import type { UploadedFile } from '../backend.ts';
-import { FILE_VERSION_STALE, type FileVersion, type FileVersions } from '../file-versions.ts';
+import {
+  FILE_BEING_EDITED,
+  FILE_VERSION_STALE,
+  type FileLease,
+  type FileVersion,
+  type FileVersions,
+  type HeldFileLease,
+} from '../file-versions.ts';
 
 import { memberRole } from './container-access.ts';
 import { readableFile } from './files.ts';
 import { fail } from './refuse.ts';
 import { bodyFileIds, LIMITS, wireOf } from './shapes.ts';
-import type { KeptFileVersion, StoredFile, World } from './world.ts';
+import type { FileLeaseHeld, KeptFileVersion, StoredFile, World } from './world.ts';
 
 const extensionOf = (name: string): string => /\.[^./]+$/.exec(name)?.[0]?.toLowerCase() ?? '';
 
@@ -121,11 +128,59 @@ export class MemoryFileVersions implements FileVersions {
     return this.#write(file, source.size, source.blob, source.version);
   }
 
-  /** The file, for who may write its versions from the version `baseVersion`. */
-  #held(containerId: string, fileId: string, baseVersion: number): StoredFile {
+  async lease(containerId: string, fileId: string): Promise<FileLease> {
+    await this.#enter();
+    readableFile(this.#world, this.#userId, containerId, fileId);
+    const held = this.#leaseOf(containerId, fileId, this.#world.now());
+    return { editing: held !== undefined, editorId: held?.userId ?? '' };
+  }
+
+  async holdLease(containerId: string, fileId: string, leaseId: string): Promise<HeldFileLease> {
+    await this.#enter();
+    this.#editable(containerId, fileId);
+    const now = this.#world.now();
+    const seconds = LIMITS.fileLeaseSeconds;
+    const until = now + seconds * 1000;
+    const held = this.#leaseOf(containerId, fileId, now);
+    if (held && (held.id !== leaseId || held.userId !== this.#userId)) {
+      fail(409, 'somebody else is editing the file', { reason: FILE_BEING_EDITED });
+    }
+    if (held) {
+      held.until = until;
+      return { leaseId: held.id, seconds };
+    }
+    const id = this.#world.newId();
+    this.#world.fileLeases.set(`${containerId}/${fileId}`, { id, userId: this.#userId, until });
+    return { leaseId: id, seconds };
+  }
+
+  async releaseLease(containerId: string, fileId: string, leaseId: string): Promise<void> {
+    await this.#enter();
+    this.#editable(containerId, fileId);
+    const key = `${containerId}/${fileId}`;
+    const held = this.#world.fileLeases.get(key);
+    if (held?.id === leaseId && held.userId === this.#userId) this.#world.fileLeases.delete(key);
+  }
+
+  /** The file's lease, held at `now`; one that ended goes. */
+  #leaseOf(containerId: string, fileId: string, now: number): FileLeaseHeld | undefined {
+    const key = `${containerId}/${fileId}`;
+    const held = this.#world.fileLeases.get(key);
+    if (held && held.until <= now) this.#world.fileLeases.delete(key);
+    return held && held.until > now ? held : undefined;
+  }
+
+  /** The file, for who may write its versions. */
+  #editable(containerId: string, fileId: string): StoredFile {
     const role = memberRole(this.#world, this.#userId, containerId, 'any');
     const file = readableFile(this.#world, this.#userId, containerId, fileId);
     if (role !== 'admin' && role !== 'editor') fail(403, 'access denied to make board changes');
+    return file;
+  }
+
+  /** The file, for who may write its versions from the version `baseVersion`. */
+  #held(containerId: string, fileId: string, baseVersion: number): StoredFile {
+    const file = this.#editable(containerId, fileId);
     const newest = keptOf(file).at(-1)?.version ?? 1;
     if (newest !== baseVersion) {
       fail(409, `the file's newest version is ${String(newest)}, not ${String(baseVersion)}`, {

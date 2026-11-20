@@ -25,8 +25,12 @@
   newest.
 
   A Hangul document can be edited by who may write the file's versions: "Edit"
-  hands the version on screen to the editor (FileEditor.svelte), which takes
-  the viewer's place until it is closed.
+  takes the file's lease (one editor at a time, lib/file-viewer/lease.svelte.ts)
+  and hands the version on screen to the editor (FileEditor.svelte), which
+  takes the viewer's place until it is closed. Where a newer version was saved
+  meanwhile, that one is shown instead, to be edited from there. A line under
+  the header says who edits the file; "Edit" stays where it is meanwhile,
+  unavailable and described by that line, so that a focus on it stays.
 
   It is mounted for one file and closed by unmounting it, which takes the
   frame out of the page and stops whatever the frame was doing.
@@ -40,16 +44,17 @@
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
 
+  import EditingNote from './EditingNote.svelte';
   import PageControls from './PageControls.svelte';
   import SheetTabs from './SheetTabs.svelte';
   import SlideCount from './SlideCount.svelte';
+  import ViewerNotice from './ViewerNotice.svelte';
   import { display } from '$lib/display.svelte.ts';
   import type { EditedFile } from '$lib/file-viewer/editing.svelte.ts';
+  import { LeaseWatch, startEditing, type EditLease } from '$lib/file-viewer/lease.svelte.ts';
   import {
     frameAddress,
-    LIMITS,
     ViewerSession,
-    type Status,
     type ViewedFile,
   } from '$lib/file-viewer/session.svelte.ts';
   import {
@@ -61,7 +66,6 @@
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
-  import { humanFileSize } from '$lib/logic/format.ts';
   import { saveBlob } from '$lib/save.ts';
   import * as Dialog from '$lib/ui/dialog/index.js';
 
@@ -73,8 +77,10 @@
     /** The file's versions, where the reader may see them. */
     versions?: VersionsSource | undefined;
     onClose: () => void;
-    /** Opens the editor on the version shown; without it the viewer offers no editing. */
-    onEdit?: ((edited: EditedFile) => void) | undefined;
+    /** Opens the editor on the version shown, with the file's lease; without it the viewer offers no editing. */
+    onEdit?: ((edited: EditedFile, lease: EditLease) => void) | undefined;
+    /** A lease of the reader's being let go of: who edits the file is asked once it went. */
+    released?: Promise<void>;
     /**
      * Gives the focus back as the viewer goes, once its hold on the focus is let go of; without
      * it, the focus goes back to what had it when the viewer opened.
@@ -82,7 +88,7 @@
     returnFocus?: () => void;
   }
 
-  let { file, versions, onClose, onEdit, returnFocus }: Props = $props();
+  let { file, versions, onClose, onEdit, released, returnFocus }: Props = $props();
 
   const uid = $props.id();
 
@@ -106,6 +112,15 @@
   let session = $state.raw(untrack(() => sessionOf(opening())));
   let listed = $state(false);
   let panel = $state<HTMLElement>();
+  /** Who edits the file, asked of a Hangul document whose versions the reader sees. */
+  const watch = untrack(() =>
+    versions && /\.hwpx?$/i.test(file.name) ? new LeaseWatch(versions) : undefined,
+  );
+  $effect(() => watch?.watch(untrack(() => released)));
+  /** "Edit" is under way: its lease is asked for. */
+  let taking = $state(false);
+  /** What came of the last "Edit", where it is to be said. */
+  let editNote = $state<'failed' | 'newer'>();
   /** The viewer is closed: what ends after shows nothing. */
   let closed = false;
   onDestroy(() => {
@@ -220,27 +235,6 @@
     };
   });
 
-  /** What the viewer says when it cannot show the file. */
-  const FAILURE: Record<Extract<Status, { name: 'failed' }>['reason'], () => string> = {
-    unread: m.viewer_unread,
-    unreadable: m.viewer_unreadable,
-    locked: m.viewer_locked,
-    'too-large': m.viewer_unpacks_too_large,
-    slow: m.viewer_slow,
-    renderer: m.viewer_failed,
-  };
-
-  /** What the viewer says instead of the document, if anything. */
-  const notice = $derived.by((): string | undefined => {
-    if (status.name === 'too-large')
-      return status.what === 'file'
-        ? m.viewer_too_large({ size: humanFileSize(LIMITS.bytes) })
-        : m.viewer_unpacks_too_large();
-    if (status.name === 'unknown') return m.viewer_unknown();
-    if (status.name === 'failed') return FAILURE[status.reason]();
-    return undefined;
-  });
-
   function download(): void {
     if (session.blob) {
       saveBlob(session.blob, file.name);
@@ -251,12 +245,31 @@
     });
   }
 
+  /**
+   * Takes the file's lease and opens the editor on the version shown, unless
+   * the file has a newer one by then: that one is shown instead.
+   */
   async function edit(): Promise<void> {
     const edited = editable;
-    if (!edited) return;
+    if (!edited || !versions || !list || taking || watch?.editing) return;
+    taking = true;
+    editNote = undefined;
+    const started = await startEditing(versions, edited.version, async () => {
+      await list.read();
+      return list.current?.version;
+    });
+    taking = false;
+    if (started.as !== 'held') {
+      if (closed) return;
+      if (started.as === 'newer' && list.current) view(list.current);
+      if (started.as !== 'editing') editNote = started.as;
+      void watch?.read();
+      return;
+    }
     const { format, blob, version } = edited;
-    const bytes = await blob.arrayBuffer();
-    if (!closed) onEdit?.({ name: file.name, format, bytes, version });
+    const bytes = await blob.arrayBuffer().catch(() => undefined);
+    if (bytes && !closed) onEdit?.({ name: file.name, format, bytes, version }, started.lease);
+    else void started.lease.release();
   }
 
   /** Shows a version in the file's place. */
@@ -369,7 +382,14 @@
         </p>
       {/if}
       {#if editable}
-        <IconButton label={m.viewer_edit()} data-testid="file-viewer-edit" onclick={edit}>
+        <IconButton
+          label={m.viewer_edit()}
+          aria-disabled={taking || watch?.editing ? 'true' : undefined}
+          aria-describedby={watch?.editing ? `${uid}-editing` : undefined}
+          class="aria-disabled:opacity-50"
+          data-testid="file-viewer-edit"
+          onclick={edit}
+        >
           <PencilIcon aria-hidden="true" />
         </IconButton>
       {/if}
@@ -397,6 +417,14 @@
     {#if status.name === 'shown' && order}
       <SlideCount {session} {order} />
     {/if}
+    {#if watch}
+      <EditingNote
+        id="{uid}-editing"
+        {watch}
+        note={editNote}
+        userName={(userId: string) => versions?.userName(userId)}
+      />
+    {/if}
 
     <div class="relative flex min-h-0 flex-1">
       <!-- Narrow, the list is over the document: nothing under it takes the focus. -->
@@ -422,23 +450,8 @@
           >
             {m.viewer_opening()}
           </p>
-        {:else if notice}
-          <div
-            class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center"
-            role="status"
-            data-testid="file-viewer-notice"
-          >
-            <p class="font-medium">{notice}</p>
-            <p class="text-muted-foreground">{m.viewer_download_instead()}</p>
-            <button
-              type="button"
-              class="inline-flex min-h-9 items-center gap-2 rounded-md border bg-background px-3 hover:bg-accent roomy:min-h-touch"
-              onclick={download}
-            >
-              <DownloadIcon class="size-4" aria-hidden="true" />
-              {m.viewer_download()}
-            </button>
-          </div>
+        {:else}
+          <ViewerNotice {status} onDownload={download} />
         {/if}
       </div>
       {#if listed && list && versions}

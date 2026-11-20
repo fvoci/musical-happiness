@@ -156,11 +156,15 @@ function serve(host: Host, format: EditFormat, engine: ArrayBuffer): (message: T
     changes += 1;
   });
   // When the app gives the frame the focus (as the document opens, and after a save asked with
-  // the app's button), what is typed goes to the document again.
-  window.addEventListener('focus', () => {
+  // the app's button), what is typed goes to the document again. WebKit lets a frame of another
+  // origin move its focus only in answer to the person: the frame has the focus, its document's
+  // field not yet. A key pressed then gives the field the focus, and what it types goes there.
+  const toDocument = (): void => {
     if (document.activeElement === document.body) host.focus();
-  });
-  if (document.hasFocus()) host.focus();
+  };
+  window.addEventListener('focus', toDocument);
+  if (document.hasFocus()) toDocument();
+  document.addEventListener('keydown', toDocument, true);
   // Ctrl+S (Cmd+S) is the app's to answer. The editor's host profile swallows the key itself.
   // F6 leaves the document for the app's controls: the editor keeps Tab and Escape to itself.
   document.addEventListener(

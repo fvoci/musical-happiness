@@ -44,6 +44,10 @@ function sourceOf(more: Partial<VersionsSource> = {}): VersionsSource {
     refusalOf: (): WriteRefusal => 'stale',
     userName: (userId) => (userId === 'u1' ? 'Ada' : undefined),
     learnUsers: () => Promise.resolve(),
+    me: 'u1',
+    lease: () => Promise.resolve({ editing: false, editorId: '' }),
+    holdLease: () => Promise.resolve({ leaseId: 'lease', seconds: 90 }),
+    releaseLease: () => Promise.resolve(),
     ...more,
   };
 }

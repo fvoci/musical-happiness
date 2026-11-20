@@ -342,6 +342,14 @@ fn describe_transfer(reason: Reason) -> Option<&'static str> {
              a file of the board. Read the versions again (`getFileVersions`), and write \
              from the newest or attach the uploaded file on its own."
         }
+        Reason::FileBeingEdited => {
+            "Status 409. The file's lease (`holdFileLease`) is held by another editor: \
+             somebody else, or the caller in another window, has the file open in the \
+             editor. `getFileLease` says who, where the caller may know. Nothing keeps a \
+             version from being written meanwhile (`addFileVersion` is held to \
+             `baseVersion`); the lease is let go of when that editor is closed, and ends \
+             90 seconds after it was last held on to otherwise."
+        }
         Reason::ExportRunning => {
             "Status 429. The user has an export running, and runs one at a time. Try again \
              when it is done."

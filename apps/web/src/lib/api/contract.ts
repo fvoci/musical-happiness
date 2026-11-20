@@ -2494,6 +2494,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/lease": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether somebody edits a file
+         * @description Whether somebody holds the file's lease (`holdFileLease`): has it open in the
+         *     editor. Who, only where the caller sees that person among the people of the
+         *     workspace, as presence names them, and where it is the caller; else `editorId` is
+         *     empty and the caller is to say "somebody else". For who reads the board or the wiki.
+         */
+        get: operations["getFileLease"];
+        /**
+         * Hold the lease of a file to edit it
+         * @description With an empty `leaseId`, takes the file's lease if nobody holds it; with the lease
+         *     the caller holds, holds on to it. Either way the lease lasts `seconds` from now,
+         *     and is held on to before then (the web app does so every 30 seconds while the
+         *     editor is open). A lease that ended and that nobody else took meanwhile is taken
+         *     anew, under a new `leaseId`. A lease is one editor's: the caller's other window is
+         *     refused as anybody else is. 409 with the reason `file_being_edited` while another
+         *     lease of the file is held; `getFileLease` then says who. For editors.
+         */
+        put: operations["holdFileLease"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/lease/{leaseId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Let the lease of a file go
+         * @description The editor is closed: whoever asks next may edit the file. A lease that is the
+         *     caller's no more (it ended, and maybe another took the file's), or never was, is
+         *     left as it is, and the answer is the same. For editors.
+         */
+        delete: operations["releaseFileLease"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/versions": {
         parameters: {
             query?: never;
@@ -4835,6 +4890,21 @@ export interface components {
              */
             size: number;
         };
+        /** @description Whether somebody has a file open in the editor now, and who. */
+        FileLease: {
+            /** @description Whether somebody holds the file's lease: has it open in the editor. */
+            editing: boolean;
+            /**
+             * @description Who holds it, where the caller may see who that is (the caller included); empty
+             *     for nobody, and for somebody the caller does not see.
+             */
+            editorId: string;
+        };
+        /** @description The lease a caller asks to hold: one held already, to be held on, or none. */
+        FileLeaseRequest: {
+            /** @description The lease the caller holds, as `holdFileLease` gave it; empty to take one. */
+            leaseId: string;
+        };
         /**
          * @description A version kept of a file: the bytes the file had, when they were written and by
          *     whom.
@@ -4889,6 +4959,16 @@ export interface components {
         GuestInvitationsChange: {
             /** @description Whether the admins of the workspace's boards may invite guests to them. */
             enabled: boolean;
+        };
+        /** @description A lease the caller holds. */
+        HeldFileLease: {
+            /** @description The lease, to hold on to it and to let it go with. */
+            leaseId: string;
+            /**
+             * Format: int32
+             * @description How many seconds it lasts from now unless held on to again.
+             */
+            seconds: number;
         };
         /**
          * @description How the hours of a day are written. The names are those of the browsers' `Intl`.
@@ -10251,6 +10331,127 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["FileInfo"];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getFileLease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board or the wiki. */
+                containerId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whether somebody edits the file, and who. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileLease"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    holdFileLease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board or the wiki. */
+                containerId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileLeaseRequest"];
+            };
+        };
+        responses: {
+            /** @description The lease the caller holds now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeldFileLease"];
+                };
+            };
+            /** @description Another lease of the file is held: `reason` is `file_being_edited`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    releaseFileLease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board or the wiki. */
+                containerId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+                /** @description The lease of the file, as `holdFileLease` gave it. */
+                leaseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller holds no lease of the file. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {

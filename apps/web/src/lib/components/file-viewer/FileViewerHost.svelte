@@ -5,11 +5,12 @@
   arrives when it is first needed (chunk.svelte.ts).
 
   While a version of the file is in the editor (FileEditor.svelte), the
-  editor is shown in the viewer's place; the viewer comes back, made anew,
-  when the editor is closed.
+  editor is shown in the viewer's place, holding the file's lease; the viewer
+  comes back, made anew, when the editor is closed.
 -->
 <script lang="ts">
   import type { EditedFile } from '$lib/file-viewer/editing.svelte.ts';
+  import type { EditLease } from '$lib/file-viewer/lease.svelte.ts';
 
   import { editorChunk, viewerChunk } from './chunk.svelte.ts';
   import { viewing } from './viewing.svelte.ts';
@@ -28,6 +29,7 @@
   <Editor
     file={viewing.edited}
     versions={viewing.versions}
+    lease={viewing.lease}
     onClose={() => {
       viewing.endEdit();
     }}
@@ -38,11 +40,12 @@
     <Viewer
       file={viewing.file}
       versions={viewing.versions}
+      released={viewing.released}
       onClose={() => {
         viewing.close();
       }}
-      onEdit={(edited: EditedFile) => {
-        void viewing.edit(edited);
+      onEdit={(edited: EditedFile, lease: EditLease) => {
+        void viewing.edit(edited, lease);
       }}
       returnFocus={() => {
         viewing.returnFocus();

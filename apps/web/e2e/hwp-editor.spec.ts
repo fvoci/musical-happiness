@@ -278,7 +278,7 @@ test('the frame the editor runs in reaches no network, no storage and nothing of
   expect(await page.evaluate(attempt, open)).toBe('reached: 200');
   expect(await inside.evaluate(attempt, open)).toMatch(/^refused/);
 
-  const found = await inside.evaluate(async () => {
+  const found = await inside.evaluate(async (address) => {
     const tried = (act: () => unknown): string => {
       try {
         return `got: ${String(act())}`;
@@ -303,6 +303,25 @@ test('the frame the editor runs in reaches no network, no storage and nothing of
         resolve(`refused: ${error instanceof Error ? error.name : String(error)}`);
       }
     });
+    // A worker of the app's address: refused as it is made (Chromium), or not loaded (WebKit,
+    // which makes the worker and fails its load: an error that is no error of a script run).
+    const worker = await new Promise<string>((resolve) => {
+      addEventListener('securitypolicyviolation', (event) => {
+        if (event.effectiveDirective === 'worker-src') resolve('refused: worker-src');
+      });
+      try {
+        const made = new Worker(address);
+        made.onerror = (event) => {
+          resolve(event instanceof ErrorEvent && event.message ? 'got: a run' : 'refused: not loaded');
+        };
+      } catch (error) {
+        resolve(`refused: ${error instanceof Error ? error.name : String(error)}`);
+        return;
+      }
+      setTimeout(() => {
+        resolve('got: a worker');
+      }, 2000);
+    });
     return {
       origin: self.origin,
       cookie: tried(() => document.cookie),
@@ -314,12 +333,13 @@ test('the frame the editor runs in reaches no network, no storage and nothing of
       parent: tried(() => window.parent.document.title),
       parentStorage: tried(() => window.parent.localStorage.getItem('fvoci-probe')),
       top: tried(() => window.top?.location.href),
-      worker: tried(() => new Worker(open)),
+      worker,
       opened: tried(() => window.open('about:blank')),
     };
   }, open);
   expect(found.database).toMatch(/^refused/);
-  expect({ ...found, database: '' }).toEqual({
+  expect(found.worker).toMatch(/^refused: (SecurityError|worker-src|not loaded)$/);
+  expect({ ...found, database: '', worker: '' }).toEqual({
     origin: 'null',
     cookie: 'refused: SecurityError',
     localStorage: 'in memory',
@@ -329,7 +349,7 @@ test('the frame the editor runs in reaches no network, no storage and nothing of
     parent: 'refused: SecurityError',
     parentStorage: 'refused: SecurityError',
     top: 'refused: SecurityError',
-    worker: 'refused: SecurityError',
+    worker: '',
     opened: 'got: null',
   });
 

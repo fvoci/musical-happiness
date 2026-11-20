@@ -87,6 +87,10 @@ function versions() {
     refusalOf: (error): WriteRefusal => (error instanceof Stale ? 'stale' : 'failed'),
     userName: () => undefined,
     learnUsers: () => Promise.resolve(),
+    me: 'me',
+    lease: () => Promise.resolve({ editing: false, editorId: '' }),
+    holdLease: () => Promise.resolve({ leaseId: 'lease', seconds: 90 }),
+    releaseLease: () => Promise.resolve(),
   };
   return { made, source };
 }

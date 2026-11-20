@@ -8,13 +8,14 @@
  * one meanwhile) can be attached to the same card as a file of its own. The
  * card's row of the file says the size of the newest version: the server
  * writes it on the attachment, and a version written here is shown at once.
+ * Who edits the file holds its lease, through the same versions.
  */
 import type {
   FileVersion,
   VersionsSource,
   WriteRefusal,
 } from '$lib/file-viewer/versions.svelte.ts';
-import { FILE_VERSION_STALE } from '$lib/state/file-versions.ts';
+import { FILE_BEING_EDITED, FILE_VERSION_STALE } from '$lib/state/file-versions.ts';
 import {
   isBackendError,
   type Attachment,
@@ -73,5 +74,19 @@ export function attachmentVersions(
     refusalOf: versionRefusal,
     userName: (userId) => workspace.userName(userId),
     learnUsers: (userIds) => workspace.learnUsers(userIds),
+    get me() {
+      return workspace.me?.id;
+    },
+    lease: () => versions.lease(boardId, fileId),
+    async holdLease(leaseId) {
+      try {
+        return await versions.holdLease(boardId, fileId, leaseId);
+      } catch (error) {
+        if (isBackendError(error) && error.reason === FILE_BEING_EDITED) return 'editing';
+        throw error;
+      }
+    },
+    releaseLease: (leaseId, keepalive) =>
+      versions.releaseLease(boardId, fileId, leaseId, { keepalive }),
   };
 }

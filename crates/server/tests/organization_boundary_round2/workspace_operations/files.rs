@@ -7,7 +7,7 @@ use serde_json::json;
 use sha2::{Digest as _, Sha256};
 
 use super::super::routes::archive_entries;
-use super::Case;
+use super::{Case, Parameters};
 
 pub(super) async fn exercise(case: &mut Case, board: &str) {
     let at = &[("boardId", board)];
@@ -106,6 +106,20 @@ async fn versions(case: &mut Case, board: &str, file: &str, first: &[u8]) {
     );
     case.run("restoreFileVersion", first_at, json!({"baseVersion": 2}))
         .await;
+    lease(case, file_at).await;
+}
+
+/// The file's lease: the founder takes it, is told it is theirs, and lets it go.
+async fn lease(case: &mut Case, file_at: Parameters<'_>) {
+    let held = case
+        .run("holdFileLease", file_at, json!({"leaseId": ""}))
+        .await
+        .value();
+    let lease = case.remember(&held, "leaseId");
+    case.present("getFileLease", file_at, "\"editing\":true")
+        .await;
+    let lease_at = &[file_at, &[("leaseId", lease.as_str())]].concat();
+    case.run("releaseFileLease", lease_at, json!({})).await;
 }
 
 async fn part(case: &mut Case, upload: &str, bytes: &[u8]) {

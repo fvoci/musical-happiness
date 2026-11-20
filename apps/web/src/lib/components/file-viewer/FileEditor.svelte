@@ -12,8 +12,11 @@
   one edited, it is not changed, and the writer may keep the edit as a file
   of its own.
 
-  Closing with changes that are not saved asks first. It is mounted for one
-  version and closed by unmounting it, which takes the frame out of the page.
+  Closing with changes that are not saved asks first, and so does the
+  browser before the page goes. The file's lease (lib/file-viewer/lease.svelte.ts)
+  is held on to while the editor is open; where somebody else took it
+  meanwhile, the header says so. It is mounted for one version and closed by
+  unmounting it, which takes the frame out of the page.
 -->
 <script lang="ts">
   import SaveIcon from '@lucide/svelte/icons/save';
@@ -32,6 +35,7 @@
     type EditStatus,
     type SaveFailure,
   } from '$lib/file-viewer/editing.svelte.ts';
+  import type { EditLease } from '$lib/file-viewer/lease.svelte.ts';
   import type { VersionsSource } from '$lib/file-viewer/versions.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
@@ -47,10 +51,12 @@
     file: EditedFile;
     /** The file's versions: where a save goes. */
     versions: VersionsSource;
+    /** The file's lease, held while the editor is open. */
+    lease?: EditLease | undefined;
     onClose: () => void;
   }
 
-  let { file, versions, onClose }: Props = $props();
+  let { file, versions, lease, onClose }: Props = $props();
 
   /** The name a file of its own is kept under: the edited file's, marked as an edit. */
   function apartName(name: string): string {
@@ -102,10 +108,14 @@
     refused: m.file_editor_save_refused,
   };
 
-  /** What the header says of the document: a save under way, how one ended, changes not saved. */
+  /**
+   * What the header says of the document: a save under way, how one ended, somebody else
+   * editing, changes not saved.
+   */
   const said = $derived.by((): string => {
     if (saving.name === 'exporting' || saving.name === 'storing') return m.file_editor_saving();
     if (saving.name === 'failed') return SAVE_FAILURE[saving.reason]();
+    if (lease?.lost) return m.file_editor_lease_lost();
     if (session.dirty) return m.file_editor_unsaved();
     const saved = session.saved;
     if (saved?.as === 'version') {
@@ -121,6 +131,11 @@
     session.save();
   }
 
+  /** The page goes with changes that are not saved, or a save under way: the browser asks first. */
+  function beforeUnload(event: BeforeUnloadEvent): void {
+    if (session.dirty || session.busy) event.preventDefault();
+  }
+
   function close(): void {
     // A save under way, or a choice waiting, is ended first.
     if (session.busy) return;
@@ -130,7 +145,7 @@
 </script>
 
 <!-- Ctrl+S (Cmd+S) saves from the app's own controls too, as it does from the document. -->
-<svelte:window onkeydown={saveOnKey} />
+<svelte:window onkeydown={saveOnKey} onbeforeunload={beforeUnload} />
 
 <!-- Open while it is mounted: Escape and the like ask to close, and `close` decides. -->
 <Dialog.Root
@@ -147,6 +162,7 @@
     data-status={status.name}
     data-saving={saving.name}
     data-dirty={session.dirty}
+    data-lease={lease?.lost ? 'lost' : 'held'}
     class={[
       'flex flex-col gap-0 overflow-hidden bg-background p-0',
       compact
@@ -163,7 +179,7 @@
       <p
         class={[
           'min-w-0 shrink truncate text-sm',
-          saving.name === 'failed' ? 'text-destructive' : 'text-muted-foreground',
+          saving.name === 'failed' || lease?.lost ? 'text-destructive' : 'text-muted-foreground',
         ]}
         role="status"
         data-testid="file-editor-said"

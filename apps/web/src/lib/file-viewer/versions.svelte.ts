@@ -10,6 +10,8 @@
  * kept (`apart`) for the reader to attach on its own instead, or to let go.
  */
 
+import type { LeaseSource } from './lease.svelte.ts';
+
 /** A version kept of a file. */
 export interface FileVersion {
   /** Its place among the file's, counted from 1. */
@@ -34,8 +36,8 @@ export interface VersionUpload {
   contentType: string;
 }
 
-/** Whose versions a list reads, and what the reader may do with them. */
-export interface VersionsSource {
+/** Whose versions a list reads, and what the reader may do with them; who edits the file (lease.svelte.ts). */
+export interface VersionsSource extends LeaseSource {
   /** Whether the reader may write a version: upload one, go back to one. */
   readonly canWrite: boolean;
   /** The newest first. */

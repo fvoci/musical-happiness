@@ -197,7 +197,7 @@ async fn handle_restore_file_version(
 }
 
 /// Checks that the user may write the files of the board: who edits it.
-async fn require_file_editor(
+pub(super) async fn require_file_editor(
     app: &App,
     user_id: &str,
     container_id: &str,

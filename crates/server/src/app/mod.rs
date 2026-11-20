@@ -20,6 +20,7 @@ mod containers_and_blocks;
 mod doomed;
 mod download;
 mod export;
+mod file_leases;
 mod file_name;
 mod file_versions;
 mod files;
@@ -194,6 +195,8 @@ struct Inner {
     server_lock: server_lock::Holder,
     /// The limit on reads of shared boards whose token opens nothing.
     shared_reads: SharedReads,
+    /// Who has which file open in the editor (`file_leases`).
+    file_leases: file_leases::FileLeases,
     /// The search of bodies, on the search server if one is configured.
     search: Search,
     /// Sign-ups held until as many as it counts reach the store (`App::meet_next_signups`).
@@ -329,6 +332,7 @@ impl App {
                 collab,
                 server_lock: server_lock::Holder::default(),
                 shared_reads: SharedReads::default(),
+                file_leases: file_leases::FileLeases::default(),
                 search,
                 #[cfg(feature = "test-util")]
                 signups_meet: std::sync::Mutex::default(),
@@ -441,6 +445,11 @@ impl App {
     /// The limit on reads of shared boards whose token opens nothing.
     pub(crate) fn shared_reads(&self) -> &SharedReads {
         &self.inner.shared_reads
+    }
+
+    /// Who has which file open in the editor.
+    fn file_leases(&self) -> &file_leases::FileLeases {
+        &self.inner.file_leases
     }
 
     /// The limits on login attempts.

@@ -26,6 +26,7 @@ mod containers_and_blocks;
 mod date_value;
 mod deleted_item;
 mod file_info;
+mod file_lease;
 mod file_version;
 mod id;
 mod invitation;
@@ -102,6 +103,7 @@ pub use date_value::{
 };
 pub use deleted_item::DeletedItem;
 pub use file_info::{FileInfo, FileKey, is_storage_path};
+pub use file_lease::{FileLease, FileLeaseRequest, HeldFileLease};
 pub use file_version::{FileVersion, FileVersionBase, NewFileVersion};
 pub use id::{is_id, new_id};
 pub use invitation::{

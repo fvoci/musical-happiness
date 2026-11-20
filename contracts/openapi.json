@@ -1686,6 +1686,37 @@
         ],
         "type": "object"
       },
+      "FileLease": {
+        "description": "Whether somebody has a file open in the editor now, and who.",
+        "properties": {
+          "editing": {
+            "description": "Whether somebody holds the file's lease: has it open in the editor.",
+            "type": "boolean"
+          },
+          "editorId": {
+            "description": "Who holds it, where the caller may see who that is (the caller included); empty\nfor nobody, and for somebody the caller does not see.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "editing",
+          "editorId"
+        ],
+        "type": "object"
+      },
+      "FileLeaseRequest": {
+        "description": "The lease a caller asks to hold: one held already, to be held on, or none.",
+        "properties": {
+          "leaseId": {
+            "description": "The lease the caller holds, as `holdFileLease` gave it; empty to take one.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaseId"
+        ],
+        "type": "object"
+      },
       "FileVersion": {
         "description": "A version kept of a file: the bytes the file had, when they were written and by\nwhom.",
         "properties": {
@@ -1772,6 +1803,26 @@
         },
         "required": [
           "enabled"
+        ],
+        "type": "object"
+      },
+      "HeldFileLease": {
+        "description": "A lease the caller holds.",
+        "properties": {
+          "leaseId": {
+            "description": "The lease, to hold on to it and to let it go with.",
+            "type": "string"
+          },
+          "seconds": {
+            "description": "How many seconds it lasts from now unless held on to again.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "leaseId",
+          "seconds"
         ],
         "type": "object"
       },
@@ -3613,6 +3664,11 @@
             "reason": "file_version_stale",
             "title": "The file has a newer version",
             "type": "/problems/file-version-stale"
+          },
+          {
+            "reason": "file_being_edited",
+            "title": "Somebody else is editing the file",
+            "type": "/problems/file-being-edited"
           },
           {
             "reason": "export_running",
@@ -10877,6 +10933,209 @@
           }
         },
         "summary": "What is known about a file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/lease": {
+      "get": {
+        "description": "Whether somebody holds the file's lease (`holdFileLease`): has it open in the\neditor. Who, only where the caller sees that person among the people of the\nworkspace, as presence names them, and where it is the caller; else `editorId` is\nempty and the caller is to say \"somebody else\". For who reads the board or the wiki.",
+        "operationId": "getFileLease",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board or the wiki.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.",
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileLease"
+                }
+              }
+            },
+            "description": "Whether somebody edits the file, and who."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Whether somebody edits a file",
+        "tags": [
+          "files"
+        ]
+      },
+      "put": {
+        "description": "With an empty `leaseId`, takes the file's lease if nobody holds it; with the lease\nthe caller holds, holds on to it. Either way the lease lasts `seconds` from now,\nand is held on to before then (the web app does so every 30 seconds while the\neditor is open). A lease that ended and that nobody else took meanwhile is taken\nanew, under a new `leaseId`. A lease is one editor's: the caller's other window is\nrefused as anybody else is. 409 with the reason `file_being_edited` while another\nlease of the file is held; `getFileLease` then says who. For editors.",
+        "operationId": "holdFileLease",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board or the wiki.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.",
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileLeaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeldFileLease"
+                }
+              }
+            },
+            "description": "The lease the caller holds now."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Another lease of the file is held: `reason` is `file_being_edited`."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Hold the lease of a file to edit it",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}/lease/{leaseId}": {
+      "delete": {
+        "description": "The editor is closed: whoever asks next may edit the file. A lease that is the\ncaller's no more (it ended, and maybe another took the file's), or never was, is\nleft as it is, and the answer is the same. For editors.",
+        "operationId": "releaseFileLease",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board or the wiki.",
+            "in": "path",
+            "name": "containerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.",
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The lease of the file, as `holdFileLease` gave it.",
+            "in": "path",
+            "name": "leaseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The caller holds no lease of the file."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Let the lease of a file go",
         "tags": [
           "files"
         ]

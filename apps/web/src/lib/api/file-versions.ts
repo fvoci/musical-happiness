@@ -4,7 +4,12 @@
  * board or wiki.
  */
 import type { UploadedFile } from '../state/backend.ts';
-import type { FileVersion, FileVersions } from '../state/file-versions.ts';
+import type {
+  FileLease,
+  FileVersion,
+  FileVersions,
+  HeldFileLease,
+} from '../state/file-versions.ts';
 
 import type { Schemas } from './convert.ts';
 import type { RequestOptions } from './http.ts';
@@ -76,6 +81,35 @@ export class ServerFileVersions implements FileVersions {
       '/containers/{containerId}/files/{fileId}/versions/{version}/restore',
       { containerId, fileId, version: String(version) },
       { method: 'POST', json },
+    );
+  }
+
+  lease(containerId: string, fileId: string): Promise<FileLease> {
+    return this.#ask<Schemas['FileLease']>('/containers/{containerId}/files/{fileId}/lease', {
+      containerId,
+      fileId,
+    });
+  }
+
+  holdLease(containerId: string, fileId: string, leaseId: string): Promise<HeldFileLease> {
+    const json: Schemas['FileLeaseRequest'] = { leaseId };
+    return this.#ask<Schemas['HeldFileLease']>(
+      '/containers/{containerId}/files/{fileId}/lease',
+      { containerId, fileId },
+      { method: 'PUT', json },
+    );
+  }
+
+  releaseLease(
+    containerId: string,
+    fileId: string,
+    leaseId: string,
+    options: { keepalive?: boolean } = {},
+  ): Promise<void> {
+    return this.#ask<undefined>(
+      '/containers/{containerId}/files/{fileId}/lease/{leaseId}',
+      { containerId, fileId, leaseId },
+      { method: 'DELETE', keepalive: options.keepalive },
     );
   }
 }

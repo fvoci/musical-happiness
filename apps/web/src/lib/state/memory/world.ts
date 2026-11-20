@@ -88,6 +88,14 @@ interface Watcher {
   reads?: boolean;
 }
 
+/** A lease of a file held: one editor of it at a time. */
+export interface FileLeaseHeld {
+  id: string;
+  userId: string;
+  /** When it ends unless held on to, in milliseconds. */
+  until: number;
+}
+
 export class World {
   workspace: WorkspaceInfo = { id: '', title: '' };
   readonly workspaceMembers = new Set<string>();
@@ -108,6 +116,8 @@ export class World {
   readonly commentVersions = new Map<string, CommentVersion[]>();
   /** The versions kept of the bodies of cards, by card (`body-versions.ts`). */
   readonly bodyVersions = new Map<string, KeptOfCard>();
+  /** Who has a file open in the editor, by board and file (`file-versions.ts`). */
+  readonly fileLeases = new Map<string, FileLeaseHeld>();
 
   /**
    * The name of the channel the rooms of the bodies share with the worlds of
