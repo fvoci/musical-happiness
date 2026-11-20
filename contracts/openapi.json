@@ -1627,7 +1627,7 @@
             "type": "boolean"
           },
           "workspaceId": {
-            "description": "The workspace: the first of the organization it started, or the one its link\nleads into.",
+            "description": "The workspace: the first of the organization it started, the one its link\nleads into, or the one of its own space if it started with that alone.",
             "type": "string"
           }
         },
@@ -3883,6 +3883,11 @@
             "reason": "too_many_pages",
             "title": "Too many pages in the wiki",
             "type": "/problems/too-many-pages"
+          },
+          {
+            "reason": "too_many_organizations",
+            "title": "Too many organizations made",
+            "type": "/problems/too-many-organizations"
           }
         ]
       },
@@ -5342,7 +5347,7 @@
     },
     "/api/v1/email-verification/complete": {
       "post": {
-        "description": "Consumes the token of the link mailed to a registration's address, within a day of\nthe mail and seven days of the registration: makes the account, and the\norganization and first workspace it registered with, and signs it in. The session\ncomes in the `Set-Cookie` header, as from `login`, and the answer says where the\naccount was let in. A link is used once, and a newer mail of the same registration\nends the links before it. A missing, ended, used or replaced token answers 400,\nnaming `token` in `errors`.\n\nOnly who registered finishes a registration, so that nobody is signed in to an\naccount whose password somebody else chose. In the browser the registration was\nmade from, which the cookie of `register` or `acceptInvitation` shows, the token is\nenough. Anywhere else a token that would confirm is answered 403 with the reason\n`password_required`, and the request is sent again with `password`, the password the\nregistration was made with: a wrong one is the 401 of `login` (`invalid_credentials`),\ncounted with the failed logins to the registration's user name, and too many are\n429. A request that is refused so leaves the link as it was. Nothing is asked of a\ntoken that confirms nothing, so the answers tell no more of whether a registration\nwaits than the token does.\n\nOn a server that takes one organization and has its first user by now,\nthe registration is removed and the answer is 403 with the reason\n`invitation_required`. A registration made by the link of an invitation\n(`acceptInvitation`) is let in as the acceptance would have let it in, and the answer\nnames the board of a guest's link (`containerId`); if the link lets nobody in any more\n(revoked, or who made it may no longer invite), the registration is removed and the\nanswer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as\nregistrations are, and too many are 429.\n\nAn account that a link for members lets in so is given its welcome board in the\nworkspace, unless it has one (`onboard` says more): written in the `language` of\nthe acceptance if that was English or Korean, or else in English.",
+        "description": "Consumes the token of the link mailed to a registration's address, within a day of\nthe mail and seven days of the registration: makes the account, and the\norganization and first workspace it registered with if it named one, and signs it in. The session\ncomes in the `Set-Cookie` header, as from `login`, and the answer says where the\naccount was let in. A link is used once, and a newer mail of the same registration\nends the links before it. A missing, ended, used or replaced token answers 400,\nnaming `token` in `errors`.\n\nOnly who registered finishes a registration, so that nobody is signed in to an\naccount whose password somebody else chose. In the browser the registration was\nmade from, which the cookie of `register` or `acceptInvitation` shows, the token is\nenough. Anywhere else a token that would confirm is answered 403 with the reason\n`password_required`, and the request is sent again with `password`, the password the\nregistration was made with: a wrong one is the 401 of `login` (`invalid_credentials`),\ncounted with the failed logins to the registration's user name, and too many are\n429. A request that is refused so leaves the link as it was. Nothing is asked of a\ntoken that confirms nothing, so the answers tell no more of whether a registration\nwaits than the token does.\n\nOn a server that takes one organization and has its first user by now,\nthe registration is removed and the answer is 403 with the reason\n`invitation_required`. A registration made by the link of an invitation\n(`acceptInvitation`) is let in as the acceptance would have let it in, and the answer\nnames the board of a guest's link (`containerId`); if the link lets nobody in any more\n(revoked, or who made it may no longer invite), the registration is removed and the\nanswer is 404 with the reason `invitation_unavailable`. Requests are counted by where they come from, as\nregistrations are, and too many are 429.\n\nAn account that a link for members lets in so is given its welcome board in the\nworkspace, unless it has one (`onboard` says more): written in the `language` of\nthe acceptance if that was English or Korean, or else in English.",
         "operationId": "completeEmailVerification",
         "requestBody": {
           "content": {
@@ -5791,7 +5796,7 @@
     },
     "/api/v1/org": {
       "post": {
-        "description": "Makes an organization that people work in together, and its first workspace, both\nunder `name`, for the account of the session, which administers both: what\n`register` does with `organizationName`, for an account that registered without\none. Answers the workspace as `getMyWorkspaces` lists it from then on.\n\nFor an account that is a member of no organization but its own space: one that is\nin an organization already is 409. On a server that takes one organization\n(`org_creation` is `first_user_only`; `registrationOpen` of `getLoginOptions` is\nfalse once it has its first user) nobody starts another: 403 with the reason\n`invitation_required`. The name is read as `organizationName` of `register` is:\nblank, too long or with a character it may not have is 400, and `errors` names\n`name`. Counted by where it comes from, with the registrations: too many are 429.",
+        "description": "Makes an organization that people work in together, and its first workspace, both\nunder `name`, for the account of the session, which administers both: what\n`register` does with `organizationName`, for an account that is there. Answers the\nworkspace as `getMyWorkspaces` lists it from then on.\n\nAn account makes a few organizations and no more: the ones in use that it started\nare counted, by `register` or here, and not the ones it was invited into, nor its\nown space. One more than the limit is 400 with the reason `too_many_organizations`,\nand `limit` tells how many that is. On a server that takes one organization\n(`org_creation` is `first_user_only`; `registrationOpen` of `getLoginOptions` is\nfalse once it has its first user) nobody starts another: 403 with the reason\n`invitation_required`. The name is read as `organizationName` of `register` is:\nblank, too long or with a character it may not have is 400, and `errors` names\n`name`. Counted by where it comes from, with the registrations: too many are 429.",
         "operationId": "createOrganization",
         "requestBody": {
           "content": {

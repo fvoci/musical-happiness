@@ -690,6 +690,16 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
                 "category_containers".to_owned(),
                 "category_containers_container_of_its_organization".to_owned()
             ),
+            // No key says who may be in a space: its owner alone, and no link leads
+            // into one (0051).
+            (
+                "invitations".to_owned(),
+                "invitations_of_a_space".to_owned()
+            ),
+            (
+                "organization_members".to_owned(),
+                "organization_members_of_a_space".to_owned()
+            ),
             // No key says a row stays what it was: an organization keeps its kind and
             // the account whose space it is (0050).
             (
@@ -699,6 +709,10 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             (
                 "uploads".to_owned(),
                 "uploads_target_of_its_organization".to_owned()
+            ),
+            (
+                "workspace_members".to_owned(),
+                "workspace_members_of_a_space".to_owned()
             ),
         ],
         "the checks of what has no key"

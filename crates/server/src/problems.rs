@@ -273,7 +273,8 @@ fn describe_the_rest(reason: Reason) -> &'static str {
         .unwrap_or_else(|| describe_editing_together(reason))
 }
 
-/// The descriptions of the reasons of the limits of a wiki's tree.
+/// The descriptions of the reasons of the limits of a wiki's tree, and of how many
+/// organizations an account makes.
 fn describe_page_tree(reason: Reason) -> Option<&'static str> {
     Some(match reason {
         Reason::PageTooDeep => {
@@ -288,6 +289,9 @@ fn describe_page_tree(reason: Reason) -> Option<&'static str> {
              `limit` tells (`wiki_pages`, 5000 unless configured; pages in the trash are not \
              counted): when a page is made, restored or duplicated. Nothing was changed. \
              Deleting pages makes room."
+        }
+        Reason::TooManyOrganizations => {
+            "Status 400. The account made as many organizations as one account may, which              `limit` tells: the ones in use that it started, by registering with the name              of one or by `createOrganization`. An organization it was invited into is not              counted, and neither is its own space. Nothing was made."
         }
         _ => return None,
     })

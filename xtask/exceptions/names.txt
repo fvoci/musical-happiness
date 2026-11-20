@@ -299,6 +299,7 @@ crates/server/src/app/mail/provider/http_signature.rs | displayName=TeamXInstanc
 # the schema carry them.
 crates/model/src/org_kind.rs
 crates/store/schema/*/0050_personal_organizations.sql
+crates/store/schema/*/0051_organizations_made_by.sql | kind = 'team'
 ** | OrgKind::Team
 ** | "kind": "team"
 crates/model/src/organization.rs | `team` for every other

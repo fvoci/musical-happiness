@@ -5,15 +5,17 @@
 //! account, and whoever a provider vouches for the first time all get their account
 //! here (`insert_account`) and are let in here (`join_organization`,
 //! `join_workspace`). An account's own space is made with its row, in the same
-//! transaction: no account is without one.
+//! transaction: no account is without one. Whoever signs up without the name of an
+//! organization gets that and nothing else (`alone`), and starts an organization
+//! later, as an account that is there ([`Store::start_organization`]).
 
 use fvoci_model::{OrgRole, User, Workspace, WorkspaceRole, new_id};
 
-use crate::Store;
 use crate::db::{Id, Scope, Sql, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::users::{self, InstanceRole};
-use crate::{signups, workspaces};
+use crate::{Store, Tenant};
+use crate::{directory, signups, workspaces};
 
 /// The organization somebody who signs up with the name of an organization starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +26,25 @@ pub enum Founding {
     /// A new organization, under an identifier the store gives it, whatever
     /// organization the handle names.
     New,
+}
+
+/// The space of an account: the organization that is the account's own, and its one
+/// workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnSpace {
+    /// The organization, of the kind `personal`.
+    pub org_id: String,
+    /// Its workspace.
+    pub workspace_id: String,
+}
+
+/// An organization an account started, and its first workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartedOrganization {
+    /// The organization.
+    pub org_id: String,
+    /// Its first workspace, which is its default one.
+    pub workspace_id: String,
 }
 
 /// A workspace of the scope's organization that a user is let into.
@@ -76,20 +97,78 @@ impl Store {
             .await
     }
 
+    /// Stores the account of somebody who signs up without the name of an
+    /// organization: the account and its own space, and nothing besides. The account
+    /// is in no organization that people work in, and administers nothing. Returns
+    /// its own space. All of it happens or none.
+    ///
+    /// `user` is updated to what was stored, as [`Store::sign_up`] updates it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoFirstUser`] while the instance has had no first user:
+    /// the first account starts the instance's organization, whose administrators
+    /// follow who administers the instance, and this one starts none. Returns
+    /// [`StoreError::Conflict`] for a name or an address that is taken, as
+    /// [`Store::sign_up`] does.
+    pub async fn sign_up_alone(&self, user: &mut User) -> Result<OwnSpace, StoreError> {
+        self.scoped(Tenant::Unset)
+            .transaction(async |scope| alone(scope, user).await)
+            .await
+    }
+
+    /// Starts an organization that people work in together for the account `user_id`:
+    /// the organization and its first workspace, both under `name`, with the account
+    /// as the administrator of both, as [`Store::sign_up`] makes them for
+    /// [`Founding::New`]. An account makes `limit` organizations and no more: the ones
+    /// in use that it made are counted, by signing up or here, and not the ones it was
+    /// let into. All of it happens or none; of several at once for one account, no
+    /// more are made than the limit leaves room for.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::TooManyOrganizations`] if the account made `limit`
+    /// organizations that are in use; [`StoreError::UserNotFound`] if no account in
+    /// use has the identifier; and [`StoreError::Database`] if a statement fails, as
+    /// it does on an SQLite database that holds its one organization.
+    pub async fn start_organization(
+        &self,
+        user_id: &str,
+        name: &str,
+        limit: u32,
+    ) -> Result<StartedOrganization, StoreError> {
+        let org_id = new_id();
+        self.for_org(&org_id)?
+            .transaction(async |scope| {
+                // Held against another start by the same account, which waits here
+                // and then counts the organization this one stores.
+                users::lock_user(scope, user_id).await?;
+                let made = directory::organizations_made_by(scope, user_id).await?;
+                if made >= i64::from(limit) {
+                    return Err(StoreError::TooManyOrganizations { limit });
+                }
+                let workspace_id = new_id();
+                found_organization(scope, name, &workspace_id).await?;
+                made_by(scope, user_id).await?;
+                join_organization(scope, user_id, OrgRole::Admin).await?;
+                let which = Which::Workspace(&workspace_id);
+                join_workspace(scope, which, user_id, WorkspaceRole::Admin).await?;
+                Ok(StartedOrganization {
+                    org_id: org_id.clone(),
+                    workspace_id,
+                })
+            })
+            .await
+    }
+
     /// Whether the instance has had its first user.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn is_bootstrapped(&self) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
-            let sql = scope.sql("SELECT bootstrapped FROM instance WHERE id = 1");
-            match scope.fetch_optional(sql).await? {
-                Some(row) => row.bool(0),
-                None => Ok(false),
-            }
-        })
-        .await
+        self.with_conn(async |scope| has_first_user(scope).await)
+            .await
     }
 
     /// Stores a user past the ways in, for a test: the first of the instance as its
@@ -164,6 +243,7 @@ pub(crate) async fn found(
         }
     };
     insert_account(scope, user, role).await?;
+    made_by(scope, &user.id).await?;
     join_organization(scope, &user.id, OrgRole::Admin).await?;
     join_workspace(
         scope,
@@ -173,6 +253,42 @@ pub(crate) async fn found(
     )
     .await?;
     Ok(workspace_id)
+}
+
+/// Writes down that the account `user_id` made the scope's organization: the one it
+/// started, or, on a database that had an organization before it had a user, the one
+/// the first account took, which nobody made before.
+async fn made_by(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
+    let mut sql = scope.sql("UPDATE organizations SET created_by = ");
+    sql.bind(Id(user_id))
+        .push_bind(" WHERE id = ", scope.org()?);
+    scope.execute(sql).await?;
+    Ok(())
+}
+
+/// Stores `user` as an account that starts no organization, as
+/// [`Store::sign_up_alone`] does, in whatever organization the scope reaches: the
+/// account joins none. Returns its own space.
+///
+/// # Errors
+///
+/// Returns [`StoreError::NoFirstUser`] while the instance has had no first user.
+pub(crate) async fn alone(scope: &mut Scope<'_>, user: &mut User) -> Result<OwnSpace, StoreError> {
+    // Read, not claimed: the flag never goes off again, so an account that finds it
+    // on comes after the first user, and one that finds it off starts nothing.
+    if !has_first_user(scope).await? {
+        return Err(StoreError::NoFirstUser);
+    }
+    insert_account(scope, user, InstanceRole::User).await
+}
+
+/// Whether the instance has had its first user, as the scope's transaction sees it.
+async fn has_first_user(scope: &mut Scope<'_>) -> Result<bool, StoreError> {
+    let sql = scope.sql("SELECT bootstrapped FROM instance WHERE id = 1");
+    match scope.fetch_optional(sql).await? {
+        Some(row) => row.bool(0),
+        None => Ok(false),
+    }
 }
 
 /// Turns on the flag that the instance has had its first user, and says what whoever
@@ -194,7 +310,7 @@ async fn become_first(scope: &mut Scope<'_>) -> Result<InstanceRole, StoreError>
 /// modification time, not deleted, and an administrator of the instance if `role` says
 /// so, whatever the caller put there. Of its other members the identifier, the names, the
 /// email address and the password hash are stored. And the account's own space
-/// ([`make_own_space`]), whatever organization the scope reaches.
+/// ([`make_own_space`]), whatever organization the scope reaches, which is returned.
 ///
 /// # Errors
 ///
@@ -206,7 +322,7 @@ pub(crate) async fn insert_account(
     scope: &mut Scope<'_>,
     user: &mut User,
     role: InstanceRole,
-) -> Result<(), StoreError> {
+) -> Result<OwnSpace, StoreError> {
     let now = now_millis();
     signups::claim_account_names(scope).await?;
     if let Some(taken) = signups::signup_has_names(scope, &user.username, &user.email, now).await? {
@@ -229,7 +345,7 @@ pub(crate) async fn insert_account(
 /// The space is another organization than the one the scope reaches (the one the
 /// account signs up for, is invited into or signs in to): it is stored as itself
 /// ([`Scope::in_new_organization`]), and nothing of it is the scope's organization's.
-async fn make_own_space(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
+async fn make_own_space(scope: &mut Scope<'_>, user_id: &str) -> Result<OwnSpace, StoreError> {
     let org_id = new_id();
     let workspace = Workspace {
         id: new_id(),
@@ -245,7 +361,11 @@ async fn make_own_space(scope: &mut Scope<'_>, user_id: &str) -> Result<(), Stor
             join_workspace(scope, which, user_id, WorkspaceRole::Admin).await?;
             Ok(())
         })
-        .await
+        .await?;
+    Ok(OwnSpace {
+        org_id,
+        workspace_id: workspace.id,
+    })
 }
 
 /// Removes the registration that waits at `email`, the address the organization's

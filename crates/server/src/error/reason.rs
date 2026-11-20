@@ -209,6 +209,8 @@ reasons! {
     PageTooDeep => "page_too_deep", "Page too deep";
     /// The wiki would have more pages than the organization's limit.
     TooManyPages => "too_many_pages", "Too many pages in the wiki";
+    /// The account made as many organizations, which are in use, as one account may.
+    TooManyOrganizations => "too_many_organizations", "Too many organizations made";
 }
 
 impl Reason {

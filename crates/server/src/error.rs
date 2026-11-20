@@ -294,6 +294,16 @@ impl AppError {
         error
     }
 
+    /// A 400 error for an account that made as many organizations as one may, which
+    /// `limit` is.
+    fn too_many_organizations(limit: u32) -> Self {
+        Self::bad_request(format_args!(
+            "an account starts at most {limit} organizations"
+        ))
+        .with_reason(Reason::TooManyOrganizations)
+        .with_limit(u64::from(limit))
+    }
+
     /// A 429 error for a limit on what is held at once, rather than on attempts: no
     /// wait is told, since what frees room is the client's own doing or another's.
     pub fn limited(message: impl std::fmt::Display, reason: Reason) -> Self {
@@ -678,6 +688,8 @@ impl From<StoreError> for AppError {
                 .with_limit(u64::try_from(limit).unwrap_or(u64::MAX)),
             // A registration that was not the first after all.
             StoreError::NotFirstUser => Self::invitation_required(),
+            StoreError::NoFirstUser => fvoci_model::RegisterRequest::organization_required().into(),
+            StoreError::TooManyOrganizations { limit } => Self::too_many_organizations(limit),
             // The one lookup that names its kind: a password is set for a user.
             StoreError::UserNotFound(_) => {
                 tracing::debug!(%error, "not found in the store");

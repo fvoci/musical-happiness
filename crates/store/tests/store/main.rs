@@ -9,6 +9,7 @@
 
 mod account_deletion;
 mod account_erasure;
+mod alone;
 mod block_reads_and_patches;
 mod blocks;
 mod blocks_and_deletion;

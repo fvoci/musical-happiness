@@ -22,6 +22,25 @@ pub(super) async fn exercise(
     invitation(case, server, smtp).await;
     recovery(case, server, smtp).await;
     identity::exercise(case, server, fake).await;
+    // A founder made one organization, and makes another as any account does.
+    let another = case
+        .run("createOrganization", &[], json!({"name": "Another"}))
+        .await
+        .value();
+    assert_eq!(
+        another["role"], "admin",
+        "who starts an organization: {another}"
+    );
+    for field in ["id", "orgId"] {
+        case.remember(&another, field);
+    }
+    // And registered with a password: there is no first one to set.
+    let request = case
+        .request("setPassword", &[])
+        .json(&json!({"password": "a first parity password"}));
+    let response = Client::send(request).await;
+    assert_eq!(response.status.as_u16(), 409, "{}", response.text());
+    case.record("setPassword", &response);
     let request = case
         .request("setUserAdmin", &[("userId", &case.user)])
         .json(&json!({"isAdmin": true}));

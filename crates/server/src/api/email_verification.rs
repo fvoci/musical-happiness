@@ -20,8 +20,8 @@ use crate::client_address::ClientAddress;
 #[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 struct EmailVerified {
-    /// The workspace: the first of the organization it started, or the one its link
-    /// leads into.
+    /// The workspace: the first of the organization it started, the one its link
+    /// leads into, or the one of its own space if it started with that alone.
     workspace_id: String,
     /// For a guest's link: the board or the wiki it was let onto.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -113,7 +113,7 @@ async fn request(
 ///
 /// Consumes the token of the link mailed to a registration's address, within a day of
 /// the mail and seven days of the registration: makes the account, and the
-/// organization and first workspace it registered with, and signs it in. The session
+/// organization and first workspace it registered with if it named one, and signs it in. The session
 /// comes in the `Set-Cookie` header, as from `login`, and the answer says where the
 /// account was let in. A link is used once, and a newer mail of the same registration
 /// ends the links before it. A missing, ended, used or replaced token answers 400,
@@ -181,11 +181,12 @@ async fn complete(
             address_of(client),
         )
         .await?;
+    let organization_started = signed_in.started_organization();
     let answer = EmailVerified {
         workspace_id: signed_in.confirmed.workspace_id,
         container_id: signed_in.confirmed.container_id,
         container_kind: signed_in.container_kind,
-        organization_started: signed_in.confirmed.started_organization,
+        organization_started,
     };
     let response = with_session_cookie(&app, &signed_in.session_token, json_response(&answer));
     Ok(if signed_in.made_here {

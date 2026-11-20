@@ -222,7 +222,7 @@ export interface paths {
          * Confirm the email address of a registration
          * @description Consumes the token of the link mailed to a registration's address, within a day of
          *     the mail and seven days of the registration: makes the account, and the
-         *     organization and first workspace it registered with, and signs it in. The session
+         *     organization and first workspace it registered with if it named one, and signs it in. The session
          *     comes in the `Set-Cookie` header, as from `login`, and the answer says where the
          *     account was let in. A link is used once, and a newer mail of the same registration
          *     ends the links before it. A missing, ended, used or replaced token answers 400,
@@ -501,11 +501,13 @@ export interface paths {
          * Start an organization
          * @description Makes an organization that people work in together, and its first workspace, both
          *     under `name`, for the account of the session, which administers both: what
-         *     `register` does with `organizationName`, for an account that registered without
-         *     one. Answers the workspace as `getMyWorkspaces` lists it from then on.
+         *     `register` does with `organizationName`, for an account that is there. Answers the
+         *     workspace as `getMyWorkspaces` lists it from then on.
          *
-         *     For an account that is a member of no organization but its own space: one that is
-         *     in an organization already is 409. On a server that takes one organization
+         *     An account makes a few organizations and no more: the ones in use that it started
+         *     are counted, by `register` or here, and not the ones it was invited into, nor its
+         *     own space. One more than the limit is 400 with the reason `too_many_organizations`,
+         *     and `limit` tells how many that is. On a server that takes one organization
          *     (`org_creation` is `first_user_only`; `registrationOpen` of `getLoginOptions` is
          *     false once it has its first user) nobody starts another: 403 with the reason
          *     `invitation_required`. The name is read as `organizationName` of `register` is:
@@ -4781,8 +4783,8 @@ export interface components {
              */
             organizationStarted: boolean;
             /**
-             * @description The workspace: the first of the organization it started, or the one its link
-             *     leads into.
+             * @description The workspace: the first of the organization it started, the one its link
+             *     leads into, or the one of its own space if it started with that alone.
              */
             workspaceId: string;
         };

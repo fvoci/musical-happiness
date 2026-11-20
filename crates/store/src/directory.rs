@@ -30,7 +30,10 @@ use crate::loose_objects::LooseState;
 use crate::uploads::{OpenUploads, UploadUsage};
 use crate::{body_versions, invitations, memberships_everywhere, users, users_by_id, workspaces};
 
+mod every_organization;
 mod sign_in;
+
+pub(crate) use every_organization::{is_the_instances_organization, organizations_made_by};
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -927,29 +930,4 @@ pub(crate) async fn oldest_organization(
         .await?
         .map(|row| row.id(0))
         .transpose()
-}
-
-/// Whether the organization of `scope` is the instance's own: the oldest one in use,
-/// whose administrators are the instance's (`members::follow_instance_role`). Asked in
-/// the caller's transaction, so that the answer holds for what it does; on PostgreSQL
-/// the wall is opened for this one statement, as the organization's wall hides the
-/// others, and closed again before anything else runs in it.
-pub(crate) async fn is_the_instances_organization(
-    scope: &mut Scope<'_>,
-) -> Result<bool, StoreError> {
-    let Some(org) = scope.org_id() else {
-        return Ok(false);
-    };
-    let reach = |on: &str| format!("SELECT set_config('fvoci.system', '{on}', true)");
-    let postgres = scope.dialect() == Dialect::Postgres;
-    if postgres {
-        let sql = scope.sql(&reach("on"));
-        scope.fetch_optional(sql).await?;
-    }
-    let oldest = oldest_organization(scope).await?;
-    if postgres {
-        let sql = scope.sql(&reach("off"));
-        scope.fetch_optional(sql).await?;
-    }
-    Ok(oldest.is_some_and(|id| id == org))
 }

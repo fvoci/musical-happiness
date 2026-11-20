@@ -225,7 +225,13 @@ async fn handle_register(
         return Err(AppError::invitation_required());
     }
     let register = register.tidied();
-    register.validate()?;
+    // Until the server has its first user a registration names the organization it
+    // starts: told with whatever else is wrong, and asked again where it is stored.
+    if app.has_first_user().await? {
+        register.validate()?;
+    } else {
+        register.validate_as_first()?;
+    }
     if app.verifies_email() {
         let browser = marker_of(&app, &headers);
         let marker = app

@@ -89,7 +89,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 pub use account_deletion::{DeletionAsking, DeletionStanding};
 pub use account_erasure::{ErasedFrom, Erasing, ErasureEnd, ErasureStart, HandedOver};
-pub use accounts::Founding;
+pub use accounts::{Founding, OwnSpace, StartedOrganization};
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{
     BlockFilter, BodyPreview, CopyChanges, CopyTitles, DuplicateAs, ListedBlock, Paging, Previews,
@@ -134,7 +134,7 @@ pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
 pub use signups::{
     Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,
-    SignupStart,
+    SignupStart, Started,
 };
 pub use trash::{DeletedBlock, DeletedContainer, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};

@@ -1,4 +1,5 @@
-//! The limits of an organization: how much of the server it may use, read in one place.
+//! The limits of an organization, and of an account: how much of the server each may
+//! use, read in one place.
 //!
 //! Every organization has the limits of the configuration for now. What comes to differ
 //! from one organization to another (a plan, a quota) is read here, of the organization
@@ -44,7 +45,29 @@ impl OrgLimits {
     }
 }
 
+/// How much one account may use of the server, whatever organization it works in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AccountLimits {
+    /// How many organizations in use an account may have made: by registering with
+    /// the name of one, and as an account that is there. The ones it was let into are
+    /// not counted.
+    pub organizations_made: u32,
+}
+
+/// How many organizations an account makes, until accounts have plans of their own.
+const ORGANIZATIONS_AN_ACCOUNT_MAKES: u32 = 3;
+
 impl App {
+    /// The limits of an account. The same for every account for now; what comes to
+    /// differ from one to another (a plan) is read here, and whoever checks such a
+    /// limit asks this.
+    #[must_use]
+    pub fn account_limits(&self) -> AccountLimits {
+        AccountLimits {
+            organizations_made: ORGANIZATIONS_AN_ACCOUNT_MAKES,
+        }
+    }
+
     /// The limits of the organization this handle works in. They are the
     /// configuration's, the same for every organization, until organizations have
     /// their own: from then on whoever asks holds the handle of the organization whose
