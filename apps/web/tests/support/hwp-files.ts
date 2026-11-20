@@ -6,6 +6,7 @@
  * that can tell the lies the viewer must catch. Every file is ours, so the
  * tests carry no third-party content.
  */
+import { createCipheriv } from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
 
 import { HwpDocument, initSync } from '@rhwp/core';
@@ -159,6 +160,98 @@ export function koreanHwpxWithOtherParts(): Buffer {
 
 export function koreanHwp(): Buffer {
   return Buffer.from(koreanDocument().exportHwp());
+}
+
+/** An HWP document with `streams` more. */
+export function withStreams(document: Buffer, streams: readonly CompoundStream[]): Buffer {
+  return compoundFile([...compoundStreams(document), ...streams]);
+}
+
+/** A stream another program wrote, which rhwp does not read and keeps as it is. */
+export const OTHER_STREAM: CompoundStream = {
+  path: 'Custom/Notes',
+  data: Buffer.from('기록 notes kept by another program'),
+};
+
+/** The text of the distribution sample's protected body, which its open body does not have. */
+export const DISTRIBUTED_TEXT = '배포본문';
+
+/** The record that opens a section of `ViewText` and hides its key (`HWPTAG_DISTRIBUTE_DOC_DATA`). */
+const DISTRIBUTE_DOC_DATA = 0x1c;
+/** The property of `FileHeader` that says a document is a distribution document. */
+const DISTRIBUTION = 1 << 2;
+
+/** The random numbers of Microsoft's C library from `seed`, which the record's bytes are hidden with. */
+function msvcRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(state, 214013) + 2531011) >>> 0;
+    return (state >>> 16) & 0x7fff;
+  };
+}
+
+/**
+ * A section of `ViewText` as Hangul writes one, as rhwp reads it: a 256-byte record whose
+ * bytes past the first four are hidden by a stream of numbers seeded with those four, the
+ * key of AES-128 among them where the first byte says; then the section's bytes, encrypted
+ * with that key (ECB), whole blocks.
+ */
+function viewTextSection(section: Buffer): Buffer {
+  const plain = Buffer.alloc(256);
+  plain.writeUInt32LE(0x2b7e1516, 0);
+  const key = Buffer.from('fvoci-test-key16');
+  key.copy(plain, 4 + ((plain[0] ?? 0) & 0x0f));
+  const random = msvcRandom(plain.readUInt32LE(0));
+  const hidden = Buffer.from(plain);
+  for (let at = 0, left = 0, mask = 0; at < hidden.length; at += 1, left -= 1) {
+    if (left === 0) {
+      mask = random() & 0xff;
+      left = (random() & 0x0f) + 1;
+    }
+    if (at >= 4) hidden[at] = (plain[at] ?? 0) ^ mask;
+  }
+  const blocks = Buffer.alloc(Math.ceil(section.length / 16) * 16);
+  section.copy(blocks);
+  const cipher = createCipheriv('aes-128-ecb', key, null).setAutoPadding(false);
+  const head = Buffer.alloc(4);
+  head.writeUInt32LE(DISTRIBUTE_DOC_DATA | (hidden.length << 20), 0);
+  return Buffer.concat([head, hidden, cipher.update(blocks), cipher.final()]);
+}
+
+/**
+ * The Korean HWP as a distribution document (배포용 문서), which Hangul keeps from being
+ * copied and printed: the property that says so in `FileHeader`, and the body in
+ * `ViewText/Section0`, encrypted. The open body, `BodyText/Section0`, is the sample's
+ * own; the protected one has `DISTRIBUTED_TEXT` too, so what rhwp shows tells which it read.
+ */
+export function distributionHwp(): Buffer {
+  const streams = compoundStreams(koreanHwp()).map((stream) => {
+    if (stream.path !== 'FileHeader') return stream;
+    const data = Buffer.from(stream.data);
+    data.writeUInt32LE(data.readUInt32LE(36) | DISTRIBUTION, 36);
+    return { ...stream, data };
+  });
+  return compoundFile([...streams, protectedBody()]);
+}
+
+/**
+ * The Korean HWP with a protected body left in `ViewText` although it is no distribution
+ * document, as a copy of one can keep it once the protection is off: rhwp reads the open
+ * body and does not keep `ViewText`, which its report does not say.
+ */
+export function withViewTextLeft(): Buffer {
+  return withStreams(koreanHwp(), [protectedBody()]);
+}
+
+/** The sample's body with `DISTRIBUTED_TEXT`, as `ViewText/Section0`. */
+function protectedBody(): CompoundStream {
+  const protectedBody = koreanDocument();
+  done(protectedBody.insertText(0, 0, 0, DISTRIBUTED_TEXT));
+  const section = compoundStreams(Buffer.from(protectedBody.exportHwp())).find(
+    (stream) => stream.path === 'BodyText/Section0',
+  );
+  if (!section) throw new Error('the sample has no section');
+  return { path: 'ViewText/Section0', data: viewTextSection(section.data) };
 }
 
 /**

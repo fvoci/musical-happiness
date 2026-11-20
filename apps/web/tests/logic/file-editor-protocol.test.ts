@@ -39,8 +39,16 @@ describe('a message from the editor’s frame, in the app', () => {
       { kind: 'changed', dirty: false },
       { kind: 'save-asked' },
       { kind: 'leave' },
-      { kind: 'exported', request: 1, bytes, count: 0, losses: [] },
-      { kind: 'exported', request: REQUEST_LIMIT, bytes, count: 1, losses: [LOSS] },
+      { kind: 'exported', request: 1, bytes, count: 0, losses: [], unprotected: false },
+      { kind: 'exported', request: 1, bytes, count: 0, losses: [], unprotected: true },
+      {
+        kind: 'exported',
+        request: REQUEST_LIMIT,
+        bytes,
+        count: 1,
+        losses: [LOSS],
+        unprotected: false,
+      },
       { kind: 'export-failed', request: 3 },
     ]) {
       expect(readFromEditor(message), JSON.stringify(message)).toEqual(message);
@@ -49,7 +57,14 @@ describe('a message from the editor’s frame, in the app', () => {
 
   it('carries the bytes only with a report that agrees with itself', () => {
     const bytes = new ArrayBuffer(4);
-    const exported = { kind: 'exported', request: 1, bytes, count: 1, losses: [LOSS] };
+    const exported = {
+      kind: 'exported',
+      request: 1,
+      bytes,
+      count: 1,
+      losses: [LOSS],
+      unprotected: false,
+    };
     const full = Array<Loss>(LOSS_LIST_LIMIT).fill(LOSS);
     // More losses than a message lists: the count says how many, the list is cut at the limit.
     const many = { ...exported, count: LOSS_COUNT_LIMIT, losses: full };
@@ -58,6 +73,10 @@ describe('a message from the editor’s frame, in the app', () => {
       { kind: 'exported', request: 1, bytes },
       { kind: 'exported', request: 1, bytes, count: 0 },
       { kind: 'exported', request: 1, count: 0, losses: [] },
+      { kind: 'exported', request: 1, bytes, count: 0, losses: [] },
+      { ...exported, unprotected: 1 },
+      { ...exported, unprotected: 'true' },
+      { ...exported, unprotected: null },
       { ...exported, count: 0 },
       { ...exported, count: 2 },
       { ...exported, count: -1, losses: [] },
@@ -109,7 +128,8 @@ describe('a message from the editor’s frame, in the app', () => {
       { kind: 'export-failed', request: 0 },
       // What the app says to the frame is not what the frame says to the app.
       { kind: 'export', request: 1 },
-      { kind: 'stored', request: 1 },
+      { kind: 'stored', request: 1, as: 'version' },
+      { kind: 'stored', request: 1, as: 'apart' },
       { kind: 'navigate', url: 'https://example.invalid/' },
       { kind: 'download', name: 'a.hwp' },
       new (class Ready {
@@ -143,7 +163,10 @@ describe('a message from the app, in the editor’s frame', () => {
     const longest = { ...open, name: 'n'.repeat(NAME_LIMIT) };
     expect(readToEditor(longest)).toEqual(longest);
     expect(readToEditor({ kind: 'export', request: 1 })).toEqual({ kind: 'export', request: 1 });
-    expect(readToEditor({ kind: 'stored', request: 9 })).toEqual({ kind: 'stored', request: 9 });
+    const stored = { kind: 'stored', request: 9, as: 'version' };
+    expect(readToEditor(stored)).toEqual(stored);
+    expect(readToEditor({ kind: 'stored', request: 9 })).toBeUndefined();
+    expect(readToEditor({ ...stored, as: 'elsewhere' })).toBeUndefined();
   });
 
   it('is nothing else', () => {
@@ -168,7 +191,7 @@ describe('a message from the app, in the editor’s frame', () => {
       { kind: 'export' },
       { kind: 'export', request: 0 },
       { kind: 'export', request: 1, format: 'hwp' },
-      { kind: 'stored', request: REQUEST_LIMIT + 1 },
+      { kind: 'stored', request: REQUEST_LIMIT + 1, as: 'version' },
       { kind: 'ready' },
       { kind: 'exported', request: 1, bytes: new ArrayBuffer(1), count: 0, losses: [] },
     ]) {

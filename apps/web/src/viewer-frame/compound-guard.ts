@@ -38,6 +38,11 @@ import { LockedFile, TooLargeFile, UnreadableFile } from './renderer.ts';
 const HEAD_SIZE = 40;
 /** The property that says the document is locked with a password. */
 const PASSWORD = 1 << 1;
+/**
+ * The property that says the document is a distribution document (배포용 문서), which
+ * Hangul keeps from being copied and printed: its text is in `ViewText`, encrypted.
+ */
+const DISTRIBUTION = 1 << 2;
 /** Where the deflated bytes start as rhwp tries them: raw, then after a zlib header. */
 const RAW_START = 0;
 const ZLIB_START = 2;
@@ -59,7 +64,9 @@ function unpackedSize(data: Uint8Array, room: number): number {
  * the root; undefined when an entry is reached twice or a storage holds a
  * name twice (the format compares names ignoring case).
  */
-function streamsOf(file: CompoundFile): { names: string[]; entry: CompoundEntry }[] | undefined {
+export function streamsOf(
+  file: CompoundFile,
+): { names: string[]; entry: CompoundEntry }[] | undefined {
   const [root] = file.entries;
   if (!root) return undefined;
   const found: { names: string[]; entry: CompoundEntry }[] = [];
@@ -99,6 +106,20 @@ function counted(file: CompoundFile, limit: number): CompoundPart[] {
   return parts;
 }
 
+/** The properties `FileHeader` gives the document; throws `UnreadableFile` when it is no HWP's. */
+export function headerProperties(file: CompoundFile): number {
+  const header = rootStream(file, 'FileHeader');
+  const head = header && readStream(file, header, HEAD_SIZE);
+  if (head?.length !== HEAD_SIZE) throw new UnreadableFile();
+  if (ascii.decode(head.subarray(0, HWP_SIGNATURE.length)) !== HWP_SIGNATURE) {
+    throw new UnreadableFile();
+  }
+  return new DataView(head.buffer, head.byteOffset, head.byteLength).getUint32(36, true);
+}
+
+/** Whether the properties `FileHeader` gives say the document is a distribution document. */
+export const isDistribution = (properties: number): boolean => (properties & DISTRIBUTION) !== 0;
+
 /**
  * The file written anew of its streams, once checked; throws
  * `UnreadableFile`, `LockedFile` or `TooLargeFile` otherwise. `limit` is what
@@ -107,14 +128,7 @@ function counted(file: CompoundFile, limit: number): CompoundPart[] {
 export function checkCompound(buffer: ArrayBuffer, limit = UNPACKED_LIMIT_BYTES): ArrayBuffer {
   const file = compoundFile(new Uint8Array(buffer));
   if (!file || !verifyChains(file)) throw new UnreadableFile();
-  const header = rootStream(file, 'FileHeader');
-  const head = header && readStream(file, header, HEAD_SIZE);
-  if (head?.length !== HEAD_SIZE) throw new UnreadableFile();
-  if (ascii.decode(head.subarray(0, HWP_SIGNATURE.length)) !== HWP_SIGNATURE) {
-    throw new UnreadableFile();
-  }
-  const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
-  if (view.getUint32(36, true) & PASSWORD) throw new LockedFile();
+  if (headerProperties(file) & PASSWORD) throw new LockedFile();
   const parts = counted(file, limit);
   try {
     return writeCompound(parts).buffer;

@@ -120,7 +120,8 @@ describe('the parts a save leaves out of an HWPX package', () => {
         expect(count).toBe(report.count + parts.length);
         expect(losses).toHaveLength(Math.min(count, LOSS_LIST_LIMIT));
         expect(losses.slice(0, Math.min(parts.length, 2))).toEqual(parts.slice(0, 2));
-        const message = { kind: 'exported', request: 1, bytes: new ArrayBuffer(1), count, losses };
+        const bytes = new ArrayBuffer(1);
+        const message = { kind: 'exported', request: 1, bytes, count, losses, unprotected: false };
         expect(readFromEditor(message)).toEqual(message);
       }
     }

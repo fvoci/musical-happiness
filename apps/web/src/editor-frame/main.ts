@@ -28,14 +28,13 @@ import {
   type ToEditor,
 } from '$lib/file-viewer/editor-protocol.ts';
 
-import type { ZipEntry } from '$lib/file-viewer/zip-directory.ts';
-
 import type { FromWorker, ToWorker } from '../viewer-frame/hwp-messages.ts';
 import HwpWorker from '../viewer-frame/hwp-worker.ts?worker&inline';
 import { WorkerClient } from '../viewer-frame/worker-client.ts';
 
+import { leftOut, openedOf, type Opened } from './comparison.ts';
 import { lossesOf } from './losses.ts';
-import { packageParts, partsLeftOut, withPartsLeftOut } from './parts.ts';
+import { withPartsLeftOut } from './parts.ts';
 import { provide } from './rhwp.ts';
 import { memoryStorage } from './storage.ts';
 
@@ -146,17 +145,14 @@ async function opens(
   }
 }
 
-/**
- * The editor at work on one document: answers the app's requests to export and to mark it stored.
- * `parts` are what the package held as it was opened (an HWPX's; none for an HWP), for what a
- * save leaves out (parts.ts).
- */
+/** The editor at work on one document: answers the app's requests to export and to mark it stored. */
 function serve(
   host: Host,
   format: EditFormat,
   engine: ArrayBuffer,
-  parts: readonly ZipEntry[] | undefined,
+  given: Opened,
 ): (message: ToEditor) => void {
+  let opened = given;
   host.onDirtyChanged((dirty) => {
     tell({ kind: 'changed', dirty });
   });
@@ -194,18 +190,23 @@ function serve(
     },
     true,
   );
+  // What the last export was of: once stored as the file's new version, it is what later saves
+  // are compared with (the file is then what was stored, not what was opened).
+  let last: { request: number; bytes: Uint8Array } | undefined;
   const exportFor = async (request: number): Promise<void> => {
     try {
       const exported = host.exportWithReport(format);
       const report = lossesOf(exported.contentLoss);
-      const { count, losses } = parts
-        ? withPartsLeftOut(report, partsLeftOut(parts, exported.bytes))
-        : report;
+      // A comparison that cannot be made is an export that failed: nothing is saved unasked.
+      const left = leftOut(opened, exported.bytes);
+      const { count, losses } = withPartsLeftOut(report, left.losses);
       const bytes = exported.bytes.slice().buffer;
       const at = changes;
       if (!(await opens(format, bytes.slice(0), engine.slice(0)))) throw new Error('not opened');
       exportedAt.set(request, at);
-      tell({ kind: 'exported', request, bytes, count, losses }, [bytes]);
+      last = { request, bytes: exported.bytes };
+      const { unprotected } = left;
+      tell({ kind: 'exported', request, bytes, count, losses, unprotected }, [bytes]);
     } catch {
       tell({ kind: 'export-failed', request });
     }
@@ -213,9 +214,18 @@ function serve(
   return (message) => {
     if (message.kind === 'export') {
       void exportFor(message.request);
-    } else if (message.kind === 'stored' && exportedAt.get(message.request) === changes) {
+    } else if (message.kind === 'stored') {
+      if (message.as === 'version' && last?.request === message.request) {
+        try {
+          opened = openedOf(format, last.bytes);
+        } catch {
+          // Compared with what was opened still: asked more, not less.
+        }
+      }
+      last = undefined;
       // Only what was exported is stored: a change made since keeps the document changed.
-      void host.notifySaved().catch(() => undefined);
+      if (exportedAt.get(message.request) === changes)
+        void host.notifySaved().catch(() => undefined);
     }
   };
 }
@@ -266,11 +276,11 @@ function listen(): void {
       try {
         // The loader reads the bytes and leaves them whole: saves are read back with them.
         provide(engine);
-        // The check writes the package anew with every part it had.
-        const parts = format === 'hwpx' ? packageParts(new Uint8Array(file)) : undefined;
+        // The check writes the file anew with every part and stream it had.
+        const opened = openedOf(format, new Uint8Array(file));
         const host = await startEditor(theme, lang);
         const { pageCount } = await host.load(new Uint8Array(file), name);
-        serving = serve(host, format, engine, parts);
+        serving = serve(host, format, engine, opened);
         tell({ kind: 'opened', pages: pageCount });
       } catch {
         tell({ kind: 'failed', reason: 'editor' });

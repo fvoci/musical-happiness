@@ -30,8 +30,10 @@ export type EditFailure = (typeof EDIT_FAILURES)[number];
  * What a saved file loses: as rhwp's report words it (rhwp-studio,
  * core/export-content-loss.ts), a picture or other binary data written empty,
  * a control left out, the parameters of a field reduced; and, as the frame
- * finds it, a part of an HWPX package that rhwp does not keep
- * (`partOmitted`, editor-frame/parts.ts), which its report does not name.
+ * finds it, a part of an HWPX package or a stream of an HWP that rhwp does
+ * not keep (`partOmitted`, editor-frame/parts.ts and streams.ts), which its
+ * report does not name: the preview Hangul makes again as it saves a file
+ * among them (`previewMadeAgain`).
  */
 export const LOSS_CODES = [
   'binaryContentEmptied',
@@ -39,13 +41,20 @@ export const LOSS_CODES = [
   'metadataReduced',
   'partOmitted',
 ] as const;
-export const LOSS_SUBJECTS = ['binaryData', 'control', 'fieldParameters', 'packagePart'] as const;
+export const LOSS_SUBJECTS = [
+  'binaryData',
+  'control',
+  'fieldParameters',
+  'packagePart',
+  'stream',
+] as const;
 export const LOSS_REASONS = [
   'resourceReadFailedOrLimitExceeded',
   'storedCompressionMismatch',
   'rawPassthroughUnavailable',
   'unsupportedByOutputFormat',
   'notKeptByEditor',
+  'previewMadeAgain',
 ] as const;
 
 export interface Loss {
@@ -79,8 +88,11 @@ export type ToEditor =
     }
   /** Asks for the document as it is now, to be saved; answered with `exported` or `export-failed`. */
   | { kind: 'export'; request: number }
-  /** What `request` exported is stored: the document is unchanged since, unless it changed again. */
-  | { kind: 'stored'; request: number };
+  /**
+   * What `request` exported is stored, as the file's new version or as a file of its own: the
+   * document is unchanged since, unless it changed again.
+   */
+  | { kind: 'stored'; request: number; as: 'version' | 'apart' };
 
 export type FromEditor =
   | { kind: 'ready' }
@@ -92,7 +104,15 @@ export type FromEditor =
   | { kind: 'save-asked' }
   /** The writer asked, in the frame, to go to the app's controls (F6): the frame keeps the keys. */
   | { kind: 'leave' }
-  | { kind: 'exported'; request: number; bytes: ArrayBuffer; count: number; losses: Loss[] }
+  | {
+      kind: 'exported';
+      request: number;
+      bytes: ArrayBuffer;
+      count: number;
+      losses: Loss[];
+      /** The document is a distribution document (배포용 문서), and the bytes are not one. */
+      unprotected: boolean;
+    }
   | { kind: 'export-failed'; request: number };
 
 type Fields = Record<string, unknown>;
@@ -133,17 +153,18 @@ function lossOf(data: unknown): Loss | undefined {
 }
 
 function exportedOf(data: unknown): Extract<FromEditor, { kind: 'exported' }> | undefined {
-  const fields = exactly(data, ['kind', 'request', 'bytes', 'count', 'losses']);
+  const fields = exactly(data, ['kind', 'request', 'bytes', 'count', 'losses', 'unprotected']);
   if (!fields) return undefined;
-  const { request, bytes, count, losses } = fields;
+  const { request, bytes, count, losses, unprotected } = fields;
   if (!isRequest(request) || !(bytes instanceof ArrayBuffer)) return undefined;
+  if (typeof unprotected !== 'boolean') return undefined;
   if (!isCount(count, LOSS_COUNT_LIMIT) || !Array.isArray(losses)) return undefined;
   // A count that is not the list's, where the list is whole, is a report that does not agree
   // with itself; a longer one is cut at the limit, and only there.
   if (losses.length !== Math.min(count, LOSS_LIST_LIMIT)) return undefined;
   const read = losses.map(lossOf);
   if (!read.every((loss) => loss !== undefined)) return undefined;
-  return { kind: 'exported', request, bytes, count, losses: read };
+  return { kind: 'exported', request, bytes, count, losses: read, unprotected };
 }
 
 function kindOf(data: unknown): unknown {
@@ -196,11 +217,15 @@ export function readToEditor(data: unknown): ToEditor | undefined {
       if (!isTheme(theme) || !isLanguage(lang)) return undefined;
       return { kind: 'open', format, name, bytes, engine, theme, lang };
     }
-    case 'export':
-    case 'stored': {
-      const kind = kindOf(data) as 'export' | 'stored';
+    case 'export': {
       const request = exactly(data, ['kind', 'request'])?.request;
-      return isRequest(request) ? { kind, request } : undefined;
+      return isRequest(request) ? { kind: 'export', request } : undefined;
+    }
+    case 'stored': {
+      const fields = exactly(data, ['kind', 'request', 'as']);
+      if (!fields || !isRequest(fields.request)) return undefined;
+      const { request, as } = fields;
+      return as === 'version' || as === 'apart' ? { kind: 'stored', request, as } : undefined;
     }
     default:
       return undefined;

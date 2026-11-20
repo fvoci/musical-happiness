@@ -3,9 +3,10 @@
   new version, over the editor:
 
   - the saved file loses something of the document (as rhwp's report names
-    it, or a part of the package rhwp does not keep): what, where and why,
-    and the choice between a new version all the same, a file of its own
-    beside this one, and not saving;
+    it, or a part of the package or a stream rhwp does not keep): what, where
+    and why, and the choice between a new version all the same, a file of its
+    own beside this one, and not saving. A distribution document (배포용
+    문서), which the saved file is not, is said first, in the same question;
   - the file got a newer version than the one edited: the choice between
     keeping the edit as a file of its own and not saving.
 
@@ -44,6 +45,7 @@
     rawPassthroughUnavailable: m.file_editor_loss_reason_passthrough,
     unsupportedByOutputFormat: m.file_editor_loss_reason_format,
     notKeptByEditor: m.file_editor_loss_reason_kept,
+    previewMadeAgain: m.file_editor_loss_reason_preview,
   };
 </script>
 
@@ -55,12 +57,24 @@
 >
   <AlertDialog.Content data-testid="file-editor-losses">
     <AlertDialog.Header>
-      <AlertDialog.Title>{m.file_editor_loss_title()}</AlertDialog.Title>
-      <AlertDialog.Description>
-        {m.file_editor_loss_description({ count: lossy?.count ?? 0 })}
-      </AlertDialog.Description>
+      {#if lossy?.unprotected}
+        <AlertDialog.Title>{m.file_editor_unprotect_title()}</AlertDialog.Title>
+        <AlertDialog.Description data-testid="file-editor-unprotected">
+          {m.file_editor_unprotect_description()}
+        </AlertDialog.Description>
+      {:else}
+        <AlertDialog.Title>{m.file_editor_loss_title()}</AlertDialog.Title>
+        <AlertDialog.Description>
+          {m.file_editor_loss_description({ count: lossy?.count ?? 0 })}
+        </AlertDialog.Description>
+      {/if}
     </AlertDialog.Header>
-    {#if lossy}
+    {#if lossy && lossy.count > 0}
+      {#if lossy.unprotected}
+        <p class="text-sm text-muted-foreground">
+          {m.file_editor_unprotect_losses({ count: lossy.count })}
+        </p>
+      {/if}
       <ul class="max-h-64 overflow-y-auto rounded-md border text-sm">
         {#each lossy.losses as loss, at (at)}
           <li class="border-b px-3 py-2 last:border-b-0">

@@ -13,9 +13,11 @@
  * 2. The bytes must be a file of the format that was opened, and no larger
  *    than the viewer opens: what the frame hands back is not trusted to be a
  *    document because the frame says so.
- * 3. When the report names losses, nothing is saved until the writer has seen
- *    them and chosen: a new version anyway, a file of its own beside this one
- *    (which keeps every version of this one as it is), or neither.
+ * 3. When the report names losses, or the document is a distribution
+ *    document (배포용 문서) that the saved file is not, nothing is saved until
+ *    the writer has seen what and chosen: a new version anyway, a file of its
+ *    own beside this one (which keeps every version of this one as it is), or
+ *    neither.
  * 4. The bytes are uploaded and made the file's new version, written from the
  *    version that was opened. When the file has a newer one by then, nothing
  *    of the file is changed: the writer is asked whether to keep the edit as
@@ -32,6 +34,7 @@ import {
   REQUEST_LIMIT,
   type EditFailure,
   type EditFormat,
+  type FromEditor,
   type Loss,
   type ToEditor,
 } from './editor-protocol.ts';
@@ -95,8 +98,17 @@ interface Exported {
 export type Saving =
   | { name: 'idle' }
   | { name: 'exporting' }
-  /** rhwp says the saved file loses something: the writer chooses. */
-  | { name: 'lossy'; count: number; losses: readonly Loss[]; exported: Exported }
+  /**
+   * The saved file loses something (as rhwp says, or the frame finds), or takes a distribution
+   * document's protection away: the writer chooses.
+   */
+  | {
+      name: 'lossy';
+      count: number;
+      losses: readonly Loss[];
+      unprotected: boolean;
+      exported: Exported;
+    }
   | { name: 'storing' }
   /** The file got a newer version meanwhile: the writer chooses. */
   | { name: 'stale'; request: number; upload: VersionUpload }
@@ -268,7 +280,7 @@ export class EditingSession {
       case 'exported':
         if (this.saving.name === 'exporting' && message.request === this.#request) {
           clearTimeout(this.#timer);
-          this.#exported(message.request, message.bytes, message.count, message.losses);
+          this.#exported(message);
         }
         break;
       case 'export-failed':
@@ -313,7 +325,13 @@ export class EditingSession {
     });
   }
 
-  #exported(request: number, bytes: ArrayBuffer, count: number, losses: Loss[]): void {
+  #exported({
+    request,
+    bytes,
+    count,
+    losses,
+    unprotected,
+  }: Extract<FromEditor, { kind: 'exported' }>): void {
     if (bytes.byteLength > this.#limits.bytes) {
       this.saving = { name: 'failed', reason: 'too-large' };
       return;
@@ -325,8 +343,8 @@ export class EditingSession {
     }
     const file = new File([bytes], this.file.name, { type: MIME[this.file.format] });
     const exported = { request, file };
-    if (count > 0) {
-      this.saving = { name: 'lossy', count, losses, exported };
+    if (count > 0 || unprotected) {
+      this.saving = { name: 'lossy', count, losses, unprotected, exported };
       return;
     }
     void this.#store(exported, 'version');
@@ -403,7 +421,7 @@ export class EditingSession {
     this.saved = saved;
     this.saving = { name: 'idle' };
     // The frame marks the document unchanged only if nothing changed since it exported it.
-    this.#send({ kind: 'stored', request });
+    this.#send({ kind: 'stored', request, as: saved.as });
     // Back to the document from the button or the dialog the save was asked with.
     void tick().then(() => {
       this.#frame?.focus();

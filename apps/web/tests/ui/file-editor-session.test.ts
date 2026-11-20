@@ -48,6 +48,8 @@ const bufferOf = (data: Uint8Array): ArrayBuffer => {
 
 const HWPX = koreanHwpx();
 const HWP = koreanHwp();
+/** An export that loses nothing, as the frame says it. */
+const EXPORTED = { kind: 'exported', count: 0, losses: [], unprotected: false } as const;
 
 class Stale extends Error {}
 
@@ -140,15 +142,16 @@ function editing(
     await settled();
   };
   /** The frame's answer to the last request to export. */
-  const exports = (data: Uint8Array, losses: Loss[] = [], request = sent.length): void => {
+  const exports = (data: Uint8Array, losses: Loss[] = [], unprotected = false): void => {
     const asked = sent.findLast(({ message }) => message.kind === 'export')?.message;
-    if (asked?.kind !== 'export') throw new Error(`no export was asked (${String(request)})`);
+    if (asked?.kind !== 'export') throw new Error('no export was asked');
     says({
       kind: 'exported',
       request: asked.request,
       bytes: bufferOf(data),
       count: losses.length,
       losses,
+      unprotected,
     });
   };
   const kinds = (): string[] => sent.map(({ message }) => message.kind);
@@ -353,7 +356,7 @@ describe('saving what was edited', () => {
     session.save();
     says({ kind: 'export-failed', request: 7 });
     expect(session.saving).toEqual({ name: 'exporting' });
-    says({ kind: 'exported', request: 7, bytes: bufferOf(HWPX), count: 0, losses: [] });
+    says({ ...EXPORTED, request: 7, bytes: bufferOf(HWPX) });
     await settled();
     expect(made.uploads).toEqual([]);
     says({ kind: 'export-failed', request: 1 });
@@ -365,8 +368,8 @@ describe('saving what was edited', () => {
     await vi.advanceTimersByTimeAsync(LIMITS.export);
     expect(session.saving).toEqual({ name: 'failed', reason: 'export' });
     // The answer to a request given up, or to the one before, stores nothing.
-    says({ kind: 'exported', request: 2, bytes: bufferOf(HWPX), count: 0, losses: [] });
-    says({ kind: 'exported', request: 1, bytes: bufferOf(HWPX), count: 0, losses: [] });
+    says({ ...EXPORTED, request: 2, bytes: bufferOf(HWPX) });
+    says({ ...EXPORTED, request: 1, bytes: bufferOf(HWPX) });
     await settled();
     expect(made.uploads).toEqual([]);
   });
@@ -419,6 +422,33 @@ describe('a save that loses something of the document', () => {
     expect(made.added.map(({ base }) => base)).toEqual([4]);
     expect(made.apart).toEqual([]);
     expect(session.saved).toMatchObject({ as: 'version', version: { version: 5 } });
+  });
+
+  it('is asked about where a distribution document is saved as an open one, losses or none', async () => {
+    const { session, made, opened, exports, settled, kinds } = editing();
+    await opened();
+    session.save();
+    exports(HWPX, [], true);
+    await settled();
+    expect(session.saving).toMatchObject({
+      name: 'lossy',
+      count: 0,
+      losses: [],
+      unprotected: true,
+    });
+    expect(made.uploads).toEqual([]);
+    session.dismiss();
+    await settled();
+    expect(session.saving).toEqual({ name: 'idle' });
+    expect(made.uploads).toEqual([]);
+    expect(kinds()).not.toContain('stored');
+    session.save();
+    exports(HWPX, [LOSS], true);
+    await settled();
+    expect(session.saving).toMatchObject({ name: 'lossy', count: 1, unprotected: true });
+    session.saveWithLosses();
+    await settled();
+    expect(made.added.map(({ base }) => base)).toEqual([4]);
   });
 
   it('becomes a file of its own, the edited file left as it is', async () => {
