@@ -20,8 +20,9 @@ struct Pasted {
 }
 
 /// The lines, each after the trial's `.env`. compose quotes the words of each but the
-/// space's (it names the line), and the port's and the address's (lines it does not
-/// know are counted, not shown).
+/// space's (it names the line) and the image's (it takes it, and the scripts refuse a
+/// name that is not one), and the port's and the address's (lines it does not know are
+/// counted, not shown).
 const TABLE: &[Pasted] = &[
     Pasted {
         what: "a key's line",
@@ -87,6 +88,11 @@ const TABLE: &[Pasted] = &[
         what: "a ${} read as a variable in double quotes",
         line: |w| format!("FVOCI_PASTED=\"{}${{{}}}{}\"", w[0], w[1], w[2]),
         shown: "compose: warning: The <hidden> variable is not set.",
+    },
+    Pasted {
+        what: "a word pasted beside an image's name",
+        line: |w| format!("FVOCI_IMAGE={} ghcr.io/fvoci/fvoci-server:v1", w[0]),
+        shown: ": an image named by the files or .env",
     },
     Pasted {
         what: "a port pasted",

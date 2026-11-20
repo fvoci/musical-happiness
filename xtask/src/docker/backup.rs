@@ -65,9 +65,13 @@ pub(super) fn round_trip(trial: &Trial, directory: &Path) -> Result<()> {
     take_volumes_away(trial)?;
     refuses_a_volume_with_files(trial, &backup)?;
     let restored = run_script(trial, "restore.sh", &[&backup.to_string_lossy()])?;
+    let indexed = restored
+        .split_once("made anew from ")
+        .and_then(|(_, rest)| rest.split_once(' '))
+        .and_then(|(count, _)| count.parse::<u32>().ok());
     ensure!(
-        restored.contains("made anew from") && !restored.contains("made anew from 0 "),
-        "restore.sh did not make the search index anew: {restored}"
+        indexed.is_some_and(|count| count > 0),
+        "restore.sh did not make the search index anew from the boards: {restored}"
     );
     ensure!(
         restored.contains("every file the records name is in the volume"),
@@ -334,7 +338,7 @@ fn updates(trial: &Trial, backups: &Path) -> Result<()> {
     )?;
     no_secret_in(trial, "update.sh", &said)?;
     ensure!(
-        !succeeded && said.contains("is ready and serving, but runs the commit"),
+        !succeeded && said.contains("is ready and serving, but ping says the commit"),
         "update.sh expecting another commit did not fail saying so: {said}"
     );
     let updated = run_script(trial, "update.sh", &["--no-pull", "--dir", &backups])?;

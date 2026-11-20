@@ -99,6 +99,7 @@ backup_said=$("$here/backup.sh" -p "$project" --env-file "$env_file" --dir "$bac
     fail "the backup failed: fvoci still runs, nothing was changed"
 printf '%s\n' "$backup_said"
 backup=$(printf '%s\n' "$backup_said" | sed -n 's/^backup: made \(.*\) ([0-9]* KiB: .*/\1/p')
+[ -n "$backup" ] || fail "backup.sh did not say which backup it made: fvoci still runs, nothing was changed"
 
 if [ -z "$expected" ]; then
     expected=$(docker image inspect --format \
@@ -155,12 +156,13 @@ say "schema $schema_before -> $(schema_version)"
 say "rows before: $rows_before; now: $(row_counts)"
 say "since the stop fvoci and migrate logged $errors ERROR and $warnings WARN lines"
 say "the image that ran before is tagged $kept_tag"
-if [ -z "$expected" ] || [ -z "$commit" ]; then
-    say "commit unknown: the image was built without its commit (ping says \"${commit}\", the image \"${expected}\")"
+if [ -z "$expected" ]; then
+    say "commit unknown: the image was built without its commit (ping says \"${commit}\")"
 else
-    # A commit given short, or without the -dirty of a build from a changed checkout.
+    # A commit given short, or without the -dirty of a build from a changed checkout. An
+    # image that knows its commit says it in ping: none said is no match.
     case $commit in
     "$expected"*) say "fvoci runs the commit $commit" ;;
-    *) fail "fvoci is ready and serving, but runs the commit $commit, not $expected: FVOCI_IMAGE names another build. Going back to the image that ran before ($kept_tag) is safe while the schema did not move; a restore of the backup would lose what was written since $since" ;;
+    *) fail "fvoci is ready and serving, but ping says the commit \"$commit\", not $expected: FVOCI_IMAGE names another build, or ping did not answer. Going back to the image that ran before ($kept_tag) is safe while the schema did not move; a restore of the backup would lose what was written since $since" ;;
     esac
 fi

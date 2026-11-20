@@ -36,8 +36,11 @@ shared_option() {
 # Checks the shared options once they are read, fixes compose's files, and reads them
 # with the .env through checked_config before compose is asked anything else.
 check_shared_options() {
+    # Decimal, as the shell's arithmetic reads it (no leading 0, which is octal there),
+    # and of at most five digits.
     case $keep_days in
-    '' | *[!0-9]*) fail "--keep-days takes a number of days (0 keeps every backup)" ;;
+    0) ;;
+    '' | *[!0-9]* | 0* | ??????*) fail "--keep-days takes a number of days, 0 to 99999 (0 keeps every backup)" ;;
     esac
     # compose.yaml beside these scripts unless -f (or COMPOSE_FILE, as compose reads it)
     # names others; .env beside the first.
@@ -63,6 +66,7 @@ check_shared_options() {
     COMPOSE_PATH_SEPARATOR=:
     export COMPOSE_FILE COMPOSE_PATH_SEPARATOR
     installation=$(checked_config --format yaml) || exit 1
+    check_image_names
     # Without -p, the project as compose names it: COMPOSE_PROJECT_NAME of the
     # environment or the .env, else the files' name.
     if [ -z "$project" ]; then
@@ -118,7 +122,7 @@ checked_config() {
             ;;
         esac
         unset complaint
-        said_as_is="COMPOSE_FILE=$COMPOSE_FILE docker compose --env-file $env_file config -q shows all of it as compose writes it, values and all"
+        said_as_is="COMPOSE_FILE='$COMPOSE_FILE' docker compose --env-file '$env_file' config -q shows all of it as compose writes it, values and all"
         [ "$refused" = no ] ||
             fail "compose refuses its files or .env (above, without what it quotes of them; $said_as_is). Nothing was changed"
         fail "compose warns of its files or .env (above, without what it quotes of them; $said_as_is). Nothing was changed"
@@ -157,6 +161,26 @@ compose_said() {
         END {
             if (hidden) print "compose: " hidden " line(s) hidden: they may quote a value of the .env"
         }'
+}
+
+# Fails, without showing it, if an image the files and .env name is not a name: compose
+# takes a line such as FVOCI_IMAGE=<pasted> ghcr.io/..., which `pull`, `run` and this
+# script's messages would then say.
+check_image_names() {
+    names=$(printf '%s\n' "$installation" | sed -n 's/^    image: //p')
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        name=${name#[\"\']}
+        name=${name%[\"\']}
+        case $name in
+        '' | *[!A-Za-z0-9._/:@-]*)
+            fail "an image named by the files or .env (FVOCI_IMAGE, FVOCI_SEARCH_IMAGE...) is not a name of letters, digits and ._/:@- (it is not shown: it may hold what was pasted beside it). Nothing was changed"
+            ;;
+        esac
+    done <<END
+$names
+END
+    unset names name
 }
 
 # A setting of the service fvoci as compose reads its files and .env: "image", or a
@@ -232,6 +256,9 @@ fvoci_request() {
     # shellcheck disable=SC2016 # perl's variables, not the shell's.
     compose exec -T fvoci perl -MIO::Socket::UNIX -MIO::Socket::INET -e '
         my ($to, $method, $path) = @ARGV;
+        # A comparison of many files takes long; a server that hangs does not hold this.
+        $SIG{ALRM} = sub { die "fvoci did not answer ($to $path) within 600 s\n" };
+        alarm 600;
         my $socket = $to eq "admin"
             ? IO::Socket::UNIX->new(Peer => $ENV{FVOCI_ADMIN_SOCKET_PATH} || "/var/tmp/fvoci_local.socket")
             : IO::Socket::INET->new(PeerAddr => "127.0.0.1", PeerPort => $ENV{FVOCI_PORT} || 8000, Timeout => 10);

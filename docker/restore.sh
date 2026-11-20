@@ -57,7 +57,7 @@ if [ -f "$backup/env" ]; then
     backup_key=$(
         unset FVOCI_SECRET_KEY
         docker compose --env-file "$backup/env" config --environment 2>/dev/null
-    ) || fail "compose cannot read $backup/env (COMPOSE_FILE=$COMPOSE_FILE docker compose --env-file $backup/env config -q says why, quoting it). Nothing was changed"
+    ) || fail "compose cannot read $backup/env (COMPOSE_FILE='$COMPOSE_FILE' docker compose --env-file '$backup/env' config -q says why, quoting it). Nothing was changed"
     backup_key=$(printf '%s\n' "$backup_key" | listed_key) || backup_key=""
 fi
 if [ -n "$backup_key" ]; then
@@ -89,12 +89,12 @@ relations=$(sql "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = 
     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\_%'
       AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')")
 [ "$relations" = 0 ] ||
-    fail "the database holds $relations tables and the like: a restore goes into an empty one (docker compose down, then remove the project's volume postgres-data). Nothing was changed"
+    fail "the database holds $relations tables and the like: a restore goes into an empty one (docker compose down, then remove the project's volume postgres-data). Nothing was changed: PostgreSQL alone was started"
 if [ "$storage" = local ]; then
     present=$(compose run --rm --no-deps -T --pull never --entrypoint find fvoci /data/files \
         -mindepth 1 -not -path '/data/files/.tmp*' -not -name .fvoci-ready -print -quit)
     [ -z "$present" ] ||
-        fail "the files' volume holds files: a restore goes into an empty one (remove the project's volume fvoci-data). Nothing was changed"
+        fail "the files' volume holds files: a restore goes into an empty one (remove the project's volume fvoci-data). Nothing was changed: PostgreSQL alone was started"
 fi
 
 stage="setting the role fvoci (the database is still empty)"

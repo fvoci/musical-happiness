@@ -97,9 +97,10 @@
 # it quotes, which may be a secret pasted wrong: a line number and its words for what
 # they know, a count for the rest (`docker compose config -q` shows them). The
 # project's name and the images' (FVOCI_IMAGE, FVOCI_SEARCH_IMAGE) are names, shown as
-# they are: never put a secret on their lines. update.sh refuses a running service
-# that compose does not see (its profile off, or gone from the new files); with
-# cloudflared they warn when the range of edge, which `down` may change, is not trusted.
+# they are (an image's that is not a name is refused, unshown): never put a secret on
+# their lines. update.sh refuses a running service that compose does not see (its
+# profile off, or gone from the new files); with cloudflared they warn when the range
+# of edge, which `down` may change, is not trusted.
 #   docker/backup.sh [--dir ~/fvoci-backups] [--keep-days 14]
 #     while fvoci runs or not: the database (pg_dump -Fc), the files of the volume (not
 #     S3's: the bucket is yours to back up, and it says so), copies of the .env and

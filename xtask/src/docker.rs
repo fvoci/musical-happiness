@@ -194,19 +194,22 @@ impl Drop for Teardown<'_> {
 }
 
 /// Removes the trial's files: its secrets and the session of a server that is gone.
+/// Each is tried whatever the others did: both hold secrets.
 fn remove_files(trial: &Trial, directory: &Path) -> Result<()> {
     let _ = fs::remove_file(directory.join("cookies.txt"));
-    let backups = backup::folder(directory);
-    if backups.exists() {
-        fs::remove_dir_all(&backups)
-            .with_context(|| format!("removing the trial's backups, {}", backups.display()))?;
-    }
-    match fs::remove_file(&trial.env_file) {
+    let env = match fs::remove_file(&trial.env_file) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
             Err(error).context("removing the file of the trial's secrets")
         }
         _ => Ok(()),
-    }
+    };
+    let backups = backup::folder(directory);
+    let removed = match fs::remove_dir_all(&backups) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error)
+            .with_context(|| format!("removing the trial's backups, {}", backups.display())),
+        _ => Ok(()),
+    };
+    env.and(removed)
 }
 
 /// Builds, starts, tries and takes down the installation.
