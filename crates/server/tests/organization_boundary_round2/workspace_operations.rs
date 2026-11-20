@@ -14,7 +14,7 @@ mod shared;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
-use fvoci_model::{User, UserWorkspace, new_id};
+use fvoci_model::{OrgKind, User, UserWorkspace, new_id};
 use fvoci_store::DbType;
 use reqwest::RequestBuilder;
 use serde_json::{Value, json};
@@ -73,7 +73,12 @@ impl Case {
         let account = client.me().await;
         let user = account.id;
         let listed: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
-        assert_eq!(listed.len(), 1, "a founder sees only their workspace");
+        let kinds: Vec<OrgKind> = listed.iter().map(|listed| listed.kind).collect();
+        assert_eq!(
+            kinds,
+            [OrgKind::Team, OrgKind::Personal],
+            "a founder sees only the workspace of their organization, and their own space"
+        );
         let workspace = listed[0].id.clone();
         let access = server
             .app

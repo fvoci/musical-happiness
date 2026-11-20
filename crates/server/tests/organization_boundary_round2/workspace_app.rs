@@ -1,6 +1,6 @@
 //! The workspace app is usable by a person who starts the second organization.
 
-use fvoci_model::{Category, Container, UserWorkspace};
+use fvoci_model::{Category, Container, OrgKind, UserWorkspace};
 use fvoci_store::DbType;
 use serde_json::json;
 
@@ -33,7 +33,12 @@ async fn a_second_founder_can_use_the_workspace_app() {
             .check_created();
         let client = server.login(name, PASSWORD).await;
         let listed: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
-        assert_eq!(listed.len(), 1, "a founder sees only their own workspace");
+        let kinds: Vec<OrgKind> = listed.iter().map(|listed| listed.kind).collect();
+        assert_eq!(
+            kinds,
+            [OrgKind::Team, OrgKind::Personal],
+            "a founder sees only the workspace of their organization, and their own space"
+        );
         let workspace = &listed[0].id;
         exercise_workspace(&client, workspace, name).await;
         workspaces.push((client, workspace.clone()));
@@ -254,8 +259,9 @@ async fn the_first_signup_creates_the_organization_atomically() {
             .count_rows("organizations")
             .await
             .expect("organizations are counted"),
-        2,
-        "only the system and the first user's organization exist"
+        3,
+        "the system's, the first user's organization and that user's own space: the \
+         sign-up that was refused left neither an organization nor a space"
     );
     assert_eq!(
         server
