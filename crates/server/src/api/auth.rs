@@ -5,7 +5,9 @@ use axum::extract::{Extension, State};
 use axum::http::header::{SET_COOKIE, USER_AGENT};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse as _, Response};
-use fvoci_model::{ChangePasswordRequest, LoginRequest, Problem, RegisterRequest, User};
+use fvoci_model::{
+    ChangePasswordRequest, LoginRequest, Problem, RegisterRequest, SetPasswordRequest, User,
+};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -41,7 +43,7 @@ pub(super) fn user_agent(headers: &HeaderMap) -> String {
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_logout))
-        .routes(routes!(handle_change_password))
+        .routes(routes!(handle_change_password, handle_set_password))
 }
 
 /// The routes anyone can send a body to: they come before there is a session.
@@ -147,9 +149,17 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
 
 /// Register a user
 ///
-/// Makes an account and the organization it starts: `organizationName` names the
-/// organization and its first workspace, and the account administers both. On a server that takes one organization (`org_creation` is `first_user_only`)
-/// only the first user registers, and administers the server too; everybody after is
+/// Makes an account, with its own space (see "The user's own space"), and the
+/// organization it starts if it names one: `organizationName` names the organization
+/// and its first workspace, and the account administers both. Without
+/// `organizationName` (left out, or blank) the account starts with its own space
+/// alone, in no organization, and may start one later (`createOrganization`).
+///
+/// The first user of a server starts the server's own organization and administers
+/// the server too: until there is one (`organizationRequired` of `getLoginOptions`), a
+/// registration without `organizationName` is 400, and `errors` names it with the
+/// reason `required`. On a server that takes one organization (`org_creation` is
+/// `first_user_only`) only the first user registers; everybody after is
 /// refused with 403 and the reason `invitation_required`, whatever else the request
 /// says, and gets in by the link of an invitation (`acceptInvitation`). A name or an
 /// email address that is taken is 409 with the reason `username_taken` or
@@ -158,7 +168,8 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
 /// On a server that asks for the email address to be confirmed (`emailVerification` of
 /// `getLoginOptions`), registering makes no account: it answers 202 with no body, and
 /// mails a link to the address, in the language of `language` (English or Korean), that
-/// makes the account and the organization and signs in (`completeEmailVerification`).
+/// makes the account, and the organization if it names one, and signs in
+/// (`completeEmailVerification`).
 /// Until then there is nothing of it but its name and address, which are taken as an
 /// account's are, for seven days; a registration that is not confirmed by then is
 /// removed, and its name and address are free again. The 202 sets a cookie that tells
@@ -173,7 +184,7 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
 /// The name and the email address must not be blank, the email address must look like
 /// one, the display name (`displayName`, may be left out) is checked as `patchMe` checks it,
 /// the password must have at least 8 characters and at most 1024 bytes, and the organization
-/// name must not be blank, and is otherwise read as a display name is; otherwise the
+/// name, where there is one, is read as a display name is; otherwise the
 /// request is 400, and `errors` names every member that is refused, each with
 /// its `reason`: `required`, `invalid_format`, `too_short`, `too_long` or
 /// `invalid_characters`.
@@ -281,5 +292,51 @@ async fn handle_change_password(
         )
         .await?;
     // The session goes on under a new token, which replaces the old one in the cookie.
+    Ok(with_session_cookie(&app, &token, no_content()))
+}
+
+/// Set the first password
+///
+/// Gives the account of the session its first password: for an account that has none
+/// (`hasPassword` of `getMe`), which was made by a sign-in through an organization's
+/// provider. No password is asked for, as there is none; the session is what vouches.
+/// From then on the account signs in with it (`login`) by its user name, and reaches
+/// its own space so, also once it is no longer in the organization whose provider made
+/// it; an organization that takes only sessions made through its provider goes on
+/// asking for those (`sso_required`). The account's other sessions end, and this one
+/// goes on under a new cookie, as after `changePassword`.
+///
+/// Once only: an account that has a password is 409, and changes it with
+/// `changePassword`. The password must have at least 8 characters and at most 1024
+/// bytes; otherwise the request is 400 and `errors` names `password`.
+#[utoipa::path(
+    put,
+    path = "/users/me/password",
+    operation_id = "setPassword",
+    tag = tag::AUTH,
+    request_body = SetPasswordRequest,
+    responses(
+        (
+            status = 204,
+            description = "The account has a password.",
+            headers(("Set-Cookie" = String, description = "The session cookie, with its new value.")),
+        ),
+        (
+            status = 429,
+            description = "The server has too much password work to do at the moment.",
+            body = Problem,
+            content_type = "application/problem+json",
+            headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
+        ),
+    ),
+)]
+async fn handle_set_password(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    body: Bytes,
+) -> ApiResult {
+    let request: SetPasswordRequest = decode_object(&body)?;
+    request.validate()?;
+    let token = app.set_password(&session, &request.password).await?;
     Ok(with_session_cookie(&app, &token, no_content()))
 }

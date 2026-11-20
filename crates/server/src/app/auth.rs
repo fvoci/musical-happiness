@@ -538,6 +538,51 @@ impl App {
             .close_other_sessions_of_user(&user.id, &session.id);
         Ok(token)
     }
+
+    /// Gives the account of `session`, which has no password, its first one, and ends
+    /// the account's other sessions, as [`App::change_password`] does: the session it
+    /// came through stays, under a new token, which is returned. Nothing is asked for
+    /// but the session: there is no password to know. The caller has checked the
+    /// password.
+    ///
+    /// # Errors
+    ///
+    /// Returns a conflict if the account has a password, also one set while this was
+    /// under way: that one is changed by who knows it. Returns a 429 if the server has
+    /// too much password work to do, a not-found error if there is no such user, or the
+    /// store's error.
+    pub async fn set_password(
+        &self,
+        session: &Session,
+        password: &str,
+    ) -> Result<String, AppError> {
+        let has_one =
+            || AppError::conflict("the account has a password; change it by giving the old one");
+        let user = self.store().get_user_by_id(&session.user_id).await?;
+        // Asked before the hash is made, so that a request that is refused costs none.
+        if !user.password_hash.is_empty() {
+            return Err(has_one());
+        }
+        let token = new_secret();
+        let set = self
+            .store()
+            .change_user_password(
+                &user.id,
+                "",
+                &self.hash(password).await?,
+                &session.id,
+                &token_digest(&token),
+            )
+            .await
+            .map_err(|error| AppError::from(error).context("unable to set the password"))?;
+        if !set {
+            return Err(has_one());
+        }
+        tracing::info!(user_id = %user.id, "an account without a password was given one");
+        self.ws()
+            .close_other_sessions_of_user(&user.id, &session.id);
+        Ok(token)
+    }
 }
 
 /// How a password that does not confirm the account is refused: in which words, and

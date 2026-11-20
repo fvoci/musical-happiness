@@ -181,15 +181,24 @@ members, its workspaces, joining one as an administrator, its audit log, its pro
 of sign-ins), for its owner as for anybody else, and no answer of those operations \
 names it. Under its workspace these are 404, as for a workspace that is not there: \
 `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, \
-`setGuestInvitations`, the operations on teams (`/w/{workspaceId}/teams` and what is \
+`setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is \
 under it) and on the teams of a board or a wiki \
 (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page \
 (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is \
 moved to or from another organization but by export and import, and no reference \
-reaches into it from outside or out of it.
+reaches into it from outside or out of it. What changes in it is told to nobody else: \
+the server's operator is posted no block of it (`block_change_webhooks`), and it is in \
+no audit log anybody but its owner reads.
+
+It is reached by any session of its account, whatever organization the session was \
+made for. An account that was made by a sign-in through an organization's provider has \
+no password (`hasPassword` of `getMe`), and is given one by `setPassword`, so that its \
+person reaches the space when they are no longer in that organization.
 
 It goes with its account: `getAccountDeletion` names it among `organizations` always, \
-and while the account waits to be deleted it is closed with the account.
+and while the account waits to be deleted it is closed with the account: what is \
+shared from it by a public link answers 404 as a link that is not there, and answers \
+again if the deletion is cancelled.
 
 ## Bodies edited together
 
@@ -342,6 +351,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ReceivedPart", Members::All),
     ("UploadedFile", Members::AsWritten),
     ("User", Members::All),
+    ("Me", Members::All),
     ("PersonName", Members::All),
     ("UserSettings", Members::AsWritten),
     ("UserWorkspace", Members::All),
@@ -417,8 +427,10 @@ const SCHEMAS: &[(&str, Members)] = &[
     ),
     (
         "RegisterRequest",
-        Members::Only(&["username", "email", "password", "organizationName"]),
+        Members::Only(&["username", "email", "password"]),
     ),
+    ("NewOrganization", Members::All),
+    ("SetPasswordRequest", Members::All),
     ("SettingsChange", Members::AsWritten),
     ("SharingRequest", Members::AsWritten),
     (

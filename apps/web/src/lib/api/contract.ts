@@ -488,6 +488,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/org": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start an organization
+         * @description Makes an organization that people work in together, and its first workspace, both
+         *     under `name`, for the account of the session, which administers both: what
+         *     `register` does with `organizationName`, for an account that registered without
+         *     one. Answers the workspace as `getMyWorkspaces` lists it from then on.
+         *
+         *     For an account that is a member of no organization but its own space: one that is
+         *     in an organization already is 409. On a server that takes one organization
+         *     (`org_creation` is `first_user_only`; `registrationOpen` of `getLoginOptions` is
+         *     false once it has its first user) nobody starts another: 403 with the reason
+         *     `invitation_required`. The name is read as `organizationName` of `register` is:
+         *     blank, too long or with a character it may not have is 400, and `errors` names
+         *     `name`. Counted by where it comes from, with the registrations: too many are 429.
+         */
+        post: operations["createOrganization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/org/{orgId}": {
         parameters: {
             query?: never;
@@ -1005,9 +1036,17 @@ export interface paths {
         put?: never;
         /**
          * Register a user
-         * @description Makes an account and the organization it starts: `organizationName` names the
-         *     organization and its first workspace, and the account administers both. On a server that takes one organization (`org_creation` is `first_user_only`)
-         *     only the first user registers, and administers the server too; everybody after is
+         * @description Makes an account, with its own space (see "The user's own space"), and the
+         *     organization it starts if it names one: `organizationName` names the organization
+         *     and its first workspace, and the account administers both. Without
+         *     `organizationName` (left out, or blank) the account starts with its own space
+         *     alone, in no organization, and may start one later (`createOrganization`).
+         *
+         *     The first user of a server starts the server's own organization and administers
+         *     the server too: until there is one (`organizationRequired` of `getLoginOptions`), a
+         *     registration without `organizationName` is 400, and `errors` names it with the
+         *     reason `required`. On a server that takes one organization (`org_creation` is
+         *     `first_user_only`) only the first user registers; everybody after is
          *     refused with 403 and the reason `invitation_required`, whatever else the request
          *     says, and gets in by the link of an invitation (`acceptInvitation`). A name or an
          *     email address that is taken is 409 with the reason `username_taken` or
@@ -1016,7 +1055,8 @@ export interface paths {
          *     On a server that asks for the email address to be confirmed (`emailVerification` of
          *     `getLoginOptions`), registering makes no account: it answers 202 with no body, and
          *     mails a link to the address, in the language of `language` (English or Korean), that
-         *     makes the account and the organization and signs in (`completeEmailVerification`).
+         *     makes the account, and the organization if it names one, and signs in
+         *     (`completeEmailVerification`).
          *     Until then there is nothing of it but its name and address, which are taken as an
          *     account's are, for seven days; a registration that is not confirmed by then is
          *     removed, and its name and address are free again. The 202 sets a cookie that tells
@@ -1031,7 +1071,7 @@ export interface paths {
          *     The name and the email address must not be blank, the email address must look like
          *     one, the display name (`displayName`, may be left out) is checked as `patchMe` checks it,
          *     the password must have at least 8 characters and at most 1024 bytes, and the organization
-         *     name must not be blank, and is otherwise read as a display name is; otherwise the
+         *     name, where there is one, is read as a display name is; otherwise the
          *     request is 400, and `errors` names every member that is refused, each with
          *     its `reason`: `required`, `invalid_format`, `too_short`, `too_long` or
          *     `invalid_characters`.
@@ -1224,7 +1264,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The user of the session */
+        /**
+         * The user of the session
+         * @description The user as anybody who sees them is answered them, and what only they are told of
+         *     their account: whether it has a password (`hasPassword`). An account made by a
+         *     sign-in through an organization's provider has none, and is reached through that
+         *     provider only, its own space too, until its person sets one (`setPassword`).
+         */
         get: operations["getMe"];
         put?: never;
         post?: never;
@@ -1421,7 +1467,22 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /**
+         * Set the first password
+         * @description Gives the account of the session its first password: for an account that has none
+         *     (`hasPassword` of `getMe`), which was made by a sign-in through an organization's
+         *     provider. No password is asked for, as there is none; the session is what vouches.
+         *     From then on the account signs in with it (`login`) by its user name, and reaches
+         *     its own space so, also once it is no longer in the organization whose provider made
+         *     it; an organization that takes only sessions made through its provider goes on
+         *     asking for those (`sso_required`). The account's other sessions end, and this one
+         *     goes on under a new cookie, as after `changePassword`.
+         *
+         *     Once only: an account that has a password is 409, and changes it with
+         *     `changePassword`. The password must have at least 8 characters and at most 1024
+         *     bytes; otherwise the request is 400 and `errors` names `password`.
+         */
+        put: operations["setPassword"];
         /**
          * Change the password
          * @description Changes the password of the user of the session, who proves to know the old one.
@@ -2938,7 +2999,9 @@ export interface paths {
          *     reason `last_admin`). Somebody who is no member of the workspace is 404.
          *
          *     For the workspace's administrators: anybody else who works there is refused (403),
-         *     and a guest of the workspace is told that it is not there (404).
+         *     and a guest of the workspace is told that it is not there (404). The workspace of
+         *     a user's own space is 404: its owner is what they are there, and nobody else is in
+         *     it.
          */
         put: operations["setWorkspaceRole"];
         post?: never;
@@ -2957,7 +3020,8 @@ export interface paths {
          *     (403). Somebody who is no member of the workspace is 404.
          *
          *     For the workspace's administrators: anybody else who works there is refused (403),
-         *     and a guest of the workspace is told that it is not there (404).
+         *     and a guest of the workspace is told that it is not there (404). The workspace of
+         *     a user's own space is 404: nobody is taken out of it.
          */
         delete: operations["removeWorkspaceMember"];
         options?: never;
@@ -4971,6 +5035,13 @@ export interface components {
             mailEnabled: boolean;
             organization: components["schemas"]["LoginOrganization"] | null;
             /**
+             * @description Whether a registration must name the organization it starts
+             *     (`organizationName` of `register`): `true` until the server has its first user,
+             *     who starts the server's own organization. After that a registration may leave
+             *     the name out and start with the account's own space alone.
+             */
+            organizationRequired: boolean;
+            /**
              * @description Whether somebody without an invitation may register and start an organization: on a
              *     server where everybody may, and on any server until its first user did. Where it
              *     is `false`, the link of an invitation is the way in.
@@ -4994,6 +5065,18 @@ export interface components {
             password: string;
             /** @description The user name to log in with. */
             username?: string;
+        };
+        /**
+         * @description The user of a session, as their own account is answered to them: the user, and what
+         *     nobody else is told of the account.
+         */
+        Me: components["schemas"]["User"] & {
+            /**
+             * @description Whether the account has a password to sign in with. An account made by a
+             *     sign-in through an organization's provider has none until its person sets one
+             *     (`setPassword`), and signs in through the provider only until then.
+             */
+            hasPassword: boolean;
         };
         /**
          * @description The roles a member of a board is to have. A role that is left out is taken away, and
@@ -5209,6 +5292,14 @@ export interface components {
             schemeViewer?: boolean;
             /** @description The identifier of the user, who must be able to see the board's workspace. */
             userId: string;
+        };
+        /** @description A request of an account to start an organization. */
+        NewOrganization: {
+            /**
+             * @description The name of the organization, and of its first workspace: read as
+             *     `organizationName` of `register` is.
+             */
+            name: string;
         };
         /** @description A page to make. */
         NewPage: {
@@ -5785,9 +5876,11 @@ export interface components {
             language?: string;
             /**
              * @description The name of the organization the account starts, and of that organization's
-             *     first workspace. Read as `organization_name` reads it.
+             *     first workspace, read as `organization_name` reads it. Left out or blank for
+             *     none: the account starts with its own space alone, and may start an
+             *     organization later (`createOrganization`).
              */
-            organizationName: string;
+            organizationName?: string;
             /** @description The password. */
             password: string;
             /** @description The login name. */
@@ -5869,6 +5962,11 @@ export interface components {
             sku: string;
             /** @description The version of the server, the one the contract's `info.version` gives too. */
             version: string;
+        };
+        /** @description A request to give an account that has no password its first one. */
+        SetPasswordRequest: {
+            /** @description The password to sign in with from now on. */
+            password: string;
         };
         /**
          * @description The settings to change. A member that is left out stays as it is; one that is `null`
@@ -6840,6 +6938,50 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewOrganization"];
+            };
+        };
+        responses: {
+            /** @description The first workspace of the organization that was made. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserWorkspace"];
+                };
+            };
+            /** @description Too many registrations and organizations from where this one comes from. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -7966,7 +8108,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["User"];
+                    "application/json": components["schemas"]["Me"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -8268,6 +8410,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContainerMember"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description The account has a password. */
+            204: {
+                headers: {
+                    /** @description The session cookie, with its new value. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server has too much password work to do at the moment. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -10425,7 +10611,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
                 /** @description The identifier of the board or the wiki. */
                 containerId: string;
@@ -10459,7 +10645,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
                 /** @description The identifier of the board or the wiki. */
                 containerId: string;
@@ -10497,7 +10683,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
                 /** @description The identifier of the board or the wiki. */
                 containerId: string;
@@ -10603,7 +10789,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -10639,7 +10825,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -10671,7 +10857,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -10707,7 +10893,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -10741,7 +10927,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
                 /** @description The identifier of the invitation, as making it and the list answer it. It is not the link's token. */
                 invitationId: string;
@@ -10805,7 +10991,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
                 /** @description The identifier of the user. */
                 userId: string;
@@ -10843,7 +11029,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
                 /** @description The identifier of the user. */
                 userId: string;
@@ -11163,7 +11349,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -11195,7 +11381,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -11231,7 +11417,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
                 /** @description The identifier of a team within this workspace. */
                 teamId: string;
@@ -11265,7 +11451,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
                 /** @description The identifier of a team within this workspace. */
                 teamId: string;
@@ -11303,7 +11489,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
                 /** @description The identifier of a team within this workspace. */
                 teamId: string;
@@ -11335,7 +11521,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
                 /** @description The identifier of a team within this workspace. */
                 teamId: string;
@@ -11369,7 +11555,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite or to group. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out. */
                 workspaceId: string;
                 /** @description The identifier of a team within this workspace. */
                 teamId: string;

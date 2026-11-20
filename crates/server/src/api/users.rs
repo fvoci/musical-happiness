@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
 use fvoci_model::{
-    ContainerMember, LinkedIdentity, PersonNameChange, Problem, UnlinkRequest, User,
+    ContainerMember, LinkedIdentity, Me, PersonNameChange, Problem, UnlinkRequest, User,
     UserPreferencesPatch, UserSettings, UserSettingsPatch,
 };
 use fvoci_store::{InstanceRole, Preference};
@@ -52,21 +52,24 @@ fn user_not_found(error: AppError) -> AppError {
 }
 
 /// The user of the session
+///
+/// The user as anybody who sees them is answered them, and what only they are told of
+/// their account: whether it has a password (`hasPassword`). An account made by a
+/// sign-in through an organization's provider has none, and is reached through that
+/// provider only, its own space too, until its person sets one (`setPassword`).
 #[utoipa::path(
     get,
     path = "/users/me",
     operation_id = "getMe",
     tag = tag::USERS,
-    responses((status = 200, description = "The user.", body = User)),
+    responses((status = 200, description = "The user.", body = Me)),
 )]
 async fn handle_get_me(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    let mut user = app.user(&session.user_id).await.map_err(user_not_found)?;
-
-    crate::app::sanitize(&mut user);
-    Ok(json_response(&user))
+    let user = app.user(&session.user_id).await.map_err(user_not_found)?;
+    Ok(json_response(&Me::of(user)))
 }
 
 /// Change the user's account

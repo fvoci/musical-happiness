@@ -178,7 +178,9 @@ pub struct RegisterRequest {
     #[serde(rename = "displayName")]
     pub display_name: String,
     /// The name of the organization the account starts, and of that organization's
-    /// first workspace. Read as [`organization_name`] reads it.
+    /// first workspace, read as [`organization_name`] reads it. Left out or blank for
+    /// none: the account starts with its own space alone, and may start an
+    /// organization later (`createOrganization`).
     #[serde(rename = "organizationName")]
     pub organization_name: String,
     /// The language tag of the screen the request comes from (`ko`, `en-GB`): the
@@ -378,6 +380,46 @@ impl fmt::Debug for ChangePasswordRequest {
         f.debug_struct("ChangePasswordRequest")
             .finish_non_exhaustive()
     }
+}
+
+/// A request to give an account that has no password its first one.
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SetPasswordRequest {
+    /// The password to sign in with from now on.
+    pub password: String,
+}
+
+impl SetPasswordRequest {
+    /// Checks the password.
+    ///
+    /// # Errors
+    ///
+    /// Returns `password` refused if it is empty, shorter than
+    /// [`MINIMUM_PASSWORD_LENGTH`] or longer than [`MAXIMUM_PASSWORD_BYTES`].
+    pub fn validate(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
+        if let Err(error) = check_new_password(&self.password) {
+            refused.push(error.into());
+        }
+        refused.into_result()
+    }
+}
+
+impl fmt::Debug for SetPasswordRequest {
+    /// Leaves out the password.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SetPasswordRequest").finish_non_exhaustive()
+    }
+}
+
+/// A request of an account to start an organization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NewOrganization {
+    /// The name of the organization, and of its first workspace: read as
+    /// `organizationName` of `register` is.
+    pub name: String,
 }
 
 /// Checks a password that is about to be set: on registration, on a password change,

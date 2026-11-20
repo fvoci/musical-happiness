@@ -10,7 +10,7 @@ use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::params::{UserId, WorkerWorkspaceId};
+use super::contract::params::{PeopleWorkspaceId, UserId, WorkerWorkspaceId};
 use super::contract::tag;
 use super::workspace::InWorkspace;
 use super::{ApiResult, decode_object, json_response, no_content};
@@ -41,6 +41,18 @@ fn managing(ws: InWorkspace) -> Result<InWorkspace, AppError> {
         ));
     }
     Ok(ws)
+}
+
+/// The workspace for who changes what somebody is in it, or takes somebody out: an
+/// administrator of it, where there are people besides. A user's own space has its
+/// owner in it and nobody else, and its owner stays what they are there.
+///
+/// # Errors
+///
+/// Returns 404 for the workspace of a user's own space and for a guest, and 403 for
+/// anybody else who is no administrator of the workspace.
+fn managing_people(ws: InWorkspace) -> Result<InWorkspace, AppError> {
+    managing(ws.require_people()?)
 }
 
 /// The member a request names in its path.
@@ -88,13 +100,15 @@ async fn handle_get_workspace_members(ws: InWorkspace) -> ApiResult {
 /// reason `last_admin`). Somebody who is no member of the workspace is 404.
 ///
 /// For the workspace's administrators: anybody else who works there is refused (403),
-/// and a guest of the workspace is told that it is not there (404).
+/// and a guest of the workspace is told that it is not there (404). The workspace of
+/// a user's own space is 404: its owner is what they are there, and nobody else is in
+/// it.
 #[utoipa::path(
     put,
     path = "/w/{workspaceId}/members/{userId}",
     operation_id = "setWorkspaceRole",
     tag = tag::WORKSPACES,
-    params(WorkerWorkspaceId, UserId),
+    params(PeopleWorkspaceId, UserId),
     request_body = WorkspaceRoleChange,
     responses((status = 200, description = "The member.", body = WorkspaceMember)),
 )]
@@ -103,7 +117,7 @@ async fn handle_set_workspace_role(
     Path(place): Path<MemberPlace>,
     body: Bytes,
 ) -> ApiResult {
-    let ws = managing(ws)?;
+    let ws = managing_people(ws)?;
     let change: WorkspaceRoleChange = decode_object(&body)?;
     let member = ws
         .app
@@ -132,20 +146,21 @@ async fn handle_set_workspace_role(
 /// (403). Somebody who is no member of the workspace is 404.
 ///
 /// For the workspace's administrators: anybody else who works there is refused (403),
-/// and a guest of the workspace is told that it is not there (404).
+/// and a guest of the workspace is told that it is not there (404). The workspace of
+/// a user's own space is 404: nobody is taken out of it.
 #[utoipa::path(
     delete,
     path = "/w/{workspaceId}/members/{userId}",
     operation_id = "removeWorkspaceMember",
     tag = tag::WORKSPACES,
-    params(WorkerWorkspaceId, UserId),
+    params(PeopleWorkspaceId, UserId),
     responses((status = 204, description = "The member is out of the workspace.")),
 )]
 async fn handle_remove_workspace_member(
     ws: InWorkspace,
     Path(place): Path<MemberPlace>,
 ) -> ApiResult {
-    let ws = managing(ws)?;
+    let ws = managing_people(ws)?;
     ws.app
         .remove_workspace_member(&ws.workspace_id, &place.user_id, &ws.session.user_id)
         .await?;

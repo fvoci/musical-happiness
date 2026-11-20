@@ -458,6 +458,9 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "completeEmailVerification",
     // Recovering a password asks for no session; what it changes is the account's own.
     "completePasswordReset",
+    // Starting an organization is the account's own: the new one is no part of the
+    // organization the session does not open, and nothing of that one is read for it.
+    "createOrganization",
     // The two ends of a sign-in held for a browser come before there is a session, as
     // the sign-in itself does: they look at the browser's cookie of it, and at none.
     "finishHeldOidcLogin",
@@ -494,6 +497,9 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "requestAccountDeletion",
     "requestEmailVerification",
     "requestPasswordReset",
+    // The first password of an account that has none is the account's own, as
+    // changing one is.
+    "setPassword",
     "startOidcCarryOver",
     "startOidcLogin",
     "unlinkIdentity",
