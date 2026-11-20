@@ -25,7 +25,8 @@ export async function firstOrganization(base: string): Promise<string[]> {
   const workspaces = (await (
     await api.get('/api/v1/users/me/workspaces')
   ).json()) as Schemas['UserWorkspace'][];
-  expect(workspaces).toHaveLength(1);
+  // The workspace of the organization, and after it the account's own space.
+  expect(workspaces.map((workspace) => workspace.kind === 'personal')).toEqual([false, true]);
   const workspace = workspaces[0]?.id ?? '';
   const organization = workspaces[0]?.orgId ?? '';
   expect(organization).not.toBe('');
@@ -125,7 +126,11 @@ export async function fileUnderCategory(
   await expect(
     category(page, 'Second projects').getByRole('link', { name: title, exact: true }),
   ).toBeVisible();
-  const searching = page.waitForResponse((response) => response.url().includes('/boards/search?'));
+  // The search asks every workspace the account is listed, its own space too: the
+  // answer looked at is this workspace's.
+  const searching = page.waitForResponse((response) =>
+    response.url().includes(`/w/${workspace}/boards/search?`),
+  );
   await sidebar(page).getByTestId('sidebar-search').fill('Second planning');
   const found = await searching;
   expect(found.ok()).toBe(true);
