@@ -250,9 +250,10 @@ impl Collab {
     /// ([`OpenDoc::worn`]), for a document that is closed next with its body on its
     /// card and nobody in its room: nobody holds the document it was, so nothing an
     /// editor wrote is lost and nobody loads it anew, and the next to open it finds
-    /// one that no session's update brings past the steps it may take to read. Its
-    /// versions and what else its card holds are as they were. One that could not be
-    /// made again is left as it is stored, or folded by what closes it.
+    /// one far from the steps it may take to read, whichever client is read first.
+    /// Its versions and what else its card holds are as they were. One that is not
+    /// worn is folded by what closes it; one that could not be made again is closed
+    /// as it is stored, its log taken again when it is next opened.
     ///
     /// A connection that dropped and comes back with the document it held, and with
     /// changes the server did not take, finds another making of it and loads that:

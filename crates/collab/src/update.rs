@@ -116,12 +116,15 @@ pub const PLACING_STEPS: u64 = 3 * 1024 * 1024;
 /// is as long for the library as steps of its walk, and that update is refused as
 /// one made for it is, and the editor loses what it sent.
 ///
-/// So that it does not come to that, what holds a document goes by the steps one more
-/// client may leave it with ([`crate::steps_ahead`]: each change looked at once for
-/// each client, whichever is read first), and makes the document again from its
+/// Before it comes to that, what holds a document goes by the steps the changes it
+/// has may take once one more client is read first ([`crate::steps_ahead`]: each
+/// change looked at once for each client), and makes the document again from its
 /// body, which has no steps and one client: at an eighth of this ahead as the
-/// document is closed with nobody holding it, at three quarters under its editors,
-/// and when an update is refused for it all the same.
+/// document is closed with nobody holding it, and at three quarters under its
+/// editors. What an update adds is not in that count (a change it writes, or cuts in
+/// two, is a step for every 128 clients), so one of tens of thousands of such changes
+/// into a document of thousands of clients is still refused, and the document made
+/// again then.
 ///
 /// A stored state past it is refused before the library reads it, in the time of the
 /// count, which stops a little past the limit whatever the state holds: one that was

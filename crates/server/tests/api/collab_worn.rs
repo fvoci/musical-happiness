@@ -257,10 +257,11 @@ async fn sessions_until_made_again(th: &TestServer, e: &Editing, written: u64, e
     let mut sessions = 0_u64;
     let mut after = 0;
     while after < 3 {
-        // Every thirty-first session is read before all the others, and the rest in
-        // the order they wrote: the steps of the reading leap with that one.
+        // The second session here and every thirty-first are read before all the
+        // others, and the rest in the order they wrote: the steps of the reading
+        // leap with those.
         let number = written + sessions;
-        let client = if number % 31 == 30 {
+        let client = if number % 31 == 30 || sessions == 1 {
             READ_FIRST + number
         } else {
             FIRST - number
@@ -303,6 +304,7 @@ async fn sessions_until_made_again(th: &TestServer, e: &Editing, written: u64, e
         // The close kept a version as any does, and with it let go of the oldest
         // where the card has as many as it may: the others are as they were.
         let kept = kept.expect("read before the session that had it made again");
+        assert!(!kept.is_empty(), "the card had versions before");
         let kept_now = versions(&th.client, &e.card_id).await;
         assert!(kept_now.len() >= kept.len(), "no fewer versions");
         let newest = kept

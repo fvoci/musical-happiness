@@ -431,6 +431,7 @@ pub(super) struct Made {
     pub(super) state_bytes: u64,
     /// The most changes of one of its clients ([`OpenDoc::client_changes`]).
     pub(super) client_changes: u64,
-    /// The steps the Y library takes to read it ([`OpenDoc::steps_ahead`]).
+    /// The most steps the Y library may take to read it once one more client has
+    /// written into it ([`OpenDoc::steps_ahead`]).
     pub(super) steps_ahead: u64,
 }

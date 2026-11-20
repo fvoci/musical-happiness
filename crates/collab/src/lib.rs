@@ -138,6 +138,17 @@ pub mod testing {
         crate::reading::lists(state).map_err(crate::scan::Refusal::reason)
     }
 
+    /// How many entries of the stack of waiting changes the reading of a state looks
+    /// through, and how many changes and clients the state has: what
+    /// [`crate::steps_ahead`] holds the first to by the others.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the bytes are no whole state.
+    pub fn looked(state: &[u8]) -> Result<(u64, (u64, u64)), &'static str> {
+        crate::reading::looked(state).map_err(crate::scan::Refusal::reason)
+    }
+
     /// How many changes a state or an update holds.
     ///
     /// # Panics

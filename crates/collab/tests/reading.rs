@@ -7,7 +7,7 @@ mod support;
 
 use std::collections::HashMap;
 
-use fvoci_collab::testing::{placing_steps, reading};
+use fvoci_collab::testing::{looked, placing_steps, reading};
 use fvoci_collab::{
     PLACING_STEPS, READING_STEPS, TakeError, UpdateError, UpdateLimits, from_body, from_state,
     new_doc, reading_steps, state_of, steps_ahead, take_update,
@@ -337,6 +337,7 @@ fn of_reading(planned: &[Planned], state: &[u8], reached: &Lists) -> Lists {
 #[test]
 fn the_lists_of_a_state_are_read_here_as_the_library_reads_them() {
     let (mut whole, mut waiting) = (0, 0);
+    let mut most_looked = 0;
     for seed in 0..40000 {
         let mut random = Random::new(seed);
         let (planned, state) = state(&mut random);
@@ -357,7 +358,14 @@ fn the_lists_of_a_state_are_read_here_as_the_library_reads_them() {
             continue;
         }
         whole += 1;
-        // What one more client may leave it with is no less than it takes now.
+        // The stack is looked through no more often than each change once for each
+        // client but one, which is what the steps ahead count for it.
+        let (stack, (changes, clients)) = looked(&state).expect("a whole state");
+        assert!(
+            stack <= changes * clients.saturating_sub(1),
+            "seed {seed}: {stack} looked through, {changes} changes of {clients} clients"
+        );
+        most_looked = most_looked.max(stack);
         let steps = reading(&state).expect("a whole state").0;
         let ahead = steps_ahead(&state).expect("a whole state");
         assert!(steps <= ahead, "seed {seed}: {steps} steps, {ahead} ahead");
@@ -380,6 +388,7 @@ fn the_lists_of_a_state_are_read_here_as_the_library_reads_them() {
         whole > 1000 && waiting > 100,
         "{whole} whole, {waiting} waiting"
     );
+    assert!(most_looked > 50, "{most_looked} looked through at the most");
 }
 
 /// The limits of the server but for the steps a reading may take: what it took before

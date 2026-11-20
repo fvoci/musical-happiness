@@ -124,7 +124,7 @@ impl OpenDoc {
     /// anew, where they would have had an update refused and then loaded it anew. A
     /// document of that many steps ahead names fewer clients than three quarters of
     /// those it may (each client has a change, and each change is counted once for
-    /// each client: 10,033 clients are three quarters of the steps), so the mark of
+    /// each client: 10,034 clients are three quarters of the steps), so the mark of
     /// the clients is for limits without a count of steps.
     pub(super) fn crowded(&self) -> bool {
         crowded(self.clients, self.client_changes, self.steps_ahead)
@@ -133,18 +133,22 @@ impl OpenDoc {
     /// Whether it is made again from its body as it is closed with nobody in its
     /// room, where no editor has to load it anew: it names an eighth of the clients a
     /// document may name, or one more client may leave it with an eighth of the steps
-    /// to read that an update may leave it with. From there no update of one client
-    /// brings it to where it is made again under its editors ([`Self::crowded`]),
-    /// let alone to where the update is refused: a room that empties now and then
-    /// keeps its document far from both. For the bodies of the most changes (320,000)
-    /// that is every 52 sessions, for a body of 10,000 changes every 1,677, and for
-    /// smaller ones every 2,048. A body's own document, of one client, is far under
-    /// it, so none is made again each time it is closed.
+    /// to read that an update may leave it with. A room that empties now and then
+    /// keeps its document far from where it is made again under its editors
+    /// ([`Self::crowded`]) and from where an update is refused. From here a change a
+    /// session writes, or cuts in two, is a step for every 128 clients, 16 at the
+    /// most, so it takes updates of tens of thousands of them to come there: of a
+    /// document of 2,047 sessions, every other letter deleted in 600 paragraphs of a
+    /// hundred letters (58,800 more changes, 62 kB) was taken and had it made again
+    /// under its editor, and the same in 415 paragraphs and then in 600 had the second
+    /// update refused.
+    ///
+    /// For the bodies of the most changes (320,000) that is every 52 sessions at the
+    /// latest, for a body of 10,000 changes every 1,677, and for smaller ones every
+    /// 2,048. A body's own document, of one client, is far under it, so none is made
+    /// again each time it is closed.
     pub(super) fn worn(&self) -> bool {
-        let an_eighth = |count: u64, limit: u64| count >= limit / 8;
-        let max_clients = u64::try_from(fvoci_collab::MAX_CLIENTS).unwrap_or(u64::MAX);
-        an_eighth(self.clients, max_clients)
-            || an_eighth(self.steps_ahead, fvoci_collab::READING_STEPS)
+        worn(self.clients, self.steps_ahead)
     }
 
     /// The share of its worker's documents it is counted in.
@@ -155,6 +159,15 @@ impl OpenDoc {
             Share::Kept
         }
     }
+}
+
+/// Whether a document of `clients` clients that one more client may leave with
+/// `steps_ahead` steps to read is made again from its body as it is closed with nobody
+/// in its room ([`OpenDoc::worn`]).
+fn worn(clients: u64, steps_ahead: u64) -> bool {
+    let an_eighth = |count: u64, limit: u64| count >= limit / 8;
+    let max_clients = u64::try_from(fvoci_collab::MAX_CLIENTS).unwrap_or(u64::MAX);
+    an_eighth(clients, max_clients) || an_eighth(steps_ahead, fvoci_collab::READING_STEPS)
 }
 
 /// Whether a document of `clients` clients, of which one has `client_changes` changes,
@@ -628,7 +641,7 @@ pub(super) fn still_at_epoch(slot: &Slot, epoch: i64) -> Result<(), AppError> {
 mod tests {
     use fvoci_collab::{MAX_CLIENT_CHANGES, MAX_CLIENTS, READING_STEPS};
 
-    use super::crowded;
+    use super::{crowded, worn};
 
     #[test]
     fn a_document_is_made_again_at_three_quarters_of_its_clients_or_of_a_client_s_changes() {
@@ -647,6 +660,19 @@ mod tests {
         assert!(
             crowded(1, 1, READING_STEPS * 3 / 4),
             "786,432 steps to read it"
+        );
+    }
+
+    #[test]
+    fn a_document_is_made_again_as_it_closes_at_an_eighth_of_its_clients_or_steps_ahead() {
+        let clients = u64::try_from(MAX_CLIENTS).expect("fits");
+        assert!(!worn(1, 0));
+        assert!(!worn(clients / 8 - 1, READING_STEPS / 8 - 1));
+        assert!(worn(clients / 8, 0), "2,048 clients");
+        assert!(worn(1, READING_STEPS / 8), "131,072 steps ahead");
+        assert!(
+            !crowded(clients / 8, 1, READING_STEPS / 8),
+            "far from where it is made again under its editors"
         );
     }
 }
