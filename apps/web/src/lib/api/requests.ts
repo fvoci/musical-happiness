@@ -238,7 +238,8 @@ export class ServerRequests implements TrashReads {
   async register(registration: Registration, language = ''): Promise<Registered> {
     const request: Schemas['RegisterRequest'] = {
       ...accountOf(registration),
-      organizationName: registration.organizationName,
+      // Left out for none: the account starts in its own space alone.
+      ...(registration.organizationName ? { organizationName: registration.organizationName } : {}),
       // The language of the confirmation mail, where the server sends one.
       ...(language ? { language } : {}),
     };
@@ -304,6 +305,7 @@ export class ServerRequests implements TrashReads {
       registrationOpen: options.registrationOpen,
       mailEnabled: options.mailEnabled,
       emailVerification: options.emailVerification,
+      organizationRequired: options.organizationRequired,
     };
   }
 

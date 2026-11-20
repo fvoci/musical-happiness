@@ -15,8 +15,11 @@ export interface NewAccount {
 
 /** An account that starts an organization: whoever signs up without an invitation. */
 export interface Registration extends NewAccount {
-  /** The name of the organization the account starts, and of its first workspace. */
-  organizationName: string;
+  /**
+   * The name of the organization the account starts, and of its first
+   * workspace; left out for none: the account starts in its own space alone.
+   */
+  organizationName?: string;
 }
 
 /** What the link of an invitation shows of where it leads, to whoever holds it. */
@@ -53,6 +56,12 @@ export interface LoginOptions {
   mailEnabled?: boolean;
   /** Whether a registration waits for the link mailed to its address before there is an account. */
   emailVerification?: boolean;
+  /**
+   * Whether a registration must name the organization it starts: until the
+   * server has its first user, who starts the server's own. After, an
+   * account may start in its own space alone.
+   */
+  organizationRequired?: boolean;
 }
 
 /**

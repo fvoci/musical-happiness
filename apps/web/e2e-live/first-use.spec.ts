@@ -52,13 +52,13 @@ test('a registration that is refused says what is wrong beside each field, and m
 }) => {
   const errors = watchErrors(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'New here? Start an organization' }).click();
+  await page.getByRole('button', { name: 'New here? Create an account' }).click();
   const form = page.getByTestId('register-form');
-  const organization = form.getByLabel(/^organization name$/i);
+  const organization = form.getByLabel(/^team name$/i);
   const name = form.getByLabel(/^user name$/i);
   const email = form.getByLabel(/email/i);
   const password = form.getByLabel(/^password$/i);
-  const submit = form.getByRole('button', { name: 'Start organization' });
+  const submit = form.getByRole('button', { name: 'Create account' });
 
   // Four fields that the browser's own check lets through and the server
   // refuses: blank names, an address that is too long, a short password.
@@ -84,12 +84,12 @@ test('a registration that is refused says what is wrong beside each field, and m
   await password.fill(ADMIN.password);
   await submit.click();
   await expect(form.getByTestId('problem-organizationName')).toHaveText(
-    'An organization name can be up to 64 characters.',
+    'A team name can be up to 64 characters.',
   );
   await expect(form.getByRole('alert')).toHaveCount(1);
   // Nothing was made: the server still takes its first account.
   await page.reload();
-  await expect(page.getByRole('button', { name: 'New here? Start an organization' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New here? Create an account' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -105,21 +105,24 @@ test('somebody starts an organization, and a second person comes in by its link 
   const korean = await browser.newContext({ locale: 'ko-KR' });
   const koreanPage = await korean.newPage();
   await koreanPage.goto(base);
-  await koreanPage.getByRole('button', { name: '처음인가요? 조직 시작하기' }).click();
-  await expect(koreanPage.getByLabel('조직 이름')).toBeVisible();
+  await koreanPage.getByRole('button', { name: '처음인가요? 계정 만들기' }).click();
+  await expect(koreanPage.getByLabel('팀 이름')).toBeVisible();
+  // The server's first account starts its organization: no choice, and the page says why.
+  await expect(koreanPage.getByTestId('register-first')).toBeVisible();
+  await expect(koreanPage.getByTestId('register-use')).toHaveCount(0);
   await look(koreanPage, 'the form that starts an organization, in Korean');
 
   // Signing up: the name of the organization, and an account.
   await page.goto('/');
-  await page.getByRole('button', { name: 'New here? Start an organization' }).click();
+  await page.getByRole('button', { name: 'New here? Create an account' }).click();
   const form = page.getByTestId('register-form');
-  await form.getByLabel(/^organization name$/i).fill(ORG_NAME);
+  await form.getByLabel(/^team name$/i).fill(ORG_NAME);
   await form.getByLabel(/^user name$/i).fill(ADMIN.username);
   await form.getByLabel(/email/i).fill(ADMIN.email);
   await form.getByLabel(/^password$/i).fill(ADMIN.password);
   await look(page, 'the form that starts an organization');
   await shot(page, 'sign-up');
-  await form.getByRole('button', { name: 'Start organization' }).click();
+  await form.getByRole('button', { name: 'Create account' }).click();
 
   // Signed in at once, on a copy of the welcome board of their own, made once.
   await expect(page.getByTestId('app-shell')).toBeVisible();

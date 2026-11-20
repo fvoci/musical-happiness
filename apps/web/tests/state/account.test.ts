@@ -263,6 +263,32 @@ describe('the display name, on the server', () => {
       { ...account, organizationName: 'Acme' },
     ]);
   });
+
+  it('leaves the organization out of a registration that starts on its own', async () => {
+    const sent: unknown[] = [];
+    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
+      sent.push(typeof init.body === 'string' ? JSON.parse(init.body) : undefined);
+      return Promise.resolve(new Response(null, { status: 202 }));
+    });
+    const backend = serverBackend('');
+    const account = { username: 'a', email: 'a@x', password: 'p' };
+    expect(await backend.register({ ...account, displayName: '' })).toBe('waiting');
+    await backend.register({ ...account, displayName: '', organizationName: '' });
+    expect(sent).toEqual([account, account]);
+  });
+
+  it('reads whether the server needs the name of the organization a registration starts', async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(
+        Response.json({ registrationOpen: true, mailEnabled: false, organizationRequired: true }),
+      ),
+    );
+    const backend = serverBackend('');
+    expect(await backend.loginOptions(undefined)).toMatchObject({
+      registrationOpen: true,
+      organizationRequired: true,
+    });
+  });
 });
 
 describe('the language setting, in memory', () => {

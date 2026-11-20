@@ -58,13 +58,14 @@ test('a registration waits for its mailed link, which signs in on the first boar
     emailVerification: true,
   });
 
-  await page.getByRole('button', { name: 'New here? Start an organization' }).click();
-  await page.getByLabel('Organization name').fill('Verified Works');
+  await page.getByRole('button', { name: 'New here? Create an account' }).click();
+  await page.getByTestId('register-together').check();
+  await page.getByLabel('Team name').fill('Verified Works');
   await page.getByLabel('User name', { exact: true }).fill(who.username);
   await page.getByLabel('Email address').fill(who.email);
   await page.getByLabel('Password', { exact: true }).fill(who.password);
   await expect(page.getByTestId('verify-hint')).toBeVisible();
-  await page.getByRole('button', { name: 'Start organization' }).click();
+  await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeFocused();
   await expect(page.getByTestId('check-mail')).toContainText(who.email);
   // At a phone's width, nothing is wider than the screen.

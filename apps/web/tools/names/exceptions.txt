@@ -48,3 +48,4 @@ src/lib/state/workspace-types.ts | 'team' | 'personal'
 # On the screen an organization that people start together is a team, as the people who
 # use it say; the tests find its fields and buttons by those English texts.
 tests/** | team name
+e2e-live/** | team name
