@@ -3,11 +3,12 @@
  * knows their shape (`src/app/router.svelte.ts` is the app's). The tests
  * against the real server use it too (`e2e-live/support.ts`).
  *
- * The world in memory has one workspace, made first by the seed, so its
- * identifier is the seed's first.
+ * The world in memory has one workspace its people share, made first by the
+ * seed, so its identifier is the seed's first; each reader's own space is
+ * made after, when it is first asked for.
  */
 
-/** The workspace of the world in memory. */
+/** The workspace the people of the world in memory share. */
 export const WORKSPACE = '01930000-0000-7000-8000-000000000001';
 
 const ID = '[0-9a-f-]{36}';

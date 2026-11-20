@@ -28,7 +28,7 @@
   import SignInPage from '$lib/features/account/SignInPage.svelte';
   import SsoRequired from '$lib/features/account/SsoRequired.svelte';
   import OrgPage from '$lib/features/organization/OrgPage.svelte';
-  import AppShell from '$lib/features/shell/AppShell.svelte';
+  import AppShell, { type PaneTools } from '$lib/features/shell/AppShell.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import {
     BackendError,
@@ -477,18 +477,21 @@
     {#snippet search(shown: Workspace)}
       <WorkspaceSearch workspace={shown} {router} />
     {/snippet}
-    <WorkspacePane
-      {workspace}
-      {router}
-      {refused}
-      onGoOn={() => {
-        refusal = null;
-        router.go({}, { replace: true });
-      }}
-      onOpenLinked={openLinked}
-      {openWorkspaces}
-      onSso={(orgId: string) => toProvider(orgId)}
-    />
+    {#snippet children({ workspace: shown, addBoard }: PaneTools)}
+      <WorkspacePane
+        workspace={shown}
+        {router}
+        {refused}
+        onAddBoard={addBoard}
+        onGoOn={() => {
+          refusal = null;
+          router.go({}, { replace: true });
+        }}
+        onOpenLinked={openLinked}
+        {openWorkspaces}
+        onSso={(orgId: string) => toProvider(orgId)}
+      />
+    {/snippet}
   </AppShell>
   <Problems {workspace} />
   <FileViewerHost />

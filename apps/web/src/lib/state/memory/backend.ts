@@ -77,6 +77,8 @@ import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
+import { MemoryCategories, fileAsNew } from './categories.ts';
+import { checkWorkspace, workersOf, workspacesOf } from './spaces.ts';
 import { copiedBlocks, copyTitle, giveCopiesFiles } from './copies.ts';
 import { memberRole, memberFileUrl } from './container-access.ts';
 import { MemoryFileVersions } from './file-versions.ts';
@@ -127,6 +129,9 @@ export class MemoryBackend implements Backend {
   readonly search: MemoryContentSearch;
   readonly references = new MemoryReferences(this, () => this.#enter('references'));
   readonly fileVersions = new MemoryFileVersions(this, () => this.#enter('fileVersions'));
+  readonly #categories = new MemoryCategories(this, (method, workspaceId) =>
+    this.#enterWorkspace(method, workspaceId),
+  );
   /** Milliseconds every call waits before it answers. */
   latency = 0;
   readonly #failures = new Map<MethodName, BackendError>();
@@ -150,10 +155,10 @@ export class MemoryBackend implements Backend {
     this.#failures.set(method, error);
   }
 
-  /** `#enter`, then 404 unless `workspaceId` names the reader's workspace. */
+  /** `#enter`, then 404 unless `workspaceId` names a workspace of the reader's (`spaces.ts`). */
   async #enterWorkspace(method: MethodName, workspaceId: string): Promise<void> {
     await this.#enter(method);
-    if (workspaceId !== this.world.workspace.id) fail(404, 'no such workspace');
+    checkWorkspace(this.world, this.userId, workspaceId);
   }
 
   /**
@@ -254,18 +259,18 @@ export class MemoryBackend implements Backend {
 
   async workspaces(): Promise<WorkspaceInfo[]> {
     await this.#enter('workspaces');
-    return [copy(this.world.workspace)];
+    return workspacesOf(this.world, this.userId);
   }
 
   async users(workspaceId: string): Promise<User[]> {
     await this.#enterWorkspace('users', workspaceId);
-    return usersAmong(this.world);
+    return usersAmong(this.world, workersOf(this.world, workspaceId));
   }
 
   /** Names visible members and authors, without offering departed authors among people. */
   async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
     await this.#enterWorkspace('usersById', workspaceId);
-    return usersNamed(this.world, this.userId, userIds);
+    return usersNamed(this.world, this.userId, workspaceId, userIds);
   }
 
   // ----------------------------------------------------------- settings
@@ -321,7 +326,10 @@ export class MemoryBackend implements Backend {
   async boards(workspaceId: string): Promise<Container[]> {
     await this.#enterWorkspace('boards', workspaceId);
     const mine = [...this.world.containers.values()].filter(
-      (board) => board.kind !== 'wiki' && this.#memberIds(board.id).includes(this.userId),
+      (board) =>
+        board.workspaceId === workspaceId &&
+        board.kind !== 'wiki' &&
+        this.#memberIds(board.id).includes(this.userId),
     );
     return scramble(mine).map(copy);
   }
@@ -355,7 +363,7 @@ export class MemoryBackend implements Backend {
     if (draft.cardProperties) board.cardProperties = copy(draft.cardProperties);
     this.world.containers.set(board.id, board);
     this.world.members.set(board.id, [memberOf(board.id, this.userId, 'admin')]);
-    this.#fileAsNew(this.userId, board);
+    fileAsNew(this.world, this.userId, board);
     const view = this.#newBlock(board.id, '', 'view');
     view.title = firstView.title;
     view.fields = copy(firstView.fields);
@@ -433,7 +441,10 @@ export class MemoryBackend implements Backend {
   async templates(workspaceId: string): Promise<Container[]> {
     await this.#enterWorkspace('templates', workspaceId);
     const all = [...this.world.containers.values()]
-      .filter((board) => board.isTemplate)
+      .filter(
+        (board) =>
+          board.isTemplate && (board.isBuiltin === true || board.workspaceId === workspaceId),
+      )
       .sort((first, second) => first.createAt - second.createAt);
     return [
       ...all.filter((board) => board.isBuiltin !== true),
@@ -446,7 +457,9 @@ export class MemoryBackend implements Backend {
     await this.#enterWorkspace('duplicateContainer', to);
     const source = this.#container(id);
     if (source.kind === 'wiki' && asTemplate) fail(400, 'a wiki is no template');
-    return this.#copyContainer(source, asTemplate);
+    // Nothing goes between the own space and another but by export and import.
+    if (source.isBuiltin !== true && source.workspaceId !== to) fail(404, 'no board');
+    return this.#copyContainer(source, asTemplate, to);
   }
 
   /** A copy of the marked built-in template, without its mark, where the world holds one. */
@@ -459,14 +472,15 @@ export class MemoryBackend implements Backend {
       ) ?? fail(404, 'no welcome board');
     const { onboarding: _onboarding, ...properties } = welcome.properties;
     const blocks = copiedBlocks(this.world, welcome);
-    return this.#insertContainer({ ...welcome, isTemplate: false, properties }, blocks).id;
+    return this.#insertContainer({ ...welcome, isTemplate: false, properties }, blocks, workspaceId)
+      .id;
   }
 
   /** A copy of a board or a wiki with its blocks but the comments, every identifier new. */
-  #copyContainer(source: Container, asTemplate: boolean): Container {
+  #copyContainer(source: Container, asTemplate: boolean, to: string): Container {
     const title = copyTitle(source, asTemplate, this.#settings().language);
     const blocks = copiedBlocks(this.world, source);
-    return this.#insertContainer({ ...source, isTemplate: asTemplate, title }, blocks);
+    return this.#insertContainer({ ...source, isTemplate: asTemplate, title }, blocks, to);
   }
 
   /**
@@ -474,7 +488,11 @@ export class MemoryBackend implements Backend {
    * admin. As on the server, only the references it renames follow: a
    * block's board and parent, and what `renameCopied` renames.
    */
-  #insertContainer(source: Container, blocks: readonly StoredBlock[]): Container {
+  #insertContainer(
+    source: Container,
+    blocks: readonly StoredBlock[],
+    workspaceId: string,
+  ): Container {
     const now = this.world.now();
     const ids = new Map<string, string>([[source.id, this.world.newId()]]);
     for (const block of blocks) ids.set(block.id, this.world.newId());
@@ -483,7 +501,7 @@ export class MemoryBackend implements Backend {
     const board: Container = {
       ...copy(source),
       id: renamed(source.id),
-      workspaceId: this.world.workspace.id,
+      workspaceId,
       createdBy: this.userId,
       modifiedBy: this.userId,
       type: 'P',
@@ -493,7 +511,7 @@ export class MemoryBackend implements Backend {
     };
     this.world.containers.set(board.id, board);
     this.world.members.set(board.id, [memberOf(board.id, this.userId, 'admin')]);
-    this.#fileAsNew(this.userId, board);
+    fileAsNew(this.world, this.userId, board);
     for (const block of blocks) {
       const made = copy(block);
       renameCopied(source, made, ids, cardIds);
@@ -527,10 +545,11 @@ export class MemoryBackend implements Backend {
 
   async exportWorkspace(workspaceId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     await this.#enter('exportWorkspace', options?.signal);
-    if (workspaceId !== this.world.workspace.id) fail(404, 'no such workspace');
+    checkWorkspace(this.world, this.userId, workspaceId);
     // As the server: the reader's boards and wikis, and the workspace's open ones.
     const boards = [...this.world.containers.values()].filter(
       (board) =>
+        board.workspaceId === workspaceId &&
         !board.isTemplate &&
         (board.type === 'O' || this.#memberIds(board.id).includes(this.userId)),
     );
@@ -539,7 +558,7 @@ export class MemoryBackend implements Backend {
 
   async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
     await this.#enter('importArchive', options?.signal);
-    if (workspaceId !== this.world.workspace.id) fail(404, 'no such workspace');
+    checkWorkspace(this.world, this.userId, workspaceId);
     const lines = await archiveLines(file);
     options?.onProgress?.({ sentBytes: file.size, totalBytes: file.size });
     const boards = lines
@@ -552,6 +571,7 @@ export class MemoryBackend implements Backend {
       this.#insertContainer(
         board,
         blocks.filter((block) => block.containerId === board.id),
+        workspaceId,
       );
     }
     // Its archives carry no members: nobody is left out.
@@ -562,7 +582,8 @@ export class MemoryBackend implements Backend {
     await this.#enter('joinContainer');
     const board = this.#container(id);
     if (board.isTemplate) fail(403, 'a template cannot be joined');
-    if (board.type !== 'O') fail(404, 'no such open board');
+    const works = workersOf(this.world, board.workspaceId).has(this.userId);
+    if (board.type !== 'O' || !works) fail(404, 'no such open board');
     const members = this.world.members.get(id) ?? [];
     const existing = members.find((member) => member.userId === this.userId);
     if (existing) return copy(existing);
@@ -580,15 +601,15 @@ export class MemoryBackend implements Backend {
 
   async addMember(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
     await this.#enter('addMember');
-    this.#container(id);
-    if (!this.world.users.has(userId)) fail(400, 'no such user', { field: 'userId' });
+    const into = this.#container(id).workspaceId;
+    if (!workersOf(this.world, into).has(userId)) fail(400, 'no such user', { field: 'userId' });
     const members = this.world.members.get(id) ?? [];
     const existing = members.find((member) => member.userId === userId);
     // As the server: somebody who is a member already keeps their role.
     if (existing) return copy(existing);
     const member = memberOf(id, userId, role);
     this.#setMembers(id, [...members, member]);
-    this.#fileAsNew(userId, this.#container(id));
+    fileAsNew(this.world, userId, this.#container(id));
     this.world.tellUsers([userId], { kind: 'container', container: copy(this.#container(id)) });
     return copy(member);
   }
@@ -657,144 +678,42 @@ export class MemoryBackend implements Backend {
 
   // --------------------------------------------------------- categories
 
-  #categories(): Category[] {
-    let mine = this.world.categories.get(this.userId);
-    if (!mine) {
-      mine = [];
-      this.world.categories.set(this.userId, mine);
-    }
-    return mine;
+  categories(workspaceId: string): Promise<Category[]> {
+    return this.#categories.categories(workspaceId);
   }
 
-  #category(categoryId: string): Category {
-    return (
-      this.#categories().find((category) => category.id === categoryId) ??
-      fail(404, 'no such category')
-    );
+  createCategory(workspaceId: string, draft: CategoryDraft): Promise<Category> {
+    return this.#categories.createCategory(workspaceId, draft);
   }
 
-  /**
-   * Files a board under a user's default category, as the server does for a
-   * new board (not a template) and for a new member of one.
-   */
-  #fileAsNew(userId: string, container: Container): void {
-    if (container.isTemplate) return;
-    const theirs = this.world.categories.get(userId) ?? [];
-    const fallback = theirs.find((category) => category.type === 'system');
-    if (!fallback || theirs.some(({ containerIds }) => containerIds.includes(container.id))) return;
-    fallback.containerIds.push(container.id);
-    this.world.tellUsers([userId], { kind: 'categories', categories: copy(theirs) });
+  patchCategory(workspaceId: string, categoryId: string, patch: CategoryPatch): Promise<Category> {
+    return this.#categories.patchCategory(workspaceId, categoryId, patch);
   }
 
-  #tellCategories(): void {
-    this.world.tellUsers([this.userId], {
-      kind: 'categories',
-      categories: copy(this.#categories()),
-    });
+  deleteCategory(workspaceId: string, categoryId: string): Promise<void> {
+    return this.#categories.deleteCategory(workspaceId, categoryId);
   }
 
-  async categories(workspaceId: string): Promise<Category[]> {
-    await this.#enterWorkspace('categories', workspaceId);
-    return scramble(this.#categories()).map(copy);
+  reorderCategories(workspaceId: string, categoryIds: string[]): Promise<void> {
+    return this.#categories.reorderCategories(workspaceId, categoryIds);
   }
 
-  async createCategory(workspaceId: string, draft: CategoryDraft): Promise<Category> {
-    await this.#enterWorkspace('createCategory', workspaceId);
-    if (draft.name.trim() === '') fail(400, 'a category needs a name', { field: 'name' });
-    const now = this.world.now();
-    const mine = this.#categories();
-    // A new category goes first, as the original's did.
-    for (const category of mine) category.sortOrder += 10;
-    const category: Category = {
-      id: this.world.newId(),
-      name: draft.name,
-      userId: this.userId,
-      workspaceId,
-      type: 'custom',
-      collapsed: false,
-      sortOrder: 0,
-      containerIds: [],
-      hiddenContainerIds: [],
-      createAt: now,
-      updateAt: now,
-    };
-    mine.push(category);
-    this.#tellCategories();
-    return copy(category);
-  }
-
-  async patchCategory(
-    workspaceId: string,
-    categoryId: string,
-    patch: CategoryPatch,
-  ): Promise<Category> {
-    await this.#enterWorkspace('patchCategory', workspaceId);
-    const category = this.#category(categoryId);
-    if (patch.name !== undefined) {
-      if (patch.name.trim() === '') fail(400, 'a category needs a name', { field: 'name' });
-      // The default category keeps its name, as the server's does.
-      if (category.type !== 'system') category.name = patch.name;
-    }
-    if (patch.collapsed !== undefined) category.collapsed = patch.collapsed;
-    category.updateAt = this.world.now();
-    this.#tellCategories();
-    return copy(category);
-  }
-
-  async deleteCategory(workspaceId: string, categoryId: string): Promise<void> {
-    await this.#enterWorkspace('deleteCategory', workspaceId);
-    const category = this.#category(categoryId);
-    if (category.type === 'system') fail(403, 'the default category cannot be deleted');
-    const mine = this.#categories();
-    // Its boards fall back to the default category, those it hid still hidden.
-    const fallback = mine.find((candidate) => candidate.type === 'system');
-    fallback?.containerIds.push(...category.containerIds);
-    fallback?.hiddenContainerIds.push(...category.hiddenContainerIds);
-    mine.splice(mine.indexOf(category), 1);
-    this.#tellCategories();
-  }
-
-  async reorderCategories(workspaceId: string, categoryIds: string[]): Promise<void> {
-    await this.#enter('reorderCategories');
-    const mine = this.#categories();
-    const known = new Set(mine.map((category) => category.id));
-    if (categoryIds.length !== mine.length || !categoryIds.every((id) => known.has(id))) {
-      fail(400, 'the order must name every category once');
-    }
-    for (const category of mine) category.sortOrder = categoryIds.indexOf(category.id) * 10;
-    this.#tellCategories();
-  }
-
-  async moveContainerToCategory(
+  moveContainerToCategory(
     workspaceId: string,
     id: string,
     categoryId: string,
     index: number,
   ): Promise<void> {
-    await this.#enterWorkspace('moveContainerToCategory', workspaceId);
-    this.#container(id);
-    const target = this.#category(categoryId);
-    for (const category of this.#categories()) {
-      category.containerIds = category.containerIds.filter((other) => other !== id);
-    }
-    const at = Math.max(0, Math.min(index, target.containerIds.length));
-    target.containerIds.splice(at, 0, id);
-    this.#tellCategories();
+    return this.#categories.moveContainerToCategory(workspaceId, id, categoryId, index);
   }
 
-  async setContainerHidden(
+  setContainerHidden(
     workspaceId: string,
     categoryId: string,
     id: string,
     hidden: boolean,
   ): Promise<void> {
-    await this.#enterWorkspace('setContainerHidden', workspaceId);
-    const category = this.#category(categoryId);
-    const others = category.hiddenContainerIds.filter((other) => other !== id);
-    // As the server: a board the category does not hold is no error.
-    category.hiddenContainerIds =
-      hidden && category.containerIds.includes(id) ? [...others, id] : others;
-    this.#tellCategories();
+    return this.#categories.setContainerHidden(workspaceId, categoryId, id, hidden);
   }
 
   // -------------------------------------------------------------- views

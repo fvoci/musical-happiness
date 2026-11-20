@@ -1278,6 +1278,7 @@
   "org_restore_named": "Restore {name}",
   "shell_switch_workspace_from": "Switch workspace: {name}",
   "own_space_name": "My space",
+  "own_space_start": "Boards and wikis here are yours alone. To show one to someone, share its public link.",
   "shell_workspace_current": "{name}, current",
   "org_new": "Create a team",
   "org_new_description": "A new place to invite the people you work with.",

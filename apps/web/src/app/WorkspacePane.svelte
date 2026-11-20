@@ -13,7 +13,8 @@
   import SignInNotice from '$lib/features/account/SignInNotice.svelte';
   import SsoRequired from '$lib/features/account/SsoRequired.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { Workspace, WorkspaceInfo } from '$lib/state/index.ts';
+  import WorkspaceStart from '$lib/features/shell/WorkspaceStart.svelte';
+  import { isOwnSpace, type Workspace, type WorkspaceInfo } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import BoardPage from './BoardPage.svelte';
@@ -32,9 +33,20 @@
     /** The reader's workspaces this session opens, with their addresses. */
     openWorkspaces: readonly (WorkspaceInfo & { href: string })[];
     onSso: (orgId: string) => Promise<void>;
+    /** Opens the picker of what to make, for a workspace with nothing in it yet. */
+    onAddBoard?: (() => void) | undefined;
   }
 
-  let { workspace, router, refused, onGoOn, onOpenLinked, openWorkspaces, onSso }: Props = $props();
+  let {
+    workspace,
+    router,
+    refused,
+    onGoOn,
+    onOpenLinked,
+    openWorkspaces,
+    onSso,
+    onAddBoard,
+  }: Props = $props();
 
   /** The workspace the address names, entered and read. */
   const shown = $derived(
@@ -104,7 +116,5 @@
 {:else if router.route.wikiId}
   <WikiPage {workspace} {router} />
 {:else}
-  <div class="grid h-full place-items-center p-6 text-center">
-    <p class="text-muted-foreground">{m.app_no_boards()}</p>
-  </div>
+  <WorkspaceStart own={isOwnSpace(shown)} {onAddBoard} />
 {/if}

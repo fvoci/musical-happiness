@@ -259,13 +259,13 @@ describe('the sign-in page and who may make an account', () => {
   it('starts an organization with the account where the server takes one', async () => {
     const { onRegister, onSignIn } = signInPage(true);
     await fireEvent.click(
-      await screen.findByRole('button', { name: 'New here? Start an organization' }),
+      await screen.findByRole('button', { name: 'New here? Create an account' }),
     );
-    await fill(/^organization name$/i, ' Acme ');
+    await fill(/^team name$/i, ' Acme ');
     await fill(/^user name$/i, 'ada');
     await fill(/email/i, 'ada@example.test');
     await fill(/^password$/i, 'a long password');
-    await fireEvent.click(screen.getByRole('button', { name: 'Start organization' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
     await waitFor(() => {
       expect(onSignIn).toHaveBeenCalledExactlyOnceWith('ada', 'a long password');
     });

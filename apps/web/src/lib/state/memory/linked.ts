@@ -12,6 +12,7 @@ import type { Paging } from '../trash-reads.ts';
 import { reads } from './container-access.ts';
 import { pageOf } from './paging.ts';
 import { fail } from './refuse.ts';
+import { checkWorkspace } from './spaces.ts';
 import type { StoredBlock, World } from './world.ts';
 
 /** The most cards a search finds (the server's). */
@@ -65,7 +66,7 @@ export class MemoryReferences implements References {
   }
 
   #check(workspaceId: string): void {
-    if (workspaceId !== this.#asker.world.workspace.id) fail(404, 'no such workspace');
+    checkWorkspace(this.#asker.world, this.#asker.userId, workspaceId);
   }
 
   async resolve(workspaceId: string, ids: readonly string[]): Promise<LinkedBlock[]> {

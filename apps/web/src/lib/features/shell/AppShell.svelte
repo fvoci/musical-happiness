@@ -26,6 +26,17 @@
   top and the left itself; everything that reaches the bottom edge clears
   that.
 -->
+<script module lang="ts">
+  import type { Workspace } from '$lib/state/index.ts';
+
+  /** What the shell lends the page beside it. */
+  export interface PaneTools {
+    workspace: Workspace;
+    /** Opens the picker of what to make; none for a guest, who makes nothing. */
+    addBoard: (() => void) | undefined;
+  }
+</script>
+
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
 
@@ -37,7 +48,7 @@
   import { sidebarShape } from '$lib/layout/presentation.ts';
   import { paneCovered } from '$lib/layout/over-pane.svelte.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
-  import { createWiki, whileHere, type WikiDraft, type Workspace } from '$lib/state/index.ts';
+  import { createWiki, isGuest, whileHere, type WikiDraft } from '$lib/state/index.ts';
   import type { AuditRecord } from '$lib/state/organization.ts';
 
   import AuditDialog from './AuditDialog.svelte';
@@ -89,8 +100,8 @@
     readRecords?: (workspaceId: string) => Promise<AuditRecord[]>;
     /** The button of the search of the workspace, in the top bar; none where there is no search. */
     search?: Snippet<[Workspace]>;
-    /** The page: what is shown beside the sidebar. */
-    children: Snippet;
+    /** The page: what is shown beside the sidebar, given the way to the picker of what to make. */
+    children: Snippet<[PaneTools]>;
   }
 
   let {
@@ -366,7 +377,7 @@
       inert={paneCovered()}
     />
     <div class="relative min-h-0 flex-1">
-      {@render children()}
+      {@render children({ workspace, addBoard: isGuest(workspace) ? undefined : addBoard })}
     </div>
   </main>
 </div>

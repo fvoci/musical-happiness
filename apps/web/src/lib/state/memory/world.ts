@@ -97,8 +97,11 @@ export interface FileLeaseHeld {
 }
 
 export class World {
+  /** The workspace the world's people share; each also has an own space (`spaces.ts`). */
   workspace: WorkspaceInfo = { id: '', title: '' };
   readonly workspaceMembers = new Set<string>();
+  /** Each user's own space, by user, once it was asked for. */
+  readonly ownSpaces = new Map<string, WorkspaceInfo>();
   readonly users = new Map<string, User>();
   readonly containers = new Map<string, Container>();
   readonly members = new Map<string, ContainerMember[]>();
