@@ -201,6 +201,7 @@ crates/server/tests/api/team_standing.rs
 apps/web/tests/ui/shell/team-row.test.ts
 apps/web/tests/ui/shell/teams-panel.test.ts
 apps/web/tests/ui/shell/container-teams.test.ts
+apps/web/tests/ui/shell/share-own-space.test.ts
 crates/store/src/container_membership.rs | team_role
 crates/store/src/container_membership.rs | container_team_access::
 crates/store/src/invitations.rs | team_role
