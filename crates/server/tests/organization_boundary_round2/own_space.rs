@@ -27,6 +27,7 @@ use tokio_tungstenite::tungstenite::Message;
 use super::common::{
     ApiResponse, Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID, carried_out,
 };
+use super::fake_search::{FakeSearch, document};
 use super::routes::{
     Asker, Items, WORKSPACE_ROUTES, a_comment_on, a_page_in, archive_entries,
     compare_resource_routes, compare_workspace_routes, fill_with_nothing,
@@ -45,6 +46,9 @@ struct Space {
     /// The server behind the wall of the space.
     app: App,
     board: Container,
+    /// A private board the owner was not on and gave themselves a role on, as the
+    /// workspace's administrator: the one record of the space's audit log.
+    managed: Container,
     card: Block,
     page: Block,
     comment: Block,
@@ -76,6 +80,21 @@ impl Space {
             .insert_container_with_admin(&mut board, &owner_id)
             .await
             .expect("a board of the space");
+        let mut managed = Container {
+            id: new_id(),
+            workspace_id: workspace.id.clone(),
+            container_type: ContainerType::Private,
+            title: format!("{SECRET} managed"),
+            ..Container::default()
+        };
+        store
+            .insert_container(&mut managed, &owner_id)
+            .await
+            .expect("a board of the space that its owner is not on");
+        let role = json!({"userId": owner_id, "schemeAdmin": true});
+        let path = format!("/w/{}/containers/{}/members", workspace.id, managed.id);
+        let given = owner.post(&path, &role).await;
+        assert!(given.status.is_success(), "{}", given.text());
         let mut card = Block {
             id: new_id(),
             container_id: board.id.clone(),
@@ -119,6 +138,7 @@ impl Space {
             workspace,
             app,
             board,
+            managed,
             card,
             page,
             comment,
@@ -154,6 +174,7 @@ impl Space {
             &self.workspace.id,
             &self.workspace.org_id,
             &self.board.id,
+            &self.managed.id,
             &self.card.id,
             &self.page.id,
             &self.page.container_id,
@@ -223,6 +244,21 @@ async fn an_administrator_elsewhere(ts: &TestServer) -> (Client, String) {
     (client, workspace.id)
 }
 
+/// A body the operation of an organization takes, so that what answers is not the
+/// reading of the body.
+fn organization_body(operation: &str) -> Value {
+    match operation {
+        "patchOrganization" | "createOrgWorkspace" | "renameOrgWorkspace" => {
+            json!({"name": "renamed"})
+        }
+        "putOrgRole" => json!({"role": "member"}),
+        "putOidcProvider" => {
+            json!({"issuer": "https://provider.example", "clientId": "client"})
+        }
+        _ => json!({}),
+    }
+}
+
 /// Asks every operation under `/org/{orgId}` about the space and about nothing, and,
 /// where the path names a workspace too, about the space's workspace under the
 /// organization the asker is in: the answers must be the same, and none a success.
@@ -261,11 +297,12 @@ async fn compare_organization_routes(client: &Client, space: &Space, own_org: &s
                 let ask = async |(org, workspace): (&str, &str)| {
                     let rest = fill_with_nothing(&rest.replace("{workspace}", workspace));
                     let path = format!("/org/{org}{rest}");
-                    Client::send(client.request(method.clone(), &path).json(&json!({}))).await
+                    let body = organization_body(operation);
+                    Client::send(client.request(method.clone(), &path).json(&body)).await
                 };
                 let (hidden, absent) = (ask(*hidden).await, ask(*absent).await);
                 asked += 1;
-                if hidden.status.is_success() || answer(&hidden) != answer(&absent) {
+                if hidden.status != StatusCode::NOT_FOUND || answer(&hidden) != answer(&absent) {
                     violations.push(format!(
                         "{operation} ({method} {template}): hidden={:?}, absent={:?}",
                         answer(&hidden),
@@ -442,6 +479,11 @@ async fn compare_routes(
 async fn check_the_owner_reaches_it(space: &Space) {
     let here = format!("/w/{}", space.workspace.id);
     space.owner.get(&here).await.check_ok();
+    let listed: Vec<UserWorkspace> = space.owner.get("/users/me/workspaces").await.ok_json();
+    assert!(
+        listed.contains(&space.workspace),
+        "the space is what it was: {listed:?}"
+    );
     let boards: Vec<Container> = space.owner.get(&format!("{here}/boards")).await.ok_json();
     assert!(
         boards.iter().any(|board| board.id == space.board.id),
@@ -463,6 +505,20 @@ async fn check_the_owner_reaches_it(space: &Space) {
     );
     let file = format!("{here}/containers/{}/files/{}", space.board.id, space.file);
     space.owner.get(&file).await.check_ok();
+    let audit = space.owner.get(&format!("{here}/audit")).await;
+    audit.check_ok();
+    assert!(
+        audit.text().contains(&space.managed.id),
+        "the space's audit log has its record: {}",
+        audit.text()
+    );
+    let found = space.owner.get(&format!("{here}/search?q={SECRET}")).await;
+    found.check_ok();
+    assert!(
+        found.text().contains(&space.card.id),
+        "the owner's search of bodies finds the card: {}",
+        found.text()
+    );
     let named = json!([space.card.id, space.page.id]);
     let resolved = space
         .owner
@@ -483,8 +539,21 @@ async fn check_the_owner_reaches_it(space: &Space) {
 /// workspace they work in.
 #[tokio::test]
 async fn nobody_but_its_owner_reaches_a_space_by_a_route() {
-    let ts = Setup::local_mode().start().await.init_basic().await;
+    // A search server that answers every search with what was planted in it, whoever
+    // asks: what a search answers is what the server lets through.
+    let index = FakeSearch::start().await;
+    let ts = Setup::local_mode().search(index.settings()).start().await;
+    fvoci_server::search::tend(&ts.app).await;
+    let ts = ts.init_basic().await;
     let space = Space::of_a_new_member(&ts).await;
+    let planted = document(
+        &space.workspace.org_id,
+        &space.workspace.id,
+        &space.board.id,
+        &space.card.title,
+        "",
+    );
+    index.plant(&space.card.id, planted);
     check_the_owner_reaches_it(&space).await;
     let root = ROOT_WORKSPACE_ID;
 

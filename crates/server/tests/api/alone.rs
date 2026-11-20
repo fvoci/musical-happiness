@@ -222,11 +222,12 @@ async fn who_registers_without_an_organization_has_their_own_space_alone() {
     assert_eq!(
         th.app
             .store()
-            .required_provider_for(&alpha[0].org_id, &me.id)
+            .required_provider_for(&me.id, &alpha[0].org_id)
             .await
             .expect("read"),
         None,
-        "no organization's provider is asked of an account that is in none"
+        "no provider is asked of an account that is in no organization (where one is \
+         asked of its members, `first_password` asks the same)"
     );
 
     // The account goes with its own space, and leaves no organization without anybody.

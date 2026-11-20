@@ -35,8 +35,24 @@ WHEN EXISTS (SELECT 1 FROM workspaces AS w JOIN organizations AS o ON o.id = w.o
 BEGIN
     SELECT RAISE(ABORT, 'the space of an account has its owner in it and nobody else');
 END;
+-- An invitation names its organization and its workspace by a key each here, where
+-- PostgreSQL has one key of both: the space is looked for by either.
 CREATE TRIGGER invitations_of_a_space BEFORE INSERT ON invitations
-WHEN EXISTS (SELECT 1 FROM organizations AS o WHERE o.id = NEW.org_id AND o.kind = 'personal')
+WHEN EXISTS (SELECT 1 FROM organizations AS o
+             WHERE o.kind = 'personal'
+               AND (o.id = NEW.org_id
+                    OR o.id = (SELECT w.org_id FROM workspaces AS w
+                               WHERE w.id = NEW.workspace_id)))
+BEGIN
+    SELECT RAISE(ABORT, 'nobody is invited into the space of an account');
+END;
+CREATE TRIGGER invitations_stay_out_of_a_space BEFORE UPDATE OF org_id, workspace_id
+    ON invitations
+WHEN EXISTS (SELECT 1 FROM organizations AS o
+             WHERE o.kind = 'personal'
+               AND (o.id = NEW.org_id
+                    OR o.id = (SELECT w.org_id FROM workspaces AS w
+                               WHERE w.id = NEW.workspace_id)))
 BEGIN
     SELECT RAISE(ABORT, 'nobody is invited into the space of an account');
 END;

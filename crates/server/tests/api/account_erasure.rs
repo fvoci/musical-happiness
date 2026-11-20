@@ -66,6 +66,27 @@ fn erase(username: &str) -> String {
     format!("/api/v1/admin/users/{username}/erase")
 }
 
+/// What is left of the second user's account opens nothing: somebody's own space is to
+/// its session what a workspace that is not there is.
+async fn check_it_opens_no_own_space(th: &TestServer) {
+    let space = crate::own_space::own_workspace(&th.client).await;
+    let hidden = th.client2.get(&format!("/w/{}", space.id)).await;
+    let absent = th
+        .client2
+        .get(&format!("/w/{}", crate::common::UNKNOWN_ID))
+        .await;
+    hidden.check_unauthorized();
+    let said = |response: &crate::common::ApiResponse| {
+        let problem = response.value();
+        (problem["type"].clone(), problem["detail"].clone())
+    };
+    assert_eq!(
+        said(&hidden),
+        said(&absent),
+        "as a workspace that is not there"
+    );
+}
+
 /// The operator erases an account at once: nobody signs in to it, its name is free,
 /// what it wrote stays, and whoever reads that is told an account that is gone, by its
 /// identifier alone. The instance's only administrator stays.
@@ -98,6 +119,7 @@ async fn the_operator_erases_an_account_and_what_it_wrote_stays_under_no_name() 
         .login(USER2_USERNAME, PASSWORD)
         .await
         .check_unauthorized();
+    check_it_opens_no_own_space(&th).await;
     // What they wrote is there, under their identifier, which names nobody.
     let cards: Vec<Block> = th
         .client

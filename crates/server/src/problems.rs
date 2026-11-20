@@ -291,7 +291,10 @@ fn describe_page_tree(reason: Reason) -> Option<&'static str> {
              Deleting pages makes room."
         }
         Reason::TooManyOrganizations => {
-            "Status 400. The account made as many organizations as one account may, which              `limit` tells: the ones in use that it started, by registering with the name              of one or by `createOrganization`. An organization it was invited into is not              counted, and neither is its own space. Nothing was made."
+            "Status 400. The account made as many organizations as one account may, which \
+             `limit` tells: the ones in use that it started, by registering with the name \
+             of one or by `createOrganization`. An organization it was invited into is not \
+             counted, and neither is its own space. Nothing was made."
         }
         _ => return None,
     })

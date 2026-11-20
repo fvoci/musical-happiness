@@ -148,6 +148,23 @@ async fn an_own_space_has_no_organization_to_administer_and_no_people() {
     }
     let guests = format!("{here}/guest-invitations");
     th.client.put(&guests, &nothing).await.check_not_found();
+    // Nobody's role changes in a space and nobody is taken out of one: asked of its
+    // owner about themselves, the workspace is not there, where the same requests
+    // about somebody of the organization are taken.
+    let role = json!({"role": "member"});
+    let themselves = format!("/members/{}", th.client.me().await.id);
+    let owner_put = th.client.put(&format!("{here}{themselves}"), &role).await;
+    owner_put.check_not_found();
+    let owner_removed = th.client.delete(&format!("{here}{themselves}")).await;
+    owner_removed.check_not_found();
+    let other = format!("{ROOT_WS}/members/{}", th.client2.me().await.id);
+    th.client.put(&other, &role).await.check_ok();
+    th.client.delete(&other).await.check_no_content();
+    assert_eq!(
+        own_workspace(&th.client).await,
+        own,
+        "the owner is what they were in their space"
+    );
     // The workspace itself is there, and its people are its owner.
     th.client.get(&here).await.check_ok();
     th.teardown().await;

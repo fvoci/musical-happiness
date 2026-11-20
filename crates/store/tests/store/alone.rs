@@ -413,9 +413,67 @@ async fn the_schema_lets_nobody_but_its_owner_into_a_space() {
             "{statement}: {error}"
         );
     }
-    // The doors of the store that let people in say the same of a space: no link
-    // into it, no second member, and no administrator who joins it, from its own
-    // organization's handle as from the one the other account works in.
+    // A link of the organization people work in is not moved into the space, and none
+    // of that organization names the space's workspace. PostgreSQL's key of both
+    // refuses the second before its trigger is asked.
+    let link = NewLink {
+        workspace_id: &test.workspace_id,
+        guest_of: None,
+        token_hash: "a link of the organization",
+        created_by: &owner,
+        now: 0,
+        expires_at: i64::MAX,
+        max_uses: None,
+        mailed: None,
+    };
+    let link = store.create_invitation(&link).await.expect("a link");
+    let moved = format!(
+        "UPDATE invitations SET org_id = '{org_id}', workspace_id = '{workspace_id}' \
+         WHERE id = '{}'",
+        link.id
+    );
+    let mixed = format!(
+        "INSERT INTO invitations (id, org_id, workspace_id, role, token_hash, created_by, \
+         create_at, expires_at) VALUES ('{}', '{}', '{workspace_id}', 'member', \
+         'another hash', '{owner}', 1, 2)",
+        new_id(),
+        test.org_id
+    );
+    for (statement, by_the_key) in [(&moved, false), (&mixed, true)] {
+        let refused = common::try_execute_raw(&connection, statement).await;
+        let error = refused.expect_err(statement).to_string();
+        let refusal = if by_the_key && common::db_type() == DbType::Postgres {
+            "foreign key"
+        } else {
+            "invited into the space"
+        };
+        assert!(error.contains(refusal), "{statement}: {error}");
+    }
+    assert_eq!(
+        common::own_space_shape(&system, &owner).await,
+        common::own_space(),
+        "the space is what it was"
+    );
+    test.teardown().await;
+}
+
+/// The doors of the store that let people in say what the schema says of a space: no
+/// link into it, no second member, and no administrator who joins it, from its own
+/// organization's handle as from the one the other account works in.
+#[tokio::test]
+async fn the_doors_of_the_store_let_nobody_into_a_space() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let owner = common::user(store, "owner").await;
+    let other = common::user(store, "other").await;
+    let system = test.system();
+    let space = "SELECT CAST(id AS TEXT) FROM organizations WHERE owner_id =";
+    let org_id = system
+        .texts_unchecked(&format!("{space} '{owner}'"))
+        .await
+        .expect("read")
+        .remove(0);
+    let workspace_id = common::own_workspace(&test, &owner).await;
     let in_space = store.for_org(&org_id).expect("an identifier");
     let link = NewLink {
         workspace_id: &workspace_id,
