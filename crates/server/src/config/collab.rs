@@ -142,8 +142,9 @@ pub(super) const MEMORY_PER_STATE_BYTE: u64 = 32;
 /// the document: for a body of 50,000 nodes that is 187 MB above the document (39 MB
 /// for 4 MiB of text), and for the body that takes the most (of the bodies measured:
 /// letters of five marks in turn with formulas, a state of 5.9 MB held in 103 MB) 380
-/// MB for a letter typed and 721 MB to repair an update. Every body is so taken, by a worker that holds as many documents
-/// as it counts room for; the executable and what the allocator keeps come on top.
+/// MB for a letter typed and 721 MB to repair an update. Every body is so taken, by a
+/// worker that holds as many documents as it counts room for; the executable and what
+/// the allocator keeps come on top.
 ///
 /// A state grown by what was deleted from it takes more than its body: 414 MB to repair
 /// an update for one of 5.8 MB of deleted nodes, 788 MB for one of 6 MB of deleted

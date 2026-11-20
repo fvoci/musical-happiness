@@ -307,7 +307,7 @@ async fn the_updates_a_sender_sent_together_end_one_worker() {
         sent.push((e, epoch, update));
     }
     let collab = sent[0].0.app.collab().clone();
-    let started = Instant::now();
+    let before = collab.workers_ended().await;
     let takes: Vec<_> = sent
         .iter()
         .map(|(e, epoch, update)| {
@@ -325,7 +325,6 @@ async fn the_updates_a_sender_sent_together_end_one_worker() {
     for take in takes {
         refusals.push(take.await.expect("ended").expect_err("not taken"));
     }
-    let took = started.elapsed();
     assert!(
         refusals
             .iter()
@@ -337,7 +336,11 @@ async fn the_updates_a_sender_sent_together_end_one_worker() {
         refusals.len() - 1,
         "{refusals:?}"
     );
-    assert!(took < TIMEOUT * 2, "one worker ended, in {took:?}");
+    assert_eq!(
+        collab.workers_ended().await.workers - before.workers,
+        1,
+        "one worker ended"
+    );
     let (e, ..) = &sent[0];
     collab.take_updates(&e.app, &e.card_id);
     let (by_another, epoch) = joined(&collab, &e.app, &e.card_id, 300).await;
@@ -359,11 +362,8 @@ async fn the_updates_a_sender_sent_together_end_one_worker() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_death_put_down_to_a_sender_does_not_make_the_next_worker_wait_longer() {
-    /// The worker's deaths after the sender's: 7 make the next wait 3.2 s, and 8 would
-    /// make it 6.4 s.
-    const DEATHS: usize = 7;
     let th = Setup::native()
-        .configure(|config| config.collab.collab_worker_timeout_ms = 300)
+        .configure(|config| config.collab.collab_worker_timeout_ms = 2_000)
         .start()
         .await
         .init_basic()
@@ -372,6 +372,7 @@ async fn a_death_put_down_to_a_sender_does_not_make_the_next_worker_wait_longer(
     let collab = e.app.collab();
     let (editor, epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     collab.stall_updates(&e.app, &e.card_id, 30_000);
+    let before = collab.workers_ended().await;
     let ended = collab
         .take(
             &e.app,
@@ -383,26 +384,15 @@ async fn a_death_put_down_to_a_sender_does_not_make_the_next_worker_wait_longer(
         .await
         .expect_err("it ended the worker");
     assert!(!held_back(&ended), "{ended:?}");
-    for _ in 0..DEATHS {
-        collab
-            .stall_worker(30_000)
-            .await
-            .expect_err("the worker ends");
-    }
-    let began = Instant::now();
+    let after = collab.workers_ended().await;
+    assert_eq!(after.workers, before.workers + 1, "the worker ended");
+    assert_eq!(after.in_a_row, 0, "the sender's death is not the worker's");
     collab
-        .stall_worker(0)
+        .stall_worker(30_000)
         .await
-        .expect("the next worker answers");
-    let took = began.elapsed();
-    assert!(
-        took >= Duration::from_millis(2400),
-        "the worker's deaths are counted: started in {took:?}"
-    );
-    assert!(
-        took < Duration::from_millis(4800),
-        "the sender's is not: started in {took:?}"
-    );
+        .expect_err("the worker ends");
+    let after = collab.workers_ended().await;
+    assert_eq!(after.in_a_row, 1, "the worker's death is");
     th.teardown().await;
 }
 

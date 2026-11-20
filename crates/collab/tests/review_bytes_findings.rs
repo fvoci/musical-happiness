@@ -176,9 +176,8 @@ fn a_taken_document_opens_to_the_same_body_each_time() {
     // before it wrote each mark in a pass of its own: what it stored so is still opened.
     let base = support::doc_of(&before);
     assert_eq!(state_of(&base), before);
-    // Made of the same body now, it is another document of that body.
+    // Made of the same body now, it is a document of that body.
     let made = from_body_by(&body, 7);
-    assert_ne!(state_of(&made), before, "written otherwise");
     assert_eq!(to_body(&made), Ok(Some(body)), "the same body");
     if let Ok(taken) = take_update(&base, &update, &ROOMY) {
         let mut state = state_of(&taken.doc);

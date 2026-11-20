@@ -289,10 +289,7 @@ impl Collab {
         request: impl Fn(DocNumber) -> Request,
         asked_for: AskedFor<'_>,
     ) -> Result<Answer, Unanswered> {
-        let blame = match asked_for {
-            AskedFor::Server => Blame::Worker,
-            AskedFor::Sender(_) => Blame::Sender,
-        };
+        let blame = asked_for.blame();
         for _ in 0..2 {
             self.ensure_open(app, card_id, slot).await?;
             if let AskedFor::Sender(user_id) = asked_for {
@@ -512,6 +509,16 @@ pub(super) enum AskedFor<'user> {
     /// The user whose update the request takes ([`Blame::Sender`]): held back for a
     /// death, and refused while held back.
     Sender(&'user str),
+}
+
+impl AskedFor<'_> {
+    /// Whom a death of the worker over the request is put down to.
+    fn blame(self) -> Blame {
+        match self {
+            Self::Server => Blame::Worker,
+            Self::Sender(_) => Blame::Sender,
+        }
+    }
 }
 
 impl Unanswered {

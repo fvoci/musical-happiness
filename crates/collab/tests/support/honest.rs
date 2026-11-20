@@ -26,8 +26,8 @@ pub(crate) const LONGEST: Duration = Duration::from_millis(500);
 
 /// The documents of [`bodies`] held to [`LONGEST`]: those of the shapes people write.
 /// The bodies of the most changes ([`marked`]) are no such documents; how long their
-/// edits take is measured and told, not held (each update reads their state of 7 to 8
-/// MB again, twice).
+/// edits take is measured and told, not held (each update reads their state of 6 to
+/// 7.4 MB again, twice).
 pub(crate) const WRITTEN: [&str; 2] = ["50,000 nodes", "4 MiB"];
 
 /// The paragraphs of the largest paste: what fills an update of 64 KiB.

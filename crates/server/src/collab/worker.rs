@@ -137,6 +137,16 @@ pub enum Death {
     Broken(String),
 }
 
+/// How many workers ended, for the tests of whom a death is put down to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ended {
+    /// The workers that died or were ended.
+    pub workers: u64,
+    /// The deaths put down to the worker since its last answer: the next one waits for
+    /// them to start ([`Blame::Worker`]).
+    pub in_a_row: u32,
+}
+
 /// A worker process and the task that holds it. Dropping it ends the task, and with it
 /// the process.
 #[derive(Debug)]
@@ -157,6 +167,7 @@ enum Job {
         answer: oneshot::Sender<Result<(u64, Answer), CallError>>,
     },
     Pid(oneshot::Sender<Option<u32>>),
+    Ended(oneshot::Sender<Ended>),
     End(oneshot::Sender<()>),
 }
 
@@ -245,6 +256,11 @@ impl Worker {
         self.ask(Job::Pid).await.flatten()
     }
 
+    /// How many workers ended, and how many deaths in a row the next one waits for.
+    pub async fn ended(&self) -> Option<Ended> {
+        self.ask(Job::Ended).await
+    }
+
     /// Ends the worker: closes its input, which ends it, and kills it if it does not
     /// end in time. The next request starts another.
     pub async fn end(&self) {
@@ -328,6 +344,12 @@ async fn hold(
                     .as_ref()
                     .and_then(|running| running.child.id());
                 let _ = answer.send(pid);
+            }
+            Job::Ended(answer) => {
+                let _ = answer.send(Ended {
+                    workers: state.generation,
+                    in_a_row: state.deaths,
+                });
             }
             Job::End(answer) => {
                 state.end().await;

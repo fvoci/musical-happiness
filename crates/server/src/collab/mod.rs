@@ -750,6 +750,17 @@ impl Collab {
         pids
     }
 
+    /// How many of the first worker's processes ended, and its deaths in a row: for the
+    /// tests of whom a death is put down to.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub async fn workers_ended(&self) -> worker::Ended {
+        self.inner.workers[0]
+            .ended()
+            .await
+            .expect("the worker's task runs")
+    }
+
     /// Has the first worker take `millis` milliseconds over a request, for the tests
     /// of a worker that does not answer in time.
     ///
@@ -798,14 +809,16 @@ impl Collab {
     /// organization, are held back for updates that ended a worker ([`senders`]).
     fn held_back(&self, app: &App, user_id: &str) -> Result<(), AppError> {
         let now = tokio::time::Instant::now();
-        match self
+        let tenant = app.store().tenant();
+        if self
             .inner
             .senders
-            .held_until(app.store().tenant(), user_id, now)
+            .held_until(tenant, user_id, now)
+            .is_some()
         {
-            Some(_) => Err(refusals::held_back()),
-            None => Ok(()),
+            return Err(refusals::held_back());
         }
+        Ok(())
     }
 
     /// Refuses what an editor sends that is larger than an update may be, before it is

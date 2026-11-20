@@ -65,12 +65,12 @@ impl Collab {
                     Some(room.gone.clone()),
                 )
                 .await
-                .map_err(|not_taken| {
-                    if matches!(not_taken, Unanswered::Died(_)) {
+                .map_err(|unanswered| {
+                    if matches!(unanswered, Unanswered::Died(_)) {
                         // Answered first, and closed once the step is done.
                         connection.ended_worker.cancel();
                     }
-                    let error = not_taken.into_error();
+                    let error = unanswered.into_error();
                     error.log();
                     reason_of(&error)
                 }),
