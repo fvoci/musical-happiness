@@ -15,6 +15,8 @@
  *
  * Nothing here is part of the document: the node is the code block it always
  * was (`renderHTML` of the extension), and the picture is drawn from its text.
+ * A code block in any other language is code-block-view.ts, coloured by
+ * code-highlight.ts.
  */
 import { CodeBlock } from '@tiptap/extension-code-block';
 import type { Node as DocumentNode } from '@tiptap/pm/model';
@@ -23,6 +25,8 @@ import type { Decoration, EditorView, NodeView, ViewMutationRecord } from '@tipt
 
 import { m } from '$lib/i18n/paraglide/messages.js';
 
+import { CodeBlockView } from './code-block-view.ts';
+import { codeHighlight } from './code-highlight.ts';
 import type { DiagramResult } from './diagram.ts';
 import { diagramKind } from './diagram-kind.ts';
 import { DIAGRAM_REDRAW_DELAY, diagramProblem, onLookChange } from './embeds.ts';
@@ -47,21 +51,6 @@ function element<K extends keyof HTMLElementTagNameMap>(
   const made = page.createElement(tag);
   for (const [name, value] of Object.entries(attributes)) made.setAttribute(name, value);
   return made;
-}
-
-/** A plain code block: what `renderHTML` of the extension makes. */
-function codeView(node: DocumentNode, page: Document): NodeView {
-  const dom = page.createElement('pre');
-  const code = page.createElement('code');
-  const language = typeof node.attrs.language === 'string' ? node.attrs.language : null;
-  if (language) code.setAttribute('class', `language-${language}`);
-  dom.append(code);
-  return {
-    dom,
-    contentDOM: code,
-    update: (updated) =>
-      updated.type === node.type && updated.attrs.language === language && !isDiagramNode(updated),
-  };
 }
 
 let lastId = 0;
@@ -314,7 +303,7 @@ const diagramsOf = new WeakMap<EditorView, Set<DiagramView>>();
 export const BodyCodeBlock = CodeBlock.extend({
   addNodeView() {
     return ({ node, view, getPos, decorations }) => {
-      if (!isDiagramNode(node)) return codeView(node, view.dom.ownerDocument);
+      if (!isDiagramNode(node)) return new CodeBlockView(node, view, getPos);
       const known = diagramsOf.get(view) ?? new Set<DiagramView>();
       diagramsOf.set(view, known);
       return new DiagramView(node, view, getPos, decorations, known);
@@ -323,6 +312,7 @@ export const BodyCodeBlock = CodeBlock.extend({
 
   addProseMirrorPlugins() {
     return [
+      codeHighlight(),
       new Plugin({
         key: new PluginKey('diagramEditable'),
         view: (view) => {

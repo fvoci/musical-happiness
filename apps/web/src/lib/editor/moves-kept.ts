@@ -34,9 +34,11 @@ export interface MovesKeptOptions {
  * Has the editor read the page now (the selection, and whatever was written
  * and not yet read), where it waits for the browser's word. The view has no
  * public name for it: this is the reading it does on that word. Not during
- * a composition, which the editor reads in its own time.
+ * a composition, which the editor reads in its own time. Whatever else has
+ * the editor redraw at a moment of its own does this first, as the colours
+ * of code blocks do (code-highlight.ts).
  */
-function readPage(view: EditorView): void {
+export function readPage(view: EditorView): void {
   if (view.isDestroyed || view.composing) return;
   try {
     (view as unknown as { domObserver?: { flush?: () => void } }).domObserver?.flush?.();

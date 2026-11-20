@@ -202,6 +202,30 @@ test('haptics, the first day of the week and the way of writing hours are saved 
     .toEqual({ weekStart: 'monday', hourCycle: 'h23' });
 });
 
+test('the numbers of the lines of code blocks: off at first, kept on this device, never sent to the account', async ({
+  page,
+}) => {
+  await openApp(page);
+  const before = await stored(page);
+  await openSettings(page);
+  const numbers = setting(page, 'codeLines').getByRole('switch');
+  await expect(numbers).not.toBeChecked();
+  await expect(numbers).toHaveAccessibleName(/Line numbers in code blocks/);
+  await expect(page.locator('html')).not.toHaveAttribute('data-code-lines');
+  await numbers.click();
+  await expect(numbers).toBeChecked();
+  await expect(page.locator('html')).toHaveAttribute('data-code-lines', '');
+  // The account's settings are what they were: this one is the device's.
+  expect(await stored(page)).toEqual(before);
+
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-code-lines', '');
+  await openSettings(page);
+  await expect(setting(page, 'codeLines').getByRole('switch')).toBeChecked();
+  await setting(page, 'codeLines').getByRole('switch').click();
+  await expect(page.locator('html')).not.toHaveAttribute('data-code-lines');
+});
+
 test('time zone: picked from a list that can be searched; a refused change goes back and the reader is told', async ({
   page,
 }) => {
