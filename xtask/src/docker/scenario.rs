@@ -59,6 +59,35 @@ impl<'a> Client<'a> {
     /// Sends a request as the web app does: with the `Origin` of the server's address
     /// and `X-Requested-With`, which a request that changes something needs.
     pub(super) fn send(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Answer> {
+        // The body goes through a file: it may hold a password, which a command line
+        // shows to every process of the machine.
+        let request = self.jar.with_file_name("request.json");
+        let from_file = format!("@{}", request.to_string_lossy());
+        let mut extra = Vec::new();
+        if let Some(body) = body {
+            super::write_private(&request, &body.to_string())?;
+            extra.extend([
+                "--header",
+                "Content-Type: application/json",
+                "--data-binary",
+                &from_file,
+            ]);
+        }
+        let answer = self.curl(method, path, &extra);
+        let _ = std::fs::remove_file(&request);
+        answer
+    }
+
+    /// Posts the file at `file` to `path` as a form's field `file`, as the web app
+    /// uploads one.
+    pub(super) fn upload(&self, path: &str, file: &Path) -> Result<Answer> {
+        let form = format!("file=@{}", file.to_string_lossy());
+        self.curl("POST", path, &["--form", &form])
+    }
+
+    /// Runs `curl` for one request, with the session's cookies and the headers of the
+    /// web app, `extra` before the address.
+    fn curl(&self, method: &str, path: &str, extra: &[&str]) -> Result<Answer> {
         let url = format!("{}{path}", self.base);
         let jar = self.jar.to_string_lossy();
         let origin = format!("Origin: {}", self.base);
@@ -80,23 +109,9 @@ impl<'a> Client<'a> {
             "--write-out",
             "\n%{http_code}",
         ];
-        // The body goes through a file: it may hold a password, which a command line
-        // shows to every process of the machine.
-        let request = self.jar.with_file_name("request.json");
-        let from_file = format!("@{}", request.to_string_lossy());
-        if let Some(body) = body {
-            super::write_private(&request, &body.to_string())?;
-            arguments.extend([
-                "--header",
-                "Content-Type: application/json",
-                "--data-binary",
-                &from_file,
-            ]);
-        }
+        arguments.extend_from_slice(extra);
         arguments.push(&url);
-        let answer = capture("curl", &arguments);
-        let _ = std::fs::remove_file(&request);
-        let answer = answer?;
+        let answer = capture("curl", &arguments)?;
         if !answer.succeeded {
             bail!("{method} {path}: curl failed: {}", answer.error);
         }
@@ -114,7 +129,7 @@ impl<'a> Client<'a> {
     }
 
     /// Sends a request that must succeed, and reads its JSON.
-    fn expect(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
+    pub(super) fn expect(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
         let answer = self.send(method, path, body)?;
         ensure!(
             (200..300).contains(&answer.status),
@@ -130,7 +145,7 @@ impl<'a> Client<'a> {
 }
 
 /// The text of `value`'s member `key`.
-fn text(value: &Value, key: &str) -> Result<String> {
+pub(super) fn text(value: &Value, key: &str) -> Result<String> {
     value
         .get(key)
         .and_then(Value::as_str)
@@ -213,6 +228,18 @@ pub(super) fn run(trial: &Trial, directory: &Path) -> Result<()> {
         Some(&json!({"type": "O", "title": "Smoke"})),
     )?;
     let board = text(&board, "id")?;
+    let card_id = write_card(&client, &w, &board)?;
+    say("    signed up, made a board and a card, and wrote its body");
+    find_card(&client, &w, &card_id)
+}
+
+/// Makes a card on the board at `w` (a workspace's path) with [`BODY`] for its body,
+/// and returns its identifier.
+///
+/// # Errors
+///
+/// Fails if the card is not made or its body not written.
+pub(super) fn write_card(client: &Client<'_>, w: &str, board: &str) -> Result<String> {
     let card = client.expect(
         "POST",
         &format!("{w}/boards/{board}/cards"),
@@ -228,8 +255,15 @@ pub(super) fn run(trial: &Trial, directory: &Path) -> Result<()> {
         &format!("{w}/cards/{card_id}"),
         Some(&json!({"body": paragraph(BODY), "readAt": read_at})),
     )?;
-    say("    signed up, made a board and a card, and wrote its body");
+    Ok(card_id)
+}
 
+/// Searches the workspace at `w` for [`QUESTION`] until the card `card_id` is found.
+///
+/// # Errors
+///
+/// Fails if the search fails or does not find the card within [`FIND_WITHIN`].
+pub(super) fn find_card(client: &Client<'_>, w: &str, card_id: &str) -> Result<()> {
     let path = format!("{w}/search?q={}", encoded(QUESTION));
     let started = Instant::now();
     loop {
@@ -238,7 +272,7 @@ pub(super) fn run(trial: &Trial, directory: &Path) -> Result<()> {
             let hits = answer.json()?;
             let found = hits.as_array().is_some_and(|hits| {
                 hits.iter()
-                    .any(|hit| hit.get("id").and_then(Value::as_str) == Some(&card_id))
+                    .any(|hit| hit.get("id").and_then(Value::as_str) == Some(card_id))
             });
             if found {
                 say(&format!(
