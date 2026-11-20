@@ -5,7 +5,7 @@
 //! workspaces of the system organization out of an answer.
 
 use fvoci_model::{
-    Block, Container, ContainerKinds, ContainerType, GuestInvitationsChange, Workspace,
+    Block, Container, ContainerKinds, ContainerType, GuestInvitationsChange, OrgKind, Workspace,
     WorkspaceRole,
 };
 
@@ -146,21 +146,57 @@ pub(crate) async fn insert_workspace(
     Ok(())
 }
 
-/// Stores a new organization under the identifier `org` and the given name, with
-/// `workspace` as its first workspace, which is its default one. Nobody is a member of
-/// either yet.
+/// Stores a new organization that people work in together, under the identifier `org`
+/// and the given name, with `workspace` as its first workspace, which is its default
+/// one. Nobody is a member of either yet.
 pub(crate) async fn insert_organization(
     scope: &mut Scope<'_>,
     org: impl Into<Bound>,
     name: &str,
     workspace: &Workspace,
 ) -> Result<(), StoreError> {
-    let org: Bound = org.into();
+    insert_organization_of(scope, org.into(), name, None, workspace).await
+}
+
+/// Stores the space of the account `owner_id`: an organization of the kind `personal`
+/// under the identifier `org`, without a name, with `workspace` as its one workspace.
+/// The account is no member of either yet.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Database`] if the account has a space already: one account
+/// owns one organization.
+pub(crate) async fn insert_own_space(
+    scope: &mut Scope<'_>,
+    org: impl Into<Bound>,
+    owner_id: &str,
+    workspace: &Workspace,
+) -> Result<(), StoreError> {
+    insert_organization_of(scope, org.into(), "", Some(owner_id), workspace).await
+}
+
+/// Stores a new organization with its first workspace: the space of `owner`, or one
+/// that people work in together.
+async fn insert_organization_of(
+    scope: &mut Scope<'_>,
+    org: Bound,
+    name: &str,
+    owner: Option<&str>,
+    workspace: &Workspace,
+) -> Result<(), StoreError> {
+    let kind = match owner {
+        Some(_) => OrgKind::Personal,
+        None => OrgKind::Team,
+    };
     let now = now_millis();
-    let mut sql =
-        scope.sql("INSERT INTO organizations (id, name, settings, create_at, update_at) VALUES (");
+    let mut sql = scope.sql(
+        "INSERT INTO organizations (id, name, kind, owner_id, settings, create_at, update_at) \
+         VALUES (",
+    );
     sql.bind(org.clone())
         .push_bind(", ", name)
+        .push_bind(", ", kind.as_str())
+        .push_bind(", ", OptId(owner.unwrap_or_default()))
         .push(", '{}'")
         .push_bind(", ", now)
         .push_bind(", ", now)

@@ -221,10 +221,15 @@ async fn a_member_does_not_find_a_workspace_that_is_not_in_use() {
             .collect::<Vec<String>>()
     };
     assert!(!found(SYSTEM_WORKSPACE_ID).await, "the system's workspace");
+    let own = common::own_workspace(&test, &user_id).await;
     assert_eq!(
         listed().await,
-        [test.workspace_id.clone(), second_workspace.clone()],
-        "the two of the organization, and not the system's"
+        [
+            test.workspace_id.clone(),
+            second_workspace.clone(),
+            own.clone()
+        ],
+        "the two of the organization and the user's own last, and not the system's"
     );
 
     let system = test.system();
@@ -239,7 +244,7 @@ async fn a_member_does_not_find_a_workspace_that_is_not_in_use() {
     assert!(found(&test.workspace_id).await, "the other is still there");
     assert_eq!(
         listed().await,
-        std::slice::from_ref(&test.workspace_id),
+        [test.workspace_id.clone(), own.clone()],
         "without the one in the trash"
     );
 
@@ -257,8 +262,8 @@ async fn a_member_does_not_find_a_workspace_that_is_not_in_use() {
     );
     assert_eq!(
         listed().await,
-        Vec::<String>::new(),
-        "nothing of it is listed"
+        std::slice::from_ref(&own),
+        "nothing of it is listed: the user's own space is another organization"
     );
 
     test.teardown().await;

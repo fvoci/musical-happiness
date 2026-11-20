@@ -41,8 +41,8 @@ fn ids(boards: &[Container]) -> Vec<&str> {
 async fn a_user_lists_the_workspaces_they_are_a_member_of() {
     let ts = Setup::native().start().await.init_basic().await;
 
-    let first: Vec<UserWorkspace> = ts.client.get("/users/me/workspaces").await.ok_json();
-    let second: Vec<UserWorkspace> = ts.client2.get("/users/me/workspaces").await.ok_json();
+    let (first, _) = crate::own_space::workspaces_and_own(&ts.client).await;
+    let (second, _) = crate::own_space::workspaces_and_own(&ts.client2).await;
     // Whoever registers gets into the default workspace, the root workspace, which the
     // first user administers; the test server lets its users into its second workspace too.
     let of = |workspaces: &[UserWorkspace]| -> Vec<(String, WorkspaceRole)> {
@@ -69,6 +69,7 @@ async fn a_user_lists_the_workspaces_they_are_a_member_of() {
         serde_json::json!({
             "id": ROOT_WORKSPACE_ID,
             "orgId": first[0].org_id,
+            "kind": "team",
             "name": crate::common::ORG_NAME,
             "role": "admin",
             "ssoRequired": false,
@@ -83,7 +84,7 @@ async fn a_user_lists_the_workspaces_they_are_a_member_of() {
         .add_workspace_member(HIDDEN_WORKSPACE_ID, &user2, WorkspaceRole::Guest)
         .await
         .expect("the user is let in");
-    let second: Vec<UserWorkspace> = ts.client2.get("/users/me/workspaces").await.ok_json();
+    let (second, _) = crate::own_space::workspaces_and_own(&ts.client2).await;
     let mut expected = in_both(WorkspaceRole::Member);
     expected.push((HIDDEN_WORKSPACE_ID.to_owned(), WorkspaceRole::Guest));
     assert_eq!(of(&second), expected, "oldest workspace first");
@@ -157,7 +158,7 @@ async fn the_boards_of_a_workspace_are_for_its_members() {
         let absent = not_there(&ts.client.get(&format!("/w/{nothing}/boards")).await);
         assert_eq!(absent, hidden, "{nothing} answers as a workspace of others");
     }
-    let listed: Vec<UserWorkspace> = ts.client.get("/users/me/workspaces").await.ok_json();
+    let (listed, _own) = crate::own_space::workspaces_and_own(&ts.client).await;
     assert_eq!(listed.len(), 2, "the system's is not listed: {listed:?}");
     ts.anonymous()
         .get(&format!("{ROOT_WS}/boards"))
@@ -239,9 +240,10 @@ pub(crate) async fn another_organization(ts: &TestServer) -> (Store, String, Str
     (theirs, workspace.id, board.id)
 }
 
-/// The workspaces a user lists as their own, by identifier.
+/// The workspaces a user lists of the organizations they are in, by identifier: the
+/// one of their own space, which is listed after them, is not among these.
 async fn workspaces_of(client: &Client) -> Vec<String> {
-    let listed: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
+    let (listed, _own) = crate::own_space::workspaces_and_own(client).await;
     listed.into_iter().map(|workspace| workspace.id).collect()
 }
 
@@ -282,7 +284,7 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
         .add_workspace_member(&their_workspace, &user1, WorkspaceRole::Member)
         .await
         .expect("the user is let into their workspace");
-    let listed: Vec<UserWorkspace> = ts.client.get("/users/me/workspaces").await.ok_json();
+    let (listed, _own) = crate::own_space::workspaces_and_own(&ts.client).await;
     let found: Vec<(&str, &str)> = listed
         .iter()
         .map(|workspace| (workspace.id.as_str(), workspace.name.as_str()))
@@ -477,7 +479,7 @@ async fn a_workspace_the_user_is_not_in_answers_as_one_that_is_not_there() {
         .await;
     assert_eq!(said(&hidden), said(&absent), "POST /w/<id>/categories");
     hidden.check_error(reqwest::StatusCode::NOT_FOUND, "workspace not found");
-    let listed: Vec<UserWorkspace> = ts.client.get("/users/me/workspaces").await.ok_json();
+    let (listed, _own) = crate::own_space::workspaces_and_own(&ts.client).await;
     let listed: Vec<&str> = listed
         .iter()
         .map(|workspace| workspace.id.as_str())

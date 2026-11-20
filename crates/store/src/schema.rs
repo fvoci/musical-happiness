@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 46] = [
+const STEPS: [Step; 47] = [
     Step {
         version: 1,
         description: "baseline",
@@ -315,6 +315,12 @@ const STEPS: [Step; 46] = [
         description: "welcomed accounts",
         sqlite: include_str!("../schema/sqlite/0048_welcomed_accounts.sql"),
         postgres: include_str!("../schema/postgres/0048_welcomed_accounts.sql"),
+    },
+    Step {
+        version: 50,
+        description: "personal organizations",
+        sqlite: include_str!("../schema/sqlite/0050_personal_organizations.sql"),
+        postgres: include_str!("../schema/postgres/0050_personal_organizations.sql"),
     },
 ];
 

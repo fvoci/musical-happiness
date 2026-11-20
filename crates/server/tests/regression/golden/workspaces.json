@@ -20,6 +20,14 @@
         "orgId": "<id:2>",
         "role": "member",
         "ssoRequired": false
+      },
+      {
+        "id": "<id:4>",
+        "kind": "personal",
+        "name": "",
+        "orgId": "<id:5>",
+        "role": "admin",
+        "ssoRequired": false
       }
     ]
   },
@@ -84,7 +92,7 @@
         "deleteAt": 0,
         "displayName": "",
         "firstName": "",
-        "id": "<id:4>",
+        "id": "<id:6>",
         "isAdmin": false,
         "lastName": "",
         "latinFirstName": "",
@@ -116,7 +124,7 @@
         "deleteAt": 0,
         "displayName": "",
         "firstName": "",
-        "id": "<id:4>",
+        "id": "<id:6>",
         "isAdmin": false,
         "lastName": "",
         "latinFirstName": "",

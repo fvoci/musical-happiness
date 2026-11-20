@@ -24,7 +24,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 }
 
 fn managing(ws: InWorkspace) -> Result<InWorkspace, AppError> {
-    let ws = ws.require_no_guest()?;
+    let ws = ws.require_people()?;
     if !permissions::allows_in_workspace(ws.actor(), WorkspacePermission::ManageMembers) {
         return Err(AppError::forbidden(
             "only workspace administrators manage teams",
@@ -55,7 +55,7 @@ struct MemberPlace {
 #[utoipa::path(get, path = "/w/{workspaceId}/teams", operation_id = "getTeams", tag = tag::WORKSPACES,
     params(PeopleWorkspaceId), responses((status = 200, description = "Teams.", body = Vec<Team>)))]
 async fn list_teams(ws: InWorkspace) -> ApiResult {
-    let ws = ws.require_no_guest()?;
+    let ws = ws.require_people()?;
     Ok(json_response(&ws.app.teams(&ws.workspace_id).await?))
 }
 
@@ -87,7 +87,7 @@ async fn create_team(ws: InWorkspace, body: Bytes) -> ApiResult {
 #[utoipa::path(get, path = "/w/{workspaceId}/teams/{teamId}", operation_id = "getTeam", tag = tag::WORKSPACES,
     params(PeopleWorkspaceId, TeamId), responses((status = 200, description = "The team.", body = Team)))]
 async fn get_team(ws: InWorkspace, Path(place): Path<TeamPlace>) -> ApiResult {
-    let ws = ws.require_no_guest()?;
+    let ws = ws.require_people()?;
     Ok(json_response(
         &ws.app.team(&ws.workspace_id, &place.team_id).await?,
     ))

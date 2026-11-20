@@ -83,7 +83,7 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
     responses((status = 201, description = "The invitation, with its token.", body = Invitation)),
 )]
 async fn handle_create_invitation(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
-    let ws = ws.require_no_guest()?;
+    let ws = ws.require_people()?;
     let request: NewInvitation = decode_object(&body)?;
     let inviting = match request.role {
         WorkspaceRole::Member => {
@@ -184,7 +184,7 @@ async fn guest_of<'r>(
     responses((status = 200, description = "The invitations.", body = Vec<Invitation>)),
 )]
 async fn handle_get_invitations(ws: InWorkspace) -> ApiResult {
-    let ws = ws.require_no_guest()?;
+    let ws = ws.require_people()?;
     let invitations = ws
         .app
         .invitations(&ws.workspace_id, &ws.session.user_id, ws.actor())
@@ -220,7 +220,7 @@ async fn handle_revoke_invitation(
     ws: InWorkspace,
     Path(place): Path<InvitationPlace>,
 ) -> ApiResult {
-    let ws = ws.require_no_guest()?;
+    let ws = ws.require_people()?;
     ws.app
         .revoke_invitation(
             &ws.workspace_id,
@@ -251,7 +251,7 @@ async fn handle_revoke_invitation(
     responses((status = 200, description = "The workspace.", body = Workspace)),
 )]
 async fn handle_set_guest_invitations(ws: InWorkspace, body: Bytes) -> ApiResult {
-    let ws = ws.require_no_guest()?;
+    let ws = ws.require_people()?;
     let change: GuestInvitationsChange = decode_object(&body)?;
     if !permissions::allows_in_workspace(ws.actor(), WorkspacePermission::SwitchGuestInvitations) {
         return Err(AppError::forbidden(

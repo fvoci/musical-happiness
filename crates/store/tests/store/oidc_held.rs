@@ -346,8 +346,14 @@ async fn a_held_sign_in_is_carried_over_to_a_guests_account() {
         .collect();
     assert_eq!(
         roles,
-        [(test.workspace_id.clone(), WorkspaceRole::Guest)],
-        "still a guest of the one workspace"
+        [
+            (test.workspace_id.clone(), WorkspaceRole::Guest),
+            (
+                common::own_workspace(&test, &guest).await,
+                WorkspaceRole::Admin
+            )
+        ],
+        "still a guest of the one workspace, beside the account's own"
     );
     let identities: Vec<_> = records
         .iter()

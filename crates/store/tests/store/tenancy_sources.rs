@@ -86,13 +86,15 @@ fn the_systems_reach_is_asked_for_in_few_places() {
 /// workspace, the templates (as the system organization), the start (the one
 /// organization of the routes that name no workspace), the housekeeping, the
 /// application's own `scoped`, the erasing of an account (each organization the store
-/// says it has something in), and the documents of bodies edited together, which the
+/// says it has something in), the asking to delete one (the account's own space), and the documents of bodies edited together, which the
 /// server writes to their cards as the organization of each when it starts and stops. All of them are the logic's; no handler names one. A handler that named an organization by what a request
 /// says, past the extractor, would open the wall from the inside.
 #[test]
 fn the_server_names_an_organization_for_a_handle_in_few_places() {
     const NAMING: &str = ".scoped( for_org( Tenant::org( Tenant::Org( .in_organization(";
-    const ALLOWED: [&str; 6] = [
+    const ALLOWED: [&str; 7] = [
+        // The space of the account that asks what goes with it: named by its owner.
+        "app/account_deletion.rs",
         "app/account_erasure.rs",
         "app/housekeeping.rs",
         "app/mod.rs",
@@ -141,8 +143,8 @@ fn few_tests_connect_as_a_superuser() {
         "server/tests/api/table_owner.rs",
         "store/src/testing.rs",
         "store/tests/store/table_owner.rs",
-        "store/tests/store/tenancy_tables.rs",
         "store/tests/store/tenancy_sources.rs",
+        "store/tests/store/tenancy_tables.rs",
     ];
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

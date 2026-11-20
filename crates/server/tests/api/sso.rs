@@ -152,7 +152,9 @@ async fn an_organization_that_takes_no_password_opens_for_its_providers_sessions
         }
         client.get("/users/me").await.check_ok();
         client.get("/users/me/settings").await.check_ok();
-        let listed: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
+        // The user's own space, which no organization closes, is checked to ask
+        // for no provider where it is listed.
+        let (listed, _own) = crate::own_space::workspaces_and_own(client).await;
         assert!(!listed.is_empty(), "the workspaces are listed all the same");
         assert!(closed(&listed).iter().all(|closed| *closed), "{listed:?}");
         assert!(listed.iter().all(|workspace| workspace.org_id == org_id));
@@ -1046,7 +1048,7 @@ async fn who_has_no_place_in_the_organization_learns_nothing_of_its_wall() {
             .all(|(status, _)| *status == StatusCode::NOT_FOUND),
         "{after:?}"
     );
-    let listed: Vec<UserWorkspace> = outsider.get("/users/me/workspaces").await.ok_json();
+    let (listed, _own) = crate::own_space::workspaces_and_own(&outsider).await;
     assert_eq!(
         listed
             .iter()
@@ -1196,7 +1198,7 @@ async fn a_guest_signs_in_through_the_provider_as_a_guest() {
         let through = through_provider(&ts, &fake, &org_id, "guest").await;
         assert_eq!(through.me().await.id, guest_id, "autoJoin {auto_join}");
         through.get(&on_the_board).await.check_ok();
-        let workspaces: Vec<UserWorkspace> = through.get("/users/me/workspaces").await.ok_json();
+        let (workspaces, _own) = crate::own_space::workspaces_and_own(&through).await;
         assert_eq!(
             workspaces
                 .iter()

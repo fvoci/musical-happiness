@@ -470,9 +470,12 @@ async fn what_two_organizations_store_stays_apart_in_every_table() {
             );
         }
         assert_eq!(count(&unset).await, 0, "{table}: no organization named");
+        // What is of neither is of the system or of the own space of an account,
+        // which the handle of that space reaches and no other.
+        let of_spaces = common::rows_of_own_spaces(ours, table).await;
         assert_eq!(
             count(&test.system()).await,
-            our_rows + their_rows + count(&system_org).await,
+            our_rows + their_rows + count(&system_org).await + of_spaces,
             "{table}: the system's handle reaches all, and nothing is nobody's"
         );
     }

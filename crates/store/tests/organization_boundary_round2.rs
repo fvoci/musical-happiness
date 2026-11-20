@@ -667,6 +667,8 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             ("organizations", "(id)"),
             // One system organization over them all.
             ("organizations", "(is_system) WHERE is_system"),
+            // One space for an account over them all: an account is the server's.
+            ("organizations", "(owner_id) WHERE (owner_id IS NOT NULL)"),
             ("sharing", "(container_id)"),
             // A secret the server makes.
             ("sharing", "(token)"),
@@ -687,6 +689,12 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             (
                 "category_containers".to_owned(),
                 "category_containers_container_of_its_organization".to_owned()
+            ),
+            // No key says a row stays what it was: an organization keeps its kind and
+            // the account whose space it is (0050).
+            (
+                "organizations".to_owned(),
+                "organizations_keep_their_kind".to_owned()
             ),
             (
                 "uploads".to_owned(),

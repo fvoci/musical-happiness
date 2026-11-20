@@ -4,7 +4,8 @@
 //! Whoever signs up with the name of an organization, whoever accepts an invitation without an
 //! account, and whoever a provider vouches for the first time all get their account
 //! here (`insert_account`) and are let in here (`join_organization`,
-//! `join_workspace`).
+//! `join_workspace`). An account's own space is made with its row, in the same
+//! transaction: no account is without one.
 
 use fvoci_model::{OrgRole, User, Workspace, WorkspaceRole, new_id};
 
@@ -192,7 +193,8 @@ async fn become_first(scope: &mut Scope<'_>) -> Result<InstanceRole, StoreError>
 /// Stores the row of a new account: `user` with the current time as creation and
 /// modification time, not deleted, and an administrator of the instance if `role` says
 /// so, whatever the caller put there. Of its other members the identifier, the names, the
-/// email address and the password hash are stored.
+/// email address and the password hash are stored. And the account's own space
+/// ([`make_own_space`]), whatever organization the scope reaches.
 ///
 /// # Errors
 ///
@@ -215,7 +217,35 @@ pub(crate) async fn insert_account(
     user.delete_at = 0;
     user.is_admin = role == InstanceRole::Administrator;
     user.display_name = user.name.shown();
-    users::insert_user_row(scope, user).await
+    users::insert_user_row(scope, user).await?;
+    make_own_space(scope, &user.id).await
+}
+
+/// Makes the space of the account `user_id`, whose row this transaction stored: an
+/// organization of the kind `personal` and its one workspace, neither with a name,
+/// and the account the administrator of both, as who owns them. The workspace invites
+/// no guests. One account owns one organization, which the schema holds.
+///
+/// The space is another organization than the one the scope reaches (the one the
+/// account signs up for, is invited into or signs in to): it is stored as itself
+/// ([`Scope::as_new_organization`]), and nothing of it is the scope's organization's.
+async fn make_own_space(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
+    let org_id = new_id();
+    let workspace = Workspace {
+        id: new_id(),
+        guest_invitations: false,
+        ..Workspace::default()
+    };
+    scope
+        .as_new_organization(&org_id, async |scope| {
+            let org = scope.org()?;
+            workspaces::insert_own_space(scope, org, user_id, &workspace).await?;
+            join_organization(scope, user_id, OrgRole::Admin).await?;
+            let which = Which::Workspace(&workspace.id);
+            join_workspace(scope, which, user_id, WorkspaceRole::Admin).await?;
+            Ok(())
+        })
+        .await
 }
 
 /// Removes the registration that waits at `email`, the address the organization's

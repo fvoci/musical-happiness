@@ -226,7 +226,7 @@ impl Tenant {
 
 /// The settings of a PostgreSQL transaction that the policies of the schema read: the
 /// organization whose rows it reaches, and `on` if it reaches those of all.
-const ORG_SETTING: &str = "fvoci.org";
+pub(crate) const ORG_SETTING: &str = "fvoci.org";
 const SYSTEM_SETTING: &str = "fvoci.system";
 
 /// How the connection pool of a [`Store`] stands, as [`Store::pool_status`] reads it.

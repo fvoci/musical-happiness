@@ -288,6 +288,7 @@ crates/store/src/directory.rs | through a team
 crates/server/src/api/users.rs | through a team of its workspace
 crates/server/src/api/users.rs | (`synthetic`, with the team's role in
 crates/server/src/api/users.rs | a guest is in no team
+crates/server/tests/api/own_space.rs | "/teams"
 
 # The signing string of OCI's published example request, which the signature test
 # verifies byte for byte: its instances are named so in Oracle's documentation.
@@ -297,6 +298,7 @@ crates/server/src/app/mail/provider/http_signature.rs | displayName=TeamXInstanc
 # one account (`personal`): the plan of 2026-11-19 names the two, and the contract and
 # the schema carry them.
 crates/model/src/org_kind.rs
+crates/store/schema/*/0050_personal_organizations.sql
 ** | OrgKind::Team
 ** | "kind": "team"
 crates/model/src/organization.rs | `team` for every other

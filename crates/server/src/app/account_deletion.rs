@@ -37,7 +37,16 @@ impl App {
             .store()
             .account_deletion_standing(&session.user_id)
             .await?;
-        let mut organizations = Vec::with_capacity(standing.alone_in.len());
+        let mut organizations = Vec::with_capacity(standing.alone_in.len() + 1);
+        // The account's own space is its owner's to count, whatever session asks: it
+        // takes any, and nobody enters it as an administrator.
+        if let Some(own_space) = standing.own_space {
+            let within = self.in_organization(&own_space.id)?;
+            let own_space = within
+                .store()
+                .leaving_organization(own_space, OrgKind::Personal);
+            organizations.push(own_space.await?);
+        }
         for organization in standing.alone_in {
             let within = match self.enter_org_as_admin(session, &organization.id).await {
                 Ok(within) => within,
@@ -45,7 +54,12 @@ impl App {
                 Err(error) => return Err(error),
             };
             organizations.push(match within {
-                Some(within) => within.store().leaving_organization(organization).await?,
+                Some(within) => {
+                    let store = within.store();
+                    store
+                        .leaving_organization(organization, OrgKind::Team)
+                        .await?
+                }
                 None => LeavingOrganization::closed(organization, OrgKind::Team),
             });
         }

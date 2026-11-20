@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use fvoci_model::{
-    Container, ContainerKind, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole,
+    Container, ContainerKind, OrgKind, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole,
 };
 use fvoci_store::{PublicContainers, Tenant};
 
@@ -25,12 +25,16 @@ pub struct Entered {
     /// What the user is in the workspace's organization; `None` for somebody who is in
     /// the workspace without belonging to the organization.
     pub org_role: Option<OrgRole>,
+    /// What the workspace's organization is: one that people work in together, or the
+    /// user's own space.
+    pub kind: OrgKind,
 }
 
 impl App {
     /// The same server reaching the rows of the organization `org_id`, for an
     /// administrator of it; `None` for anybody else, and for an organization that is not
-    /// there, not in use or the system's.
+    /// there, not in use or the system's. And for a user's own space, its owner's too:
+    /// nobody administers one (`Store::org_role_of_user`).
     ///
     /// # Errors
     ///
@@ -122,6 +126,7 @@ impl App {
             app,
             role: access.workspace_role,
             org_role: access.org_role,
+            kind: access.kind,
         }))
     }
 

@@ -146,10 +146,16 @@ async fn concurrent_oidc_joins_of_one_account_both_succeed() {
     let (first, second) = tokio::join!(tasks.0, tasks.1);
     let first = first.expect("the first callback task completes");
     let second = second.expect("the second callback task completes");
+    // In the organization: the account is a member of its own space besides.
     let rows = test
-        .count_rows("organization_members")
+        .system()
+        .texts_unchecked(&format!(
+            "SELECT 'in' FROM organization_members WHERE org_id = '{}'",
+            test.org_id
+        ))
         .await
-        .expect("memberships counted");
+        .expect("memberships counted")
+        .len();
     let sessions = test.count_rows("sessions").await.expect("sessions counted");
     test.teardown().await;
 
@@ -440,13 +446,20 @@ async fn the_required_provider_is_told_to_who_has_a_place_in_the_organization() 
     test.teardown().await;
 
     assert_eq!(open.id, provider.id, "the same provider");
-    assert_eq!(while_open, (None, Some(None), vec![false]));
+    // The user's own space is listed last, and asks for no provider ever.
+    assert_eq!(while_open, (None, Some(None), vec![false, false]));
     let ours = Some(provider.id.clone());
     assert_eq!(told, [ours.clone(), ours.clone(), None]);
     assert_eq!(at_the_door, [Some(ours.clone()), Some(ours), None]);
     assert_eq!(
         lists,
-        [vec![true], vec![false], vec![true], vec![true], vec![]]
+        [
+            vec![true, false],
+            vec![false, false],
+            vec![true, false],
+            vec![true, false],
+            vec![false]
+        ]
     );
     assert_eq!(elsewhere, None, "an organization that is not there");
 }

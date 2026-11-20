@@ -200,7 +200,8 @@ impl Store {
                 if !mark(scope, user_id, now, erasing).await? {
                     return Ok(ErasureStart::Waits);
                 }
-                for organization in &standing.alone_in {
+                // The account's own space goes with it whoever is in it.
+                for organization in standing.alone_in.iter().chain(&standing.own_space) {
                     put_out_of_use(scope, &organization.id, now).await?;
                 }
                 Ok(ErasureStart::Begun)
@@ -209,8 +210,8 @@ impl Store {
     }
 
     /// The organizations an account has something in, by identifier: those it is a
-    /// member of, those it is in a workspace or on a board of, and those it made a link
-    /// into.
+    /// member of, those it is in a workspace or on a board of, those it made a link
+    /// into, and its own space, whoever is a member of that.
     ///
     /// # Errors
     ///
@@ -237,6 +238,10 @@ impl Store {
                         " UNION SELECT org_id FROM invitations WHERE created_by = ",
                         Id(user_id),
                     )
+                    .push_bind(
+                        " UNION SELECT id FROM organizations WHERE owner_id = ",
+                        Id(user_id),
+                    )
                     .push(" ORDER BY 1");
                 scope
                     .fetch_all(sql)
@@ -252,9 +257,10 @@ impl Store {
     /// server's own doing where its wait ran out, its operator's where they said so,
     /// and recorded as that.
     ///
-    /// An organization that was put out of use for this account, its only person and
-    /// its administrator, and still has nobody else, goes with everything in it, as a
-    /// workspace removed for good goes ([`Store::purge_workspace`]): its files are
+    /// The account's own space goes with everything in it, in use or not and whoever
+    /// is in it. An organization that was put out of use for this account, its only
+    /// person and its administrator, and still has nobody else, goes the same way, as
+    /// a workspace removed for good goes ([`Store::purge_workspace`]): its files are
     /// doomed. One put out of use for another account, in which this one has something
     /// left, is that account's to take along or to keep. Otherwise the account leaves
     /// each workspace of the organization, in use or in the trash, with its roles on
@@ -289,6 +295,10 @@ impl Store {
             }
             let org_id = scope.org_id().ok_or(StoreError::NoOrganization)?;
             let mut erased = ErasedFrom::default();
+            if is_own_space_of(scope, user_id).await? {
+                erased.removed = Some(remove_organization(scope).await?);
+                return Ok(erased);
+            }
             if is_out_of_use(scope).await? && administers_organization(scope, user_id).await? {
                 if !account_deletion::has_other_people(scope, &org_id, user_id).await? {
                     erased.removed = Some(remove_organization(scope).await?);
@@ -489,6 +499,14 @@ async fn is_being_erased(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, S
     let mut sql =
         scope.sql("SELECT 1 FROM users WHERE erase_started_at > 0 AND erased_at = 0 AND id = ");
     sql.bind(Id(user_id));
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
+/// Whether the scope's organization is the user's own space.
+async fn is_own_space_of(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT 1 FROM organizations WHERE id = ");
+    sql.bind(scope.org()?)
+        .push_bind(" AND owner_id = ", Id(user_id));
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 

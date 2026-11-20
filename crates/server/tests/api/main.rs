@@ -88,6 +88,7 @@ mod onboarding;
 mod org_admin;
 mod org_admin_review;
 mod organizations;
+mod own_space;
 mod page_comments;
 mod page_copies;
 mod page_moves;

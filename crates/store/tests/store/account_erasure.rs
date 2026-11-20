@@ -76,7 +76,8 @@ const KEEPS_THE_IDENTIFIER: [&str; 16] = [
 async fn set_org_role(store: &Store, user_id: &str, role: OrgRole) {
     store
         .execute_unchecked(&format!(
-            "UPDATE organization_members SET role = '{}' WHERE user_id = '{user_id}'",
+            "UPDATE organization_members SET role = '{}' WHERE user_id = '{user_id}' \
+             AND org_id IN (SELECT id FROM organizations WHERE owner_id IS NULL)",
             role.as_str()
         ))
         .await
@@ -1244,8 +1245,14 @@ async fn alone_in_an_organization(test: &TestStore) -> Alone {
             format!("UPDATE users SET is_admin = false WHERE id = '{leaver}'"),
             format!("UPDATE organization_members SET role = 'admin' WHERE user_id = '{leaver}'"),
             format!("UPDATE workspace_members SET role = 'admin' WHERE user_id = '{leaver}'"),
-            format!("DELETE FROM workspace_members WHERE user_id = '{operator}'"),
-            format!("DELETE FROM organization_members WHERE user_id = '{operator}'"),
+            format!(
+                "DELETE FROM workspace_members WHERE user_id = '{operator}' \
+                 AND workspace_id = '{alone_workspace}'"
+            ),
+            format!(
+                "DELETE FROM organization_members WHERE user_id = '{operator}' \
+                 AND org_id = '{alone}'"
+            ),
         ] {
             system.execute_unchecked(&statement).await.expect("set");
         }
@@ -1422,7 +1429,7 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
     assert_eq!(goes[0].id, alone, "{standing:?}");
     assert!(stays.is_empty(), "{standing:?}");
     let counted = alone_store
-        .leaving_organization(goes[0].clone())
+        .leaving_organization(goes[0].clone(), fvoci_model::OrgKind::Team)
         .await
         .expect("counted");
     assert_eq!(
@@ -1447,8 +1454,12 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
         .iter()
         .filter(|from| from.removed.is_some())
         .collect();
-    assert_eq!(removed.len(), 1, "one organization went: {erased:?}");
-    let files = &removed[0].removed.as_ref().expect("removed").files;
+    // The organization, and the leaver's own space, which holds nothing.
+    assert_eq!(removed.len(), 2, "two organizations went: {erased:?}");
+    let files: Vec<_> = removed
+        .iter()
+        .flat_map(|from| &from.removed.as_ref().expect("removed").files)
+        .collect();
     assert_eq!(files.len(), 1, "its file is doomed: {files:?}");
     assert_eq!(
         holding(&system, &alone).await,
@@ -1456,11 +1467,17 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
         "nothing names the organization but what the storage is to be told"
     );
     for table in HELD_BY_AN_ORGANIZATION {
-        // SQLite holds the system's organization too, which has a workspace.
-        let systems = i64::from(!several && table == "workspaces");
+        // SQLite holds the system's organization too, which has a workspace, and
+        // the space of the operator, who is in it and in its workspace. The leaver's
+        // own space went with the account.
+        let others = match (several, table) {
+            (false, "workspaces") => 2,
+            (false, "organization_members" | "workspace_members") => 1,
+            _ => 0,
+        };
         assert_eq!(
             alone_store.count_rows(table).await.expect("counted"),
-            systems,
+            others,
             "{table} holds nothing of it afterwards"
         );
     }
@@ -1649,7 +1666,8 @@ async fn the_instances_own_organization_does_not_go_with_an_account() {
     let in_use = system
         .texts_unchecked(
             "SELECT CAST(id AS TEXT) FROM organizations \
-             WHERE delete_at = 0 AND is_system = false ORDER BY create_at, id",
+             WHERE delete_at = 0 AND is_system = false AND owner_id IS NULL \
+             ORDER BY create_at, id",
         )
         .await
         .expect("read");
@@ -1700,10 +1718,14 @@ async fn an_organization_goes_with_the_account_it_was_put_out_of_use_for() {
 
     let of_other = erase(&test, &other, Erasing::AtOnce, T0 + 1).await;
 
+    // The other's own space goes with the other, and holds nothing.
+    let gone: Vec<_> = of_other
+        .iter()
+        .filter_map(|from| from.removed.as_ref())
+        .collect();
     assert!(
-        of_other
-            .iter()
-            .all(|from| from.removed.is_none() && !from.kept_for_newcomer),
+        matches!(gone[..], [own] if own.files.is_empty())
+            && of_other.iter().all(|from| !from.kept_for_newcomer),
         "the other's erasing neither takes the organization nor keeps it: {of_other:?}"
     );
     assert_eq!(count(&system, &out_of_use).await, 1, "still to go");
@@ -1713,8 +1735,9 @@ async fn an_organization_goes_with_the_account_it_was_put_out_of_use_for() {
             .iter()
             .filter(|from| from.removed.is_some())
             .count(),
-        1,
-        "it goes with the account it was put out of use for: {of_leaver:?}"
+        2,
+        "it goes with the account it was put out of use for, as the account's own \
+         space does: {of_leaver:?}"
     );
     assert_eq!(
         holding(&system, &org).await,

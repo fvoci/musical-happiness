@@ -1100,8 +1100,8 @@ async fn workspaces() {
     let workspaces = th.client.get("/users/me/workspaces").await.value();
     assert_eq!(
         workspaces.as_array().map(Vec::len),
-        Some(2),
-        "the two workspaces of the test server: {workspaces}"
+        Some(3),
+        "the two workspaces of the test server, and the user's own: {workspaces}"
     );
     assert_eq!(
         workspaces[0]["id"],

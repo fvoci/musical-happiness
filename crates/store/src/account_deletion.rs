@@ -41,6 +41,9 @@ pub struct DeletionStanding {
     /// The organizations in use that have nobody but the account, the instance's own
     /// excepted: they go with it.
     pub alone_in: Vec<OrganizationName>,
+    /// The account's own space, which goes with it always: nothing is asked of who
+    /// else is in it. `None` only for an account whose space is gone already.
+    pub own_space: Option<OrganizationName>,
 }
 
 impl DeletionStanding {
@@ -79,9 +82,9 @@ impl Store {
             .await
     }
 
-    /// How much is in the handle's organization, which goes with its only member: the
-    /// boards and the wikis of its workspaces in use (templates not counted), and the
-    /// files they hold.
+    /// How much is in the handle's organization, of the `kind`, which goes with its
+    /// only member: the boards and the wikis of its workspaces in use (templates not
+    /// counted), and the files they hold.
     ///
     /// # Errors
     ///
@@ -90,6 +93,7 @@ impl Store {
     pub async fn leaving_organization(
         &self,
         organization: OrganizationName,
+        kind: OrgKind,
     ) -> Result<LeavingOrganization, StoreError> {
         self.with_conn(async |scope| {
             let (mut boards, mut wikis) = (0, 0);
@@ -123,7 +127,7 @@ impl Store {
             };
             Ok(LeavingOrganization {
                 id: organization.id,
-                kind: OrgKind::Team,
+                kind,
                 name: organization.name,
                 boards: Some(boards),
                 wikis: Some(wikis),
@@ -268,12 +272,14 @@ pub(crate) async fn standing(
         last_instance_admin: is_last_instance_admin(scope, user_id).await?,
         ..DeletionStanding::default()
     };
+    standing.own_space = own_space(scope, user_id).await?;
     let mut sql = scope.sql(
         "SELECT o.id, o.name FROM organization_members AS m \
          JOIN organizations AS o ON o.id = m.org_id WHERE m.user_id = ",
     );
     sql.bind(Id(user_id))
         .push_bind(" AND m.role = ", OrgRole::Admin.as_str())
+        .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
         .push(" AND o.delete_at = 0 AND o.is_system = false ORDER BY o.id");
     let administered: Vec<OrganizationName> = scope
         .fetch_all(sql)
@@ -308,6 +314,27 @@ pub(crate) async fn standing(
         }
     }
     Ok(standing)
+}
+
+/// The account's own space in use, by who owns it: whatever its members are.
+async fn own_space(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<Option<OrganizationName>, StoreError> {
+    let mut sql = scope.sql("SELECT id, name FROM organizations WHERE owner_id = ");
+    sql.bind(Id(user_id))
+        .push_bind(" AND kind = ", OrgKind::Personal.as_str())
+        .push(" AND delete_at = 0");
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| {
+            Ok(OrganizationName {
+                id: row.id(0)?,
+                name: row.text(1)?,
+            })
+        })
+        .transpose()
 }
 
 /// Whether the account administers the instance and no other account in use does.

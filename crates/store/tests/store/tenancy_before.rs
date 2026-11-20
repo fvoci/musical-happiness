@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use fvoci_model::{OrgRole, User, WorkspaceRole, is_id, new_id};
+use fvoci_model::{OrgKind, OrgRole, User, WorkspaceRole, is_id, new_id};
 use fvoci_store::{DbType, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Store};
 use sqlx::Connection as _;
 
@@ -173,6 +173,19 @@ async fn assert_the_workspaces_are_its_workspaces(
             .workspaces_of_user(before.id(user), None)
             .await
             .expect("the workspaces are listed");
+        // The user's own space, which every account that was there got, is last.
+        let (own, listed) = listed.split_last().expect("the user's own space");
+        assert_eq!(
+            (own.kind, own.role, own.name.as_str()),
+            (OrgKind::Personal, WorkspaceRole::Admin, ""),
+            "{user}"
+        );
+        assert_ne!(own.org_id, org_id, "{user}: an organization of its own");
+        assert_eq!(
+            common::own_space_shape(&unset.system(), before.id(user)).await,
+            common::own_space(),
+            "{user}: as the space made with a new account is"
+        );
         let listed: Vec<(&str, &str, WorkspaceRole)> = listed
             .iter()
             .map(|workspace| {
@@ -213,11 +226,26 @@ async fn assert_the_workspaces_are_its_workspaces(
         .workspaces_of_user(&newcomer.id, None)
         .await
         .expect("the workspaces are listed");
-    let ids: Vec<&str> = listed
+    let ids: Vec<(&str, OrgKind)> = listed
         .iter()
-        .map(|workspace| workspace.id.as_str())
+        .map(|workspace| (workspace.id.as_str(), workspace.kind))
         .collect();
-    assert_eq!(ids, [before.id("older_workspace")], "the default workspace");
+    let own = unset
+        .system()
+        .texts_unchecked(&format!(
+            "SELECT CAST(default_workspace_id AS TEXT) FROM organizations WHERE owner_id = '{}'",
+            newcomer.id
+        ))
+        .await
+        .expect("read");
+    assert_eq!(
+        ids,
+        [
+            (before.id("older_workspace"), OrgKind::Team),
+            (own[0].as_str(), OrgKind::Personal)
+        ],
+        "the default workspace, and the one of the space made with the account"
+    );
 }
 
 /// The built-in template is the system organization's and is still read by ours; the
@@ -333,9 +361,11 @@ async fn assert_every_row_is_behind_the_wall(unset: &Store, ours: &Store) {
             of_the_system,
             "{table}: the system's"
         );
+        // Besides what was there, the own space of each account, behind its wall.
+        let of_spaces = common::rows_of_own_spaces(unset, table).await;
         assert_eq!(
             count(&unset.system()).await,
-            of_ours + of_the_system,
+            of_ours + of_the_system + of_spaces,
             "{table}: all"
         );
         assert_eq!(count(unset).await, 0, "{table}: no organization named");
@@ -421,16 +451,15 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
     let unset = Store::connect(database.db_type(), database.database_connection())
         .await
         .expect("the store migrates the database");
-    // One organization, and the system's.
-    assert_eq!(
-        unset
-            .system()
-            .count_rows("organizations")
-            .await
-            .expect("counted"),
-        2,
-        "the organization and the system's"
-    );
+    // One organization, and the system's; and the space of each of the three users.
+    let kinds = unset
+        .system()
+        .texts_unchecked("SELECT kind FROM organizations ORDER BY kind")
+        .await
+        .expect("read");
+    let own = OrgKind::Personal.as_str();
+    let shared = OrgKind::Team.as_str();
+    assert_eq!(kinds, [own, own, own, shared, shared]);
     let org_id = unset
         .instance_organization()
         .await
@@ -450,8 +479,8 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
             .count_rows("workspaces")
             .await
             .expect("counted"),
-        2,
-        "the workspace and the system's"
+        5,
+        "the workspace, the system's, and that of each user's own space"
     );
     // Every user is a member of the organization and of the workspace.
     for (user, org_role, role) in [
@@ -474,7 +503,12 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
             .workspaces_of_user(user, None)
             .await
             .expect("the workspaces are listed");
-        assert_eq!(listed.len(), 1, "one workspace: {listed:?}");
+        let kinds: Vec<OrgKind> = listed.iter().map(|workspace| workspace.kind).collect();
+        assert_eq!(
+            kinds,
+            [OrgKind::Team, OrgKind::Personal],
+            "one workspace, and the one of the user's own space: {listed:?}"
+        );
     }
     assert_eq!(
         unset
@@ -482,8 +516,8 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
             .count_rows("organization_members")
             .await
             .expect("counted"),
-        3,
-        "the three users, and nobody else"
+        6,
+        "the three users, each in their own space besides, and nobody else"
     );
     assert_eq!(
         unset
@@ -491,8 +525,8 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
             .count_rows("workspace_members")
             .await
             .expect("counted"),
-        3,
-        "the three users, in the one workspace"
+        6,
+        "the three users, in the one workspace and in their own"
     );
 
     unset.close().await;

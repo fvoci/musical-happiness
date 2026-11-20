@@ -109,7 +109,8 @@ async fn of_registrations_that_arrive_at_once_one_starts_the_organization() {
         1,
         "nobody else has an account"
     );
-    for (table, rows) in [("organization_members", 1), ("workspace_members", 1)] {
+    // In the organization and in their own space, which nobody else got either.
+    for (table, rows) in [("organization_members", 2), ("workspace_members", 2)] {
         assert_eq!(
             th.app
                 .store()

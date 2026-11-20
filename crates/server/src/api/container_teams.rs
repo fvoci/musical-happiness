@@ -42,7 +42,7 @@ struct TeamPlace {
     params(PeopleWorkspaceId, ContainerId),
     responses((status = 200, description = "Assigned teams.", body = Vec<ContainerTeam>)))]
 async fn list(InContainer(ws): InContainer, Path(place): Path<ContainerPlace>) -> ApiResult {
-    let ws = ws.require_no_guest()?;
+    let ws = ws.require_people()?;
     require_container_permission(
         &ws.app,
         &ws.session.user_id,
@@ -71,7 +71,7 @@ async fn assign(
     Path(place): Path<TeamPlace>,
     body: Bytes,
 ) -> ApiResult {
-    let ws = ws.require_no_guest()?;
+    let ws = ws.require_people()?;
     require_container_permission(
         &ws.app,
         &ws.session.user_id,
@@ -101,7 +101,7 @@ async fn assign(
 #[utoipa::path(delete, path = "/w/{workspaceId}/containers/{containerId}/teams/{teamId}", operation_id = "removeContainerTeam", tag = tag::MEMBERS,
     params(PeopleWorkspaceId, ContainerId, TeamId), responses((status = 204, description = "The team has no role on this board.")))]
 async fn remove(InContainer(ws): InContainer, Path(place): Path<TeamPlace>) -> ApiResult {
-    let ws = ws.require_no_guest()?;
+    let ws = ws.require_people()?;
     require_container_permission(
         &ws.app,
         &ws.session.user_id,
