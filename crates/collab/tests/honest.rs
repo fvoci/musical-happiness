@@ -9,7 +9,8 @@ mod support;
 use std::time::{Duration, Instant};
 
 use fvoci_collab::{
-    BodyDoc, MAX_CLIENT_CHANGES, READING_STEPS, client_changes, reading_steps, take_update,
+    BodyDoc, MAX_CLIENT_CHANGES, READING_STEPS, client_changes, reading_steps, steps_ahead,
+    take_update,
 };
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_NODES};
 use support::body_of;
@@ -38,6 +39,14 @@ fn the_bodies_of_the_most_changes_fit_a_document() {
         );
         let steps = reading_steps(&state, READING_STEPS).expect("a state made here");
         assert_eq!(steps, 0, "{between:?}: steps to read it");
+        // Nor made again each time it is closed (`OpenDoc::worn`, an eighth): one
+        // more client may leave it with each of its changes looked at once.
+        let ahead = steps_ahead(&state).expect("a state made here");
+        println!("{between:?}: {ahead} steps ahead");
+        assert!(
+            ahead * 16 < READING_STEPS,
+            "{between:?}: {ahead} steps one more client may leave it with"
+        );
     }
 }
 
@@ -97,6 +106,14 @@ fn what_editors_send_to_the_largest_documents_is_taken() {
                 "{name}, {}: {} steps to read it",
                 edit.name,
                 taken.reading_steps
+            );
+            // And from where a document is made again as it is closed (an eighth of
+            // them, by what one more client may leave it with).
+            assert!(
+                taken.steps_ahead * 8 < READING_STEPS,
+                "{name}, {}: {} steps ahead",
+                edit.name,
+                taken.steps_ahead
             );
         }
     }

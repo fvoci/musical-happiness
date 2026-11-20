@@ -34,7 +34,8 @@ impl Collab {
         detached
     }
 
-    /// A normal last departure writes the body and folds the log; a deletion already
+    /// A normal last departure writes the body and folds the log, or makes the
+    /// document again from the body if many sessions wrote it; a deletion already
     /// wrote it. Check after the document gate, since deletion can pass a close
     /// waiting for it.
     pub(in crate::collab) async fn close_room_document(
@@ -52,6 +53,7 @@ impl Collab {
                     let written = collab.write_now(&app, &card_id, &mut slot).await;
                     if written.is_ok() {
                         collab.version_as_left(&app, &card_id, &mut slot).await;
+                        collab.remake_worn(&app, &card_id, &mut slot).await;
                     }
                     collab.fold_as_it_closes(&app, &card_id, &mut slot).await;
                     collab.forget(&mut slot).await;

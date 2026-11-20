@@ -91,6 +91,9 @@ pub(crate) struct Read {
     /// The steps the library takes to read it: counted exactly up to the count asked
     /// for, and past it no further than is needed to know that it is past.
     pub(crate) steps: u64,
+    /// The most steps its reading may take once one more client has written into it
+    /// ([`Replay::ahead`]).
+    pub(crate) ahead: u64,
     /// Where each client's changes end in it, by the lengths counted here.
     pub(crate) ends: Vec<Id>,
 }
@@ -110,6 +113,7 @@ pub(crate) fn count(state: &[u8], stop_past: u64) -> Result<Read, Refusal> {
     Ok(Read {
         walked,
         steps: replay.steps(),
+        ahead: replay.ahead(),
         ends: replay.ends(),
     })
 }
@@ -455,11 +459,49 @@ impl<'bytes> Replay<'bytes> {
 
     /// The steps counted so far.
     fn steps(&self) -> u64 {
+        self.steps_with(self.looked)
+    }
+
+    /// The steps counted so far, had `looked` entries of the stack been looked through.
+    fn steps_with(&self, looked: u64) -> u64 {
         self.walked
-            .saturating_add(self.looked.div_ceil(LOOKED_PER_STEP))
+            .saturating_add(looked.div_ceil(LOOKED_PER_STEP))
             .saturating_add(self.moved.div_ceil(MOVED_PER_STEP))
             .saturating_add(self.copied.div_ceil(PLACES_PER_STEP))
             .saturating_add(self.emptied.div_ceil(EMPTIED_PER_STEP))
+    }
+
+    /// How many changes the reading takes (a change cut into pieces is one), and how
+    /// many clients have any.
+    fn sizes(&self) -> (u64, u64) {
+        let changes = self.pieces.iter().filter(|piece| !piece.continues).count();
+        let clients = self.runs.iter().filter(|run| !run.is_empty()).count();
+        (u64::from(small(changes)), u64::from(small(clients)))
+    }
+
+    /// The most steps the reading of the changes the state has may take once one more
+    /// client is read before the others: the steps counted, with the stack looked
+    /// through as often as it can be, each change once for each client.
+    ///
+    /// Every round of the reading ([`Self::run`]) takes one change, after it took at
+    /// most one off the stack. A round may put several on it and a change may be put
+    /// on it more than once, but each time one is put on it, it is taken off in a
+    /// later round, of which there are as many as changes: no more are put on it, all
+    /// told, than there are changes. It holds one change of a client at the most, and
+    /// none of the client waited for, so each is put on a stack of fewer changes than
+    /// there are clients; with one more client, of as many as there are now. Which
+    /// changes wait is a matter of which client is read first, the one of the highest
+    /// identifier, and a client draws its identifier by chance: a document read in few
+    /// steps is read in these if the next client's is the highest and it wrote after
+    /// the last of a line of clients that each wrote after the one before.
+    ///
+    /// Not in it is what that client, or any later update, adds to the changes: each
+    /// change it writes, and each change it cuts in two by writing or deleting inside
+    /// it (the state stored after it has them cut), is one more to look at for each
+    /// client.
+    fn ahead(&self) -> u64 {
+        let (changes, clients) = self.sizes();
+        self.steps_with(changes.saturating_mul(clients))
     }
 
     /// Where each client's changes end.
@@ -877,6 +919,16 @@ fn unpack(id: u64) -> (u32, u32) {
         u32::try_from(id >> 32).unwrap_or(NONE),
         u32::try_from(id & 0xffff_ffff).unwrap_or(u32::MAX),
     )
+}
+
+/// How many entries of the stack of waiting changes the reading of a state looks
+/// through, counted to the end, with how many changes and clients the state has: no
+/// more than each change once for each client but one ([`Replay::ahead`]).
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) fn looked(state: &[u8]) -> Result<(u64, (u64, u64)), Refusal> {
+    let (_, mut replay) = Replay::read(state)?;
+    replay.run(u64::MAX)?;
+    Ok((replay.looked, replay.sizes()))
 }
 
 /// The steps the library takes to read a state, counted to the end, and the lists the

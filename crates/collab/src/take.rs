@@ -30,6 +30,9 @@ pub struct Taken {
     /// The steps the Y library takes to read `doc` from its state
     /// ([`UpdateLimits::reading_steps`]); 0 where the limits have no count of them.
     pub reading_steps: u64,
+    /// The most steps the library may take to read `doc` once one more client has
+    /// written into it ([`crate::steps_ahead`]); 0 where the limits have no count.
+    pub steps_ahead: u64,
 }
 
 /// Why an update, or a stored state, is not taken. The document it was given for is as
@@ -96,8 +99,9 @@ pub enum TakeError {
 /// in it, so that near [`UpdateLimits::reading_steps`] updates are refused with
 /// [`UpdateError::TooManyReadingSteps`]. What holds the document then makes
 /// it again from its body ([`crate::from_body`]), which starts without what was
-/// deleted and is read in no such steps ([`Taken::reading_steps`] tells it how near
-/// the document is), and has the editors that hold the old one load the new one: an update made
+/// deleted and is read in no such steps ([`Taken::steps_ahead`] tells it how near
+/// the document may be after one more client wrote, so that it is made again before
+/// an update is refused), and has the editors that hold the old one load the new one: an update made
 /// against the old document is refused by the new one
 /// ([`UpdateError::MissingChanges`]).
 pub fn take_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeError> {
@@ -167,6 +171,7 @@ fn to_taken(with: Settled, limits: &UpdateLimits) -> Result<Taken, TakeError> {
         state_bytes: settled.state_bytes,
         client_changes: settled.client_changes,
         reading_steps: settled.reading_steps,
+        steps_ahead: settled.steps_ahead,
     })
 }
 
