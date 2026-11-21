@@ -1,14 +1,18 @@
 /** The files that make the built Storybook a public site (tools/storybook/site.ts). */
-import { describe, expect, it } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { scriptHash } from '../../tools/build/inline-scripts.ts';
 import {
   REDIRECTS,
-  ROBOTS,
   headersFile,
   pageScriptHashes,
   storybookPolicy,
   unhashedAssets,
+  writeSite,
 } from '../../tools/storybook/site.ts';
 
 /** The header lines of a `_headers` block: the indented lines after the line that is the path. */
@@ -58,13 +62,37 @@ describe('the headers of the public Storybook', () => {
   });
 });
 
-describe('the other files of the site', () => {
-  it('answer `/` with the manager without a redirect', () => {
-    expect(REDIRECTS).toBe('/ /index.html 200\n');
+describe('a built Storybook made a site', () => {
+  let folder: string;
+  beforeEach(() => {
+    folder = mkdtempSync(path.join(tmpdir(), 'storybook-site-'));
+    mkdirSync(path.join(folder, 'assets', 'nested'), { recursive: true });
+    writeFileSync(path.join(folder, 'assets', 'iframe-DKX11vrD.js'), '');
+    writeFileSync(path.join(folder, 'index.html'), '<script>window.A = 1;</script>');
+    writeFileSync(path.join(folder, 'iframe.html'), '<script>window.B = 2;</script>');
+  });
+  afterEach(() => {
+    rmSync(folder, { recursive: true, force: true });
   });
 
-  it('ask every crawler to stay away', () => {
-    expect(ROBOTS).toBe('User-agent: *\nDisallow: /\n');
+  const read = (name: string) => readFileSync(path.join(folder, name), 'utf8');
+
+  it('gets the headers with the hashes of both pages, `/` as the manager, and a robots.txt', () => {
+    writeSite(folder);
+    expect(read('_headers')).toBe(
+      headersFile([scriptHash('window.A = 1;'), scriptHash('window.B = 2;')]),
+    );
+    expect(read('_redirects')).toBe(REDIRECTS);
+    expect(REDIRECTS).toBe('/ /index.html 200\n');
+    expect(read('robots.txt')).toBe('User-agent: *\nDisallow: /\n');
+  });
+
+  it('is refused when a file under assets/, at any depth, has no hash', () => {
+    writeFileSync(path.join(folder, 'assets', 'nested', 'logo.svg'), '');
+    expect(() => {
+      writeSite(folder);
+    }).toThrow(/nested\/logo\.svg/);
+    expect(existsSync(path.join(folder, '_headers'))).toBe(false);
   });
 });
 

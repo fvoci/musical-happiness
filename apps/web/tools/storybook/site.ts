@@ -107,8 +107,16 @@ export function pageScriptHashes(pages: readonly string[]): string[] {
   return [...new Set(pages.flatMap((html) => inlineScripts(html).map(scriptHash)))];
 }
 
-function writeSite(folder: string): void {
-  const unhashed = unhashedAssets(readdirSync(path.join(folder, 'assets')));
+/** The files under a folder, at any depth, by their paths from it. */
+function filesUnder(folder: string): string[] {
+  return readdirSync(folder, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.relative(folder, path.join(entry.parentPath, entry.name)));
+}
+
+/** Writes the three files into the built Storybook in `folder`. */
+export function writeSite(folder: string): void {
+  const unhashed = unhashedAssets(filesUnder(path.join(folder, 'assets')));
   if (unhashed.length > 0) {
     throw new Error(`assets/ has files without a hash in their name: ${unhashed.join(', ')}`);
   }
