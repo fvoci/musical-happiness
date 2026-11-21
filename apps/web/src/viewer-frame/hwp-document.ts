@@ -1,7 +1,8 @@
 /**
  * What the HWP renderer's worker does (hwp-worker.ts), apart from the
  * worker so that it can be tried in Node: checks a file, opens it with rhwp,
- * and draws its pages one at a time.
+ * and draws its pages one at a time; for the editor's frame, it also counts
+ * the controls of the file opened, and the pages it lays out on once saved.
  *
  * Before rhwp reads a file it is checked: an archive (HWPX) is unpacked,
  * counted and written anew (zip-guard.ts), and what rhwp parses of it as XML
@@ -17,8 +18,9 @@ import { UNPACKED_LIMIT_BYTES } from '$lib/file-viewer/formats.ts';
 import { PAGE_LIMIT } from '$lib/file-viewer/protocol.ts';
 
 import { checkCompound } from './compound-guard.ts';
+import { tallyControls } from './hwp-controls.ts';
 import { checkHwpxPackage } from './hwpx-package.ts';
-import type { FromWorker, PageSize, TextRun, ToWorker } from './hwp-messages.ts';
+import type { FromWorker, HwpFormat, PageSize, TextRun, ToWorker } from './hwp-messages.ts';
 import { LockedFile, TooLargeFile, UnreadableFile } from './renderer.ts';
 import { repack } from './zip-guard.ts';
 
@@ -115,6 +117,7 @@ export interface ReaderLimits {
 /** The worker's document: opened once, then drawn a page at a time. */
 export class HwpReader {
   #document: HwpDocument | undefined;
+  #format: HwpFormat = 'hwp';
   readonly #limits: Required<ReaderLimits>;
 
   constructor(limits: ReaderLimits = {}) {
@@ -137,6 +140,7 @@ export class HwpReader {
       throw openFailure(error);
     }
     this.#document = document;
+    this.#format = message.format;
     const count = document.pageCount();
     if (!Number.isInteger(count) || count < 1 || count > PAGE_LIMIT) throw new UnreadableFile();
     const pages = Array.from({ length: count }, (_, index) => pageSize(document, index));
@@ -146,6 +150,51 @@ export class HwpReader {
   /** The file checked, for the editor to read: rhwp is not started here. */
   async check(message: Extract<ToWorker, { kind: 'check' }>): Promise<FromWorker> {
     return { kind: 'checked', bytes: await checked(message, this.#limits.unpacked) };
+  }
+
+  /** How many controls of each kind the document opened holds. */
+  controls(): FromWorker {
+    const document = this.#document;
+    if (!document) throw new Error('no document is open');
+    return { kind: 'controls', controls: tallyControls(JSON.parse(document.getControls())) };
+  }
+
+  /**
+   * The pages the document opened lays out on, and the pages its saved file
+   * lays out on, saved as the editor saves it (rhwp's export) and read back
+   * as `open` reads a file: checked, then opened. The saved file takes the
+   * document's place, which is let go of first: what is asked after is asked
+   * of the saved file.
+   */
+  async resaved(): Promise<FromWorker> {
+    const document = this.#document;
+    if (!document) throw new Error('no document is open');
+    const pages = document.pageCount();
+    const exported =
+      this.#format === 'hwp' ? document.exportHwpWithReport() : document.exportHwpxWithReport();
+    let bytes: Uint8Array;
+    try {
+      bytes = exported.takeBytes();
+    } finally {
+      exported.free();
+    }
+    this.#document = undefined;
+    document.free();
+    const copy = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(copy).set(bytes);
+    const file = await checked(
+      { kind: 'check', format: this.#format, bytes: copy },
+      this.#limits.unpacked,
+    );
+    try {
+      this.#document = new HwpDocument(new Uint8Array(file));
+    } catch (error) {
+      throw openFailure(error);
+    }
+    const saved = this.#document.pageCount();
+    // As `open` finds it: a file on no page is not one it reads.
+    if (saved < 1) throw new UnreadableFile();
+    return { kind: 'resaved', pages, saved };
   }
 
   /** A page (from 1), drawn. */
@@ -170,8 +219,18 @@ export class HwpReader {
    */
   async answer(message: ToWorker): Promise<FromWorker> {
     try {
-      if (message.kind === 'open') return await this.open(message);
-      return message.kind === 'check' ? await this.check(message) : this.page(message.page);
+      switch (message.kind) {
+        case 'open':
+          return await this.open(message);
+        case 'check':
+          return await this.check(message);
+        case 'controls':
+          return this.controls();
+        case 'resaved':
+          return await this.resaved();
+        case 'page':
+          return this.page(message.page);
+      }
     } catch (error) {
       if (error instanceof WebAssembly.RuntimeError) throw error;
       return { kind: 'failed', reason: failureOf(error) };

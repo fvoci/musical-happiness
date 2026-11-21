@@ -30,8 +30,10 @@ export type EditFailure = (typeof EDIT_FAILURES)[number];
  * What a saved file loses: as rhwp's report words it (rhwp-studio,
  * core/export-content-loss.ts), a picture or other binary data written empty,
  * a control left out, the parameters of a field reduced; and, as the frame
- * finds it, a part of an HWPX package that rhwp does not keep
- * (`partOmitted`, editor-frame/parts.ts), which its report does not name.
+ * finds it, a part of an HWPX package or a stream of an HWP that rhwp does
+ * not keep (`partOmitted`, editor-frame/parts.ts and streams.ts), which its
+ * report does not name: the preview Hangul makes again as it saves a file
+ * among them (`previewMadeAgain`).
  */
 export const LOSS_CODES = [
   'binaryContentEmptied',
@@ -39,13 +41,20 @@ export const LOSS_CODES = [
   'metadataReduced',
   'partOmitted',
 ] as const;
-export const LOSS_SUBJECTS = ['binaryData', 'control', 'fieldParameters', 'packagePart'] as const;
+export const LOSS_SUBJECTS = [
+  'binaryData',
+  'control',
+  'fieldParameters',
+  'packagePart',
+  'stream',
+] as const;
 export const LOSS_REASONS = [
   'resourceReadFailedOrLimitExceeded',
   'storedCompressionMismatch',
   'rawPassthroughUnavailable',
   'unsupportedByOutputFormat',
   'notKeptByEditor',
+  'previewMadeAgain',
 ] as const;
 
 export interface Loss {
@@ -66,6 +75,25 @@ export const NAME_LIMIT = 255;
 /** The most requests to export a session numbers. */
 export const REQUEST_LIMIT = 1_000_000;
 
+/**
+ * A count the saved file, read back as the viewer reads it, has otherwise than
+ * the document in the editor: its pages, or its controls of one kind (Hangul's
+ * 조판 부호, such as `tbl` a table or `pgnp` the place of the page numbers), by
+ * the id the format gives the kind. The frame sends the ids; the app names them.
+ */
+export type Recount =
+  | { of: 'pages'; before: number; after: number }
+  | { of: 'controls'; id: string; before: number; after: number };
+/**
+ * A kind's id as the format gives it, as rhwp trims it: up to four printable
+ * ASCII characters, none a space at either end (`tbl`, not `tbl `), or none.
+ */
+export const CONTROL_ID = /^(?:[\x21-\x7e](?:[\x20-\x7e]{0,2}[\x21-\x7e])?)?$/;
+/** The most counts one save carries; past it, the first are told. */
+export const RECOUNT_LIMIT = 64;
+/** The most controls of a kind a count says. */
+export const CONTROL_COUNT_LIMIT = 10_000_000;
+
 export type ToEditor =
   | {
       kind: 'open';
@@ -79,8 +107,11 @@ export type ToEditor =
     }
   /** Asks for the document as it is now, to be saved; answered with `exported` or `export-failed`. */
   | { kind: 'export'; request: number }
-  /** What `request` exported is stored: the document is unchanged since, unless it changed again. */
-  | { kind: 'stored'; request: number };
+  /**
+   * What `request` exported is stored, as the file's new version or as a file of its own: the
+   * document is unchanged since, unless it changed again.
+   */
+  | { kind: 'stored'; request: number; as: 'version' | 'apart' };
 
 export type FromEditor =
   | { kind: 'ready' }
@@ -92,7 +123,19 @@ export type FromEditor =
   | { kind: 'save-asked' }
   /** The writer asked, in the frame, to go to the app's controls (F6): the frame keeps the keys. */
   | { kind: 'leave' }
-  | { kind: 'exported'; request: number; bytes: ArrayBuffer; count: number; losses: Loss[] }
+  /** The writer is at work in the document (a key, the pointer, a change): the lease is held. */
+  | { kind: 'input' }
+  | {
+      kind: 'exported';
+      request: number;
+      bytes: ArrayBuffer;
+      count: number;
+      losses: Loss[];
+      /** The document is a distribution document (배포용 문서), and the bytes are not one. */
+      unprotected: boolean;
+      /** What the saved file, read back, counts otherwise than the document in the editor. */
+      recounts: Recount[];
+    }
   | { kind: 'export-failed'; request: number };
 
 type Fields = Record<string, unknown>;
@@ -132,18 +175,49 @@ function lossOf(data: unknown): Loss | undefined {
   return { code, subject, reason, path };
 }
 
-function exportedOf(data: unknown): Extract<FromEditor, { kind: 'exported' }> | undefined {
-  const fields = exactly(data, ['kind', 'request', 'bytes', 'count', 'losses']);
+function recountOf(data: unknown): Recount | undefined {
+  const of = (data as { of?: unknown } | null)?.of;
+  const fields = exactly(
+    data,
+    of === 'pages' ? ['of', 'before', 'after'] : ['of', 'id', 'before', 'after'],
+  );
   if (!fields) return undefined;
-  const { request, bytes, count, losses } = fields;
+  const { id, before, after } = fields;
+  const most = of === 'pages' ? PAGE_LIMIT : CONTROL_COUNT_LIMIT;
+  // A count that did not change is not one to tell.
+  if (!isCount(before, most) || !isCount(after, most) || before === after) return undefined;
+  // A document opens on a page at least.
+  if (of === 'pages') return before >= 1 && after >= 1 ? { of, before, after } : undefined;
+  if (of !== 'controls' || typeof id !== 'string' || !CONTROL_ID.test(id)) return undefined;
+  return { of, id, before, after };
+}
+
+/** The counts as the frame tells them: each once, the pages first. */
+function recountsOf(data: unknown): Recount[] | undefined {
+  if (!Array.isArray(data) || data.length > RECOUNT_LIMIT) return undefined;
+  const read = data.map(recountOf);
+  if (!read.every((recount) => recount !== undefined)) return undefined;
+  const keys = read.map((recount) => (recount.of === 'pages' ? undefined : recount.id));
+  if (new Set(keys).size !== keys.length || keys.indexOf(undefined) > 0) return undefined;
+  return read;
+}
+
+function exportedOf(data: unknown): Extract<FromEditor, { kind: 'exported' }> | undefined {
+  const keys = ['kind', 'request', 'bytes', 'count', 'losses', 'unprotected', 'recounts'];
+  const fields = exactly(data, keys);
+  if (!fields) return undefined;
+  const { request, bytes, count, losses, unprotected } = fields;
   if (!isRequest(request) || !(bytes instanceof ArrayBuffer)) return undefined;
+  if (typeof unprotected !== 'boolean') return undefined;
+  const recounts = recountsOf(fields.recounts);
+  if (!recounts) return undefined;
   if (!isCount(count, LOSS_COUNT_LIMIT) || !Array.isArray(losses)) return undefined;
   // A count that is not the list's, where the list is whole, is a report that does not agree
   // with itself; a longer one is cut at the limit, and only there.
   if (losses.length !== Math.min(count, LOSS_LIST_LIMIT)) return undefined;
   const read = losses.map(lossOf);
   if (!read.every((loss) => loss !== undefined)) return undefined;
-  return { kind: 'exported', request, bytes, count, losses: read };
+  return { kind: 'exported', request, bytes, count, losses: read, unprotected, recounts };
 }
 
 function kindOf(data: unknown): unknown {
@@ -168,8 +242,9 @@ export function readFromEditor(data: unknown): FromEditor | undefined {
       return typeof dirty === 'boolean' ? { kind: 'changed', dirty } : undefined;
     }
     case 'save-asked':
-    case 'leave': {
-      const kind = kindOf(data) as 'save-asked' | 'leave';
+    case 'leave':
+    case 'input': {
+      const kind = kindOf(data) as 'save-asked' | 'leave' | 'input';
       return exactly(data, ['kind']) ? { kind } : undefined;
     }
     case 'exported':
@@ -196,11 +271,15 @@ export function readToEditor(data: unknown): ToEditor | undefined {
       if (!isTheme(theme) || !isLanguage(lang)) return undefined;
       return { kind: 'open', format, name, bytes, engine, theme, lang };
     }
-    case 'export':
-    case 'stored': {
-      const kind = kindOf(data) as 'export' | 'stored';
+    case 'export': {
       const request = exactly(data, ['kind', 'request'])?.request;
-      return isRequest(request) ? { kind, request } : undefined;
+      return isRequest(request) ? { kind: 'export', request } : undefined;
+    }
+    case 'stored': {
+      const fields = exactly(data, ['kind', 'request', 'as']);
+      if (!fields || !isRequest(fields.request)) return undefined;
+      const { request, as } = fields;
+      return as === 'version' || as === 'apart' ? { kind: 'stored', request, as } : undefined;
     }
     default:
       return undefined;

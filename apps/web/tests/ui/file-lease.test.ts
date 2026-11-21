@@ -3,7 +3,8 @@
  * (lib/file-viewer/lease.svelte.ts): taken by "Edit" and given back where a
  * newer version came meanwhile; held on to every while and when the window
  * is shown again; let go of when the editor closes and as the page goes; a
- * lease lost told. And who edits the file, as the viewer says it
+ * lease lost told; let go of with no input for a while, said before, and
+ * taken again at the next input. And who edits the file, as the viewer says it
  * (EditingNote.svelte): the reader in another window, somebody named, or
  * somebody else.
  */
@@ -20,7 +21,8 @@ import {
   type LeaseSource,
 } from '$lib/file-viewer/lease.svelte.ts';
 
-const TIMES = { holdEvery: 1_000, watchEvery: 500 };
+/** The times scaled down: held every second, let go of after 10 seconds with no input, said 3 before. */
+const TIMES = { holdEvery: 1_000, watchEvery: 500, idleAfter: 10_000, warnBefore: 3_000 };
 
 /** A file's lease as the server keeps it, for one reader, and what was asked of it. */
 function sourceOf(me = 'me') {
@@ -118,6 +120,228 @@ describe('the lease of a file open in the editor', () => {
     expect(await new EditLease(source, TIMES).take()).toBe('failed');
     await vi.advanceTimersByTimeAsync(5_000);
     expect(asked).toEqual(['hold ', 'hold ']);
+  });
+});
+
+describe('the lease of an editor nobody puts anything into', () => {
+  it('is let go of after a while, said before, and not held on to since', async () => {
+    const { source, asked } = sourceOf();
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(lease.idleSoon).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(lease.idleSoon).toBe(true);
+    expect(lease.resting).toBe(false);
+    expect(asked.filter((one) => one.startsWith('release'))).toEqual([]);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(lease.resting).toBe(true);
+    expect(lease.idleSoon).toBe(false);
+    expect(asked.at(-1)).toBe('release l1');
+    const before = asked.length;
+    await vi.advanceTimersByTimeAsync(5_000);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(asked).toHaveLength(before);
+    // Closed while let go of: nothing is let go of twice.
+    await lease.release();
+    expect(asked).toHaveLength(before);
+  });
+
+  it('is held on to while input comes, however long the editor is open', async () => {
+    const { source, asked } = sourceOf();
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    for (let turn = 0; turn < 4; turn += 1) {
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(lease.idleSoon).toBe(true);
+      lease.touch();
+      expect(lease.idleSoon).toBe(false);
+    }
+    expect(lease.resting).toBe(false);
+    expect(asked.filter((one) => one.startsWith('release'))).toEqual([]);
+    await lease.release();
+  });
+
+  it('is taken again at the next input, where nobody else took it meanwhile', async () => {
+    const { source, asked } = sourceOf();
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(lease.resting).toBe(true);
+    lease.touch();
+    expect(lease.resting).toBe(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(asked.slice(-2)).toEqual(['release l1', 'hold ']);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(asked.at(-1)).toBe('hold l2');
+    expect(lease.lost).toBe(false);
+    await lease.release();
+    expect(asked.at(-1)).toBe('release l2');
+  });
+
+  it('is taken again only once the server let it go, input coming however soon', async () => {
+    const { source, asked } = sourceOf();
+    let answer = (): void => undefined;
+    source.releaseLease = (leaseId) => {
+      asked.push(`release ${leaseId}`);
+      return new Promise((resolve) => {
+        answer = resolve;
+      });
+    };
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(lease.resting).toBe(true);
+    lease.touch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(asked.at(-1)).toBe('release l1');
+    answer();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(asked.at(-1)).toBe('hold ');
+    expect(lease.lost).toBe(false);
+    const closed = lease.release();
+    answer();
+    await closed;
+  });
+
+  it('is held on to by its name at the next input where letting it go did not reach the server', async () => {
+    const { source, asked } = sourceOf();
+    source.releaseLease = (leaseId) => {
+      asked.push(`release ${leaseId}`);
+      return Promise.reject(new Error('unreached'));
+    };
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(lease.resting).toBe(true);
+    lease.touch();
+    await vi.advanceTimersByTimeAsync(0);
+    // Still the editor's on the server: held on to, not taken anew and found held.
+    expect(asked.slice(-2)).toEqual(['release l1', 'hold l1']);
+    expect(lease.lost).toBe(false);
+    await lease.release();
+  });
+
+  it('says still that somebody else took it, where they had as it went', async () => {
+    const { source, state } = sourceOf();
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    state.holding = 'editing';
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(lease.lost).toBe(true);
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(lease.resting).toBe(true);
+    expect(lease.lost).toBe(true);
+    lease.touch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lease.lost).toBe(true);
+    await lease.release();
+  });
+
+  it('says in how many minutes it goes, counting down at each turn', async () => {
+    const { source } = sourceOf();
+    const times = {
+      holdEvery: 30_000,
+      watchEvery: 15_000,
+      idleAfter: 30 * 60_000,
+      warnBefore: 5 * 60_000,
+    };
+    const lease = new EditLease(source, times);
+    await lease.take();
+    await vi.advanceTimersByTimeAsync(25 * 60_000 + 30_000);
+    expect([lease.idleSoon, lease.minutesLeft]).toEqual([true, 5]);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(lease.minutesLeft).toBe(3);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(lease.minutesLeft).toBe(1);
+    lease.touch();
+    expect(lease.idleSoon).toBe(false);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(lease.minutesLeft).toBe(0);
+    await lease.release();
+  });
+
+  it('asks again at the next turn where a request was not answered within one', async () => {
+    const { source, asked } = sourceOf();
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    source.holdLease = (leaseId) => {
+      asked.push(`hold ${leaseId}`);
+      return new Promise(() => undefined);
+    };
+    await vi.advanceTimersByTimeAsync(3_500);
+    expect(asked.filter((one) => one === 'hold l1').length).toBeGreaterThanOrEqual(2);
+    await lease.release();
+  });
+
+  it('is taken again a turn after the input where letting it go is not answered', async () => {
+    const { source, asked } = sourceOf();
+    source.releaseLease = (leaseId) => {
+      asked.push(`release ${leaseId}`);
+      return new Promise(() => undefined);
+    };
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(lease.resting).toBe(true);
+    lease.touch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(asked.at(-1)).toBe('release l1');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(asked.at(-1)).toBe('hold ');
+    expect(lease.lost).toBe(false);
+  });
+
+  it('is let go of once more where the editor closed while letting it go failed', async () => {
+    const { source, asked } = sourceOf();
+    let fail = (): void => undefined;
+    source.releaseLease = (leaseId) => {
+      asked.push(`release ${leaseId}`);
+      return new Promise((_, reject) => {
+        fail = () => {
+          reject(new Error('unreached'));
+        };
+      });
+    };
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(lease.resting).toBe(true);
+    await lease.release();
+    expect(asked.filter((one) => one.startsWith('release'))).toEqual(['release l1']);
+    fail();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(asked.filter((one) => one.startsWith('release'))).toEqual(['release l1', 'release l1']);
+  });
+
+  it('says somebody else holds it where they took it meanwhile, and is the editor’s once they let go', async () => {
+    const { source, state } = sourceOf();
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    await vi.advanceTimersByTimeAsync(10_000);
+    state.holding = 'editing';
+    lease.touch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lease.resting).toBe(false);
+    expect(lease.lost).toBe(true);
+    state.holding = 'held';
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(lease.lost).toBe(false);
+    await lease.release();
+  });
+
+  it('is let go of as a window asleep past the while wakes, not held on to first', async () => {
+    const { source, asked } = sourceOf();
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    // Asleep: no turn came, and the clock went on.
+    vi.setSystemTime(Date.now() + 60_000);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lease.resting).toBe(true);
+    expect(asked).toEqual(['hold ', 'release l1']);
+    await lease.release();
   });
 });
 

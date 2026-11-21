@@ -14,7 +14,9 @@
 
   Closing with changes that are not saved asks first, and so does the
   browser before the page goes. The file's lease (lib/file-viewer/lease.svelte.ts)
-  is held on to while the editor is open; where somebody else took it
+  is held on to while the editor is open and the writer at work: with no input
+  for 30 minutes it is let go of, which the header says (and, 5 minutes before,
+  that it will be), and input takes it again. Where somebody else took it
   meanwhile, the header says so. It is mounted for one version and closed by
   unmounting it, which takes the frame out of the page.
 -->
@@ -35,7 +37,7 @@
     type EditStatus,
     type SaveFailure,
   } from '$lib/file-viewer/editing.svelte.ts';
-  import type { EditLease } from '$lib/file-viewer/lease.svelte.ts';
+  import { IDLE_AFTER, type EditLease } from '$lib/file-viewer/lease.svelte.ts';
   import type { VersionsSource } from '$lib/file-viewer/versions.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
@@ -79,6 +81,7 @@
         apartName,
         // Out of the document, which keeps Tab and Escape to itself: to the first control.
         onLeave: () => header?.querySelector<HTMLElement>('button:not(:disabled)')?.focus(),
+        onInput: () => lease?.touch(),
       }),
   );
   onDestroy(() => {
@@ -88,7 +91,13 @@
   const address = editorAddress(document);
   const compact = $derived(page.stage === 'compact');
   /** Short of the widest screens, what the editor says has a line of its own, whole. */
-  const sayApart = $derived(page.stage !== 'expanded');
+  // What the lease says is long: a line of its own, whole, on the widest screens too.
+  const sayApart = $derived(
+    page.stage !== 'expanded' ||
+      lease?.lost === true ||
+      lease?.resting === true ||
+      lease?.idleSoon === true,
+  );
   const status = $derived(session.status);
   const saving = $derived(session.saving);
   /** Asked whether to close over changes that are not saved. */
@@ -100,6 +109,8 @@
     locked: m.file_editor_locked,
     'too-large': m.file_editor_too_large,
     slow: m.file_editor_slow,
+    unstarted: m.file_editor_unstarted,
+    engine: m.file_editor_engine,
   };
 
   const SAVE_FAILURE: Record<SaveFailure, () => string> = {
@@ -111,11 +122,19 @@
   };
 
   /**
-   * What the header says of the document: a save under way, how one ended, somebody else
-   * editing, changes not saved.
+   * What the header says of the document: a save under way, the lease let go of for want of
+   * input (or soon to be), how a save ended, somebody else editing, changes not saved. A
+   * save's end said 25 minutes ago or more gives way to the lease: it is said where the lease
+   * goes, as somebody else editing is where they took it.
    */
   const said = $derived.by((): string => {
     if (saving.name === 'exporting' || saving.name === 'storing') return m.file_editor_saving();
+    if (lease?.resting || lease?.idleSoon) {
+      if (lease.lost) return m.file_editor_lease_lost();
+      return lease.resting
+        ? m.file_editor_lease_resting({ minutes: IDLE_AFTER / 60_000 })
+        : m.file_editor_lease_idle_soon({ minutes: lease.minutesLeft });
+    }
     if (saving.name === 'failed') return SAVE_FAILURE[saving.reason]();
     if (lease?.lost) return m.file_editor_lease_lost();
     if (session.dirty) return m.file_editor_unsaved();
@@ -125,6 +144,11 @@
     }
     return saved ? m.file_editor_saved_apart({ name: saved.name }) : '';
   });
+
+  /** Input in the app's own controls: before they answer it, which may stop it going on. */
+  const touch = (): void => {
+    lease?.touch();
+  };
 
   function saveOnKey(event: KeyboardEvent): void {
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
@@ -147,7 +171,12 @@
 </script>
 
 <!-- Ctrl+S (Cmd+S) saves from the app's own controls too, as it does from the document. -->
-<svelte:window onkeydown={saveOnKey} onbeforeunload={beforeUnload} />
+<svelte:window
+  onkeydown={saveOnKey}
+  onkeydowncapture={touch}
+  onpointerdowncapture={touch}
+  onbeforeunload={beforeUnload}
+/>
 
 <!-- Open while it is mounted: Escape and the like ask to close, and `close` decides. -->
 <Dialog.Root
@@ -164,7 +193,7 @@
     data-status={status.name}
     data-saving={saving.name}
     data-dirty={session.dirty}
-    data-lease={lease?.lost ? 'lost' : 'held'}
+    data-lease={lease?.lost ? 'lost' : lease?.resting ? 'resting' : 'held'}
     class={[
       'flex flex-col gap-0 overflow-hidden bg-background p-0',
       compact

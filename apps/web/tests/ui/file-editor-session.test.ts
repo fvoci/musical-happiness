@@ -14,7 +14,7 @@ import {
   type EditedFile,
   type EditLimits,
 } from '$lib/file-viewer/editing.svelte.ts';
-import type { FromEditor, Loss, ToEditor } from '$lib/file-viewer/editor-protocol.ts';
+import type { FromEditor, Loss, Recount, ToEditor } from '$lib/file-viewer/editor-protocol.ts';
 import type {
   FileVersion,
   VersionsSource,
@@ -48,6 +48,14 @@ const bufferOf = (data: Uint8Array): ArrayBuffer => {
 
 const HWPX = koreanHwpx();
 const HWP = koreanHwp();
+/** An export that loses nothing, as the frame says it. */
+const EXPORTED = {
+  kind: 'exported',
+  count: 0,
+  losses: [],
+  unprotected: false,
+  recounts: [],
+} as const;
 
 class Stale extends Error {}
 
@@ -101,6 +109,7 @@ function editing(
   engine = () => Promise.resolve(new ArrayBuffer(8)),
 ) {
   const left = vi.fn();
+  const input = vi.fn();
   const { made, source } = versions();
   const edited: EditedFile = {
     name: '회의록.hwpx',
@@ -116,6 +125,7 @@ function editing(
     limits: LIMITS,
     engine,
     onLeave: left,
+    onInput: input,
   });
   const frame = document.createElement('iframe');
   document.body.append(frame);
@@ -140,15 +150,22 @@ function editing(
     await settled();
   };
   /** The frame's answer to the last request to export. */
-  const exports = (data: Uint8Array, losses: Loss[] = [], request = sent.length): void => {
+  const exports = (
+    data: Uint8Array,
+    losses: Loss[] = [],
+    unprotected = false,
+    recounts: Recount[] = [],
+  ): void => {
     const asked = sent.findLast(({ message }) => message.kind === 'export')?.message;
-    if (asked?.kind !== 'export') throw new Error(`no export was asked (${String(request)})`);
+    if (asked?.kind !== 'export') throw new Error('no export was asked');
     says({
       kind: 'exported',
       request: asked.request,
       bytes: bufferOf(data),
       count: losses.length,
       losses,
+      unprotected,
+      recounts,
     });
   };
   const kinds = (): string[] => sent.map(({ message }) => message.kind);
@@ -165,6 +182,7 @@ function editing(
     detach,
     edited,
     left,
+    input,
   };
 }
 
@@ -211,21 +229,33 @@ describe('a document handed to the editor’s frame', () => {
     const { session, sent, says, settled } = editing({}, () => Promise.reject(new Error('gone')));
     says({ kind: 'ready' });
     await settled();
-    expect(session.status).toEqual({ name: 'failed', reason: 'editor' });
+    expect(session.status).toEqual({ name: 'failed', reason: 'engine' });
     expect(sent).toEqual([]);
   });
 
-  it('is given up when the frame, the engine or the opening takes too long', async () => {
+  it('is given up when the frame, the engine or the opening takes too long, each told apart', async () => {
     const never = editing();
     await vi.advanceTimersByTimeAsync(LIMITS.ready);
-    expect(never.session.status).toEqual({ name: 'failed', reason: 'slow' });
+    expect(never.session.status).toEqual({ name: 'failed', reason: 'unstarted' });
+    // Given up, it is not heard, nor handed the document, when it says it is ready after all.
+    never.says({ kind: 'ready' });
+    await never.settled();
+    expect(never.session.status).toEqual({ name: 'failed', reason: 'unstarted' });
+    expect(never.sent).toEqual([]);
 
-    const waiting = editing({}, () => new Promise<ArrayBuffer>(() => undefined));
+    let arrive = (_bytes: ArrayBuffer): void => undefined;
+    const asked = vi.fn(() => new Promise<ArrayBuffer>((resolve) => (arrive = resolve)));
+    const waiting = editing({}, asked);
     waiting.says({ kind: 'ready' });
     await vi.advanceTimersByTimeAsync(LIMITS.engine - 1);
     expect(waiting.session.status).toEqual({ name: 'opening' });
     await vi.advanceTimersByTimeAsync(1);
-    expect(waiting.session.status).toEqual({ name: 'failed', reason: 'slow' });
+    expect(waiting.session.status).toEqual({ name: 'failed', reason: 'engine' });
+    // An engine that comes after it was given up hands the frame nothing.
+    expect(asked).toHaveBeenCalledTimes(1);
+    arrive(new ArrayBuffer(8));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(waiting.session.status).toEqual({ name: 'failed', reason: 'engine' });
     expect(waiting.sent).toEqual([]);
 
     const slow = editing();
@@ -273,6 +303,18 @@ describe('a document handed to the editor’s frame', () => {
     expect(left).not.toHaveBeenCalled();
     says({ kind: 'leave' });
     expect(left).toHaveBeenCalledOnce();
+  });
+
+  it('tells the writer’s input in the document, which holds the file’s lease', async () => {
+    const { opened, says, input } = editing();
+    await opened();
+    expect(input).not.toHaveBeenCalled();
+    says({ kind: 'input' });
+    says({ kind: 'input' });
+    expect(input).toHaveBeenCalledTimes(2);
+    // Not in the protocol's shape: nothing is told.
+    says({ kind: 'input', at: 1 });
+    expect(input).toHaveBeenCalledTimes(2);
   });
 
   it('is at the editor’s address, with the profile of a host that saves', () => {
@@ -353,7 +395,7 @@ describe('saving what was edited', () => {
     session.save();
     says({ kind: 'export-failed', request: 7 });
     expect(session.saving).toEqual({ name: 'exporting' });
-    says({ kind: 'exported', request: 7, bytes: bufferOf(HWPX), count: 0, losses: [] });
+    says({ ...EXPORTED, request: 7, bytes: bufferOf(HWPX) });
     await settled();
     expect(made.uploads).toEqual([]);
     says({ kind: 'export-failed', request: 1 });
@@ -365,8 +407,8 @@ describe('saving what was edited', () => {
     await vi.advanceTimersByTimeAsync(LIMITS.export);
     expect(session.saving).toEqual({ name: 'failed', reason: 'export' });
     // The answer to a request given up, or to the one before, stores nothing.
-    says({ kind: 'exported', request: 2, bytes: bufferOf(HWPX), count: 0, losses: [] });
-    says({ kind: 'exported', request: 1, bytes: bufferOf(HWPX), count: 0, losses: [] });
+    says({ ...EXPORTED, request: 2, bytes: bufferOf(HWPX) });
+    says({ ...EXPORTED, request: 1, bytes: bufferOf(HWPX) });
     await settled();
     expect(made.uploads).toEqual([]);
   });
@@ -419,6 +461,56 @@ describe('a save that loses something of the document', () => {
     expect(made.added.map(({ base }) => base)).toEqual([4]);
     expect(made.apart).toEqual([]);
     expect(session.saved).toMatchObject({ as: 'version', version: { version: 5 } });
+  });
+
+  it('is asked about where a distribution document is saved as an open one, losses or none', async () => {
+    const { session, made, opened, exports, settled, kinds } = editing();
+    await opened();
+    session.save();
+    exports(HWPX, [], true);
+    await settled();
+    expect(session.saving).toMatchObject({
+      name: 'lossy',
+      count: 0,
+      losses: [],
+      unprotected: true,
+    });
+    expect(made.uploads).toEqual([]);
+    session.dismiss();
+    await settled();
+    expect(session.saving).toEqual({ name: 'idle' });
+    expect(made.uploads).toEqual([]);
+    expect(kinds()).not.toContain('stored');
+    session.save();
+    exports(HWPX, [LOSS], true);
+    await settled();
+    expect(session.saving).toMatchObject({ name: 'lossy', count: 1, unprotected: true });
+    session.saveWithLosses();
+    await settled();
+    expect(made.added.map(({ base }) => base)).toEqual([4]);
+  });
+
+  it('is asked about where the saved file reads back with other counts, nothing lost', async () => {
+    const { session, made, opened, exports, settled, kinds } = editing();
+    await opened();
+    const recounts: Recount[] = [
+      { of: 'pages', before: 157, after: 159 },
+      { of: 'controls', id: 'pgnp', before: 3, after: 2 },
+    ];
+    session.save();
+    exports(HWPX, [], false, recounts);
+    await settled();
+    expect(session.saving).toMatchObject({ name: 'lossy', count: 0, unprotected: false, recounts });
+    session.dismiss();
+    await settled();
+    expect(made.uploads).toEqual([]);
+    expect(kinds()).not.toContain('stored');
+    session.save();
+    exports(HWPX, [], false, recounts);
+    await settled();
+    session.saveWithLosses();
+    await settled();
+    expect(made.added.map(({ base }) => base)).toEqual([4]);
   });
 
   it('becomes a file of its own, the edited file left as it is', async () => {

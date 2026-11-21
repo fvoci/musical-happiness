@@ -24,6 +24,8 @@
     locked: m.viewer_locked,
     'too-large': m.viewer_unpacks_too_large,
     slow: m.viewer_slow,
+    unstarted: m.viewer_unstarted,
+    engine: m.viewer_engine,
     renderer: m.viewer_failed,
   };
 

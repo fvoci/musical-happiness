@@ -74,7 +74,16 @@ export type Status =
   | { name: 'unknown' }
   | { name: 'opening'; format: FormatId }
   | { name: 'shown'; format: FormatId }
-  | { name: 'failed'; reason: Failure | 'unread' | 'slow' };
+  | { name: 'failed'; reason: Failure | 'unread' | 'slow' | BeforeFile };
+
+/**
+ * Why the frame was given up before it had the file: it did not say it is
+ * ready in its time (`unstarted`: its page or scripts not loaded, as where a
+ * gate in front of the server answers without its cookie, or failing as they
+ * run), or the engine it draws with did not come (`engine`: late, refused, or
+ * not WebAssembly). Each is told apart from a file too slow to draw (`slow`).
+ */
+export type BeforeFile = 'unstarted' | 'engine';
 
 /** The steps of the zoom buttons. */
 const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4].filter(
@@ -191,7 +200,7 @@ export class ViewerSession {
     };
     window.addEventListener('message', onMessage);
     frame.addEventListener('load', onLoad);
-    this.#wait(this.#limits.ready);
+    this.#wait(this.#limits.ready, 'unstarted');
     return () => {
       window.removeEventListener('message', onMessage);
       frame.removeEventListener('load', onLoad);
@@ -200,10 +209,10 @@ export class ViewerSession {
     };
   };
 
-  #wait(milliseconds: number): void {
+  #wait(milliseconds: number, late: 'slow' | BeforeFile): void {
     clearTimeout(this.#timer);
     this.#timer = setTimeout(() => {
-      this.#fail('slow');
+      this.#fail(late);
     }, milliseconds);
   }
 
@@ -282,11 +291,11 @@ export class ViewerSession {
   async #open(format: FormatId, bytes: ArrayBuffer): Promise<void> {
     let engine: ArrayBuffer | null = null;
     if (needsEngine(format)) {
-      this.#wait(this.#limits.engine);
+      this.#wait(this.#limits.engine, 'engine');
       try {
         engine = await this.#engine();
       } catch {
-        if (this.status.name === 'opening') this.#fail('renderer');
+        if (this.status.name === 'opening') this.#fail('engine');
         return;
       }
       // Closed, or given up on, while the engine was on its way.
@@ -300,7 +309,7 @@ export class ViewerSession {
       hidden: m.viewer_hidden(),
     };
     this.#send({ kind: 'open', ...open, labels }, engine ? [bytes, engine] : [bytes]);
-    this.#wait(this.#limits.draw);
+    this.#wait(this.#limits.draw, 'slow');
   }
 
   goTo(page: number): void {

@@ -46,7 +46,7 @@ function saved(given: Uint8Array): { bytes: Uint8Array; reported: number } {
 }
 
 const leftOut = (given: Uint8Array, bytes: Uint8Array): string[] =>
-  partsLeftOut(packageParts(given), bytes).map((loss) => loss.path);
+  partsLeftOut(packageParts(given), packageParts(bytes)).map((loss) => loss.path);
 
 const archive = (parts: Record<string, string>): Uint8Array =>
   zip(Object.entries(parts).map(([name, data]) => ({ name, data: Buffer.from(data) })));
@@ -56,7 +56,7 @@ describe('the parts a save leaves out of an HWPX package', () => {
     const given = await checked(koreanHwpxWithOtherParts());
     const { bytes, reported } = saved(given);
     expect(reported).toBe(0);
-    const left = partsLeftOut(packageParts(given), bytes);
+    const left = partsLeftOut(packageParts(given), packageParts(bytes));
     expect(left).toEqual(
       ['Contents/history.xml', 'Custom/notes.xml'].map((path) => ({
         code: 'partOmitted',
@@ -96,13 +96,16 @@ describe('the parts a save leaves out of an HWPX package', () => {
   });
 
   it('are no save of bytes that are no archive', () => {
-    expect(() => partsLeftOut([], new Uint8Array([1, 2, 3]))).toThrow();
+    expect(() => partsLeftOut([], packageParts(new Uint8Array([1, 2, 3])))).toThrow();
   });
 
   it('go into the frame’s message as the app reads it, however many and however named', () => {
     const many: Record<string, string> = { [`Custom/${'긴'.repeat(400)}.xml`]: 'x' };
     for (let at = 0; at < 250; at += 1) many[`Custom/part${String(at)}.xml`] = 'x';
-    const left = partsLeftOut(packageParts(archive(many)), archive({ mimetype: 'x' }));
+    const left = partsLeftOut(
+      packageParts(archive(many)),
+      packageParts(archive({ mimetype: 'x' })),
+    );
     expect(left).toHaveLength(251);
     expect(left[0]?.path).toHaveLength(LOSS_PATH_LIMIT);
     const rhwps: Loss = {
@@ -120,9 +123,49 @@ describe('the parts a save leaves out of an HWPX package', () => {
         expect(count).toBe(report.count + parts.length);
         expect(losses).toHaveLength(Math.min(count, LOSS_LIST_LIMIT));
         expect(losses.slice(0, Math.min(parts.length, 2))).toEqual(parts.slice(0, 2));
-        const message = { kind: 'exported', request: 1, bytes: new ArrayBuffer(1), count, losses };
+        const bytes = new ArrayBuffer(1);
+        const message = {
+          kind: 'exported',
+          request: 1,
+          bytes,
+          count,
+          losses,
+          unprotected: false,
+          recounts: [],
+        };
         expect(readFromEditor(message)).toEqual(message);
       }
     }
+  });
+
+  it('are told once where rhwp’s report names them already', () => {
+    const emptied: Loss = {
+      code: 'binaryContentEmptied',
+      subject: 'binaryData',
+      reason: 'storedCompressionMismatch',
+      path: '/BinData/BIN0001.png',
+    };
+    const found = (path: string): Loss => ({
+      code: 'partOmitted',
+      subject: 'stream',
+      reason: 'notKeptByEditor',
+      path,
+    });
+    // The picture rhwp wrote empty is no longer found by what it held: the report says it.
+    expect(
+      withPartsLeftOut({ count: 1, losses: [emptied] }, [
+        found('BinData/bin0001.png'),
+        found('Custom/a'),
+      ]),
+    ).toEqual({ count: 2, losses: [found('Custom/a'), emptied] });
+    // A part of a package is named as written: one spelled otherwise is another part.
+    const part = (path: string): Loss => ({ ...found(path), subject: 'packagePart' });
+    const named = { ...emptied, path: 'BinData/image1.png' };
+    expect(
+      withPartsLeftOut({ count: 1, losses: [named] }, [
+        part('BinData/image1.png'),
+        part('BinData/Image1.png'),
+      ]),
+    ).toEqual({ count: 2, losses: [part('BinData/Image1.png'), named] });
   });
 });

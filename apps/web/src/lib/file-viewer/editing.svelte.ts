@@ -13,9 +13,11 @@
  * 2. The bytes must be a file of the format that was opened, and no larger
  *    than the viewer opens: what the frame hands back is not trusted to be a
  *    document because the frame says so.
- * 3. When the report names losses, nothing is saved until the writer has seen
- *    them and chosen: a new version anyway, a file of its own beside this one
- *    (which keeps every version of this one as it is), or neither.
+ * 3. When the report names losses, or the document is a distribution
+ *    document (배포용 문서) that the saved file is not, nothing is saved until
+ *    the writer has seen what and chosen: a new version anyway, a file of its
+ *    own beside this one (which keeps every version of this one as it is), or
+ *    neither.
  * 4. The bytes are uploaded and made the file's new version, written from the
  *    version that was opened. When the file has a newer one by then, nothing
  *    of the file is changed: the writer is asked whether to keep the edit as
@@ -32,13 +34,15 @@ import {
   REQUEST_LIMIT,
   type EditFailure,
   type EditFormat,
+  type FromEditor,
   type Loss,
+  type Recount,
   type ToEditor,
 } from './editor-protocol.ts';
 import { ENGINE_FETCH_LIMIT, engineBytes } from './engine.ts';
 import { examine, VIEW_LIMIT_BYTES } from './formats.ts';
 import type { Theme } from './protocol.ts';
-import { frameAddress } from './session.svelte.ts';
+import { frameAddress, type BeforeFile } from './session.svelte.ts';
 import type { FileVersion, VersionsSource, VersionUpload } from './versions.svelte.ts';
 
 /** The document handed to the editor. */
@@ -73,7 +77,7 @@ export const EDIT_LIMITS: EditLimits = {
 export type EditStatus =
   | { name: 'opening' }
   | { name: 'ready'; pages: number }
-  | { name: 'failed'; reason: EditFailure | 'slow' };
+  | { name: 'failed'; reason: EditFailure | 'slow' | BeforeFile };
 
 /** Why a save did not go through. */
 export type SaveFailure =
@@ -95,8 +99,19 @@ interface Exported {
 export type Saving =
   | { name: 'idle' }
   | { name: 'exporting' }
-  /** rhwp says the saved file loses something: the writer chooses. */
-  | { name: 'lossy'; count: number; losses: readonly Loss[]; exported: Exported }
+  /**
+   * The saved file loses something (as rhwp says, or the frame finds), takes a distribution
+   * document's protection away, or reads back with other counts of pages or controls than the
+   * document in the editor: the writer chooses.
+   */
+  | {
+      name: 'lossy';
+      count: number;
+      losses: readonly Loss[];
+      unprotected: boolean;
+      recounts: readonly Recount[];
+      exported: Exported;
+    }
   | { name: 'storing' }
   /** The file got a newer version meanwhile: the writer chooses. */
   | { name: 'stale'; request: number; upload: VersionUpload }
@@ -150,6 +165,7 @@ export class EditingSession {
   readonly #apartName: (name: string) => string;
   readonly #engine: () => Promise<ArrayBuffer>;
   readonly #onLeave: () => void;
+  readonly #onInput: () => void;
   /** The version a new one is written from: the one opened, then each one written here. */
   #base: number;
   #bytes: ArrayBuffer | undefined;
@@ -170,6 +186,8 @@ export class EditingSession {
       engine?: () => Promise<ArrayBuffer>;
       /** The writer asked, in the document, for the app's controls (F6). */
       onLeave?: () => void;
+      /** The writer is at work in the document: a key, the pointer, a change. */
+      onInput?: () => void;
     },
   ) {
     this.file = file;
@@ -182,6 +200,7 @@ export class EditingSession {
     this.#limits = options.limits ?? EDIT_LIMITS;
     this.#engine = options.engine ?? engineBytes;
     this.#onLeave = options.onLeave ?? (() => undefined);
+    this.#onInput = options.onInput ?? (() => undefined);
   }
 
   /** A save is under way or waits for a choice: the editor is not closed over it. */
@@ -205,7 +224,7 @@ export class EditingSession {
     window.addEventListener('message', onMessage);
     frame.addEventListener('load', onLoad);
     this.#wait(this.#limits.ready, () => {
-      this.#fail('slow');
+      this.#fail('unstarted');
     });
     return () => {
       window.removeEventListener('message', onMessage);
@@ -265,10 +284,13 @@ export class EditingSession {
       case 'leave':
         this.#onLeave();
         break;
+      case 'input':
+        this.#onInput();
+        break;
       case 'exported':
         if (this.saving.name === 'exporting' && message.request === this.#request) {
           clearTimeout(this.#timer);
-          this.#exported(message.request, message.bytes, message.count, message.losses);
+          this.#exported(message);
         }
         break;
       case 'export-failed':
@@ -282,15 +304,14 @@ export class EditingSession {
 
   /** Hands the frame the document and rhwp's engine; its time to open starts when it has both. */
   async #open(bytes: ArrayBuffer): Promise<void> {
-    const slow = (): void => {
-      this.#fail('slow');
-    };
-    this.#wait(this.#limits.engine, slow);
+    this.#wait(this.#limits.engine, () => {
+      this.#fail('engine');
+    });
     let engine: ArrayBuffer;
     try {
       engine = await this.#engine();
     } catch {
-      if (this.status.name === 'opening') this.#fail('editor');
+      if (this.status.name === 'opening') this.#fail('engine');
       return;
     }
     // Closed, or given up on, while the engine was on its way.
@@ -298,7 +319,9 @@ export class EditingSession {
     const { format, name } = this.file;
     const open = { format, name, bytes, engine, theme: this.#theme(), lang: this.#lang() };
     this.#send({ kind: 'open', ...open }, [bytes, engine]);
-    this.#wait(this.#limits.open, slow);
+    this.#wait(this.#limits.open, () => {
+      this.#fail('slow');
+    });
   }
 
   /** Asks the editor for the document, to save it. */
@@ -313,7 +336,14 @@ export class EditingSession {
     });
   }
 
-  #exported(request: number, bytes: ArrayBuffer, count: number, losses: Loss[]): void {
+  #exported({
+    request,
+    bytes,
+    count,
+    losses,
+    unprotected,
+    recounts,
+  }: Extract<FromEditor, { kind: 'exported' }>): void {
     if (bytes.byteLength > this.#limits.bytes) {
       this.saving = { name: 'failed', reason: 'too-large' };
       return;
@@ -325,8 +355,8 @@ export class EditingSession {
     }
     const file = new File([bytes], this.file.name, { type: MIME[this.file.format] });
     const exported = { request, file };
-    if (count > 0) {
-      this.saving = { name: 'lossy', count, losses, exported };
+    if (count > 0 || unprotected || recounts.length > 0) {
+      this.saving = { name: 'lossy', count, losses, unprotected, recounts, exported };
       return;
     }
     void this.#store(exported, 'version');
@@ -403,7 +433,7 @@ export class EditingSession {
     this.saved = saved;
     this.saving = { name: 'idle' };
     // The frame marks the document unchanged only if nothing changed since it exported it.
-    this.#send({ kind: 'stored', request });
+    this.#send({ kind: 'stored', request, as: saved.as });
     // Back to the document from the button or the dialog the save was asked with.
     void tick().then(() => {
       this.#frame?.focus();
