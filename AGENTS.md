@@ -1,6 +1,6 @@
 This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
 
-Storybook은 Cloudflare Workers Builds가 지어 올린다(Worker `fvoci-web-storybook`, 누구나 열고 색인은 막는다): master는 `storybook.fvoci.dev`, 다른 브랜치는 그 아래 미리 보기 주소. 설정은 `apps/web/wrangler.jsonc`, 명령은 `apps/web/package.json`의 `storybook:site`·`storybook:deploy`·`storybook:preview`, 머리글과 CSP는 `apps/web/tools/storybook/site.ts`.
+Storybook은 Cloudflare Workers Builds가 지어 올린다(Worker `fvoci-web-storybook`, 누구나 열고 색인은 막는다): master는 `storybook.fvoci.dev`, 다른 브랜치는 그 아래 미리 보기 주소. 설정은 `apps/web/wrangler.jsonc`, 명령은 `apps/web/package.json`의 `storybook:site`·`storybook:deploy`·`storybook:preview`, 머리글과 CSP는 `apps/web/tools/storybook/site.ts`, 고정한 Wrangler는 자기 잠금 파일과 함께 `apps/web/tools/storybook/wrangler/`.
 
 ## 스킬
 

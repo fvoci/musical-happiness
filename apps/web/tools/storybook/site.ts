@@ -20,6 +20,9 @@ import path from 'node:path';
 
 import { inlineScripts, scriptHash } from '../build/inline-scripts.ts';
 
+/** The folder `storybook build` writes and the Worker serves (`assets.directory` of wrangler.jsonc). */
+export const SITE_FOLDER = 'storybook-static';
+
 /** The pages Storybook writes with inline scripts: the manager, and the frame a story renders in. */
 const PAGES = ['index.html', 'iframe.html'];
 
@@ -132,5 +135,5 @@ export function writeSite(folder: string): void {
 }
 
 if (import.meta.main) {
-  writeSite(path.resolve(process.argv[2] ?? 'storybook-static'));
+  writeSite(path.resolve(process.argv[2] ?? SITE_FOLDER));
 }

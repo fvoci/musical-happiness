@@ -113,6 +113,8 @@ function everyPathHeaders(folder: string): Record<string, string> {
   for (const line of lines.slice(start + 1)) {
     if (!line.startsWith('  ')) break;
     const colon = line.indexOf(':');
+    // `! Name` detaches a header and `#` starts a comment; neither sets one.
+    if (colon === -1 || /^\s*[!#]/.test(line)) continue;
     headers[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
   }
   return headers;

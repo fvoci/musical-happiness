@@ -3,11 +3,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import ts from 'typescript';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { scriptHash } from '../../tools/build/inline-scripts.ts';
 import {
   REDIRECTS,
+  SITE_FOLDER,
   headersFile,
   pageScriptHashes,
   storybookPolicy,
@@ -93,6 +95,29 @@ describe('a built Storybook made a site', () => {
       writeSite(folder);
     }).toThrow(/nested\/logo\.svg/);
     expect(existsSync(path.join(folder, '_headers'))).toBe(false);
+  });
+});
+
+describe('the Worker that serves the site (wrangler.jsonc)', () => {
+  const text = readFileSync(new URL('../../wrangler.jsonc', import.meta.url), 'utf8');
+  const { config } = ts.parseConfigFileTextToJson('wrangler.jsonc', text) as {
+    config: Record<string, unknown>;
+  };
+
+  it('serves the folder storybook:site writes, each file at its own path', () => {
+    expect(config.assets).toEqual({
+      directory: `./${SITE_FOLDER}`,
+      html_handling: 'none',
+      not_found_handling: 'none',
+    });
+  });
+
+  it('has no workers.dev address and leaves the domains attached in the dashboard alone', () => {
+    expect(config.workers_dev).toBe(false);
+    expect(config.preview_urls).toBe(false);
+    expect(config).not.toHaveProperty('routes');
+    expect(config).not.toHaveProperty('route');
+    expect(config.previews).toEqual({});
   });
 });
 
