@@ -8,56 +8,22 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import {
   bodyHeading,
+  caretIn,
   currentItem,
   headingBelowTop,
   longBody,
   outline,
   outlineBeside,
+  outlineItem as item,
   outlineItems,
   pageColumn,
-  pasteIntoBody,
+  pageWith,
 } from './outline.support.ts';
 import { openCardWithBody } from './embeds.support.ts';
-import { FIRST_BOARD, openApp } from './shell.support.ts';
-import {
-  letSomebodyElseIn,
-  nameThePage,
-  newWiki,
-  pageBody,
-  typeAsSomebodyElse,
-  wikiPlaceOf,
-} from './wiki.support.ts';
+import { FIRST_BOARD } from './shell.support.ts';
+import { letSomebodyElseIn, pageBody, typeAsSomebodyElse } from './wiki.support.ts';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
-
-/** A new wiki with one page named `title`, its body `html`; gives where it is. */
-async function pageWith(page: Page, title: string, html: string) {
-  await openApp(page);
-  await newWiki(page, 'Handbook');
-  await page.getByTestId('wiki-first-page').click();
-  await nameThePage(page, title);
-  await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', 'ready');
-  if (html !== '') await pasteIntoBody(page, html);
-  // All of it went in: not too large to be sent.
-  await expect(page.getByTestId('body-lost')).toHaveCount(0);
-  return wikiPlaceOf(page.url());
-}
-
-/** The item of the outline with these words. */
-const item = (page: Page, words: string) =>
-  outline(page).getByRole('button', { name: words, exact: true });
-
-/** The focus is in the body's editor, its caret in the heading with `words`. */
-async function caretIn(page: Page): Promise<[boolean, string | null]> {
-  return page.evaluate(() => {
-    const anchor = getSelection()?.anchorNode;
-    const at = anchor instanceof Element ? anchor : anchor?.parentElement;
-    return [
-      document.activeElement?.hasAttribute('data-body-editor') ?? false,
-      at?.closest('h1, h2, h3')?.textContent ?? null,
-    ];
-  });
-}
 
 /** The page's body as somebody else's copy of the room has it, once it has `waitFor`. */
 async function bodyElsewhere(

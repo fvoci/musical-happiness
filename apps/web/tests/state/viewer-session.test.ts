@@ -5,8 +5,8 @@
  * slides left out, showing them keeps the reader's slide, leaving them out
  * lands on the next one, a page told before they were left out is not the
  * reader's, and only a deck has hidden slides. And a frame given up: one that
- * did not start, an engine that did not come, a file not drawn in its time,
- * each told as its own cause.
+ * did not start, an engine that did not come, each told as its own cause; a
+ * file not drawn in its time asks the reader whether to wait on for it.
  */
 import { Blob as NodeBlob } from 'node:buffer';
 
@@ -113,12 +113,50 @@ describe('a frame given up in the session, each cause told apart', () => {
     expect(refused.sent).toEqual([]);
   });
 
-  it('a file that is not drawn in its time is slow', async () => {
+  it('a file not drawn in its time asks the reader, and is asked of again a time after waiting on', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const { session, sent } = await opened('deck.pptx', numberedPptx(3, []));
+    const { session, sent, tell } = await opened('deck.pptx', numberedPptx(3, []));
     expect(sent).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(LIMITS.draw - 1);
+    expect(session.status).toEqual({ name: 'opening', format: 'pptx', late: false });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(session.status).toEqual({ name: 'opening', format: 'pptx', late: true });
+    // Asked, and not answered: the frame goes on, and nothing more comes of the time.
+    await vi.advanceTimersByTimeAsync(LIMITS.draw * 3);
+    expect(session.status).toEqual({ name: 'opening', format: 'pptx', late: true });
+    session.waitOn();
+    expect(session.status).toEqual({ name: 'opening', format: 'pptx', late: false });
     await vi.advanceTimersByTimeAsync(LIMITS.draw);
-    expect(session.status).toEqual({ name: 'failed', reason: 'slow' });
+    expect(session.status).toEqual({ name: 'opening', format: 'pptx', late: true });
+    session.waitOn();
+    // Drawn at last, in the frame it was handed to: nothing was sent to it again.
+    tell({ kind: 'shown', pages: 3 });
+    expect(session.status).toEqual({ name: 'shown', format: 'pptx' });
+    expect(sent).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(LIMITS.draw * 2);
+    expect(session.status.name).toBe('shown');
+  });
+
+  it('a file drawn while the reader is asked is shown; one taken instead is given up as slow', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const asked = await opened('deck.pptx', numberedPptx(3, []));
+    await vi.advanceTimersByTimeAsync(LIMITS.draw);
+    asked.tell({ kind: 'shown', pages: 3 });
+    expect(asked.session.status).toEqual({ name: 'shown', format: 'pptx' });
+    // Only a question is answered.
+    asked.session.waitOn();
+    asked.session.giveUp();
+    expect(asked.session.status.name).toBe('shown');
+
+    const taken = await opened('deck.pptx', numberedPptx(3, []));
+    taken.session.giveUp();
+    expect(taken.session.status.name).toBe('opening');
+    await vi.advanceTimersByTimeAsync(LIMITS.draw);
+    taken.session.giveUp();
+    expect(taken.session.status).toEqual({ name: 'failed', reason: 'slow' });
+    // What the frame says after it was given up is not heard.
+    taken.tell({ kind: 'shown', pages: 3 });
+    expect(taken.session.status).toEqual({ name: 'failed', reason: 'slow' });
   });
 });
 

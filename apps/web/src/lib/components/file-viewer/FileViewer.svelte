@@ -14,7 +14,8 @@
   the focus is in the viewer or in the document: the left and right arrows
   for the previous and next page, + and − to zoom, 0 for 100%, Escape to
   close. A file that cannot be shown here says why and offers itself as a
-  download.
+  download; one not drawn in its time asks whether to wait on for it
+  (ViewerNotice.svelte).
 
   Where the file has versions to show (`versions`: not for who reads by a
   public link), the file is read as its newest version by that version's
@@ -439,16 +440,14 @@
             ></iframe>
           {/key}
         {/if}
-        {#if status.name === 'reading' || status.name === 'opening'}
-          <p
-            class="absolute inset-0 flex items-center justify-center text-muted-foreground"
-            role="status"
-          >
-            {m.viewer_opening()}
-          </p>
-        {:else}
-          <ViewerNotice {status} onDownload={download} />
-        {/if}
+        <ViewerNotice
+          {status}
+          onDownload={download}
+          onAnswer={(wait: boolean) => {
+            if (wait) session.waitOn();
+            else session.giveUp();
+          }}
+        />
       </div>
       {#if listed && list && versions}
         <div

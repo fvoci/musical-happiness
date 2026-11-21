@@ -79,6 +79,12 @@
  *
  * 10. `aria-readonly` on a task's checkbox.
  *
+ * On the view's side, for what is drawn later:
+ *
+ * 16. `data-line-digits` on a code block (`<pre>`): how wide the room for
+ *     the numbers of its lines is, from the first drawing, before the frame
+ *     of 15 comes. The editor puts it on that frame.
+ *
  * In a browser the editor also sets `contenteditable="false"` on images,
  * rules, mentions and the labels of tasks. The simulated page does not turn
  * that property into an attribute, so it never shows up here.
@@ -141,6 +147,7 @@ const LEFT_OUT = {
   'what a reference shows': 0, // 13
   'what a file block shows': 0, // 14
   'bar of a code block': 0, // 15
+  'attribute data-line-digits': 0, // 16
 };
 type LeftOut = keyof typeof LEFT_OUT;
 const leaveOut = (entry: LeftOut): void => {
@@ -189,6 +196,8 @@ function leftOutAttribute(node: Element, name: string, ofEditor: boolean): LeftO
   if (ofEditor && name === 'draggable' && draggable) return 'attribute draggable';
   if (!ofEditor && name === 'aria-readonly' && isTaskCheckbox(node))
     return 'attribute aria-readonly';
+  if (!ofEditor && name === 'data-line-digits' && node.tagName === 'PRE')
+    return 'attribute data-line-digits';
   return undefined;
 }
 

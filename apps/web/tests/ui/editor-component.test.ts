@@ -386,9 +386,9 @@ describe('images given to the editor as files', () => {
     // A placeholder in the page; nothing about it in the document.
     const placeholder = container.querySelector('.doc-upload');
     expect(placeholder?.getAttribute('aria-label')).toBe('Uploading the image…');
-    await vi.waitFor(() => {
-      expect(container.querySelector('[role="status"]')?.textContent).toBe('Uploading the image…');
-    });
+    // Going up is told where every upload is (the stack), not again under the body.
+    await Promise.resolve();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe('');
     expect(onChange).not.toHaveBeenCalled();
     expect(JSON.stringify(editor.getJSON())).not.toContain('image');
 
@@ -409,17 +409,17 @@ describe('images given to the editor as files', () => {
     setFileSource(previous);
   });
 
-  it('says so when an upload fails, and leaves the document as it was', async () => {
+  it('gives up the place of an upload that failed, and leaves the document as it was', async () => {
     const onChange = vi.fn();
     const uploadFile = vi.fn((_file: File) => Promise.reject(new Error('too large')));
     const { container } = render(BodyEditor, { doc: null, onChange, uploadFile });
     expect(give(editorIn(container), [picture()])).toBe(true);
+    expect(container.querySelector('.doc-upload')).not.toBeNull();
     await vi.waitFor(() => {
-      expect(container.querySelector('[role="status"]')?.textContent).toBe(
-        'The image could not be uploaded.',
-      );
+      expect(container.querySelector('.doc-upload')).toBeNull();
     });
-    expect(container.querySelector('.doc-upload')).toBeNull();
+    // Why is told where every upload is (the stack), and not twice.
+    expect(container.querySelector('[role="status"]')?.textContent).toBe('');
     expect(onChange).not.toHaveBeenCalled();
   });
 

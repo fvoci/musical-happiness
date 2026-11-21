@@ -161,14 +161,21 @@ export function focusHeading(heading: HTMLElement, finger: boolean): boolean {
 
 /**
  * Scrolls `scroller` so that the top of `heading` is `below` pixels under
- * its top edge, without the motion where the reader asked for less of it.
+ * its top edge, as far as it scrolls, without the motion where the reader
+ * asked for less of it. Gives where it scrolls to.
  */
-export function scrollToHeading(scroller: HTMLElement, heading: HTMLElement, below: number): void {
-  const top =
+export function scrollToHeading(
+  scroller: HTMLElement,
+  heading: HTMLElement,
+  below: number,
+): number {
+  const wanted =
     scroller.scrollTop +
     heading.getBoundingClientRect().top -
     scroller.getBoundingClientRect().top -
     below;
+  const top = Math.max(0, Math.min(wanted, scroller.scrollHeight - scroller.clientHeight));
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  scroller.scrollTo({ top: Math.max(0, top), behavior: reduced ? 'auto' : 'smooth' });
+  scroller.scrollTo({ top, behavior: reduced ? 'auto' : 'smooth' });
+  return top;
 }

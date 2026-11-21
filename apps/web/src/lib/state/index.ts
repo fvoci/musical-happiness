@@ -52,7 +52,7 @@ export { type Shareable } from './member-writes.ts';
 export { boardPresence } from './board-presence.svelte.ts';
 export type { BodyVersion, BodyVersionContent, BodyVersions } from './body-versions.ts';
 export { CardPreviews } from './card-previews.svelte.ts';
-export { type CommentEdit, type Upload } from './card-parts.ts';
+export { type CommentEdit } from './card-parts.ts';
 export { CardStore } from './card.svelte.ts';
 export { PageStore } from './page.svelte.ts';
 export type { PageComments } from './page-comments.svelte.ts';
@@ -79,7 +79,12 @@ export {
 } from './reference-titles.svelte.ts';
 export type { LinkedBlock } from './references.ts';
 export { byCreation, byTitle, type SidebarCategory } from './order.ts';
-export { type Transfer } from './transfers.svelte.ts';
+export {
+  TRANSFER_STAYS,
+  type Transfer,
+  type TransferOptions,
+  type UploadFailure,
+} from './transfers.svelte.ts';
 export { isOpen, startOrganization, type EnterStatus } from './workspace-entry.ts';
 export { containerTrash, cardTrash, pageTrash, Trash, type TrashStatus } from './trash.svelte.ts';
 export {

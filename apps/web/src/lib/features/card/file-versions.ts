@@ -56,14 +56,12 @@ export function attachmentVersions(
     },
     list: () => versions.list(boardId, fileId),
     bytes: (version, signal) => versions.bytes(boardId, fileId, version, signal),
-    async upload(file) {
-      try {
-        return await backend.upload(boardId, file);
-      } catch (error) {
-        workspace.report('upload', error);
-        return undefined;
-      }
-    },
+    // Shown where every upload is, which says why one failed.
+    upload: (file) =>
+      workspace.transfers.upload({
+        file,
+        send: (options) => backend.upload(boardId, file, options),
+      }).done,
     add: async (baseVersion, upload) =>
       resized(await versions.add(boardId, fileId, baseVersion, upload)),
     restore: async (version, baseVersion) =>

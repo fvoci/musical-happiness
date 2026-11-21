@@ -46,7 +46,7 @@
   import { emptyDoc, isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
   import { suggestionList } from './suggestion-list.ts';
   import { SlashMenu } from './slash-menu.ts';
-  import { BodyUpload, fromUpload, type Pending } from './uploads.ts';
+  import { BodyUpload, fromUpload } from './uploads.ts';
 
   let {
     doc,
@@ -88,28 +88,16 @@
    * again.
    */
   let said = $state<{ text: string; upload: boolean }>();
-  let uploads = $state.raw<Pending>({ image: 0, file: 0 });
 
-  const status = $derived.by(() => {
-    if (unreadable) return m.editor_body_unreadable();
-    // A formula's loss is said even while a file goes up; a file's waits for the uploads.
-    if (said && !said.upload) return said.text;
-    if (uploads.file > 0) return m.editor_file_uploading();
-    if (uploads.image > 0) return m.editor_image_uploading();
-    return said?.text ?? '';
-  });
+  const status = $derived(unreadable ? m.editor_body_unreadable() : (said?.text ?? ''));
 
+  /**
+   * What is said of a file that went up and was not put in. One going up, or
+   * one that did not go up, is told where every upload is (the shell's stack).
+   */
   const UPLOAD_SAID = {
-    image: {
-      failed: m.editor_image_failed,
-      gone: m.editor_image_gone,
-      refused: m.editor_image_refused,
-    },
-    file: {
-      failed: m.editor_file_failed,
-      gone: m.editor_file_gone,
-      refused: m.editor_file_refused,
-    },
+    image: { gone: m.editor_image_gone, refused: m.editor_image_refused },
+    file: { gone: m.editor_file_gone, refused: m.editor_file_refused },
   };
 
   const nameOf = (userId: string): string =>
@@ -179,20 +167,21 @@
   };
 
   /**
-   * Files pasted, dropped or chosen go up through `uploadFile` as they are asked: the counts
-   * under way, and what is said of one that ends otherwise than in the body.
+   * Files pasted, dropped or chosen go up through `uploadFile` as they are asked; what is
+   * said of one that went up and ends otherwise than in the body.
    */
   const uploading = BodyUpload.configure({
     upload: () => uploadFile,
     uploadingLabel: (kind) =>
       kind === 'file' ? m.editor_file_uploading() : m.editor_image_uploading(),
-    onProgress: (pending, ended, destroyed) => {
-      uploads = pending;
+    onProgress: (_pending, ended, destroyed) => {
       if (destroyed) {
         if (ended?.outcome === 'gone') onUploadDropped?.(ended.kind);
         return;
       }
-      if (ended && ended.outcome !== 'done' && !(said && !said.upload)) {
+      if (!ended || (ended.outcome !== 'gone' && ended.outcome !== 'refused')) return;
+      // A formula's loss, said first, is not replaced.
+      if (!(said && !said.upload)) {
         said = { text: UPLOAD_SAID[ended.kind][ended.outcome](), upload: true };
       }
     },

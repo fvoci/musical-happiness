@@ -5,10 +5,12 @@
  * sheet has drawings it does not draw; a large sheet draws only what is in
  * view; whole rows and columns of a style of their own show it on their
  * empty cells; a workbook opened from a page's file block; one past a ceiling, an
- * old Excel file, and one read slowly that "Close" and the time limit end,
- * worker and all. The frame asks the network for nothing.
+ * old Excel file, and one read slowly that "Close" ends, worker and all, and
+ * that past the time limit asks whether to wait on: waited on, it is shown in
+ * the same frame; downloaded instead, or closed, it goes with its worker. The
+ * frame asks the network for nothing.
  */
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Worker } from '@playwright/test';
 
 import { manyCellsXlsx, manyMergesXlsx } from '../tests/support/hostile-xlsx.ts';
 import {
@@ -320,16 +322,58 @@ test('while a large workbook is read, "Close" ends the viewer and its worker', a
   await expect.poll(() => page.workers().length).toBe(0);
 });
 
-test('a workbook read past the time limit is given up, worker and all', async ({ page }) => {
+/**
+ * Opens the slow workbook under a clock of the test's, and runs the clock past the time the
+ * viewer gives a file to be drawn in: it asks the reader whether to wait on. The workers the
+ * page started are counted from before it opened.
+ */
+async function askedToWait(page: Page): Promise<{ notice: Locator; workers: Worker[] }> {
   await page.clock.install();
   await openCard(page);
   const row = await attach(page, 'slow.xlsx', slowXlsx(), XLSX_TYPE);
+  const workers: Worker[] = [];
+  page.on('worker', (worker) => workers.push(worker));
   await openReading(page, row, 'slow.xlsx');
   await page.clock.runFor(31_000);
+  const notice = page.getByTestId('file-viewer-notice');
+  await expect(notice).toContainText('This file is taking long to show.');
+  await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
+  return { notice, workers };
+}
+
+test('a workbook read past the time limit asks, and waited on is shown in the frame it was handed to', async ({
+  page,
+}) => {
+  const { notice, workers } = await askedToWait(page);
+  const frame = await page.getByTestId('file-viewer-frame').elementHandle();
+  await notice.getByRole('button', { name: 'Keep waiting' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+  await expect(frameOf(page).getByRole('cell').first()).toBeVisible();
+  // Not drawn anew: the same frame, and the one worker it read the workbook in.
+  expect(await frame.evaluate((element) => element.isConnected)).toBe(true);
+  await expect(page.getByTestId('file-viewer-frame')).toHaveCount(1);
+  expect(workers).toHaveLength(1);
+});
+
+test('a workbook read past the time limit, downloaded instead, is given up, worker and all', async ({
+  page,
+}) => {
+  const { notice } = await askedToWait(page);
+  const downloading = page.waitForEvent('download');
+  await notice.getByRole('button', { name: 'Download' }).click();
+  expect((await downloading).suggestedFilename()).toBe('slow.xlsx');
   await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
-  await expect(page.getByTestId('file-viewer-notice')).toContainText(
-    'The file took too long to show.',
-  );
+  await expect(notice).toContainText('The file took too long to show.');
+  await expect(notice.getByRole('button', { name: 'Keep waiting' })).toHaveCount(0);
   await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
+  await expect.poll(() => page.workers().length).toBe(0);
+});
+
+test('a workbook read past the time limit, closed while it asks, ends the viewer and its worker', async ({
+  page,
+}) => {
+  await askedToWait(page);
+  await page.getByTestId('file-viewer-close').click();
+  await expect(viewer(page)).toHaveCount(0);
   await expect.poll(() => page.workers().length).toBe(0);
 });

@@ -142,13 +142,20 @@ describe('the outline of the read-only view', () => {
     expect(outline.entries).toEqual([]);
   });
 
-  it('is beside the page where its column has room, unless folded away, which the device keeps', () => {
+  it('is beside the page where its column has room for it and the page at its narrowest, unless folded away, which the device keeps', () => {
     const outline = new PageOutline();
     outline.entries = outlineOf(headings(2));
     const scroller = document.createElement('div');
-    Object.defineProperty(scroller, 'clientWidth', { value: 60 * 16 });
+    // The page gives up its width from 48rem down to 40rem; the outline is 12rem.
+    Object.defineProperty(scroller, 'clientWidth', { value: 52 * 16 });
     const stop = outline.follow(scroller);
     expect(outline.mode).toBe('side');
+    // The width is read with the scrollbar's room kept, so the page coming to overflow does not change it.
+    expect(scroller.style.getPropertyValue('scrollbar-gutter')).toBe('stable');
+    // Its place is kept for a page with too few headings: the page is drawn there all the same.
+    outline.entries = outlineOf(headings(1));
+    expect([outline.mode, outline.where]).toEqual(['none', 'side']);
+    outline.entries = outlineOf(headings(2));
     outline.setFolded(true);
     expect(outline.mode).toBe('button');
     expect(localStorage.getItem(OUTLINE_STORAGE_KEY)).toBe('folded');
@@ -156,10 +163,14 @@ describe('the outline of the read-only view', () => {
     outline.setFolded(false);
     expect(new PageOutline().folded).toBe(false);
     stop();
+    expect(scroller.style.getPropertyValue('scrollbar-gutter')).toBe('');
     const narrow = document.createElement('div');
-    Object.defineProperty(narrow, 'clientWidth', { value: 60 * 16 - 1 });
+    Object.defineProperty(narrow, 'clientWidth', { value: 52 * 16 - 1 });
     const stopNarrow = outline.follow(narrow);
     expect(outline.mode).toBe('button');
+    outline.entries = outlineOf(headings(1));
+    expect([outline.mode, outline.where]).toEqual(['none', 'button']);
+    outline.entries = outlineOf(headings(2));
 
     // The list behind the button, left out as the outline went away, is shut when it comes back.
     outline.open = true;
@@ -177,6 +188,84 @@ describe('the outline of the read-only view', () => {
     expect(outline.mode).toBe('button');
     expect(outline.open).toBe(false);
     outline.setFolded(false);
+  });
+
+  it('keeps the heading chosen marked through typing, and lets go of it once a key that moves the page, a press or the wheel scrolls it', async () => {
+    const outline = new PageOutline();
+    const scroller = document.createElement('div');
+    scroller.scrollTo = vi.fn();
+    const body = headings(3);
+    scroller.append(body);
+    document.body.append(scroller);
+    outline.follow(scroller);
+    outline.source(body);
+    await nextFrame();
+    // Nothing is measured here: every top is 0, at the reading line, so the last is read.
+    expect(outline.current).toBe(2);
+    const inBody = body.querySelector('h2') as HTMLElement;
+    // Typed into what is edited (jsdom does not work this out from `contenteditable`).
+    Object.defineProperty(inBody, 'isContentEditable', { value: true });
+    const scrolled = async (): Promise<void> => {
+      scroller.dispatchEvent(new Event('scroll'));
+      await nextFrame();
+    };
+    const key = (init: KeyboardEventInit): void => {
+      inBody.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...init }));
+    };
+    outline.go(0);
+    // Typing scrolls the page only to keep the caret in sight: a letter, Enter, an input method's key.
+    for (const typed of [{ key: 'a' }, { key: 'Enter' }, { key: 'Process', isComposing: true }]) {
+      key(typed);
+      await scrolled();
+      expect(outline.current).toBe(0);
+    }
+    // A key that moves the page, then the page scrolled: the reading line's again.
+    key({ key: 'PageDown' });
+    await scrolled();
+    expect(outline.current).toBe(2);
+    // Paste, cut and undo write, as does a letter typed with AltGr (Control and Alt); Shift
+    // alone, held for a capital, moves nothing.
+    outline.go(0);
+    for (const chord of [
+      { key: 'Shift', shiftKey: true },
+      { key: 'v', ctrlKey: true },
+      { key: 'z', metaKey: true },
+      { key: 'ę', ctrlKey: true, altKey: true },
+    ]) {
+      key(chord);
+      await scrolled();
+      expect(outline.current).toBe(0);
+    }
+    // Tab, and the browser's Find, may scroll the page.
+    for (const moved of [
+      { key: 'Tab' },
+      { key: 'f', ctrlKey: true },
+      { key: 'g', metaKey: true },
+    ]) {
+      outline.go(0);
+      key(moved);
+      await scrolled();
+      expect(outline.current).toBe(2);
+    }
+    // A key that moves the page and then a letter: the scroll is the caret's.
+    outline.go(0);
+    key({ key: 'ArrowDown' });
+    key({ key: 'b' });
+    await scrolled();
+    expect(outline.current).toBe(0);
+    // The scroll of a heading gone to is not the reader's, even after a key that moves the page.
+    key({ key: 'ArrowDown' });
+    outline.go(0);
+    await scrolled();
+    expect(outline.current).toBe(0);
+    // A press that scrolls nothing keeps it; the wheel, as it scrolls, lets go of it.
+    inBody.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    await nextFrame();
+    expect(outline.current).toBe(0);
+    scroller.dispatchEvent(new Event('wheel'));
+    await scrolled();
+    expect(outline.current).toBe(2);
+    scroller.remove();
   });
 
   it('puts the focus on the heading chosen, which gives it back as it was once it leaves', async () => {
@@ -315,8 +404,12 @@ describe('the list of the outline', () => {
     expect(items[0]).not.toHaveAttribute('aria-current');
     expect(items[0]?.style.paddingInlineStart).toBe('0.5rem');
     expect(items[1]?.style.paddingInlineStart).toBe('1.25rem');
-    // One stop of the Tab key, at the one being read.
+    // One stop of the Tab key, at the one being read, which tells the keys that go along the list.
     expect(Array.from(items, (item) => item.tabIndex)).toEqual([-1, 0, -1]);
+    expect(items[1]).toHaveAccessibleDescription(
+      'The arrow keys, Home and End go from heading to heading; Enter goes to the one chosen.',
+    );
+    expect(items[0]).not.toHaveAccessibleDescription();
     outline.current = 2;
     await tick();
     expect(items[2]).toHaveAttribute('aria-current', 'location');

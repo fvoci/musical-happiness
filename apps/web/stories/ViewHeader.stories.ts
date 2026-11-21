@@ -53,3 +53,28 @@ export const Properties: Story = {
     ).toBeVisible();
   },
 };
+/** One view: the button names it all the same, and its list offers the kinds of view to add. */
+export const Views: Story = {
+  play: async ({ canvasElement }) => {
+    await clickStory(canvasElement, '[data-tool="views"]');
+    const menu = await visibleStoryElement(canvasElement, '[role="menu"]');
+    await expect(menu.querySelectorAll('a[role="menuitem"]')).toHaveLength(1);
+    await expect(menu.querySelector('a[role="menuitem"]')).toHaveAttribute('aria-current', 'page');
+    await expect(menu.querySelector('[data-action="add-board"]')).not.toBeNull();
+    await expect(menu.querySelector('[data-action="rename"]')).not.toBeNull();
+    // The last view of a board cannot be deleted: a line of the dropdown or a button of the sheet.
+    await expect(
+      menu.querySelector('[data-action="delete"]')?.matches('[aria-disabled="true"], :disabled'),
+    ).toBe(true);
+  },
+};
+/** A reader: the list has the views and nothing that changes them. */
+export const ReadOnlyViews: Story = {
+  args: { readOnly: true },
+  play: async ({ canvasElement }) => {
+    await clickStory(canvasElement, '[data-tool="views"]');
+    const menu = await visibleStoryElement(canvasElement, '[role="menu"]');
+    await expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(1);
+    await expect(menu.querySelectorAll('a[role="menuitem"]')).toHaveLength(1);
+  },
+};

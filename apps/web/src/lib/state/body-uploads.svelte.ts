@@ -1,19 +1,23 @@
 /**
- * The files going up for a body, a card's description or a wiki page's.
+ * The files going up for a body, a card's description or a wiki page's. Each
+ * is shown where every upload is (`Transfers`), and its place in the body
+ * by the editor.
  *
  * Each is given up when what it was going up for closes: its block would be
- * put in nowhere. The reader is told so then, wherever they went, where the
- * shell tells of what failed: an upload that ends with the page it was for
- * would otherwise end without a word.
+ * put in nowhere. It stays in the stack then, failed for that reason, until
+ * the reader dismisses it, wherever they went.
  */
-import type { ProblemAction } from './workspace.svelte.ts';
+import type { UploadedFile } from './backend.ts';
+import type { TransferOptions, Transfers } from './transfers.svelte.ts';
 
 export class BodyUploads {
-  #underWay = $state.raw<AbortController[]>([]);
-  readonly #report: (action: ProblemAction, error: unknown) => void;
+  /** The transfers of those under way. */
+  #underWay = $state.raw<number[]>([]);
+  readonly #place: () => { readonly transfers: Transfers };
 
-  constructor(report: (action: ProblemAction, error: unknown) => void) {
-    this.#report = report;
+  /** `place` (the workspace) is asked for its stack when an upload starts. */
+  constructor(place: () => { readonly transfers: Transfers }) {
+    this.#place = place;
   }
 
   /** A file is going up: closing now would give it up. */
@@ -21,30 +25,30 @@ export class BodyUploads {
     return this.#underWay.length > 0;
   }
 
-  /** Runs one upload, given up by the signal it is handed. One that fails is told; one given up, by `giveUp`. */
-  async run<T>(upload: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    const controller = new AbortController();
-    this.#underWay = [...this.#underWay, controller];
+  /**
+   * Uploads `file` with `send`, and gives the identifier of the file. It
+   * rejects when the upload failed (the stack says why) or was given up.
+   */
+  async run(
+    file: File,
+    send: (options: TransferOptions) => Promise<UploadedFile>,
+  ): Promise<string> {
+    const { id, done } = this.#place().transfers.upload({ file, send });
+    this.#underWay = [...this.#underWay, id];
     try {
-      return await upload(controller.signal);
-    } catch (error) {
-      if (!controller.signal.aborted) this.#report('upload', error);
-      throw error;
+      const uploaded = await done;
+      if (!uploaded) throw new Error(`${file.name} did not go up`);
+      return uploaded.fileId;
     } finally {
-      this.#underWay = this.#underWay.filter((other) => other !== controller);
+      this.#underWay = this.#underWay.filter((other) => other !== id);
     }
   }
 
-  /**
-   * What they were going up for closes: those under way are given up, and that
-   * is told, once. `others` says a file of another kind (a card's attachment)
-   * was given up with it: one line tells of all.
-   */
-  giveUp(others = false): void {
+  /** What they were going up for closes: those under way are given up, and stay told so. */
+  giveUp(): void {
     const underWay = this.#underWay;
-    if (underWay.length === 0 && !others) return;
     this.#underWay = [];
-    for (const upload of underWay) upload.abort();
-    this.#report('left', undefined);
+    const { transfers } = this.#place();
+    for (const id of underWay) transfers.leave(id);
   }
 }

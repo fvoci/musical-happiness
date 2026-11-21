@@ -255,6 +255,44 @@ describe('a move of the caret the editor has not read yet', () => {
     });
     expect(target.state.selection.head).toBe(1 + SOURCE.length);
   });
+
+  it('is kept when the colours come right behind it', async () => {
+    let answerNow: (() => void) | undefined;
+    useHighlighter({
+      ready: () => Promise.resolve(true),
+      highlight: (grammar, value) =>
+        new Promise((resolve) => {
+          answerNow = () => {
+            resolve(answer({ id: 0, grammar, text: value }).tokens);
+          };
+        }),
+      stop: () => undefined,
+    });
+    const target = create(doc(code('ts', SOURCE)));
+    target.commands.setTextSelection(2);
+    target.view.focus();
+    expect(target.state.selection.head).toBe(2);
+    await vi.waitFor(() => {
+      expect(answerNow).toBeDefined();
+    });
+    // The browser moves the caret to the end of the block, and tells only after the colours,
+    // which come in that moment: its word is held back until they are drawn.
+    const late = (event: Event): void => {
+      event.stopImmediatePropagation();
+    };
+    document.addEventListener('selectionchange', late, { capture: true });
+    const walker = document.createTreeWalker(codeOf(target) ?? document.body, NodeFilter.SHOW_TEXT);
+    let last: Node | null = null;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) last = node;
+    document.getSelection()?.collapse(last, last?.textContent?.length ?? 0);
+    answerNow?.();
+    await coloured(target);
+    document.removeEventListener('selectionchange', late, { capture: true });
+    document.dispatchEvent(new Event('selectionchange'));
+    await vi.waitFor(() => {
+      expect(target.state.selection.head).toBe(1 + SOURCE.length);
+    });
+  });
 });
 
 describe('the language of a code block', () => {
