@@ -137,6 +137,20 @@ test('the language is found and taken from the keys, and the bar is reached with
   const search = block(body).getByRole('combobox');
   await expect(search).toBeFocused();
   await expect(language).toHaveAttribute('aria-expanded', 'true');
+  // The field and the rows stay inside the list's box, and the rows are not indented as the body's lists are.
+  const popup = block(body).locator('.doc-code-popup');
+  const boxOf = async (part: Locator) => {
+    const box = await part.boundingBox();
+    if (!box) throw new Error('the part is not on the page');
+    return box;
+  };
+  const around = await boxOf(popup);
+  for (const part of [search, block(body).getByRole('option').first()]) {
+    const box = await boxOf(part);
+    expect(box.x).toBeGreaterThanOrEqual(around.x);
+    expect(box.x + box.width).toBeLessThanOrEqual(around.x + around.width);
+    expect(box.x - around.x).toBeLessThan(8);
+  }
   await page.keyboard.type('pyth');
   await expect(block(body).getByRole('option')).toHaveText(['Python']);
   await page.keyboard.press('Enter');
