@@ -459,13 +459,17 @@ impl Backends {
 
 /// What is wrong with the tests that `arguments` for the harness chose, which ran in
 /// `results`, the units of `database`: they were none, or some of the names of a rerun
-/// line (`-- --exact` and names) are of no test that ran. Either proves nothing.
+/// line (`-- --exact` and names) are of no test the harness named (run or ignored).
+/// Either proves nothing. When a unit's binary died or a signal stopped it, its tests
+/// are not all known, and nothing is said of them: the unit failed.
 fn chose_wrongly(
     database: Database,
     arguments: &[String],
     results: &[&UnitResult],
 ) -> Option<String> {
-    if arguments.is_empty() {
+    let cut_short =
+        |result: &&UnitResult| result.run.interrupted || !result.run.report.every_binary_finished();
+    if arguments.is_empty() || results.iter().any(cut_short) {
         return None;
     }
     let seen = |name: &String| {
@@ -625,6 +629,13 @@ mod tests {
             chose_wrongly(Database::Sqlite, &[], &[&web]),
             None,
             "a whole unit"
+        );
+        let mut died = ran("api", &[]);
+        died.run.report.started = 1;
+        assert_eq!(
+            wrongly("--exact api::a", &[&died, &web]),
+            None,
+            "a binary that died before it named its tests says nothing of the names"
         );
     }
 

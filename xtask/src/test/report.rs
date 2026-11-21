@@ -28,7 +28,8 @@ impl UnitResult {
         !self.run.succeeded || !report.failed_tests.is_empty() || !report.every_binary_finished()
     }
 
-    /// Passed, failed, or interrupted: the task was asked to stop while it ran.
+    /// Passed, failed, or interrupted: a signal that asks to stop (Ctrl-C) ended its
+    /// command.
     pub(crate) fn verdict(&self) -> Verdict {
         if self.run.interrupted {
             Verdict::Interrupted
@@ -40,17 +41,18 @@ impl UnitResult {
     }
 
     /// Whether the names of its failed tests are all its failures: every binary
-    /// reported, named as many failures as it counted, a command that failed had a
-    /// binary whose result was a failure (not only a build that failed), and cargo
-    /// counted no more failed binaries than those (none that died after its result).
+    /// reported and named as many failures as it counted, and a command that failed
+    /// had cargo count its failed binaries, no more than those whose result was a
+    /// failure (none that died after its result, no build that failed). Without the
+    /// count (cargo killed, its words not read) the failures are not known to be named.
     fn every_failure_named(&self) -> bool {
         let report = &self.run.report;
         report.names_every_failure()
-            && (self.run.succeeded || report.failed_binaries > 0)
-            && self
-                .run
-                .failed_targets
-                .is_none_or(|targets| targets <= report.failed_binaries)
+            && (self.run.succeeded
+                || self
+                    .run
+                    .failed_targets
+                    .is_some_and(|targets| targets > 0 && targets <= report.failed_binaries))
     }
 
     /// Whether its failures run again by name. Documentation tests do not: rustdoc
@@ -201,7 +203,9 @@ pub(crate) fn lines(results: &[UnitResult], flaky: &[(TestName, u64)], now_unix:
             for name in &result.run.report.failed_tests {
                 let _ = writeln!(text, "    {name}");
             }
-            if result.unit == DOC {
+            if result.run.interrupted {
+                text.push_str("    (stopped before its end: it runs again whole)\n");
+            } else if result.unit == DOC {
                 text.push_str(
                     "    (rustdoc cuts a name at its spaces: the documentation tests run \
                      again whole)\n",
@@ -282,7 +286,11 @@ mod tests {
             run: UnitRun {
                 succeeded: matches!(exit, Exit::Success),
                 interrupted: false,
-                failed_targets: None,
+                // As cargo counts them: the binaries that failed, one at least.
+                failed_targets: match exit {
+                    Exit::Success => None,
+                    Exit::Failure => Some(report.failed_binaries.max(1)),
+                },
                 report,
                 elapsed: Duration::from_millis(83_400),
             },
@@ -436,7 +444,12 @@ mod tests {
         let mut stopped = result("sqlite", "x", Exit::Failure, finished(&["x::a"], &["x::b"]));
         stopped.run.interrupted = true;
         assert_eq!(stopped.time().verdict, Verdict::Interrupted);
-        assert!(lines(std::slice::from_ref(&stopped), &[], 0).contains("STOP  sqlite    x"));
+        let text = lines(std::slice::from_ref(&stopped), &[], 0);
+        assert!(text.contains("STOP  sqlite    x"), "{text}");
+        assert!(
+            text.contains("(stopped before its end: it runs again whole)"),
+            "{text}"
+        );
         assert_eq!(
             reruns(&[stopped]),
             ["cargo xtask test --database sqlite --unit x"],
@@ -467,6 +480,11 @@ mod tests {
         assert!(
             died.time().every_failure_named,
             "cargo counts the one that named it"
+        );
+        died.run.failed_targets = None;
+        assert!(
+            !died.time().every_failure_named,
+            "a failed command whose count was not read: cargo killed, or its words changed"
         );
     }
 

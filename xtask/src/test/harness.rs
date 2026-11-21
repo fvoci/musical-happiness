@@ -5,12 +5,15 @@
 //! its test binaries started and never reported its result (it aborted, was killed, or
 //! a test ended its process). Cargo's count of the binaries that failed, on its standard
 //! error, tells whether a binary failed that named nothing (one that died after its
-//! result). Only when every failure was named are the names run again, and never those
-//! of documentation tests ([`super::report`]); else the whole unit is.
+//! result); without that count a failed command has not named every failure. Only when
+//! every failure was named are the names run again, and never those of documentation
+//! tests nor of a unit a stop signal ended ([`super::report`]); else the whole unit is.
 
-use std::io::{BufRead as _, BufReader, Read, Write};
+use std::borrow::Cow;
+use std::io::{BufRead as _, BufReader, IsTerminal as _, Read, Write};
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
@@ -169,15 +172,43 @@ pub(crate) struct UnitRun {
     pub(crate) elapsed: Duration,
 }
 
+/// How long the standard error of a command that ended may stay open: a process it
+/// left behind may hold it, and the count in it is then not known.
+const ERRORS_AFTER_THE_END: Duration = Duration::from_secs(30);
+
 /// What cargo says on its standard error at the end of a `cargo test --no-fail-fast`
-/// whose test binaries failed: `error: 2 targets failed:`, `error: 1 target failed:`.
+/// whose test binaries failed: `error: 2 targets failed:`, `error: 1 target failed:`,
+/// in colour or not.
 fn failed_targets(line: &str) -> Option<u64> {
+    let line = without_colour(line);
     let (count, what) = line.trim_end().strip_prefix("error: ")?.split_once(' ')?;
     if matches!(what, "targets failed:" | "target failed:") {
         count.parse().ok()
     } else {
         None
     }
+}
+
+/// `line` without the escape sequences that colour a terminal's text (`ESC [ … m`).
+fn without_colour(line: &str) -> Cow<'_, str> {
+    if !line.contains('\u{1b}') {
+        return Cow::Borrowed(line);
+    }
+    let mut plain = String::with_capacity(line.len());
+    let mut characters = line.chars();
+    while let Some(character) = characters.next() {
+        if character == '\u{1b}' {
+            // An escape ends with its first letter, `m` for a colour.
+            for escaped in characters.by_ref() {
+                if escaped.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            plain.push(character);
+        }
+    }
+    Cow::Owned(plain)
 }
 
 /// Passes `errors` on to `echo` a line at a time, and returns the last count of failed
@@ -237,6 +268,11 @@ pub(crate) fn run(
         .args(arguments)
         .envs(environment.iter().map(|(name, value)| (name, value)))
         .current_dir(directory);
+    // Cargo writes to a pipe here: in colour still, if it is a terminal it writes to in
+    // the end and the caller did not say otherwise.
+    if std::io::stderr().is_terminal() && std::env::var_os("CARGO_TERM_COLOR").is_none() {
+        command.env("CARGO_TERM_COLOR", "always");
+    }
     run_echoing(command, &shown, &mut std::io::stdout(), std::io::stderr())
 }
 
@@ -255,10 +291,13 @@ fn run_echoing(
         .spawn()
         .with_context(|| format!("starting `{shown}`"))?;
     // Read on a thread of its own, so that neither stream fills while the other is read.
-    let errors = child
-        .stderr
-        .take()
-        .map(|errors| std::thread::spawn(move || read_errors(errors, echo_errors)));
+    let (counted, count) = mpsc::channel();
+    if let Some(errors) = child.stderr.take() {
+        std::thread::spawn(move || {
+            // The command's end is waited for no longer once the time is up.
+            let _ = counted.send(read_errors(errors, echo_errors));
+        });
+    }
     let mut reading = Reading::default();
     if let Some(output) = child.stdout.take() {
         let mut output = BufReader::new(output);
@@ -279,7 +318,18 @@ fn run_echoing(
     let status = child
         .wait()
         .with_context(|| format!("waiting for `{shown}`"))?;
-    let failed_targets = errors.and_then(|reading| reading.join().ok()).flatten();
+    let failed_targets = match count.recv_timeout(ERRORS_AFTER_THE_END) {
+        Ok(count) => count,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            crate::steps::say(&format!(
+                "    the standard error of `{shown}` is still open {}s after its end: a \
+                 process it started holds it",
+                ERRORS_AFTER_THE_END.as_secs()
+            ));
+            None
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => None,
+    };
     Ok(UnitRun {
         succeeded: status.success(),
         interrupted: asked_to_stop(status),
@@ -472,15 +522,29 @@ test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; 
 
     #[cfg(unix)]
     #[test]
-    fn a_command_ended_by_ctrl_c_was_asked_to_stop() {
-        let mut command = Command::new("sh");
-        command.args(["-c", "kill -INT $$"]);
-        let ran = run_echoing(command, "sh", &mut Vec::new(), std::io::sink()).expect("sh starts");
-        assert!(ran.interrupted && !ran.succeeded, "{ran:?}");
-        let mut command = Command::new("sh");
-        command.args(["-c", "kill -KILL $$"]);
-        let ran = run_echoing(command, "sh", &mut Vec::new(), std::io::sink()).expect("sh starts");
-        assert!(!ran.interrupted, "killed, but not asked to stop: {ran:?}");
+    fn a_command_ended_by_a_stop_signal_was_asked_to_stop() {
+        use std::os::unix::process::ExitStatusExt as _;
+        // A wait status: the signal that ended the process, or its exit code times 256.
+        for (status, asked) in [
+            (1, true),
+            (2, true),
+            (15, true),
+            (9, false),
+            (101 << 8, false),
+        ] {
+            assert_eq!(
+                asked_to_stop(ExitStatus::from_raw(status)),
+                asked,
+                "{status}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_count_in_colour_is_read() {
+        let line = "\u{1b}[1m\u{1b}[91merror\u{1b}[0m: 3 targets failed:\n";
+        assert_eq!(failed_targets(line), Some(3));
+        assert_eq!(without_colour("plain"), "plain");
     }
 
     #[test]
