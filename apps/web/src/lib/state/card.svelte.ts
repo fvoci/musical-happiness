@@ -26,10 +26,11 @@ import {
 } from './backend.ts';
 import { BodyUploads } from './body-uploads.svelte.ts';
 import type { BoardStore } from './board.svelte.ts';
-import { REJOIN_SPACING, afterPutOut, type CommentEdit, type Upload } from './card-parts.ts';
+import { REJOIN_SPACING, afterPutOut, type CommentEdit } from './card-parts.ts';
 import { byCreation } from './order.ts';
 import { authorIds } from './user-names.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
+import type { Transfer } from './transfers.svelte.ts';
 import { reread, take } from './write.ts';
 
 /** How long the line at the top of the card says "saving" after the server had it all. */
@@ -64,7 +65,13 @@ export class CardStore {
    * `SAVING_SHOWN` ago: the line that says so does not blink at every key.
    */
   bodySaving = $state(false);
-  uploads = $state.raw<Upload[]>([]);
+  /**
+   * The files going up to be attached here, or that failed to, as the stack of
+   * the workspace has them: they outlive the card. One that is in is an attachment.
+   */
+  readonly uploads = $derived.by<Transfer[]>(() =>
+    this.board.workspace.transfers.list.filter((one) => one.card === this.cardId && !one.finished),
+  );
 
   #comments = $state.raw<Comment[]>([]);
   #attachments = $state.raw<Attachment[]>([]);
@@ -79,7 +86,6 @@ export class CardStore {
   #readAt = 0;
   #bodyDoc: BodyDoc | undefined;
   #savingShown: ReturnType<typeof setTimeout> | undefined;
-  #uploadCount = 0;
   #closed = false;
   /** When the room was last joined again by itself (`#stillThere`). */
   #rejoinedAt = -Infinity;
@@ -124,9 +130,7 @@ export class CardStore {
   close(): void {
     this.#closed = true;
     this.closeBody();
-    const attaching = this.uploads.some((upload) => !upload.failed);
-    for (const upload of this.uploads) upload.cancel();
-    this.#bodyUploads.giveUp(attaching);
+    this.#bodyUploads.giveUp();
   }
 
   #takeDetail(detail: CardDetail): void {
@@ -398,78 +402,48 @@ export class CardStore {
     await this.#deleteChild(attachmentId, 'deleteAttachment');
   }
 
-  /** Uploads a file, showing its progress in `uploads`. Undefined when it failed or was given up. */
-  async #upload(
-    file: File,
-  ): Promise<{ fileId: string; name: string; size: number; contentType: string } | undefined> {
-    const controller = new AbortController();
-    this.#uploadCount += 1;
-    const id = this.#uploadCount;
-    const update = (change: Partial<Upload>): void => {
-      this.uploads = this.uploads.map((upload) =>
-        upload.id === id ? { ...upload, ...change } : upload,
-      );
-    };
-    const remove = (): void => {
-      this.uploads = this.uploads.filter((upload) => upload.id !== id);
-    };
-    this.uploads = [
-      ...this.uploads,
-      {
-        id,
-        name: file.name,
-        sentBytes: 0,
-        totalBytes: file.size,
-        failed: false,
-        cancel: () => {
-          controller.abort();
-          remove();
-        },
-      },
-    ];
-    try {
-      const uploaded = await this.#backend.upload(this.#boardId, file, {
-        signal: controller.signal,
-        onProgress: ({ sentBytes, totalBytes }) => {
-          update({ sentBytes, totalBytes });
-        },
-      });
-      remove();
-      return uploaded;
-    } catch (error) {
-      if (controller.signal.aborted) return undefined;
-      // The row stays, marked as failed, until the reader dismisses it.
-      update({ failed: true });
-      this.board.workspace.report('upload', error);
-      return undefined;
-    }
-  }
-
-  /** Uploads a file and attaches it to the card. */
+  /**
+   * Uploads a file and attaches it to the card, shown in the stack of the
+   * workspace (`uploads` here). Closing the card does not give it up: the card
+   * open then takes the attachment. One given up as it was being attached
+   * is taken away again.
+   */
   async attach(file: File): Promise<void> {
-    const uploaded = await this.#upload(file);
-    if (!uploaded) return;
-    try {
-      this.receive(await this.#backend.createAttachment(this.#boardId, this.cardId, uploaded));
-    } catch (error) {
-      this.board.workspace.report('save', error);
-    }
+    const { workspace, boardId } = this.board;
+    const { backend } = workspace;
+    const cardId = this.cardId;
+    await workspace.transfers.upload({
+      file,
+      card: cardId,
+      retryable: true,
+      async send(options) {
+        const uploaded = await backend.upload(boardId, file, options);
+        options.signal.throwIfAborted();
+        const attachment = await backend.createAttachment(boardId, cardId, uploaded);
+        if (options.signal.aborted) {
+          await backend.deleteBlock(boardId, attachment.id);
+          return;
+        }
+        const open = workspace.board?.openCard;
+        if (open?.cardId === cardId && open.board.boardId === boardId) open.receive(attachment);
+      },
+    }).done;
   }
 
   /**
    * Uploads a file for the body and gives the identifier its image or file block
-   * names. The editor shows its place meanwhile (not the list of uploads), which
-   * follows the room's document whatever others write. Closing the card gives it up.
+   * names. The editor shows its place meanwhile, which follows the room's
+   * document whatever others write; the stack shows how far it is. Closing
+   * the card gives it up.
    */
-  async uploadFile(file: File): Promise<string> {
-    const going = (signal: AbortSignal) => this.#backend.upload(this.#boardId, file, { signal });
-    return (await this.#bodyUploads.run(going)).fileId;
+  uploadFile(file: File): Promise<string> {
+    return this.#bodyUploads.run(file, (options) =>
+      this.#backend.upload(this.#boardId, file, options),
+    );
   }
 
   /** The uploads of files for the body under way. */
-  readonly #bodyUploads = new BodyUploads((action, error) => {
-    this.board.workspace.report(action, error);
-  });
+  readonly #bodyUploads = new BodyUploads(() => this.board.workspace);
 
   /** A file is going up for the body: closing the card now would give it up. */
   get filesGoingUp(): boolean {

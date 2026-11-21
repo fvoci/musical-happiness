@@ -1,7 +1,8 @@
 <!--
   Tells the reader what went wrong: a change that was refused and taken back,
-  a file that did not upload, one given up with the page it was going up for.
-  One line each, in a live region, until dismissed or a while has passed.
+  a reading or an archive that failed. One line each, in a live region, until
+  dismissed or a while has passed. A file that did not upload is told where
+  its upload is shown (features/shell/Transfers.svelte), not here.
 -->
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
@@ -33,12 +34,6 @@
     if (error?.reason === 'too_many_pages' && error.limit) {
       return m.app_problem_too_many_pages({ limit: error.limit });
     }
-    if (problem.action === 'upload' && error?.status === 429) {
-      return m.app_problem_upload_busy();
-    }
-    if (problem.action === 'upload' && error?.status === 413 && error.limit) {
-      return m.app_problem_upload_too_large({ limit: humanFileSize(error.limit) });
-    }
     if (problem.action === 'import' && error?.status === 413) {
       return error.reason === 'archive_too_large' && error.limit
         ? m.app_problem_import_too_large({ limit: humanFileSize(error.limit) })
@@ -59,10 +54,6 @@
         return m.app_problem_load();
       case 'undo':
         return m.app_problem_undo();
-      case 'upload':
-        return m.app_problem_upload();
-      case 'left':
-        return m.app_problem_upload_left();
       default:
         return m.app_problem_save();
     }

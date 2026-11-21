@@ -292,13 +292,20 @@ describe('comments and attachments', () => {
     expect(workspace.problems.at(-1)).toMatchObject({ action: 'save', error: { status: 500 } });
   });
 
-  it('uploads a file, shows its progress, and attaches it', async () => {
-    const { card, backend } = await openAlpha();
+  it('uploads a file, shows its progress in the stack and in place, and attaches it', async () => {
+    const { card, backend, workspace } = await openAlpha();
     backend.latency = 2;
     const attaching = card.attach(new File(['hello'], 'hello.txt', { type: 'text/plain' }));
     expect(card.uploads.map((upload) => upload.name)).toEqual(['hello.txt']);
+    expect(workspace.transfers.list).toMatchObject([
+      { kind: 'upload', name: 'hello.txt', total: 5, finished: false, card: card.cardId },
+    ]);
     await attaching;
+    // In: an attachment, no more an upload in place; the stack keeps it a moment, done.
     expect(card.uploads).toHaveLength(0);
+    expect(workspace.transfers.list).toMatchObject([
+      { name: 'hello.txt', done: 5, finished: true },
+    ]);
     expect(card.attachments.map((attachment) => attachment.name)).toEqual([
       'kick-off-notes.txt',
       'hello.txt',
@@ -306,17 +313,19 @@ describe('comments and attachments', () => {
     expect(card.fileUrl(card.attachments[1]?.fileId ?? '')).toMatch(/^blob:/);
   });
 
-  it('uploads an image for the body out of the list', async () => {
-    const { card, backend } = await openAlpha();
+  it('uploads an image for the body out of the list, shown in the stack', async () => {
+    const { card, backend, workspace } = await openAlpha();
     backend.latency = 5;
     const uploading = card.uploadFile(new File(['png'], 'a.png', { type: 'image/png' }));
     expect(card.uploads).toHaveLength(0);
     expect(card.filesGoingUp).toBe(true);
+    expect(workspace.transfers.list).toMatchObject([{ kind: 'upload', name: 'a.png' }]);
     expect(await uploading).toMatch(/./);
     expect(card.filesGoingUp).toBe(false);
+    expect(workspace.transfers.list).toMatchObject([{ name: 'a.png', finished: true }]);
   });
 
-  it('gives up an image upload when the card is closed, and tells that once', async () => {
+  it('gives up the uploads for the body when the card is closed: each stays in the stack, left', async () => {
     const { card, backend, workspace } = await openAlpha();
     backend.latency = 5;
     const told = workspace.problems.length;
@@ -325,33 +334,29 @@ describe('comments and attachments', () => {
     card.close();
     await expect(uploading).rejects.toThrow();
     await expect(other).rejects.toThrow();
-    // One line for what was given up, and none for each request that ended with it.
-    expect(workspace.problems.slice(told)).toEqual([
-      { id: expect.any(Number) as number, action: 'left', error: undefined },
+    expect(workspace.transfers.list.map(({ name, failure }) => [name, failure])).toEqual([
+      ['a.png', 'left'],
+      ['b.pdf', 'left'],
     ]);
+    expect(workspace.transfers.list.every((one) => one.retry === undefined)).toBe(true);
+    // Told in the stack, and not again where problems are.
+    expect(workspace.problems).toHaveLength(told);
   });
 
-  it('tells once of an attachment and an image both going up when the card is closed', async () => {
-    const { card, backend, workspace } = await openAlpha();
-    backend.latency = 5;
-    const told = workspace.problems.length;
-    const attaching = card.attach(new File(['hello'], 'hello.txt'));
-    const uploading = card.uploadFile(new File(['png'], 'a.png', { type: 'image/png' }));
-    card.close();
+  it('goes on with an attachment when its card is closed, and the card open then takes it', async () => {
+    const { card, backend, workspace, board, cardId } = await openAlpha();
+    backend.latency = 20;
+    const attaching = card.attach(new File(['hello'], 'later.txt'));
+    board.closeCard();
+    const again = await board.showCard(cardId);
+    // The card shown again shows the same upload in its place.
+    expect(again.uploads.map((upload) => upload.name)).toEqual(['later.txt']);
     await attaching;
-    await expect(uploading).rejects.toThrow();
-    expect(workspace.problems.slice(told)).toEqual([
-      { id: expect.any(Number) as number, action: 'left', error: undefined },
-    ]);
-
-    // An attachment alone is told of too; one that had failed was told then, and is not again.
-    const { card: second, backend: slow, workspace: place } = await openAlpha();
-    slow.latency = 5;
-    const before = place.problems.length;
-    const alone = second.attach(new File(['hello'], 'alone.txt'));
-    second.close();
-    await alone;
-    expect(place.problems.slice(before).map((problem) => problem.action)).toEqual(['left']);
+    expect(workspace.transfers.list).toMatchObject([{ name: 'later.txt', finished: true }]);
+    expect(again.attachments.map((attachment) => attachment.name)).toContain('later.txt');
+    expect((await backend.attachments(board.boardId, cardId)).map((one) => one.name)).toContain(
+      'later.txt',
+    );
   });
 
   it('tells nothing of files when a card with none going up is closed', async () => {
@@ -361,22 +366,39 @@ describe('comments and attachments', () => {
     const told = workspace.problems.length;
     card.close();
     expect(workspace.problems).toHaveLength(told);
+    expect(workspace.transfers.list.some((one) => one.failure)).toBe(false);
   });
 
-  it('keeps a failed upload in the list until it is dismissed, and drops one that was given up', async () => {
+  it('keeps a failed upload, with why, until it is dismissed; one sent again is attached', async () => {
     const { card, backend, workspace } = await openAlpha();
+    const told = workspace.problems.length;
     backend.failNext('upload', new BackendError(413, { limit: 10 }));
     await card.attach(new File(['hello'], 'big.bin'));
-    expect(card.uploads[0]).toMatchObject({ name: 'big.bin', failed: true });
-    expect(workspace.problems.at(-1)).toMatchObject({ action: 'upload', error: { limit: 10 } });
-    card.uploads[0]?.cancel();
+    expect(card.uploads[0]).toMatchObject({ name: 'big.bin', failure: 'too-large', limit: 10 });
+    expect(workspace.problems).toHaveLength(told);
+    workspace.transfers.dismiss(card.uploads[0]?.id ?? 0);
     expect(card.uploads).toHaveLength(0);
+    expect(workspace.transfers.list).toEqual([]);
 
+    backend.failNext('upload', new BackendError(0, { detail: 'no answer' }));
+    await card.attach(new File(['hello'], 'again.txt'));
+    const failed = card.uploads[0];
+    expect(failed).toMatchObject({ name: 'again.txt', failure: 'network' });
+    failed?.retry?.();
+    await vi.waitFor(() => {
+      expect(card.attachments.map((attachment) => attachment.name)).toContain('again.txt');
+    });
+    expect(card.uploads).toHaveLength(0);
+  });
+
+  it('attaches nothing of an upload given up', async () => {
+    const { card, backend, workspace } = await openAlpha();
     backend.latency = 5;
     const attaching = card.attach(new File(['hello'], 'stopped.bin'));
-    card.uploads[0]?.cancel();
+    workspace.transfers.dismiss(card.uploads[0]?.id ?? 0);
     await attaching;
     expect(card.uploads).toHaveLength(0);
+    expect(workspace.transfers.list).toEqual([]);
     expect(card.attachments).toHaveLength(1);
   });
 

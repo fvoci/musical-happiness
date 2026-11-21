@@ -3,7 +3,8 @@
  * upload session, is attached to the card, comes down again as the same
  * bytes, and is deleted with its attachment. The server runs with the
  * smallest part it allows (5 MiB, `tools/live-server.ts`), so the file here
- * goes in two.
+ * goes in two, and the stack of uploads at the bottom right says how far it
+ * is after the first. A file over the limit is told there too, with the limit.
  */
 import { createHash } from 'node:crypto';
 import { closeSync, ftruncateSync, openSync, readFileSync } from 'node:fs';
@@ -58,6 +59,16 @@ test('a file of two parts is attached on the server and downloads as the same by
     }
   });
 
+  // The second part waits until the stack has been seen to say how far the first went.
+  let letSecondGo = (): void => undefined;
+  const secondMayGo = new Promise<void>((resolve) => {
+    letSecondGo = resolve;
+  });
+  await page.route(/\/api\/v1\/w\/[^/]+\/uploads\/[^/]+\/parts\/2$/, async (route) => {
+    await secondMayGo;
+    await route.continue();
+  });
+
   const errors = watchErrors(page);
   await page.goto(boardPath(board, board.viewId, cardId));
   await signInOnPage(page, owner);
@@ -66,6 +77,14 @@ test('a file of two parts is attached on the server and downloads as the same by
   await page
     .getByTestId('attach-input')
     .setInputFiles({ name: 'scan.bin', mimeType: 'application/octet-stream', buffer: bytes });
+  const told = page
+    .getByTestId('transfers')
+    .locator('[data-transfer="upload"][data-name="scan.bin"]');
+  await expect(told).toContainText('Uploading scan.bin');
+  await expect(told).toContainText('5.0 MiB of 6.0 MiB');
+  letSecondGo();
+  await expect(told).toHaveAttribute('data-finished', '');
+  await expect(told).toContainText('scan.bin is uploaded.');
   const row = section.locator('[data-attachment]');
   await expect(row).toHaveCount(1);
   await expect(row).toContainText('scan.bin');
@@ -128,10 +147,15 @@ test('a file over the server’s limit is refused before it is sent, and says th
   ftruncateSync(handle, config.maxFileBytes + 1);
   closeSync(handle);
   await page.getByTestId('attach-input').setInputFiles(video);
-  await expect(page.locator('[data-problem]')).toBeVisible();
-  await expect(page.locator('[data-problem]')).toContainText(
-    `${(config.maxFileBytes / 1024 / 1024).toFixed(1)} MiB`,
+  // Told where every upload is, with the limit, and not again where problems are.
+  const told = page
+    .getByTestId('transfers')
+    .locator('[data-transfer="upload"][data-name="video.bin"]');
+  await expect(told).toHaveAttribute('data-failed', 'too-large');
+  await expect(told).toContainText(
+    `It is larger than ${(config.maxFileBytes / 1024 / 1024).toFixed(1)} MiB.`,
   );
+  await expect(page.locator('[data-problem]')).toHaveCount(0);
   expect(opened).toBe(0);
   await api.dispose();
   expect(errors).toEqual([]);
