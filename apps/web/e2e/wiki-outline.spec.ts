@@ -199,6 +199,24 @@ test.describe('in a wide window', () => {
     await expect(page.getByTestId('page-view').locator(':focus')).toHaveCount(1);
   });
 
+  test('a list left out behind the button is shut when the outline went beside the page and came back', async ({
+    page,
+  }, info) => {
+    test.skip(info.project.name !== 'desktop', 'one window, resized');
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await pageWith(page, 'Guide', longBody(6));
+    const button = page.getByTestId('open-page-outline');
+    await button.click();
+    await expect(outlineItems(page)).toHaveCount(6);
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await expect(outlineBeside(page)).toBeVisible();
+    await expect(button).toHaveCount(0);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(button).toBeVisible();
+    await expect(button).toHaveAttribute('aria-expanded', 'false');
+    await expect(outline(page)).toHaveCount(0);
+  });
+
   test('it follows the headings as they are written, by the reader and by others; a page with fewer than two has none', async ({
     page,
   }, info) => {

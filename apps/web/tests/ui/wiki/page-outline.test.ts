@@ -158,8 +158,25 @@ describe('the outline of the read-only view', () => {
     stop();
     const narrow = document.createElement('div');
     Object.defineProperty(narrow, 'clientWidth', { value: 60 * 16 - 1 });
-    outline.follow(narrow);
+    const stopNarrow = outline.follow(narrow);
     expect(outline.mode).toBe('button');
+
+    // The list behind the button, left out as the outline went away, is shut when it comes back.
+    outline.open = true;
+    outline.entries = outlineOf(headings(1));
+    expect(outline.mode).toBe('none');
+    outline.entries = outlineOf(headings(2));
+    expect(outline.mode).toBe('button');
+    expect(outline.open).toBe(false);
+    // And when, folded away, there comes room beside the page: the button then unfolds it.
+    outline.setFolded(true);
+    outline.open = true;
+    stopNarrow();
+    outline.follow(scroller);
+    expect(outline.room).toBe(true);
+    expect(outline.mode).toBe('button');
+    expect(outline.open).toBe(false);
+    outline.setFolded(false);
   });
 
   it('puts the focus on the heading chosen, which gives it back as it was once it leaves', async () => {

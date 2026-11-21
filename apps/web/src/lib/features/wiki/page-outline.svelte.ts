@@ -57,6 +57,11 @@ function remembered(): boolean {
 
 const rem = (): number => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
 
+/** Shut, whatever it is given: a `$derived` of it shuts again whenever that changes. */
+function shutOn(..._given: unknown[]): boolean {
+  return false;
+}
+
 export class PageOutline {
   /** The headings with words, in their order. */
   entries = $state.raw<readonly OutlineEntry[]>([]);
@@ -64,8 +69,6 @@ export class PageOutline {
   current = $state(-1);
   /** The reader folded it away from beside the page. */
   folded = $state(remembered());
-  /** The list behind the button is out. */
-  open = $state(false);
 
   /** The width of the page's column, its padding left out; 0 until measured. */
   #width = $state(0);
@@ -102,6 +105,14 @@ export class PageOutline {
   readonly mode = $derived<OutlineMode>(
     this.entries.length < 2 ? 'none' : this.room && !this.folded ? 'side' : 'button',
   );
+
+  /**
+   * The list behind the button is out. It is shut again whenever the button goes
+   * or changes what it does (the outline goes beside the page, or away, or there
+   * comes room to unfold it): a list left out behind a button that went would
+   * come back unasked with it.
+   */
+  open = $derived(shutOn(this.mode, this.room));
 
   /** Folds it away from beside the page, or puts it back; remembered on the device. */
   setFolded(folded: boolean): void {
