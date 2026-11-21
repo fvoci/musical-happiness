@@ -101,10 +101,10 @@ const toolButton = (name: string): HTMLElement => {
   return found;
 };
 
-/** Opens a dropdown the way a mouse does. */
+/** Opens a dropdown the way a mouse does: its click counts one (Bits UI takes one of 0 for a key's). */
 async function openMenu(trigger: HTMLElement): Promise<void> {
   await fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: 'mouse' });
-  await fireEvent.click(trigger);
+  await fireEvent.click(trigger, { detail: 1 });
   await tick();
 }
 
@@ -117,10 +117,20 @@ async function openMenu(trigger: HTMLElement): Promise<void> {
  * screen reader is checked in the browser.
  */
 
-/** The lines of the menu that is open. */
+/** The lines of the menu that is open, not the tools at their ends. */
 const menuLines = (): HTMLElement[] => [
-  ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+  ...document.querySelectorAll<HTMLElement>('[role="menuitem"]:not([data-line-tool])'),
 ];
+/** The tools at the end of the line of a view, by their names. */
+const lineTools = (viewId: string): HTMLElement[] => [
+  ...document.querySelectorAll<HTMLElement>(`[data-line="${viewId}"] [data-line-tool]`),
+];
+/** The tool `id` (`move-up`, `move-down`) at the end of the line of a view. */
+function lineTool(viewId: string, id: string): HTMLElement {
+  const found = lineTools(viewId).find((tool) => tool.dataset.action === id);
+  if (!found) throw new Error(`no ${id} on the line of ${viewId}`);
+  return found;
+}
 const lineTexts = (): string[] => menuLines().map((line) => line.textContent.trim());
 /** The lines of the open list of views that are views: links to them. */
 const viewLinks = (): HTMLAnchorElement[] => [
@@ -302,6 +312,8 @@ describe('a reader who may only look', () => {
     await openMenu(toolButton('views'));
     expect(lineTexts()).toEqual(['Board', 'List']);
     expect(viewLinks()).toHaveLength(2);
+    // Nor are the views moved.
+    expect(document.querySelectorAll('[data-line-tool]')).toHaveLength(0);
     for (const name of ['properties', 'group', 'filter', 'sort', 'more', 'rename']) {
       expect(header().querySelector(`[data-tool="${name}"]`)).toBeNull();
     }
@@ -321,6 +333,89 @@ describe('views', () => {
     expect(made?.fields.viewType).toBe('gallery');
     expect(made?.fields.visiblePropertyIds).toEqual(['__title']);
     expect(onOpenView).toHaveBeenCalledWith(made?.id);
+  });
+
+  it('moves a view down and up with Alt and the arrows, the list open and the focus on its line', async () => {
+    const { board, workspace } = await mount('List');
+    await openMenu(toolButton('views'));
+    const boardId = board.views.find((view) => view.title === 'Board')?.id ?? '';
+    const line = (viewId: string): HTMLElement => {
+      const found = document.querySelector<HTMLElement>(
+        `[data-line="${viewId}"] [data-action="${viewId}"]`,
+      );
+      if (!found) throw new Error(`no line for ${viewId}`);
+      return found;
+    };
+    // The keys are the line's, and named there.
+    expect(line(boardId).getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowUp Alt+ArrowDown');
+
+    line(boardId).focus();
+    await fireEvent.keyDown(line(boardId), { key: 'ArrowDown', altKey: true });
+    await tick();
+    expect(lineTexts().slice(0, 2)).toEqual(['List', 'Board']);
+    // Still open, the focus on Board's line where it went, and its place said.
+    expect(document.activeElement).toBe(line(boardId));
+    expect(screen.getByText('Board is now 2 of 2')).toBeInTheDocument();
+    await settled();
+    expect(board.orderedViews.map((view) => view.title)).toEqual(['List', 'Board']);
+    // Past the end, nothing.
+    await fireEvent.keyDown(line(boardId), { key: 'ArrowDown', altKey: true });
+    await settled();
+    expect(board.orderedViews.map((view) => view.title)).toEqual(['List', 'Board']);
+
+    await fireEvent.keyDown(line(boardId), { key: 'ArrowUp', altKey: true });
+    await tick();
+    expect(lineTexts().slice(0, 2)).toEqual(['Board', 'List']);
+    expect(document.activeElement).toBe(line(boardId));
+    await settled();
+    await workspace.undoLast();
+    await tick();
+    expect(lineTexts().slice(0, 2)).toEqual(['List', 'Board']);
+  });
+
+  it('has buttons at the end of each line for a pointer, closed at the ends, which keep the list open', async () => {
+    const { board } = await mount('List');
+    await openMenu(toolButton('views'));
+    const idOf = (title: string): string =>
+      board.views.find((view) => view.title === title)?.id ?? '';
+    const [boardId, listId] = [idOf('Board'), idOf('List')];
+    const titled = (viewId: string): (string | null)[] =>
+      lineTools(viewId).map((tool) => tool.getAttribute('title'));
+    expect(titled(boardId)).toEqual(['Move Board up (Alt+↑)', 'Move Board down (Alt+↓)']);
+    // Out of the menu: its arrows go from line to line, and a screen reader hears the keys.
+    for (const tool of lineTools(boardId)) {
+      expect(tool.getAttribute('role')).toBeNull();
+      expect(tool.getAttribute('aria-hidden')).toBe('true');
+      expect(tool.tabIndex).toBe(-1);
+    }
+    const disabled = (viewId: string): boolean[] =>
+      lineTools(viewId).map((tool) => (tool as HTMLButtonElement).disabled);
+    expect(disabled(boardId)).toEqual([true, false]);
+    expect(disabled(listId)).toEqual([false, true]);
+
+    await fireEvent.click(lineTool(boardId, 'move-down'));
+    await tick();
+    expect(lineTexts().slice(0, 2)).toEqual(['List', 'Board']);
+    expect(document.activeElement?.getAttribute('data-action')).toBe(boardId);
+    expect(screen.getByText('Board is now 2 of 2')).toBeInTheDocument();
+    expect(disabled(boardId)).toEqual([false, true]);
+  });
+
+  it('adds a view at the end of a list somebody put in order', async () => {
+    const { board } = await mount('List');
+    await openMenu(toolButton('views'));
+    const listId = board.views.find((view) => view.title === 'List')?.id ?? '';
+    await fireEvent.click(lineTool(listId, 'move-up'));
+    await settled();
+    expect(board.orderedViews.map((view) => view.title)).toEqual(['List', 'Board']);
+    await choose('Add calendar view');
+    await waitFor(() => {
+      expect(board.orderedViews.map((view) => view.title)).toEqual([
+        'List',
+        'Board',
+        'Calendar view',
+      ]);
+    });
   });
 
   it('renames a view with Enter, and not at all after Escape', async () => {

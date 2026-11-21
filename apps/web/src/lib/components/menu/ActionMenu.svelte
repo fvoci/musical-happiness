@@ -11,18 +11,26 @@
   a new tab (a click or Enter with Ctrl, ⌘ or Shift, the middle button), the
   one marked is the page shown (`aria-current`), and its whole label is its
   tooltip, for a label the dropdown cuts. The sheet's lines wrap instead.
+
+  A line may end in tools (`MenuTool`), commands about its thing that leave
+  the menu open, and `status` says what they did. Their keys (Alt and an
+  arrow, say) run them from the line, which keeps the focus wherever it
+  goes; the arrows alone still go from line to line. In the dropdown their
+  buttons are for a pointer, out of the way of the arrows; in the sheet Tab
+  reaches them too.
 -->
 <script lang="ts">
   import CheckIcon from '@lucide/svelte/icons/check';
-  import type { Snippet } from 'svelte';
+  import { tick, type Snippet } from 'svelte';
 
   import { overlayPresentation, type OverlayPresentation } from '$lib/layout/presentation.ts';
   import { insets, page } from '$lib/layout/room.svelte.ts';
+  import { isApplePlatform } from '$lib/keys.ts';
   import * as DropdownMenu from '$lib/ui/dropdown-menu/index.js';
 
   import BottomSheet from '../sheet/BottomSheet.svelte';
 
-  import { followedHere, type MenuAction } from './actions.ts';
+  import { followedHere, type MenuAction, type MenuTool } from './actions.ts';
 
   interface Props {
     open?: boolean;
@@ -31,6 +39,8 @@
     actions: readonly MenuAction[];
     align?: 'start' | 'end';
     presentation?: OverlayPresentation;
+    /** What the tools of a line did, for a screen reader: said while the menu is open. */
+    status?: string;
     /** The element that opens it. Spread `props` on a button, before its own attributes. */
     trigger: Snippet<[Record<string, unknown>]>;
   }
@@ -42,10 +52,13 @@
     actions,
     align = 'end',
     presentation,
+    status,
     trigger,
   }: Props = $props();
 
   const shown = $derived(presentation ?? overlayPresentation(page.stage));
+  /** Lines with tools at their ends: a wider dropdown, for their names. */
+  const withTools = $derived(actions.some((action) => action.tools));
   /** What opened the sheet, for the focus to come back to: Safari does not focus a pressed button. */
   let opener: HTMLElement | null = null;
 
@@ -59,6 +72,68 @@
     if (!followedHere(event)) return;
     event.preventDefault();
     action.run();
+  }
+
+  /** Names this menu's list in the page, for its lines to be found again once they move. */
+  const uid = $props.id();
+
+  /**
+   * Runs a tool, the focus then on its line (`stay` 'line') or with the line's
+   * tools ('tool'): on this one, or, it being disabled now (at an end), the other.
+   */
+  async function useTool(line: MenuAction, tool: MenuTool, stay: 'line' | 'tool'): Promise<void> {
+    if (tool.disabled) return;
+    tool.run();
+    await tick();
+    const row = document.querySelector(
+      `[data-menu="${CSS.escape(uid)}"] [data-line="${CSS.escape(line.id)}"]`,
+    );
+    const lineItem = row?.querySelector<HTMLElement>(
+      `[data-action="${CSS.escape(line.id)}"]:not([data-line-tool])`,
+    );
+    const usable = [...(row?.querySelectorAll<HTMLElement>('[data-line-tool]') ?? [])].filter(
+      (each) => !each.matches(':disabled'),
+    );
+    const tools = stay === 'tool' ? usable : [];
+    (tools.find((each) => each.dataset.action === tool.id) ?? tools[0] ?? lineItem)?.focus();
+  }
+
+  /** Whether `keys` (as `aria-keyshortcuts` writes them: `Alt+ArrowUp`) are what was pressed. */
+  function pressed(event: KeyboardEvent, keys: string): boolean {
+    const parts = keys.split('+');
+    const held = (name: string): boolean => parts.slice(0, -1).includes(name);
+    return (
+      event.key === parts.at(-1) &&
+      event.altKey === held('Alt') &&
+      event.ctrlKey === held('Control') &&
+      event.metaKey === held('Meta') &&
+      event.shiftKey === held('Shift')
+    );
+  }
+
+  /** The keys of a line's tools, for a screen reader to name with it. */
+  function lineKeys(action: MenuAction): string | undefined {
+    const keys = (action.tools ?? []).map((tool) => tool.keys);
+    return keys.length > 0 ? keys.join(' ') : undefined;
+  }
+
+  /** The keys of a tool pressed on its line: the tool runs there. Whether they were. */
+  function toolKeys(event: KeyboardEvent, action: MenuAction): boolean {
+    const tool = action.tools?.find((each) => pressed(event, each.keys));
+    if (!tool) return false;
+    // Not the menu's as well, whose arrows would go on to another line.
+    event.preventDefault();
+    event.stopPropagation();
+    void useTool(action, tool, 'line');
+    return true;
+  }
+
+  /** A tool's keys in its tooltip: ⌥ on Apple's systems, the arrows drawn. */
+  function keysLabel(keys: string): string {
+    return keys
+      .replace('Alt+', isApplePlatform() ? '⌥' : 'Alt+')
+      .replace('ArrowUp', '↑')
+      .replace('ArrowDown', '↓');
   }
 
   const SHEET_LINE =
@@ -90,6 +165,60 @@
   {/if}
 {/snippet}
 
+{#snippet dropdownItem(action: MenuAction, row = '')}
+  {#if action.href === undefined}
+    <DropdownMenu.Item
+      variant={action.destructive ? 'destructive' : 'default'}
+      disabled={action.disabled}
+      aria-label={action.ariaLabel}
+      aria-keyshortcuts={lineKeys(action)}
+      data-action={action.id}
+      class="roomy:min-h-touch roomy:gap-2.5 roomy:px-2.5 {row}"
+      onkeydown={(event: KeyboardEvent) => {
+        toolKeys(event, action);
+      }}
+      onSelect={() => {
+        action.run();
+      }}
+    >
+      {@render dropdownLine(action)}
+    </DropdownMenu.Item>
+  {:else}
+    {@const href = action.href}
+    <!-- Enter is a click on the link (Bits UI): it runs, and the menu closes. -->
+    <!-- With a key that asks for a new tab or window, Enter is the browser's: its click
+         carries the key, and goes to the browser as a click of the mouse does. -->
+    <DropdownMenu.Item
+      aria-label={action.ariaLabel}
+      data-action={action.id}
+      class="roomy:min-h-touch roomy:gap-2.5 roomy:px-2.5 {row}"
+    >
+      {#snippet child({ props }: { props: Record<string, unknown> })}
+        {@const select = props.onclick as ((event: MouseEvent) => void) | undefined}
+        {@const keys = props.onkeydown as ((event: KeyboardEvent) => void) | undefined}
+        <a
+          {...props}
+          {href}
+          aria-current={action.checked ? 'page' : undefined}
+          aria-keyshortcuts={lineKeys(action)}
+          title={action.label}
+          onclick={(event) => {
+            select?.(event);
+            follow(event, action);
+          }}
+          onkeydown={(event) => {
+            if (toolKeys(event, action)) return;
+            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey || event.shiftKey)) return;
+            keys?.(event);
+          }}
+        >
+          {@render dropdownLine(action)}
+        </a>
+      {/snippet}
+    </DropdownMenu.Item>
+  {/if}
+{/snippet}
+
 {#if shown === 'sheet'}
   {@render trigger({
     'aria-haspopup': 'dialog',
@@ -103,19 +232,27 @@
     },
   })}
   <BottomSheet bind:open {title} {subtitle} returnFocus={() => opener}>
-    <ul class="px-2 pb-2" role="menu" aria-label={title}>
+    <ul class="px-2 pb-2" role="menu" aria-label={title} data-menu={uid}>
       {#each actions as action (action.id)}
-        <li role="none" class={[action.separated && 'mt-1 border-t pt-1']}>
+        <li
+          role="none"
+          data-line={action.tools ? action.id : undefined}
+          class={[action.separated && 'mt-1 border-t pt-1', action.tools && 'flex items-center']}
+        >
           {#if action.href === undefined}
             <button
               type="button"
               role="menuitem"
               aria-label={action.ariaLabel}
+              aria-keyshortcuts={lineKeys(action)}
               data-action={action.id}
               disabled={action.disabled}
               class={[SHEET_LINE, action.destructive && 'text-destructive']}
               onclick={() => {
                 choose(action);
+              }}
+              onkeydown={(event) => {
+                toolKeys(event, action);
               }}
             >
               {@render sheetLine(action)}
@@ -126,6 +263,7 @@
               role="menuitem"
               aria-label={action.ariaLabel}
               aria-current={action.checked ? 'page' : undefined}
+              aria-keyshortcuts={lineKeys(action)}
               title={action.label}
               data-action={action.id}
               class={SHEET_LINE}
@@ -133,13 +271,35 @@
                 open = false;
                 follow(event, action);
               }}
+              onkeydown={(event) => {
+                toolKeys(event, action);
+              }}
             >
               {@render sheetLine(action)}
             </a>
           {/if}
+          {#each action.tools ?? [] as tool (tool.id)}
+            {@const Icon = tool.icon}
+            <button
+              type="button"
+              role="menuitem"
+              aria-label={tool.label}
+              title={tool.label}
+              data-action={tool.id}
+              data-line-tool
+              disabled={tool.disabled}
+              class="grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted active:bg-muted disabled:opacity-50 roomy:size-12"
+              onclick={() => void useTool(action, tool, 'tool')}
+            >
+              <Icon class="size-5" />
+            </button>
+          {/each}
         </li>
       {/each}
     </ul>
+    {#if status !== undefined}
+      <span class="sr-only" aria-live="polite">{status}</span>
+    {/if}
   </BottomSheet>
 {:else}
   <DropdownMenu.Root bind:open>
@@ -152,60 +312,51 @@
       {align}
       collisionPadding={insets.collisionPadding}
       aria-label={title}
+      data-menu={uid}
       data-testid="dropdown"
-      class="w-60 max-w-[calc(100vw-1rem-var(--safe-left)-var(--safe-right))]"
+      class={[
+        withTools ? 'w-72' : 'w-60',
+        'max-w-[calc(100vw-1rem-var(--safe-left)-var(--safe-right))]',
+      ]}
     >
       {#each actions as action (action.id)}
         {#if action.separated}
           <DropdownMenu.Separator />
         {/if}
-        {#if action.href === undefined}
-          <DropdownMenu.Item
-            variant={action.destructive ? 'destructive' : 'default'}
-            disabled={action.disabled}
-            aria-label={action.ariaLabel}
-            data-action={action.id}
-            class="roomy:min-h-touch roomy:gap-2.5 roomy:px-2.5"
-            onSelect={() => {
-              action.run();
-            }}
-          >
-            {@render dropdownLine(action)}
-          </DropdownMenu.Item>
-        {:else}
-          {@const href = action.href}
-          <!-- Enter is a click on the link (Bits UI): it runs, and the menu closes. -->
-          <!-- With a key that asks for a new tab or window, Enter is the browser's: its click
-               carries the key, and goes to the browser as a click of the mouse does. -->
-          <DropdownMenu.Item
-            aria-label={action.ariaLabel}
-            data-action={action.id}
-            class="roomy:min-h-touch roomy:gap-2.5 roomy:px-2.5"
-          >
-            {#snippet child({ props }: { props: Record<string, unknown> })}
-              {@const select = props.onclick as ((event: MouseEvent) => void) | undefined}
-              {@const keys = props.onkeydown as ((event: KeyboardEvent) => void) | undefined}
-              <a
-                {...props}
-                {href}
-                aria-current={action.checked ? 'page' : undefined}
-                title={action.label}
-                onclick={(event) => {
-                  select?.(event);
-                  follow(event, action);
+        {#if action.tools}
+          <!-- One row: the line, and the buttons of its tools after it. They are a pointer's:
+               out of the menu, whose arrows go from line to line; the keys are the line's. -->
+          <div role="none" class="flex items-center gap-0.5" data-line={action.id}>
+            {@render dropdownItem(action, 'min-w-0 flex-1')}
+            {#each action.tools as tool (tool.id)}
+              {@const Icon = tool.icon}
+              <button
+                type="button"
+                tabindex="-1"
+                aria-hidden="true"
+                title="{tool.label} ({keysLabel(tool.keys)})"
+                data-action={tool.id}
+                data-line-tool
+                disabled={tool.disabled}
+                class="grid size-7 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 roomy:size-touch [&_svg]:size-4"
+                onpointerdown={(event) => {
+                  // The focus stays where it is, and goes to the line once it has moved.
+                  event.preventDefault();
                 }}
-                onkeydown={(event) => {
-                  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey || event.shiftKey))
-                    return;
-                  keys?.(event);
-                }}
+                onclick={() => void useTool(action, tool, 'line')}
               >
-                {@render dropdownLine(action)}
-              </a>
-            {/snippet}
-          </DropdownMenu.Item>
+                <Icon />
+              </button>
+            {/each}
+          </div>
+        {:else}
+          {@render dropdownItem(action)}
         {/if}
       {/each}
     </DropdownMenu.Content>
   </DropdownMenu.Root>
+  {#if status !== undefined}
+    <!-- Out of the menu, which has nothing but its items. -->
+    <span class="sr-only" aria-live="polite">{status}</span>
+  {/if}
 {/if}

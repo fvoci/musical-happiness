@@ -12,7 +12,6 @@ import { cardsOfView } from '../logic/card-list.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
 import { propertyBehavior } from '../logic/properties.ts';
 import {
-  createBoardView,
   viewGrouping,
   viewQuery,
   type Container,
@@ -44,7 +43,7 @@ import { authorIds, memberId } from './user-names.ts';
 import { readBoard } from './board-load.ts';
 import { containerOfWorkspace, roleOf, type CardDrop } from './board-parts.ts';
 import { MemberWrites } from './member-writes.ts';
-import { orderMembers, orderViews } from './order.ts';
+import { orderMembers, orderViews, viewCopyFields } from './order.ts';
 import {
   containerPatches,
   cardPatches,
@@ -88,7 +87,7 @@ export class BoardStore {
   /** The card that is open, if one is. */
   openCard = $state.raw<CardStore | undefined>(undefined);
 
-  /** The views in the order of their tabs. */
+  /** The views in the order of their list (`orderViews`). */
   readonly orderedViews = $derived.by(() => orderViews(this.views, this.workspace.locale));
   /** The cards that are cards, not templates for new ones. */
   readonly realCards = $derived(this.cards.filter((card) => !card.fields.isTemplate));
@@ -611,11 +610,11 @@ export class BoardStore {
     );
   }
 
-  /** A copy of a view under another title. */
+  /** A copy of a view under another title, right after it in the list. */
   async duplicateView(viewId: string, title: string): Promise<BoardView | undefined> {
     const source = this.view(viewId);
     if (!source) return undefined;
-    return this.createView({ title, fields: createBoardView(source).fields });
+    return this.createView({ title, fields: viewCopyFields(source, this.orderedViews) });
   }
 
   async deleteView(viewId: string): Promise<void> {

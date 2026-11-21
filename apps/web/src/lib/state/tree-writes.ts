@@ -317,6 +317,9 @@ export class TreeWrites {
   /**
    * Moves a page, with every page below it, where `to` says: shown at once,
    * undone as one step back to where it was. False when it was refused (told).
+   * A page somebody else deleted meanwhile (404) is taken off the tree, as
+   * when that is heard, and the reader is told why it did not move; a redo
+   * over it has nothing left to do, and says nothing.
    */
   movePage(pageId: string, to: PagePlace): Promise<boolean> {
     // One after another, as asked for: each starts from where the one before left the
@@ -337,15 +340,24 @@ export class TreeWrites {
     if (!movesAnywhere(this.#host.pages(), pageId, to)) return true;
     const back = placeOf(this.#host.pages(), pageId);
     if (!back) return false;
+    let first = true;
     try {
       await this.#host.workspace.undo.perform(
-        () => unlessGone(() => this.#move(pageId, to)),
+        () => {
+          if (!first) return unlessGone(() => this.#move(pageId, to));
+          first = false;
+          // Refused, the move leaves the history: there is nothing to undo.
+          return this.#move(pageId, to);
+        },
         () => unlessGone(() => this.#moveBack(pageId, back)),
         'movePage',
       );
       return true;
     } catch (error) {
-      this.#host.workspace.report('save', error);
+      if (isBackendError(error) && error.status === 404) {
+        this.forget([pageId], 'others');
+        this.#host.workspace.report('movePage', error);
+      } else this.#host.workspace.report('save', error);
       return false;
     }
   }

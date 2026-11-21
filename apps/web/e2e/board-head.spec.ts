@@ -207,7 +207,7 @@ for (const scheme of ['light', 'dark'] as const) {
       const sheet = page.getByRole('dialog', { name: 'Views' });
       await expect(sheet).toBeVisible();
       await expect(sheet.locator('a[role="menuitem"]')).toHaveText(SEED_VIEWS);
-      await sheet.getByRole('menuitem', { name: 'Task Overview' }).click();
+      await sheet.getByRole('menuitem', { name: 'Task Overview', exact: true }).click();
       await expect(sheet).toHaveCount(0);
       await expect(tool(page, 'views')).toHaveText('Task Overview');
     });

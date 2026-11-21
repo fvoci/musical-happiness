@@ -33,6 +33,8 @@ interface StoredView {
     sortOptions: { propertyId: string; reversed: boolean }[];
     filter: { operation: string; filters: unknown[] };
     columnWidths: Record<string, number>;
+    /** Its place among the board's views, once one of them was moved. */
+    order?: string;
   };
 }
 
@@ -174,9 +176,35 @@ async function showView(page: Page, name: string): Promise<void> {
   await expect(tool(page, 'views')).toHaveText(name);
 }
 
+/** The views of the first board of the seed, by title: nobody has moved one. */
+const SEED_VIEWS = ['Progress Tracker', 'Project Priorities', 'Task Calendar', 'Task Overview'];
+
 /** The views in the open list: links to them. */
 const listed = (page: Page): Locator =>
   page.getByRole('menu', { name: 'Views' }).locator('a[role="menuitem"]');
+
+/**
+ * The views of the board the address names as the backend keeps them, by
+ * their places: every one has a place once one of them was moved.
+ */
+function storedOrder(page: Page): Promise<(string | undefined)[]> {
+  return page.evaluate(async (boardId) => {
+    const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
+    const views = await backend.views(boardId);
+    if (views.some((view) => view.fields.order === undefined)) return [undefined];
+    const by = (view: StoredView): string => `${view.fields.order} ${view.id}`;
+    return views.sort((one, other) => (by(one) < by(other) ? -1 : 1)).map((view) => view.title);
+  }, placeOf(page.url()).boardId);
+}
+
+/** Presses Tab until the element has the focus, a few times at most. */
+async function tabTo(page: Page, target: Locator): Promise<void> {
+  for (let press = 0; press < 8; press += 1) {
+    if (await target.evaluate((element) => element === document.activeElement)) return;
+    await page.keyboard.press('Tab');
+  }
+  await expect(target).toBeFocused();
+}
 
 /** Opens a tool: by its own button where the row has one, through "…" otherwise. */
 async function openTool(
@@ -629,6 +657,127 @@ test.describe('views', () => {
     await expect(listed(page).filter({ hasText: 'Typed copy' })).toHaveCount(0);
   });
 
+  test('a view is moved down and up the list by the keys alone, the list staying open', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'a keyboard');
+    await open(page);
+    const views = tool(page, 'views');
+    await views.focus();
+    await page.keyboard.press('Enter');
+    await expect(listed(page)).toHaveText(SEED_VIEWS);
+    const line = (name: string): Locator => listed(page).filter({ hasText: name });
+    await expect(line('Progress Tracker')).toBeFocused();
+    // Alt and an arrow on the line, which keeps the focus where it goes.
+    await page.keyboard.press('Alt+ArrowDown');
+    const second = ['Project Priorities', 'Progress Tracker', 'Task Calendar', 'Task Overview'];
+    await expect(listed(page)).toHaveText(second);
+    await expect(line('Progress Tracker')).toBeFocused();
+    await expect(page.getByText('Progress Tracker is now 2 of 4')).toBeAttached();
+    await page.keyboard.press('Alt+ArrowDown');
+    await expect(listed(page)).toHaveText([
+      'Project Priorities',
+      'Task Calendar',
+      'Progress Tracker',
+      'Task Overview',
+    ]);
+    await expect(page.getByText('Progress Tracker is now 3 of 4')).toBeAttached();
+    await page.keyboard.press('Alt+ArrowUp');
+    await expect(listed(page)).toHaveText(second);
+    await expect(line('Progress Tracker')).toBeFocused();
+    await expect.poll(() => storedOrder(page)).toEqual(second);
+    // The arrows alone go from line to line, past the buttons at their ends.
+    await page.keyboard.press('ArrowDown');
+    await expect(line('Task Calendar')).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowUp');
+    await expect(line('Project Priorities')).toBeFocused();
+    // At the top, Alt and up goes nowhere.
+    await page.keyboard.press('Alt+ArrowUp');
+    await expect(listed(page)).toHaveText(second);
+
+    // Closed, the list keeps the order and says nothing of the moves when it opens again.
+    await closeTop(page);
+    await expect(views).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(listed(page)).toHaveText(second);
+    await expect(page.getByText('Progress Tracker is now 2 of 4')).toHaveCount(0);
+    // And the view shown is still the one it was.
+    await closeTop(page);
+    await expect(views).toHaveText('Progress Tracker');
+  });
+
+  test('a view is moved by the buttons at the end of its line, the list staying open', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'a mouse');
+    await open(page);
+    await tool(page, 'views').click();
+    const menu = page.getByRole('menu', { name: 'Views' });
+    const down = menu.locator('[data-line-tool][data-action="move-down"]').first();
+    await expect(down).toHaveAttribute('title', 'Move Progress Tracker down (Alt+↓)');
+    await down.click();
+    await expect(listed(page)).toHaveText([
+      'Project Priorities',
+      'Progress Tracker',
+      'Task Calendar',
+      'Task Overview',
+    ]);
+    await expect(listed(page).filter({ hasText: 'Progress Tracker' })).toBeFocused();
+    // A name of the list is whole beside its buttons.
+    expect(
+      await menu.evaluate(
+        (element) =>
+          [...element.querySelectorAll('a[role="menuitem"] span')].filter(
+            (each) => each.scrollWidth > each.clientWidth,
+          ).length,
+      ),
+    ).toBe(0);
+  });
+
+  test('on a compact page the sheet of views moves one by the keys alone', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'a keyboard');
+    await open(page);
+    await resize(page, 390, 844);
+    await expect(header(page)).toHaveAttribute('data-layout', 'folded');
+    const views = tool(page, 'views');
+    await views.focus();
+    await page.keyboard.press('Enter');
+    await expect(sheet(page)).toBeVisible();
+    const lines = sheet(page).locator('a[role="menuitem"]');
+    await expect(lines).toHaveText(SEED_VIEWS);
+    // Tab reaches the buttons of the sheet, which keep the focus.
+    const down = sheet(page).getByRole('menuitem', { name: 'Move Project Priorities down' });
+    await tabTo(page, down);
+    await page.keyboard.press('Enter');
+    await expect(lines).toHaveText([
+      'Progress Tracker',
+      'Task Calendar',
+      'Project Priorities',
+      'Task Overview',
+    ]);
+    await expect(down).toBeFocused();
+    await expect(sheet(page).getByText('Project Priorities is now 3 of 4')).toBeAttached();
+    await page.keyboard.press('Enter');
+    await expect(lines.last()).toHaveText('Project Priorities');
+    // At the end, down is no way: the focus goes to up, which is.
+    await expect(down).toBeDisabled();
+    await expect(
+      sheet(page).getByRole('menuitem', { name: 'Move Project Priorities up' }),
+    ).toBeFocused();
+    // And Alt and an arrow on a line, as in the dropdown.
+    const first = lines.filter({ hasText: 'Progress Tracker' });
+    await first.focus();
+    await page.keyboard.press('Alt+ArrowDown');
+    await expect(lines.nth(1)).toHaveText('Progress Tracker');
+    await expect(first).toBeFocused();
+    await expect
+      .poll(() => storedOrder(page))
+      .toEqual(['Task Calendar', 'Progress Tracker', 'Task Overview', 'Project Priorities']);
+  });
+
   test('the last view of a board cannot be deleted', async ({ page }) => {
     await open(page);
     await open(page, await boardAddress(page, 'Meeting Agenda'));
@@ -1063,7 +1212,12 @@ test.describe('a compact page', () => {
     // The list of views.
     await tool(page, 'views').click();
     await expect(sheet(page)).toBeVisible();
-    await expect(sheet(page).getByRole('menuitem', { name: 'Task Overview' })).toBeVisible();
+    await expect(
+      sheet(page).getByRole('menuitem', { name: 'Task Overview', exact: true }),
+    ).toBeVisible();
+    // Its buttons that move a view are what a finger presses: 44 pixels at least.
+    const up = sheet(page).getByRole('menuitem', { name: 'Move Task Overview up' });
+    expect((await up.boundingBox())?.height).toBeGreaterThanOrEqual(44);
     await page.goBack();
     await expect(sheet(page)).toHaveCount(0);
     expect(page.url()).toBe(address);
@@ -1136,6 +1290,8 @@ test.describe('a board the reader may only look at', () => {
     await tool(page, 'views').click();
     await expect(page.getByRole('menuitem')).toHaveCount(3);
     await expect(page.locator('a[role="menuitem"]')).toHaveCount(3);
+    // Nor are they moved.
+    await expect(page.locator('[data-line-tool]')).toHaveCount(0);
     await closeTop(page);
     await tool(page, 'search').click();
     const before = await cards(page).count();
