@@ -124,7 +124,10 @@
 {:else if router.route.wikiId}
   <WikiPage {workspace} {router} />
 {:else if router.route.diaryId}
-  <DiaryPage {workspace} {router} />
+  <!-- Another diary is another page: what was opened and shown of one is not the other's. -->
+  {#key router.route.diaryId}
+    <DiaryPage {workspace} {router} />
+  {/key}
 {:else}
   <WorkspaceStart own={isOwnSpace(shown)} {onAddBoard} />
 {/if}

@@ -155,3 +155,31 @@ test('two devices write the same day together', async ({ browser, baseURL }) => 
     })
     .toBe('From the phone. From the laptop.');
 });
+
+test('an entry emptied and left as the page goes is a day not written', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const who = person('diarist');
+  await register(base, who);
+  const api = await signedIn(base, who);
+  const { ownId, diaryId } = await aDiary(api);
+  const today = todayInSeoul();
+  const monthDay = today.slice(5);
+  await page.goto(`/w/${ownId}/diaries/${diaryId}/${monthDay}`);
+  await signInOnPage(page, who);
+  await editorOf(page, today).click();
+  await page.keyboard.type('x');
+  await expect(year(page, today).getByTestId('entry-body')).toHaveAttribute('data-editor', 'ready');
+  await expect
+    .poll(async () => Object.keys(await stored(api, ownId, diaryId, monthDay)))
+    .toEqual([today]);
+  await page.keyboard.press('Backspace');
+  await expect(editorOf(page, today)).toHaveText('');
+  // Loaded again: the page that went sent the deletion as it went.
+  await page.reload();
+  await expect(page.getByTestId('diary-page')).toBeVisible();
+  await expect.poll(() => stored(api, ownId, diaryId, monthDay), { timeout: 15_000 }).toEqual({});
+  await expect(year(page, today)).not.toHaveAttribute('data-written');
+});

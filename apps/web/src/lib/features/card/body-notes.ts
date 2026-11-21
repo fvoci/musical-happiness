@@ -67,7 +67,6 @@ export const PAGE_WORDS: BodyWords = {
   lostFormula: m.wiki_body_lost_formula,
 };
 
-/** How long joining or receiving lasts before it is said, in milliseconds. */
 export const ENTRY_WORDS: BodyWords = {
   label: m.diary_entry_body,
   placeholder: m.diary_entry_placeholder,
@@ -86,6 +85,7 @@ export const ENTRY_WORDS: BodyWords = {
   lostFormula: m.diary_body_lost_formula,
 };
 
+/** How long joining or receiving lasts before it is said, in milliseconds. */
 export const LATE_NOTE = 1000;
 
 export interface RoomNote {

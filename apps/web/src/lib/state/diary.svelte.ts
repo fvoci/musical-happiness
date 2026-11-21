@@ -5,7 +5,8 @@
  * The page asks the server for that day alone (`entriesOn`), never for the
  * whole diary. What changes meanwhile is heard on the diary (`watchContainer`):
  * an entry made or changed on the day shown is read again (a change carries no
- * body), unless its body is the room's, open here; a deleted one goes.
+ * body), also one open here, whose room writes its body now and then: the
+ * folded view of it shows what was written; a deleted one goes.
  */
 import type { CalendarDate } from '../logic/dates.ts';
 import { monthDayOf, type MonthDay } from '../logic/diary-days.ts';
@@ -121,18 +122,15 @@ export class DiaryStore implements EntryHost {
     }
   }
 
-  /** An entry made or changed elsewhere: read with its body, unless the room's body is shown here. */
+  /** An entry made or changed: read again with its body. A read answered after a later one is dropped. */
   #changed(entry: DiaryEntry): void {
     if (monthDayOf(entry.date) !== this.monthDay) return;
     const shown = this.entries.find((one) => one.id === entry.id);
     if (shown && shown.updateAt >= entry.updateAt) return;
-    const day = this.#days.get(entry.date);
-    if (day?.room?.doc) {
-      if (shown) this.received({ ...shown, ...entry });
-      return;
-    }
     void this.workspace.backend.diary?.entry(this.diaryId, entry.id).then(
       (detail) => {
+        const now = this.entries.find((one) => one.id === detail.id);
+        if (now && now.updateAt > detail.updateAt) return;
         this.received(detail);
         this.#days.get(detail.date)?.adopt(detail);
       },
@@ -144,11 +142,14 @@ export class DiaryStore implements EntryHost {
     const entry = this.entries.find((one) => one.id === entryId);
     if (!entry) return;
     this.removed(entryId);
+    // Its day stays open, with what is being written there: that makes another.
     const day = this.#days.get(entry.date);
-    if (day?.entry?.id === entryId) {
-      day.close();
-      this.#days.delete(entry.date);
-    }
+    if (day?.entry?.id === entryId) day.lose();
+  }
+
+  /** The page goes for good, or is kept to come back to (`persisted`): see `EntryStore.leave`. */
+  leave(persisted: boolean): void {
+    for (const day of this.#days.values()) day.leave(persisted);
   }
 
   close(): void {

@@ -145,6 +145,8 @@ test('a year before: written afterwards, one open at a time, the others folded',
   await editorOf(today).click();
   await page.keyboard.type('This year.');
   await expect(today).toHaveAttribute('data-written', '');
+  // The room writes the body a while after the last key, while it is open.
+  await page.clock.runFor(3000);
 
   await page.getByTestId('diary-earlier').click();
   const last = year(page, '2025-11-21');

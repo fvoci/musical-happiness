@@ -180,6 +180,12 @@
   }
 </script>
 
+<svelte:window
+  onpagehide={(event: PageTransitionEvent) => {
+    diary?.leave(event.persisted);
+  }}
+/>
+
 {#snippet body(entry: EntryStore, label: string)}
   <EntryBody {entry} {label} focus={pressed === entry.date} />
 {/snippet}

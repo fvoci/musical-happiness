@@ -45,7 +45,7 @@
   class="flex flex-col gap-2 py-4"
   data-testid="diary-year"
   data-date={date}
-  data-open={open && !toCome ? '' : undefined}
+  data-open={open && (!toCome || entry) ? '' : undefined}
   data-written={entry ? '' : undefined}
 >
   <h2 id="{uid}-year" class="flex items-baseline gap-2">
@@ -53,7 +53,8 @@
     <span class="text-sm text-muted-foreground">{displayWeekday(date, locale)}</span>
     <span class="sr-only">{whole}</span>
   </h2>
-  {#if toCome}
+  <!-- A day still to come here may be written already, on a device where it has come. -->
+  {#if toCome && !entry}
     <p class="text-sm text-muted-foreground" data-testid="entry-to-come">{m.diary_not_yet()}</p>
   {:else if open}
     {@render body(diary.day(date), whole)}

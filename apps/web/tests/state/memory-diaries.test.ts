@@ -256,4 +256,145 @@ describe('a diary’s page', () => {
     });
     store.close();
   });
+  it('writes what was drafted as the body when the day is left before its entry is made', async () => {
+    const { store, today, diary, backend } = await aPage();
+    const entry = store.day(today);
+    entry.openBody();
+    entry.write(text('quick'));
+    // The page goes (another day, another board) while the entry is still being made.
+    store.close();
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed?.body).toEqual(text('quick'));
+    });
+  });
+
+  it('puts a draft after what another device wrote, never in its place', async () => {
+    const { store, today, diary, backend } = await aPage();
+    const device = backend.as(backend.userId);
+    const theirs = await device.diary.createEntry(diary.id, today);
+    await device.diary.patchEntry(diary.id, theirs.id, {
+      body: text('theirs'),
+      readAt: theirs.updateAt,
+    });
+    await vi.waitFor(() => {
+      expect(store.entries[0]?.body).toEqual(text('theirs'));
+    });
+    const entry = store.day(today);
+    entry.write(text('mine'));
+    entry.closeBody();
+    await vi.waitFor(async () => {
+      const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+      expect(listed?.body).toEqual({
+        type: 'doc',
+        content: [...(text('theirs').content ?? []), ...(text('mine').content ?? [])],
+      });
+    });
+    store.close();
+  });
+
+  it('keeps a draft whose write was refused, to give it again', async () => {
+    const { store, today, backend } = await aPage();
+    backend.diary.failNext('patchEntry', new BackendError(500, {}));
+    const entry = store.day(today);
+    entry.write(text('kept'));
+    await vi.waitFor(() => {
+      expect(entry.unsaved).toBe(true);
+    });
+    expect(entry.draft).toEqual(text('kept'));
+    expect(entry.takeDraft()).toEqual(text('kept'));
+    store.close();
+  });
+
+  it('deletes an entry made here and left blank, nothing typed in its room', async () => {
+    const { store, today, diary, backend } = await aPage();
+    const entry = store.day(today);
+    entry.openBody();
+    entry.write(text('x'));
+    await vi.waitFor(() => {
+      expect(entry.room?.status).toBe('joined');
+    });
+    // The editor of the room took the draft and was emptied before anything reached the room.
+    entry.takeDraft();
+    entry.noteBlank(true);
+    entry.closeBody();
+    await vi.waitFor(async () => {
+      expect(await backend.diary.entriesOn(diary.id, monthDayOf(today))).toEqual([]);
+    });
+    store.close();
+  });
+
+  it('keeps an emptied entry while somebody else is in its room', async () => {
+    const { store, today, diary, backend, ownId } = await aPage();
+    const there = await backend.diary.createEntry(diary.id, today);
+    await store.show(monthDayOf(today));
+    const entry = store.day(today);
+    entry.openBody();
+    const device = backend.as(backend.userId).openDoc(ownId, diary.id, there.id, {
+      state: () => undefined,
+      discarded: () => undefined,
+    });
+    await vi.waitFor(() => {
+      expect(entry.room?.status).toBe('joined');
+      expect(device.state.status).toBe('joined');
+    });
+    const theirs = device.state.doc;
+    if (!theirs) throw new Error('no document');
+    const place = Y.createRelativePositionFromTypeIndex(theirs.getXmlFragment(FIELD), 0);
+    device.state.carets?.setLocalStateField('user', {});
+    device.state.carets?.setLocalStateField('cursor', { anchor: place, head: place });
+    await vi.waitFor(() => {
+      expect(entry.room?.carets?.getStates().size).toBe(2);
+    });
+    entry.write(text('x'));
+    entry.noteBlank(true);
+    entry.takeDraft();
+    // Emptied here: but not alone.
+    const doc = entry.room?.doc;
+    if (!doc) throw new Error('no document');
+    doc.getXmlFragment(FIELD).insert(0, [new Y.XmlElement('paragraph')]);
+    entry.closeBody();
+    await settle();
+    device.close();
+    expect(await backend.diary.entriesOn(diary.id, monthDayOf(today))).toHaveLength(1);
+    store.close();
+  });
+
+  it('reads an entry open here again as its room writes it: folded, it shows what was written', async () => {
+    const { store, today, diary, backend } = await aPage();
+    const there = await backend.diary.createEntry(diary.id, today);
+    await store.show(monthDayOf(today));
+    const entry = store.day(today);
+    entry.openBody();
+    await vi.waitFor(() => {
+      expect(entry.room?.status).toBe('joined');
+    });
+    await backend.as(backend.userId).diary.patchEntry(diary.id, there.id, {
+      body: text('written'),
+      readAt: there.updateAt,
+    });
+    await vi.waitFor(() => {
+      expect(store.entries[0]?.body).toEqual(text('written'));
+      expect(entry.entry?.body).toEqual(text('written'));
+    });
+    store.close();
+  });
+
+  it('keeps what is being written on a day whose entry was deleted elsewhere, and makes another', async () => {
+    const { store, today, diary, backend } = await aPage();
+    const there = await backend.diary.createEntry(diary.id, today);
+    await store.show(monthDayOf(today));
+    const entry = store.day(today);
+    entry.openBody();
+    await backend.as(backend.userId).diary.deleteEntry(diary.id, there.id);
+    await vi.waitFor(() => {
+      expect(entry.entry).toBeUndefined();
+    });
+    entry.write(text('again'));
+    await vi.waitFor(() => {
+      expect(entry.entry?.id).toBeDefined();
+    });
+    expect(entry.entry?.id).not.toBe(there.id);
+    store.close();
+  });
 });

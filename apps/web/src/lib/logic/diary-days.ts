@@ -47,10 +47,11 @@ export function dateIn(year: number, monthDay: MonthDay): CalendarDate | undefin
 }
 
 /**
- * The days a page shows, the latest first: from this year (today's) down to
- * `from` and to any earlier year written on, each year the day is in. This
- * year's comes first even before it is there (a day later in the year than
- * today): it is shown, not written in (`writable`).
+ * The days a page shows, the latest first: from this year (today's), or a
+ * later year written on (on a device in a time zone ahead), down to `from`
+ * and to any earlier year written on, each year the day is in. This year's
+ * comes first even before it is there (a day later in the year than today):
+ * it is shown, not written in (`writable`).
  */
 export function pageDays(
   monthDay: MonthDay,
@@ -58,8 +59,9 @@ export function pageDays(
   from: number,
   written: readonly CalendarDate[],
 ): CalendarDate[] {
-  const last = yearOf(today);
-  const first = Math.max(FIRST_YEAR, Math.min(from, last, ...written.map(yearOf)));
+  const years = written.map(yearOf);
+  const last = Math.max(yearOf(today), ...years);
+  const first = Math.max(FIRST_YEAR, Math.min(from, yearOf(today), ...years));
   const days: CalendarDate[] = [];
   for (let year = last; year >= first; year -= 1) {
     const date = dateIn(year, monthDay);

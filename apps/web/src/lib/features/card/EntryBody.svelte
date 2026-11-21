@@ -14,6 +14,7 @@
 -->
 <script lang="ts">
   import type { Editor as TiptapEditor } from '@tiptap/core';
+  import { untrack } from 'svelte';
 
   import type { DocNode } from '$lib/editor/schema.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -31,6 +32,9 @@
   }
 
   let { entry, label, focus = false }: Props = $props();
+
+  /** What the draft holds as it opens: one kept from before, its write refused. */
+  const seed = untrack(() => entry.draft);
 
   /** Who may write, for the body: the reader alone, in their own diary. */
   const host = $derived({ workspace: entry.host.workspace, canEdit: true, orderedMembers: [] });
@@ -96,7 +100,7 @@
 {#snippet draft()}
   {#if Draft}
     <Draft
-      doc={null}
+      doc={seed}
       {label}
       placeholder={m.diary_entry_placeholder()}
       class="min-h-24 text-base outline-none"

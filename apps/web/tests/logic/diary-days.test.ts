@@ -96,6 +96,13 @@ describe('the days of a page', () => {
     ]);
   });
 
+  it('hold a later year written on, on a device in a time zone ahead', () => {
+    expect(pageDays(day('01-01'), date('2026-12-31'), 2026, [date('2027-01-01')])).toEqual([
+      '2027-01-01',
+      '2026-01-01',
+    ]);
+  });
+
   it('stop at the year 1', () => {
     expect(pageDays(day('01-01'), date('0002-03-01'), -5, [])).toEqual([
       '0002-01-01',

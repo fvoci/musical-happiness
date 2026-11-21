@@ -69,9 +69,15 @@ export interface Diaries {
    */
   createEntry(diaryId: string, date: CalendarDate): Promise<DiaryEntryDetail>;
   entry(diaryId: string, entryId: string): Promise<DiaryEntryDetail>;
-  patchEntry(diaryId: string, entryId: string, patch: EntryPatch): Promise<DiaryEntryDetail>;
+  /** `keepalive`: sent as the page goes, and still sent once it has gone. */
+  patchEntry(
+    diaryId: string,
+    entryId: string,
+    patch: EntryPatch,
+    options?: { keepalive?: boolean },
+  ): Promise<DiaryEntryDetail>;
   /** Moves the entry to the diary's trash: its day takes a new entry. */
-  deleteEntry(diaryId: string, entryId: string): Promise<void>;
+  deleteEntry(diaryId: string, entryId: string, options?: { keepalive?: boolean }): Promise<void>;
 }
 
 /** Where a backend keeps its diaries. One by a public link has none. */

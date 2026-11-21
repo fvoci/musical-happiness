@@ -128,21 +128,30 @@ export class ServerDiaries implements Diaries {
     );
   }
 
-  async patchEntry(diaryId: string, entryId: string, patch: EntryPatch): Promise<DiaryEntryDetail> {
+  async patchEntry(
+    diaryId: string,
+    entryId: string,
+    patch: EntryPatch,
+    options: { keepalive?: boolean } = {},
+  ): Promise<DiaryEntryDetail> {
     return entryDetailOf(
       await this.#request<Schemas['DiaryEntry']>(
         '/diaries/{diaryId}/entries/{entryId}',
         { diaryId, entryId },
-        { method: 'PATCH', json: entryPatchOf(patch) },
+        { method: 'PATCH', json: entryPatchOf(patch), keepalive: options.keepalive },
       ),
     );
   }
 
-  async deleteEntry(diaryId: string, entryId: string): Promise<void> {
+  async deleteEntry(
+    diaryId: string,
+    entryId: string,
+    options: { keepalive?: boolean } = {},
+  ): Promise<void> {
     await this.#request(
       '/diaries/{diaryId}/entries/{entryId}',
       { diaryId, entryId },
-      { method: 'DELETE' },
+      { method: 'DELETE', keepalive: options.keepalive },
     );
   }
 }
