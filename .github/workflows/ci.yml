@@ -5,9 +5,10 @@
 #
 # The repository is public and anyone may send a pull request, so:
 # - it runs on `pull_request` only, never with more than the right to read, and uses
-#   no secret;
-# - every action is pinned to a commit, and the tools and the image this workflow
-#   fetches to a SHA-256;
+#   no secret but the run's own token, which can only read;
+# - every action is pinned to a commit, the tools the workflow fetches to a SHA-256 and
+#   Playwright's image to a digest. The images of the test containers are the tags
+#   xtask names (xtask/src/containers.rs), as on a developer's machine;
 # - no text from outside (titles, branch names, messages) reaches a shell;
 # - only a run on master writes a cache. A pull request reads them and writes none:
 #   what one pull request built never reaches another.
@@ -200,7 +201,8 @@ jobs:
           path: ${{ runner.temp }}/web-dist.tar.gz
           if-no-files-found: error
           compression-level: 0
-          retention-days: 1
+          # As long as the traces: a part that failed can be run again for that long.
+          retention-days: 3
 
   web-storybook:
     name: web test:storybook
@@ -216,7 +218,7 @@ jobs:
           browser: chromium
       - run: pnpm --filter web run test:storybook
       - name: Keep the traces of the failed tests
-        if: ${{ failure() }}
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: traces-storybook
@@ -251,7 +253,7 @@ jobs:
           SHARD: ${{ matrix.shard }}/4
         run: pnpm --filter web run e2e --shard="$SHARD"
       - name: Keep the traces of the failed tests
-        if: ${{ failure() }}
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: traces-e2e-${{ matrix.shard }}
@@ -259,10 +261,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  # WebKit in Playwright's image, as on the developers' machine
-  # (.github/scripts/webkit-server.sh says why). One worker to a runner: with the two of
-  # playwright.apple.config.ts, which a machine of many processors carries, the tests
-  # that wait five seconds for a document to open do not get it on four processors.
+  # WebKit in Playwright's image (.github/scripts/webkit-server.sh says why). One worker
+  # to a runner, where playwright.apple.config.ts says two: of the 96 tests of the
+  # files that failed here, ten failed with two workers on four processors and three
+  # with one. The only command of this workflow that is not the developer's own.
   web-e2e-apple:
     name: web e2e:apple (${{ matrix.shard }}/12)
     needs: web-build
@@ -288,7 +290,7 @@ jobs:
           SHARD: ${{ matrix.shard }}/12
         run: pnpm --filter web run e2e:apple --workers=1 --shard="$SHARD"
       - name: Keep the traces of the failed tests
-        if: ${{ failure() }}
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: traces-e2e-apple-${{ matrix.shard }}
@@ -325,7 +327,7 @@ jobs:
       - run: .github/scripts/test-services.sh postgres
       - run: pnpm --filter web run e2e:live
       - name: Keep the traces of the failed tests and the servers' logs
-        if: ${{ failure() }}
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: traces-e2e-live
@@ -366,9 +368,11 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
-          # The jobs of the workflow, as the keys under `jobs:` at two spaces.
+          # The jobs of the workflow: whatever is written at two spaces under `jobs:`,
+          # however it is spelled. A line this does not read as a name fails the step.
           written=$(sed -n '/^jobs:/,$p' .github/workflows/ci.yml |
-            sed -n 's/^  \([a-z][a-z0-9-]*\):$/\1/p' | grep -v '^ci-done$' | sort)
+            sed -n 's/^  \([^ #].*\)$/\1/p' | sed 's/:[[:space:]]*\(#.*\)\{0,1\}$//' |
+            grep -v '^ci-done$' | sort)
           waited=$(jq --raw-output 'keys[]' <<<"$NEEDS" | sort)
           diff <(echo "$written") <(echo "$waited")
       - name: Every job passed

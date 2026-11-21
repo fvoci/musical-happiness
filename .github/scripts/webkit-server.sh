@@ -6,10 +6,10 @@
 #
 #   webkit-server.sh
 #
-# The image is where the developers run these tests, so the tests are written against
-# it. WebKit installed on a runner is not the same place: it has other fonts (the
-# runner's sans-serif is DejaVu Sans, the image's WenQuanYi Zen Hei), and it took 20
-# minutes for the 96 tests the image ran in 14.
+# The image is Playwright's own for this version, the same on every machine. WebKit
+# installed on a runner is another place: it has other fonts (the runner's sans-serif
+# is DejaVu Sans, the image's WenQuanYi Zen Hei), and it took 20 minutes for the 96
+# tests the image ran in 14.
 set -euo pipefail
 
 # The version of Playwright in apps/web/package.json. The image holds the browsers of
@@ -34,8 +34,11 @@ docker run --detach --name "$NAME" --publish "127.0.0.1:$PORT:$PORT" \
   "mcr.microsoft.com/playwright:v$VERSION-noble@$DIGEST" \
   npx --yes "playwright@$VERSION" run-server --port "$PORT" --host 0.0.0.0
 
-for _ in $(seq 120); do
-  if docker logs "$NAME" 2>&1 | grep --quiet 'Listening on'; then
+# By the clock: the log is read whole, then searched.
+SECONDS=0
+while ((SECONDS < 120)); do
+  log=$(docker logs "$NAME" 2>&1)
+  if [[ $log == *'Listening on'* ]]; then
     {
       echo "PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:$PORT/"
       echo "PW_TEST_CONNECT_EXPOSE_NETWORK=<loopback>"

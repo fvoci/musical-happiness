@@ -16,11 +16,12 @@ S3=fvoci-test-s3
 S3_PORT=18333
 S3_BUCKET=fvoci-test
 
-# Tries a command every half second until it succeeds, for 90 seconds.
+# Tries a command every half second until it succeeds, for 90 seconds by the clock.
 wait_for() {
   local what=$1
   shift
-  for _ in $(seq 180); do
+  SECONDS=0
+  while ((SECONDS < 90)); do
     if "$@" >/dev/null 2>&1; then return 0; fi
     sleep 0.5
   done
@@ -53,7 +54,7 @@ postgres() {
 # 200: the bucket was made. 409: it was there already.
 bucket_answers() {
   local status
-  status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
+  status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 \
     --request PUT "http://localhost:$S3_PORT/$S3_BUCKET")
   [[ $status == 200 || $status == 409 ]]
 }
