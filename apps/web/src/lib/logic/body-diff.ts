@@ -135,17 +135,38 @@ class Comparing {
     return familyOf(node, this.diagram);
   }
 
-  /** Which of a stretch's gone blocks are which of its come ones, changed: pairs of their places, in order. */
+  /**
+   * Which of a stretch's gone blocks are which of its come ones, changed:
+   * pairs of their places, in order. Those that say mostly the same first;
+   * between two such pairs, as many gone as come, kind for kind, each in its
+   * place (a text rewritten where it stood).
+   */
   #pairs(gone: BodyNode[], come: BodyNode[]): [number, number][] {
-    if (
-      gone.length === come.length &&
-      gone.every((node, index) => {
-        const family = this.#family(node);
-        const other = come[index];
-        return family !== undefined && other !== undefined && this.#family(other) === family;
-      })
-    )
-      return gone.map((_, index) => [index, index]);
+    const pairs: [number, number][] = [];
+    let g = 0;
+    let c = 0;
+    const end: [number, number] = [gone.length, come.length];
+    for (const [at, to] of [...this.#alike(gone, come), end]) {
+      if (at - g === to - c && this.#kindForKind(gone.slice(g, at), come.slice(c, to)))
+        for (let index = 0; index < at - g; index += 1) pairs.push([g + index, c + index]);
+      if (at < gone.length) pairs.push([at, to]);
+      g = at + 1;
+      c = to + 1;
+    }
+    return pairs;
+  }
+
+  /** Whether two runs of blocks are of one family each, place for place. */
+  #kindForKind(gone: BodyNode[], come: BodyNode[]): boolean {
+    return gone.every((node, index) => {
+      const family = this.#family(node);
+      const other = come[index];
+      return family !== undefined && other !== undefined && this.#family(other) === family;
+    });
+  }
+
+  /** Each gone block with the first come one a little after the last taken that says mostly the same. */
+  #alike(gone: BodyNode[], come: BodyNode[]): [number, number][] {
     const pairs: [number, number][] = [];
     let next = 0;
     gone.forEach((node, index) => {
@@ -163,13 +184,14 @@ class Comparing {
     return pairs;
   }
 
+  /** A block removed whole: what is marked counts, if only one (an empty paragraph). */
   #gone(node: BodyNode): DiffNode {
-    this.removed += weightOf(node);
+    this.removed += Math.max(1, weightOf(node));
     return { ...node, diff: 'removed' };
   }
 
   #come(node: BodyNode): DiffNode {
-    this.added += weightOf(node);
+    this.added += Math.max(1, weightOf(node));
     return { ...node, diff: 'added' };
   }
 
@@ -263,45 +285,4 @@ export function diffBodies(
     reshaped: comparing.reshaped,
     coarse: comparing.budget.spent,
   };
-}
-
-/** A stretch of the merged blocks: shown, or folded away for being the same in both. */
-export interface DiffSegment {
-  folded: boolean;
-  blocks: DiffNode[];
-}
-
-/**
- * The merged blocks in stretches to show and to fold: of a run of blocks the
- * same in both, `context` stay shown next to each change around it, and the
- * rest is folded when it is at least `least` blocks.
- */
-export function foldSame(blocks: DiffNode[], context = 1, least = 3): DiffSegment[] {
-  const segments: DiffSegment[] = [];
-  const add = (folded: boolean, part: DiffNode[]): void => {
-    if (part.length === 0) return;
-    const last = segments.at(-1);
-    if (!folded && last?.folded === false) last.blocks.push(...part);
-    else segments.push({ folded, blocks: [...part] });
-  };
-  let start = 0;
-  while (start < blocks.length) {
-    const block = blocks[start];
-    if (block?.diff !== undefined) {
-      add(false, [block]);
-      start += 1;
-      continue;
-    }
-    let end = start;
-    while (end < blocks.length && blocks[end]?.diff === undefined) end += 1;
-    const before = start === 0 ? 0 : context;
-    const after = end === blocks.length ? 0 : context;
-    if (end - start - before - after >= least) {
-      add(false, blocks.slice(start, start + before));
-      add(true, blocks.slice(start + before, end - after));
-      add(false, blocks.slice(end - after, end));
-    } else add(false, blocks.slice(start, end));
-    start = end;
-  }
-  return segments;
 }

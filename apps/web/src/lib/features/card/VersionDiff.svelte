@@ -18,7 +18,8 @@
   import type { ReferenceDrawing } from '$lib/editor/reference-chip.ts';
   import { DIFF_STOP } from '$lib/editor/render-diff.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { foldSame, type BodyDiff } from '$lib/logic/body-diff.ts';
+  import type { BodyDiff } from '$lib/logic/body-diff.ts';
+  import { foldSame } from '$lib/logic/diff-fold.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   interface Props {

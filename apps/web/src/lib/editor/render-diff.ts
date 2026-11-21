@@ -23,6 +23,7 @@ import type { DiffNode } from '$lib/logic/body-nodes.ts';
 
 import { codeLanguageOf } from './code-languages.ts';
 import { drawBlocks, type RenderBodyOptions } from './render.ts';
+import { DIAGRAM_LANGUAGE } from './schema.ts';
 
 /** The attribute of each block that changed: the stops of the way through the changes. */
 export const DIFF_STOP = 'data-diff-stop';
@@ -94,26 +95,44 @@ export function noteOf(node: DiffNode): string | undefined {
   }
 }
 
+/**
+ * Makes an element a stop of the way through the changes, and the only one of
+ * what it holds: a task checked and reworded is one change to go to, not two.
+ */
+function stopAt(element: HTMLElement): void {
+  for (const inner of element.querySelectorAll(`[${DIFF_STOP}]`)) {
+    inner.removeAttribute(DIFF_STOP);
+    inner.removeAttribute('tabindex');
+  }
+  element.setAttribute(DIFF_STOP, '');
+  element.setAttribute('tabindex', '-1');
+}
+
+/**
+ * Whether a block added or removed is put in an element that carries its
+ * mark: one that holds nothing, and a diagram, whose picture is put after its
+ * source (embeds.ts), which is then hidden.
+ */
+const wrapped = (node: DiffNode, element: HTMLElement): boolean =>
+  EMPTY.has(element.tagName) ||
+  (node.type === 'codeBlock' && node.attrs?.language === DIAGRAM_LANGUAGE);
+
 /** Marks a block drawn from a node of the comparison; what it gives back takes the block's place. */
 function decorate(page: Document, node: DiffNode, element: HTMLElement): HTMLElement {
   const change = node.diff;
   if (change === undefined) return element;
   if (change === 'added' || change === 'removed') {
-    const target = EMPTY.has(element.tagName) ? page.createElement('div') : element;
+    const target = wrapped(node, element) ? page.createElement('div') : element;
     if (target !== element) target.append(element);
     target.setAttribute('data-diff', change);
     target.setAttribute('data-diff-label', BLOCK_LABELS[change]?.() ?? '');
-    target.setAttribute(DIFF_STOP, '');
-    target.setAttribute('tabindex', '-1');
+    stopAt(target);
     return target;
   }
   element.setAttribute('data-diff', 'changed');
   const said = noteOf(node);
   if (said === undefined) {
-    if (TEXT.has(element.tagName) || EMPTY.has(element.tagName)) {
-      element.setAttribute(DIFF_STOP, '');
-      element.setAttribute('tabindex', '-1');
-    }
+    if (TEXT.has(element.tagName) || EMPTY.has(element.tagName)) stopAt(element);
     return element;
   }
   const note = page.createElement('span');
@@ -123,15 +142,13 @@ function decorate(page: Document, node: DiffNode, element: HTMLElement): HTMLEle
     // A task's text is in its second part, after its box; an item's at its start.
     const into = element.hasAttribute('data-checked') ? element.lastElementChild : element;
     into?.prepend(note);
-    element.setAttribute(DIFF_STOP, '');
-    element.setAttribute('tabindex', '-1');
+    stopAt(element);
     return element;
   }
   const holder = page.createElement('div');
   holder.setAttribute('class', 'doc-diff-noted');
-  holder.setAttribute(DIFF_STOP, '');
-  holder.setAttribute('tabindex', '-1');
   holder.append(note, element);
+  stopAt(holder);
   return holder;
 }
 

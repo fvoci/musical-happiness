@@ -111,12 +111,15 @@ function tokensOf(inline: Inline, from: number, to: number, unit: Unit): Token[]
     return tokens;
   }
   if (unit === 'lines') {
+    // A line and its end are two: the last line, which has no end, is the same line given one.
     let at = 0;
     while (at < part.length) {
       const end = part.indexOf('\n', at);
-      const next = end === -1 ? part.length : end + 1;
-      tokens.push({ from: from + at, to: from + next, key: part.slice(at, next), space: false });
-      at = next;
+      const stop = end === -1 ? part.length : end;
+      if (stop > at)
+        tokens.push({ from: from + at, to: from + stop, key: part.slice(at, stop), space: false });
+      if (end !== -1) tokens.push({ from: from + end, to: from + end + 1, key: '\n', space: true });
+      at = stop + 1;
     }
     return tokens;
   }
@@ -303,13 +306,19 @@ export interface InlineDiff {
   formatted: number;
 }
 
-/** How much a piece of text counts: its words, or its lines; a thing that is not text counts one. */
+/**
+ * How much a piece of text counts: its words, or its lines; a thing that is
+ * not text counts one. The end of a line at either edge of the piece belongs
+ * to the line next to it.
+ */
 function weight(inline: Inline, from: number, to: number, unit: 'words' | 'lines'): number {
   const text = inline.text.slice(from, to);
-  if (unit === 'lines')
-    return text.split('\n').filter((line, index, all) => line !== '' || index < all.length - 1)
-      .length;
-  return wordCount(text.replaceAll(ATOM, ' ')) + (text.split(ATOM).length - 1);
+  if (unit === 'words')
+    return wordCount(text.replaceAll(ATOM, ' ')) + (text.split(ATOM).length - 1);
+  const lines = text.split('\n');
+  if (lines[0] === '') lines.shift();
+  if (lines.at(-1) === '') lines.pop();
+  return lines.length;
 }
 
 class Merging {
@@ -374,17 +383,26 @@ class Merging {
       return;
     }
     this.changed = true;
+    // What is marked counts, if only one: a change of signs or spaces has no word.
     if (piece.op === 'removed') {
-      this.removed += weight(this.a, piece.from, piece.to, this.unit);
+      this.removed += Math.max(1, weight(this.a, piece.from, piece.to, this.unit));
       this.#push(slice(this.a, piece.from, piece.to, 'removed'));
       return;
     }
-    // The last line of code removed has no end of its own: what is added starts a line.
-    const last = this.content.at(-1);
-    if (this.unit === 'lines' && last && !(last.text ?? '').endsWith('\n'))
+    // A line of code removed with no end of its own: what is added after it starts a line.
+    if (this.unit === 'lines' && this.#afterRemovedLine() && this.b.text[piece.from] !== '\n')
       this.content.push({ type: 'text', text: '\n', marks: [diffMark('break')] });
-    this.added += weight(this.b, piece.from, piece.to, this.unit);
+    this.added += Math.max(1, weight(this.b, piece.from, piece.to, this.unit));
     this.#push(slice(this.b, piece.from, piece.to, 'added'));
+  }
+
+  /** Whether the content so far ends with a removed line whose end is not in it. */
+  #afterRemovedLine(): boolean {
+    const last = this.content.at(-1);
+    const removed = last?.marks?.some(
+      (mark) => mark.type === DIFF_MARK && mark.attrs?.change === 'removed',
+    );
+    return removed === true && !(last?.text ?? '').endsWith('\n');
   }
 
   /** A hunk of runs between spaces: compared again word by word, unless it is too long to be. */

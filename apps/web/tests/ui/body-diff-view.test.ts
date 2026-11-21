@@ -13,7 +13,7 @@ import { CODE_COPY_TEXTS } from '$lib/editor/code-copy-texts.ts';
 import { drawCodeBlocks } from '$lib/editor/code-view.ts';
 import { DIFF_STOP, drawDiffBlocks } from '$lib/editor/render-diff.ts';
 import { renderBody } from '$lib/editor/render.ts';
-import type { DocNode } from '$lib/editor/schema.ts';
+import { DIAGRAM_LANGUAGE, type DocNode } from '$lib/editor/schema.ts';
 import { diffBodies } from '$lib/logic/body-diff.ts';
 
 import { bullets, code, doc, heading, image, item, paragraph, text } from '../support/body-docs.ts';
@@ -37,7 +37,9 @@ afterEach(() => {
 function drawn(before: DocNode, after: DocNode): HTMLElement {
   const root = document.createElement('div');
   root.className = 'doc-body';
-  root.append(drawDiffBlocks(diffBodies(before, after).blocks));
+  root.append(
+    drawDiffBlocks(diffBodies(before, after, { diagramLanguage: DIAGRAM_LANGUAGE }).blocks),
+  );
   document.body.append(root);
   return root;
 }
@@ -90,6 +92,31 @@ describe('the marks of a comparison', () => {
     expect(checked?.firstElementChild?.tagName).toBe('LABEL');
     expect(checked?.lastElementChild?.firstElementChild?.className).toBe('doc-diff-note');
     expect(checked?.hasAttribute(DIFF_STOP)).toBe(true);
+  });
+
+  it('makes a task checked and reworded one stop, not one inside another', () => {
+    const root = drawn(
+      doc({ type: 'taskList', content: [task(false, 'call the bank')] }),
+      doc({ type: 'taskList', content: [task(true, 'call the office')] }),
+    );
+    const stops = root.querySelectorAll(`[${DIFF_STOP}]`);
+    expect([...stops].map((stop) => stop.tagName)).toEqual(['LI']);
+    expect(root.querySelector('li del')?.textContent).toBe('bank');
+  });
+
+  it('puts a diagram added or removed in an element that carries the mark, where its picture goes too', () => {
+    const root = drawn(
+      doc(code(DIAGRAM_LANGUAGE, 'graph TD\nA-->B')),
+      doc(code(DIAGRAM_LANGUAGE, 'graph TD\nA-->C')),
+    );
+    const marked = [...root.querySelectorAll('[data-diff]')];
+    expect(marked.map((one) => [one.tagName, one.getAttribute('data-diff')])).toEqual([
+      ['DIV', 'removed'],
+      ['DIV', 'added'],
+    ]);
+    // The picture is put after the source, inside the element marked.
+    for (const one of marked) expect(one.firstElementChild?.tagName).toBe('PRE');
+    expect(root.querySelectorAll(`pre[${DIFF_STOP}]`)).toHaveLength(0);
   });
 
   it('keeps a list a list: the item changed is marked in it', () => {

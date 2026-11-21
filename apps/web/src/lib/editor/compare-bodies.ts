@@ -6,8 +6,10 @@
  *
  * Both bodies have to be ones the validator accepts: what comes back is drawn
  * by `drawDiffBlocks` (render-diff.ts), which does not check them again.
+ * The comparison itself is in the worker's chunk and, for here, one loaded on
+ * first use: the page's first chunk does not hold it.
  */
-import { diffBodies, type BodyDiff, type BodyDiffOptions } from '$lib/logic/body-diff.ts';
+import type { BodyDiff, BodyDiffOptions } from '$lib/logic/body-diff.ts';
 
 import { DIAGRAM_LANGUAGE, type DocNode } from './schema.ts';
 
@@ -59,5 +61,7 @@ export async function compareBodies(
     });
     if (diff) return diff;
   }
+  // Loaded only now: the comparison is no part of the page until a version is compared.
+  const { diffBodies } = await import('$lib/logic/body-diff.ts');
   return diffBodies(before, after, OPTIONS);
 }

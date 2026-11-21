@@ -6,7 +6,8 @@
 import fc from 'fast-check';
 import { describe, expect, test } from 'vitest';
 
-import { diffBodies, foldSame } from '$lib/logic/body-diff.ts';
+import { diffBodies } from '$lib/logic/body-diff.ts';
+import { foldSame } from '$lib/logic/diff-fold.ts';
 import {
   blocksOf,
   canonical,
@@ -58,7 +59,15 @@ function pieces(node: DiffNode | undefined): string[] {
   return (node?.content ?? []).map((child) => {
     const change = child.marks?.find((mark) => mark.type === DIFF_MARK)?.attrs?.change;
     const sign =
-      change === 'added' ? '+' : change === 'removed' ? '-' : change === 'format' ? '~' : '=';
+      change === 'added'
+        ? '+'
+        : change === 'removed'
+          ? '-'
+          : change === 'format'
+            ? '~'
+            : change === 'break'
+              ? '/'
+              : '=';
     return sign + (child.type === 'text' ? (child.text ?? '') : `<${child.type}>`);
   });
 }
@@ -162,6 +171,19 @@ describe('blocks', () => {
     expect(result.added + result.removed).toBe(0);
   });
 
+  test('a paragraph removed, the next one touched and one added: each is what it is', () => {
+    const result = diffBodies(
+      doc(p('Apples are red and sweet'), p('Bananas grow in bunches')),
+      doc(p('Bananas grow in big bunches'), p('Cherries are small')),
+    );
+    expect(result.blocks.map((block) => block.diff)).toEqual(['removed', 'changed', 'added']);
+    expect(pieces(result.blocks[1])).toEqual(['=Bananas grow in ', '+big ', '=bunches']);
+    expect([result.added, result.removed]).toEqual([4, 5]);
+    // Rewritten where they stood, the two say nothing alike: each changed in its place.
+    const rewritten = diffBodies(doc(p('one'), p('two')), doc(p('uno'), p('dos')));
+    expect(rewritten.blocks.map((block) => block.diff)).toEqual(['changed', 'changed']);
+  });
+
   test('a paragraph made a heading is the same block, of another kind', () => {
     const [block] = diffBodies(doc(p('Title')), doc(h(1, 'Title'))).blocks;
     expect(block).toMatchObject({ type: 'heading', diff: 'changed', was: { type: 'paragraph' } });
@@ -172,7 +194,19 @@ describe('blocks', () => {
       doc(code('a = 1\nb = 2\nc = 3')),
       doc(code('a = 1\nb = 20\nc = 3')),
     ).blocks;
-    expect(pieces(block)).toEqual(['=a = 1\n', '-b = 2\n', '+b = 20\n', '=c = 3']);
+    expect(pieces(block)).toEqual(['=a = 1\n', '-b = 2', '/\n', '+b = 20', '=\nc = 3']);
+  });
+
+  test('a line added after the last, which has no end, is one line added; the last removed, one removed', () => {
+    const added = diffBodies(doc(code('a = 1\nb = 2')), doc(code('a = 1\nb = 2\nc = 3')));
+    expect(pieces(added.blocks[0])).toEqual(['=a = 1\nb = 2', '+\nc = 3']);
+    expect([added.added, added.removed]).toEqual([1, 0]);
+    const removed = diffBodies(doc(code('a = 1\nb = 2')), doc(code('a = 1')));
+    expect(pieces(removed.blocks[0])).toEqual(['=a = 1', '-\nb = 2']);
+    expect([removed.added, removed.removed]).toEqual([0, 1]);
+    const rewritten = diffBodies(doc(code('a\nb\nc\nd')), doc(code('a\nx\ny\nd')));
+    expect(pieces(rewritten.blocks[0])).toEqual(['=a\n', '-b\nc', '/\n', '+x\ny', '=\nd']);
+    expect([rewritten.added, rewritten.removed]).toEqual([2, 2]);
   });
 
   test('a diagram is removed and added whole, its source meaning nothing line by line', () => {
@@ -223,6 +257,14 @@ describe('words', () => {
     const [block] = diffBodies(doc(p('좋아요 👍🏻')), doc(p('좋아요 👍🏽'))).blocks;
     const changed = pieces(block).filter((piece) => !piece.startsWith('='));
     expect(changed).toEqual(['-👍🏻', '+👍🏽']);
+    // What is marked is counted, though it is no word: so is a sign, and an empty paragraph.
+    const counted = (before: BodyNode, after: BodyNode): number[] => {
+      const result = diffBodies(before, after);
+      return [result.added, result.removed];
+    };
+    expect(counted(doc(p('좋아요 👍🏻')), doc(p('좋아요 👍🏽')))).toEqual([1, 1]);
+    expect(counted(doc(p('끝났다.')), doc(p('끝났다!')))).toEqual([1, 1]);
+    expect(counted(doc(p('a')), doc(p('a'), p()))).toEqual([1, 0]);
     const [family] = diffBodies(doc(p('a 👨‍👩‍👧 b')), doc(p('a 👨‍👩‍👦 b'))).blocks;
     expect(pieces(family)).toContain('-👨‍👩‍👧');
   });
