@@ -94,9 +94,9 @@ pub(crate) fn run(root: &Path, licenses: Licenses) -> Result<()> {
         }),
         Licenses::Skip => Step::skipped("licenses and advisories", "--skip-licenses"),
     });
-    let clock = times::Clock::start();
+    let clock = times::Clock::start(root);
     let ran = steps::run_all("check", checks);
-    times::append(root, &times::Record::new(root, "check", &clock, &ran));
+    times::append(root, &times::Record::new("check", &clock, &ran));
     ran.into_result()
 }
 

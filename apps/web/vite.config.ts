@@ -154,8 +154,9 @@ export default defineConfig(({ command }) => ({
     rolldownOptions: { output: OUTPUT_NAMES },
   },
   test: {
-    // FVOCI_TEST_CPUS, when it is set (tools/test-cpus.ts).
-    maxWorkers: vitestWorkers(),
+    // FVOCI_TEST_CPUS, when it is set (tools/test-cpus.ts); read under Vitest only, so
+    // that a wrong value stops no build.
+    maxWorkers: process.env.VITEST ? vitestWorkers() : undefined,
     projects: [
       {
         extends: true,

@@ -49,9 +49,11 @@ fn parse(value: Option<OsString>) -> Result<Option<NonZeroUsize>> {
     if text.is_empty() {
         return Ok(None);
     }
-    match text.parse::<NonZeroUsize>() {
-        Ok(cpus) => Ok(Some(cpus)),
-        Err(_) => {
+    // Digits only, as the web app's tools take it: `+4` is no number of processors there.
+    let digits = text.bytes().all(|byte| byte.is_ascii_digit());
+    match text.parse::<NonZeroUsize>().ok().filter(|_| digits) {
+        Some(cpus) => Ok(Some(cpus)),
+        None => {
             bail!("{TEST_CPUS_ENV} is `{text}`: give a whole number of processors, 1 or more")
         }
     }
@@ -77,7 +79,7 @@ mod tests {
         assert_eq!(parse(Some(" 4 ".into())).ok(), Some(four), "spaces around");
         assert_eq!(parse(None).ok(), Some(None), "unset");
         assert_eq!(parse(Some(String::new().into())).ok(), Some(None), "empty");
-        for wrong in ["0", "-2", "1.5", "four", "4x"] {
+        for wrong in ["0", "-2", "+4", "1.5", "four", "4x"] {
             let error = parse(Some(wrong.into())).expect_err(wrong);
             assert!(
                 error.to_string().contains(TEST_CPUS_ENV),

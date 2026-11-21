@@ -9,7 +9,7 @@ describe('FVOCI_TEST_CPUS', () => {
     expect(testCpus(given(' 6 '))).toBe(6);
     expect(testCpus({})).toBeUndefined();
     expect(testCpus(given(''))).toBeUndefined();
-    for (const wrong of ['0', '-2', '1.5', 'four', '4x']) {
+    for (const wrong of ['0', '-2', '+4', '1.5', 'four', '4x']) {
       expect(() => testCpus(given(wrong)), wrong).toThrow(/FVOCI_TEST_CPUS/);
     }
   });

@@ -38,7 +38,7 @@ pub(crate) struct Unit {
     /// The arguments of `cargo test` that choose its targets: `--test api`.
     pub(crate) targets: Vec<String>,
     /// Arguments of the test harness it always runs with: `--ignored`.
-    pub(crate) harness: Vec<String>,
+    pub(crate) flags: Vec<String>,
     /// The harness's filter, which the names of a rerun take the place of.
     pub(crate) filter: Vec<String>,
     pub(crate) services: Services,
@@ -49,7 +49,7 @@ impl Unit {
         Self {
             name: name.to_owned(),
             targets: targets.iter().map(|&target| target.to_owned()).collect(),
-            harness: Vec::new(),
+            flags: Vec::new(),
             filter: Vec::new(),
             services,
         }
@@ -64,7 +64,7 @@ impl Unit {
         services: Services,
     ) -> Self {
         Self {
-            harness: vec!["--ignored".to_owned()],
+            flags: vec!["--ignored".to_owned()],
             filter: filter.iter().map(|&word| word.to_owned()).collect(),
             ..Self::new(name, targets, services)
         }
@@ -78,7 +78,7 @@ impl Unit {
     /// The arguments of the harness: its own, then the names `instead` if there are,
     /// else its filter.
     pub(crate) fn harness_arguments(&self, instead: &[String]) -> Vec<String> {
-        let mut arguments = self.harness.clone();
+        let mut arguments = self.flags.clone();
         if instead.is_empty() {
             arguments.extend(self.filter.iter().cloned());
         } else {

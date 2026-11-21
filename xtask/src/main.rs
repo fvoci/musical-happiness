@@ -5,8 +5,8 @@
 //! * `cargo xtask measure` — rewrites the list of what is over the limits of length
 //!   from the code as it is. For the one who merges; no check calls it.
 //! * `cargo xtask test` — every test on SQLite and on PostgreSQL, and the S3 storage
-//!   test, in units that each run whatever failed before. Prepares the containers the
-//!   tests need. `--database`, `--part` and `--unit` choose fewer.
+//!   test, in units of which none stops the others. Prepares the containers the tests
+//!   need. `--database`, `--part` and `--unit` choose fewer.
 //! * `cargo xtask openapi` — fails if `contracts/openapi.json` is not the document the
 //!   server prints; `--write` rewrites the file.
 //! * `cargo xtask docker` — builds the images of `docker/`, starts them as an
@@ -75,8 +75,8 @@ enum Command {
         unit: Vec<String>,
         /// Arguments for the test harness of the units of `--unit` instead of their
         /// filter: `-- --exact name`.
-        #[arg(last = true, requires = "unit")]
-        harness: Vec<String>,
+        #[arg(last = true, requires = "unit", value_name = "HARNESS_ARGUMENTS")]
+        arguments: Vec<String>,
     },
     /// Rewrites `xtask/exceptions/lengths.txt` from the code as it is.
     ///
@@ -157,13 +157,13 @@ fn main() -> ExitCode {
             part,
             times,
             unit,
-            harness,
+            arguments,
         } => {
             let choice = match (part, unit.is_empty()) {
                 (Some(part), _) => test::Choice::Part { part, times },
                 (None, false) => test::Choice::Units {
                     names: unit,
-                    harness,
+                    arguments,
                 },
                 (None, true) => test::Choice::Every,
             };

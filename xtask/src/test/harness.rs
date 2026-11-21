@@ -1,9 +1,10 @@
 //! What the test harness (libtest) of a `cargo test` says: how many tests passed, failed
 //! and were ignored, and which by name.
 //!
-//! The command's exit status decides whether a unit failed; the names only say which
-//! tests to run again. A harness that ended without naming a failure (it aborted, or its
-//! process was killed) leaves a failed unit with no names, run again as a whole.
+//! A unit failed if its command failed, if its harness named a failed test, or if one of
+//! its test binaries started and never reported its result (it aborted, was killed, or
+//! a test ended its process). Only when every failure was named are the names run
+//! again; else the whole unit is.
 
 use std::io::{BufRead as _, BufReader, Write};
 use std::path::Path;
@@ -15,6 +16,10 @@ use anyhow::{Context as _, Result, bail};
 /// The tests of a unit, as its harness reported them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Report {
+    /// The test binaries that said they were running (`running 3 tests`).
+    pub(crate) started: u64,
+    /// The test binaries that reported their result (`test result:`).
+    pub(crate) finished: u64,
     pub(crate) passed: u64,
     pub(crate) failed: u64,
     pub(crate) ignored: u64,
@@ -25,11 +30,30 @@ pub(crate) struct Report {
 }
 
 impl Report {
-    /// Whether it named every test that failed, so that running those names again runs
-    /// every failure again.
-    pub(crate) fn names_every_failure(&self) -> bool {
-        u64::try_from(self.failed_tests.len()).is_ok_and(|named| named >= self.failed)
+    /// Whether every test binary that started reported its result.
+    pub(crate) fn every_binary_finished(&self) -> bool {
+        self.started == self.finished
     }
+
+    /// Whether it named every test that failed, so that running those names again runs
+    /// every failure again: every binary that started reported, and named as many
+    /// failures as it counted.
+    pub(crate) fn names_every_failure(&self) -> bool {
+        self.every_binary_finished()
+            && u64::try_from(self.failed_tests.len()).is_ok_and(|named| named >= self.failed)
+    }
+}
+
+/// What libtest adds to a test's name in the line of its verdict, and not in its list
+/// of failures nor in a filter: `test x - should panic ... ok`.
+const MODES: [&str; 3] = [" - should panic", " - compile fail", " - compile"];
+
+/// A test's name without the mode libtest adds to it.
+fn bare(name: &str) -> &str {
+    MODES
+        .iter()
+        .find_map(|mode| name.strip_suffix(mode))
+        .unwrap_or(name)
 }
 
 /// Reads the harness's output a line at a time.
@@ -46,12 +70,16 @@ impl Reading {
     pub(crate) fn line(&mut self, line: &str) {
         let line = line.trim_end_matches(['\r', '\n']);
         if let Some(result) = line.strip_prefix("test result: ") {
+            self.report.finished += 1;
             self.counts(result);
             for name in self.listing.take().unwrap_or_default() {
                 self.failed(name);
             }
         } else if line == "failures:" {
             self.listing = Some(Vec::new());
+        } else if is_running(line) {
+            self.listing = None;
+            self.report.started += 1;
         } else if let Some(names) = &mut self.listing
             && (line.is_empty() || line.starts_with("    "))
         {
@@ -65,8 +93,8 @@ impl Reading {
                 .and_then(|rest| rest.rsplit_once(" ... "))
             {
                 match verdict {
-                    "FAILED" => self.failed(name.to_owned()),
-                    "ok" => self.report.passed_tests.push(name.to_owned()),
+                    "FAILED" => self.failed(bare(name).to_owned()),
+                    "ok" => self.report.passed_tests.push(bare(name).to_owned()),
                     _ => {}
                 }
             }
@@ -104,9 +132,19 @@ impl Reading {
     }
 }
 
+/// Whether `line` is a test binary's first: `running 1 test`, `running 12 tests`.
+fn is_running(line: &str) -> bool {
+    line.strip_prefix("running ")
+        .and_then(|rest| {
+            rest.strip_suffix(" tests")
+                .or_else(|| rest.strip_suffix(" test"))
+        })
+        .is_some_and(|count| !count.is_empty() && count.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
 /// A command of tests that ran to its end.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Ran {
+pub(crate) struct UnitRun {
     /// Whether it exited with success.
     pub(crate) succeeded: bool,
     pub(crate) report: Report,
@@ -124,7 +162,7 @@ pub(crate) fn run(
     program: &std::ffi::OsStr,
     arguments: &[String],
     environment: &[(String, String)],
-) -> Result<Ran> {
+) -> Result<UnitRun> {
     let shown = format!("{} {}", program.to_string_lossy(), arguments.join(" "));
     if crate::steps::interrupted() {
         bail!("interrupted before `{shown}`");
@@ -139,7 +177,7 @@ pub(crate) fn run(
 }
 
 /// Runs `command`, its standard output read as the harness's and written to `echo`.
-fn run_echoing(mut command: Command, shown: &str, echo: &mut dyn Write) -> Result<Ran> {
+fn run_echoing(mut command: Command, shown: &str, echo: &mut dyn Write) -> Result<UnitRun> {
     let started = Instant::now();
     let mut child = command
         .stdout(Stdio::piped())
@@ -165,7 +203,7 @@ fn run_echoing(mut command: Command, shown: &str, echo: &mut dyn Write) -> Resul
     let status = child
         .wait()
         .with_context(|| format!("waiting for `{shown}`"))?;
-    Ok(Ran {
+    Ok(UnitRun {
         succeeded: status.success(),
         report: reading.finish(),
         elapsed: started.elapsed(),
@@ -218,6 +256,7 @@ test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; 
     fn counts_add_up_and_the_failures_are_named_once() {
         let report = read(TWO_BINARIES);
         assert_eq!((report.passed, report.failed, report.ignored), (3, 2, 1));
+        assert_eq!((report.started, report.finished), (2, 2));
         assert_eq!(
             report.failed_tests,
             ["b::broken", "b::also_broken"],
@@ -252,11 +291,60 @@ test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; 
     fn a_harness_that_ended_early_has_not_named_every_failure() {
         let report = read("running 3 tests\ntest d::a ... ok\n");
         assert_eq!(report.failed, 0, "no result line, no counts");
-        let counted = read("test result: FAILED. 0 passed; 2 failed; 0 ignored;\n");
+        assert!(!report.every_binary_finished(), "{report:?}");
+        assert!(!report.names_every_failure(), "{report:?}");
+        let counted =
+            read("running 2 tests\ntest result: FAILED. 0 passed; 2 failed; 0 ignored;\n");
         assert!(
             !counted.names_every_failure(),
             "two failures counted, none named"
         );
+    }
+
+    #[test]
+    fn a_binary_that_died_is_seen_beside_one_that_named_its_failure() {
+        let report = read(
+            "running 1 test\ntest a ... FAILED\n\nfailures:\n    a\n\n\
+             test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; \
+             finished in 0.00s\n\nrunning 3 tests\ntest b::one ... ok\n",
+        );
+        assert_eq!(report.failed_tests, ["a"]);
+        assert_eq!((report.started, report.finished), (2, 1));
+        assert!(
+            !report.names_every_failure(),
+            "the second binary's failure has no name: the unit runs again whole"
+        );
+    }
+
+    #[test]
+    fn the_mode_libtest_adds_to_a_name_is_left_out() {
+        let report = read(
+            "running 2 tests\ntest p::panics - should panic ... FAILED\n\
+             test q::fine - should panic ... ok\n\nfailures:\n    p::panics\n\n\
+             test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; \
+             finished in 0.00s\n",
+        );
+        assert_eq!(
+            report.failed_tests,
+            ["p::panics"],
+            "once, as a filter takes it"
+        );
+        assert_eq!(report.passed_tests, ["q::fine"]);
+    }
+
+    #[test]
+    fn only_a_binarys_own_first_line_counts_as_one_running() {
+        for line in ["running 1 test", "running 12 tests", "running 0 tests"] {
+            assert!(is_running(line), "{line}");
+        }
+        for line in [
+            "running tests",
+            "running 3 testsuites",
+            "    running 3 tests",
+            "running x tests",
+        ] {
+            assert!(!is_running(line), "{line}");
+        }
     }
 
     #[cfg(unix)]

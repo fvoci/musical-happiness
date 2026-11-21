@@ -36,6 +36,8 @@ pub(crate) struct Record {
     pub(crate) arguments: Vec<String>,
     /// What `FVOCI_TEST_CPUS` said, if it was set.
     pub(crate) test_cpus: Option<usize>,
+    /// The `RUST_TEST_THREADS` the tests ran with, the caller's or `FVOCI_TEST_CPUS`'s.
+    pub(crate) test_threads: Option<String>,
     pub(crate) seconds: f64,
     pub(crate) verdict: Verdict,
     pub(crate) steps: Vec<StepTime>,
@@ -82,18 +84,33 @@ pub(crate) struct BuildTime {
     pub(crate) seconds: f64,
 }
 
+/// How much of a unit ran.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Scope {
+    /// The unit as a run takes it.
+    #[default]
+    Whole,
+    /// The tests that arguments for its harness chose: the names of a rerun.
+    Chosen,
+}
+
 /// One unit of tests: one `cargo test` of one database.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct UnitTime {
     pub(crate) database: String,
     pub(crate) unit: String,
+    pub(crate) scope: Scope,
     pub(crate) verdict: Verdict,
     pub(crate) seconds: f64,
     pub(crate) passed: u64,
     pub(crate) failed: u64,
     pub(crate) ignored: u64,
     pub(crate) failed_tests: Vec<String>,
+    /// Whether `failed_tests` are all its failures: false when a test binary never
+    /// reported, or a failure had no name.
+    pub(crate) every_failure_named: bool,
 }
 
 /// A test of a unit of a database; with no name, the whole unit.
@@ -102,29 +119,33 @@ pub(crate) struct UnitTime {
 pub(crate) struct TestName {
     pub(crate) database: String,
     pub(crate) unit: String,
-    pub(crate) test: String,
+    pub(crate) test: Option<String>,
 }
 
-/// When a run started, by the calendar and by the clock that measures it.
-#[derive(Debug, Clone, Copy)]
+/// When a run started, by the calendar and by the clock that measures it, and the
+/// source it started on: a file changed while it runs is not what it ran.
+#[derive(Debug, Clone)]
 pub(crate) struct Clock {
     wall: SystemTime,
     started: Instant,
+    source: Source,
 }
 
 impl Clock {
-    pub(crate) fn start() -> Self {
+    /// Starts the clock of a run in the checkout at `root`.
+    pub(crate) fn start(root: &Path) -> Self {
         Self {
             wall: SystemTime::now(),
             started: Instant::now(),
+            source: source(root),
         }
     }
 }
 
 impl Record {
-    /// The record of a run of `task` in the checkout at `root`: its source, arguments
+    /// The record of a run of `task` that started at `clock`: its source, arguments
     /// and steps, and its verdict from the steps'.
-    pub(crate) fn new(root: &Path, task: &str, clock: &Clock, ran: &Ran) -> Self {
+    pub(crate) fn new(task: &str, clock: &Clock, ran: &Ran) -> Self {
         let steps: Vec<StepTime> = ran
             .results()
             .iter()
@@ -148,9 +169,17 @@ impl Record {
         Self {
             task: task.to_owned(),
             started_unix: unix(clock.wall),
-            source: source(root),
-            arguments: std::env::args().skip(1).collect(),
+            source: clock.source.clone(),
+            arguments: std::env::args_os()
+                .skip(1)
+                .map(|argument| argument.to_string_lossy().into_owned())
+                .collect(),
             test_cpus: crate::cpus::test_cpus().ok().flatten().map(usize::from),
+            test_threads: crate::cpus::test_threads()
+                .ok()
+                .flatten()
+                .map(|(_, threads)| threads)
+                .or_else(|| std::env::var("RUST_TEST_THREADS").ok()),
             seconds: clock.started.elapsed().as_secs_f64(),
             verdict,
             steps,
@@ -220,14 +249,21 @@ pub(crate) fn read(file: &Path) -> Result<Vec<Record>> {
         .collect())
 }
 
-/// How long each unit of `database` took, from the latest test run that ran it.
+/// How long each unit of `database` took, from the latest test run that ran it whole
+/// and passed: a rerun of some of its tests, a run cut short or a unit whose tests
+/// failed fast says little of how long it takes.
 pub(crate) fn unit_seconds(records: &[Record], database: &str) -> HashMap<String, f64> {
     let mut seconds = HashMap::new();
     for unit in records
         .iter()
-        .filter(|record| record.task == "test")
+        .filter(|record| record.task == "test" && record.verdict != Verdict::Interrupted)
         .flat_map(|record| &record.units)
-        .filter(|unit| unit.database == database && unit.seconds.is_finite())
+        .filter(|unit| {
+            unit.database == database
+                && unit.scope == Scope::Whole
+                && unit.verdict == Verdict::Passed
+                && unit.seconds.is_finite()
+        })
     {
         seconds.insert(unit.unit.clone(), unit.seconds);
     }
@@ -235,28 +271,32 @@ pub(crate) fn unit_seconds(records: &[Record], database: &str) -> HashMap<String
 }
 
 /// The tests that failed in the test runs of `source`, each with when the latest of
-/// those runs started. A unit that failed without naming a test is there as a test
-/// with no name.
+/// those runs started. A unit that failed without naming every failure is there whole
+/// too, as a test with no name. A run that was interrupted failed nothing, and without
+/// a commit no run is known to be of the same source.
 pub(crate) fn failures_of(records: &[Record], source: &Source) -> BTreeMap<TestName, u64> {
     let mut failures = BTreeMap::new();
-    for record in records
-        .iter()
-        .filter(|record| record.task == "test" && record.source == *source)
-    {
-        for unit in &record.units {
-            // A unit that failed without naming a test failed as a whole: its name is "".
-            let whole = [String::new()];
-            let tests = match unit.verdict {
-                Verdict::Failed if unit.failed_tests.is_empty() => whole.as_slice(),
-                _ => unit.failed_tests.as_slice(),
+    if source.commit.is_empty() {
+        return failures;
+    }
+    for record in records.iter().filter(|record| {
+        record.task == "test" && record.verdict != Verdict::Interrupted && record.source == *source
+    }) {
+        for unit in record
+            .units
+            .iter()
+            .filter(|unit| unit.verdict == Verdict::Failed)
+        {
+            let name = |test: Option<&String>| TestName {
+                database: unit.database.clone(),
+                unit: unit.unit.clone(),
+                test: test.cloned(),
             };
-            for test in tests {
-                let name = TestName {
-                    database: unit.database.clone(),
-                    unit: unit.unit.clone(),
-                    test: test.clone(),
-                };
-                failures.insert(name, record.started_unix);
+            if !unit.every_failure_named || unit.failed_tests.is_empty() {
+                failures.insert(name(None), record.started_unix);
+            }
+            for test in &unit.failed_tests {
+                failures.insert(name(Some(test)), record.started_unix);
             }
         }
     }
@@ -278,17 +318,22 @@ pub(crate) fn source(root: &Path) -> Source {
     let Some(commit) = git(&["rev-parse", "HEAD"]) else {
         return Source::default();
     };
-    // What a run of the same commit may differ by: the changes to tracked files and the
-    // files git does not track yet (a new test is one).
+    // What a run of the same commit may differ by: the changes to tracked files, and the
+    // files git does not track yet (a new test is one), by name and content.
     let status = git(&["status", "--porcelain=v1", "--untracked-files=all"]).unwrap_or_default();
     let changes = if status.is_empty() {
         String::new()
     } else {
         let diff = git(&["diff", "HEAD", "--binary"]).unwrap_or_default();
-        let digest = Sha256::new()
+        let mut hasher = Sha256::new()
             .chain_update(status.as_bytes())
-            .chain_update(diff.as_bytes())
-            .finalize();
+            .chain_update(diff.as_bytes());
+        let untracked = git(&["ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
+        for file in untracked.lines() {
+            hasher.update(file.as_bytes());
+            hasher.update(std::fs::read(Path::new(root.as_ref()).join(file)).unwrap_or_default());
+        }
+        let digest = hasher.finalize();
         digest.iter().fold(String::new(), |mut hexadecimal, byte| {
             let _ = write!(hexadecimal, "{byte:02x}");
             hexadecimal
@@ -306,7 +351,13 @@ mod tests {
             database: database.to_owned(),
             unit: name.to_owned(),
             seconds,
+            verdict: if failed_tests.is_empty() {
+                Verdict::Passed
+            } else {
+                Verdict::Failed
+            },
             failed_tests: failed_tests.iter().map(|&test| test.to_owned()).collect(),
+            every_failure_named: true,
             ..UnitTime::default()
         }
     }
@@ -376,13 +427,32 @@ mod tests {
                 units: vec![unit("sqlite", "web", 99.0, &[])],
                 ..Record::default()
             },
+            run(
+                3,
+                "b",
+                vec![
+                    UnitTime {
+                        scope: Scope::Chosen,
+                        ..unit("sqlite", "api", 4.0, &[])
+                    },
+                    unit("sqlite", "web", 0.5, &["web::x"]),
+                ],
+            ),
+            Record {
+                verdict: Verdict::Interrupted,
+                ..run(4, "b", vec![unit("sqlite", "api", 1.0, &[])])
+            },
         ];
         let seconds = unit_seconds(&records, "sqlite");
-        assert_eq!(seconds.get("api"), Some(&12.0), "the latest run counts");
+        assert_eq!(
+            seconds.get("api"),
+            Some(&12.0),
+            "the latest run counts, not a rerun of some tests nor a run cut short"
+        );
         assert_eq!(
             seconds.get("web"),
             Some(&2.0),
-            "another database or task does not"
+            "another database or task, or a run where it failed, does not"
         );
         assert_eq!(seconds.len(), 2, "{seconds:?}");
     }
@@ -391,15 +461,24 @@ mod tests {
     fn failures_count_only_from_runs_of_the_same_source() {
         let crashed = UnitTime {
             verdict: Verdict::Failed,
+            every_failure_named: false,
             ..unit("sqlite", "web", 1.0, &[])
+        };
+        let partly = UnitTime {
+            every_failure_named: false,
+            ..unit("sqlite", "libs", 1.0, &["libs::a"])
         };
         let records = [
             run(
                 1,
                 "a",
-                vec![unit("sqlite", "api", 1.0, &["api::x"]), crashed],
+                vec![unit("sqlite", "api", 1.0, &["api::x"]), crashed, partly],
             ),
             run(2, "b", vec![unit("sqlite", "api", 1.0, &["api::y"])]),
+            Record {
+                verdict: Verdict::Interrupted,
+                ..run(4, "a", vec![unit("sqlite", "store", 1.0, &["store::z"])])
+            },
             run(
                 3,
                 "a",
@@ -417,7 +496,12 @@ mod tests {
             .into_iter()
             .map(|(name, started)| {
                 (
-                    format!("{}/{}/{}", name.database, name.unit, name.test),
+                    format!(
+                        "{}/{}/{}",
+                        name.database,
+                        name.unit,
+                        name.test.unwrap_or_default()
+                    ),
                     started,
                 )
             })
@@ -427,11 +511,19 @@ mod tests {
             [
                 ("postgres/api/api::x".to_owned(), 3),
                 ("sqlite/api/api::x".to_owned(), 1),
+                ("sqlite/libs/".to_owned(), 1),
+                ("sqlite/libs/libs::a".to_owned(), 1),
                 ("sqlite/web/".to_owned(), 1)
             ],
-            "commit b's failure is of other code; a unit that failed unnamed is there whole, \
-             one that passed is not"
+            "commit b's failure is of other code and the interrupted run failed nothing; a \
+             unit that did not name every failure is there whole too"
         );
+    }
+
+    #[test]
+    fn without_a_commit_no_run_is_of_the_same_source() {
+        let records = [run(1, "", vec![unit("sqlite", "api", 1.0, &["api::x"])])];
+        assert_eq!(failures_of(&records, &Source::default()).len(), 0);
     }
 
     #[test]

@@ -30,12 +30,12 @@ use std::time::Instant;
 
 use anyhow::{Result, bail};
 
-use self::report::{Scope, UnitResult};
+use self::report::UnitResult;
 pub(crate) use self::units::Part;
 use self::units::{Services, Unit};
 use crate::containers;
 use crate::steps::{self, Step};
-use crate::times::{self, BuildTime, Verdict};
+use crate::times::{self, BuildTime, Scope, Verdict};
 
 /// The variables the store's test support reads.
 const DB_TYPE_ENV: &str = "FVOCI_STORE_TEST_DB_TYPE";
@@ -131,11 +131,11 @@ pub(crate) enum Choice {
         part: Part,
         times: Option<PathBuf>,
     },
-    /// The units of these names, with these arguments for their harness instead of
-    /// their filter if there are any.
+    /// The units of these names, with these arguments for the test harness instead of
+    /// their filter if there are any: the names of a rerun.
     Units {
         names: Vec<String>,
-        harness: Vec<String>,
+        arguments: Vec<String>,
     },
 }
 
@@ -163,10 +163,23 @@ pub(crate) fn run(root: &Path, databases: Option<Database>, choice: &Choice) -> 
     let weights = match choice {
         Choice::Part {
             times: Some(file), ..
-        } => times::read(file)?,
+        } => {
+            // Every machine that shares the run must weigh the units alike: a file one of
+            // them lacks fails it rather than making it share them out otherwise.
+            if !file.is_file() {
+                bail!("--times {}: no such file", file.display());
+            }
+            let records = times::read(file)?;
+            steps::say(&format!(
+                "    weighing the parts by {} records of {}",
+                records.len(),
+                file.display()
+            ));
+            records
+        }
         _ => Vec::new(),
     };
-    let clock = times::Clock::start();
+    let clock = times::Clock::start(root);
     let run = Run {
         root,
         metadata: units::workspace_metadata(root, &cargo)?,
@@ -204,7 +217,7 @@ pub(crate) fn run(root: &Path, databases: Option<Database>, choice: &Choice) -> 
 
     let results = results.into_inner();
     let earlier = times::read(&times::path(root)).unwrap_or_default();
-    let mut record = times::Record::new(root, "test", &clock, &ran);
+    let mut record = times::Record::new("test", &clock, &ran);
     let flaky = report::flaky(&results, &times::failures_of(&earlier, &record.source));
     steps::say(&report::lines(&results, &flaky, times::now_unix()));
     record.builds = builds.into_inner();
@@ -251,7 +264,7 @@ impl Run<'_> {
             built?;
         }
         let instead = match self.choice {
-            Choice::Units { harness, .. } => harness.as_slice(),
+            Choice::Units { arguments, .. } => arguments.as_slice(),
             _ => &[],
         };
         let mut failed = Vec::new();
@@ -275,7 +288,7 @@ impl Run<'_> {
                 } else {
                     Scope::Chosen
                 },
-                ran,
+                run: ran,
             };
             if result.failed() {
                 failed.push(unit.name.as_str());
@@ -507,7 +520,7 @@ mod tests {
         let names: Vec<&str> = units.iter().map(|unit| unit.name.as_str()).collect();
         assert_eq!(names, ["storage", "api", "organization_boundary_round2"]);
         assert!(
-            units.iter().all(|unit| unit.harness == ["--ignored"]),
+            units.iter().all(|unit| unit.flags == ["--ignored"]),
             "they are ignored unless asked for"
         );
         assert_eq!(units[2].services, Services::PostgresS3);
