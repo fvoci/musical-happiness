@@ -396,7 +396,18 @@ export class ServerRequests implements TrashReads {
     await this.#http.request('/api/v1/users/me/password', {}, { method: 'PUT', json: request });
   }
 
-  /** The session goes on under a new cookie, and its connection is opened anew under it. */
+  /** The session goes on under a new cookie, which the browser keeps by itself. */
+  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    const request: Schemas['ChangePasswordRequest'] = { oldPassword, newPassword };
+    await this.#http.request('/api/v1/users/me/password', {}, { method: 'POST', json: request });
+  }
+
+  /**
+   * The session goes on under a new cookie. The server closes the session's
+   * connections before it answers, and a connection the page opened again
+   * meanwhile came under the old cookie: it is anonymous and hears nothing.
+   * So the backend opens its connection anew once this has answered.
+   */
   async confirmPassword(password: string): Promise<void> {
     const request: Schemas['ConfirmPasswordRequest'] = { password };
     const path = '/api/v1/users/me/password/confirm';

@@ -124,10 +124,10 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     await this.#http.request('/api/v1/logout', {}, { method: 'POST' });
   }
 
-  /** The session goes on under a new cookie, which the browser keeps by itself. */
-  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
-    const request: Schemas['ChangePasswordRequest'] = { oldPassword, newPassword };
-    await this.#http.request('/api/v1/users/me/password', {}, { method: 'POST', json: request });
+  /** As after signing in: the page's connection must not be one opened under the old cookie. */
+  override async confirmPassword(password: string): Promise<void> {
+    await super.confirmPassword(password);
+    this.#live.restart();
   }
 
   // ------------------------------------------- the reader and their workspace

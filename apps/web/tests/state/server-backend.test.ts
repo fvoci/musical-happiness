@@ -70,6 +70,40 @@ describe('the server backend', () => {
     expect(sent[0]?.headers['X-Requested-With']).toBe('XMLHttpRequest');
   });
 
+  it('opens its connection anew once the session gave its password, whatever came back meanwhile', async () => {
+    const made: { url: string; closed: boolean }[] = [];
+    class Socket extends EventTarget {
+      readonly made = { url: '', closed: false };
+      constructor(url: string) {
+        super();
+        this.made.url = url;
+        made.push(this.made);
+      }
+      send(): void {
+        // Nothing reads what is sent here.
+      }
+      close(): void {
+        this.made.closed = true;
+      }
+    }
+    vi.stubGlobal('WebSocket', Socket);
+    serve(undefined, 204);
+    const backend = serverBackend('');
+    const unwatch = backend.watchSelf(() => undefined);
+    await vi.waitFor(() => {
+      expect(made).toHaveLength(1);
+    });
+
+    await backend.confirmPassword('a long password');
+    // The one that was open, or that came back under the old cookie, is let go.
+    expect(made[0]?.closed).toBe(true);
+    await vi.waitFor(() => {
+      expect(made).toHaveLength(2);
+    });
+    expect(made[1]?.closed).toBe(false);
+    unwatch();
+  });
+
   it('asks for a board read before under its own workspace, also after entering another', async () => {
     const sent = serve({ ...BLOCK, id: 'b9', workspaceId: 'w2', title: 'Elsewhere', type: 'O' });
     const backend = serverBackend('');
