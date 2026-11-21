@@ -11,7 +11,7 @@ import { firstKanban } from '$lib/state/workspace-entry.ts';
 import { BackendError, passwordSet, type Change } from '$lib/state/index.ts';
 import type { MemoryBackend } from '$lib/state/memory/backend.ts';
 
-import { setup } from './support.ts';
+import { settle, setup } from './support.ts';
 
 async function statusOf(promise: Promise<unknown>): Promise<number | 'ok'> {
   try {
@@ -205,6 +205,38 @@ describe('the own space, once it takes the password alone', () => {
     expect(workspace.entered).toBe('password');
     expect(workspace.containers).toEqual([]);
     expect(workspace.workspaces.find((one) => one.id === own)?.passwordRequired).toBe(true);
+  });
+
+  it('closes when it is read after the list said it was open, the session still good', async () => {
+    const { backend, world, workspace } = setup();
+    const own = await ownSpace(backend);
+    await workspace.load(world.workspace.id);
+    const kept = world.ownSpaces.get(backend.userId);
+    if (!kept) throw new Error('no own space');
+    kept.passwordRequired = true;
+    expect(workspace.workspaces.find((one) => one.id === own)?.passwordRequired).toBeFalsy();
+    await workspace.enter(own);
+    expect(workspace.status).toBe('ready');
+    expect(workspace.entered).toBe('password');
+    expect(workspace.closed?.id).toBe(own);
+    expect(workspace.workspaces.find((one) => one.id === own)?.passwordRequired).toBe(true);
+  });
+
+  it('closes when what was missed is read again and refused, as after the socket lets it go', async () => {
+    const { backend, world, workspace } = setup();
+    const own = await ownSpace(backend);
+    await boardIn(backend, own, 'Mine');
+    await workspace.load(own);
+    expect(workspace.containers.length).toBeGreaterThan(0);
+    const kept = world.ownSpaces.get(backend.userId);
+    if (!kept) throw new Error('no own space');
+    kept.passwordRequired = true;
+    // UNSUBSCRIBED_WORKSPACE is answered by asking again and reading again (`resync`).
+    world.tellUsers([backend.userId], { kind: 'resync' });
+    await settle();
+    expect(workspace.status).toBe('ready');
+    expect(workspace.entered).toBe('password');
+    expect(workspace.containers).toEqual([]);
   });
 
   it('closes on the page that gave the account its first password, and the account has one', async () => {

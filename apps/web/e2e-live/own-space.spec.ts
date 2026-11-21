@@ -11,7 +11,14 @@
  * With `FVOCI_SCREENS` set, the screens are pictured light and dark, wide and
  * 390 pixels wide, under `target/screens/own-space/`.
  */
-import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type Browser,
+  type Locator,
+  type Page,
+  type Response,
+} from '@playwright/test';
 import path from 'node:path';
 
 import { screensDir } from '../e2e/screens.ts';
@@ -276,6 +283,25 @@ test('an account of single sign-on only is asked once in its own space to set a 
     await pictures(page, 'own-space-locked', (seen) =>
       expect(seen.getByTestId('own-space-locked')).toBeVisible(),
     );
+    // Deleting the account: My space goes with it, what is in it not counted for this session.
+    await showSidebar(page);
+    await page.getByTestId('open-settings').click();
+    const deletion = page.getByTestId('settings-dialog').getByTestId('account-deletion');
+    await deletion.getByRole('button', { name: 'Delete account' }).click();
+    await expect(deletion.getByTestId('account-deletion-own-space')).toHaveText(
+      'My space is deleted with your account, with everything in it.',
+    );
+    // Loaded again, the list says it is closed: nothing under it is asked, the guidance stands.
+    const askedOfIt: string[] = [];
+    const listen = (response: Response): void => {
+      if (response.url().includes(`/api/v1/w/${ownId}`)) askedOfIt.push(response.url());
+    };
+    page.on('response', listen);
+    await page.reload();
+    await expect(locked).toBeVisible();
+    await expect(page.getByTestId('workspace-switcher')).toBeAttached();
+    page.off('response', listen);
+    expect(askedOfIt).toEqual([]);
     // A wrong password is said; the right one opens the same board again.
     await page.getByTestId('own-space-locked-password').fill('not my password at all');
     await locked.getByRole('button', { name: 'Sign in with password' }).click();

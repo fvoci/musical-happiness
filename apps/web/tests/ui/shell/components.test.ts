@@ -226,6 +226,34 @@ describe('the sidebar over a workspace', () => {
   const titles = (): string[] =>
     screen.getAllByRole('link').map((link) => link.lastElementChild?.textContent.trim() ?? '');
 
+  it('offers nothing to make or bring back where the space is closed to the session, and names it', async () => {
+    const { workspace, world, backend } = setup(await loadTemplates());
+    const own = (await backend.workspaces()).find((one) => one.kind === 'personal');
+    const kept = world.ownSpaces.get(backend.userId);
+    if (!own || !kept) throw new Error('no own space');
+    kept.passwordRequired = true;
+    await workspace.load(own.id);
+    expect(workspace.entered).toBe('password');
+    render(Sidebar, {
+      props: {
+        workspace,
+        containerId: undefined,
+        containerHref: (container: ContainerPlace) =>
+          routePath({ workspaceId: container.workspaceId, boardId: container.id }, ''),
+        beside: true,
+        onOpenContainer: vi.fn(),
+        onOpenSettings: vi.fn(),
+        onAddBoard: vi.fn(),
+        onClose: vi.fn(),
+        onSwitchWorkspace: vi.fn(),
+      },
+    });
+    expect(screen.getByTestId('workspace-switcher')).toHaveTextContent('My space');
+    for (const testId of ['add-board', 'open-trash', 'new-category', 'open-people']) {
+      expect(screen.queryByTestId(testId)).toBeNull();
+    }
+  });
+
   it('lists the categories in the reader’s order, each with its boards in the reader’s order', async () => {
     const { workspace } = await mount();
     const expected = workspace.sidebar.flatMap((entry) =>

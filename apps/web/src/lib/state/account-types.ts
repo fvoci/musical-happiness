@@ -107,7 +107,8 @@ export interface LeavingOrganization {
   name: string;
   /**
    * How much is in it, which goes with it. Absent when the session does not
-   * open the organization: it takes its single sign-on.
+   * open the organization: it takes its single sign-on, or it is the own space
+   * of an account with a password and the session was not made with it.
    */
   boards?: number;
   wikis?: number;

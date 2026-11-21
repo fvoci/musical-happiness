@@ -296,8 +296,9 @@
 </nav>
 
 <div class="shrink-0 border-t p-2 pb-[calc(0.5rem+var(--safe-bottom))]">
-  <!-- A guest is on the boards they were invited to: they make none, and bring none back. -->
-  {#if !isGuest(workspace)}
+  <!-- A guest is on the boards they were invited to: they make none, and bring none back.
+       Nor does anybody where no workspace is shown, as in one closed to this session. -->
+  {#if workspace.info && !isGuest(workspace)}
     <button
       type="button"
       data-testid="add-board"

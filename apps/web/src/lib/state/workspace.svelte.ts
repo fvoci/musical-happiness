@@ -225,6 +225,7 @@ export class Workspace {
     const read = await entry.enterWorkspace(this.backend, workspace);
     if (turn !== this.#entering) return;
     [this.entered, this.info, this.closed] = [read.status, read.info, read.closed];
+    this.workspaces = entry.withClosed(this.workspaces, read.closed);
     if (read.status === 'ready') {
       ({ users: this.users, containers: this.containers, categories: this.categories } = read);
       this.workspaceUsers = read.users;
@@ -239,9 +240,7 @@ export class Workspace {
     this.asked = asked;
     [this.info, this.closed] = [undefined, undefined];
     this.entered = 'none';
-    [this.users, this.workspaceUsers] = [[], []];
-    this.containers = [];
-    this.categories = [];
+    [this.users, this.workspaceUsers, this.containers, this.categories] = [[], [], [], []];
   }
 
   /**

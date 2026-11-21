@@ -169,6 +169,19 @@ export async function enterWorkspace(backend: Backend, workspace: WorkspaceInfo)
 }
 
 /**
+ * The reader's workspaces with `closed`, the one entered and found closed to
+ * this session, as it was found: a list read before it closed says so too.
+ * The same list when none was.
+ */
+export function withClosed(
+  workspaces: WorkspaceInfo[],
+  closed: WorkspaceInfo | undefined,
+): WorkspaceInfo[] {
+  if (!closed) return workspaces;
+  return workspaces.map((one) => (one.id === closed.id ? closed : one));
+}
+
+/**
  * What a refusal that closes workspaces to this session makes of the
  * reader's: an organization that takes no password (401, `sso_required`)
  * closes its workspaces, an own space that takes the password alone (401,
