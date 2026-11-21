@@ -150,6 +150,8 @@ describe('the outline of the read-only view', () => {
     Object.defineProperty(scroller, 'clientWidth', { value: 52 * 16 });
     const stop = outline.follow(scroller);
     expect(outline.mode).toBe('side');
+    // The width is read with the scrollbar's room kept, so the page coming to overflow does not change it.
+    expect(scroller.style.getPropertyValue('scrollbar-gutter')).toBe('stable');
     // Its place is kept for a page with too few headings: the page is drawn there all the same.
     outline.entries = outlineOf(headings(1));
     expect([outline.mode, outline.where]).toEqual(['none', 'side']);
@@ -161,6 +163,7 @@ describe('the outline of the read-only view', () => {
     outline.setFolded(false);
     expect(new PageOutline().folded).toBe(false);
     stop();
+    expect(scroller.style.getPropertyValue('scrollbar-gutter')).toBe('');
     const narrow = document.createElement('div');
     Object.defineProperty(narrow, 'clientWidth', { value: 52 * 16 - 1 });
     const stopNarrow = outline.follow(narrow);
@@ -220,11 +223,28 @@ describe('the outline of the read-only view', () => {
     key({ key: 'PageDown' });
     await scrolled();
     expect(outline.current).toBe(2);
-    // Tab, and the keys of the browser's own (Find), may scroll the page too.
+    // Paste, cut and undo write, as does a letter typed with AltGr (Control and Alt).
     outline.go(0);
-    key({ key: 'Tab' });
-    await scrolled();
-    expect(outline.current).toBe(2);
+    for (const chord of [
+      { key: 'v', ctrlKey: true },
+      { key: 'z', metaKey: true },
+      { key: 'ę', ctrlKey: true, altKey: true },
+    ]) {
+      key(chord);
+      await scrolled();
+      expect(outline.current).toBe(0);
+    }
+    // Tab, and the browser's Find, may scroll the page.
+    for (const moved of [
+      { key: 'Tab' },
+      { key: 'f', ctrlKey: true },
+      { key: 'g', metaKey: true },
+    ]) {
+      outline.go(0);
+      key(moved);
+      await scrolled();
+      expect(outline.current).toBe(2);
+    }
     // A key that moves the page and then a letter: the scroll is the caret's.
     outline.go(0);
     key({ key: 'ArrowDown' });

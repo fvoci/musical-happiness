@@ -71,28 +71,57 @@ test.describe('where the reader has not asked for less motion', () => {
     });
     await outlineItem(page, 'Section 24').click();
     await page.keyboard.press('End');
-    // The scroll comes to rest (the key may have cut it short): two frames without a move.
-    await expect
-      .poll(() =>
-        pageColumn(page).evaluate(
-          (column) =>
-            new Promise<boolean>((done) => {
-              const from = column.scrollTop;
-              requestAnimationFrame(() =>
-                requestAnimationFrame(() => {
-                  done(column.scrollTop === from);
-                }),
-              );
-            }),
-        ),
-      )
-      .toBe(true);
+    // The scroll comes to rest (the key may have cut it short).
+    await expect.poll(() => scrollAtRest(page)).toBe(true);
     await expect(currentItem(page)).toHaveText('Section 24');
     await page.keyboard.type(' and more');
     await expect(outlineItem(page, 'Section 24 and more')).toBeVisible();
     await expect(currentItem(page)).toHaveText('Section 24 and more');
   });
+
+  for (const then of ['the wheel', 'a second key'] as const) {
+    test(`once a key cut the scroll to the heading chosen short, ${then} lets go of it`, async ({
+      page,
+    }, info) => {
+      test.skip(info.project.name !== 'desktop', 'one wide window');
+      await page.setViewportSize(WIDE);
+      await pageWith(page, 'Guide', longBody(24));
+      await pageColumn(page).evaluate((column) => {
+        column.scrollTop = 0;
+      });
+      await outlineItem(page, 'Section 20').focus();
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('End');
+      await expect.poll(() => scrollAtRest(page)).toBe(true);
+      await expect(currentItem(page)).toHaveText('Section 20');
+      // Short of it, the reader moves on towards it, and is reading what is under the line.
+      if (then === 'the wheel') {
+        const column = await pageColumn(page).boundingBox();
+        await page.mouse.move((column?.x ?? 0) + 200, (column?.y ?? 0) + 300);
+        await page.mouse.wheel(0, 200);
+      } else {
+        await page.keyboard.press('ArrowDown');
+      }
+      await expect.poll(() => scrollAtRest(page)).toBe(true);
+      await expect(currentItem(page)).not.toHaveText('Section 20');
+    });
+  }
 });
+
+/** Whether the page's column has not scrolled over two frames. */
+async function scrollAtRest(page: Page): Promise<boolean> {
+  return pageColumn(page).evaluate(
+    (column) =>
+      new Promise<boolean>((done) => {
+        const from = column.scrollTop;
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            done(column.scrollTop === from);
+          }),
+        );
+      }),
+  );
+}
 
 /** Where the block of the caret and the block above it are on the screen; none for a block not drawn. */
 async function placesOnScreen(page: Page): Promise<number[]> {

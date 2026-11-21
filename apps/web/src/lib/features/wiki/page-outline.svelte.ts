@@ -51,20 +51,24 @@ const MARGIN = 16;
 const MOVES = ['wheel', 'touchstart', 'pointerdown'] as const;
 /** Keys that write wherever they are pressed, an input method's among them. */
 const WRITING_KEYS = new Set(['Enter', 'Backspace', 'Delete', 'Process', 'Unidentified', 'Dead']);
+/** The letters of the browser's Find with Control or Command: it takes the page elsewhere. */
+const FIND_KEYS = new Set(['f', 'g']);
 
 export type OutlineMode = 'none' | 'side' | 'button';
 
 /**
- * Whether a key writes: a letter or a space typed into what is edited, Enter,
- * the deleting keys, an input method's keys. The page scrolls after one only
- * to keep the caret in sight. Any other key may move the page: the arrows,
- * PageUp and PageDown, Home and End, Tab, a space outside what is edited,
- * the browser's own (Find).
+ * Whether a key writes: a letter or a space typed into what is edited (with
+ * AltGr too), paste, cut and undo there, Enter, the deleting keys, an input
+ * method's keys. The page scrolls after one only to keep the caret in sight.
+ * Any other key may move the page: the arrows, PageUp and PageDown, Home and
+ * End, Tab, a space outside what is edited, the browser's Find.
  */
 function writes(event: KeyboardEvent): boolean {
   if (event.isComposing || WRITING_KEYS.has(event.key)) return true;
   const edited = event.target instanceof HTMLElement && event.target.isContentEditable;
-  return edited && event.key.length === 1 && !event.ctrlKey && !event.metaKey;
+  if (!edited || event.key.length !== 1) return false;
+  const chord = (event.ctrlKey || event.metaKey) && !event.altKey;
+  return !chord || !FIND_KEYS.has(event.key.toLowerCase());
 }
 
 function remembered(): boolean {
@@ -104,10 +108,11 @@ export class PageOutline {
   /** The reader pressed, turned the wheel or pressed a key that moves the page: a scroll now is theirs. */
   #moving = false;
   /**
-   * Where the scroll to a heading gone to is going, and how far it had left to
-   * go: a scroll that comes nearer is that one still, not the reader's.
+   * Where the scroll to a heading gone to is going, how far it had left to go,
+   * and whether a key that may move the page came during it: a scroll that
+   * comes nearer is that one still, not the reader's.
    */
-  #going: { to: number; left: number } | undefined;
+  #going: { to: number; left: number; keyed: boolean } | undefined;
   #stale = false;
   #frame: number | undefined;
 
@@ -180,9 +185,17 @@ export class PageOutline {
     };
   };
 
-  /** For `{@attach}` on the element the page scrolls in. */
+  /**
+   * For `{@attach}` on the element the page scrolls in. Its scrollbar's room
+   * is kept, whether the page overflows or not: the layout is read from the
+   * width left, and a page laid out beside the outline (narrower, so taller)
+   * could otherwise come to overflow, take the outline behind the button
+   * (wider, shorter), no longer overflow, and so on.
+   */
   readonly follow = (element: HTMLElement): (() => void) => {
     this.#scroller = element;
+    const gutter = element.style.getPropertyValue('scrollbar-gutter');
+    element.style.setProperty('scrollbar-gutter', 'stable');
     const measure = (): void => {
       const style = getComputedStyle(element);
       const padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
@@ -196,9 +209,17 @@ export class PageOutline {
     sized?.observe(element);
     const moving = (): void => {
       this.#moving = true;
+      // The reader's own scroll now, wherever it goes.
+      this.#going = undefined;
     };
     const keyed = (event: KeyboardEvent): void => {
       this.#moving = !writes(event);
+      if (!this.#moving || !this.#going) return;
+      // The first such key may cut the scroll to the heading short (End, an
+      // arrow), its scroll to the caret on the way there; a second is the
+      // reader moving the page.
+      if (this.#going.keyed) this.#going = undefined;
+      else this.#going.keyed = true;
     };
     const scrolled = (): void => {
       if (!this.#stillGoing(element.scrollTop) && this.#moving) this.#chosen = undefined;
@@ -213,6 +234,7 @@ export class PageOutline {
       for (const name of MOVES) element.removeEventListener(name, moving, { capture: true });
       element.removeEventListener('keydown', keyed, { capture: true });
       element.removeEventListener('scroll', scrolled);
+      element.style.setProperty('scrollbar-gutter', gutter);
       if (this.#scroller === element) this.#scroller = undefined;
     };
   };
@@ -258,14 +280,17 @@ export class PageOutline {
     const focused = focusHeading(entry.element, finger);
     const to = scrollToHeading(scroller, entry.element, this.#head() + MARGIN);
     const left = Math.abs(to - scroller.scrollTop);
-    this.#going = left < 1 ? undefined : { to, left };
+    this.#going = left < 1 ? undefined : { to, left, keyed: false };
     return focused;
   }
 
   /**
    * Whether a scroll to `top` is the one to a heading gone to, coming nearer
    * to where it goes (a key that moves the caret may cut it short, where it
-   * rests); done once there, or once a scroll goes elsewhere.
+   * rests); done once there, once a scroll goes elsewhere, and once the
+   * reader presses, touches, turns the wheel or presses a second key that may
+   * move the page. (Not at `scrollend`: WebKit sends one as a key cuts the
+   * scroll short, before the scroll to the caret that follows.)
    */
   #stillGoing(top: number): boolean {
     const going = this.#going;
@@ -275,7 +300,8 @@ export class PageOutline {
       this.#going = undefined;
       return false;
     }
-    this.#going = left < 1 ? undefined : { to: going.to, left };
+    if (left < 1) this.#going = undefined;
+    else going.left = left;
     return true;
   }
 
