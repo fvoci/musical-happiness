@@ -7,9 +7,12 @@
   button, or files dropped on this part of the card; several at once),
   following an upload while it runs, giving it up, and deleting a file.
 
-  A deleted attachment can be brought back with "Undo" (the card's menu), so
-  deleting does not ask first. An upload that failed stays in the list,
-  marked, until the reader dismisses it.
+  An upload is where every upload is too (the shell's stack, which tells of
+  its start, its end and why it failed): here is its place in the list, the
+  same upload, dismissed or given up from either. It goes on when the card
+  is closed. A deleted attachment can be brought back with "Undo" (the card's
+  menu), so deleting does not ask first. An upload that failed stays in the
+  list, marked, until the reader dismisses it.
 -->
 <script lang="ts">
   import DownloadIcon from '@lucide/svelte/icons/download';
@@ -23,7 +26,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { humanFileSize } from '$lib/logic/format.ts';
-  import type { Attachment, BoardStore, CardStore, Upload } from '$lib/state/index.ts';
+  import type { Attachment, BoardStore, CardStore, Transfer } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { saveBlob } from '$lib/save.ts';
@@ -118,10 +121,8 @@
   /** Files whose bytes are being read, to be saved. */
   let downloading = $state<string[]>([]);
 
-  const percent = (upload: Upload): number =>
-    upload.totalBytes > 0
-      ? Math.min(100, Math.round((upload.sentBytes / upload.totalBytes) * 100))
-      : 0;
+  const percent = (upload: Transfer): number =>
+    upload.total > 0 ? Math.min(100, Math.round((upload.done / upload.total) * 100)) : 0;
 </script>
 
 {#if editable || card.attachments.length > 0}
@@ -228,17 +229,17 @@
       </ul>
     {/if}
 
-    <ul class="flex flex-col gap-2 empty:hidden" aria-live="polite" data-testid="card-uploads">
+    <ul class="flex flex-col gap-2 empty:hidden" data-testid="card-uploads">
       {#each card.uploads as upload (upload.id)}
         <li
           class="flex items-center gap-3 rounded-lg border border-dashed py-1 pr-1 pl-3"
           data-upload={upload.name}
-          data-failed={upload.failed ? '' : undefined}
+          data-failed={upload.failure ? '' : undefined}
         >
           <UploadIcon class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div class="min-w-0 flex-1 py-0.5">
             <p class="truncate">{upload.name}</p>
-            {#if upload.failed}
+            {#if upload.failure}
               <p class="text-xs text-destructive">{m.card_upload_failed()}</p>
             {:else}
               <div
@@ -250,18 +251,18 @@
                 class="mt-1.5 mb-1 h-1.5 overflow-hidden rounded-full bg-muted"
               >
                 <div
-                  class="h-full rounded-full bg-primary transition-[width]"
+                  class="h-full rounded-full bg-primary motion-safe:transition-[width]"
                   style:width="{percent(upload)}%"
                 ></div>
               </div>
             {/if}
           </div>
           <IconButton
-            label={upload.failed
+            label={upload.failure
               ? m.card_upload_dismiss({ name: upload.name })
               : m.card_upload_cancel({ name: upload.name })}
             onclick={() => {
-              upload.cancel();
+              board.workspace.transfers.dismiss(upload.id);
             }}
           >
             <XIcon aria-hidden="true" />

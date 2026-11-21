@@ -64,8 +64,8 @@ test('a board of the server is listed and opens with its views, cards and member
   await expect(page).toHaveURL(new RegExp(boardPath(board, board.viewId)));
   await expect(page.getByTestId('board-title-text')).toHaveText('Garden plan');
   await expect(
-    page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'By status' }),
-  ).toBeVisible();
+    page.getByRole('navigation', { name: 'Views' }).locator('[data-tool="views"]'),
+  ).toHaveText('By status');
 
   const column = (name: string) =>
     page.locator('[data-column]').filter({

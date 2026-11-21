@@ -43,6 +43,7 @@ import { EditingPlace } from './editing-place.ts';
 import { findEmojiTrigger } from './emoji-trigger.ts';
 import { FileBlock } from './file-block.ts';
 import { fileUrl } from './files.ts';
+import { KeyReadsCaret } from './key-caret.ts';
 import { BlockMath, InlineMath } from './math-nodes.ts';
 import { Reference, type ReferenceOptions } from './reference.ts';
 import { isAllowedHref, isUserId } from './schema.ts';
@@ -342,5 +343,6 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     }),
     EmojiSuggestion.configure(options.emoji ?? {}),
     EditingPlace,
+    KeyReadsCaret,
   ];
 }
