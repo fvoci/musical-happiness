@@ -190,9 +190,12 @@
     fieldProblems = {};
     try {
       if (mode === 'register') {
-        const named = together || (await options)?.organizationRequired === true;
+        const required = (await options)?.organizationRequired === true;
+        const named = together || required;
         const started = organizationName.trim();
-        if (named && started === '') {
+        // Blank, the server makes an account on its own: refused here when one chose to start
+        // an organization. The server's first account it refuses itself, with all else wrong.
+        if (together && !required && started === '') {
           fieldProblems = { organizationName: m.account_field_required() };
           await tick();
           document.getElementById('account-organizationName')?.focus();

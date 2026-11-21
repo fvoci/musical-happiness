@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { BackendError, changeName, type User } from '$lib/state/index.ts';
 
+import { takeUser } from '$lib/state/account.ts';
+
 import { serverBackend, settle, setup } from './support.ts';
 
 const rejection = async (promise: Promise<unknown>): Promise<BackendError> => {
@@ -90,6 +92,18 @@ describe('a change of a name, told', () => {
     });
     expect(told).toHaveBeenCalledWith({ kind: 'user', userId: workspace.me?.id });
     stop();
+  });
+
+  it("keeps the reader's own reading of whether they have a password, which a list of people leaves out", async () => {
+    const { workspace, world, backend } = setup();
+    const reader = world.users.get(backend.userId);
+    if (!reader) throw new Error('no reader');
+    world.users.set(reader.id, { ...reader, hasPassword: false });
+    await workspace.load();
+    const listed: User = { ...reader, displayName: 'Ada' };
+    delete listed.hasPassword;
+    takeUser(workspace, listed);
+    expect(workspace.me).toMatchObject({ displayName: 'Ada', hasPassword: false });
   });
 
   it('keeps the later of two readings of one person, whichever answers last', async () => {

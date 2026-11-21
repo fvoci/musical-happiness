@@ -17,9 +17,15 @@ export async function changeName(workspace: Workspace, patch: NameChange): Promi
 export function takeUser(workspace: Workspace, changed: User): void {
   const replace = (users: User[]): User[] =>
     users.map((user) => (user.id === changed.id ? changed : user));
-  // Kept from the reader's own reading where another reading leaves it out.
+  // Kept from the reader's own reading where another reading leaves them out.
   const me = workspace.me;
-  if (me?.id === changed.id) workspace.me = { ...changed, isAdmin: changed.isAdmin ?? me.isAdmin };
+  if (me?.id === changed.id) {
+    workspace.me = {
+      ...changed,
+      isAdmin: changed.isAdmin ?? me.isAdmin,
+      hasPassword: changed.hasPassword ?? me.hasPassword,
+    };
+  }
   workspace.users = workspace.user(changed.id)
     ? replace(workspace.users)
     : [...workspace.users, changed];

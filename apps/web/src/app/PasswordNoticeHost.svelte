@@ -58,8 +58,9 @@
 {#if dismissed && made && !closed}
   {#await dismissed then gone}
     {#if !gone}
+      <!-- Where the header of a view folds, a board has its round "New" at the foot: above it. -->
       <div
-        class="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3 pb-[calc(0.75rem+var(--safe-bottom))]"
+        class="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3 pb-[calc(5.5rem+var(--safe-bottom))] @tabs/pane:pb-[calc(0.75rem+var(--safe-bottom))]"
       >
         <div class="pointer-events-auto w-full max-w-md">
           <Notice

@@ -1,0 +1,279 @@
+/**
+ * The reader's own space on the real server: the switcher puts it first;
+ * entered, it starts empty; what is made there is the reader's alone, shared
+ * by its public link only, and kept; deleting the account says that it goes
+ * with it. An account that signs in through its organization's provider only
+ * is asked, once it makes something there, to set a password, and sets it,
+ * signing in through the provider again first where its session is too old.
+ *
+ * With `FVOCI_SCREENS` set, the screens are pictured light and dark, wide and
+ * 390 pixels wide, under `target/screens/own-space/`.
+ */
+import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
+import path from 'node:path';
+
+import { screensDir } from '../e2e/screens.ts';
+import { showSidebar, sidebar } from '../e2e/shell.support.ts';
+
+import { CLIENT_ID, ISSUER, SECRET, providerSignsIn } from './sso-support.ts';
+import {
+  ADMIN,
+  ageSessions,
+  person,
+  register,
+  signedIn,
+  signInOnPage,
+  uniqueName,
+  watchErrors,
+  type Schemas,
+} from './support.ts';
+
+// The fake provider's certificate is its own.
+test.use({ locale: 'en-US', ignoreHTTPSErrors: true });
+
+const switcher = (page: Page): Locator => sidebar(page).getByTestId('workspace-switcher');
+const workspacesMenu = (page: Page): Locator =>
+  page.getByRole('menu', { name: 'Switch workspace', exact: true });
+const notice = (page: Page): Locator => page.getByTestId('password-notice');
+
+/** Opens the switcher. */
+async function openSwitcher(page: Page): Promise<void> {
+  await showSidebar(page);
+  await switcher(page).click();
+  await expect(workspacesMenu(page)).toBeVisible();
+}
+
+/** Goes to the reader's own space through the switcher. */
+async function toOwnSpace(page: Page): Promise<void> {
+  await openSwitcher(page);
+  await workspacesMenu(page).getByRole('menuitem', { name: 'My space', exact: true }).click();
+  await expect(page.getByTestId('workspace-start')).toBeVisible();
+}
+
+/** Makes an empty board from the own space's first screen. */
+async function boardFromStart(page: Page): Promise<void> {
+  await page.getByTestId('workspace-start-add').click();
+  await page.getByTestId('template-picker').getByTestId('empty-board').click();
+  await expect(page.getByTestId('board-page')).toBeVisible();
+}
+
+/**
+ * Pictures the page's address light and dark, wide and 390 pixels wide, with
+ * nothing wider than the window: `show` brings up what is pictured on the page
+ * loaded again.
+ */
+async function pictures(page: Page, name: string, show: (seen: Page) => Promise<void>) {
+  if (!process.env.FVOCI_SCREENS) return;
+  const address = page.url();
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const [label, width, height] of [
+      ['wide', 1280, 800],
+      ['390', 390, 844],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await page.goto(address);
+      await show(page);
+      const file = path.join(screensDir('own-space'), `${name}-${label}-${colorScheme}.png`);
+      await page.screenshot({ path: file, animations: 'disabled' });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        width,
+      );
+    }
+  }
+  await page.emulateMedia({ colorScheme: null });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto(address);
+}
+
+test('an invited member works alone in their own space, shares by link, and is told it goes with the account', async ({
+  page,
+  baseURL,
+}) => {
+  // Pictured, each screen is loaded four times more.
+  test.slow(Boolean(process.env.FVOCI_SCREENS));
+  const base = baseURL ?? '';
+  const who = person('own-space');
+  await register(base, who);
+  const errors = watchErrors(page);
+  await page.goto('/');
+  await signInOnPage(page, who);
+  // The app opens where the member works with others; the own space comes first in the list.
+  await openSwitcher(page);
+  const items = workspacesMenu(page).getByRole('menuitem');
+  await expect(items.first()).toHaveAccessibleName('My space');
+  await expect(items.nth(1)).toHaveAccessibleName(/, current$/u);
+  await pictures(page, 'switcher', openSwitcher);
+  await page.keyboard.press('Escape');
+
+  await toOwnSpace(page);
+  const start = page.getByTestId('workspace-start');
+  await expect(start.getByRole('heading', { name: 'My space' })).toBeVisible();
+  await expect(start).toContainText('yours alone');
+  await expect(page.getByTestId('open-people')).toHaveCount(0);
+  await pictures(page, 'own-space-empty', (seen) =>
+    expect(seen.getByTestId('workspace-start')).toBeVisible(),
+  );
+
+  await boardFromStart(page);
+  const boardAddress = page.url();
+  await expect(page.getByTestId('board-people')).toHaveCount(0);
+  const openShare = async (seen: Page): Promise<void> => {
+    await seen.getByTestId('share-board').click();
+    await expect(seen.getByTestId('share-public-section')).toBeVisible();
+  };
+  await openShare(page);
+  const dialog = page.getByTestId('share-dialog');
+  await expect(dialog.getByTestId('share-open')).toHaveCount(0);
+  await expect(dialog.getByTestId('share-members')).toHaveCount(0);
+  await dialog.getByTestId('share-public').click();
+  await expect(dialog.getByTestId('share-link')).toHaveValue(/\/shared\/[0-9a-f-]{36}\?r=[^&]+$/u);
+  await pictures(page, 'share-dialog', openShare);
+
+  // Kept: loaded again, the board is there, in the own space.
+  await page.reload();
+  await expect(page.getByTestId('board-page')).toBeVisible();
+  expect(page.url()).toBe(boardAddress);
+  await showSidebar(page);
+  await expect(switcher(page)).toHaveAccessibleName('Switch workspace: My space');
+
+  // Nobody else sees it: the administrator has no such workspace, nor the board where they work.
+  const ownId = new URL(boardAddress).pathname.split('/')[2] ?? '';
+  const admin = await signedIn(base, ADMIN);
+  const theirs = (await (
+    await admin.get('/api/v1/users/me/workspaces')
+  ).json()) as Schemas['UserWorkspace'][];
+  expect(theirs.map((one) => one.id)).not.toContain(ownId);
+  expect((await admin.get(`/api/v1/w/${ownId}/boards`)).status()).toBe(404);
+  await admin.dispose();
+
+  const openDeletion = async (seen: Page): Promise<void> => {
+    // At a phone's width the settings are in the drawer.
+    await showSidebar(seen);
+    await seen.getByTestId('open-settings').click();
+    const section = seen.getByTestId('settings-dialog').getByTestId('account-deletion');
+    await section.getByRole('button', { name: 'Delete account' }).click();
+    const own = section.getByTestId('account-deletion-own-space');
+    await expect(own).toBeVisible();
+    await own.scrollIntoViewIfNeeded();
+  };
+  await openDeletion(page);
+  await expect(page.getByTestId('account-deletion-own-space')).toContainText(
+    'My space is deleted with your account, with everything in it: 1 board',
+  );
+  // It is no organization that has nobody else.
+  await expect(page.getByTestId('account-deletion-organizations')).toHaveCount(0);
+  await pictures(page, 'account-deletion', openDeletion);
+  expect(errors).toEqual([]);
+});
+
+/** Signs in through the provider in a new browser as a new person, and goes to their own space. */
+async function newcomer(browser: Browser, prefix: string) {
+  const subject = uniqueName(prefix);
+  await providerSignsIn({ subject, email: `${subject}@example.test`, preferredUsername: subject });
+  const context = await browser.newContext({ locale: 'en-US', ignoreHTTPSErrors: true });
+  const page = await context.newPage();
+  const errors = watchErrors(page);
+  await page.goto('/');
+  await page.getByTestId('oidc-continue').click();
+  await expect(page.getByTestId('app-shell')).toBeVisible();
+  // Where they work with others, nothing is asked.
+  await expect(notice(page)).toHaveCount(0);
+  await toOwnSpace(page);
+  return { page, context, errors, subject };
+}
+
+/** Waits for the page loaded again to have read the state the account keeps. */
+async function reloadRead(page: Page): Promise<void> {
+  const read = page.waitForResponse(
+    (answer) => answer.url().endsWith('/api/v1/users/me/client-state') && answer.ok(),
+  );
+  await page.reload();
+  await read;
+  await expect(page.getByTestId('board-page')).toBeVisible();
+}
+
+test('an account of single sign-on only is asked once in its own space to set a password, and sets it', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  const base = baseURL ?? '';
+  const admin = await signedIn(base, ADMIN);
+  const [shared] = (await (
+    await admin.get('/api/v1/users/me/workspaces')
+  ).json()) as Schemas['UserWorkspace'][];
+  const endpoint = `/api/v1/org/${shared?.orgId ?? ''}/oidc`;
+  const set = await admin.put(endpoint, {
+    data: { issuer: ISSUER, clientId: CLIENT_ID, clientSecret: SECRET },
+  });
+  expect(set.ok(), await set.text()).toBe(true);
+  try {
+    // Nothing is asked before something is made; "Don't show again" is kept with the account.
+    const first = await newcomer(browser, 'notice-dismissed');
+    await expect(notice(first.page)).toHaveCount(0);
+    await boardFromStart(first.page);
+    await expect(notice(first.page)).toContainText('nothing else opens My space');
+    await first.page.getByTestId('password-notice-dismiss').click();
+    await expect(notice(first.page)).toHaveCount(0);
+    await reloadRead(first.page);
+    await expect(notice(first.page)).toHaveCount(0);
+    expect(first.errors).toEqual([]);
+    await first.context.close();
+
+    const second = await newcomer(browser, 'notice-set');
+    const { page } = second;
+    await boardFromStart(page);
+    await expect(notice(page)).toBeVisible();
+    await pictures(page, 'password-notice', (seen) => expect(notice(seen)).toBeVisible());
+    // A session older than five minutes may not give the account its password.
+    ageSessions(base, 6);
+    await page.getByTestId('password-notice-field').fill('a long password of mine');
+    await notice(page).getByRole('button', { name: 'Set password' }).click();
+    await expect(page.getByTestId('password-notice-problem')).toHaveText(
+      'Sign in through single sign-on again, then set it within five minutes.',
+    );
+    const boardAddress = page.url();
+    const returned = page.waitForResponse((answer) =>
+      answer.url().includes('/api/v1/auth/oidc/callback/'),
+    );
+    await page.getByTestId('password-notice-provider').click();
+    await returned;
+    // Through the provider and back to the same board, where the notice asks again.
+    await expect(page.getByTestId('board-page')).toBeVisible();
+    expect(page.url()).toBe(boardAddress);
+    await page.getByTestId('password-notice-field').fill('a long password of mine');
+    await notice(page).getByRole('button', { name: 'Set password' }).click();
+    await expect(page.getByTestId('password-notice-done')).toBeVisible();
+    const me = (await (await page.request.get('/api/v1/users/me')).json()) as Schemas['Me'];
+    expect(me.hasPassword).toBe(true);
+    await expect(page.getByTestId('password-notice-done')).toContainText(
+      `Sign in with your user name, ${me.username}, and this password`,
+    );
+    await notice(page).getByRole('button', { name: 'Close' }).click();
+    await expect(notice(page)).toHaveCount(0);
+    // It has a password now: loaded again, nothing is asked.
+    await page.reload();
+    await expect(page.getByTestId('board-page')).toBeVisible();
+    await expect(page.getByTestId('workspace-switcher')).toBeAttached();
+    await expect(notice(page)).toHaveCount(0);
+    // The password signs in.
+    const signed = await signedIn(base, {
+      username: me.username,
+      email: `${second.subject}@example.test`,
+      password: 'a long password of mine',
+    });
+    await signed.dispose();
+    expect(second.errors).toEqual([]);
+    await second.context.close();
+  } finally {
+    await providerSignsIn({
+      subject: 'oidc-person',
+      email: 'oidc-person@example.test',
+      preferredUsername: 'oidc-person',
+      name: 'OIDC Person',
+    });
+    expect((await admin.delete(endpoint)).status()).toBe(204);
+    await admin.dispose();
+  }
+});

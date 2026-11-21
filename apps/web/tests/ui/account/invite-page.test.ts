@@ -348,6 +348,30 @@ describe('the sign-in page and who may make an account', () => {
     });
   });
 
+  it('leaves a blank name of the first account to the server, which tells it with all else wrong', async () => {
+    const onRegister = vi.fn(() => Promise.resolve('made' as const));
+    render(SignInPage, {
+      props: {
+        onSignIn: vi.fn(() => Promise.resolve()),
+        onRegister,
+        optionsOf: () => Promise.resolve({ registrationOpen: true, organizationRequired: true }),
+      },
+    });
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'New here? Create an account' }),
+    );
+    await screen.findByTestId('register-first');
+    await fill(/^user name$/i, 'ada');
+    await fill(/email/i, 'ada@example.test');
+    await fill(/^password$/i, 'a long password');
+    await fireEvent.submit(screen.getByTestId('register-form'));
+    await waitFor(() => {
+      expect(onRegister).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ organizationName: '', username: 'ada' }),
+      );
+    });
+  });
+
   it('offers no account where the server has its organization, and says what to ask for', async () => {
     signInPage(false);
     expect(await screen.findByTestId('invitation-needed')).toHaveTextContent(
