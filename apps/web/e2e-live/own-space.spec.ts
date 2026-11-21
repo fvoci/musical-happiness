@@ -279,11 +279,13 @@ test('an account of single sign-on only is asked once in its own space to set a 
         if (document.querySelector('[data-testid="own-space-locked"]')) seen.locked = true;
       }).observe(document.body, { childList: true, subtree: true });
     });
+    // Read before the password is set: the session's cookie changes twice on the way, and
+    // a reading of the test's own sent between the two is refused.
+    const me = (await (await page.request.get('/api/v1/users/me')).json()) as Schemas['Me'];
     await notice(page).getByRole('button', { name: 'Set password' }).click();
     // Set, My space takes only a session that has shown the password, and this one shows
     // the one it was just given: the notice says it is set and by what name to sign in, the
     // board is where it was, and nothing asks for the password, not for a moment either.
-    const me = (await (await page.request.get('/api/v1/users/me')).json()) as Schemas['Me'];
     await expect(page.getByTestId('password-notice-done')).toContainText(
       `Your password is set. Your user name is ${me.username}.`,
     );
