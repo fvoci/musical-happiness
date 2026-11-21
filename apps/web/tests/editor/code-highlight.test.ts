@@ -255,6 +255,36 @@ describe('asking for the tokens of a text', () => {
     expect(knownTokens(ts, 'let dropped = 2;')).toBeUndefined();
   });
 
+  it('drops a text nobody waits for at once, while the one before waits for the highlighter', async () => {
+    let readyNow: ((ready: boolean) => void) | undefined;
+    const highlight = vi.fn(() => Promise.resolve(null));
+    useHighlighter({
+      ready: () =>
+        new Promise((resolve) => {
+          readyNow = resolve;
+        }),
+      highlight,
+      stop: () => undefined,
+    });
+    const ts = language('ts');
+    const first = tokensFor(ts, 'let first = 1;');
+    // Typed on meanwhile: each text is given up for the next.
+    const typed = [1, 2, 3].map((at) => {
+      const stop = new AbortController();
+      const tokens = tokensFor(ts, `let typed = ${String(at)};`, stop.signal);
+      stop.abort();
+      return tokens;
+    });
+    const settled = await Promise.race([
+      Promise.all(typed),
+      new Promise((resolve) => setTimeout(resolve, 0, 'still waiting')),
+    ]);
+    expect(settled).toEqual([null, null, null]);
+    readyNow?.(false);
+    expect(await first).toBeNull();
+    expect(highlight).not.toHaveBeenCalled();
+  });
+
   it('leaves everything plain when the highlighter cannot start, or answers nonsense', async () => {
     useHighlighter({
       ready: () => Promise.resolve(false),
