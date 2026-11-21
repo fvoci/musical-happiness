@@ -36,7 +36,11 @@
     nameOfWorkspace(workspace, m.org_untitled_workspace);
 
   const shown = $derived(workspaces.find((workspace) => workspace.id === current));
-  /** The own space first, the others as the backend lists them. */
+  /**
+   * The own space first, the others as the backend lists them. To come with the
+   * server's refusal of a provider's session there: the own space of an account
+   * that has a password opens only to a session its password made, and is shown so.
+   */
   const ordered = $derived([
     ...workspaces.filter(isOwnSpace),
     ...workspaces.filter((workspace) => !isOwnSpace(workspace)),
