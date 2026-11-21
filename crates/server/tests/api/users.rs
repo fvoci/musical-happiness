@@ -413,8 +413,9 @@ async fn a_registration_answers_the_user_that_was_made() {
         Some(json!(true)),
         "{username}: the account has the password it registered with"
     );
-    assert!(
-        own.remove("email").is_some_and(|email| email != ""),
+    assert_eq!(
+        own.remove("email"),
+        Some(json!("first@sample.com")),
         "{username}: and the address"
     );
     assert_eq!(

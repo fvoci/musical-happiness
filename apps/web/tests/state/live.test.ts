@@ -288,11 +288,14 @@ describe('changes from the server', () => {
     const again = FakeSocket.made[1];
     again?.open();
     expect(again?.sent).toEqual([subscribe]);
-    // The session has shown the password, and the space is entered again.
+    // The session has shown the password, and the space is entered again: asked for
+    // again, and whoever listens reads again what it did not hear while it was closed.
+    board.length = 0;
     live.enter('t');
     expect(FakeSocket.made).toHaveLength(2);
     expect(again?.closed).toBe(false);
     expect(again?.sent).toEqual([subscribe, subscribe]);
+    expect(board).toEqual([{ kind: 'resync' }]);
   });
 
   it('asks for nothing on entering again before its connection is open', () => {
@@ -343,9 +346,10 @@ describe('changes from the server', () => {
     socket.message(board('t', 'old'));
     socket.message(board('t2', 'new'));
     await settle();
+    // Entered again, the listeners read again; of the two boards only the new one's is told.
     expect(
       self.map((change) => (change.kind === 'container' ? change.container.id : change.kind)),
-    ).toEqual(['new']);
+    ).toEqual(['resync', 'new']);
   });
 
   it('subscribes a connection that opens after entering to the workspace entered last', async () => {

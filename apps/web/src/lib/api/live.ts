@@ -176,11 +176,14 @@ export class LiveChanges {
    * own space, until the session has shown the account's password, on this
    * connection or on the one before it), so the page cannot know that it is
    * followed, and the server takes an asking for what is followed already.
+   * Whoever listens reads again too (`resync`): what was not heard meanwhile is
+   * not only what `Workspace.enter` reads (the titles of what bodies refer to).
    */
   enter(workspaceId: string): void {
     const before = this.#workspaceId;
     if (before === workspaceId) {
       this.#send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId }));
+      this.#tellAll({ kind: 'resync' });
       return;
     }
     this.#workspaceId = workspaceId;

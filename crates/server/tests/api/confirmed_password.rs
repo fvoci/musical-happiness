@@ -189,10 +189,6 @@ async fn a_session_that_gave_the_password_opens_the_space_beside_its_organizatio
     fake.stop();
 }
 
-/// What a session confirmed goes with the session, and a change of the password ends
-/// the account's other sessions: the one that changed it keeps what it confirmed, the
-/// others are gone with theirs, and after the operator's reset no session of the
-/// account is left that confirmed the password before it.
 /// What a session has confirmed stands in for nothing where the password itself is
 /// asked for: the account's address is changed by the password in that request, in a
 /// session of the provider that has shown it as in one that has not. With it, the
@@ -212,8 +208,12 @@ async fn the_address_is_changed_by_the_password_whatever_the_session_confirmed()
             .post(ASK, &json!({"email": "ada@home.example"}))
             .await;
         assert!(
-            without.status.is_client_error(),
-            "{what}, no password: {}",
+            matches!(
+                without.status,
+                StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY
+            ),
+            "{what}, no password: {} {}",
+            without.status,
             without.text()
         );
         let wrong = client
@@ -245,8 +245,13 @@ async fn the_address_is_changed_by_the_password_whatever_the_session_confirmed()
         ("ada@home.example", None)
     );
     ts.teardown().await;
+    fake.stop();
 }
 
+/// What a session confirmed goes with the session, and a change of the password ends
+/// the account's other sessions: the one that changed it keeps what it confirmed, the
+/// others are gone with theirs, and after the operator's reset no session of the
+/// account is left that confirmed the password before it.
 #[tokio::test]
 async fn what_a_session_confirmed_ends_with_a_change_of_the_password() {
     let fake = FakeProvider::start().await;

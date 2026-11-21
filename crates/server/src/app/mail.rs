@@ -102,8 +102,9 @@ pub(super) struct Mailer {
     /// Messages that confirm a registration's address, per address and hour, up to the
     /// same number; they go in the recovery queue.
     verification_quota: Arc<quota::HourlyQuota>,
-    /// Links that confirm an account's change of its address, per account and hour, up
-    /// to the same number; each counts at its address too (`verification_quota`).
+    /// Askings for a link that confirms an account's change of its address, per account
+    /// and hour, up to the same number: every asking counts, whether or not a link is
+    /// mailed for it; a link that is counts at its address too (`verification_quota`).
     change_quota: Arc<quota::HourlyQuota>,
     /// Notices of a changed address, per account and hour, up to the same number:
     /// counted apart, so that the links an account asked for never use up its notice.
