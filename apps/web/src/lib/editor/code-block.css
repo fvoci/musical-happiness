@@ -143,6 +143,8 @@
   inset-inline-start: 0;
   z-index: 30;
   display: grid;
+  /* One column as wide as the list and no wider: the field's own width does not widen it. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.25rem;
   width: min(16rem, calc(100vw - 2rem));
   padding: 0.25rem;
@@ -157,6 +159,9 @@
   display: none;
 }
 .doc-body .doc-code-search {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   height: 2rem;
   padding-inline: 0.5rem;
   border: 1px solid var(--input-border);
@@ -165,7 +170,8 @@
   color: var(--foreground);
   font-size: var(--text-sm);
 }
-.doc-body .doc-code-options {
+/* Named under the list of languages so that the body's own lists (editor.css) do not indent it. */
+.doc-body .doc-code-popup .doc-code-options {
   max-height: 15rem;
   margin: 0;
   padding: 0;
