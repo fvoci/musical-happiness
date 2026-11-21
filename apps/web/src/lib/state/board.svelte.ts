@@ -10,6 +10,7 @@
  */
 import { cardsOfView } from '../logic/card-list.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
+import type { PlaceWrite } from '../logic/list-places.ts';
 import { propertyBehavior } from '../logic/properties.ts';
 import {
   viewGrouping,
@@ -43,7 +44,7 @@ import { authorIds, memberId } from './user-names.ts';
 import { readBoard } from './board-load.ts';
 import { containerOfWorkspace, roleOf, type CardDrop } from './board-parts.ts';
 import { MemberWrites } from './member-writes.ts';
-import { orderMembers, orderViews, viewCopyFields } from './order.ts';
+import { orderMembers, orderViews } from './order.ts';
 import {
   containerPatches,
   cardPatches,
@@ -560,15 +561,17 @@ export class BoardStore {
 
   // -------------------------------------------------------------- views
 
-  /** Changes a view: `change` gets the view as it is and returns it as it should be. */
+  /** Changes a view to what `change` makes of it; undo puts it back, `was` in its fields. */
   async changeView(
     viewId: string,
     change: (view: BoardView) => BoardView,
     description = 'changeView',
     groupId?: string,
+    was?: Partial<BoardView['fields']>,
   ): Promise<void> {
-    const current = this.view(viewId);
-    if (!current) return;
+    const shown = this.view(viewId);
+    if (!shown) return;
+    const current = was ? { ...shown, fields: { ...shown.fields, ...was } } : shown;
     const [forward, backward] = viewPatches(change(current), current);
     if (isEmptyBlockPatch(forward)) return;
     await this.#perform(
@@ -595,6 +598,22 @@ export class BoardStore {
     );
   }
 
+  /** Writes places that keep views where they show (`Placing.keep`): no step of undo. */
+  async keepViewPlaces(keep: readonly PlaceWrite[]): Promise<void> {
+    await Promise.all(
+      keep.map(async ({ id, place }) => {
+        const current = this.view(id);
+        if (!current) return;
+        const placed = { ...current, fields: { ...current.fields, order: place } };
+        const [forward, backward] = viewPatches(placed, current);
+        if (isEmptyBlockPatch(forward)) return;
+        await this.#viewWrites.write(id, forward, backward).catch((error: unknown) => {
+          this.workspace.report('save', error);
+        });
+      }),
+    );
+  }
+
   async createView(draft: ViewDraft): Promise<BoardView | undefined> {
     return this.#perform(
       async () => {
@@ -608,13 +627,6 @@ export class BoardStore {
       },
       'createView',
     );
-  }
-
-  /** A copy of a view under another title, right after it in the list. */
-  async duplicateView(viewId: string, title: string): Promise<BoardView | undefined> {
-    const source = this.view(viewId);
-    if (!source) return undefined;
-    return this.createView({ title, fields: viewCopyFields(source, this.orderedViews) });
   }
 
   async deleteView(viewId: string): Promise<void> {

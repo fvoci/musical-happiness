@@ -41,7 +41,13 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { isComposing } from '$lib/keys.ts';
   import type { BoardView } from '$lib/logic/wire.ts';
-  import { moveView, newViewPlace, whileHere, type BoardStore } from '$lib/state/index.ts';
+  import {
+    addViewAtEnd,
+    duplicateView,
+    moveView,
+    whileHere,
+    type BoardStore,
+  } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { Input } from '$lib/ui/input/index.js';
 
@@ -103,18 +109,15 @@
   }
 
   async function addView(viewType: AddableViewType): Promise<void> {
-    const fields = {
-      ...newViewFields(viewType, board.board?.cardProperties ?? []),
-      ...newViewPlace(board),
-    };
+    const fields = newViewFields(viewType, board.board?.cardProperties ?? []);
     const title = NEW_VIEW_TITLES[viewType]();
-    const made = await whileHere(board, () => board.createView({ title, fields }));
+    const made = await whileHere(board, () => addViewAtEnd(board, { title, fields }));
     if (made) onOpenView(made.id);
   }
 
   async function duplicate(): Promise<void> {
     const title = m.viewheader_copy_title({ title: viewTitle(view) });
-    const copy = await whileHere(board, () => board.duplicateView(view.id, title));
+    const copy = await whileHere(board, () => duplicateView(board, view.id, title));
     if (copy) onOpenView(copy.id);
   }
 

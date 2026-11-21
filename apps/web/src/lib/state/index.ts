@@ -48,7 +48,7 @@ export {
 } from './backend.ts';
 export type { Registered } from './account-types.ts';
 export { BoardStore, type CardDrop } from './board.svelte.ts';
-export { moveView, newViewPlace } from './view-moves.ts';
+export { addViewAtEnd, duplicateView, moveView } from './view-moves.ts';
 export { type Shareable } from './member-writes.ts';
 export { boardPresence } from './board-presence.svelte.ts';
 export type { BodyVersion, BodyVersionContent, BodyVersions } from './body-versions.ts';

@@ -16,8 +16,9 @@
   the menu open, and `status` says what they did. Their keys (Alt and an
   arrow, say) run them from the line, which keeps the focus wherever it
   goes; the arrows alone still go from line to line. In the dropdown their
-  buttons are for a pointer, out of the way of the arrows; in the sheet Tab
-  reaches them too.
+  buttons are out of the way of the arrows (not Bits UI's items), for a
+  pointer and a screen reader's own reading; in the sheet Tab reaches them
+  too.
 -->
 <script lang="ts">
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -111,9 +112,9 @@
     );
   }
 
-  /** The keys of a line's tools, for a screen reader to name with it. */
+  /** The keys of a line's tools that do something there, for a screen reader to name with it. */
   function lineKeys(action: MenuAction): string | undefined {
-    const keys = (action.tools ?? []).map((tool) => tool.keys);
+    const keys = (action.tools ?? []).flatMap((tool) => (tool.disabled ? [] : [tool.keys]));
     return keys.length > 0 ? keys.join(' ') : undefined;
   }
 
@@ -324,16 +325,17 @@
           <DropdownMenu.Separator />
         {/if}
         {#if action.tools}
-          <!-- One row: the line, and the buttons of its tools after it. They are a pointer's:
-               out of the menu, whose arrows go from line to line; the keys are the line's. -->
+          <!-- One row: the line, and the buttons of its tools after it, items of the menu
+               that its arrows pass over (not Bits UI's): the keys are the line's. -->
           <div role="none" class="flex items-center gap-0.5" data-line={action.id}>
             {@render dropdownItem(action, 'min-w-0 flex-1')}
             {#each action.tools as tool (tool.id)}
               {@const Icon = tool.icon}
               <button
                 type="button"
+                role="menuitem"
                 tabindex="-1"
-                aria-hidden="true"
+                aria-label={tool.label}
                 title="{tool.label} ({keysLabel(tool.keys)})"
                 data-action={tool.id}
                 data-line-tool

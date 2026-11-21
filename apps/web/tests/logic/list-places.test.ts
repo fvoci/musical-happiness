@@ -1,7 +1,8 @@
 /**
  * Places of a list put in order by hand: the server's orders of a wiki's pages
  * (crates/model/src/page.rs, the same cases), and the writes that move one
- * thing of a list, give a copy its place and a new thing the last.
+ * thing of a list, give a copy its place and a new thing the last, with
+ * those that keep the others where they show.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -13,6 +14,7 @@ import {
   placeBetween,
   spreadPlaces,
   type Placed,
+  type PlaceWrite,
 } from '$lib/logic/list-places.ts';
 
 const between = (before?: string, after?: string): string => {
@@ -113,72 +115,149 @@ describe('a place between two', () => {
 const list = (...items: [string, string?][]): Placed[] =>
   items.map(([id, place]) => ({ id, place }));
 
+/** The list as it reads once `writes` are made, by place and then identifier. */
+function readAfter(shown: readonly Placed[], writes: readonly PlaceWrite[]): string[] {
+  const after = new Map(shown.map((item) => [item.id, item.place]));
+  for (const { id, place } of writes) after.set(id, place);
+  return [...after]
+    .sort(([idA, a = ''], [idB, b = '']) => (a < b ? -1 : a > b ? 1 : idA < idB ? -1 : 1))
+    .map(([id]) => id);
+}
+
 describe('moving one thing of a list', () => {
   it('writes the thing moved alone where every one has a place', () => {
     const shown = list(['a', 'V'], ['b', 'W'], ['c', 'X']);
-    expect(movedTo(shown, 'c', 1)).toEqual([{ id: 'c', place: 'VV' }]);
-    expect(movedTo(shown, 'a', 1)).toEqual([{ id: 'a', place: 'WV' }]);
-    expect(movedTo(shown, 'b', 0)).toEqual([{ id: 'b', place: 'U' }]);
-    expect(movedTo(shown, 'b', 2)).toEqual([{ id: 'b', place: 'Y' }]);
+    expect(movedTo(shown, 'c', 1)).toEqual({ place: 'VV', keep: [], was: 'X' });
+    expect(movedTo(shown, 'a', 1).place).toBe('WV');
+    expect(movedTo(shown, 'b', 0).place).toBe('U');
+    expect(movedTo(shown, 'b', 2).place).toBe('Y');
   });
 
-  it('gives those without a place the places they show at, the first time', () => {
+  it('gives those without a place the places they show at, the first time, and says its own', () => {
     // Nobody moved anything yet: a, b, c, d by title.
     const shown = list(['a'], ['b'], ['c'], ['d']);
-    expect(movedTo(shown, 'c', 1)).toEqual([
-      { id: 'a', place: 'V' },
-      { id: 'b', place: 'W' },
-      { id: 'd', place: 'Y' },
-      { id: 'c', place: 'VV' },
-    ]);
+    expect(movedTo(shown, 'c', 1)).toEqual({
+      place: 'VV',
+      keep: [
+        { id: 'a', place: 'V' },
+        { id: 'b', place: 'W' },
+        { id: 'd', place: 'Y' },
+      ],
+      // Where it showed: what an undo puts back.
+      was: 'X',
+    });
     // Some placed, some not: those after the placed ones go on from the last of them.
-    expect(movedTo(list(['p', 'V'], ['a'], ['b']), 'p', 1)).toEqual([
-      { id: 'a', place: 'W' },
-      { id: 'b', place: 'X' },
-      { id: 'p', place: 'WV' },
-    ]);
+    expect(movedTo(list(['p', 'V'], ['a'], ['b']), 'p', 1)).toEqual({
+      place: 'WV',
+      keep: [
+        { id: 'a', place: 'W' },
+        { id: 'b', place: 'X' },
+      ],
+      was: 'V',
+    });
   });
 
   it('gives the same places for the same list, whoever moves what', () => {
     const shown = list(['a'], ['b'], ['c'], ['d']);
     const mine = movedTo(shown, 'c', 1);
     const theirs = movedTo(shown, 'a', 3);
-    const placeOf = (writes: { id: string; place: string }[], id: string) =>
+    const placeOf = (writes: PlaceWrite[], id: string) =>
       writes.find((write) => write.id === id)?.place;
     // b is moved by neither: both write it the same place.
-    expect(placeOf(mine, 'b')).toBe(placeOf(theirs, 'b'));
-    expect(placeOf(mine, 'd')).toBe('Y');
-    expect(placeOf(theirs, 'd')).toBe('Y');
+    expect(placeOf(mine.keep, 'b')).toBe(placeOf(theirs.keep, 'b'));
+    expect(placeOf(mine.keep, 'd')).toBe('Y');
+    expect(placeOf(theirs.keep, 'd')).toBe('Y');
   });
 
-  it('numbers the list anew where two of one place leave no room between them', () => {
-    // b and c have one place (two moved there at once): the id settles them.
+  it('raises the tie it goes into, those of it after the gap alone', () => {
+    // b and c have one place (two moved there at once): the identifier settles them.
     const shown = list(['a', 'V'], ['b', 'W'], ['c', 'W'], ['d', 'X']);
-    const writes = movedTo(shown, 'd', 2);
-    const after = new Map(shown.map((item) => [item.id, item.place]));
-    for (const { id, place } of writes) after.set(id, place);
-    const order = [...after].sort(([idA, a = ''], [idB, b = '']) =>
-      a < b ? -1 : a > b ? 1 : idA < idB ? -1 : 1,
-    );
-    expect(order.map(([id]) => id)).toEqual(['a', 'b', 'd', 'c']);
-    expect(new Set(writes.map((write) => write.place)).size).toBe(writes.length);
+    const moved = movedTo(shown, 'd', 2);
+    expect(moved.keep).toEqual([{ id: 'c', place: 'Y' }]);
+    expect(readAfter(shown, [...moved.keep, { id: 'd', place: moved.place }])).toEqual([
+      'a',
+      'b',
+      'd',
+      'c',
+    ]);
+    // Three of one place, into the middle: the two after the gap go up, the first stays.
+    const three = list(['a', 'W'], ['b', 'W'], ['c', 'W'], ['e', 'X']);
+    const into = movedTo(three, 'e', 1);
+    expect(into.keep.map((write) => write.id)).toEqual(['b', 'c']);
+    expect(readAfter(three, [...into.keep, { id: 'e', place: into.place }])).toEqual([
+      'a',
+      'e',
+      'b',
+      'c',
+    ]);
+  });
+
+  it('says where an undo puts it back, among the places the others are given', () => {
+    // b and c tied, d after them: the tie goes up past where d is, and d into the gap.
+    const shown = list(['a', 'W'], ['b', 'WV'], ['c', 'WV'], ['d', 'X'], ['e', 'Y']);
+    const moved = movedTo(shown, 'd', 2);
+    expect(moved.keep.map((write) => write.id)).toEqual(['c']);
+    expect(readAfter(shown, [...moved.keep, { id: 'd', place: moved.place }])).toEqual([
+      'a',
+      'b',
+      'd',
+      'c',
+      'e',
+    ]);
+    // Its write is the move, and so is a step of undo; undone, the list is as it was.
+    expect(moved.was).not.toBe(moved.place);
+    expect(readAfter(shown, [...moved.keep, { id: 'd', place: moved.was }])).toEqual([
+      'a',
+      'b',
+      'c',
+      'd',
+      'e',
+    ]);
+  });
+
+  it('numbers the list anew where the place between would be too long', () => {
+    const narrow = `V${'0'.repeat(30)}1`;
+    const shown = list(['a', 'V'], ['b', narrow], ['c', 'W']);
+    const moved = movedTo(shown, 'c', 1);
+    expect(moved.place.length).toBeLessThanOrEqual(2);
+    expect(readAfter(shown, [...moved.keep, { id: 'c', place: moved.place }])).toEqual([
+      'a',
+      'c',
+      'b',
+    ]);
+    // Undone, it is after b again, in the list numbered anew.
+    expect(readAfter(shown, [...moved.keep, { id: 'c', place: moved.was }])).toEqual([
+      'a',
+      'b',
+      'c',
+    ]);
   });
 });
 
 describe('a copy and a new thing', () => {
-  it('puts a copy right after its thing, or gives it no place where that has none', () => {
+  it('puts a copy right after its thing, the others kept where they show', () => {
     const shown = list(['a', 'V'], ['b', 'W'], ['c']);
-    expect(placeAfter(shown, 'a')).toBe('VV');
+    expect(placeAfter(shown, 'a')).toEqual({ place: 'VV', keep: [{ id: 'c', place: 'X' }] });
     // Before the next, though it has no place yet.
-    expect(placeAfter(shown, 'b')).toBe('WV');
-    expect(placeAfter(shown, 'c')).toBeUndefined();
-    // No room after it: its own, the id settles them.
-    expect(placeAfter(list(['a', 'V'], ['b', 'V']), 'a')).toBe('V');
+    expect(placeAfter(shown, 'b').place).toBe('WV');
+    // After one without a place, which gets the one it shows at.
+    expect(placeAfter(shown, 'c')).toEqual({ place: 'Y', keep: [{ id: 'c', place: 'X' }] });
+    // Into a tie after it: the one of the tie after the copy goes up.
+    expect(placeAfter(list(['a', 'V'], ['b', 'V']), 'a')).toEqual({
+      place: 'W',
+      keep: [{ id: 'b', place: 'X' }],
+    });
   });
 
-  it('puts a new thing last where the last has a place, and gives it none on a list without', () => {
-    expect(placeAtEnd(list(['a', 'V'], ['b', 'W']))).toBe('X');
-    expect(placeAtEnd(list(['a'], ['b']))).toBeUndefined();
-    expect(placeAtEnd([])).toBeUndefined();
+  it('puts a new thing last, those without a place given the places they show at', () => {
+    expect(placeAtEnd(list(['a', 'V'], ['b', 'W']))).toEqual({ place: 'X', keep: [] });
+    expect(placeAtEnd(list(['a'], ['b']))).toEqual({
+      place: 'X',
+      keep: [
+        { id: 'a', place: 'V' },
+        { id: 'b', place: 'W' },
+      ],
+    });
+    expect(placeAtEnd([])).toEqual({ place: 'V', keep: [] });
   });
 });

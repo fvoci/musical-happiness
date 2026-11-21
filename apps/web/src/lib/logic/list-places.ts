@@ -11,8 +11,9 @@
  * between two it goes half way.
  *
  * A list may hold things without a place (made before places were kept):
- * they come after those with one. A move among them gives each of them the
- * place it shows at (`movedTo`), after which every move is one write.
+ * they come after those with one. The first thing moved, added or copied
+ * gives each of them the place it shows at (`Placing.keep`), after which a
+ * move is one write.
  */
 
 /** The digits of a place, least first: in the order of their code units. */
@@ -127,6 +128,19 @@ export interface PlaceWrite {
   place: string;
 }
 
+/** Where a thing goes, and the places of others written with it that change nothing shown. */
+export interface Placing {
+  /** The place of the thing. */
+  place: string;
+  /**
+   * Places that keep the others where they show: those without one get the
+   * place they show at; where the thing goes into a tie (two of one place,
+   * moved there at once) those of the tie after it go up; where places would
+   * grow too long, every one is given a new place. No step of undo.
+   */
+  keep: PlaceWrite[];
+}
+
 /**
  * The places of a list as it shows, those without one (they come last)
  * given the places they show at: each a step after the one before. The same
@@ -141,55 +155,103 @@ function shownPlaces(list: readonly Placed[]): string[] {
 }
 
 /**
- * The places that move `id` to `to` in `list` (the list as it shows, `to`
- * the index it is to have): its own, between those it goes between, and,
- * where some have no place yet, theirs too, the places they show at. Where
- * there is no room left between the two (two of one place), or the place
- * would be too long, every thing is given a new place.
+ * Places for a thing put into a tie at `at` and for those of the tie after
+ * it, each above the one before, from the tie up to the next place; undefined
+ * where there is no tie there, or no room.
  */
-export function movedTo(list: readonly Placed[], id: string, to: number): PlaceWrite[] {
+function raiseTie(shown: readonly string[], at: number): string[] | undefined {
+  const tie = shown[at];
+  if (at === 0 || tie === undefined || shown[at - 1] !== tie) return undefined;
+  let end = at;
+  while (shown[end] === tie) end += 1;
+  const raised: string[] = [];
+  let low = tie;
+  for (let count = at; count <= end; count += 1) {
+    const next = placeBetween(low, shown[end]);
+    if (next === undefined || next.length > LONGEST) return undefined;
+    raised.push(next);
+    low = next;
+  }
+  return raised;
+}
+
+const writesOf = (places: ReadonlyMap<string, string>): PlaceWrite[] =>
+  [...places].map(([id, place]) => ({ id, place }));
+
+/** The place of a thing put at index `at` of `list` (as it shows, without the thing). */
+export function placeAt(list: readonly Placed[], at: number): Placing {
+  const shown = shownPlaces(list);
+  const to = Math.max(0, Math.min(at, list.length));
+  const keep = new Map<string, string>();
+  list.forEach((item, index) => {
+    if (item.place === undefined) keep.set(item.id, shown[index] ?? '');
+  });
+  const place = placeBetween(shown[to - 1], shown[to]);
+  if (place !== undefined && place.length <= LONGEST) return { place, keep: writesOf(keep) };
+  const raised = raiseTie(shown, to);
+  if (raised) {
+    list.slice(to, to + raised.length - 1).forEach((item, index) => {
+      keep.set(item.id, raised[index + 1] ?? '');
+    });
+    return { place: raised[0] ?? '', keep: writesOf(keep) };
+  }
+  const spread = spreadPlaces(list.length + 1);
+  list.forEach((item, index) => {
+    const given = spread[index < to ? index : index + 1] ?? '';
+    if (item.place === given) keep.delete(item.id);
+    else keep.set(item.id, given);
+  });
+  return { place: spread[to] ?? '', keep: writesOf(keep) };
+}
+
+/**
+ * The place that moves `id` to index `to` of `list` (as it shows), what
+ * keeps the others where they show, and `was`: where it shows now, as a place
+ * among the others' once written, which an undo puts back. That is the
+ * place it has, or shows at where it has none, unless their writes passed it.
+ */
+export function movedTo(
+  list: readonly Placed[],
+  id: string,
+  to: number,
+): Placing & { was: string } {
   // Of the whole list as it shows, the moved one too: whoever moves what, a thing
   // without a place is given the same one.
-  const shown = new Map(shownPlaces(list).map((place, index) => [list[index]?.id, place]));
-  const others = list.filter((item) => item.id !== id);
-  const at = Math.max(0, Math.min(to, others.length));
-  const places = others.map((item) => shown.get(item.id) ?? '');
-  const place = placeBetween(places[at - 1], places[at]);
-  if (place === undefined || place.length > LONGEST) {
-    const ids = others.map((item) => item.id);
-    ids.splice(at, 0, id);
-    const spread = spreadPlaces(ids.length);
-    const now = new Map(list.map((item) => [item.id, item.place]));
-    return ids.flatMap((each, index) => {
-      const given = spread[index] ?? '';
-      return now.get(each) === given ? [] : [{ id: each, place: given }];
-    });
-  }
-  const given = others.flatMap((item, index) =>
-    item.place === undefined ? [{ id: item.id, place: places[index] ?? '' }] : [],
-  );
-  return [...given, { id, place }];
-}
-
-/**
- * The place of a copy of `id` right after it, written with the copy alone:
- * undefined when `id` has no place (the copy has none either, and goes by
- * the list's other rule), its own where there is no room after it.
- */
-export function placeAfter(list: readonly Placed[], id: string): string | undefined {
+  const shown = shownPlaces(list);
   const at = list.findIndex((item) => item.id === id);
-  const own = list[at]?.place;
-  if (own === undefined) return undefined;
-  const made = placeBetween(own, shownPlaces(list)[at + 1]);
-  return made !== undefined && made.length <= LONGEST ? made : own;
+  const others = list.flatMap((item, index) =>
+    item.id === id ? [] : [{ id: item.id, place: shown[index] }],
+  );
+  const placing = placeAt(others, to);
+  const keep = new Map<string, string>();
+  list.forEach((item, index) => {
+    if (item.place === undefined && item.id !== id) keep.set(item.id, shown[index] ?? '');
+  });
+  for (const write of placing.keep) keep.set(write.id, write.place);
+  const placeOf = (other: Placed | undefined) => other && (keep.get(other.id) ?? other.place);
+  // Its neighbours before it moved: what an undo puts it back between.
+  const was = placeAmong(shown[at] ?? placing.place, placeOf(others[at - 1]), placeOf(others[at]));
+  return { place: placing.place, keep: writesOf(keep), was };
 }
 
 /**
- * The place of a new thing at the end, written with it alone: after the
- * last, where that has a place (and so all of them do); undefined for a list
- * that has none yet, or none there (the new thing goes by the other rule).
+ * The place `was` where it is between `before` and `after`, the places of
+ * its neighbours once the others' are written; else one between them (the
+ * others' writes went past it: a tie raised, the list numbered anew).
  */
-export function placeAtEnd(list: readonly Placed[]): string | undefined {
-  const last = list.at(-1)?.place;
-  return last === undefined ? undefined : placeBetween(last, undefined);
+function placeAmong(was: string, before: string | undefined, after: string | undefined): string {
+  if ((before === undefined || before < was) && (after === undefined || was < after)) return was;
+  const between = placeBetween(before, after);
+  return between !== undefined && between.length <= LONGEST ? between : was;
+}
+
+/** The place of a copy of `id` right after it, and what keeps the others where they show. */
+export function placeAfter(list: readonly Placed[], id: string): Placing {
+  const at = list.findIndex((item) => item.id === id);
+  return placeAt(list, at < 0 ? list.length : at + 1);
+}
+
+/** The place of a new thing at the end of the list, and what keeps the others where they show. */
+export function placeAtEnd(list: readonly Placed[]): Placing {
+  return placeAt(list, list.length);
 }

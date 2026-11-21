@@ -6,7 +6,7 @@
  * told two different things apart (the identifier settles what is left).
  * The order of the cards of a view is the business of `logic/sort.ts`.
  */
-import { isPlace, placeAfter, type Placed } from '../logic/list-places.ts';
+import { isPlace, placeAfter, type Placed, type PlaceWrite } from '../logic/list-places.ts';
 import {
   createBoardView,
   type Block,
@@ -70,15 +70,16 @@ export function placesOf(ordered: readonly BoardView[]): Placed[] {
   }));
 }
 
-/** What a copy of `source` takes: its fields, and a place right after it (none where it has none). */
-export function viewCopyFields(
+/**
+ * What a copy of `source` takes: its fields, with a place right after it, and
+ * the places that keep the other views where they show (`Placing.keep`).
+ */
+export function viewCopy(
   source: BoardView,
   ordered: readonly BoardView[],
-): BoardView['fields'] {
-  const fields = createBoardView(source).fields;
-  const order = placeAfter(placesOf(ordered), source.id);
-  delete fields.order;
-  return order === undefined ? fields : { ...fields, order };
+): { fields: BoardView['fields']; keep: PlaceWrite[] } {
+  const { place, keep } = placeAfter(placesOf(ordered), source.id);
+  return { fields: { ...createBoardView(source).fields, order: place }, keep };
 }
 
 /** The members of a board by the name they are shown under. */

@@ -319,6 +319,21 @@ describe('a reader who may only look', () => {
     }
     expect(screen.queryByTestId('new-card')).toBeNull();
   });
+
+  it('as a commenter, gets the views and nothing that moves them', async () => {
+    const { board, workspace } = await mount('List');
+    const me = workspace.me?.id;
+    board.members = board.members.map((member) =>
+      member.userId === me
+        ? { ...member, schemeAdmin: false, schemeEditor: false, schemeCommenter: true }
+        : member,
+    );
+    expect(board.role).toBe('commenter');
+    await openMenu(toolButton('views'));
+    expect(lineTexts()).toEqual(['Board', 'List']);
+    expect(document.querySelectorAll('[data-line-tool]')).toHaveLength(0);
+    expect(document.querySelector('[aria-keyshortcuts]')).toBeNull();
+  });
 });
 
 describe('views', () => {
@@ -346,8 +361,8 @@ describe('views', () => {
       if (!found) throw new Error(`no line for ${viewId}`);
       return found;
     };
-    // The keys are the line's, and named there.
-    expect(line(boardId).getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowUp Alt+ArrowDown');
+    // The keys are the line's, and named there: those that do something, at the top down alone.
+    expect(line(boardId).getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowDown');
 
     line(boardId).focus();
     await fireEvent.keyDown(line(boardId), { key: 'ArrowDown', altKey: true });
@@ -356,6 +371,7 @@ describe('views', () => {
     // Still open, the focus on Board's line where it went, and its place said.
     expect(document.activeElement).toBe(line(boardId));
     expect(screen.getByText('Board is now 2 of 2')).toBeInTheDocument();
+    expect(line(boardId).getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowUp');
     await settled();
     expect(board.orderedViews.map((view) => view.title)).toEqual(['List', 'Board']);
     // Past the end, nothing.
@@ -382,10 +398,12 @@ describe('views', () => {
     const titled = (viewId: string): (string | null)[] =>
       lineTools(viewId).map((tool) => tool.getAttribute('title'));
     expect(titled(boardId)).toEqual(['Move Board up (Alt+↑)', 'Move Board down (Alt+↓)']);
-    // Out of the menu: its arrows go from line to line, and a screen reader hears the keys.
+    // Items of the menu, named, for a screen reader read by touch; not Bits UI's, which its
+    // arrows go to: those go from line to line.
     for (const tool of lineTools(boardId)) {
-      expect(tool.getAttribute('role')).toBeNull();
-      expect(tool.getAttribute('aria-hidden')).toBe('true');
+      expect(tool.getAttribute('role')).toBe('menuitem');
+      expect(tool.getAttribute('aria-label')).toMatch(/^Move Board (up|down)$/);
+      expect(tool.hasAttribute('data-dropdown-menu-item')).toBe(false);
       expect(tool.tabIndex).toBe(-1);
     }
     const disabled = (viewId: string): boolean[] =>

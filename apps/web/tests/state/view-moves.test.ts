@@ -1,14 +1,21 @@
 /**
  * The order of a board's views: each view's place in its own `fields.order`,
  * read before the views without one (by title); moved a place up or down,
- * written for the view moved alone once the board's views have places;
- * followed by somebody else; carried by a copy of the view, of the board,
- * and through a template.
+ * written for the view moved alone once the board's views have places, and
+ * undone without taking back what keeps the others where they show; followed
+ * by somebody else; a new view at the end; carried by a copy of the view, of
+ * the board, and through a template.
  */
 import { describe, expect, it, vi } from 'vitest';
 
 import { createBoardView, type BoardView } from '$lib/logic/wire.ts';
-import { moveView, newViewPlace, Workspace, type BoardStore } from '$lib/state/index.ts';
+import {
+  addViewAtEnd,
+  duplicateView,
+  moveView,
+  Workspace,
+  type BoardStore,
+} from '$lib/state/index.ts';
 import type { SeedTemplate } from '$lib/state/memory/seed.ts';
 import { orderViews } from '$lib/state/order.ts';
 
@@ -91,7 +98,7 @@ describe('reading the order', () => {
 });
 
 describe('a move', () => {
-  it('gives every view its place the first time, and one undo takes all of it back', async () => {
+  it('gives every view the place it shows at the first time; undo puts back the one moved', async () => {
     const { board, backend, workspace } = await openFirstBoard(setup([FIVE]));
     expect(titles(board)).toEqual(['Alpha', 'Beta', 'Board', 'Delta', 'Gamma']);
     const patch = vi.spyOn(backend, 'patchView');
@@ -105,12 +112,26 @@ describe('a move', () => {
     const stored = (await backend.views(board.boardId)).map((view) => view.fields.order);
     expect(stored.every((place) => place !== undefined)).toBe(true);
 
+    // One write back: the view moved, where it showed. The others keep their places.
     await workspace.undoLast();
     expect(titles(board)).toEqual(['Alpha', 'Beta', 'Board', 'Delta', 'Gamma']);
-    expect(places(board)).toEqual([undefined, undefined, undefined, undefined, undefined]);
-    expect(
-      (await backend.views(board.boardId)).every((view) => view.fields.order === undefined),
-    ).toBe(true);
+    expect(patch).toHaveBeenCalledTimes(6);
+    expect(places(board).every((place) => place !== undefined)).toBe(true);
+    const read = orderViews(await backend.views(board.boardId), 'en');
+    expect(read.map((view) => view.title)).toEqual(titles(board));
+  });
+
+  it('undone after somebody else added a view, leaves that view at the end', async () => {
+    const { board, theirs, workspace } = await twoReaders();
+    await moveView(board, idOf(board, 'Delta'), -1);
+    await settle();
+    await addViewAtEnd(theirs, { title: 'Aardvark', fields: createBoardView().fields });
+    await settle();
+    expect(titles(board).at(-1)).toBe('Aardvark');
+    await workspace.undoLast();
+    await settle();
+    expect(titles(board)).toEqual(['Alpha', 'Beta', 'Board', 'Delta', 'Gamma', 'Aardvark']);
+    expect(titles(theirs)).toEqual(titles(board));
   });
 
   it('writes the view moved alone once the views have places, and not past an end', async () => {
@@ -161,12 +182,22 @@ describe('a move', () => {
     await settle();
     expect(titles(board)).toEqual(['Beta', 'Alpha', 'Gamma', 'Board', 'Delta']);
     expect(titles(theirs)).toEqual(titles(board));
-    // A move between the two finds no room: the views are given new places, all at once.
+    // A move between the two finds no room there: the one of the two after it goes up,
+    // and the view moved has a place of its own; nothing else is written.
+    const patch = vi.spyOn(board.workspace.backend, 'patchView');
     await moveView(board, idOf(board, 'Board'), -1);
     await settle();
+    expect(patch.mock.calls.map((call) => call[1]).sort()).toEqual(
+      [idOf(board, 'Board'), idOf(board, 'Gamma')].sort(),
+    );
     expect(titles(board)).toEqual(['Beta', 'Alpha', 'Board', 'Gamma', 'Delta']);
     expect(titles(theirs)).toEqual(titles(board));
     expect(new Set(places(board)).size).toBe(5);
+    // The move is a step of undo: undone, Board is back after Gamma, which stays raised.
+    await board.workspace.undoLast();
+    await settle();
+    expect(titles(board)).toEqual(['Beta', 'Alpha', 'Gamma', 'Board', 'Delta']);
+    expect(titles(theirs)).toEqual(titles(board));
   });
 
   it('of two people moving first at once keeps the moves whose writes came last', async () => {
@@ -183,25 +214,33 @@ describe('a move', () => {
 });
 
 describe('a new view and copies', () => {
-  it('goes at the end once the views have places, and by title before', async () => {
-    const { board } = await openFirstBoard(setup([FIVE]));
-    expect(newViewPlace(board)).toEqual({});
-    await moveView(board, idOf(board, 'Gamma'), -1);
-    const made = await board.createView({
+  it('goes at the end, the views without a place given theirs the first time', async () => {
+    const { board, backend, workspace } = await openFirstBoard(setup([FIVE]));
+    const patch = vi.spyOn(backend, 'patchView');
+    const made = await addViewAtEnd(board, {
       title: 'Aardvark',
-      fields: { ...createBoardView().fields, ...newViewPlace(board) },
+      fields: createBoardView().fields,
     });
     expect(made?.fields.order).toBeDefined();
-    expect(titles(board).at(-1)).toBe('Aardvark');
+    expect(titles(board)).toEqual(['Alpha', 'Beta', 'Board', 'Delta', 'Gamma', 'Aardvark']);
+    // The five, once each, the places they showed at.
+    expect(patch).toHaveBeenCalledTimes(5);
+    // Once they have places, a view added is its making alone.
+    patch.mockClear();
+    await addViewAtEnd(board, { title: 'Aardwolf', fields: createBoardView().fields });
+    expect(patch).not.toHaveBeenCalled();
+    expect(titles(board).slice(-2)).toEqual(['Aardvark', 'Aardwolf']);
+    // Undone, the view goes; the others stay where they show.
+    await workspace.undoLast();
+    expect(titles(board)).toEqual(['Alpha', 'Beta', 'Board', 'Delta', 'Gamma', 'Aardvark']);
   });
 
-  it('puts a copy of a view right after it, and one of a view without a place by title', async () => {
+  it('puts a copy of a view right after it, whether the views have places or not', async () => {
     const { board } = await openFirstBoard(setup([FIVE]));
-    await board.duplicateView(idOf(board, 'Delta'), 'Copy of Delta');
-    expect(titles(board)).toEqual(['Alpha', 'Beta', 'Board', 'Copy of Delta', 'Delta', 'Gamma']);
-    expect(board.views.every((view) => view.fields.order === undefined)).toBe(true);
-    await moveView(board, idOf(board, 'Gamma'), -1);
-    await board.duplicateView(idOf(board, 'Alpha'), 'Zebra');
+    await duplicateView(board, idOf(board, 'Delta'), 'Copy of Delta');
+    expect(titles(board)).toEqual(['Alpha', 'Beta', 'Board', 'Delta', 'Copy of Delta', 'Gamma']);
+    expect(board.views.every((view) => view.fields.order !== undefined)).toBe(true);
+    await duplicateView(board, idOf(board, 'Alpha'), 'Zebra');
     expect(titles(board).slice(0, 2)).toEqual(['Alpha', 'Zebra']);
   });
 
