@@ -15,8 +15,8 @@
 use std::collections::BTreeSet;
 
 use fvoci_model::{
-    ContainerKind, ContainerKinds, ContainerMember, ContainerType, OrgRole, User, UserWorkspace,
-    Workspace, WorkspaceRole, new_id,
+    ContainerKind, ContainerKinds, ContainerMember, ContainerType, OrgKind, OrgRole, User,
+    UserWorkspace, Workspace, WorkspaceRole, new_id,
 };
 use subtle::ConstantTimeEq as _;
 
@@ -30,7 +30,17 @@ use crate::loose_objects::LooseState;
 use crate::uploads::{OpenUploads, UploadUsage};
 use crate::{body_versions, invitations, memberships_everywhere, users, users_by_id, workspaces};
 
+mod every_organization;
+mod session_taken;
 mod sign_in;
+
+pub use session_taken::SessionTaken;
+use session_taken::{HAS_PASSWORD, taken};
+
+pub(crate) use every_organization::{
+    OpenedWall, close_wall, is_the_instances_organization, of_people, open_wall,
+    organizations_made_by,
+};
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -44,6 +54,11 @@ pub const SYSTEM_WORKSPACE_ID: &str = "00000000-0000-7000-8000-00000000a001";
 pub(crate) const IN_USE: &str = " AND t.delete_at = 0 AND o.delete_at = 0 AND o.is_system = false \
                       AND t.is_system = false";
 
+/// The condition that the organization `o`, if it is the space of an account, is of
+/// one in use: not of one that waits to be deleted or is being erased.
+const OWNER_IN_USE: &str = " AND NOT EXISTS (SELECT 1 FROM users AS owner \
+                            WHERE owner.id = o.owner_id AND owner.delete_at <> 0)";
+
 /// What a user is in a workspace, and whose the workspace is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceAccess {
@@ -54,9 +69,11 @@ pub struct WorkspaceAccess {
     pub org_role: Option<OrgRole>,
     /// What the user is in the workspace.
     pub workspace_role: WorkspaceRole,
-    /// The provider a session must be made through to open what is the organization's;
-    /// `None` for an organization that takes a password too.
-    pub required_provider: Option<String>,
+    /// Which sessions of the user open the workspace.
+    pub takes: SessionTaken,
+    /// What the organization is: one that people work in together, or the user's own
+    /// space.
+    pub kind: OrgKind,
 }
 
 impl WorkspaceAccess {
@@ -346,7 +363,8 @@ impl Store {
             .await
     }
 
-    /// The instance's own organization: the oldest non-system organization in use.
+    /// The instance's own organization: the oldest non-system organization in use that
+    /// people work in together.
     /// This identifies the organization whose administrators follow instance roles;
     /// it does not select an organization for requests or create one.
     ///
@@ -356,6 +374,19 @@ impl Store {
     pub async fn instance_organization(&self) -> Result<Option<String>, StoreError> {
         self.system()
             .with_conn(async |scope| oldest_organization(scope).await)
+            .await
+    }
+
+    /// The organization that is the space of the account `user_id`, in use or not;
+    /// `None` for an account that has none. An account's space is the same one for as
+    /// long as the account is there.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub(crate) async fn space_of(&self, user_id: &str) -> Result<Option<String>, StoreError> {
+        self.system()
+            .with_conn(async |scope| space_of(scope, user_id).await)
             .await
     }
 
@@ -374,14 +405,16 @@ impl Store {
     ) -> Result<Option<WorkspaceAccess>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                let mut sql = scope.sql(
-                    "SELECT t.org_id, wm.role, om.role, p.id FROM workspace_members AS wm \
+                let mut sql = scope.sql(&format!(
+                    "SELECT t.org_id, wm.role, om.role, p.id, o.kind, {HAS_PASSWORD} \
+                     FROM workspace_members AS wm \
+                     JOIN users AS u ON u.id = wm.user_id \
                      JOIN workspaces AS t ON t.id = wm.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
                      LEFT JOIN organization_members AS om \
                      ON om.org_id = t.org_id AND om.user_id = wm.user_id \
                      LEFT JOIN oidc_providers AS p ON p.org_id = t.org_id AND p.sso_required = ",
-                );
+                ));
                 sql.bind(true)
                     .push_bind(" WHERE wm.user_id = ", Id(user_id))
                     .push_bind(" AND wm.workspace_id = ", Id(workspace_id))
@@ -391,6 +424,7 @@ impl Store {
                     return Ok(None);
                 };
                 let org_role = row.text(2)?;
+                let kind = org_kind(&row, 4)?;
                 Ok(Some(WorkspaceAccess {
                     org_id: row.id(0)?,
                     workspace_role: role(&row, 1)?,
@@ -399,17 +433,20 @@ impl Store {
                     } else {
                         Some(role(&row, 2)?)
                     },
-                    required_provider: Some(row.id(3)?).filter(|id| !id.is_empty()),
+                    takes: taken(kind, row.id(3)?, &row.text(5)?),
+                    kind,
                 }))
             })
             .await
     }
 
     /// The workspaces the user is a member of, in every organization: by organization,
-    /// the oldest first, and in each the oldest workspace first. `login_provider` is
+    /// the oldest first, and in each the oldest workspace first; the workspace of the
+    /// user's own space last, whenever it was made. `login_provider` is
     /// the provider the asking session was made through (`None` for a password): a
     /// workspace of an organization that takes only sessions made through another
-    /// says so (`sso_required`), and is listed all the same.
+    /// says so (`sso_required`), and the user's own space says that it takes a session
+    /// made with the password (`password_required`); both are listed all the same.
     ///
     /// # Errors
     ///
@@ -422,30 +459,36 @@ impl Store {
     ) -> Result<Vec<UserWorkspace>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                let mut sql = scope.sql(
-                    "SELECT t.id, t.org_id, t.name, wm.role, p.id FROM workspace_members AS wm \
+                let mut sql = scope.sql(&format!(
+                    "SELECT t.id, t.org_id, t.name, wm.role, p.id, o.kind, {HAS_PASSWORD} \
+                     FROM workspace_members AS wm \
+                     JOIN users AS u ON u.id = wm.user_id \
                      JOIN workspaces AS t ON t.id = wm.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
                      LEFT JOIN oidc_providers AS p ON p.org_id = t.org_id AND p.sso_required = ",
-                );
+                ));
                 sql.bind(true)
                     .push_bind(" WHERE wm.user_id = ", Id(user_id))
                     .push(IN_USE)
                     .push(&scope.same_organization(&[("wm", "t")]))
-                    .push(" ORDER BY o.create_at, o.id, t.create_at, t.id");
+                    .push_bind(" ORDER BY CASE WHEN o.kind = ", OrgKind::Personal.as_str())
+                    .push(" THEN 1 ELSE 0 END, o.create_at, o.id, t.create_at, t.id");
                 scope
                     .fetch_all(sql)
                     .await?
                     .iter()
                     .map(|row| {
-                        let required = row.id(4)?;
+                        let kind = org_kind(row, 5)?;
+                        let takes = taken(kind, row.id(4)?, &row.text(6)?);
+                        let closed = !takes.opened_by(login_provider);
                         Ok(UserWorkspace {
                             id: row.id(0)?,
                             org_id: row.id(1)?,
+                            kind,
                             name: row.text(2)?,
                             role: role(row, 3)?,
-                            sso_required: !required.is_empty()
-                                && login_provider != Some(required.as_str()),
+                            sso_required: closed && kind == OrgKind::Team,
+                            password_required: closed && kind == OrgKind::Personal,
                         })
                     })
                     .collect()
@@ -721,8 +764,10 @@ impl Store {
     /// organization and its kind, which says what the token reads of it (a board's
     /// cards, a wiki's pages). `None` if it is not shared, is not there, or the token
     /// is not its own. Nothing of the system organization is shared, nothing of a
-    /// workspace or an organization that was deleted, and nothing of an organization
-    /// that turned its public links off.
+    /// workspace or an organization that was deleted, nothing of an organization
+    /// that turned its public links off, and nothing of the space of an account that
+    /// is out of use: one that waits to be deleted has its links closed meanwhile, and
+    /// they open again if it takes the deletion back.
     ///
     /// The tokens are compared without showing through timing where they differ.
     ///
@@ -746,6 +791,7 @@ impl Store {
                     .push_bind(" AND s.enabled = ", true)
                     .push_bind(" AND o.public_links = ", true)
                     .push(IN_USE)
+                    .push(OWNER_IN_USE)
                     .push(&scope.same_organization(&[("s", "b"), ("b", "t")]));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
@@ -841,7 +887,8 @@ impl Store {
 
     /// What the user is in the organization; `None` for somebody who is no member, and
     /// for an organization that is not in use or is the system's, whether it exists or
-    /// not.
+    /// not. And for a user's own space, its owner's too: nobody is anything in it to
+    /// the operations of an organization, which ask here who administers one.
     ///
     /// # Errors
     ///
@@ -860,7 +907,8 @@ impl Store {
                 );
                 sql.bind(Id(user_id))
                     .push_bind(" AND om.org_id = ", Id(org_id))
-                    .push(" AND o.delete_at = 0 AND o.is_system = false");
+                    .push(" AND o.delete_at = 0 AND o.is_system = false")
+                    .push_bind(" AND o.kind = ", OrgKind::Team.as_str());
                 match scope.fetch_optional(sql).await? {
                     Some(row) => role(&row, 0).map(Some),
                     None => Ok(None),
@@ -893,15 +941,26 @@ fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
         })
 }
 
+/// Reads the kind of an organization from a column.
+pub(crate) fn org_kind(row: &Row, index: usize) -> Result<OrgKind, StoreError> {
+    row.text(index)?
+        .parse()
+        .map_err(|error: fvoci_model::UnknownOrgKind| StoreError::Corrupt {
+            column: "kind",
+            reason: error.to_string(),
+        })
+}
+
 /// The instance's own organization as `scope` reaches the organizations: the oldest
-/// non-system one in use ([`Store::instance_organization`]).
+/// non-system one in use that people work in together
+/// ([`Store::instance_organization`]). No account's own space is it, however old.
 pub(crate) async fn oldest_organization(
     scope: &mut Scope<'_>,
 ) -> Result<Option<String>, StoreError> {
     let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-    sql.bind(false)
-        .push_bind(" AND delete_at = ", 0_i64)
-        .push(" ORDER BY create_at, id LIMIT 1");
+    sql.bind(false).push_bind(" AND delete_at = ", 0_i64);
+    of_people(&mut sql, "kind");
+    sql.push(" ORDER BY create_at, id LIMIT 1");
     scope
         .fetch_optional(sql)
         .await?
@@ -909,27 +968,17 @@ pub(crate) async fn oldest_organization(
         .transpose()
 }
 
-/// Whether the organization of `scope` is the instance's own: the oldest one in use,
-/// whose administrators are the instance's (`members::follow_instance_role`). Asked in
-/// the caller's transaction, so that the answer holds for what it does; on PostgreSQL
-/// the wall is opened for this one statement, as the organization's wall hides the
-/// others, and closed again before anything else runs in it.
-pub(crate) async fn is_the_instances_organization(
+/// The organization that is the space of the account `user_id`, in use or not, by
+/// who owns it: in a scope that reaches every organization.
+pub(crate) async fn space_of(
     scope: &mut Scope<'_>,
-) -> Result<bool, StoreError> {
-    let Some(org) = scope.org_id() else {
-        return Ok(false);
-    };
-    let reach = |on: &str| format!("SELECT set_config('fvoci.system', '{on}', true)");
-    let postgres = scope.dialect() == Dialect::Postgres;
-    if postgres {
-        let sql = scope.sql(&reach("on"));
-        scope.fetch_optional(sql).await?;
-    }
-    let oldest = oldest_organization(scope).await?;
-    if postgres {
-        let sql = scope.sql(&reach("off"));
-        scope.fetch_optional(sql).await?;
-    }
-    Ok(oldest.is_some_and(|id| id == org))
+    user_id: &str,
+) -> Result<Option<String>, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM organizations WHERE owner_id = ");
+    sql.bind(Id(user_id));
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| row.id(0))
+        .transpose()
 }

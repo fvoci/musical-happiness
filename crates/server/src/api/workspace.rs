@@ -11,8 +11,8 @@ use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery, State};
 use axum::http::request::Parts;
 use fvoci_model::{
-    AuditRecord, Container, ContainerKinds, OrgRole, Session, User, UserWorkspace, Workspace,
-    WorkspaceRole,
+    AuditRecord, Container, ContainerKinds, OrgKind, OrgRole, Session, User, UserWorkspace,
+    Workspace, WorkspaceRole,
 };
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -71,6 +71,8 @@ pub(crate) struct InWorkspace {
     pub(crate) role: WorkspaceRole,
     /// What the user is in the workspace's organization, if a member of it.
     org_role: Option<OrgRole>,
+    /// What the workspace's organization is.
+    kind: OrgKind,
 }
 
 impl FromRequestParts<App> for InWorkspace {
@@ -145,6 +147,7 @@ impl InWorkspace {
             workspace_id,
             role: entered.role,
             org_role: entered.org_role,
+            kind: entered.kind,
         })
     }
 
@@ -209,6 +212,21 @@ impl InWorkspace {
             return Err(workspace_not_found());
         }
         Ok(self)
+    }
+
+    /// The workspace for one who works in it, where there are people to work with: the
+    /// routes of invitations, of guests and of the groups people are put in. A user's
+    /// own space has none of them, and its workspace is not there for these routes,
+    /// for its owner as for anybody else.
+    ///
+    /// # Errors
+    ///
+    /// Returns 404 for the workspace of a user's own space, and for a guest.
+    pub(crate) fn require_people(self) -> Result<Self, AppError> {
+        if self.kind == OrgKind::Personal {
+            return Err(workspace_not_found());
+        }
+        self.require_no_guest()
     }
 }
 
@@ -283,10 +301,17 @@ fn malformed_path() -> AppError {
 ///
 /// The workspaces the user of the session is a member of, in every organization, with
 /// what the user is in each. By organization, the oldest first, and in each the oldest
-/// workspace first. A workspace of an organization that takes only sessions made
+/// workspace first; the one workspace of the user's own space (`kind` `personal`, see
+/// "The user's own space") comes last, whenever it was made, and a client puts it where
+/// it shows it. Every account has one, so the list is never empty. A workspace of an
+/// organization that takes only sessions made
 /// through its provider is listed for any session, with `ssoRequired` true for one that
 /// was not made so: what is under it answers 401 with the reason `sso_required` until
-/// the user signs in through the provider of `orgId`.
+/// the user signs in through the provider of `orgId`. The user's own space asks for no
+/// provider: its `ssoRequired` is false. Once its account has a password it takes only
+/// sessions made with that, and is listed with `passwordRequired` true for a session
+/// made through a provider: what is under it answers 401 with the reason
+/// `password_sign_in_required` until the user signs in with the password (`login`).
 #[utoipa::path(
     get,
     path = "/users/me/workspaces",

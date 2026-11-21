@@ -7,7 +7,8 @@ use std::collections::BTreeSet;
 use fvoci_model::{PersonName, User};
 
 use crate::accounts::{self, Founding};
-use crate::db::{Dialect, Id, OptId, Row, Scope, Sql};
+use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
+use crate::directory::{self, OpenedWall};
 use crate::error::{StoreError, Taken};
 use crate::link_locks::{self, Turn};
 use crate::{Store, users};
@@ -83,6 +84,10 @@ impl Signup {
 pub enum SignupStart {
     /// An organization of this name, with its first workspace of the same name.
     Organization(String),
+    /// Nothing besides the account's own space: a registration of its own that names
+    /// no organization. Stored as one whose organization has the empty name, which no
+    /// organization has.
+    Alone,
     /// The link of an invitation it was made by, which counts it as a use: in what it
     /// lets in once the registration is confirmed, and given back if it is not.
     Invitation {
@@ -116,14 +121,25 @@ pub enum SignupLookup<'a> {
 pub struct Confirmed {
     /// The account, as it was stored.
     pub user: User,
-    /// The organization it started or joined.
+    /// The organization it started or joined; its own space if it did neither.
     pub org_id: String,
     /// The workspace the account first sees.
     pub workspace_id: String,
     /// For a guest's link: the board it was let onto.
     pub container_id: Option<String>,
-    /// Whether it started its organization, or joined one by a link.
-    pub started_organization: bool,
+    /// What the account was let into.
+    pub start: Started,
+}
+
+/// What a confirmed registration's account was let into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Started {
+    /// The organization it started, which it administers.
+    Organization,
+    /// Its own space alone.
+    Alone,
+    /// The organization of the link it was made by.
+    Invited,
 }
 
 /// The columns of a registration, in the order [`signup_from_row`] reads them.
@@ -273,7 +289,44 @@ impl Store {
                     org_id: org_id.clone(),
                     workspace_id,
                     container_id: None,
-                    started_organization: true,
+                    start: Started::Organization,
+                }))
+            })
+            .await
+    }
+
+    /// Confirms the registration `proof` names at `now`, which starts no
+    /// organization: makes its account, under its identifier, with its own space and
+    /// nothing besides, as [`Store::sign_up_alone`] does; and removes the
+    /// registration. All of it happens or none. Of two confirmations at once, one
+    /// confirms and the other finds nothing.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::sign_up_alone`], and the registration stays;
+    /// [`StoreError::NotFound`] for a registration that starts something.
+    pub async fn confirm_signup_alone(
+        &self,
+        signup: &Signup,
+        proof: Proof<'_>,
+        now: i64,
+    ) -> Result<Option<Confirmed>, StoreError> {
+        if signup.start != SignupStart::Alone {
+            return Err(StoreError::not_found("registration that starts nothing"));
+        }
+        self.scoped(crate::Tenant::Unset)
+            .transaction(async |scope| {
+                if !take(scope, &signup.id, proof, now).await? {
+                    return Ok(None);
+                }
+                let mut user = signup.to_account();
+                let own = accounts::alone(scope, &mut user).await?;
+                Ok(Some(Confirmed {
+                    user,
+                    org_id: own.org_id,
+                    workspace_id: own.workspace_id,
+                    container_id: None,
+                    start: Started::Alone,
                 }))
             })
             .await
@@ -326,9 +379,10 @@ impl Store {
         .await
     }
 
-    /// Removes every registration that would start an organization: on a server of one
-    /// organization once it has its first user, none of them can, and their names and
-    /// addresses are free again. Returns how many went.
+    /// Removes every registration of its own, which would start an organization or an
+    /// account in none: on a server of one organization once it has its first user,
+    /// none of them can, and their names and addresses are free again. Returns how
+    /// many went.
     ///
     /// # Errors
     ///
@@ -465,10 +519,12 @@ pub(crate) async fn hold_names(scope: &mut Scope<'_>, signup: &Signup) -> Result
 }
 
 async fn insert(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError> {
+    // The name of an organization is never empty: the empty one is of a registration
+    // that starts none, and one by a link has no name at all.
     let (organization_name, invitation_id, invitation_org_id) = match &signup.start {
-        SignupStart::Organization(name) => (name.as_str(), "", ""),
-        // A name is never empty: none, for a registration by a link.
-        SignupStart::Invitation { id, org_id } => ("", id.as_str(), org_id.as_str()),
+        SignupStart::Organization(name) => (Some(name.clone()), "", ""),
+        SignupStart::Alone => (Some(String::new()), "", ""),
+        SignupStart::Invitation { id, org_id } => (None, id.as_str(), org_id.as_str()),
     };
     let mut sql = scope.sql(&format!("INSERT INTO signups ({COLUMNS}) VALUES ("));
     sql.bind(Id(&signup.id))
@@ -477,8 +533,7 @@ async fn insert(scope: &mut Scope<'_>, signup: &Signup) -> Result<(), StoreError
         .push_bind(", ", &signup.custom_name)
         .push_bind(", ", &signup.password_hash)
         .push_bind(", ", &signup.language)
-        .push_bind(", NULLIF(", organization_name)
-        .push(", '')")
+        .push_bind(", ", Param::OptText(organization_name))
         .push_bind(", ", signup.create_at)
         .push_bind(", ", signup.expires_at)
         .push_bind(", ", OptId(invitation_id))
@@ -601,9 +656,9 @@ async fn discard(
     Ok(true)
 }
 
-/// What a transaction's wall was before it was opened for one link.
+/// A transaction's wall as it was opened for one link, or left as it was.
 #[must_use = "the wall is closed again with `close_wall`"]
-struct Wall(Option<String>);
+struct Wall(Option<OpenedWall>);
 
 /// Opens the transaction's wall for a link of the organization `org_id`, to be closed
 /// again with [`close_wall`]: a registration is no organization's, and the link one
@@ -616,28 +671,15 @@ async fn open_wall(scope: &mut Scope<'_>, org_id: &str) -> Result<Wall, StoreErr
     if scope.dialect() != Dialect::Postgres || scope.org_id().as_deref() == Some(org_id) {
         return Ok(Wall(None));
     }
-    let sql = scope.sql("SELECT COALESCE(current_setting('fvoci.system', true), 'off')");
-    let before = match scope.fetch_optional(sql).await? {
-        Some(row) => row.text(0)?,
-        None => "off".to_owned(),
-    };
-    set_wall(scope, "on").await?;
-    Ok(Wall(Some(before)))
+    Ok(Wall(Some(directory::open_wall(scope).await?)))
 }
 
 /// Puts the transaction's wall back as it was before [`open_wall`].
 async fn close_wall(scope: &mut Scope<'_>, wall: Wall) -> Result<(), StoreError> {
     match wall.0 {
-        Some(before) => set_wall(scope, &before).await,
+        Some(opened) => directory::close_wall(scope, opened).await,
         None => Ok(()),
     }
-}
-
-async fn set_wall(scope: &mut Scope<'_>, reach: &str) -> Result<(), StoreError> {
-    let mut sql = scope.sql("SELECT set_config('fvoci.system', ");
-    sql.bind(reach).push(", true)");
-    scope.fetch_optional(sql).await?;
-    Ok(())
 }
 
 /// Removes the registrations that ended by `now`, giving back the uses of the links
@@ -670,7 +712,7 @@ async fn remove_ended(
     let mut organizations = more;
     organizations.extend(held.iter().filter_map(|signup| match &signup.start {
         SignupStart::Invitation { org_id, .. } => Some(org_id.clone()),
-        SignupStart::Organization(_) => None,
+        SignupStart::Organization(_) | SignupStart::Alone => None,
     }));
     hold_organizations(scope, turn, &organizations).await?;
     let mut removed = 0;
@@ -759,7 +801,10 @@ fn signup_from_row(row: &Row) -> Result<Signup, StoreError> {
         password_hash: row.text(4)?,
         language: row.text(5)?,
         start: match row.id(9)? {
-            invitation_id if invitation_id.is_empty() => SignupStart::Organization(row.text(6)?),
+            invitation_id if invitation_id.is_empty() => match row.text(6)? {
+                name if name.is_empty() => SignupStart::Alone,
+                name => SignupStart::Organization(name),
+            },
             invitation_id => SignupStart::Invitation {
                 id: invitation_id,
                 org_id: row.id(10)?,

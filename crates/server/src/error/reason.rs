@@ -170,6 +170,9 @@ reasons! {
     /// The organization takes only sessions made through its provider, and this one
     /// was not.
     SsoRequired => "sso_required", "Sign-in through the provider required";
+    /// The user's own space takes only sessions made with the account's password, and
+    /// this one was made through a provider.
+    PasswordSignInRequired => "password_sign_in_required", "Sign-in with the password required";
     /// Taking no password is switched on from a session made through the provider.
     SsoUnproven => "sso_unproven", "Provider not signed in through";
     /// The organization takes no password, and its provider stays as it is meanwhile.
@@ -213,6 +216,8 @@ reasons! {
     PageTooDeep => "page_too_deep", "Page too deep";
     /// The wiki would have more pages than the organization's limit.
     TooManyPages => "too_many_pages", "Too many pages in the wiki";
+    /// The account made as many organizations, which are in use, as one account may.
+    TooManyOrganizations => "too_many_organizations", "Too many organizations made";
 }
 
 impl Reason {

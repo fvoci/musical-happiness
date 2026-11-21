@@ -5,7 +5,7 @@ use fvoci_model::{Block, ContainerMember, WorkspaceRole};
 use super::ending::{Ended, Of};
 use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, ReadPermit, UpdateBlockMessage, text_of};
 use crate::metrics::Disconnect;
-use crate::permissions::{ContainerScope, role_of, session_opens, told_without_a_role};
+use crate::permissions::{ContainerScope, role_of, told_without_a_role};
 
 #[derive(Clone, Copy)]
 pub(super) enum Access<'a> {
@@ -227,12 +227,7 @@ impl Hub {
                 continue;
             }
             match self.audience.workspace_access(&user, workspace_id).await {
-                Ok(Some(access))
-                    if session_opens(
-                        access.required_provider.as_deref(),
-                        login_provider.as_deref(),
-                    ) =>
-                {
+                Ok(Some(access)) if access.takes.opened_by(login_provider.as_deref()) => {
                     members.push(id);
                 }
                 Ok(_) => readers.push(id),
@@ -446,8 +441,13 @@ impl Hub {
             self.end_workspace(id, workspace, Ended::Access, checked);
             return false;
         }
-        if !session_opens(current.required_provider.as_deref(), login_provider) {
-            self.end_workspace(id, workspace, Ended::Sso, checked);
+        if !current.takes.opened_by(login_provider) {
+            let ended = if current.takes.asks_for_password() {
+                Ended::Password
+            } else {
+                Ended::Sso
+            };
+            self.end_workspace(id, workspace, ended, checked);
             return false;
         }
         true

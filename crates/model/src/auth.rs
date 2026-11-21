@@ -178,7 +178,9 @@ pub struct RegisterRequest {
     #[serde(rename = "displayName")]
     pub display_name: String,
     /// The name of the organization the account starts, and of that organization's
-    /// first workspace. Read as [`organization_name`] reads it.
+    /// first workspace, read as [`organization_name`] reads it. Left out or blank for
+    /// none: the account starts with its own space alone, and may start an
+    /// organization later (`createOrganization`).
     #[serde(rename = "organizationName")]
     pub organization_name: String,
     /// The language tag of the screen the request comes from (`ko`, `en-GB`): the
@@ -196,8 +198,32 @@ impl RegisterRequest {
     /// if it is blank, the email address if it is blank or not well formed, the display
     /// name if it is not one ([`display_name`]), the password if it is empty,
     /// shorter than [`MINIMUM_PASSWORD_LENGTH`] or longer than
-    /// [`MAXIMUM_PASSWORD_BYTES`], and the organization name if it is not one ([`organization_name`]).
+    /// [`MAXIMUM_PASSWORD_BYTES`], and the organization name if there is one and it is
+    /// not one ([`organization_name`]).
     pub fn validate(&self) -> Result<(), Refusals> {
+        let mut refused = self.account().refusals();
+        if let Some(Err(error)) = self.organization().map(organization_name) {
+            refused.push(error.into());
+        }
+        refused.into_result()
+    }
+
+    /// The name of the organization the account starts, as the request has it; `None`
+    /// for a request that names none (left out, or blank), whose account starts with
+    /// its own space alone.
+    #[must_use]
+    pub fn organization(&self) -> Option<&str> {
+        Some(self.organization_name.as_str()).filter(|name| !name.trim().is_empty())
+    }
+
+    /// As [`RegisterRequest::validate`], where the request must name an organization:
+    /// until a server has its first user, who starts the server's own organization. A
+    /// request that names none is refused for that with whatever else is wrong in it.
+    ///
+    /// # Errors
+    ///
+    /// As [`RegisterRequest::validate`], and for a name that is left out or blank.
+    pub fn validate_as_first(&self) -> Result<(), Refusals> {
         let mut refused = self.account().refusals();
         if let Err(error) = organization_name(&self.organization_name) {
             refused.push(error.into());
@@ -205,19 +231,33 @@ impl RegisterRequest {
         refused.into_result()
     }
 
+    /// The refusal of a request that names no organization where one must be named
+    /// ([`RegisterRequest::validate_as_first`]), by itself.
+    #[must_use]
+    pub fn organization_required() -> Refusals {
+        let mut refused = Refusals::new();
+        if let Err(error) = organization_name("") {
+            refused.push(error.into());
+        }
+        refused
+    }
+
     /// The request with its account tidied ([`NewAccount::tidied`]) and its organization name
-    /// as it is stored if it is one: what is refused stays as it was sent, to be
-    /// refused by [`RegisterRequest::validate`].
+    /// as it is stored if it is one, and empty if it is blank: what is refused stays
+    /// as it was sent, to be refused by [`RegisterRequest::validate`].
     #[must_use]
     pub fn tidied(self) -> Self {
         let account = self.account().tidied();
+        let organization_name = match self.organization() {
+            Some(name) => organization_name(name).unwrap_or(self.organization_name),
+            None => String::new(),
+        };
         Self {
             username: account.username,
             email: account.email,
             password: account.password,
             display_name: account.display_name,
-            organization_name: organization_name(&self.organization_name)
-                .unwrap_or(self.organization_name),
+            organization_name,
             language: self.language,
         }
     }
@@ -377,6 +417,58 @@ impl fmt::Debug for ChangePasswordRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ChangePasswordRequest")
             .finish_non_exhaustive()
+    }
+}
+
+/// A request to give an account that has no password its first one.
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SetPasswordRequest {
+    /// The password to sign in with from now on.
+    pub password: String,
+}
+
+impl SetPasswordRequest {
+    /// Checks the password.
+    ///
+    /// # Errors
+    ///
+    /// Returns `password` refused if it is empty, shorter than
+    /// [`MINIMUM_PASSWORD_LENGTH`] or longer than [`MAXIMUM_PASSWORD_BYTES`].
+    pub fn validate(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
+        if let Err(error) = check_new_password(&self.password) {
+            refused.push(error.into());
+        }
+        refused.into_result()
+    }
+}
+
+impl fmt::Debug for SetPasswordRequest {
+    /// Leaves out the password.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SetPasswordRequest").finish_non_exhaustive()
+    }
+}
+
+/// A request of an account to start an organization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NewOrganization {
+    /// The name of the organization, and of its first workspace: read as
+    /// `organizationName` of `register` is.
+    pub name: String,
+}
+
+impl NewOrganization {
+    /// The name as it is stored: read by the rule of [`organization_name`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`AuthParamError`] that names `name` if the name is blank, too long
+    /// or has a character a name may not have.
+    pub fn stored_name(&self) -> Result<String, AuthParamError> {
+        organization_name(&self.name).map_err(|error| error.about("name"))
     }
 }
 

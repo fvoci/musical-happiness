@@ -34,6 +34,7 @@ mod linked;
 mod name;
 mod oidc;
 mod org_admin;
+mod org_kind;
 mod organization;
 mod page;
 mod page_tree;
@@ -60,8 +61,8 @@ pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
     AuthParamError, ChangePasswordRequest, DISPLAY_NAME_MAX_LENGTH, LoginRequest,
     MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, NewAccount,
-    ORGANIZATION_NAME_MAX_LENGTH, RegisterRequest, check_new_password, display_name,
-    is_email_valid, organization_name,
+    NewOrganization, ORGANIZATION_NAME_MAX_LENGTH, RegisterRequest, SetPasswordRequest,
+    check_new_password, display_name, is_email_valid, organization_name,
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
@@ -122,6 +123,7 @@ pub use org_admin::{
     OrgRoleChange, OrgWorkspace, Organization, OrganizationPatch, UnknownAuditAction,
     WorkspaceName,
 };
+pub use org_kind::{OrgKind, UnknownOrgKind};
 pub use organization::{
     OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
 };
@@ -151,7 +153,7 @@ pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
 pub use team::{Team, TeamMember, TeamName, team_name, team_name_key};
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
-pub use user::{LoginOrigin, Session, User, UserPreferencesPatch};
+pub use user::{LoginOrigin, Me, Session, User, UserPreferencesPatch};
 pub use workspace::{GuestInvitationsChange, Workspace};
 
 /// A JSON object with free-form keys, as used for block fields and board properties.

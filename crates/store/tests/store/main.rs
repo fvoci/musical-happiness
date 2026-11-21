@@ -9,6 +9,7 @@
 
 mod account_deletion;
 mod account_erasure;
+mod alone;
 mod block_reads_and_patches;
 mod blocks;
 mod blocks_and_deletion;
@@ -42,6 +43,7 @@ mod oidc_trial_binding;
 mod operator_password;
 mod order;
 mod org_admin;
+mod own_space;
 mod page_copies;
 mod page_moves;
 mod page_trash;
@@ -61,6 +63,9 @@ mod sqlite_wal;
 mod subscriptions;
 mod table_owner;
 mod tenancy;
+mod tenancy_before;
+mod tenancy_sources;
+mod tenancy_tables;
 mod trash;
 mod trash_file_race;
 mod users;

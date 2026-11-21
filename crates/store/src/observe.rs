@@ -101,6 +101,8 @@ impl Outcome {
             | StoreError::NotFound(_)
             | StoreError::TooManyPreferences { .. }
             | StoreError::NotFirstUser
+            | StoreError::NoFirstUser
+            | StoreError::TooManyOrganizations { .. }
             | StoreError::NoRows
             | StoreError::UserNotFound(_)
             | StoreError::NotAllFound { .. }

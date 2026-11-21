@@ -40,6 +40,7 @@ mod oidc_pending;
 mod oidc_settings;
 mod onboarding;
 mod org_admin;
+mod organizations;
 mod pages;
 mod password_reset;
 mod presence;
@@ -74,6 +75,7 @@ mod templates;
 mod trash;
 mod uploads;
 mod users;
+mod webhooks;
 mod workspace_members;
 mod workspaces;
 
@@ -465,11 +467,6 @@ impl App {
     /// The web app directory.
     pub fn web(&self) -> &WebRoot {
         &self.inner.web
-    }
-
-    /// The webhook client.
-    pub fn webhook(&self) -> &Webhook {
-        &self.inner.webhook
     }
 
     /// Waits for the turn to create a user's default category.

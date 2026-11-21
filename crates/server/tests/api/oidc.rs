@@ -306,6 +306,8 @@ async fn the_first_sign_in_makes_an_account_and_the_next_finds_it() {
             .any(|workspace| workspace.id == ROOT_WORKSPACE_ID && workspace.org_id == org_id),
         "a member of the default workspace: {workspaces:?}"
     );
+    let own = crate::own_space::own_workspace(&client).await;
+    assert_ne!(own.org_id, org_id, "and the account has its own space");
     let stored = ts
         .app
         .store()
@@ -898,7 +900,7 @@ async fn a_sign_in_lets_into_the_organization_it_was_started_for() {
     let browser = Browser::new(&ts, &fake);
     let token = browser.sign_in(&theirs).await.token().to_owned();
     let client = ts.client_with_token(&token);
-    let workspaces: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
+    let (workspaces, _own) = crate::own_space::workspaces_and_own(&client).await;
     assert_eq!(
         workspaces
             .iter()

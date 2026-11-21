@@ -26,6 +26,23 @@ use crate::error::{AppError, Reason};
 /// their account, in milliseconds: who only holds an older session binds nothing.
 pub(super) const FRESH_SIGN_IN_MILLIS: i64 = 5 * 60 * 1000;
 
+/// Refuses, with a 403 of the reason `sign_in_again`, a session that is not the
+/// provider's word of a moment ago: one made with a password, or made through a
+/// provider more than [`FRESH_SIGN_IN_MILLIS`] before `now`. It is what vouches for an
+/// account that has no password to give where one would be asked: when it asks to be
+/// deleted, and when it sets its first password. `to` ends the refusal's sentence with
+/// what was asked for. The one place the rule is written: who holds an older session
+/// of such an account does neither.
+pub(super) fn require_fresh_sign_in(session: &Session, now: i64, to: &str) -> Result<(), AppError> {
+    let made_just_now =
+        session.login.is_some() && now.saturating_sub(session.created_at) <= FRESH_SIGN_IN_MILLIS;
+    if made_just_now {
+        return Ok(());
+    }
+    let refusal = format!("sign in through the provider again to {to}");
+    Err(AppError::forbidden(refusal).with_reason(Reason::SignInAgain))
+}
+
 impl App {
     /// Saves the sign-in of `next` (its issuer, client and secret) as the pending
     /// settings of `enforced`, the provider as it was read, which takes no password;
@@ -177,6 +194,62 @@ impl App {
                 self.collab().put_out_shut_out(self, &provider.id).await;
             }
             self.end_subscriptions_shut_out(provider).await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fvoci_model::{LoginOrigin, Session};
+
+    use super::{FRESH_SIGN_IN_MILLIS, require_fresh_sign_in};
+    use crate::error::Reason;
+
+    const NOW: i64 = 1_000_000_000;
+
+    /// A session made at `created_at` through a provider.
+    fn through_a_provider(created_at: i64) -> Session {
+        let login = LoginOrigin {
+            provider_id: "provider".to_owned(),
+            org_id: "organization".to_owned(),
+            issuer: "https://provider.example".to_owned(),
+            subject: None,
+            revision: None,
+        };
+        Session {
+            created_at,
+            login: Some(login),
+            ..Session::default()
+        }
+    }
+
+    /// A session made at `created_at` with a password.
+    fn with_a_password(created_at: i64) -> Session {
+        Session {
+            created_at,
+            ..Session::default()
+        }
+    }
+
+    /// A session vouches while it was made through a provider no more than five
+    /// minutes ago, to the millisecond; one made with a password never does, and each
+    /// refusal carries the reason a client reads and says what was asked for.
+    #[test]
+    fn a_session_vouches_while_it_is_the_providers_word_of_a_moment_ago() {
+        let fresh = |session: &Session| require_fresh_sign_in(session, NOW, "set a password");
+        assert!(fresh(&through_a_provider(NOW)).is_ok());
+        assert!(fresh(&through_a_provider(NOW - FRESH_SIGN_IN_MILLIS)).is_ok());
+        for stale in [
+            through_a_provider(NOW - FRESH_SIGN_IN_MILLIS - 1),
+            through_a_provider(0),
+            with_a_password(NOW),
+        ] {
+            let refused = fresh(&stale).expect_err("the session vouches for nothing");
+            assert_eq!(refused.reason(), Some(Reason::SignInAgain), "{stale:?}");
+            assert_eq!(
+                refused.to_string(),
+                "sign in through the provider again to set a password"
+            );
         }
     }
 }

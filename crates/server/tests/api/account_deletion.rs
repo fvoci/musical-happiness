@@ -1,7 +1,7 @@
 //! Deleting an account: asking for it, the session of an account that waits, and
 //! taking the asking back.
 
-use fvoci_model::{ACCOUNT_DELETION_GRACE_DAYS, UserWorkspace};
+use fvoci_model::ACCOUNT_DELETION_GRACE_DAYS;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -13,8 +13,14 @@ use crate::fake_oidc::{CLIENT_ID, FakeProvider, Person};
 use crate::oidc::{
     Browser, Outcome, org_of, server_for, set_provider, with_key_and_private_addresses,
 };
+use crate::own_space::{own_workspace, workspaces_and_own};
 use crate::sso::{Passwords, admin_through_provider, require_sso};
 use crate::websocket::{Event, Socket, subscribe_to_workspace};
+
+/// The account's own space as the asking names it among what goes: empty here.
+fn gone_space(org_id: &str) -> Value {
+    json!({"id": org_id, "kind": "personal", "name": "", "boards": 0, "wikis": 0, "files": 0})
+}
 
 /// How long a test waits for what the server sends.
 const PATIENCE: std::time::Duration = std::time::Duration::from_secs(5);
@@ -66,6 +72,7 @@ async fn a_member_asks_to_delete_the_account_and_takes_it_back_by_signing_in() {
     let other_device = th.login(USER2_USERNAME, PASSWORD).await;
 
     let before: Value = th.client2.get(DELETION).await.ok_json();
+    let own = own_workspace(&th.client2).await.org_id;
     assert_eq!(
         before,
         json!({
@@ -73,8 +80,9 @@ async fn a_member_asks_to_delete_the_account_and_takes_it_back_by_signing_in() {
             "proof": "password",
             "lastInstanceAdmin": false,
             "soleAdminOf": [],
-            "organizations": [],
-        })
+            "organizations": [gone_space(&own)],
+        }),
+        "the account's own space goes with it, and nothing else"
     );
 
     let misnamed = ask(&th.client2, "user1", PASSWORD).await;
@@ -345,7 +353,7 @@ async fn an_account_without_a_password_asks_from_a_sign_in_made_just_now() {
     );
     back.delete(DELETION).await.check_no_content();
     assert_eq!(back.me().await.id, ada);
-    let workspaces: Vec<UserWorkspace> = back.get("/users/me/workspaces").await.ok_json();
+    let (workspaces, _own) = workspaces_and_own(&back).await;
     assert_eq!(workspaces.len(), 1, "a member of what they were");
     ts.teardown().await;
     fake.stop();
@@ -437,7 +445,8 @@ async fn an_organization_behind_the_wall_does_not_go_by_a_password() {
     // administrator is held back as the only one of an organization with other
     // people is, alone in it or not.
     let own: Value = ts.client.get(DELETION).await.ok_json();
-    assert_eq!(own["organizations"], json!([]), "{own}");
+    let space = gone_space(&own_workspace(&ts.client).await.org_id);
+    assert_eq!(own["organizations"], json!([space]), "{own}");
     assert_eq!(
         own["soleAdminOf"],
         json!([{"id": org_id, "name": ORG_NAME}]),
@@ -463,7 +472,10 @@ async fn an_organization_behind_the_wall_does_not_go_by_a_password() {
     let open: Value = ts.client.get(DELETION).await.ok_json();
     assert_eq!(
         open["organizations"],
-        json!([{"id": org_id, "name": ORG_NAME, "boards": 0, "wikis": 0, "files": 0}]),
+        json!([
+            space,
+            {"id": org_id, "kind": "team", "name": ORG_NAME, "boards": 0, "wikis": 0, "files": 0}
+        ]),
         "{open}"
     );
     require_sso(&through_provider, &org_id, &fake, Passwords::Refused)
@@ -473,8 +485,8 @@ async fn an_organization_behind_the_wall_does_not_go_by_a_password() {
     let closed: Value = ts.client.get(DELETION).await.ok_json();
     assert_eq!(
         closed["organizations"],
-        json!([{"id": org_id, "name": ORG_NAME}]),
-        "nothing of what is in it: {closed}"
+        json!([space, {"id": org_id, "kind": "team", "name": ORG_NAME}]),
+        "nothing of what is in it, and the account's own space as it was: {closed}"
     );
     let refused = ask(&ts.client, "user1", PASSWORD).await;
     refused.check_unauthorized();
@@ -484,7 +496,7 @@ async fn an_organization_behind_the_wall_does_not_go_by_a_password() {
     // Through the provider it is the account's to ask; this one is the instance's last
     // administrator, who stays.
     let shown: Value = through_provider.get(DELETION).await.ok_json();
-    assert_eq!(shown["organizations"][0]["boards"], json!(0), "{shown}");
+    assert_eq!(shown["organizations"][1]["boards"], json!(0), "{shown}");
     let last = ask(&through_provider, "user1", PASSWORD).await;
     last.check_status(StatusCode::CONFLICT);
     assert_eq!(last.error_reason(), "last_admin");

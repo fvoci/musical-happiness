@@ -29,6 +29,19 @@ pub enum StoreError {
     #[error("the first user has registered already")]
     NotFirstUser,
 
+    /// An account was to be made that starts no organization, while the instance has
+    /// no first user: the first account starts the instance's own organization.
+    #[error("the instance has no first user yet, who starts its organization")]
+    NoFirstUser,
+
+    /// An account that made as many organizations as one may, which are in use, asked
+    /// to start another.
+    #[error("an account starts at most {limit} organizations")]
+    TooManyOrganizations {
+        /// How many organizations in use one account may have made.
+        limit: u32,
+    },
+
     /// A lookup of a single session or sharing record matched no row.
     ///
     /// The message stays in the log: the HTTP layer answers "not found" without it.

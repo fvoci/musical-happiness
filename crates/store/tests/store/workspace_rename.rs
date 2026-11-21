@@ -10,7 +10,7 @@ use serde_json::Value;
 use sqlx::Connection as _;
 
 use crate::common::{self, db_type};
-use crate::tenancy::Before;
+use crate::tenancy_before::Before;
 
 /// The table of the migrator's records, which the migration adds to.
 const MIGRATIONS: &str = "_sqlx_migrations";

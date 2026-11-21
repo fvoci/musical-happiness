@@ -9,6 +9,7 @@ use fvoci_model::{
 use fvoci_store::{Founding, SignupLookup, StoreError, Taken};
 
 use super::App;
+use super::oidc_pending::require_fresh_sign_in;
 use crate::auth::hash_queue::QueueError;
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
@@ -310,20 +311,47 @@ impl App {
         Ok(self.config().takes_several_organizations() || !self.store().is_bootstrapped().await?)
     }
 
+    /// Whether the server has had its first user: until then a registration names the
+    /// organization it starts.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the instance cannot be read.
+    pub async fn has_first_user(&self) -> Result<bool, AppError> {
+        Ok(self.store().is_bootstrapped().await?)
+    }
+
+    /// Refuses a registration that names no organization on a server where one must
+    /// be named: one that has no first user yet, who starts the server's own
+    /// organization: 400 naming `organizationName` (`required`). Asked before anything
+    /// of the registration costs a hash; the store asks again as it stores the account.
+    pub(super) async fn require_organization_of_first(
+        &self,
+        request: &RegisterRequest,
+    ) -> Result<(), AppError> {
+        if request.organization().is_none() && !self.store().is_bootstrapped().await? {
+            return Err(RegisterRequest::organization_required().into());
+        }
+        Ok(())
+    }
+
     /// Makes the account of somebody who signs up, and the organization they start by
-    /// it, and returns the account: the user administers the organization and its
-    /// first workspace, which both have the name of the request. The first user of the
-    /// instance creates its first organization and administers the instance;
-    /// everybody after starts a new organization, where the server takes several. The
-    /// caller has tidied and checked the request (`RegisterRequest::tidied`,
-    /// `RegisterRequest::validate`).
+    /// it if the request names one, and returns the account: the user administers the
+    /// organization and its first workspace, which both have the name of the request.
+    /// The first user of the instance creates its first organization and administers
+    /// the instance; everybody after starts a new organization, where the server
+    /// takes several, or none: an account whose request names no organization has its
+    /// own space and is in no organization. The caller has tidied and checked the
+    /// request (`RegisterRequest::tidied`, `RegisterRequest::validate`).
     ///
     /// # Errors
     ///
     /// Returns a conflict error if the name or the email address is taken, in any letter
     /// case; a permission error (reason `invitation_required`) if the instance has its
-    /// first user and takes one organization; a 429 if there are too many registrations
-    /// from the address; and the store's error if the user cannot be stored.
+    /// first user and takes one organization; 400 naming `organizationName` if the
+    /// request names no organization and the instance has no first user; a 429 if
+    /// there are too many registrations from the address; and the store's error if the
+    /// user cannot be stored.
     pub async fn sign_up(
         &self,
         request: &RegisterRequest,
@@ -332,7 +360,9 @@ impl App {
         // A registration costs a hash like a login, and is counted against where it
         // comes from like one. The turn is held until the user is stored.
         let _attempt = self.admit_registration(address)?;
-        let name = &request.organization_name;
+        let Some(name) = request.organization() else {
+            return self.sign_up_alone(request).await;
+        };
         let mut user = self.new_account(&request.account(), None).await?;
         let mut stored = if self.store().is_bootstrapped().await? {
             Err(StoreError::NotFirstUser)
@@ -361,6 +391,24 @@ impl App {
             }
             Err(error) => Err(account_error(error)),
         }
+    }
+
+    /// Makes the account of somebody who signs up without naming an organization: the
+    /// account and its own space. Not on a server that takes one organization, where
+    /// who is not its first user gets in by an invitation.
+    async fn sign_up_alone(&self, request: &RegisterRequest) -> Result<User, AppError> {
+        self.require_organization_of_first(request).await?;
+        if !self.config().takes_several_organizations() {
+            return Err(AppError::invitation_required());
+        }
+        let mut user = self.new_account(&request.account(), None).await?;
+        self.store()
+            .sign_up_alone(&mut user)
+            .await
+            .map_err(account_error)?;
+        self.metrics().registered();
+        tracing::info!(user_id = %user.id, "a user signed up and started no organization");
+        Ok(user)
     }
 
     /// Holds the next `count` sign-ups that find the instance without its first user
@@ -538,6 +586,59 @@ impl App {
             .close_other_sessions_of_user(&user.id, &session.id);
         Ok(token)
     }
+
+    /// Gives the account of `session`, which has no password, its first one, and ends
+    /// the account's other sessions, as [`App::change_password`] does: the session it
+    /// came through stays, under a new token, which is returned. There is no password
+    /// to know: what is asked for is a session made through a provider no more than
+    /// five minutes ago (`FRESH_SIGN_IN_MILLIS`). The caller has checked the password.
+    ///
+    /// # Errors
+    ///
+    /// Returns a conflict if the account has a password, also one set while this was
+    /// under way: that one is changed by who knows it. Returns a 403 (reason
+    /// `sign_in_again`) for a session that was not made through a provider just now,
+    /// a 429 if the server has
+    /// too much password work to do, a not-found error if there is no such user, or the
+    /// store's error.
+    pub async fn set_password(
+        &self,
+        session: &Session,
+        password: &str,
+    ) -> Result<String, AppError> {
+        let has_one =
+            || AppError::conflict("the account has a password; change it by giving the old one");
+        let user = self.store().get_user_by_id(&session.user_id).await?;
+        // Asked before the hash is made, so that a request that is refused costs none.
+        if !user.password_hash.is_empty() {
+            return Err(has_one());
+        }
+        // The session vouches while it is the provider's word of a moment ago, as for
+        // deleting such an account: a password outlives the session that sets it, ends
+        // the account's other sessions and is the proof of what comes after.
+        require_fresh_sign_in(session, now_millis(), "set a password")?;
+        let token = new_secret();
+        let set = self
+            .store()
+            .change_user_password(
+                &user.id,
+                "",
+                &self.hash(password).await?,
+                &session.id,
+                &token_digest(&token),
+            )
+            .await
+            .map_err(|error| AppError::from(error).context("unable to set the password"))?;
+        if !set {
+            return Err(has_one());
+        }
+        tracing::info!(user_id = %user.id, "an account without a password was given one");
+        // Its own space takes a session made with the password from here on, and this
+        // one was made through a provider: what its connections follow of the space
+        // ends with them, and they come back to what the session still opens.
+        self.ws().close_user(&user.id);
+        Ok(token)
+    }
 }
 
 /// How a password that does not confirm the account is refused: in which words, and
@@ -672,7 +773,7 @@ pub(crate) fn account_error(error: StoreError) -> AppError {
                 .with_reason(Reason::WorkspaceNameTaken)
                 .with_field("organizationName")
         }
-        error @ StoreError::NotFirstUser => error.into(),
+        error @ (StoreError::NotFirstUser | StoreError::NoFirstUser) => error.into(),
         error => AppError::from(error).context("unable to store the new account"),
     }
 }

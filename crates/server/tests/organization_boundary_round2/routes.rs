@@ -423,7 +423,7 @@ fn the_workspace_route_inventory_covers_every_operation_in_the_contract() {
 
 /// A suffix of `WORKSPACE_ROUTES` with every parameter filled in with an identifier of
 /// nothing, and a part number with 1.
-fn fill_with_nothing(suffix: &str) -> String {
+pub(super) fn fill_with_nothing(suffix: &str) -> String {
     let mut filled = suffix.replace("{partNumber}", "1");
     while let Some(start) = filled.find('{') {
         let end = filled[start..].find('}').expect("a parameter ends") + start;
@@ -454,11 +454,14 @@ pub(super) fn archive_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
     entries
 }
 
-/// Who asks: somebody who is no member of the hidden workspace, or a guest of it.
+/// Who asks: somebody who is no member of the hidden workspace, a guest of it, or
+/// somebody who is no member of it and only a guest where they work, the root
+/// workspace, who makes no board there.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Asker {
+pub(super) enum Asker {
     Outsider,
     Guest,
+    GuestElsewhere,
 }
 
 /// The workspace is looked at before the body is read: a body that is no JSON changes
@@ -467,9 +470,8 @@ enum Asker {
 /// a refusal made after the body was read (`importArchive` did so once).
 async fn compare_malformed_bodies(
     client: &Client,
-    method: &str,
-    suffix: &str,
-    operation: &str,
+    hidden: &str,
+    (method, suffix, operation): (&str, &str, &str),
 ) -> Option<String> {
     let malformed = async |workspace: &str| {
         client
@@ -480,10 +482,7 @@ async fn compare_malformed_bodies(
             )
             .await
     };
-    let (hidden, absent) = (
-        malformed(HIDDEN_WORKSPACE_ID).await,
-        malformed(UNKNOWN_ID).await,
-    );
+    let (hidden, absent) = (malformed(hidden).await, malformed(UNKNOWN_ID).await);
     (hidden.status != StatusCode::NOT_FOUND || answer(&hidden) != answer(&absent)).then(|| {
         format!(
             "{method} {suffix} ({operation}) with a body that is no JSON: hidden={:?}, absent={:?}",
@@ -519,7 +518,60 @@ const EMPTY_FOR_A_GUEST: &[&str] = &[
     "searchWorkspaceContent",
 ];
 
-async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) -> Vec<String> {
+/// Asks to make a board, alone and with a card, whose body names the workspace
+/// `hidden_id`, under the root workspace's path, and again one that names a workspace
+/// that is not there: the two are refused the same.
+async fn compare_workspaces_in_a_body(
+    client: &Client,
+    asker: Asker,
+    hidden_id: &str,
+) -> Vec<String> {
+    let mut violations = Vec::new();
+    for bulk in [false, true] {
+        let send = async |workspace: &str| {
+            let board =
+                json!({"id": "board-ref", "workspaceId": workspace, "type": "P", "title": "new"});
+            let (path, body) = if bulk {
+                (
+                    &format!("{ROOT_WS}/boards-and-blocks"),
+                    json!({"containers": [board], "blocks": [{"id": "card-ref", "containerId": "board-ref", "type": "card", "createAt": 1, "updateAt": 1}]}),
+                )
+            } else {
+                (&format!("{ROOT_WS}/boards"), board)
+            };
+            client.post(path, &body).await
+        };
+        let hidden = send(hidden_id).await;
+        let absent = send(UNKNOWN_ID).await;
+        // Refused for the path's workspace (400), or the path's workspace is not there;
+        // a guest of the path's workspace makes no board in it, whatever the body names.
+        let refused = match asker {
+            Asker::GuestElsewhere => hidden.status == StatusCode::FORBIDDEN,
+            Asker::Outsider | Asker::Guest => matches!(
+                hidden.status,
+                StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND
+            ),
+        };
+        if !refused || answer(&hidden) != answer(&absent) {
+            violations.push(format!(
+                "workspace in body (bulk={bulk}): {:?} versus {:?}",
+                answer(&hidden),
+                answer(&absent)
+            ));
+        }
+    }
+    violations
+}
+
+/// Asks every route of the inventory, as `user_id`, about the workspace `hidden_id`
+/// and about one that is not there, and answers where the two differ or the hidden
+/// one is no 404 (but what a guest of it is let see).
+pub(super) async fn compare_workspace_routes(
+    client: &Client,
+    user_id: &str,
+    asker: Asker,
+    hidden_id: &str,
+) -> Vec<String> {
     let mut violations = Vec::new();
     for (method, suffix, operation) in WORKSPACE_ROUTES {
         let suffix = fill_with_nothing(suffix);
@@ -535,7 +587,7 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
             )
             .await
         };
-        let hidden = send(HIDDEN_WORKSPACE_ID).await;
+        let hidden = send(hidden_id).await;
         let absent = send(UNKNOWN_ID).await;
         let lists_boards = EMPTY_FOR_A_GUEST.contains(operation);
         let equal = if lists_boards && asker == Asker::Guest {
@@ -570,7 +622,8 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
             answer(&hidden) == answer(&absent) && hidden.status == StatusCode::NOT_FOUND
         };
         if *method != "GET" && asker != Asker::Guest {
-            violations.extend(compare_malformed_bodies(client, method, &suffix, operation).await);
+            let route = (*method, suffix.as_str(), *operation);
+            violations.extend(compare_malformed_bodies(client, hidden_id, route).await);
         }
         if !equal {
             violations.push(format!(
@@ -580,45 +633,16 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
             ));
         }
     }
-    // Workspace IDs supplied in a JSON body, rather than in the path.
-    for bulk in [false, true] {
-        let send = async |workspace: &str| {
-            let board =
-                json!({"id": "board-ref", "workspaceId": workspace, "type": "P", "title": "new"});
-            let (path, body) = if bulk {
-                (
-                    &format!("{ROOT_WS}/boards-and-blocks"),
-                    json!({"containers": [board], "blocks": [{"id": "card-ref", "containerId": "board-ref", "type": "card", "createAt": 1, "updateAt": 1}]}),
-                )
-            } else {
-                (&format!("{ROOT_WS}/boards"), board)
-            };
-            client.post(path, &body).await
-        };
-        let hidden = send(HIDDEN_WORKSPACE_ID).await;
-        let absent = send(UNKNOWN_ID).await;
-        // Refused for the path's workspace (400), or the path's workspace is not there.
-        let refused = matches!(
-            hidden.status,
-            StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND
-        );
-        if !refused || answer(&hidden) != answer(&absent) {
-            violations.push(format!(
-                "workspace in body (bulk={bulk}): {:?} versus {:?}",
-                answer(&hidden),
-                answer(&absent)
-            ));
-        }
-    }
+    violations.extend(compare_workspaces_in_a_body(client, asker, hidden_id).await);
     let listed: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
     // A guest is a member, listed with the role; anybody else does not see it.
     let hidden: Vec<WorkspaceRole> = listed
         .iter()
-        .filter(|workspace| workspace.id == HIDDEN_WORKSPACE_ID)
+        .filter(|workspace| workspace.id == hidden_id)
         .map(|workspace| workspace.role)
         .collect();
     let expected = match asker {
-        Asker::Outsider => vec![],
+        Asker::Outsider | Asker::GuestElsewhere => vec![],
         Asker::Guest => vec![WorkspaceRole::Guest],
     };
     if hidden != expected {
@@ -636,6 +660,7 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
 /// on and their people.
 #[tokio::test]
 async fn every_workspace_route_hides_the_workspace_from_nonmembers_guests_and_other_org_users() {
+    const HIDDEN: &str = HIDDEN_WORKSPACE_ID;
     let ts = Setup::native().start().await.init_basic().await;
     let guest = ts.add_user("workspace-guest").await;
     let guest_id = guest.me().await.id;
@@ -644,9 +669,14 @@ async fn every_workspace_route_hides_the_workspace_from_nonmembers_guests_and_ot
         .add_workspace_member(HIDDEN_WORKSPACE_ID, &guest_id, WorkspaceRole::Guest)
         .await
         .expect("a workspace guest");
-    let mut violations =
-        compare_workspace_routes(&ts.client, &ts.client.me().await.id, Asker::Outsider).await;
-    violations.extend(compare_workspace_routes(&guest, &guest_id, Asker::Guest).await);
+    let mut violations = compare_workspace_routes(
+        &ts.client,
+        &ts.client.me().await.id,
+        Asker::Outsider,
+        HIDDEN,
+    )
+    .await;
+    violations.extend(compare_workspace_routes(&guest, &guest_id, Asker::Guest, HIDDEN).await);
     if db_type_of_the_tests() == DbType::Postgres {
         let user_id = ts.client2.me().await.id;
         for table in ["workspace_members", "organization_members"] {
@@ -673,7 +703,8 @@ async fn every_workspace_route_hides_the_workspace_from_nonmembers_guests_and_ot
             .add_workspace_member(&workspace.id, &user_id, WorkspaceRole::Member)
             .await
             .expect("the user works elsewhere");
-        violations.extend(compare_workspace_routes(&ts.client2, &user_id, Asker::Outsider).await);
+        violations
+            .extend(compare_workspace_routes(&ts.client2, &user_id, Asker::Outsider, HIDDEN).await);
     }
     ts.teardown().await;
     assert!(
@@ -962,24 +993,24 @@ async fn a_link_into(ts: &crate::common::TestServer, workspace_id: &str, maker: 
 
 /// What the routes of [`compare_resource_routes`] are asked about: the things of one
 /// workspace that the paths name, and who is named in them.
-struct Items<'a> {
-    board: &'a Container,
-    card: &'a Block,
+pub(super) struct Items<'a> {
+    pub(super) board: &'a Container,
+    pub(super) card: &'a Block,
     /// A page of a wiki of the same workspace; its `board_id` is the wiki.
-    page: &'a Block,
+    pub(super) page: &'a Block,
     /// A comment on the page.
-    comment: &'a Block,
-    file: &'a str,
-    upload_id: &'a str,
-    category: &'a str,
+    pub(super) comment: &'a Block,
+    pub(super) file: &'a str,
+    pub(super) upload_id: &'a str,
+    pub(super) category: &'a str,
     /// A user of the items' workspace.
-    user: &'a str,
+    pub(super) user: &'a str,
     /// A live link that lets members into the items' workspace.
-    invitation: &'a str,
-    team: &'a str,
+    pub(super) invitation: &'a str,
+    pub(super) team: &'a str,
     /// The subscriber of the path, and the one of the same path for nothing: the asker
     /// themselves for both when they are subscribed to the card.
-    subscriber: (&'a str, &'a str),
+    pub(super) subscriber: (&'a str, &'a str),
 }
 
 /// What a request of [`compare_resource_routes`] is about.
@@ -1032,7 +1063,7 @@ impl Items<'_> {
 /// the answers must be the same, and none a success. Where both requests are the same
 /// (the asker's own subscriptions), the answer must not name the card. The operations
 /// come from the contract, so a new one is compared as it is added.
-async fn compare_resource_routes(
+pub(super) async fn compare_resource_routes(
     client: &Client,
     workspace: &str,
     items: &Items<'_>,
@@ -1200,7 +1231,11 @@ async fn follow(store: &fvoci_store::Store, card: &Block, user_id: &str) {
 }
 
 /// A page of a new open wiki of the workspace, made by `owner`.
-async fn a_page_in(ts: &super::common::TestServer, workspace_id: &str, owner: &str) -> Block {
+pub(super) async fn a_page_in(
+    store: &fvoci_store::Store,
+    workspace_id: &str,
+    owner: &str,
+) -> Block {
     let mut wiki = Container {
         id: new_id(),
         workspace_id: workspace_id.to_owned(),
@@ -1209,7 +1244,6 @@ async fn a_page_in(ts: &super::common::TestServer, workspace_id: &str, owner: &s
         title: "Hidden wiki".to_owned(),
         ..Container::default()
     };
-    let store = ts.app.store();
     store
         .insert_container_with_admin(&mut wiki, owner)
         .await
@@ -1226,7 +1260,7 @@ async fn a_page_in(ts: &super::common::TestServer, workspace_id: &str, owner: &s
 }
 
 /// A comment on the page, by its maker.
-async fn a_comment_on(ts: &super::common::TestServer, page: &Block) -> Block {
+pub(super) async fn a_comment_on(store: &fvoci_store::Store, page: &Block) -> Block {
     let mut comment = Block {
         id: new_id(),
         container_id: page.container_id.clone(),
@@ -1234,8 +1268,7 @@ async fn a_comment_on(ts: &super::common::TestServer, page: &Block) -> Block {
         block_type: BlockType::Comment,
         ..Block::default()
     };
-    ts.app
-        .store()
+    store
         .insert_block(&mut comment, &page.created_by)
         .await
         .expect("a comment on the page");
@@ -1299,8 +1332,8 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let category = hidden_category(&ts, &owner).await;
     let invitation = a_link_into(&ts, HIDDEN_WORKSPACE_ID, &owner).await;
     let team = a_team_in(&ts, &board.workspace_id, &board.created_by).await;
-    let page = a_page_in(&ts, &board.workspace_id, &board.created_by).await;
-    let comment = a_comment_on(&ts, &page).await;
+    let page = a_page_in(ts.app.store(), &board.workspace_id, &board.created_by).await;
+    let comment = a_comment_on(ts.app.store(), &page).await;
     let items = Items {
         board: &board,
         card: &card,
@@ -1648,7 +1681,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         .expect("the asker's category there")
         .id;
     follow(store, &card, &me).await;
-    let page = a_page_in(&ts, &board.workspace_id, &board.created_by).await;
+    let page = a_page_in(ts.app.store(), &board.workspace_id, &board.created_by).await;
     // Under its own workspace each of them is there.
     let page_path = format!("wikis/{}/pages/{}", page.container_id, page.id);
     for path in [
@@ -1670,7 +1703,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
     );
     let invitation = a_link_into(&ts, TEST_WORKSPACE_ID, &me).await;
     let team = a_team_in(&ts, &board.workspace_id, &board.created_by).await;
-    let comment = a_comment_on(&ts, &page).await;
+    let comment = a_comment_on(ts.app.store(), &page).await;
     let items = Items {
         board: &board,
         card: &card,

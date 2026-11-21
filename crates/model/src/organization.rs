@@ -8,6 +8,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use crate::org_kind::OrgKind;
 use crate::person_name::PersonName;
 
 /// What a member of an organization is in it.
@@ -91,7 +92,11 @@ pub struct UserWorkspace {
     pub id: String,
     /// The identifier of the organization the workspace belongs to.
     pub org_id: String,
-    /// The workspace's name; empty if it was given none.
+    /// What that organization is: `personal` for the one workspace of the user's own
+    /// space, `team` for every other.
+    pub kind: OrgKind,
+    /// The workspace's name; empty if it was given none, as the workspace of the user's
+    /// own space always is: a client names that one in the reader's language.
     pub name: String,
     /// What the user is in the workspace.
     pub role: WorkspaceRole,
@@ -100,6 +105,13 @@ pub struct UserWorkspace {
     /// under the workspace then answers 401 with the reason `sso_required`; signing in
     /// through the provider of `orgId` opens it.
     pub sso_required: bool,
+    /// Whether the workspace is closed to the session that asks for being the user's
+    /// own space, of an account that has a password, while the session was made
+    /// through a provider. What is under the workspace then answers 401 with the
+    /// reason `password_sign_in_required`; signing in with the account's password
+    /// (`login`) opens it. Always false for a workspace of an organization that people
+    /// work in.
+    pub password_required: bool,
 }
 
 /// A member of a workspace, as its administrators list them.

@@ -4,13 +4,13 @@ use std::net::IpAddr;
 
 use fvoci_model::{
     ACCOUNT_DELETION_GRACE_DAYS, AccountDeletion, AccountDeletionAsked, DeleteAccountRequest,
-    DeletionProof, Leaving, LeavingOrganization, Session, User,
+    DeletionProof, Leaving, LeavingOrganization, OrgKind, Session, User,
 };
-use fvoci_store::{DeletionAsking, DeletionStanding};
+use fvoci_store::{DeletionAsking, DeletionStanding, SessionTaken};
 
 use super::App;
 use super::auth::WrongPassword;
-use super::oidc_pending::FRESH_SIGN_IN_MILLIS;
+use super::oidc_pending::require_fresh_sign_in;
 use crate::auth::now_millis;
 use crate::error::{AppError, Reason};
 
@@ -37,7 +37,18 @@ impl App {
             .store()
             .account_deletion_standing(&session.user_id)
             .await?;
-        let mut organizations = Vec::with_capacity(standing.alone_in.len());
+        let mut organizations = Vec::with_capacity(standing.alone_in.len() + 1);
+        // The account's own space is its owner's to count, and nobody enters it as an
+        // administrator: asked of a session that opens it, as its workspace is.
+        if let Some(own_space) = standing.own_space {
+            let takes = SessionTaken::of_space(&user.password_hash);
+            organizations.push(if takes.opened_by(session.login_provider_id()) {
+                let within = self.in_organization(&own_space.id)?;
+                within.store().leaving_organization(own_space).await?
+            } else {
+                LeavingOrganization::closed(own_space, OrgKind::Personal)
+            });
+        }
         for organization in standing.alone_in {
             let within = match self.enter_org_as_admin(session, &organization.id).await {
                 Ok(within) => within,
@@ -46,7 +57,7 @@ impl App {
             };
             organizations.push(match within {
                 Some(within) => within.store().leaving_organization(organization).await?,
-                None => LeavingOrganization::closed(organization),
+                None => LeavingOrganization::closed(organization, OrgKind::Team),
             });
         }
         Ok(AccountDeletion {
@@ -107,16 +118,7 @@ impl App {
                 self.confirm_password(&user, &request.password, wrong, address)
                     .await?;
             }
-            DeletionProof::SignIn => {
-                let made_just_now = session.login.is_some()
-                    && now.saturating_sub(session.created_at) <= FRESH_SIGN_IN_MILLIS;
-                if !made_just_now {
-                    return Err(AppError::forbidden(
-                        "sign in through the provider again to delete the account",
-                    )
-                    .with_reason(Reason::SignInAgain));
-                }
-            }
+            DeletionProof::SignIn => require_fresh_sign_in(session, now, "delete the account")?,
         }
         let asking = self
             .store()
@@ -132,6 +134,7 @@ impl App {
             DeletionAsking::Asked(leaving) => {
                 // What the account had open ends with its sessions.
                 self.ws().close_user(&user.id);
+                self.end_readers_of_own_space(&user.id).await;
                 tracing::info!(
                     user_id = %user.id,
                     delete_after = leaving.delete_after,
@@ -145,6 +148,25 @@ impl App {
             DeletionAsking::Changed => Err(AppError::conflict(
                 "the account was changed in the meantime; sign in again",
             )),
+        }
+    }
+
+    /// Ends what connections follow of the boards of the account's own space by a
+    /// public link: the links open nothing while the account waits to be deleted. The
+    /// asking stands whatever becomes of this; a connection that is missed is told
+    /// nothing more once what it was let in by is checked again.
+    async fn end_readers_of_own_space(&self, user_id: &str) {
+        let ended = async {
+            let standing = self.store().account_deletion_standing(user_id).await?;
+            if let Some(own_space) = standing.own_space {
+                self.in_organization(&own_space.id)?
+                    .end_shared_readers(None)
+                    .await?;
+            }
+            Ok::<(), AppError>(())
+        };
+        if let Err(error) = ended.await {
+            tracing::warn!(user_id, %error, "the readers of an own space's links were not ended");
         }
     }
 

@@ -166,6 +166,51 @@ Every list comes in an order, and the description of each operation says which. 
 says nothing else, the order is that of creation, oldest first, and by identifier among \
 what was created in the same millisecond.
 
+## The user's own space
+
+Every account has a space of its own from the moment it is made, however it was made: \
+an organization of the `kind` `personal` with the account as its only member and one \
+workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace \
+like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, \
+the trash, export and import, and sharing by a public link (`setSharing`) work in it as \
+anywhere. It has no name (a client calls it by the reader's language) and takes none.
+
+What it has not is other people, and anybody to administer it. Its identifier is 404 \
+for every operation under `/org/{orgId}` (the organization and its settings, its \
+members, its workspaces, joining one as an administrator, its audit log, its provider \
+of sign-ins), for its owner as for anybody else, and no answer of those operations \
+names it. Under its workspace these are 404, as for a workspace that is not there: \
+`createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, \
+`setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is \
+under it) and on the teams of a board or a wiki \
+(`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page \
+(`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is \
+moved to or from another organization but by export and import, and no reference \
+reaches into it from outside or out of it. What changes in it is told to nobody else: \
+the server's operator is posted no block of it (`block_change_webhooks`), and it is in \
+no audit log anybody but its owner reads.
+
+An account that was made by a sign-in through an organization's provider has no \
+password (`hasPassword` of `getMe`), and until it has one its space is reached by any \
+session of the account. It is given one by `setPassword`, so that its person reaches \
+the space when they are no longer in that organization. Once the account has a \
+password, the space takes only sessions made with it (`login`): a provider is an \
+organization's, and whoever holds it could make a session of the account. To a session \
+made through a provider the routes under the space's `/w/{workspaceId}` then answer \
+401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space \
+with `passwordRequired` true, `getMyMemberships` leaves its boards out, \
+`getAccountDeletion` names it without what is in it, and the websocket follows \
+nothing of it for such a session (`contracts/websocket.md`). The session stays and \
+opens what it opened of the organizations; signing in with the password opens the \
+space, and an organization that takes only sessions made through its provider \
+(`sso_required`) then asks for a sign-in through that again. What is shared from the \
+space by a public link is read without a session, and is not closed so.
+
+It goes with its account: `getAccountDeletion` names it among `organizations` always, \
+and while the account waits to be deleted it is closed with the account: what is \
+shared from it by a public link answers 404 as a link that is not there, and answers \
+again if the deletion is cancelled.
+
 ## Bodies edited together
 
 While people edit a card's body together the server holds it as a Y document. What it \
@@ -322,12 +367,14 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ReceivedPart", Members::All),
     ("UploadedFile", Members::AsWritten),
     ("User", Members::All),
+    ("Me", Members::All),
     ("PersonName", Members::All),
     ("UserSettings", Members::AsWritten),
     ("UserWorkspace", Members::All),
     ("WorkspaceMember", Members::All),
     ("WorkspaceRole", Members::AsWritten),
     ("OrgRole", Members::AsWritten),
+    ("OrgKind", Members::AsWritten),
     ("Page", Members::All),
     ("PageNode", Members::All),
     ("LinkedBlock", Members::All),
@@ -397,8 +444,10 @@ const SCHEMAS: &[(&str, Members)] = &[
     ),
     (
         "RegisterRequest",
-        Members::Only(&["username", "email", "password", "organizationName"]),
+        Members::Only(&["username", "email", "password"]),
     ),
+    ("NewOrganization", Members::All),
+    ("SetPasswordRequest", Members::All),
     ("SettingsChange", Members::AsWritten),
     ("SharingRequest", Members::AsWritten),
     (

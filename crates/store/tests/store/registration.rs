@@ -1,7 +1,7 @@
 //! Who registers through a handle of an organization, and what being the instance's
 //! administrator makes of them in the organization and its workspaces.
 
-use fvoci_model::{OrgRole, WorkspaceRole, new_id};
+use fvoci_model::{OrgKind, OrgRole, WorkspaceRole, new_id};
 use fvoci_store::{InstanceRole, Tenant};
 
 use crate::common;
@@ -9,7 +9,8 @@ use crate::common;
 /// Whoever registers through a handle of an organization joins it and its default
 /// workspace, the first user as an administrator of both; an administrator of the
 /// instance made later is the organization's only while one, their workspace roles
-/// kept. A user stored through a handle that names no organization is in none.
+/// kept. A user stored through a handle that names no organization is in none but
+/// their own space.
 #[tokio::test]
 async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
     let test = common::setup().await;
@@ -45,14 +46,13 @@ async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
     assert_eq!(access(&outside, &test.workspace_id).await, None);
     assert_eq!(access(&first, &new_id()).await, None, "no such workspace");
     assert_eq!(access(&first, "no identifier").await, None);
-    assert_eq!(
-        unset
-            .workspaces_of_user(&outside, None)
-            .await
-            .expect("the workspaces are listed"),
-        [],
-        "a user of no organization has no workspace"
-    );
+    let of_outside = unset.workspaces_of_user(&outside, None).await;
+    let kinds: Vec<OrgKind> = of_outside
+        .expect("the workspaces are listed")
+        .iter()
+        .map(|workspace| workspace.kind)
+        .collect();
+    assert_eq!(kinds, [OrgKind::Personal], "of their own space only");
 
     // A member is let into the second workspace, as a guest.
     test.add_workspace_member(&second_workspace, &second, WorkspaceRole::Guest)
@@ -62,6 +62,8 @@ async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
         .workspaces_of_user(&second, None)
         .await
         .expect("the workspaces are listed");
+    let (own, listed) = listed.split_last().expect("the user's own space, last");
+    assert_eq!(own.kind, OrgKind::Personal, "{own:?}");
     let listed: Vec<(&str, WorkspaceRole)> = listed
         .iter()
         .map(|workspace| {

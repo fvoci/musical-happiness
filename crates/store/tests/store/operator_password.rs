@@ -102,6 +102,11 @@ async fn the_operators_password_acts_are_recorded_in_each_organization_of_the_pe
         AuditAction::PasswordSetByOperator,
     ];
     assert_eq!(operators_records(&test, &test.org_id, &user).await, both);
+    assert_eq!(
+        common::rows_of_own_spaces(&test, "audit_log").await,
+        0,
+        "no record in the account's own space, which has no administrators to read one"
+    );
     assert!(matches!(not_found, Err(StoreError::UserNotFound(_))));
     assert!(linked, "a link for an account with a password");
     assert!(

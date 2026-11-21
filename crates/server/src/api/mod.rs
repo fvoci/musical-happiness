@@ -31,6 +31,7 @@ mod oidc_held;
 mod onboarding;
 mod org;
 mod org_admin;
+mod organizations;
 mod page_comments;
 mod page_versions;
 mod paging;
@@ -143,6 +144,7 @@ fn routes() -> Routes {
         .merge(onboarding::routes())
         .merge(org::routes())
         .merge(org_admin::routes())
+        .merge(organizations::routes())
         .merge(references::routes())
         .merge(search::routes())
         .merge(content_search::routes())

@@ -34,7 +34,9 @@ test('a second organization goes from signup through the full app to a shared li
   const listed = (await (
     await api.get('/api/v1/users/me/workspaces')
   ).json()) as Schemas['UserWorkspace'][];
-  expect(listed.map((item) => item.id)).toEqual([workspaceId]);
+  // The workspace of the organization, and after it the account's own space.
+  expect(listed.map((item) => item.kind === 'personal')).toEqual([false, true]);
+  expect(listed[0]?.id).toBe(workspaceId);
 
   await sidebar(page).getByTestId('add-board').click();
   await observation.screen();

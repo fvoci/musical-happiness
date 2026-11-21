@@ -7,16 +7,29 @@
     "body": [
       {
         "id": "<id:1>",
+        "kind": "team",
         "name": "The Firm",
         "orgId": "<id:2>",
+        "passwordRequired": false,
         "role": "member",
         "ssoRequired": false
       },
       {
         "id": "<id:3>",
+        "kind": "team",
         "name": "",
         "orgId": "<id:2>",
+        "passwordRequired": false,
         "role": "member",
+        "ssoRequired": false
+      },
+      {
+        "id": "<id:4>",
+        "kind": "personal",
+        "name": "",
+        "orgId": "<id:5>",
+        "passwordRequired": false,
+        "role": "admin",
         "ssoRequired": false
       }
     ]
@@ -82,7 +95,7 @@
         "deleteAt": 0,
         "displayName": "",
         "firstName": "",
-        "id": "<id:4>",
+        "id": "<id:6>",
         "isAdmin": false,
         "lastName": "",
         "latinFirstName": "",
@@ -114,7 +127,7 @@
         "deleteAt": 0,
         "displayName": "",
         "firstName": "",
-        "id": "<id:4>",
+        "id": "<id:6>",
         "isAdmin": false,
         "lastName": "",
         "latinFirstName": "",

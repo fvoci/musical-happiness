@@ -33,7 +33,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// account (`organizations`) goes with it, with everything in it: its workspaces,
 /// boards and wikis, their files, and its records. How much it holds (`boards`,
 /// `wikis`, `files`) is told to a session that opens it, and left out for one of an
-/// organization that takes only sessions made through its provider. `proof` says what
+/// organization that takes only sessions made through its provider, and for the
+/// account's own space where that takes only sessions made with the password
+/// (`passwordRequired` of `getMyWorkspaces`). `proof` says what
 /// `requestAccountDeletion` asks for.
 ///
 /// Also answered to the session of an account that waits to be deleted, the one

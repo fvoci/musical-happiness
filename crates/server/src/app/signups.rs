@@ -13,7 +13,7 @@ use std::time::Instant;
 use fvoci_model::{ContainerKind, RegisterRequest, Session, User, new_id};
 use fvoci_store::{
     Accepted, Confirmed, Founding, InvitedConfirmation, Proof, SIGNUP_LIFETIME_MILLIS, Signup,
-    SignupStart, StoreError,
+    SignupStart, Started, StoreError,
 };
 
 use super::App;
@@ -58,11 +58,16 @@ impl App {
         address: Option<IpAddr>,
     ) -> Result<SignupMarker, AppError> {
         let _attempt = self.admit_registration(address)?;
+        let start = if let Some(name) = request.organization() {
+            SignupStart::Organization(name.to_owned())
+        } else {
+            self.require_organization_of_first(request).await?;
+            SignupStart::Alone
+        };
         let replacing = self.replaced_by(browser);
         let replacing = replacing.as_deref();
         let user = self.new_account(&request.account(), replacing).await?;
         let now = now_millis();
-        let start = SignupStart::Organization(request.organization_name.clone());
         let marker = SignupMarker::new();
         let signup = waiting(&user, &request.language, start, &marker, now);
         self.store()
@@ -370,6 +375,7 @@ impl App {
     ) -> Result<Option<Confirmed>, AppError> {
         let confirmed = match &signup.start {
             SignupStart::Organization(_) => self.confirm_founding(signup, proof, now).await?,
+            SignupStart::Alone => self.confirm_alone(signup, proof, now).await?,
             SignupStart::Invitation { id, org_id } => {
                 self.confirm_invited(signup, proof, (id, org_id), now)
                     .await?
@@ -385,8 +391,9 @@ impl App {
             );
             // Whoever starts an organization asks for their welcome board (`onboard`);
             // whoever comes into one as a member is given it here, in the language of
-            // the screen the registration was made from. A guest's link names a board.
-            if !confirmed.started_organization && confirmed.container_id.is_none() {
+            // the screen the registration was made from. A guest's link names a board,
+            // and who starts with their own space alone is given none.
+            if confirmed.start == Started::Invited && confirmed.container_id.is_none() {
                 self.welcome_member_in(
                     &confirmed.org_id,
                     &confirmed.user.id,
@@ -441,6 +448,29 @@ impl App {
             }
         }
         confirmed.map_err(account_error)
+    }
+
+    /// Confirms a registration of its own that starts no organization: its account
+    /// and the account's own space. Not on a server that takes one organization, where
+    /// who is not its first user gets in by an invitation: the registration is
+    /// removed, as one that would start a second organization there is.
+    async fn confirm_alone(
+        &self,
+        signup: &Signup,
+        proof: Proof<'_>,
+        now: i64,
+    ) -> Result<Option<Confirmed>, AppError> {
+        let store = self.store();
+        if !self.config().takes_several_organizations() {
+            if !store.discard_signup(proof, now).await? {
+                return Ok(None);
+            }
+            return Err(AppError::invitation_required());
+        }
+        store
+            .confirm_signup_alone(signup, proof, now)
+            .await
+            .map_err(account_error)
     }
 
     /// Confirms a registration made by the link `link` (its identifier and its
@@ -567,6 +597,15 @@ pub struct ConfirmedSignup {
     /// Whether the browser was the one the registration was made from: its cookie has
     /// nothing left to show.
     pub made_here: bool,
+}
+
+impl ConfirmedSignup {
+    /// Whether the account started an organization by registering: not one that came
+    /// in by a link, and not one that registered without the name of an organization.
+    #[must_use]
+    pub fn started_organization(&self) -> bool {
+        self.confirmed.start == Started::Organization
+    }
 }
 
 impl std::fmt::Debug for ConfirmedSignup {

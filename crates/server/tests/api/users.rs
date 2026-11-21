@@ -403,11 +403,17 @@ async fn a_registration_answers_the_user_that_was_made() {
         "{username}: a registration opens no session"
     );
 
-    // The answer is the user as the API tells it afterwards.
+    // The answer is the user as the API tells it afterwards, who is told of their own
+    // account besides that it has the password it was registered with.
     let client = th.login(username, PASSWORD).await;
+    let mut me = client.get("/users/me").await.value();
     assert_eq!(
-        client.get("/users/me").await.value(),
-        made,
+        me.as_object_mut().expect("an object").remove("hasPassword"),
+        Some(json!(true)),
+        "{username}: the account has the password it registered with"
+    );
+    assert_eq!(
+        me, made,
         "{username}: the same as the user reads about themselves"
     );
 
@@ -464,6 +470,8 @@ async fn get_me_logged_in() {
             "deleteAt": 0,
             // The first user of an instance administers it.
             "isAdmin": true,
+            // Told to the user themselves only: whether, never what.
+            "hasPassword": true,
         }),
         "the members of a user on the wire: no password, no address, nothing else"
     );
@@ -1100,8 +1108,8 @@ async fn workspaces() {
     let workspaces = th.client.get("/users/me/workspaces").await.value();
     assert_eq!(
         workspaces.as_array().map(Vec::len),
-        Some(2),
-        "the two workspaces of the test server: {workspaces}"
+        Some(3),
+        "the two workspaces of the test server, and the user's own: {workspaces}"
     );
     assert_eq!(
         workspaces[0]["id"],

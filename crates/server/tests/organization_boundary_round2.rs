@@ -12,6 +12,9 @@ mod fake_search;
 #[path = "api/fake_smtp.rs"]
 mod fake_smtp;
 
+#[path = "organization_boundary_round2/own_space.rs"]
+mod own_space;
+
 #[path = "organization_boundary_round2/routes.rs"]
 mod routes;
 
