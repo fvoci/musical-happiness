@@ -204,3 +204,47 @@ async fn an_own_space_is_not_counted_among_the_organizations() {
     );
     test.teardown().await;
 }
+
+/// Which sessions a space takes is read with its workspace, and kept by who read it
+/// until the space's revision moves on. An account's first password moves it, whether
+/// its person set it or the server's operator did, and moves no other organization's.
+#[tokio::test]
+async fn a_first_password_moves_the_revision_of_the_space_alone() {
+    let test = common::setup().await;
+    common::user(&test, "founder").await;
+    let mut moved = Vec::new();
+    for name in ["person", "operated"] {
+        let user = common::user(&test, name).await;
+        let of_owner =
+            format!("SELECT CAST(id AS TEXT) FROM organizations WHERE owner_id = '{user}'");
+        let space = test
+            .system()
+            .texts_unchecked(&of_owner)
+            .await
+            .expect("read");
+        let space = test.for_org(&space[0]).expect("an organization");
+        let before = (
+            test.visibility_version().await,
+            space.visibility_version().await,
+        );
+        if name == "operated" {
+            let set = test.reset_user_password(name, "a hash").await;
+            assert_eq!(set.expect("set"), user, "the operator's word");
+        } else {
+            let set = test
+                .change_user_password(&user, "", "a hash", &new_id(), "no digest")
+                .await;
+            assert!(set.expect("set"), "the account's first password");
+        }
+        let after = (
+            test.visibility_version().await,
+            space.visibility_version().await,
+        );
+        moved.push((name, before, after));
+    }
+    test.teardown().await;
+    for (name, before, after) in moved {
+        assert_ne!(after.1, before.1, "{name}: the space's revision moves on");
+        assert_eq!(after.0, before.0, "{name}: the organization's stays");
+    }
+}

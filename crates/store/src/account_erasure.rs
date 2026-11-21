@@ -211,7 +211,7 @@ impl Store {
 
     /// The organizations an account has something in, by identifier: those it is a
     /// member of, those it is in a workspace or on a board of, those it made a link
-    /// into, and its own space, whoever is a member of that.
+    /// into, those it made, and its own space, whoever is a member of that.
     ///
     /// # Errors
     ///
@@ -242,6 +242,11 @@ impl Store {
                         " UNION SELECT id FROM organizations WHERE owner_id = ",
                         Id(user_id),
                     )
+                    // One it made and has no place in any more: it names the account.
+                    .push_bind(
+                        " UNION SELECT id FROM organizations WHERE created_by = ",
+                        Id(user_id),
+                    )
                     .push(" ORDER BY 1");
                 scope
                     .fetch_all(sql)
@@ -270,8 +275,9 @@ impl Store {
     /// that is recorded; with no such administrator the board is left for whoever
     /// administers the workspace next, and a workspace it alone administered for an
     /// administrator of the organization, both told to the caller. Then it leaves the
-    /// organization, and the links it made there that nobody used, and that no other
-    /// link was made like, go. What it wrote stays.
+    /// organization, which names it no more as who made it, and the links it made
+    /// there that nobody used, and that no other link was made like, go. What it wrote
+    /// stays.
     ///
     /// Nothing happens for an account whose erasing did not begin.
     ///
@@ -707,6 +713,11 @@ async fn leave_organization(scope: &mut Scope<'_>, user_id: &str) -> Result<(), 
     let mut sql = scope.sql("DELETE FROM organization_members WHERE user_id = ");
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);
+    scope.execute(sql).await?;
+    // Who made the organization is nobody's to know once the account is gone: an
+    // erased account makes none, and is counted none.
+    let mut sql = scope.sql("UPDATE organizations SET created_by = NULL WHERE created_by = ");
+    sql.bind(Id(user_id)).push_bind(" AND id = ", scope.org()?);
     scope.execute(sql).await?;
     // Twice: the links made like another for the recipients of its mail first, and then
     // the link they were made like, once none is left of them.

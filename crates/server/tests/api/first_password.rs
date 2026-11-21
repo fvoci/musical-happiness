@@ -2,16 +2,23 @@
 //! told so, sets one from its session once, and signs in with it from then on, into
 //! its own space and into whatever takes a password.
 
-use fvoci_model::{Container, ContainerMember, ContainerType, UserWorkspace, new_id};
+use fvoci_model::{
+    Block, BlockType, Container, ContainerMember, ContainerType, UserWorkspace, new_id,
+};
+use fvoci_server::app::ChangeNotification;
 use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, Tenant};
+use std::time::Duration;
+
 use reqwest::StatusCode;
 use serde_json::{Value, json};
+use tokio_tungstenite::tungstenite::Message;
 
-use crate::common::{Client, PASSWORD, Setup, TestServer};
+use crate::common::{Client, PASSWORD, Setup, TestServer, carried_out};
 use crate::fake_oidc::{FakeProvider, Person};
 use crate::oidc::{Browser, org_of, server_for, set_provider, with_key_and_private_addresses};
 use crate::own_space::workspaces_and_own;
+use crate::rooms::Peer;
 use crate::sso::{Passwords, admin_through_provider, require_sso};
 
 const FIRST_PASSWORD: &str = "a first Pa$$word";
@@ -253,6 +260,149 @@ async fn a_space_takes_the_password_alone_once_its_account_has_one() {
     by_password.get(&org_path).await.check_ok();
     assert!(boards_of(&by_password).await.contains(&board), "listed");
     assert_eq!(counted_in_the_space(&by_password).await, json!(1));
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// A card on a board of the user's own space, past the routes, and its identifier.
+async fn card_in_the_space(ts: &TestServer, own: &UserWorkspace, board: &str, by: &str) -> String {
+    let mut card = Block {
+        id: new_id(),
+        container_id: board.to_owned(),
+        block_type: BlockType::Card,
+        title: "a card of the space".to_owned(),
+        ..Block::default()
+    };
+    let tenant = Tenant::org(&own.org_id).expect("an identifier");
+    ts.app
+        .scoped(tenant)
+        .insert_block(&mut card, by, ChangeNotification::Suppress)
+        .await
+        .expect("a card of the space");
+    card.id
+}
+
+/// The room of a card of the space is the space's: a connection of the provider's
+/// session is in it while the account has no password, is closed as the first
+/// password is set, and is refused the room from then on as one that asks for a card
+/// that is not there. A connection of the password's session comes in.
+#[tokio::test]
+async fn the_room_of_a_card_of_a_space_takes_the_password_alone_once_there_is_one() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let browser = Browser::new(&ts, &fake);
+    let mut person = Person::new("subject-ada", "ada@example.com");
+    person.preferred_username = Some("ada".to_owned());
+    fake.sign_in_as(person);
+    let client = ts.client_with_token(browser.sign_in(&org_id).await.token());
+    let (_, own) = workspaces_and_own(&client).await;
+    let user_id = client.me().await.id;
+    let board = board_in_the_space(&ts, &own, &user_id).await;
+    let card = card_in_the_space(&ts, &own, &board, &user_id).await;
+
+    let mut before = Peer::connect(&client, 301).await;
+    before.joined(&own.id, &card).await;
+
+    let set = client
+        .put("/users/me/password", &json!({"password": FIRST_PASSWORD}))
+        .await;
+    set.check_no_content();
+    let cookie = set.session_cookie().expect("the session's new cookie");
+    let client = ts.client_with_token(&cookie);
+    while before.step(Duration::from_secs(5)).await {}
+    assert!(
+        before.unread().contains(&json!({"action": "CLOSED"})),
+        "the connection that was in the room is closed: {:?}",
+        before.unread()
+    );
+
+    let mut by_provider = Peer::connect(&client, 302).await;
+    let refused = by_provider.join(&own.id, &card).await;
+    assert_eq!(refused["action"], json!("DOC_REFUSED"), "{refused}");
+    assert_eq!(refused["reason"], json!("not_found"), "{refused}");
+
+    let (status, by_password) = login(&ts, "ada", FIRST_PASSWORD).await;
+    assert!(status.is_success(), "the password signs in: {status}");
+    let mut with_password = Peer::connect(&by_password, 303).await;
+    with_password.joined(&own.id, &card).await;
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// Whether a connection of the client's session that follows the workspace of the
+/// space is told of a card made on its board.
+async fn told_of_the_space(ts: &TestServer, client: &Client, at: (&UserWorkspace, &str)) -> bool {
+    use futures_util::{SinkExt as _, StreamExt as _};
+
+    let (own, board) = at;
+    let mut socket = client.connect_websocket().await;
+    let follow = json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": own.id});
+    let follow = Message::Text(follow.to_string().into());
+    socket.send(follow).await.expect("the command is sent");
+    carried_out(ts.app.ws(), &mut socket).await;
+    let by = client.me().await.id;
+    let card = card_in_the_space(ts, own, board, &by).await;
+    assert!(
+        ts.app.finish_background(Duration::from_secs(5)).await,
+        "the change is told"
+    );
+    let mut told = false;
+    while let Ok(Some(Ok(message))) =
+        tokio::time::timeout(Duration::from_millis(300), socket.next()).await
+    {
+        if let Message::Text(text) = message {
+            told |= text.contains(&card);
+        }
+    }
+    told
+}
+
+/// What the server answered a connection that followed a space is not kept past the
+/// account's first password, whoever set it: its person from a session, or the
+/// server's operator. A connection of a provider's session is told of the space
+/// before, and one made after is told nothing; the password's session is told.
+#[tokio::test]
+async fn a_first_password_ends_what_a_provider_session_is_told_of_the_space() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let browser = Browser::new(&ts, &fake);
+    for (name, by_operator) in [("ada", false), ("grace", true)] {
+        let mut person = Person::new(&format!("subject-{name}"), &format!("{name}@example.com"));
+        person.preferred_username = Some(name.to_owned());
+        fake.sign_in_as(person);
+        let client = ts.client_with_token(browser.sign_in(&org_id).await.token());
+        let (_, own) = workspaces_and_own(&client).await;
+        let board = board_in_the_space(&ts, &own, &client.me().await.id).await;
+        let at = (&own, board.as_str());
+        assert!(told_of_the_space(&ts, &client, at).await, "{name}: before");
+
+        // Nothing is written between the password and the next connection but the
+        // password: the session that set it goes on, and the operator ends every one.
+        let later = if by_operator {
+            let set = ts.app.reset_user_password(name, FIRST_PASSWORD).await;
+            set.expect("the operator sets the password");
+            ts.client_with_token(browser.sign_in(&org_id).await.token())
+        } else {
+            let password = json!({"password": FIRST_PASSWORD});
+            let set = client.put("/users/me/password", &password).await;
+            set.check_no_content();
+            ts.client_with_token(&set.session_cookie().expect("the session's new cookie"))
+        };
+        assert!(
+            !told_of_the_space(&ts, &later, at).await,
+            "{name}: a provider's session is told nothing of the space"
+        );
+        let (status, by_password) = login(&ts, name, FIRST_PASSWORD).await;
+        assert!(status.is_success(), "the password signs in: {status}");
+        assert!(
+            told_of_the_space(&ts, &by_password, at).await,
+            "{name}: after"
+        );
+    }
     ts.teardown().await;
     fake.stop();
 }

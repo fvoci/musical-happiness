@@ -405,8 +405,10 @@ fn writes_access(text: &str) -> bool {
 /// conservatively, including writes with subqueries and the test-only raw SQL path.
 /// Ordinary card/body writes stay cacheable; type changes invalidate explicitly,
 /// and deleting or restoring cards changes their visibility through the trash.
-/// A user's row is read by no cached check, so changing it (a name, a password) moves
-/// nothing; deleting one does, as it takes the user's memberships with it.
+/// Of a user's row a cached check reads only whether it has a password (which
+/// sessions the user's own space takes), and the write of a first one says so
+/// ([`Writing::invalidate_of`]); changing it otherwise (a name, another password) moves
+/// nothing. Deleting one does, as it takes the user's memberships with it.
 fn affects_visibility(text: &str) -> bool {
     const TABLES: [&str; 13] = [
         "workspace_members",

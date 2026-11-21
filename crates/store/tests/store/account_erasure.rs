@@ -8,7 +8,7 @@ use fvoci_model::{
 };
 use fvoci_store::{
     AuditPlace, DbType, DeletionAsking, ErasedFrom, Erasing, ErasureEnd, ErasureStart, Identity,
-    Looking, NewLink, Paging, Reach, Sight, Store, StoreError,
+    Looking, NewLink, Paging, Reach, Sight, Store, StoreError, Tenant,
 };
 
 use crate::common::{self, TestStore};
@@ -212,6 +212,15 @@ async fn link_by(store: &Store, workspace_id: &str, user_id: &str, digest: &str)
         .create_invitation(&link)
         .await
         .expect("the link is made");
+}
+
+/// Writes down that the account made the organization, as the start of one does.
+async fn made_by(test: &TestStore, org_id: &str, user_id: &str) {
+    test.execute_unchecked(&format!(
+        "UPDATE organizations SET created_by = '{user_id}' WHERE id = '{org_id}'"
+    ))
+    .await
+    .expect("the organization is the account's making");
 }
 
 /// Erases the account through every step, on the operator's word, and returns what
@@ -646,12 +655,20 @@ async fn an_erased_account_leaves_its_identifier_and_nothing_of_the_person() {
         .await
         .expect("the leaver is in it");
     leave_traces(&test, &founder, &leaver, &board).await;
+    // The organization is of the leaver's making, as one they started is.
+    made_by(&test, &test.org_id, &leaver).await;
     for needle in OF_THE_PERSON {
         assert!(
             !holding(&system, needle).await.is_empty(),
             "{needle} is stored before the account is erased"
         );
     }
+    assert!(
+        holding(&system, &leaver)
+            .await
+            .contains(&"organizations.created_by".to_owned()),
+        "the organization names who made it before the account is erased"
+    );
 
     erase(&test, &leaver, Erasing::AtOnce, T0 + 1).await;
 
@@ -688,6 +705,57 @@ async fn an_erased_account_leaves_its_identifier_and_nothing_of_the_person() {
     test.create_user(&mut again)
         .await
         .expect("the name is free");
+    test.teardown().await;
+}
+
+/// An organization names who made it no more once that account is erased, also where
+/// the account has no place in it any more: it is found by its maker, and stays with
+/// its people.
+#[tokio::test]
+async fn an_organization_forgets_a_maker_who_left_it_and_is_erased() {
+    let test = common::setup().await;
+    let system = test.system();
+    let founder = founder(&test).await;
+    // In no organization: its own space is all it has.
+    let maker = common::user(&test.scoped(Tenant::Unset), "maker").await;
+    made_by(&test, &test.org_id, &maker).await;
+    let places = test.organizations_of_account(&maker).await.expect("listed");
+    assert!(
+        places.contains(&test.org_id),
+        "the organization it made is among what it has something in: {places:?}"
+    );
+    let people_before = test
+        .count_rows("organization_members")
+        .await
+        .expect("counted");
+
+    erase(&test, &maker, Erasing::AtOnce, T0 + 1).await;
+
+    let named = holding(&system, &maker).await;
+    assert_eq!(named, ["users.id"], "nothing names the account but its row");
+    let still: Vec<String> = system
+        .texts_unchecked(&format!(
+            "SELECT CAST(id AS TEXT) FROM organizations WHERE id = '{}' AND created_by IS NULL",
+            test.org_id
+        ))
+        .await
+        .expect("read");
+    assert_eq!(
+        still,
+        std::slice::from_ref(&test.org_id),
+        "the organization stays"
+    );
+    assert_eq!(
+        test.count_rows("organization_members")
+            .await
+            .expect("counted"),
+        people_before - i64::from(common::db_type() == DbType::Sqlite),
+        "with its people: only the maker's own space went, where that is counted"
+    );
+    assert!(
+        test.account_deletion_standing(&founder).await.is_ok(),
+        "and its administrator is who they were"
+    );
     test.teardown().await;
 }
 

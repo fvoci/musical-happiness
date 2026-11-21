@@ -615,3 +615,54 @@ async fn the_instances_organization_is_asked_behind_a_wall_closed_again() {
         assert_eq!(own.1, 1, "nor does the instance's see the others");
     }
 }
+
+/// A read past the wall puts the reach back as it found it: a transaction whose wall
+/// was open before the read (a registration's, for the link it was made by) has it
+/// open after, and one whose wall was closed has it closed (the test above).
+#[tokio::test]
+async fn a_read_past_the_wall_leaves_an_open_wall_open() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let reach = test
+        .reach_after_asking_with_the_wall_open()
+        .await
+        .expect("asked");
+    test.teardown().await;
+    assert_eq!(reach, "on", "the wall the transaction opened is still open");
+}
+
+/// How many organizations an account made is asked by a transaction of an
+/// organization, which the read opens the wall of. A handle that names none is
+/// refused, on either database: it is not answered that the account made none.
+#[tokio::test]
+async fn the_organizations_an_account_made_are_not_counted_without_an_organization() {
+    let test = common::setup().await;
+    let user = common::user(&test, "maker").await;
+    test.execute_unchecked(&format!(
+        "UPDATE organizations SET created_by = '{user}' WHERE id = '{}'",
+        test.org_id
+    ))
+    .await
+    .expect("the organization is the user's making");
+    let counted = test.organizations_made_by(&user).await;
+    let of_none = [
+        test.scoped(Tenant::Unset)
+            .organizations_made_by(&user)
+            .await,
+        test.system().organizations_made_by(&user).await,
+    ];
+    test.teardown().await;
+    assert_eq!(
+        counted.expect("counted"),
+        1,
+        "in an organization's transaction"
+    );
+    for refused in of_none {
+        assert!(
+            matches!(refused, Err(StoreError::NoOrganization)),
+            "no organization, no count: {refused:?}"
+        );
+    }
+}

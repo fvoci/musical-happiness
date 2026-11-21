@@ -38,7 +38,8 @@ pub use session_taken::SessionTaken;
 use session_taken::{HAS_PASSWORD, taken};
 
 pub(crate) use every_organization::{
-    is_the_instances_organization, of_people, organizations_made_by,
+    OpenedWall, close_wall, is_the_instances_organization, of_people, open_wall,
+    organizations_made_by,
 };
 
 /// The organization that holds what the server ships with and is nobody's: the
@@ -385,15 +386,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub(crate) async fn space_of(&self, user_id: &str) -> Result<Option<String>, StoreError> {
         self.system()
-            .with_conn(async |scope| {
-                let mut sql = scope.sql("SELECT id FROM organizations WHERE owner_id = ");
-                sql.bind(Id(user_id));
-                scope
-                    .fetch_optional(sql)
-                    .await?
-                    .map(|row| row.id(0))
-                    .transpose()
-            })
+            .with_conn(async |scope| space_of(scope, user_id).await)
             .await
     }
 
@@ -968,6 +961,21 @@ pub(crate) async fn oldest_organization(
     sql.bind(false).push_bind(" AND delete_at = ", 0_i64);
     of_people(&mut sql, "kind");
     sql.push(" ORDER BY create_at, id LIMIT 1");
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| row.id(0))
+        .transpose()
+}
+
+/// The organization that is the space of the account `user_id`, in use or not, by
+/// who owns it: in a scope that reaches every organization.
+pub(crate) async fn space_of(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<Option<String>, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM organizations WHERE owner_id = ");
+    sql.bind(Id(user_id));
     scope
         .fetch_optional(sql)
         .await?

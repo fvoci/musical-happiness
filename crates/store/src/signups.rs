@@ -8,6 +8,7 @@ use fvoci_model::{PersonName, User};
 
 use crate::accounts::{self, Founding};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
+use crate::directory::{self, OpenedWall};
 use crate::error::{StoreError, Taken};
 use crate::link_locks::{self, Turn};
 use crate::{Store, users};
@@ -655,9 +656,9 @@ async fn discard(
     Ok(true)
 }
 
-/// What a transaction's wall was before it was opened for one link.
+/// A transaction's wall as it was opened for one link, or left as it was.
 #[must_use = "the wall is closed again with `close_wall`"]
-struct Wall(Option<String>);
+struct Wall(Option<OpenedWall>);
 
 /// Opens the transaction's wall for a link of the organization `org_id`, to be closed
 /// again with [`close_wall`]: a registration is no organization's, and the link one
@@ -670,28 +671,15 @@ async fn open_wall(scope: &mut Scope<'_>, org_id: &str) -> Result<Wall, StoreErr
     if scope.dialect() != Dialect::Postgres || scope.org_id().as_deref() == Some(org_id) {
         return Ok(Wall(None));
     }
-    let sql = scope.sql("SELECT COALESCE(current_setting('fvoci.system', true), 'off')");
-    let before = match scope.fetch_optional(sql).await? {
-        Some(row) => row.text(0)?,
-        None => "off".to_owned(),
-    };
-    set_wall(scope, "on").await?;
-    Ok(Wall(Some(before)))
+    Ok(Wall(Some(directory::open_wall(scope).await?)))
 }
 
 /// Puts the transaction's wall back as it was before [`open_wall`].
 async fn close_wall(scope: &mut Scope<'_>, wall: Wall) -> Result<(), StoreError> {
     match wall.0 {
-        Some(before) => set_wall(scope, &before).await,
+        Some(opened) => directory::close_wall(scope, opened).await,
         None => Ok(()),
     }
-}
-
-async fn set_wall(scope: &mut Scope<'_>, reach: &str) -> Result<(), StoreError> {
-    let mut sql = scope.sql("SELECT set_config('fvoci.system', ");
-    sql.bind(reach).push(", true)");
-    scope.fetch_optional(sql).await?;
-    Ok(())
 }
 
 /// Removes the registrations that ended by `now`, giving back the uses of the links
