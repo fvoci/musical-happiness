@@ -14,6 +14,12 @@
   A wiki's page has versions of its body as a card has: they are shown by
   this too (`of="page"`), with the wiki in place of the board, in the page's
   own words.
+
+  Each version says how it was kept, in words: by hand, on its own, or as a
+  version gone back to. Who edits can keep one now, from the button over the
+  list or with ⌘S or Ctrl+S in the dialog (the browser's dialog to save the
+  page never opens there): the list is read again in place, and what came of
+  it is said.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -21,6 +27,7 @@
 
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
+  import SaveIcon from '@lucide/svelte/icons/save';
   import XIcon from '@lucide/svelte/icons/x';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
@@ -28,12 +35,14 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { isSaveKey, shortcutKeys, shortcutLabel } from '$lib/keys.ts';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { displayDateTime, relativeTime } from '$lib/logic/format.ts';
-  import type { BoardStore, BodyVersion } from '$lib/state/index.ts';
+  import type { BoardStore, BodyVersion, BodyVersionCause } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
 
+  import { KEPT_SAID } from './body-notes.ts';
   import { bodyReferences } from './body-references.ts';
   import type { VersionsReading } from './body-versions.svelte.ts';
 
@@ -88,6 +97,18 @@
     workspace.userName(userId) ?? m['centerPanel.unknown-user']();
   const whoWrote = (version: BodyVersion): string => names.format(version.editors.map(resolveUser));
   const whenKept = (version: BodyVersion): string => displayDateTime(version.keptAt, context);
+  const CAUSES: Record<BodyVersionCause, () => string> = {
+    auto: m.card_version_cause_auto,
+    manual: m.card_version_cause_manual,
+    restored: m.card_version_cause_restored,
+  };
+
+  /** The keys that keep a version, in the dialog: as its button, for who edits. */
+  function keyInDialog(event: KeyboardEvent): void {
+    if (!isSaveKey(event)) return;
+    event.preventDefault();
+    if (reading && container.canEdit && !event.repeat) void reading.keep();
+  }
 
   /** Narrow: the body of a version takes the place of the list (Tailwind's `sm`). */
   const narrow = new MediaQuery('(max-width: 39.99rem)');
@@ -138,6 +159,7 @@
     class="flex h-[min(90dvh,44rem)] flex-col gap-0 p-0 sm:max-w-3xl"
     showCloseButton={false}
     data-testid="body-versions"
+    onkeydown={keyInDialog}
   >
     <Dialog.Header class="flex-row items-center gap-2 border-b p-4">
       {#if chosen}
@@ -173,6 +195,30 @@
             chosen && 'max-sm:hidden',
           ]}
         >
+          {#if container.canEdit}
+            <div class="grid justify-items-start gap-1.5 border-b p-3">
+              <!-- Not disabled while a version is kept: the focus stays on it. -->
+              <Button
+                variant="outline"
+                size="sm"
+                class="roomy:min-h-touch"
+                aria-keyshortcuts={shortcutKeys('S')}
+                data-testid="body-versions-keep"
+                onclick={() => void reading.keep()}
+              >
+                <SaveIcon aria-hidden="true" />
+                {m.card_version_keep_now()}
+                <kbd class="font-sans text-xs text-muted-foreground">{shortcutLabel('S')}</kbd>
+              </Button>
+              <p
+                class="text-xs text-muted-foreground"
+                role="status"
+                data-testid="body-versions-kept"
+              >
+                {reading.kept ? KEPT_SAID[reading.kept]() : ''}
+              </p>
+            </div>
+          {/if}
           {#if reading.status === 'loading'}
             <p class="p-4 text-muted-foreground" role="status">{m.app_loading()}</p>
           {:else if reading.status === 'failed'}
@@ -212,7 +258,10 @@
                         </span>
                       {/if}
                     </span>
-                    <span class="text-xs text-muted-foreground">{when}</span>
+                    <span class="text-xs text-muted-foreground">
+                      {when} ·
+                      <span data-testid="body-version-cause">{CAUSES[version.cause]()}</span>
+                    </span>
                     {#if version.editors.length > 0}
                       <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                         <span class="flex shrink-0 -space-x-1">
@@ -250,6 +299,7 @@
           {:else}
             <p class="border-b px-4 py-2.5 text-xs text-muted-foreground">
               <span class="font-medium text-foreground">{whenKept(chosen)}</span>
+              · {CAUSES[chosen.cause]()}
               {#if chosen.editors.length > 0}
                 · {m.card_version_by({ who: whoWrote(chosen) })}
               {/if}

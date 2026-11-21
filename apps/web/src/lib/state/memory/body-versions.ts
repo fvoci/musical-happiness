@@ -9,7 +9,10 @@
  *   wrote it have left it (whoever stays and wrote nothing), and when the
  *   room writes the card after the body has been written on for ten minutes;
  * - a body written whole is kept, by its writer, after the body it was
- *   written over; a version restored is such a write;
+ *   written over; a version restored is such a write, and what it wrote is
+ *   kept as restored;
+ * - an editor asks to keep the body now (`keep`): kept by hand, unless it is
+ *   the newest version already or one was kept by hand within a minute;
  * - a body that is the newest version already is not kept again, no body is
  *   no first version, and the newest fifty are kept.
  *
@@ -18,7 +21,13 @@
  * is deleted for good stay for the life of the world.
  */
 import type { DocNode } from '../../editor/schema.ts';
-import type { BodyVersion, BodyVersionContent, BodyVersions } from '../body-versions.ts';
+import type {
+  BodyVersion,
+  BodyVersionCause,
+  BodyVersionContent,
+  BodyVersions,
+  KeptBodyVersion,
+} from '../body-versions.ts';
 
 import { BackendError } from '../problems.ts';
 
@@ -32,12 +41,15 @@ import type { StoredCard, World } from './world.ts';
 export const VERSIONS_KEPT = 50;
 /** How long a body is written on before a version of it is kept (`collab_version_minutes`). */
 export const VERSION_EVERY = 10 * 60_000;
+/** How long after a version kept by hand no other is kept by hand (the server's `BY_HAND_FLOOR`). */
+export const BY_HAND_FLOOR = 60_000;
 
 interface Kept {
   version: number;
   keptAt: number;
   editors: string[];
   body: DocNode | null;
+  cause: BodyVersionCause;
 }
 
 /** What is kept of one card's body. */
@@ -68,7 +80,12 @@ function same(one: DocNode | null, other: DocNode | null): boolean {
  * one before and `writtenBy`; not a body that is the newest version
  * already, and not no body as the first.
  */
-function keep(world: World, card: StoredCard, writtenBy?: string): void {
+function keep(
+  world: World,
+  card: StoredCard,
+  writtenBy?: string,
+  cause: BodyVersionCause = 'auto',
+): void {
   const kept = keptOf(world, card.id);
   const body = card.body ?? null;
   const newest = kept.versions.at(-1);
@@ -79,10 +96,12 @@ function keep(world: World, card: StoredCard, writtenBy?: string): void {
   if (writtenBy !== undefined) editors.add(writtenBy);
   kept.versions.push({
     version: (newest?.version ?? 0) + 1,
-    // Nobody is known to have written it: it is as old as the card's last change at the latest.
-    keptAt: editors.size === 0 ? card.updateAt : world.now(),
+    // Nobody is known to have written it: it is as old as the card's last change at the
+    // latest. One asked for is as old as the asking.
+    keptAt: editors.size === 0 && cause !== 'manual' ? card.updateAt : world.now(),
     editors: [...editors].sort(),
     body: copy(body),
+    cause,
   });
   kept.versions.splice(0, Math.max(0, kept.versions.length - VERSIONS_KEPT));
 }
@@ -116,8 +135,9 @@ export function writersLeft(world: World, card: StoredCard): void {
 
 /**
  * Writes a card's body whole (`write` does, to `body`), as `userId`: the
- * body before is kept, then the body written, as the writer's. Nothing is
- * kept around a write of the body the card has.
+ * body before is kept, then the body written, as the writer's (as `cause`:
+ * a version gone back to is kept as restored). Nothing is kept around a
+ * write of the body the card has.
  */
 export function writtenWhole(
   world: World,
@@ -125,11 +145,12 @@ export function writtenWhole(
   body: DocNode | null,
   userId: string,
   write: () => void,
+  cause: BodyVersionCause = 'auto',
 ): void {
   const changes = !same(card.body ?? null, body);
   if (changes) keep(world, card);
   write();
-  if (changes) keep(world, card, userId);
+  if (changes) keep(world, card, userId, cause);
 }
 
 /**
@@ -191,27 +212,25 @@ export class MemoryBodyVersions implements BodyVersions {
   async restore(containerId: string, cardId: string, version: number): Promise<void> {
     await this.#enter();
     const world = this.#world;
-    const role = memberRole(world, this.#userId, containerId, this.#kind);
-    const refuse = (): void => {
-      if (role !== 'admin' && role !== 'editor') {
-        fail(403, `access denied to restore a version of the ${this.#of}'s body`);
-      }
-    };
-    // As the server: a card is looked for first, a page's wiki asked first.
-    if (this.#of === 'page') refuse();
-    const card = this.#card(containerId, cardId);
-    refuse();
+    const card = this.#editable(containerId, cardId, 'restore');
     const kept = keptOf(world, cardId).versions.find((one) => one.version === version);
     if (!kept) fail(404, 'no such version');
     // What the room's editors typed is in the card first, and is kept with the body before.
     world.bodyFlushed?.(cardId);
     if (same(card.body ?? null, kept.body)) return;
     const body = storable(world, containerId, kept.body);
-    writtenWhole(world, card, body, this.#userId, () => {
-      card.body = body;
-      card.updateAt = world.now();
-      card.modifiedBy = this.#userId;
-    });
+    writtenWhole(
+      world,
+      card,
+      body,
+      this.#userId,
+      () => {
+        card.body = body;
+        card.updateAt = world.now();
+        card.modifiedBy = this.#userId;
+      },
+      'restored',
+    );
     world.bodyWritten?.(cardId);
     if (this.#of === 'page') {
       world.tellContainer(containerId, { kind: 'pages', containerId, pages: [pageOf(card)] });
@@ -221,6 +240,61 @@ export class MemoryBodyVersions implements BodyVersions {
         containerId,
         blocks: [wireOf(card)],
       });
+  }
+
+  /**
+   * Keeps a card's body as a version now, for who edits the board, as the
+   * server does (`keepCardBodyVersion`): what the room's editors typed is in
+   * the card first; a body that is the newest version already is not kept
+   * again, nor one within a minute of a version kept by hand. Kept, it names
+   * who wrote since the version before (not who asked), and the interval
+   * counts again from the next change.
+   */
+  async keep(containerId: string, cardId: string): Promise<KeptBodyVersion> {
+    await this.#enter();
+    const world = this.#world;
+    const card = this.#editable(containerId, cardId, 'keep');
+    world.bodyFlushed?.(cardId);
+    const kept = keptOf(world, cardId);
+    const newest = kept.versions.at(-1);
+    if (newest ? same(newest.body, card.body ?? null) : (card.body ?? null) === null) {
+      // Kept already: nobody wrote since it, and the interval waits for the next change.
+      kept.unkept.clear();
+      kept.due = undefined;
+      return { outcome: 'unchanged', version: this.#listed(card, newest?.version) };
+    }
+    const byHand = kept.versions.findLast((one) => one.cause === 'manual');
+    if (byHand && world.now() - byHand.keptAt <= BY_HAND_FLOOR) {
+      return { outcome: 'recent', version: this.#listed(card, byHand.version) };
+    }
+    keep(world, card, undefined, 'manual');
+    return { outcome: 'kept', version: this.#listed(card, kept.versions.at(-1)?.version) };
+  }
+
+  /**
+   * A card of the board (a page of the wiki), for who edits it: `what` is
+   * refused to the others. As the server: a card is looked for first, a
+   * page's wiki asked first.
+   */
+  #editable(containerId: string, cardId: string, what: 'restore' | 'keep'): StoredCard {
+    const role = memberRole(this.#world, this.#userId, containerId, this.#kind);
+    const refuse = (): void => {
+      if (role !== 'admin' && role !== 'editor') {
+        fail(403, `access denied to ${what} a version of the ${this.#of}'s body`);
+      }
+    };
+    if (this.#of === 'page') refuse();
+    const card = this.#card(containerId, cardId);
+    refuse();
+    return card;
+  }
+
+  /** One version of a card as the list has it; none for no number, or one it has no more. */
+  #listed(card: StoredCard, version: number | undefined): BodyVersion | null {
+    const found = this.#described(card).find((one) => one.version === version);
+    if (!found) return null;
+    const { body: _, ...listed } = found;
+    return listed;
   }
 
   /** A card of the board (a page of the wiki), for a member of it: the versions are theirs to read. */

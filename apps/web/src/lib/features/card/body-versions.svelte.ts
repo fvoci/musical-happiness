@@ -10,6 +10,9 @@
  * (no connection) is dropped with the document the restore replaces, and
  * said lost as for any body written whole.
  *
+ * Keeping a version now (`keepVersion`, from the dialog's button and from
+ * the keys in the body) sends what was typed first too: what is kept has it.
+ *
  * A wiki's page has versions of its body as a card has: read the same way
  * (`pageVersions`), with the wiki in place of the board.
  */
@@ -20,6 +23,7 @@ import {
   type BodyVersionContent,
   type BodyVersions,
   type CardStore,
+  type KeptBodyVersion,
   type PageStore,
 } from '$lib/state/index.ts';
 
@@ -59,6 +63,19 @@ export function pageVersions(page: PageStore): VersionsSource {
   };
 }
 
+/** What came of asking to keep a version now: the server's answer, or that there was none. */
+export type KeepOutcome = KeptBodyVersion['outcome'] | 'failed';
+
+/** Keeps the body as a version now, once what the reader typed is in the room. */
+export async function keepVersion(source: VersionsSource): Promise<KeepOutcome> {
+  try {
+    await source.settle();
+    return (await source.versions.keep(source.ownerId, source.itemId)).outcome;
+  } catch {
+    return 'failed';
+  }
+}
+
 /**
  * Why a version was not restored: the card has it no more (`gone`), it
  * cannot be stored any more or names a file (of an image or a file block)
@@ -78,6 +95,9 @@ export class VersionsReading {
   contentStatus = $state<'loading' | 'ready' | 'failed' | 'gone'>('loading');
   restoring = $state(false);
   refusal = $state<RestoreRefusal>();
+  keeping = $state(false);
+  /** What came of the last ask to keep a version here. */
+  kept = $state<KeepOutcome>();
 
   readonly #source: VersionsSource;
 
@@ -94,14 +114,48 @@ export class VersionsReading {
   async read(): Promise<void> {
     this.status = 'loading';
     try {
-      await this.#source.settle();
-      const list = await this.#versions.list(this.#source.ownerId, this.#source.itemId);
-      await this.#source.workspace.learnUsers(list.flatMap((one) => one.editors));
-      this.versions = list;
+      this.#take(await this.#list());
       this.status = 'ready';
     } catch {
       this.status = 'failed';
     }
+  }
+
+  /**
+   * Keeps the body as a version now, and reads the list again in place: the
+   * version kept is in it at once, and the one being read stays.
+   */
+  async keep(): Promise<void> {
+    if (this.keeping) return;
+    this.keeping = true;
+    this.kept = undefined;
+    try {
+      const outcome = await keepVersion(this.#source);
+      if (outcome !== 'failed') {
+        // A list that cannot be read now stays as it was: the version was kept all the same.
+        this.#take(await this.#list().catch(() => this.versions));
+      }
+      this.kept = outcome;
+    } finally {
+      this.keeping = false;
+    }
+  }
+
+  /** The list, with the names of who wrote known; what the reader typed is sent first. */
+  async #list(): Promise<BodyVersion[]> {
+    await this.#source.settle();
+    const list = await this.#versions.list(this.#source.ownerId, this.#source.itemId);
+    await this.#source.workspace.learnUsers(list.flatMap((one) => one.editors));
+    return list;
+  }
+
+  /** A list read: the version being read is taken from it, for whether it is the card's body now. */
+  #take(list: BodyVersion[]): void {
+    this.versions = list;
+    const chosen = this.chosen && list.find((one) => one.version === this.chosen?.version);
+    if (!chosen) return;
+    this.chosen = chosen;
+    if (this.content) this.content = { ...this.content, isCurrent: chosen.isCurrent };
   }
 
   /**
@@ -120,13 +174,21 @@ export class VersionsReading {
         this.#source.itemId,
         version.version,
       );
-      if (this.chosen !== version) return;
+      if (!this.#isChosen(version)) return;
       this.content = content;
       this.contentStatus = 'ready';
     } catch (error) {
-      if (this.chosen !== version) return;
+      if (!this.#isChosen(version)) return;
       this.contentStatus = statusOf(error) === 404 ? 'gone' : 'failed';
     }
+  }
+
+  /**
+   * Whether the version is still the one chosen, after a wait: by its number, for a list
+   * read again meanwhile (`keep`) has the same version anew.
+   */
+  #isChosen(version: BodyVersion): boolean {
+    return this.chosen?.version === version.version;
   }
 
   /** Back to the list. */

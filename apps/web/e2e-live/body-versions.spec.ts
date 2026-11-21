@@ -3,7 +3,9 @@
  * card's room, one of them goes back to a version and both have its text,
  * what was typed stays a version to go back to, and undo in the editor
  * does not take a restore back; a viewer reads the versions and restores
- * none; a reader by the public link is offered none.
+ * none; a reader by the public link is offered none. ⌘S or Ctrl+S keeps a
+ * version now, of a card or a wiki's page, with what was typed just before,
+ * the other in the room going on as they were; the browser saves no page.
  */
 import { expect, test, type APIRequestContext, type Browser, type Page } from '@playwright/test';
 
@@ -85,6 +87,37 @@ async function typeAtEnd(page: Page, text: string, newLine = false): Promise<voi
   await expect(editor(page)).toBeFocused();
   if (newLine) await page.keyboard.press('Enter');
   await page.keyboard.type(text);
+}
+
+const keptSaid = (page: Page, body = 'card-body') =>
+  page.getByTestId(body).getByTestId('body-kept');
+
+/** The text of each paragraph of a body as stored. */
+function paragraphs(body: unknown): string[] {
+  const doc = body as { content?: { content?: { text?: string }[] }[] } | null;
+  return (doc?.content ?? []).map((block) =>
+    (block.content ?? []).map((inline) => inline.text ?? '').join(''),
+  );
+}
+
+async function keptBody(api: APIRequestContext, at: string, version: number): Promise<string[]> {
+  const answer = await api.get(`${at}/body-versions/${String(version)}`);
+  expect(answer.ok()).toBe(true);
+  return paragraphs(((await answer.json()) as Schemas['BodyVersionContent']).body);
+}
+
+/** Puts down, for each press of S with Ctrl or ⌘ from here on, whether the page kept the browser from saving it. */
+async function watchSaveKeys(page: Page): Promise<() => Promise<boolean[]>> {
+  await page.evaluate(() => {
+    const seen: boolean[] = [];
+    (window as unknown as { saveKeys: boolean[] }).saveKeys = seen;
+    window.addEventListener('keydown', (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyS') {
+        seen.push(event.defaultPrevented);
+      }
+    });
+  });
+  return () => page.evaluate(() => (window as unknown as { saveKeys: boolean[] }).saveKeys);
 }
 
 async function openVersions(page: Page): Promise<void> {
@@ -230,6 +263,8 @@ test('a viewer reads the versions and restores none; a reader by the public link
   const asReader = await signedIn(base, reader);
   const refused = await asReader.post(`${cardAt(board, cardId)}/body-versions/1/restore`);
   expect(refused.status()).toBe(403);
+  // Nor keep one now.
+  expect((await asReader.post(`${cardAt(board, cardId)}/body-versions`)).status()).toBe(403);
   expect((await kept(asReader, board, cardId)).map((one) => one.version)).toEqual([2, 1]);
   await asReader.dispose();
   await looker.context().close();
@@ -247,6 +282,12 @@ test('a viewer reads the versions and restores none; a reader by the public link
   );
   const dialog = page.getByTestId('card-dialog');
   await expect(dialog.getByText('Decided: ship on Friday')).toBeVisible();
+  // The keys in the body read by the link keep nothing, and the browser saves no page.
+  const saveKeys = await watchSaveKeys(page);
+  await dialog.getByText('Decided: ship on Friday').click();
+  await page.keyboard.press(await primaryKey(page, 's'));
+  expect(await saveKeys()).toEqual([true]);
+  await expect(keptSaid(page)).toHaveText('');
   await page.getByTestId('card-menu').click();
   await expect(page.locator('[data-action="copy-link"]')).toBeVisible();
   await expect(page.locator('[data-action="versions"]')).toHaveCount(0);
@@ -256,4 +297,126 @@ test('a viewer reads the versions and restores none; a reader by the public link
   await context.close();
   await api.dispose();
   expect([...errors, ...sharedErrors]).toEqual([]);
+});
+
+test('the keys keep what was typed just before as a version, and the other in the room goes on as they were', async ({
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('kept-ada');
+  const colleague = person('kept-bora');
+  await register(base, owner);
+  await register(base, colleague);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Versions by hand',
+    cards: [{ title: 'Plan the launch', status: 'To do' }],
+    members: [{ who: colleague, role: 'editor' }],
+  });
+  const cardId = board.cards['Plan the launch'] ?? '';
+  await writeWhole(api, board, cardId, 'The first plan');
+  const path = boardPath(board, board.viewId, cardId);
+  const first = await pageOf(browser, path, owner);
+  const second = await pageOf(browser, path, colleague);
+  const watched = [watchErrors(first), watchErrors(second)];
+  for (const page of [first, second]) {
+    await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
+  }
+
+  await typeAtEnd(first, ', Ada too');
+  await typeAtEnd(second, 'Bora adds a line', true);
+  const both = ['The first plan, Ada too', 'Bora adds a line'];
+  await expect(editor(first).locator('p')).toHaveText(both);
+  // The owner's caret is where they typed; what is typed just before the keys is kept.
+  const saveKeys = await watchSaveKeys(first);
+  await editor(first).locator('p').first().click();
+  await first.keyboard.press('End');
+  await first.keyboard.type(' now');
+  await first.keyboard.press(await primaryKey(first, 's'));
+  await expect(keptSaid(first)).toHaveText('Version kept.');
+  const list = await kept(api, board, cardId);
+  expect(list.map((one) => one.cause)).toEqual(['manual', 'auto']);
+  const [newest] = list;
+  expect(await keptBody(api, cardAt(board, cardId), newest?.version ?? 0)).toEqual([
+    'The first plan, Ada too now',
+    'Bora adds a line',
+  ]);
+
+  // The colleague's editor is as it was: still theirs to type in where they were.
+  await expect(editor(second)).toBeFocused();
+  await expect(second.getByTestId('body-lost')).toHaveCount(0);
+  await second.keyboard.type(' and more');
+  const after = ['The first plan, Ada too now', 'Bora adds a line and more'];
+  for (const page of [first, second]) await expect(editor(page).locator('p')).toHaveText(after);
+  await expect(keptSaid(second)).toHaveText('');
+
+  // Again within a minute of it: none is kept, and that is said.
+  await editor(first).locator('p').first().click();
+  await first.keyboard.press(await primaryKey(first, 's'));
+  await expect(keptSaid(first)).toContainText('a moment ago');
+  expect(await saveKeys()).toEqual([true, true]);
+  expect(await kept(api, board, cardId)).toHaveLength(2);
+
+  // The dialog says which was kept by hand.
+  await openVersions(second);
+  await expect(rows(second)).toHaveCount(2);
+  await expect(rows(second).first().getByTestId('body-version-cause')).toHaveText('Kept by hand');
+  await expect(rows(second).nth(1).getByTestId('body-version-cause')).toHaveText(
+    'Kept automatically',
+  );
+  await first.context().close();
+  await second.context().close();
+  await api.dispose();
+  expect(watched.flat()).toEqual([]);
+});
+
+test('the keys keep the body of a wiki page as a version, and not again unchanged', async ({
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('kept-page');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const { workspaceId } = await makeBoard(api, { title: 'Roadmap' });
+  const inWorkspace = `/api/v1/w/${workspaceId}`;
+  const wiki = (await (
+    await api.post(`${inWorkspace}/wikis`, { data: { title: 'Handbook', type: 'P' } })
+  ).json()) as Schemas['Container'];
+  const pages = `${inWorkspace}/wikis/${wiki.id}/pages`;
+  const made = (await (
+    await api.post(pages, { data: { title: 'Notes' } })
+  ).json()) as Schemas['Page'];
+  const at = `${pages}/${made.id}`;
+  const page = await (await browser.newContext({ locale: 'en-US' })).newPage();
+  await page.goto(`/w/${workspaceId}/wikis/${wiki.id}/${made.id}`);
+  await signInOnPage(page, owner);
+  await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', 'ready');
+  const errors = watchErrors(page);
+  const saveKeys = await watchSaveKeys(page);
+  await focusAtEnd(page.getByTestId('page-body'));
+  await expect(page.getByTestId('page-body').locator('[contenteditable]').first()).toBeFocused();
+  await page.keyboard.type('Written on the page');
+  await page.keyboard.press(await primaryKey(page, 's'));
+  await expect(keptSaid(page, 'page-body')).toHaveText('Version kept.');
+  // A page that had no body has no version before: the one kept by hand alone.
+  const [newest, ...older] = (await (
+    await api.get(`${at}/body-versions`)
+  ).json()) as Schemas['BodyVersion'][];
+  expect(newest?.cause).toBe('manual');
+  expect(older).toEqual([]);
+  expect(await keptBody(api, at, newest?.version ?? 0)).toEqual(['Written on the page']);
+  await page.keyboard.press(await primaryKey(page, 's'));
+  await expect(keptSaid(page, 'page-body')).toHaveText(
+    'Nothing has changed since the newest version.',
+  );
+  expect(await saveKeys()).toEqual([true, true]);
+  await page.getByTestId('page-menu').click();
+  await page.locator('[data-action="versions"]').click();
+  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page).first().getByTestId('body-version-cause')).toHaveText('Kept by hand');
+  await page.context().close();
+  await api.dispose();
+  expect(errors).toEqual([]);
 });

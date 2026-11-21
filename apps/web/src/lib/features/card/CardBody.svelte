@@ -21,14 +21,23 @@
   shown by this too (`of="page"`), with the wiki in place of the board and
   the page in place of the card, and says so in its own words; an empty page
   says it is empty to whoever may only read it, also in the editor.
+
+  ⌘S or Ctrl+S in the body keeps a version of it now (`keep`), and a line
+  says what came of it for a while, aloud too. The browser's dialog to save
+  the page never opens there, also in a body that only reads (which takes no
+  focus: the keys count when what is selected is in it). Who only reads is
+  told nothing; who edits a body that cannot be written for now is told that
+  no version can be kept then.
 -->
 <script lang="ts">
   import type { Editor as TiptapEditor } from '@tiptap/core';
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
+  import { on } from 'svelte/events';
 
   import { avatarColor } from '$lib/components/avatar/avatar.ts';
   import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { isSaveKey } from '$lib/keys.ts';
   import { searchedNames } from '$lib/logic/person-names.ts';
   import type { BodyReferences } from '$lib/editor/body-editor.ts';
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
@@ -39,11 +48,13 @@
     FORMULA_DROPPED,
     FILE_DROPPED,
     IMAGE_DROPPED,
+    KEPT_SAID,
     LATE_NOTE,
     lostNote,
     PAGE_WORDS,
     roomNote,
   } from './body-notes.ts';
+  import type { KeepOutcome } from './body-versions.svelte.ts';
   import { keepCaret } from './caret-keeper.ts';
   import { editorChunk } from './editor-chunk.svelte.ts';
 
@@ -67,10 +78,15 @@
     of?: 'card' | 'page';
     /** What its references are drawn from and put with (`bodyReferences`); without it, none is shown. */
     references?: BodyReferences | undefined;
+    /** Keeps a version of the body now (`keepVersion`); without it, the keys keep none. */
+    keep?: (() => Promise<KeepOutcome>) | undefined;
     testId?: string;
   }
 
-  let { container, card, of = 'card', testId = 'card-body', references }: Props = $props();
+  let { container, card, of = 'card', testId = 'card-body', references, keep }: Props = $props();
+
+  /** How long what came of the keys is shown: long enough to read, gone before it is old news. */
+  const KEPT_SHOWN = 6000;
 
   const words = $derived(of === 'page' ? PAGE_WORDS : CARD_WORDS);
 
@@ -138,6 +154,61 @@
   const shownNote = $derived(
     !(room && editorChunk.failed) && note && (!note.late || lateShown) ? note : undefined,
   );
+  /** What came of the keys that keep a version, said aloud and shown for a while. */
+  let keptSaid = $state('');
+  let keptTimer: ReturnType<typeof setTimeout> | undefined;
+  /** A version is being kept: the keys held or pressed again meanwhile ask nothing more. */
+  let keeping = false;
+
+  async function keepNow(): Promise<void> {
+    if (!keep || !container.canEdit || keeping) return;
+    // What was typed may not be in the room: what would be kept is not what is shown.
+    if (!writable) {
+      say(KEPT_SAID.notNow());
+      return;
+    }
+    keeping = true;
+    try {
+      say(KEPT_SAID[await keep()]());
+    } finally {
+      keeping = false;
+    }
+  }
+
+  /** Words said again are said again: the line is emptied first. */
+  function say(text: string): void {
+    clearTimeout(keptTimer);
+    keptSaid = '';
+    void tick().then(() => {
+      keptSaid = text;
+      keptTimer = setTimeout(() => {
+        keptSaid = '';
+      }, KEPT_SHOWN);
+    });
+  }
+  $effect(() => () => {
+    clearTimeout(keptTimer);
+  });
+
+  /**
+   * The keys pressed in the body but not in its editor (which takes them itself), heard
+   * from the page while the body is there: on something in it, or on what holds it (the
+   * card's dialog, the page, where the focus goes from a body that takes none) with what
+   * is selected in it. Not on anything beside it: a dialog over it, another field.
+   */
+  const keysOutside = (body: HTMLElement): (() => void) =>
+    on(document, 'keydown', (event) => {
+      const target = event.target;
+      if (event.defaultPrevented || !isSaveKey(event) || !(target instanceof Node)) return;
+      const selected = document.getSelection()?.focusNode ?? null;
+      const inBody =
+        body.contains(target) ||
+        (target.contains(body) && selected !== null && body.contains(selected));
+      if (!inBody) return;
+      event.preventDefault();
+      if (!event.repeat) void keepNow();
+    });
+
   $effect(() => {
     if (!late) return;
     const timer = setTimeout(() => {
@@ -151,6 +222,7 @@
 </script>
 
 <section
+  {@attach keysOutside}
   aria-label={words.label()}
   class="flex flex-col gap-3 border-t pt-5"
   data-testid={testId}
@@ -203,6 +275,7 @@
           onDraftDropped={() => {
             card.sayLost(FORMULA_DROPPED);
           }}
+          onSave={() => void keepNow()}
           users={people}
           {resolveUser}
           {references}
@@ -253,6 +326,7 @@
         <span data-testid="body-room-note" data-reason={room?.reason}>{shownNote.text}</span>
       {/if}
     </p>
+    <p role="status" data-testid="body-kept">{keptSaid}</p>
     {#if shownNote?.retry}
       <Button
         variant="outline"

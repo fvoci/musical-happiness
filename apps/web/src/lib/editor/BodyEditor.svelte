@@ -26,6 +26,7 @@
   import type { Transaction } from '@tiptap/pm/state';
   import { ySyncPluginKey } from '@tiptap/y-tiptap';
   import { onMount, untrack } from 'svelte';
+  import { on } from 'svelte/events';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
@@ -47,6 +48,7 @@
   import { suggestionList } from './suggestion-list.ts';
   import { SlashMenu } from './slash-menu.ts';
   import { BodyUpload, fromUpload, type Pending } from './uploads.ts';
+  import { SaveKey } from './save-key.ts';
 
   let {
     doc,
@@ -74,6 +76,7 @@
     onUploadDropped,
     onFitsAgain,
     onDraftDropped,
+    onSave,
   }: BodyEditorProps = $props();
 
   let host: HTMLDivElement;
@@ -340,12 +343,19 @@
 
   /** A syllable is being composed in the body: said to whoever holds what comes from outside. */
   let composing = false;
+  const saveKey = new SaveKey(() => onSave);
+  /** The keys of the editor's own text, as they come up from it (the field is the editor inside). */
+  const saveKeys = (element: HTMLElement): (() => void) =>
+    on(element, 'keydown', (event) => {
+      saveKey.down(event, composing);
+    });
 
   /** The editor goes away: a formula's field with it, and the syllable it was in the middle of. */
   function leaveFields(leaving: Editor): void {
     cancelMathEditingOf(leaving.view);
     if (composing) fromEditor(() => onComposing?.(false))();
     composing = false;
+    saveKey.drop();
   }
 
   /** A stroke of a syllable in the body's own text (not in a field drawn into it: a formula's). */
@@ -367,6 +377,7 @@
     queueMicrotask(() => {
       composing = false;
       onComposing?.(false);
+      saveKey.composed();
     });
   }
 
@@ -414,6 +425,7 @@
     oncompositionstart={composes}
     oncompositionupdate={composes}
     oncompositionend={composed}
+    {@attach saveKeys}
   ></div>
   <!-- Said aloud when it changes: an upload under way, an upload that failed, a body that cannot be edited. -->
   <p class="doc-editor-status" role="status" data-shown={status === '' ? undefined : ''}>
