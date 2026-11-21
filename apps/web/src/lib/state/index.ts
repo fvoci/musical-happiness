@@ -64,7 +64,7 @@ export {
   changeName,
   confirmPassword,
   passwordChanged,
-  passwordSet,
+  setFirstPassword,
   rereadEmail,
 } from './account.ts';
 export type { EmailChange } from './email-change.ts';

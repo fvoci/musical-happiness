@@ -12,7 +12,7 @@ import {
   BackendError,
   confirmPassword,
   passwordChanged,
-  passwordSet,
+  setFirstPassword,
   type Change,
 } from '$lib/state/index.ts';
 import type { MemoryBackend } from '$lib/state/memory/backend.ts';
@@ -254,9 +254,19 @@ describe('the own space, once it takes the password alone', () => {
     const own = await ownSpace(backend);
     const board = await boardIn(backend, own, 'Mine');
     await workspace.load(own);
-    // As the server does to the provider's session that sets it.
-    closeOwnSpace(world, backend.userId, 'a long password');
-    await passwordSet(workspace, 'a long password');
+    const between: string[] = [];
+    const set = async (password: string): Promise<void> => {
+      // As the server does to the provider's session that sets it: before it answers, it
+      // stops telling the session of the space, and the page reads again and is refused.
+      closeOwnSpace(world, backend.userId, password);
+      world.tellUsers([backend.userId], { kind: 'resync' });
+      await settle();
+      between.push(workspace.entered);
+    };
+    await setFirstPassword(workspace, set, 'a long password');
+    // Not closed on the way: the reader is shown no locked space before the open one.
+    expect(between).toEqual(['ready']);
+    expect(workspace.showing).toBe(false);
     expect(workspace.me?.hasPassword).toBe(true);
     expect(workspace.entered).toBe('ready');
     expect(workspace.info?.id).toBe(own);
@@ -264,13 +274,30 @@ describe('the own space, once it takes the password alone', () => {
     expect(workspace.workspaces.some((one) => one.passwordRequired)).toBe(false);
   });
 
+  it('leaves the page as it was where the server refuses the first password', async () => {
+    const { backend, workspace } = setup();
+    const own = await ownSpace(backend);
+    await workspace.load(own);
+    const refused = new BackendError(403, { reason: 'fresh_sign_in_required' });
+    await expect(
+      setFirstPassword(workspace, () => Promise.reject(refused), 'a long password'),
+    ).rejects.toBe(refused);
+    expect(workspace.showing).toBe(false);
+    expect(workspace.entered).toBe('ready');
+    expect(workspace.me?.hasPassword).not.toBe(true);
+  });
+
   it('closes on the page that gave the account its first password where the session cannot show it', async () => {
     const { backend, world, workspace } = setup();
     const own = await ownSpace(backend);
     await workspace.load(own);
-    closeOwnSpace(world, backend.userId, 'a long password');
-    // Another password than the account has now: set again elsewhere meanwhile.
-    await passwordSet(workspace, 'the one before it');
+    // Another password than the account has by then: set again elsewhere meanwhile.
+    const set = (): Promise<void> => {
+      closeOwnSpace(world, backend.userId, 'a long password');
+      return Promise.resolve();
+    };
+    await setFirstPassword(workspace, set, 'the one before it');
+    expect(workspace.showing).toBe(false);
     expect(workspace.me?.hasPassword).toBe(true);
     expect(workspace.entered).toBe('password');
     expect(workspace.closed?.id).toBe(own);

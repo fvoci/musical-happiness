@@ -288,6 +288,21 @@ impl Mailer {
             })
     }
 
+    /// Counts a link the account `user_id` asked for and is not mailed, its address
+    /// being somebody's, in the account's hour as one that is mailed: what the account
+    /// is mailed afterwards does not tell that this one was left out. The address's
+    /// hour is not counted: nothing goes to it.
+    pub(super) fn count_email_change(&self, user_id: &str) {
+        let counted =
+            self.change_quota
+                .take(user_id, 1, self.reset_per_hour, Instant::now(), || {
+                    Ok::<(), std::convert::Infallible>(())
+                });
+        if counted.is_err() {
+            tracing::info!("a link of a change of address not mailed: an hourly limit");
+        }
+    }
+
     /// Takes the place of one notice to the account `user_id` that its address was
     /// changed, in the recovery queue; the account's hour of notices is counted.
     ///

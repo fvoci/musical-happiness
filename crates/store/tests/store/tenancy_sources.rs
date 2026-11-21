@@ -122,16 +122,15 @@ fn the_wall_of_a_transaction_is_moved_in_one_place() {
 #[test]
 fn the_server_names_an_organization_for_a_handle_in_few_places() {
     const NAMING: &str = ".scoped( for_org( Tenant::org( Tenant::Org( .in_organization(";
-    const ALLOWED: [&str; 8] = [
+    const ALLOWED: [&str; 7] = [
         // The space of the account that asks what goes with it: named by its owner.
         "app/account_deletion.rs",
         "app/account_erasure.rs",
-        // The space of the account that set its first password, named by its owner:
-        // what the session followed of it ends there (`App::shut_own_space_to`).
-        "app/auth.rs",
         "app/housekeeping.rs",
         "app/mod.rs",
         "app/templates.rs",
+        // And the space of the account that set its first password, named by its
+        // owner: what the session followed of it ends there (`App::shut_own_space_to`).
         "app/workspaces.rs",
         "collab/mod.rs",
     ];

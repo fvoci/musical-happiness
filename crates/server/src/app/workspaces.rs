@@ -10,6 +10,7 @@ use fvoci_model::{
 use fvoci_store::{Making, PublicContainers, SessionTaken, Tenant};
 
 use super::{App, Asker, as_managed, sso};
+use crate::collab::AccessScope;
 use crate::error::AppError;
 
 /// A workspace as a member of it enters it: the application behind the wall between
@@ -368,5 +369,37 @@ impl App {
     /// Returns the store's error if the query fails.
     pub async fn workspaces(&self) -> Result<Vec<Workspace>, AppError> {
         Ok(self.store().get_workspaces().await?)
+    }
+
+    /// Puts the connections of `session`, which gave its account the first password
+    /// and has not shown it, out of the account's own space: the space takes a session
+    /// that has shown the password from here on. What they follow of it ends and its
+    /// rooms let them go; they stay open for what the session still opens, and for the
+    /// space once the session gives the password (`App::confirm_session_password`).
+    /// If the space cannot be read the connections are closed instead, and come back
+    /// to be asked.
+    pub(super) async fn shut_own_space_to(&self, session: &Session) {
+        let shut = async {
+            let workspaces = self
+                .store()
+                .workspaces_of_user(&session.user_id, session.into())
+                .await?;
+            for own in workspaces
+                .iter()
+                .filter(|workspace| workspace.kind == OrgKind::Personal)
+            {
+                let space = self.in_organization(&own.org_id)?;
+                space
+                    .ws()
+                    .end_subscriptions_without_password(&own.id, &session.user_id);
+                let scope = AccessScope::workspace(&own.id).of_user(&session.user_id);
+                space.collab().recheck_access(&space, scope).await;
+            }
+            Ok::<(), AppError>(())
+        };
+        if let Err(error) = shut.await {
+            tracing::warn!(%error, user_id = %session.user_id, "the own space was not shut to the session that set its password; its connections are closed");
+            self.ws().close_session(&session.id);
+        }
     }
 }

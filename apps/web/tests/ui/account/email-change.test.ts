@@ -32,6 +32,7 @@ function section(props: Partial<ComponentProps<typeof EmailChange>> = {}) {
     email: OLD,
     pending: undefined,
     hasPassword: true,
+    mails: true,
     onRequest,
     onResend,
     onCancel,
@@ -150,6 +151,19 @@ describe("the account's address in the settings", () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('This is your address already.');
   });
 
+  it('says under the new address where the reset mail goes, or that a server without mail changes it at once', async () => {
+    const { rerender } = section();
+    await fireEvent.click(screen.getByRole('button', { name: 'Change address' }));
+    const field = screen.getByLabelText('New email address');
+    expect(field).toHaveAccessibleDescription(
+      'Mail that resets your password goes to this address.',
+    );
+    await rerender({ mails: false });
+    expect(field).toHaveAccessibleDescription(
+      'This server sends no mail, so the address changes as soon as you ask.',
+    );
+  });
+
   it('offers no form to an account without a password, and says what comes first', () => {
     section({ hasPassword: false, email: '' });
     expect(screen.getByTestId('email-change-address')).toHaveTextContent('No address');
@@ -168,7 +182,10 @@ describe("the account's address, in the app", () => {
     const me = vi
       .spyOn(backend, 'me')
       .mockImplementation(() => Promise.resolve({ ...reader, hasPassword: true, ...read }));
-    const account = { emailChange: change } as Partial<Account> as Account;
+    const loginOptions = vi.fn(() =>
+      Promise.resolve({ registrationOpen: false, mailEnabled: true }),
+    );
+    const account = { emailChange: change, loginOptions } as Partial<Account> as Account;
     render(EmailChangeHost, { props: { workspace, account } });
     await settle();
     return { workspace, me, read };
@@ -246,19 +263,26 @@ describe('the page of the link that changes the address', () => {
 });
 
 describe("the line about the address, in the reader's own space", () => {
-  async function shown({ own = true, hasPassword = true, kept = {} } = {}) {
+  async function shown({
+    own = true,
+    hasPassword = true,
+    kept = {},
+    email = 'ada@work.example',
+    mailEnabled = true,
+  } = {}) {
     const setUp = setup();
     const { world, backend, workspace } = setUp;
     const reader = world.users.get(backend.userId);
     if (!reader) throw new Error('no reader');
-    world.users.set(reader.id, { ...reader, hasPassword });
+    world.users.set(reader.id, { ...reader, hasPassword, email });
     world.screenState.set(reader.id, kept);
     const listed = await backend.workspaces();
     const at = listed.find((one) => (one.kind === 'personal') === own);
     if (!at) throw new Error('no such workspace');
     await backend.createBoard(at.id, { title: 'Mine' }, firstKanban([], 'Board'));
     await workspace.load(at.id);
-    const account = { loginOptions: vi.fn() } as Partial<Account> as Account;
+    const loginOptions = vi.fn(() => Promise.resolve({ registrationOpen: false, mailEnabled }));
+    const account = { loginOptions } as Partial<Account> as Account;
     render(PasswordNoticeHost, { props: { workspace, account, onProvider: vi.fn() } });
     await settle();
     return { ...setUp, readerId: reader.id };
@@ -278,11 +302,21 @@ describe("the line about the address, in the reader's own space", () => {
     expect(world.screenState.get(readerId)).not.toHaveProperty('passwordNoticeDismissed');
   });
 
-  it('is not there in a shared workspace, once closed, or beside the notice to set a password', async () => {
+  it('tells an account without an address that the mail has nowhere to go, and to add one', async () => {
+    // As an account made through single sign-on is, once it has set a password.
+    await shown({ email: '' });
+    const line = await screen.findByTestId('email-notice');
+    expect(line).toHaveTextContent('Your account has no email address');
+    expect(line).toHaveTextContent('Add your own address in Settings');
+    expect(line).not.toHaveTextContent('company address');
+  });
+
+  it('is not there in a shared workspace, once closed, beside the notice to set a password, or where the server sends no mail', async () => {
     for (const where of [
       { own: false },
       { kept: { emailNoticeDismissed: '1' } },
       { hasPassword: false },
+      { mailEnabled: false },
     ]) {
       await shown(where);
       await settle();

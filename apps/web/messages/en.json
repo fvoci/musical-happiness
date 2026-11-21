@@ -1616,6 +1616,7 @@
   "email_change_none": "No address",
   "email_change_open": "Change address",
   "email_change_hint": "Mail that resets your password goes to this address.",
+  "email_change_hint_now": "This server sends no mail, so the address changes as soon as you ask.",
   "email_change_new": "New email address",
   "email_change_submit": "Change address",
   "email_change_pending": "We mailed a link to {email}. Your address changes when you open it within 24 hours. Until then it stays as it is.",
@@ -1632,5 +1633,6 @@
   "confirm_email_done": "Your address is changed. Mail that resets your password goes to the new address from now on.",
   "confirm_email_invalid": "This link changes nothing. It was used already, replaced by a newer one, cancelled or has expired, or the address is another account's now. To change your address, ask again in Settings.",
   "confirm_email_go": "Continue",
+  "email_notice_none": "Your account has no email address, so mail that resets your password has nowhere to go. Add your own address in Settings, so that My space stays yours.",
   "email_notice_text": "Mail that resets your password goes to your account's email address. If that is a company address, change it to a personal one in Settings, so that My space stays yours."
 }

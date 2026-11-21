@@ -93,6 +93,12 @@ export class LiveChanges {
   #subscribed = false;
   /** The workspace entered: the one subscribed to. */
   #workspaceId: string | undefined;
+  /**
+   * The server ended the subscription on this connection, and says nothing of the asking
+   * again that followed: taken (another role) or ignored (the own space, until the
+   * session has shown the account's password).
+   */
+  #ended = false;
   /** Tries in a row that did not open: picks the wait. */
   #failures = 0;
   /** A connection was open before: the next one that opens is a reconnection. */
@@ -170,10 +176,19 @@ export class LiveChanges {
    * Follows `workspaceId` from now on. An open connection leaves the one it
    * followed and subscribes to this one; what was heard of the old one is
    * the business of whoever listened to it (the workspace reads anew).
+   *
+   * Entered again, the one it follows is asked for again only where the server
+   * had ended it: what was ignored then may be taken now (the session has
+   * shown the password since), and whoever listens reads what was missed.
    */
   enter(workspaceId: string): void {
     const before = this.#workspaceId;
-    if (before === workspaceId) return;
+    if (before === workspaceId) {
+      const asked = JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId });
+      if (this.#ended && this.#send(asked)) this.#tellAll({ kind: 'resync' });
+      return;
+    }
+    this.#ended = false;
     this.#workspaceId = workspaceId;
     const socket = this.#socket;
     if (socket && this.#subscribed) {
@@ -184,15 +199,6 @@ export class LiveChanges {
     } else if (!socket && this.#wanted() && this.#timer === undefined) {
       this.#open();
     }
-  }
-
-  /**
-   * Asks again for the workspace it follows, on the connection it has: the
-   * session opens now what the server ended or ignored before (its own space,
-   * once it has shown the account's password). Who asked reads again.
-   */
-  askAgain(): void {
-    this.#send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId: this.#workspaceId }));
   }
 
   watch(containerId: string | undefined, listener: ChangeListener): () => void {
@@ -248,7 +254,7 @@ export class LiveChanges {
       socket.send(
         JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId: this.#workspaceId }),
       );
-      this.#subscribed = true;
+      [this.#subscribed, this.#ended] = [true, false];
       this.#heartbeat = new Heartbeat(
         () => {
           socket.send(PING);
@@ -354,6 +360,7 @@ export class LiveChanges {
     // Still on its way from a workspace that was left.
     if (message.workspaceId !== undefined && message.workspaceId !== this.#workspaceId) return;
     if (message.action === 'UNSUBSCRIBED_WORKSPACE') {
+      this.#ended = true;
       this.#send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId: this.#workspaceId }));
       this.#tellAll({ kind: 'resync' });
       return;

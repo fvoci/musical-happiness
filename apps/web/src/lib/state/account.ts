@@ -36,27 +36,46 @@ async function showPassword(workspace: Workspace, password: string): Promise<boo
 }
 
 /**
- * The reader gave the account its first password: it has one now, and its own
- * space takes only a session that has shown it. This one shows the password
- * it was just given, and the space, which the server stopped telling it of,
- * is entered again where it is shown. Where that is refused the page goes on
- * as the server answers it from now on (`Workspace.report`): the own space
- * asks for the password.
+ * Gives the reader's account its first password, `password`, through `set`
+ * (`Account.setPassword`, which throws what the server refuses it with). Set,
+ * the account has one, and its own space takes only a session that has shown
+ * it: this one shows the password it was just given, and the space is entered
+ * again where it is shown, the session's as it is now.
+ *
+ * The server stops telling the session of the space before it answers, and
+ * refuses what the page reads of it until the password is shown. For that
+ * moment the space is not closed (`Workspace.showing`): the reader is not
+ * shown a locked space on the way to an open one. Where the session cannot
+ * show the password after all, the page goes on as the server answers it from
+ * then on (`Workspace.report`): the own space asks for the password.
  */
-export async function passwordSet(workspace: Workspace, password: string): Promise<void> {
-  const me = workspace.me;
-  if (me) workspace.me = { ...me, hasPassword: true };
-  if (await showPassword(workspace, password)) {
-    const shown = workspace.info ?? workspace.closed;
-    if (workspace.asked !== undefined && shown && isOwnSpace(shown)) {
-      await workspace.enter(workspace.asked, true);
-    }
+export async function setFirstPassword(
+  workspace: Workspace,
+  set: (password: string) => Promise<void>,
+  password: string,
+): Promise<void> {
+  let shown: boolean;
+  workspace.showing = true;
+  try {
+    await set(password);
+    const me = workspace.me;
+    if (me) workspace.me = { ...me, hasPassword: true };
+    shown = await showPassword(workspace, password);
+  } finally {
+    workspace.showing = false;
+  }
+  if (!shown) {
+    const detail = 'a password was set';
+    workspace.report(
+      'load',
+      new BackendError(401, { reason: 'password_sign_in_required', detail }),
+    );
     return;
   }
-  workspace.report(
-    'load',
-    new BackendError(401, { reason: 'password_sign_in_required', detail: 'a password was set' }),
-  );
+  const own = workspace.info ?? workspace.closed;
+  if (workspace.asked !== undefined && own && isOwnSpace(own)) {
+    await workspace.enter(workspace.asked, true);
+  }
 }
 
 /**

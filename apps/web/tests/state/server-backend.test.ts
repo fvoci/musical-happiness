@@ -108,7 +108,7 @@ describe('the server backend', () => {
     ]);
   });
 
-  it('keeps its connection as the session gives its password, and asks on it again for its workspace', async () => {
+  it('keeps its connection as the session gives its password, and asks on it again for its workspace once that is entered again', async () => {
     const made: Socket[] = [];
     class Socket extends EventTarget {
       readonly sent: unknown[] = [];
@@ -135,16 +135,20 @@ describe('the server backend', () => {
     socket?.dispatchEvent(new Event('open'));
     const subscribe = { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 'w1' };
     expect(socket?.sent).toEqual([subscribe]);
+    // The account was given its first password: the server ends what the session follows
+    // of its own space, and ignores the asking again that the page answers with.
+    const ended = JSON.stringify({ action: 'UNSUBSCRIBED_WORKSPACE', workspaceId: 'w1' });
+    socket?.dispatchEvent(new MessageEvent('message', { data: ended }));
+    expect(socket?.sent).toEqual([subscribe, subscribe]);
 
     await backend.confirmPassword('a long password');
     await new Promise((done) => setTimeout(done, 20));
-    // No new connection: the server takes this one as the session's that it is now,
-    // and what it would not let the session follow before is asked for again.
+    // No new connection: the server takes this one as the session's that it is now.
     expect(made).toHaveLength(1);
     expect(socket?.closed).toBe(false);
-    expect(
-      socket?.sent.filter((one) => JSON.stringify(one) === JSON.stringify(subscribe)),
-    ).toHaveLength(2);
+    // The workspace entered again (`Workspace.enter`), what was ignored is asked for again.
+    backend.enter('w1');
+    expect(socket?.sent).toEqual([subscribe, subscribe, subscribe]);
     unwatch();
   });
 

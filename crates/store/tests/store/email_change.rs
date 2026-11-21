@@ -318,6 +318,59 @@ async fn an_address_that_is_somebodys_is_not_taken_by_a_link() {
     test.teardown().await;
 }
 
+/// A link to an address somebody has changes nothing, itself included: the change
+/// waits on with it, and once nobody has the address the link makes it. A text that is
+/// no link changes nothing either.
+#[tokio::test]
+async fn a_link_to_an_address_somebody_has_stays_for_when_it_is_free() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let (ada, bob) = (account(store, "ada").await, account(store, "bob").await);
+    waiting(store, &ada, &bob.email, "to bob's", T0).await;
+    for _ in 0..2 {
+        assert_eq!(
+            store
+                .confirm_email_change("to bob's", T0 + 1)
+                .await
+                .expect("asked"),
+            None
+        );
+        assert_eq!(
+            store
+                .email_change_of(&ada.id, T0 + 1)
+                .await
+                .expect("read")
+                .as_deref(),
+            Some(bob.email.as_str()),
+            "the change waits as it did"
+        );
+    }
+    assert_eq!(
+        store
+            .confirm_email_change("no link", T0 + 1)
+            .await
+            .expect("asked"),
+        None
+    );
+    store
+        .change_email_now(&bob.id, HASH, "bob@new.example.test", T0 + 2)
+        .await
+        .expect("changed")
+        .expect("the account is in use");
+    let changed = store
+        .confirm_email_change("to bob's", T0 + 3)
+        .await
+        .expect("asked")
+        .expect("the link stands, and nobody has the address");
+    assert_eq!(changed.old_email, ada.email);
+    assert_eq!(email_of(store, &ada.id).await, bob.email);
+    assert_eq!(
+        store.email_change_of(&ada.id, T0 + 3).await.expect("read"),
+        None
+    );
+    test.teardown().await;
+}
+
 #[tokio::test]
 async fn a_change_that_waits_goes_with_the_password_and_with_the_account() {
     let test = common::setup().await;

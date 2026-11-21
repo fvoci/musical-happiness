@@ -188,8 +188,9 @@ impl App {
     ///
     /// Returns 429 for too many requests from `address`, and 400 naming `token` for a
     /// link that changes nothing: unknown, used, replaced, cancelled or ended, of an
-    /// account that is not in use, or to an address somebody took meanwhile. Which of
-    /// them it was is not said.
+    /// account that is not in use, or to an address somebody took meanwhile (that link
+    /// is left as it is, and changes the address once nobody has it). Which of them it
+    /// was is not said.
     pub async fn confirm_email_change(
         &self,
         token: &str,
@@ -241,8 +242,10 @@ impl App {
 
     /// Mails the link that confirms the change the account waits for to its new
     /// address, unless somebody has that address: then nothing is mailed, and the
-    /// account goes on waiting, so that what it is answered tells nothing. What became
-    /// of the message is logged, never told.
+    /// account goes on waiting, so that what it is answered tells nothing. The link
+    /// left out is counted in the account's hour as one mailed, so that the mail the
+    /// account gets afterwards tells nothing either. What became of the message is
+    /// logged, never told.
     async fn mail_email_change(&self, waiting: &Waiting, requested: Option<Language>) {
         match self
             .store()
@@ -252,6 +255,7 @@ impl App {
             Ok(false) => {}
             Ok(true) => {
                 tracing::info!("no link mailed for a change of address: the address is held");
+                self.inner.mail.count_email_change(&waiting.user_id);
                 return;
             }
             Err(error) => {

@@ -177,7 +177,8 @@ impl Store {
     /// was mailed to the address before goes with it: the reset credentials of the
     /// account. Returns the account as it was, or none where nothing is changed: a
     /// link that is unknown, used, replaced or ended, an account that is not in use,
-    /// an address that was taken meanwhile.
+    /// an address that was taken meanwhile. That last link is not consumed: the change
+    /// waits on, and the link makes it once nobody has the address.
     ///
     /// # Errors
     ///
@@ -187,30 +188,34 @@ impl Store {
         digest: &str,
         now: i64,
     ) -> Result<Option<EmailChanged>, StoreError> {
+        // Whoever has the address of the server may ask this, with any text: one that
+        // is no link waits for nobody, where a link takes its turn with every
+        // registration (below).
+        let known = self
+            .with_conn(async |scope| Ok(find_link(scope, digest, now).await?.is_some()))
+            .await?;
+        if !known {
+            return Ok(None);
+        }
         self.transaction(async |scope| {
             // Whether the address is free is asked of two tables: no account and no
             // registration is made with it meanwhile.
             signups::claim_account_names(scope).await?;
-            let mut find =
-                scope.sql("SELECT user_id, new_email FROM email_changes WHERE token_hash = ");
-            find.bind(digest)
-                .push_bind(" AND token_expires_at > ", now)
-                .push_bind(" AND expires_at > ", now);
-            let Some(row) = scope.fetch_optional(find).await? else {
+            let Some((user_id, new_email)) = find_link(scope, digest, now).await? else {
                 return Ok(None);
             };
-            let (user_id, new_email) = (row.id(0)?, row.text(1)?);
             let Some(account) = hold_account(scope, &user_id, None).await? else {
                 return Ok(None);
             };
+            // Before the link is taken: one whose address is somebody's stays.
+            if is_held(scope, &new_email, Some(&user_id), now).await? {
+                return Ok(None);
+            }
             // Held, the account's row is as it stays: the link is taken only if it is
             // still the account's, which a cancelling or a newer mail ends.
             let mut take = scope.sql("DELETE FROM email_changes WHERE token_hash = ");
             take.bind(digest).push_bind(" AND user_id = ", Id(&user_id));
             if scope.execute(take).await? == 0 {
-                return Ok(None);
-            }
-            if is_held(scope, &new_email, Some(&user_id), now).await? {
                 return Ok(None);
             }
             set_email(scope, &user_id, &new_email, now).await?;
@@ -259,6 +264,24 @@ impl Store {
         })
         .await
     }
+}
+
+/// The account and the address of the link under `digest` that confirms a change at
+/// `now`, if there is one.
+async fn find_link(
+    scope: &mut Scope<'_>,
+    digest: &str,
+    now: i64,
+) -> Result<Option<(String, String)>, StoreError> {
+    let mut sql = scope.sql("SELECT user_id, new_email FROM email_changes WHERE token_hash = ");
+    sql.bind(digest)
+        .push_bind(" AND token_expires_at > ", now)
+        .push_bind(" AND expires_at > ", now);
+    scope
+        .fetch_optional(sql)
+        .await?
+        .map(|row| Ok((row.id(0)?, row.text(1)?)))
+        .transpose()
 }
 
 /// What is read of an account that is held for a change of its address.
@@ -329,8 +352,8 @@ async fn set_email(
         .push_bind(", update_at = ", now)
         .push_bind(" WHERE id = ", Id(user_id));
     scope.execute(sql).await.map_err(|error| match error {
-        // Two changes to one address at once, on SQLite, where nothing claims the
-        // names: the index decides, as for two registrations.
+        // Asked above whether anybody has it, under the claim on the names: should
+        // the index find somebody all the same, it decides, as for a registration.
         StoreError::Database(error) => crate::users::unique_violation(error),
         other => other,
     })?;

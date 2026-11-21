@@ -11,6 +11,8 @@ use reqwest::StatusCode;
 use serde_json::json;
 
 use crate::common::{Client, PASSWORD, Setup, TestServer, USER1_USERNAME, USER2_USERNAME};
+use crate::email_verification::registration;
+use crate::email_verification_more::{settled, switched_on};
 use crate::fake_smtp::{FakeSmtp, Received};
 
 const ASK: &str = "/users/me/email-change";
@@ -264,6 +266,11 @@ async fn the_answer_does_not_tell_whether_an_address_is_taken() {
             &json!({"email": "User2@sample.com", "password": PASSWORD}),
         )
         .await;
+    assert_eq!(
+        me(&th.client).await.pending_email.as_deref(),
+        Some("User2@sample.com"),
+        "it waits, as for a free address"
+    );
     let free = th
         .client
         .post(ASK, &json!({"email": NEW, "password": PASSWORD}))
@@ -271,6 +278,7 @@ async fn the_answer_does_not_tell_whether_an_address_is_taken() {
     for answer in [&taken, &free] {
         answer.check_no_content();
     }
+    assert_eq!(taken.text(), free.text(), "the two answers are one");
     assert_eq!(
         me(&th.client).await.pending_email.as_deref(),
         Some(NEW),
@@ -281,22 +289,77 @@ async fn the_answer_does_not_tell_whether_an_address_is_taken() {
             && mailed_to(&th, &smtp, "user2@sample.com").await.is_empty(),
         "nothing is mailed to an address that is somebody's"
     );
-    ask(&th.client, "User2@sample.com").await;
-    assert_eq!(
-        me(&th.client).await.pending_email.as_deref(),
-        Some("User2@sample.com"),
-        "it waits, as for a free address"
-    );
     assert_eq!(me(&th.client2).await.email, "user2@sample.com");
 
     // A waiting change holds nothing: the address is registered by somebody else.
-    ask(&th.client, NEW).await;
     let link = mailed_to(&th, &smtp, NEW).await;
-    let link = token_in(link.last().expect("a link"), "/confirm-email#");
+    let [link] = link.as_slice() else {
+        panic!("one link to the free address: {link:?}");
+    };
+    let link = token_in(link, "/confirm-email#");
     th.register_and_login("newcomer", NEW, PASSWORD).await;
     check_invalid(&confirm(&th, &link).await);
-    assert_eq!(me(&th.client).await.email, OLD);
+    let after = me(&th.client).await;
+    assert_eq!(after.email, OLD);
+    assert_eq!(
+        after.pending_email.as_deref(),
+        Some(NEW),
+        "the link changed nothing: the change waits as it did"
+    );
     assert!(mailed_to(&th, &smtp, OLD).await.is_empty(), "no notice");
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+/// What the account is mailed afterwards tells no more than the answer: a link left
+/// out because the address is somebody's, an account's or a registration's that waits,
+/// is one of the account's hour as a link mailed is, asked for or asked for again. So
+/// the link that would have been the account's third of the hour to its own address
+/// is not mailed after two that were left out.
+#[tokio::test]
+async fn the_mail_that_follows_does_not_tell_whether_an_address_is_taken() {
+    let smtp = FakeSmtp::start_on(0).await;
+    // A registration beside the server's organization starts another: PostgreSQL's.
+    let several = fvoci_store::testing::db_type_of_the_tests() == fvoci_store::DbType::Postgres;
+    let mut th = mailing(&smtp).await;
+    if several {
+        fvoci_server::config::ORG_CREATION_OPEN.clone_into(&mut th.config.org_creation);
+    }
+    let th = switched_on(th, &smtp).await;
+    let mut cases = vec![(&th.client, "mine@example.test", "User2@sample.com")];
+    if several {
+        th.anonymous()
+            .post("/register", &registration("kim", "en"))
+            .await
+            .check_status(StatusCode::ACCEPTED);
+        cases.push((&th.client2, "other@example.test", "Kim@example.test"));
+    }
+    let asking = cases.len();
+    for (client, own, taken) in cases {
+        ask(client, own).await;
+        ask(client, taken).await;
+        client.post(RESEND, &json!({})).await.check_no_content();
+        assert_eq!(
+            me(client).await.pending_email.as_deref(),
+            Some(taken),
+            "it waits, as for a free address"
+        );
+        ask(client, own).await;
+        assert_eq!(
+            mailed_to(&th, &smtp, own).await.len(),
+            1,
+            "{taken}: the two links left out were the second and third of the hour"
+        );
+    }
+    let links_of_changes = settled(&th, &smtp)
+        .await
+        .iter()
+        .filter(|message| message.decoded.contains("/confirm-email#"))
+        .count();
+    assert_eq!(
+        links_of_changes, asking,
+        "one to each account's own address"
+    );
     th.teardown().await;
     smtp.stop().await;
 }

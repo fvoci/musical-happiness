@@ -272,15 +272,34 @@ test('an account of single sign-on only is asked once in its own space to set a 
     await expect(page.getByTestId('board-page')).toBeVisible();
     expect(page.url()).toBe(boardAddress);
     await page.getByTestId('password-notice-field').fill('a long password of mine');
+    // Whether the locked space is shown at any moment from here on, also between two looks.
+    await page.evaluate(() => {
+      const seen = window as unknown as { locked?: boolean };
+      new MutationObserver(() => {
+        if (document.querySelector('[data-testid="own-space-locked"]')) seen.locked = true;
+      }).observe(document.body, { childList: true, subtree: true });
+    });
     await notice(page).getByRole('button', { name: 'Set password' }).click();
     // Set, My space takes only a session that has shown the password, and this one shows
-    // the one it was just given: the board stays where it is, and nothing asks again.
-    await expect(notice(page)).toHaveCount(0);
+    // the one it was just given: the notice says it is set and by what name to sign in, the
+    // board is where it was, and nothing asks for the password, not for a moment either.
+    const me = (await (await page.request.get('/api/v1/users/me')).json()) as Schemas['Me'];
+    await expect(page.getByTestId('password-notice-done')).toContainText(
+      `Your password is set. Your user name is ${me.username}.`,
+    );
     await expect(page.getByTestId('board-page')).toBeVisible();
     await expect(page.getByTestId('own-space-locked')).toHaveCount(0);
     expect(page.url()).toBe(boardAddress);
-    const me = (await (await page.request.get('/api/v1/users/me')).json()) as Schemas['Me'];
-    expect(me.hasPassword).toBe(true);
+    await expect
+      .poll(async () => {
+        const read = await page.request.get('/api/v1/users/me');
+        return ((await read.json()) as Schemas['Me']).hasPassword;
+      })
+      .toBe(true);
+    // Closed, nothing takes its place: the line about the address is for another visit.
+    await notice(page).getByRole('button', { name: 'Close' }).click();
+    await expect(notice(page)).toHaveCount(0);
+    await expect(page.getByTestId('email-notice')).toHaveCount(0);
     const [, , ownId = '', , boardId = ''] = new URL(boardAddress).pathname.split('/');
     await expect
       .poll(async () => {
@@ -307,6 +326,10 @@ test('an account of single sign-on only is asked once in its own space to set a 
     expect(await page.evaluate(() => (window as unknown as { stayed?: boolean }).stayed)).toBe(
       true,
     );
+    expect(
+      await page.evaluate(() => (window as unknown as { locked?: boolean }).locked),
+      'the locked space was never shown',
+    ).toBeUndefined();
     expect(second.errors).toEqual([]);
     await second.context.close();
 

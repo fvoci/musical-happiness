@@ -34,7 +34,8 @@ async function shown({ own = true, hasPassword = false, made = true, kept = {} }
     closeOwnSpace(world, reader.id, password);
     return Promise.resolve();
   });
-  const account = { setPassword, loginOptions: vi.fn() } as Partial<Account> as Account;
+  const loginOptions = vi.fn(() => Promise.resolve({ registrationOpen: false, mailEnabled: true }));
+  const account = { setPassword, loginOptions } as Partial<Account> as Account;
   const onProvider = vi.fn(() => Promise.resolve());
   render(PasswordNoticeHost, { props: { workspace, account, onProvider } });
   await settle();
@@ -84,10 +85,11 @@ describe('the notice to set a password, in the app', () => {
     await waitFor(() => {
       expect(setPassword).toHaveBeenCalledExactlyOnceWith('a long password');
     });
-    // Set, the account has one: the notice is gone, and the reader is not asked for it again.
-    await waitFor(() => {
-      expect(screen.queryByTestId('password-notice')).toBeNull();
-    });
+    // Set, the account has one: the notice says so, with the name to sign in by, through
+    // the entering again of the space, and the reader is not asked for the password again.
+    expect(await screen.findByTestId('password-notice-done')).toHaveTextContent(
+      `Your password is set. Your user name is ${workspace.me?.username ?? '?'}.`,
+    );
     expect(workspace.me?.hasPassword).toBe(true);
     expect(confirmed).toHaveBeenCalledExactlyOnceWith('a long password');
     await waitFor(() => {
@@ -95,6 +97,12 @@ describe('the notice to set a password, in the app', () => {
     });
     expect(workspace.info?.kind).toBe('personal');
     expect(workspace.workspaces.some((one) => one.passwordRequired)).toBe(false);
+    expect(screen.getByTestId('password-notice-done')).toBeInTheDocument();
+    // Closed, nothing takes its place in this page: the line about the address is for another visit.
+    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await settle();
+    expect(screen.queryByTestId('password-notice')).toBeNull();
+    expect(screen.queryByTestId('email-notice')).toBeNull();
   });
 
   it('has the own space ask for it where the session could not show it, wherever the reader goes and comes back', async () => {
@@ -113,6 +121,9 @@ describe('the notice to set a password, in the app', () => {
     await workspace.enter(own);
     await settle();
     expect(workspace.entered).toBe('password');
+    // The password is set all the same, and the notice says so until it is closed.
+    expect(screen.getByTestId('password-notice-done')).toHaveTextContent('Your password is set.');
+    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByTestId('password-notice')).toBeNull();
   });
 });

@@ -85,6 +85,8 @@ export class Workspace {
   entered = $state<entry.EnterStatus>('none');
   /** The identifier of the workspace last asked for, whether or not it was found. */
   asked = $state<string | undefined>(undefined);
+  /** The session is about to show the password its account was just given (`setFirstPassword`). */
+  showing = false;
   users = $state.raw<User[]>([]);
   /** The workspace's list as the backend gives it without a search: on the server, its oldest ten (D2). */
   workspaceUsers = $state.raw<User[]>([]);
@@ -348,6 +350,7 @@ export class Workspace {
     // An organization began to take no password, or the own space the password alone: it closes.
     const closing = entry.closedBy(this.workspaces, this.info, error);
     if (closing) {
+      if (this.showing && closing.entered === 'password') return; // Not for the moment between.
       this.workspaces = closing.workspaces;
       if (!closing.closed) return;
       this.#entering += 1; // What is still being read of it does not open it again.

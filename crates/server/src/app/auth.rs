@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use fvoci_model::{
-    MAXIMUM_PASSWORD_BYTES, NewAccount, OrgKind, PersonName, RegisterRequest, Session, User, new_id,
+    MAXIMUM_PASSWORD_BYTES, NewAccount, PersonName, RegisterRequest, Session, User, new_id,
 };
 use fvoci_store::{ConfirmedPassword, Founding, SignupLookup, StoreError, Taken};
 
@@ -15,7 +15,6 @@ use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::password::{Verdict, hash_password, verify_against_no_account, verify_password};
 use crate::auth::secret::{new_secret, token_digest};
-use crate::collab::AccessScope;
 use crate::error::{AppError, ErrorKind, Reason};
 use crate::metrics::{LoginOutcome, Metrics};
 
@@ -640,38 +639,6 @@ impl App {
         self.ws().session_goes_on_under(&session.id, &token);
         self.shut_own_space_to(session).await;
         Ok(token)
-    }
-
-    /// Puts the connections of `session`, which gave its account the first password
-    /// and has not shown it, out of the account's own space: the space takes a session
-    /// that has shown the password from here on. What they follow of it ends and its
-    /// rooms let them go; they stay open for what the session still opens, and for the
-    /// space once the session gives the password (`App::confirm_session_password`).
-    /// If the space cannot be read the connections are closed instead, and come back
-    /// to be asked.
-    async fn shut_own_space_to(&self, session: &Session) {
-        let shut = async {
-            let workspaces = self
-                .store()
-                .workspaces_of_user(&session.user_id, session.into())
-                .await?;
-            for own in workspaces
-                .iter()
-                .filter(|workspace| workspace.kind == OrgKind::Personal)
-            {
-                let space = self.in_organization(&own.org_id)?;
-                space
-                    .ws()
-                    .end_subscriptions_without_password(&own.id, &session.user_id);
-                let scope = AccessScope::workspace(&own.id).of_user(&session.user_id);
-                space.collab().recheck_access(&space, scope).await;
-            }
-            Ok::<(), AppError>(())
-        };
-        if let Err(error) = shut.await {
-            tracing::warn!(%error, user_id = %session.user_id, "the own space was not shut to the session that set its password; its connections are closed");
-            self.ws().close_session(&session.id);
-        }
     }
 }
 

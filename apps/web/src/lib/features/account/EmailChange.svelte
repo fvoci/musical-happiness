@@ -4,7 +4,8 @@
   the server asks for in that very request. Where the server mails, the
   address then waits (`pending`): the link mailed to the new one changes it,
   and until then the section says so and offers to mail it again or to take
-  the asking back. A server without mail changes it at once. The server does
+  the asking back. A server without mail (`mails` false) changes it at once,
+  and the form says so. The server does
   not say whether an address is somebody else's: the account waits all the
   same, and no link comes.
 
@@ -26,6 +27,8 @@
     pending: string | undefined;
     /** Whether the account has a password to ask with. */
     hasPassword: boolean;
+    /** Whether the server sends mail: the link, and the mail that resets a password. */
+    mails: boolean;
     /** Asks for the change; resolved, `email` and `pending` are as the server has them. */
     onRequest: (email: string, password: string) => Promise<void>;
     /** Mails the link again. */
@@ -34,7 +37,7 @@
     onCancel: () => Promise<void>;
   }
 
-  let { email, pending, hasPassword, onRequest, onResend, onCancel }: Props = $props();
+  let { email, pending, hasPassword, mails, onRequest, onResend, onCancel }: Props = $props();
 
   const uid = $props.id();
   let open = $state(false);
@@ -182,7 +185,9 @@
             : `${uid}-hint`}
           class="roomy:h-touch roomy:text-base"
         />
-        <p id="{uid}-hint" class="text-xs text-muted-foreground">{m.email_change_hint()}</p>
+        <p id="{uid}-hint" class="text-xs text-muted-foreground">
+          {mails ? m.email_change_hint() : m.email_change_hint_now()}
+        </p>
       </div>
       <div class="grid gap-1.5">
         <Label for="{uid}-password">{m.account_password_current()}</Label>

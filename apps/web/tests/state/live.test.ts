@@ -274,24 +274,32 @@ describe('changes from the server', () => {
     expect(self).toEqual([{ kind: 'resync' }]);
   });
 
-  it('asks again for its workspace on the connection it has, once the session opens it', async () => {
-    const { live, socket } = await connected();
-    // As the server ends the own space for a session that has not shown the password.
+  it('asks again for a workspace the server ended when it is entered again, and has everyone read again', async () => {
+    const { live, socket, board } = await connected();
+    const subscribe = { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' };
+    // Entered again with nothing ended, it is followed already.
+    live.enter('t');
+    expect(socket.sent).toEqual([subscribe]);
+    // As the server ends the own space for a session that has not shown the password:
+    // asked again at once, which the server ignores and says nothing of.
     socket.message({ action: 'UNSUBSCRIBED_WORKSPACE', workspaceId: 't' });
-    live.askAgain();
+    expect(socket.sent).toEqual([subscribe, subscribe]);
+    expect(board).toEqual([{ kind: 'resync' }]);
+    // The session has shown the password, and the space is entered again.
+    live.enter('t');
     expect(FakeSocket.made).toHaveLength(1);
     expect(socket.closed).toBe(false);
-    expect(socket.sent).toEqual([
-      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
-      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
-      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
-    ]);
+    expect(socket.sent).toEqual([subscribe, subscribe, subscribe]);
+    expect(board).toEqual([{ kind: 'resync' }, { kind: 'resync' }]);
   });
 
-  it('asks for nothing again before it follows anything', () => {
-    const live = new LiveChanges('ws://here/ws', reads);
-    live.askAgain();
-    expect(FakeSocket.made).toHaveLength(0);
+  it('asks for nothing again of a workspace entered after the one that was ended', async () => {
+    const { live, socket } = await connected();
+    socket.message({ action: 'UNSUBSCRIBED_WORKSPACE', workspaceId: 't' });
+    live.enter('t2');
+    const sent = socket.sent.length;
+    live.enter('t2');
+    expect(socket.sent).toHaveLength(sent);
   });
 
   it('opens again at once after signing in, and has everyone read again', async () => {
