@@ -73,8 +73,9 @@ pub struct NotificationReader<'a> {
 }
 
 impl NotificationReader<'_> {
-    /// Binds the reader as the recipient the statement was asking for, and leaves
-    /// out the organizations their session does not open.
+    /// Binds the reader as the recipient and leaves out the organizations their
+    /// session does not open: for a statement on `notifications`, with no other name
+    /// for the table, whose text ends at `recipient_id = `.
     fn push_theirs(self, sql: &mut Sql) {
         sql.bind(Id(self.user_id));
         crate::memberships_everywhere::push_organization_opened_by(

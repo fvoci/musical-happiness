@@ -23,8 +23,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 
 /// The notifications of the user
 ///
-/// One page of what the user of the session was told, in every organization, the
-/// newest first: that somebody mentioned them in a card, a page or a comment
+/// One page of what the user of the session was told, in every organization the
+/// session opens, the newest first: that somebody mentioned them in a card, a page or a comment
 /// (`mention`), or gave them a card (`assignment`). Nobody is told of their own doing,
 /// nor of anything in a user's own space.
 ///

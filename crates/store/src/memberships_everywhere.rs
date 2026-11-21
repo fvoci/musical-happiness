@@ -70,10 +70,11 @@ async fn extend_across_organizations(
 /// Leaves out the rows whose organization is `org_column` where that organization
 /// takes only sessions made through a provider, and a session made through
 /// `login_provider` (`None` for a password) is none of them: what such a session
-/// reads of nothing, in a list that reaches every organization.
+/// reads of nothing, in a list that reaches every organization. `org_column` is
+/// written into the statement as it is: a column the code names, never a value.
 pub(crate) fn push_organization_opened_by(
     sql: &mut Sql,
-    org_column: &str,
+    org_column: &'static str,
     login_provider: Option<&str>,
 ) {
     sql.push(&format!(

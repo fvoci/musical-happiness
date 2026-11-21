@@ -485,3 +485,99 @@ async fn a_session_its_organization_does_not_take_reaches_nothing_it_was_told_th
     th.teardown().await;
     fake.stop();
 }
+
+/// What is left out is what the organization behind its provider told, and no more:
+/// with two organizations, one of which takes only its provider's sessions, a
+/// password session lists, counts and marks what the other told; a session made
+/// through the other's provider does not open the first either; and a session made
+/// through the first's provider reads both.
+#[tokio::test]
+async fn only_what_the_organization_behind_its_provider_told_is_kept_back() {
+    use crate::fake_oidc::FakeProvider;
+    use crate::sso::{
+        ADMIN_SUBJECT, Passwords, Two, require_sso, through_provider, tie, two_organizations,
+    };
+
+    if db_type_of_the_tests() != DbType::Postgres {
+        // An SQLite database holds one organization.
+        return;
+    }
+    let fake = FakeProvider::start().await;
+    let Two {
+        ts: th,
+        ours,
+        theirs,
+        their_workspace,
+    } = two_organizations(&fake).await;
+    let user1 = th.client.me().await.id;
+    let user2 = th.client2.me().await.id;
+
+    // Told once in each: by a card of ours, and by an open page of theirs.
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &user2, "editor").await;
+    let card = card_with(&th.client2, &board.id, &mentioning(&[&user1])).await;
+    let their_store = th.app.store().for_org(&theirs).expect("an identifier");
+    let mut author = fvoci_model::User {
+        id: fvoci_model::new_id(),
+        username: "author.of.theirs".to_owned(),
+        email: "author.of.theirs@sample.com".to_owned(),
+        ..fvoci_model::User::default()
+    };
+    their_store
+        .create_user(&mut author)
+        .await
+        .expect("their user is stored");
+    open_page_mentioning(&their_store, &their_workspace, &author.id, &[&user1]).await;
+    let where_told = |told: &[Notification]| -> Vec<String> {
+        let mut places: Vec<String> = told
+            .iter()
+            .map(|told| {
+                let subject = told.subject.as_ref().expect("its reader reads it");
+                subject.workspace_id.clone()
+            })
+            .collect();
+        places.sort_unstable();
+        places
+    };
+    let mut both = vec![TEST_WORKSPACE_ID.to_owned(), their_workspace.clone()];
+    both.sort_unstable();
+    assert_eq!(where_told(&told(&th, &th.client).await), both);
+
+    tie(&th, &th.client, &fake, ADMIN_SUBJECT).await;
+    let through_ours = through_provider(&th, &fake, &ours, ADMIN_SUBJECT).await;
+    let through_theirs = through_provider(&th, &fake, &theirs, ADMIN_SUBJECT).await;
+    require_sso(&through_ours, &ours, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+
+    // A password: theirs alone, which is marked as read; ours is as it was.
+    let with_password = told(&th, &th.client).await;
+    let theirs_alone = std::slice::from_ref(&their_workspace);
+    assert_eq!(where_told(&with_password), theirs_alone);
+    assert_eq!(unread(&th.client).await, 1);
+    th.client
+        .post("/notifications/read", &Value::Null)
+        .await
+        .check_no_content();
+    assert_eq!(unread(&th.client).await, 0);
+    // Their provider: theirs alone too, though it is a provider's session.
+    assert_eq!(
+        where_told(&told(&th, &through_theirs).await),
+        theirs_alone,
+        "the session of another organization's provider does not open ours"
+    );
+    assert_eq!(unread(&through_theirs).await, 0);
+    // Our provider: both, ours not read by anything the others did.
+    let all = told(&th, &through_ours).await;
+    assert_eq!(where_told(&all), both);
+    let unread_ones: Vec<&str> = all
+        .iter()
+        .filter(|told| told.read_at == 0)
+        .filter_map(|told| told.subject.as_ref())
+        .map(|subject| subject.block_id.as_str())
+        .collect();
+    assert_eq!(unread_ones, [card.id.as_str()], "ours alone is unread");
+    assert_eq!(unread(&through_ours).await, 1);
+    th.teardown().await;
+    fake.stop();
+}

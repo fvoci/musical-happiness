@@ -498,6 +498,8 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "ping",
     // What a link leads into is shown to whoever holds it, signed in or not.
     "previewInvitation",
+    // Marking as read what the account was told, as listing it (`getNotifications`):
+    // nothing of an organization the session does not open is marked.
     "readNotification",
     "readNotifications",
     "ready",
