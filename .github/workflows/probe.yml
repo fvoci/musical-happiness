@@ -1,6 +1,6 @@
-# Temporary, removed before this branch is merged: the WebKit tests that failed on the
-# runner, run four ways, to tell what they depend on. WebKit installed on the runner or
-# reached in Playwright's image (as on the developers' machine), with one worker or two.
+# Temporary, removed before this branch is merged: the WebKit tests that failed on a
+# runner even with one worker, five times each, to tell which fail always and which
+# sometimes.
 name: probe
 
 on:
@@ -19,14 +19,9 @@ defaults:
 
 jobs:
   webkit:
-    name: webkit ${{ matrix.where }}, ${{ matrix.workers }} workers
+    name: webkit, five times each
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        where: [runner, image]
-        workers: [1, 2]
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,37 +29,11 @@ jobs:
       - uses: $/.github/actions/web
         with:
           fonts: 'true'
-          browser: ${{ matrix.where == 'runner' && 'webkit' || '' }}
       - run: pnpm --filter web run build
-      - name: The fonts of the runner
+      - run: .github/scripts/webkit-server.sh
+      - name: The tests that failed with one worker
         run: |
-          fc-list | wc --lines
-          fc-match sans-serif
-          fc-match serif
-          fc-match monospace
-          fc-match 'sans-serif:lang=ko'
-      - name: Start WebKit's server in Playwright's image
-        if: ${{ matrix.where == 'image' }}
-        run: |
-          docker run --detach --name fvoci-pw-webkit --publish 127.0.0.1:18699:18699 \
-            --init --ipc=host --user pwuser --workdir /home/pwuser \
-            mcr.microsoft.com/playwright:v1.65.1-noble \
-            npx --yes playwright@1.65.1 run-server --port 18699 --host 0.0.0.0
-          for _ in $(seq 120); do
-            if docker logs fvoci-pw-webkit 2>&1 | grep --quiet 'Listening on'; then break; fi
-            sleep 1
-          done
-          docker logs fvoci-pw-webkit
-          docker exec fvoci-pw-webkit sh -c \
-            'fc-list | wc -l; fc-match sans-serif; fc-match serif; fc-match monospace; fc-match "sans-serif:lang=ko"; nproc'
-          {
-            echo "PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:18699/"
-            echo "PW_TEST_CONNECT_EXPOSE_NETWORK=<loopback>"
-          } >>"$GITHUB_ENV"
-      - name: The tests that failed
-        env:
-          WORKERS: ${{ matrix.workers }}
-        run: |
-          pnpm --filter web run e2e:apple --workers="$WORKERS" \
-            carets.spec.ts:226 hwp-editor file-viewer-xlsx view-header.spec.ts:1227 \
-            gantt-many table.spec.ts:1239
+          pnpm --filter web run e2e:apple --workers=1 --repeat-each=5 \
+            carets.spec.ts:226 file-viewer-xlsx.spec.ts:87 file-viewer-xlsx.spec.ts:344 \
+            file-viewer-xlsx.spec.ts:358 view-header.spec.ts:1227 gantt-many.spec.ts:188 \
+            table.spec.ts:1239
