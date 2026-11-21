@@ -103,8 +103,7 @@
 
 `look`에 관해:
 
-- `build`, `spikes:build`, `build-storybook`을 한 뒤 `tools/serve.ts`로 `dist/`, `dist-spikes/`, `storybook-static/`을 서빙한다. 정적 파일뿐이고 API는 없다.
-- 목록의 주소는 `/app/`(조립된 앱), `/screens/spikes/calendar/`, `/screens/spikes/editor/`, `/screens/spikes/drag/`, `/screens/spikes/mobile/`, `/storybook/`이다.
+- `build`, `spikes:build`, `build-storybook`을 한 뒤 `tools/serve.ts`로 `dist/`, `dist-spikes/`, `storybook-static/`을 서빙한다. 정적 파일뿐이고 API는 없다. 목록의 주소는 `/app/`(조립된 앱), `/screens/spikes/calendar/`, `/screens/spikes/editor/`, `/screens/spikes/drag/`, `/screens/spikes/mobile/`, `/storybook/`이다.
 - 앱은 서버가 하듯 base path `/app` 아래에서, 콘텐츠 보안 정책을 붙여서 나간다.
 - `/app/?dev=1`로 열면 화면 구석에 창의 너비와 지금의 단계가 보인다.
 - 앱의 데이터는 메모리 구현의 것이라 새로 고치면 처음으로 돌아간다. 표시 설정만 기기에 남는다.
