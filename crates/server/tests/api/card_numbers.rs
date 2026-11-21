@@ -203,6 +203,28 @@ async fn an_imported_board_numbers_its_cards_from_one() {
     ts.teardown().await;
 }
 
+/// What a request sends as a number, which is no number of a card at all, is ignored
+/// as any number it sends is: by the route of cards and by that of blocks.
+#[tokio::test]
+async fn a_number_a_request_sends_is_never_refused_nor_taken() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Open)
+        .await;
+    let sent = json!({"title": "sent", "number": "7"});
+    let card = create_card(&ts.client, TEST_WS, &board.id, sent).await;
+    assert_eq!(card.number, Some(1));
+    let block = json!([{"id": "a", "containerId": board.id, "type": "card", "number": -1,
+        "createAt": 1, "updateAt": 1}]);
+    let stored: Vec<Block> = ts
+        .client
+        .post(&format!("{TEST_WS}/boards/{}/blocks", board.id), &block)
+        .await
+        .created_json();
+    assert_eq!(stored[0].number, Some(2));
+    ts.teardown().await;
+}
+
 /// The boards of the root workspace that the first user reads.
 async fn root_boards(ts: &TestServer) -> Vec<String> {
     ts.app
@@ -227,20 +249,20 @@ async fn no_such_card(ts: &TestServer, board_id: &str) -> (StatusCode, Value) {
     answer.problem()
 }
 
+/// A card in the trash, and what is no number as `Card.number` writes it, answer as a
+/// number no card of the board has.
 #[tokio::test]
-async fn a_card_by_its_number_is_there_for_who_reads_its_board_and_for_nobody_else() {
+async fn what_is_no_card_of_the_board_now_is_not_found() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts
         .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
         .await;
-    let first = create_card(&ts.client, TEST_WS, &board.id, json!({"title": "1"})).await;
+    create_card(&ts.client, TEST_WS, &board.id, json!({"title": "1"})).await;
     let second = create_card(&ts.client, TEST_WS, &board.id, json!({"title": "2"})).await;
     let nothing = no_such_card(&ts, &board.id).await;
     by_number(&ts.client, TEST_WS, &board.id, "1")
         .await
         .check_ok();
-
-    // What is no card of the board now.
     ts.client
         .delete(&format!(
             "{TEST_WS}/boards/{}/blocks/{}",
@@ -248,10 +270,31 @@ async fn a_card_by_its_number_is_there_for_who_reads_its_board_and_for_nobody_el
         ))
         .await
         .check_no_content();
-    for number in ["2", "0", "-1", "+1", "1.0", "a", "99999999999", UNKNOWN_ID] {
+    for number in [
+        "2",
+        "0",
+        "-1",
+        "+1",
+        "01",
+        "1.0",
+        "a",
+        "99999999999",
+        UNKNOWN_ID,
+    ] {
         let answer = by_number(&ts.client, TEST_WS, &board.id, number).await;
         assert_eq!(answer.problem(), nothing, "{number}");
     }
+    ts.teardown().await;
+}
+
+#[tokio::test]
+async fn a_card_by_its_number_is_there_for_who_reads_its_board_and_for_nobody_else() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts
+        .create_board(TEST_WORKSPACE_ID, ContainerType::Private)
+        .await;
+    let first = create_card(&ts.client, TEST_WS, &board.id, json!({"title": "1"})).await;
+    let nothing = no_such_card(&ts, &board.id).await;
 
     // Who may not read the board: no member of a private board, a guest who is not
     // invited to it; and a board of another workspace, a wiki, and no board at all.

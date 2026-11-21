@@ -1,7 +1,7 @@
 //! Pins the JSON form of the wire types, and what decoding takes and refuses.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockPatchBatch, BlockType, Category, CategoryContainerMetadata,
+    Block, BlockPatch, BlockPatchBatch, BlockType, Card, Category, CategoryContainerMetadata,
     CategoryContainers, CategoryType, ClientConfig, Container, ContainerKind, ContainerMember,
     ContainerPatch, ContainerType, Credential, InvalidInput, LoginRequest, MinimumRole, NameShown,
     PatchContainersAndBlocks, PersonName, Problem, Sharing, Subscriber, SubscriberType,
@@ -62,6 +62,28 @@ fn block_json_members() {
         card,
         "and keeps it when read back, as the trash does"
     );
+}
+
+/// What a client sends as a number, which the server does not take, is read as none
+/// when it is no number a card can have, and is never refused.
+#[test]
+fn a_number_that_no_card_can_have_is_read_as_none() {
+    for sent in [
+        json!(null),
+        json!(0),
+        json!(-1),
+        json!(1.5),
+        json!("7"),
+        json!(4_294_967_296_u64),
+        json!([1]),
+    ] {
+        let block: Block = serde_json::from_value(json!({ "number": sent })).expect("a block");
+        assert_eq!(block.number, None, "{sent}");
+        let card: Card = serde_json::from_value(json!({ "number": sent })).expect("a card");
+        assert_eq!(card.number, None, "{sent}");
+    }
+    let block: Block = serde_json::from_value(json!({ "number": 12 })).expect("a block");
+    assert_eq!(block.number, Some(12));
 }
 
 #[test]

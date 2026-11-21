@@ -401,8 +401,12 @@ pub struct Block {
     pub container_id: String,
     /// A card's number on its board, as `Card.number` gives it; absent for a template
     /// of the board's cards and for every other block. The server gives it and ignores
-    /// a client's.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// a client's, whatever it is.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "number_as_sent"
+    )]
     pub number: Option<u32>,
     /// For a comment whose body was changed: when that last happened, in milliseconds
     /// since the Unix epoch. Absent for a comment never changed and for every other
@@ -419,6 +423,23 @@ pub struct Block {
 )]
 fn is_zero(time: &i64) -> bool {
     *time == 0
+}
+
+/// A card's number as it is read: what is no number a card can have is none, so that
+/// what a client sends there, which the server does not take, is never refused either.
+///
+/// # Errors
+///
+/// Returns the deserializer's error if what is there is no JSON.
+pub(crate) fn number_as_sent<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let sent = Value::deserialize(deserializer)?;
+    Ok(sent
+        .as_u64()
+        .and_then(|number| u32::try_from(number).ok())
+        .filter(|number| *number > 0))
 }
 
 impl Block {

@@ -47,10 +47,12 @@ pub(crate) async fn number_written(
     block: &mut Block,
     stored: Option<&Block>,
 ) -> Result<(), StoreError> {
-    block.number = match stored.and_then(|stored| stored.number) {
-        _ if !block.takes_number() => None,
-        Some(number) => Some(number),
-        None => Some(take_next(scope, &block.container_id).await?),
+    block.number = if !block.takes_number() {
+        None
+    } else if let Some(number) = stored.and_then(|stored| stored.number) {
+        Some(number)
+    } else {
+        Some(take_next(scope, &block.container_id).await?)
     };
     Ok(())
 }

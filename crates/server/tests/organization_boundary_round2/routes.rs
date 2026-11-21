@@ -1041,7 +1041,7 @@ impl Items<'_> {
         } else {
             self.subscriber.0
         };
-        let number = self.card.number.unwrap_or_default().to_string();
+        let number = self.card.number.expect("the card has a number").to_string();
         template
             .trim_start_matches("/api/v1")
             .replace("{workspaceId}", workspace)

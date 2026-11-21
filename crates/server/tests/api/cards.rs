@@ -1405,7 +1405,7 @@ async fn get_card_permissions_and_refusals() {
         json!({
             "id": bare.id,
             "boardId": board_id,
-            "number": bare.number,
+            "number": 2,
             "createdBy": bare.created_by,
             "modifiedBy": bare.modified_by,
             "title": "",

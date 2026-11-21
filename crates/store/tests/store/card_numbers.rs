@@ -291,6 +291,13 @@ async fn a_board_comes_back_from_the_trash_with_its_cards_and_its_next_number() 
     for title in ["1", "2", "3"] {
         cards.push(new_card(&test, &board_id, title, &user_id).await);
     }
+    let mut template = card(&board_id, "template");
+    template
+        .fields
+        .insert("isTemplate".to_owned(), Value::Bool(true));
+    test.insert_block(&mut template, &user_id)
+        .await
+        .expect("the template is stored");
     test.delete_block(&cards[2].id, &user_id)
         .await
         .expect("the newest card is deleted");
@@ -302,7 +309,11 @@ async fn a_board_comes_back_from_the_trash_with_its_cards_and_its_next_number() 
         .expect("the board is restored");
     assert_eq!(
         numbers_by_title(&test, &board_id).await,
-        [("1".to_owned(), Some(1)), ("2".to_owned(), Some(2))]
+        [
+            ("1".to_owned(), Some(1)),
+            ("2".to_owned(), Some(2)),
+            ("template".to_owned(), None)
+        ]
     );
     assert_eq!(
         new_card(&test, &board_id, "4", &user_id).await.number,

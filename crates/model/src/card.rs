@@ -50,7 +50,9 @@ pub struct Card {
     /// made on the board, never changed and never given again, also once the card is
     /// gone. A copy and an import are new cards with new numbers; a card that comes back
     /// from the trash has its own. `null` for a template of the board's cards
-    /// (`isTemplate`). The server gives it: what a request sends here is ignored.
+    /// (`isTemplate`). The server gives it: what a request sends here is ignored,
+    /// whatever it is.
+    #[serde(deserialize_with = "crate::block::number_as_sent")]
     pub number: Option<u32>,
     /// The identifier of the user who created the card.
     pub created_by: String,

@@ -279,11 +279,11 @@ async fn handle_get_card_by_number(
     let denial = "access denied to fetch card";
     let view = ContainerPermission::View;
     require_permission_through(&ws.app, user_id, &board_id, view, denial, WHAT).await?;
+    // A number as `Card.number` writes it, so that a card has one path: not `+7` or `07`.
     let number = number
-        .bytes()
-        .all(|byte| byte.is_ascii_digit())
-        .then(|| number.parse::<u32>().ok())
-        .flatten()
+        .parse::<u32>()
+        .ok()
+        .filter(|parsed| parsed.to_string() == number)
         .ok_or_else(|| AppError::not_found(WHAT))?;
     let block = ws
         .app

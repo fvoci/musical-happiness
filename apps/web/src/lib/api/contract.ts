@@ -4358,7 +4358,7 @@ export interface components {
              * Format: int32
              * @description A card's number on its board, as `Card.number` gives it; absent for a template
              *     of the board's cards and for every other block. The server gives it and ignores
-             *     a client's.
+             *     a client's, whatever it is.
              */
             number?: number | null;
             /** @description The identifier of the parent block; empty for root blocks. */
@@ -4524,7 +4524,8 @@ export interface components {
              *     made on the board, never changed and never given again, also once the card is
              *     gone. A copy and an import are new cards with new numbers; a card that comes back
              *     from the trash has its own. `null` for a template of the board's cards
-             *     (`isTemplate`). The server gives it: what a request sends here is ignored.
+             *     (`isTemplate`). The server gives it: what a request sends here is ignored,
+             *     whatever it is.
              */
             number: number | null;
             preview?: components["schemas"]["CardPreview"] | null;
