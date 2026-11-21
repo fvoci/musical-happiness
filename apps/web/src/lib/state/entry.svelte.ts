@@ -9,8 +9,9 @@
  * device wrote there meanwhile). A draft the room never took (the room did
  * not open, the page went first) is written as the entry's body instead
  * (`patchEntry`), after the body the entry has (`appended`), with the version
- * it was read at; the draft is this store's until that write is answered, and
- * is kept, to be written again, where it was refused.
+ * it was read at; the draft is this store's until that write is answered
+ * (`flushing`: nobody writes in it, and the room's editor waits), and is
+ * kept, to be written again, where it was refused.
  *
  * An entry the reader emptied here, or made here and left blank, and leaves
  * blank with nobody else in its room, is deleted as it is left (`closeBody`,
@@ -71,6 +72,8 @@ export class EntryStore {
   drafting = $state(false);
   /** The draft could not be kept: the entry was not made, or its body not written. */
   unsaved = $state(false);
+  /** The draft is being written as the body: it is that write's until answered, and is not written in meanwhile. */
+  flushing = $state(false);
 
   #bodyDoc: BodyDoc | undefined;
   /** The body is asked to be open (`openBody`): it opens once there is an entry. */
@@ -78,8 +81,8 @@ export class EntryStore {
   #making: Promise<void> | undefined;
   /** When the entry may be asked for again after it could not be made. */
   #makeAgainAt = 0;
-  /** The draft is being written as the body: it is that write's until answered. */
-  #flushing = false;
+  /** Asks for it then, typed meanwhile or not. */
+  #again: ReturnType<typeof setTimeout> | undefined;
   /** The reader changed the room's document while it was open here, or made the entry here. */
   #changedHere = false;
   /** The editor of the room's document holds nothing (`noteBlank`). */
@@ -114,6 +117,7 @@ export class EntryStore {
       undefined,
       false,
     ];
+    this.#blankBody = false;
     opened?.close();
     if (this.draft !== null && !this.#closed) this.write(this.draft);
   }
@@ -149,12 +153,16 @@ export class EntryStore {
       this.#makeAgainAt = Date.now() + MAKE_AGAIN_AFTER;
       this.unsaved = true;
       this.host.workspace.report('save', error);
+      this.#again = setTimeout(() => {
+        [this.#again, this.#makeAgainAt] = [undefined, 0];
+        if (!this.#closed && this.draft !== null) this.write(this.draft);
+      }, MAKE_AGAIN_AFTER);
     }
   }
 
   /** The draft, for the editor of the room's document to put in; given once, and not while it is being written. */
   takeDraft(): DocNode | null {
-    if (this.#flushing) return null;
+    if (this.flushing) return null;
     const draft = this.draft;
     [this.draft, this.drafting] = [null, false];
     return draft;
@@ -188,14 +196,17 @@ export class EntryStore {
     this.room = opened.state;
   }
 
-  /** The entry the reader leaves blank, alone in its room, having emptied or made it here. */
+  /**
+   * The entry the reader leaves blank, alone in its room, having emptied or
+   * made it here; never one with a draft still to be written into it.
+   */
   #emptied(): DiaryEntryDetail | undefined {
     const entry = this.entry;
     const room = this.room;
     const alone = (room?.carets?.getStates().size ?? 0) <= 1;
-    return entry && room?.doc && this.#changedHere && alone && isBlank(entry, this.#blankBody)
-      ? entry
-      : undefined;
+    const held = this.draft !== null || this.flushing;
+    const left = this.#changedHere && alone && !held;
+    return entry && room?.doc && left && isBlank(entry, this.#blankBody) ? entry : undefined;
   }
 
   /**
@@ -206,7 +217,12 @@ export class EntryStore {
     this.#wanted = false;
     const opened = this.#bodyDoc;
     const emptied = this.#emptied();
-    [this.#bodyDoc, this.room, this.#changedHere] = [undefined, undefined, false];
+    [this.#bodyDoc, this.room, this.#changedHere, this.#blankBody] = [
+      undefined,
+      undefined,
+      false,
+      false,
+    ];
     if (this.draft !== null && this.entry) void this.#flush();
     if (!opened) return;
     if (!emptied) {
@@ -235,10 +251,15 @@ export class EntryStore {
     }
   }
 
-  /** The page goes: nothing more is opened here. */
+  /** The page goes: nothing more is opened here; a draft whose entry could not be made is tried once more. */
   close(): void {
     this.closeBody();
     this.#closed = true;
+    clearTimeout(this.#again);
+    if (this.draft !== null && !this.entry && !this.#making) {
+      this.#makeAgainAt = 0;
+      this.write(this.draft);
+    }
     this.#bodyUploads.giveUp();
   }
 
@@ -246,19 +267,22 @@ export class EntryStore {
     const entry = this.entry;
     const diaries = this.host.workspace.backend.diary;
     const draft = this.draft;
-    if (!entry || !diaries || draft === null || this.#flushing) return;
-    this.#flushing = true;
+    if (!entry || !diaries || draft === null || this.flushing) return;
+    this.flushing = true;
     try {
       const written = await this.#writeDraft(diaries, entry, draft, options);
-      // Written as it was: what was typed since is the draft still.
+      // Deleted elsewhere meanwhile: what was written went to the trash with
+      // it, and the draft stays, for the entry made again (`lose`).
+      if (this.entry?.id !== entry.id) return;
       if (this.draft === draft) [this.draft, this.drafting] = [null, false];
-      [this.entry, this.unsaved] = [written, false];
+      // Written here, it is not blank: it is emptied here only by a change in its room.
+      [this.entry, this.unsaved, this.#changedHere] = [written, false, false];
       this.host.received(written);
     } catch (error) {
       this.unsaved = true;
       this.host.workspace.report('save', error);
     } finally {
-      this.#flushing = false;
+      this.flushing = false;
     }
   }
 

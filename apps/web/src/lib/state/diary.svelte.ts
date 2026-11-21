@@ -104,6 +104,11 @@ export class DiaryStore implements EntryHost {
     this.entries = this.entries.filter((one) => one.id !== entryId);
   }
 
+  /** How many deletions were heard, and when each entry's was: a read asked before it is dropped. */
+  #deletions = 0;
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- consulted, never shown
+  readonly #goneAt = new Map<string, number>();
+
   #hear(change: Change): void {
     switch (change.kind) {
       case 'entries':
@@ -127,10 +132,13 @@ export class DiaryStore implements EntryHost {
     if (monthDayOf(entry.date) !== this.monthDay) return;
     const shown = this.entries.find((one) => one.id === entry.id);
     if (shown && shown.updateAt >= entry.updateAt) return;
+    const asked = this.#deletions;
     void this.workspace.backend.diary?.entry(this.diaryId, entry.id).then(
       (detail) => {
         const now = this.entries.find((one) => one.id === detail.id);
         if (now && now.updateAt > detail.updateAt) return;
+        // Deleted after it was asked for: what it read is gone.
+        if ((this.#goneAt.get(detail.id) ?? 0) > asked) return;
         this.received(detail);
         this.#days.get(detail.date)?.adopt(detail);
       },
@@ -139,6 +147,8 @@ export class DiaryStore implements EntryHost {
   }
 
   #deleted(entryId: string): void {
+    this.#deletions += 1;
+    this.#goneAt.set(entryId, this.#deletions);
     const entry = this.entries.find((one) => one.id === entryId);
     if (!entry) return;
     this.removed(entryId);

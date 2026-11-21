@@ -224,6 +224,8 @@ export class MemoryDiaries implements Diaries {
       block.body = checkedWhole(this.#world, diaryId, entryId, patch.body);
       block.updateAt = this.#world.now();
       block.modifiedBy = this.#host.userId;
+      // As the server: its room's document is made anew from the body written whole.
+      this.#world.bodyWritten?.(entryId);
       this.#world.tellContainer(diaryId, changeOf(diaryId, block));
     }
     return detailOf(block);

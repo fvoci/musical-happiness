@@ -7,14 +7,16 @@
   the room's editor takes over once the room is there and may be written in,
   with what the draft holds put into it (after what another device wrote
   there meanwhile), the caret where it was. It takes over between syllables,
-  never in the middle of one an input method is composing.
+  never in the middle of one an input method is composing. A draft opened
+  again holds what the day kept of it, and is not written in while that is
+  being written as the body (`EntryStore.flushing`): the room's editor waits
+  for that write, which puts it in the room.
 
   A day the reader opened by pressing it (`focus`) has the caret put at the
   end of what it holds, once, by whichever editor comes first.
 -->
 <script lang="ts">
   import type { Editor as TiptapEditor } from '@tiptap/core';
-  import { untrack } from 'svelte';
 
   import type { DocNode } from '$lib/editor/schema.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -32,9 +34,6 @@
   }
 
   let { entry, label, focus = false }: Props = $props();
-
-  /** What the draft holds as it opens: one kept from before, its write refused. */
-  const seed = untrack(() => entry.draft);
 
   /** Who may write, for the body: the reader alone, in their own diary. */
   const host = $derived({ workspace: entry.host.workspace, canEdit: true, orderedMembers: [] });
@@ -100,7 +99,8 @@
 {#snippet draft()}
   {#if Draft}
     <Draft
-      doc={seed}
+      doc={entry.draft}
+      editable={!entry.flushing}
       {label}
       placeholder={m.diary_entry_placeholder()}
       class="min-h-24 text-base outline-none"
@@ -122,7 +122,7 @@
   of="entry"
   testId="entry-body"
   waiting={entry.entry && !entry.drafting ? undefined : draft}
-  holding={composing || (entry.drafting && !entry.room?.writable)}
+  holding={composing || entry.flushing || (entry.drafting && !entry.room?.writable)}
   onEditor={adopt}
 />
 {#if entry.unsaved}

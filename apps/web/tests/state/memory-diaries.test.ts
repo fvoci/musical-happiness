@@ -380,21 +380,106 @@ describe('a diary’s page', () => {
     store.close();
   });
 
-  it('keeps what is being written on a day whose entry was deleted elsewhere, and makes another', async () => {
+  it('keeps what is being written on a day whose entry was deleted elsewhere, and makes another with it', async () => {
     const { store, today, diary, backend } = await aPage();
     const there = await backend.diary.createEntry(diary.id, today);
     await store.show(monthDayOf(today));
     const entry = store.day(today);
     entry.openBody();
+    // Written before the room took it (its editor has not come yet).
+    entry.write(text('again'));
     await backend.as(backend.userId).diary.deleteEntry(diary.id, there.id);
     await vi.waitFor(() => {
-      expect(entry.entry).toBeUndefined();
-    });
-    entry.write(text('again'));
-    await vi.waitFor(() => {
       expect(entry.entry?.id).toBeDefined();
+      expect(entry.entry?.id).not.toBe(there.id);
     });
-    expect(entry.entry?.id).not.toBe(there.id);
+    expect(entry.draft).toEqual(text('again'));
+    store.close();
+  });
+
+  it('neither gives a draft being written to the room, nor deletes the entry it is written into', async () => {
+    const { store, today, diary, backend } = await aPage();
+    let open = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const patch = backend.diary.patchEntry.bind(backend.diary);
+    vi.spyOn(backend.diary, 'patchEntry').mockImplementation(
+      async (...args: Parameters<typeof patch>) => {
+        await gate;
+        return patch(...args);
+      },
+    );
+    const entry = store.day(today);
+    // Written and folded before the entry was made: the draft goes as its body.
+    entry.write(text('kept'));
+    await vi.waitFor(() => {
+      expect(entry.flushing).toBe(true);
+    });
+    // Opened again meanwhile, its room's editor still empty, and folded again.
+    entry.openBody();
+    await vi.waitFor(() => {
+      expect(entry.room?.status).toBe('joined');
+    });
+    expect(entry.takeDraft()).toBeNull();
+    entry.noteBlank(true);
+    entry.closeBody();
+    open();
+    await vi.waitFor(() => {
+      expect(entry.flushing).toBe(false);
+    });
+    await settle();
+    const [listed] = await backend.diary.entriesOn(diary.id, monthDayOf(today));
+    expect(listed?.body).toEqual(text('kept'));
+    store.close();
+  });
+
+  it('asks again for an entry it could not make, with nothing more typed', async () => {
+    const { store, today, backend } = await aPage();
+    backend.diary.failNext('createEntry', new BackendError(503, {}));
+    const entry = store.day(today);
+    entry.write(text('later'));
+    await vi.waitFor(() => {
+      expect(entry.unsaved).toBe(true);
+    });
+    await vi.waitFor(
+      () => {
+        expect(entry.entry).toBeDefined();
+        expect(entry.unsaved).toBe(false);
+      },
+      { timeout: 8000 },
+    );
+    store.close();
+  }, 10_000);
+
+  it('drops what it read of an entry deleted before the answer came', async () => {
+    const { store, today, diary, backend } = await aPage();
+    const there = await backend.diary.createEntry(diary.id, today);
+    await store.show(monthDayOf(today));
+    let open = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const read = backend.diary.entry.bind(backend.diary);
+    const asked = vi
+      .spyOn(backend.diary, 'entry')
+      .mockImplementation(async (...args: Parameters<typeof read>) => {
+        const answer = await read(...args);
+        await gate;
+        return answer;
+      });
+    const device = backend.as(backend.userId).diary;
+    await device.patchEntry(diary.id, there.id, { body: text('then'), readAt: there.updateAt });
+    await vi.waitFor(() => {
+      expect(asked).toHaveBeenCalled();
+    });
+    await device.deleteEntry(diary.id, there.id);
+    await vi.waitFor(() => {
+      expect(store.entries).toEqual([]);
+    });
+    open();
+    await settle();
+    expect(store.entries).toEqual([]);
     store.close();
   });
 });
