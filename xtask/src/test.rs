@@ -28,7 +28,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 
 use self::report::UnitResult;
 pub(crate) use self::units::Part;
@@ -165,17 +165,16 @@ pub(crate) fn run(root: &Path, databases: Option<Database>, choice: &Choice) -> 
             times: Some(file), ..
         } => {
             // Every machine that shares the run must weigh the units alike: a file one of
-            // them lacks fails it rather than making it share them out otherwise.
-            if !file.is_file() {
-                bail!("--times {}: no such file", file.display());
-            }
-            let records = times::read(file)?;
+            // them lacks, or has cut short, fails it rather than making it share them out
+            // otherwise; the digest is for the machines' logs to compare.
+            let given = times::read_given(file).context("--times")?;
             steps::say(&format!(
-                "    weighing the parts by {} records of {}",
-                records.len(),
-                file.display()
+                "    weighing the parts by {} records of {} (sha256 {})",
+                given.records.len(),
+                file.display(),
+                given.sha256
             ));
-            records
+            given.records
         }
         _ => Vec::new(),
     };
@@ -295,6 +294,7 @@ impl Run<'_> {
             }
             self.results.borrow_mut().push(result);
         }
+        let unmatched = self.unmatched_names(database);
         if !failed.is_empty() {
             bail!(
                 "{} of {} units failed: {}",
@@ -303,7 +303,43 @@ impl Run<'_> {
                 failed.join(", ")
             );
         }
+        if !unmatched.is_empty() {
+            bail!(
+                "no test of {} is named {}: a name that moved, or a rerun of another source",
+                database.name(),
+                unmatched.join(", ")
+            );
+        }
         Ok(())
+    }
+
+    /// The names of a rerun (`-- --exact` and names) that no test of `database` had in
+    /// this run: a rerun of them proves nothing.
+    fn unmatched_names(&self, database: Database) -> Vec<&str> {
+        let Choice::Units { arguments, .. } = self.choice else {
+            return Vec::new();
+        };
+        let Some(names) = exact_names(arguments) else {
+            return Vec::new();
+        };
+        let results = self.results.borrow();
+        let ran = |name: &String| {
+            results
+                .iter()
+                .filter(|result| result.database == database.name())
+                .flat_map(|result| {
+                    [
+                        &result.run.report.passed_tests,
+                        &result.run.report.failed_tests,
+                    ]
+                })
+                .any(|tests| tests.contains(name))
+        };
+        names
+            .iter()
+            .filter(|name| !ran(name))
+            .map(String::as_str)
+            .collect()
     }
 
     /// The units of `all` the choice of the run takes.
@@ -448,6 +484,21 @@ impl Backends {
     }
 }
 
+/// The names of arguments for the harness that are `--exact` and names only, as the
+/// rerun lines of the summary give them.
+fn exact_names(arguments: &[String]) -> Option<&[String]> {
+    match arguments {
+        [exact, names @ ..]
+            if exact == "--exact"
+                && !names.is_empty()
+                && names.iter().all(|name| !name.starts_with('-')) =>
+        {
+            Some(names)
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fmt::Write as _;
@@ -512,6 +563,23 @@ mod tests {
             None,
             "documentation tests are built as they run"
         );
+    }
+
+    #[test]
+    fn only_the_shape_of_a_rerun_line_gives_names_to_check() {
+        let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
+        assert_eq!(
+            exact_names(&words("--exact api::a web::b")),
+            Some(&words("api::a web::b")[..])
+        );
+        for other in [
+            "api",
+            "--exact",
+            "--exact api::a --nocapture",
+            "--skip x --exact a",
+        ] {
+            assert_eq!(exact_names(&words(other)), None, "{other}");
+        }
     }
 
     #[test]

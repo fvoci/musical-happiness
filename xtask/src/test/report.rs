@@ -7,6 +7,7 @@ use std::fmt::Write as _;
 use std::time::Duration;
 
 use super::harness::UnitRun;
+use super::units::DOC;
 use crate::times::{Scope, TestName, UnitTime, Verdict};
 
 /// One unit after its turn.
@@ -20,26 +21,36 @@ pub(crate) struct UnitResult {
 }
 
 impl UnitResult {
-    /// Whether it failed: its command failed, its harness named a failure, a test binary
-    /// of it never reported, or the names of a rerun matched no test.
+    /// Whether it failed: its command failed, its harness named a failure, or a test
+    /// binary of it never reported.
     pub(crate) fn failed(&self) -> bool {
         let report = &self.run.report;
-        !self.run.succeeded
-            || !report.failed_tests.is_empty()
-            || !report.every_binary_finished()
-            || self.matched_nothing()
+        !self.run.succeeded || !report.failed_tests.is_empty() || !report.every_binary_finished()
     }
 
-    /// Whether it ran the tests arguments chose and those were none, which proves
-    /// nothing: a name that moved or was misspelled.
-    fn matched_nothing(&self) -> bool {
+    /// Passed, failed, or interrupted: the task was asked to stop while it ran.
+    pub(crate) fn verdict(&self) -> Verdict {
+        if self.run.interrupted {
+            Verdict::Interrupted
+        } else if self.failed() {
+            Verdict::Failed
+        } else {
+            Verdict::Passed
+        }
+    }
+
+    /// Whether the names of its failed tests are all its failures: every binary
+    /// reported, named as many failures as it counted, and a command that failed had a
+    /// binary that failed (not one that died after its result, nor a build).
+    fn every_failure_named(&self) -> bool {
         let report = &self.run.report;
-        self.scope == Scope::Chosen && report.passed + report.failed == 0
+        report.names_every_failure() && (self.run.succeeded || report.failed_binaries > 0)
     }
 
-    /// Whether its failed tests, run again by name, are every failure of it.
+    /// Whether its failures run again by name. Documentation tests do not: rustdoc
+    /// cuts the arguments for their harness at spaces, and every name of one has some.
     fn reruns_by_name(&self) -> bool {
-        !self.run.report.failed_tests.is_empty() && self.run.report.names_every_failure()
+        self.unit != DOC && !self.run.report.failed_tests.is_empty() && self.every_failure_named()
     }
 
     pub(crate) fn time(&self) -> UnitTime {
@@ -48,24 +59,21 @@ impl UnitResult {
             database: self.database.to_owned(),
             unit: self.unit.clone(),
             scope: self.scope,
-            verdict: if self.failed() {
-                Verdict::Failed
-            } else {
-                Verdict::Passed
-            },
+            verdict: self.verdict(),
             seconds: self.run.elapsed.as_secs_f64(),
             passed: report.passed,
             failed: report.failed,
             ignored: report.ignored,
             failed_tests: report.failed_tests.clone(),
-            every_failure_named: report.names_every_failure() && !self.matched_nothing(),
+            every_failure_named: self.every_failure_named(),
         }
     }
 }
 
 /// The commands that run the failures of `results` again: for each database, one for
-/// the tests named (a name runs in every unit given, and matches nothing where it is
-/// not), and one for the units whose failures were not all named, which run whole.
+/// the tests named (every unit given runs every name, so a name also runs in a unit
+/// that has a test of that name and passed it), and one for the units whose failures
+/// were not all named, or are documentation tests, which run whole.
 pub(crate) fn reruns(results: &[UnitResult]) -> Vec<String> {
     let mut databases: Vec<&str> = Vec::new();
     for result in results.iter().filter(|result| result.failed()) {
@@ -132,7 +140,15 @@ pub(crate) fn flaky(
         {
             flaky.push((whole, started));
         }
-        for test in &result.run.report.passed_tests {
+        let failed = &result.run.report.failed_tests;
+        // A name can be in two binaries of a unit and fail in one: that is no pass.
+        for test in result
+            .run
+            .report
+            .passed_tests
+            .iter()
+            .filter(|test| !failed.contains(test))
+        {
             let named = name(Some(test));
             if let Some(&started) = earlier.get(&named) {
                 flaky.push((named, started));
@@ -155,7 +171,11 @@ pub(crate) fn lines(results: &[UnitResult], flaky: &[(TestName, u64)], now_unix:
                 text,
                 "  {:>9}  {}  {:<8}  {}  ({} passed, {} failed, {} ignored)",
                 clock(result.run.elapsed),
-                if result.failed() { "FAIL" } else { "PASS" },
+                match result.verdict() {
+                    Verdict::Passed => "PASS",
+                    Verdict::Interrupted => "STOP",
+                    Verdict::Failed | Verdict::Skipped => "FAIL",
+                },
                 result.database,
                 result.unit,
                 report.passed,
@@ -172,8 +192,11 @@ pub(crate) fn lines(results: &[UnitResult], flaky: &[(TestName, u64)], now_unix:
             for name in &result.run.report.failed_tests {
                 let _ = writeln!(text, "    {name}");
             }
-            if result.matched_nothing() {
-                text.push_str("    (the names given matched no test: it runs again whole)\n");
+            if result.unit == DOC {
+                text.push_str(
+                    "    (rustdoc cuts a name at its spaces: the documentation tests run \
+                     again whole)\n",
+                );
             } else if !result.reruns_by_name() {
                 text.push_str(
                     "    (a failure has no name, or a test binary never reported: see the \
@@ -249,6 +272,7 @@ mod tests {
             scope: Scope::Whole,
             run: UnitRun {
                 succeeded: matches!(exit, Exit::Success),
+                interrupted: false,
                 report,
                 elapsed: Duration::from_millis(83_400),
             },
@@ -263,6 +287,7 @@ mod tests {
             finished: 1,
             passed: count(passed),
             failed: count(failed),
+            failed_binaries: u64::from(!failed.is_empty()),
             failed_tests: failed.iter().map(|&name| name.to_owned()).collect(),
             passed_tests: passed.iter().map(|&name| name.to_owned()).collect(),
             ..Report::default()
@@ -305,9 +330,28 @@ mod tests {
             [
                 "cargo xtask test --database postgres --unit rooms --unit web -- --exact \
                  rooms::a rooms::b web::d",
-                "cargo xtask test --database sqlite --unit doc -- --exact 'src/lib.rs - f (line 3)'",
+                "cargo xtask test --database sqlite --unit doc",
             ],
-            "a name with spaces is quoted; a unit that passed is left out"
+            "a unit that passed is left out; documentation tests run again whole"
+        );
+        let text = lines(&results, &[], 0);
+        assert!(
+            text.contains("the documentation tests run again whole"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_name_with_spaces_is_one_word_of_the_command() {
+        let results = [result(
+            "sqlite",
+            "regression",
+            Exit::Failure,
+            finished(&[], &["case it's a"]),
+        )];
+        assert_eq!(
+            reruns(&results),
+            [r"cargo xtask test --database sqlite --unit regression -- --exact 'case it'\''s a'"]
         );
     }
 
@@ -332,17 +376,35 @@ mod tests {
                 ..finished(&[], &["libs::a"])
             },
         );
-        let named = result("sqlite", "doc", Exit::Failure, finished(&[], &["doc::x"]));
-        let results = [crashed, short, died, named];
+        // Every test passed and the command failed: a binary died after its result.
+        let after = result("sqlite", "card", Exit::Failure, finished(&["card::a"], &[]));
+        let named = result(
+            "sqlite",
+            "store",
+            Exit::Failure,
+            finished(&[], &["store::x"]),
+        );
+        let results = [crashed, short, died, after, named];
         assert_eq!(
             reruns(&results),
             [
-                "cargo xtask test --database sqlite --unit doc -- --exact doc::x",
-                "cargo xtask test --database sqlite --unit api --unit web --unit libs",
+                "cargo xtask test --database sqlite --unit store -- --exact store::x",
+                "cargo xtask test --database sqlite --unit api --unit web --unit libs --unit card",
             ]
         );
         let text = lines(&results, &[], 0);
-        assert_eq!(text.matches("it runs again whole").count(), 3, "{text}");
+        assert_eq!(text.matches("it runs again whole").count(), 4, "{text}");
+        let unnamed: Vec<String> = results
+            .iter()
+            .map(UnitResult::time)
+            .filter(|time| !time.every_failure_named)
+            .map(|time| time.unit)
+            .collect();
+        assert_eq!(
+            unnamed,
+            ["api", "web", "libs", "card"],
+            "recorded whole too"
+        );
     }
 
     #[test]
@@ -357,17 +419,14 @@ mod tests {
             "a test ended the process before its binary reported"
         );
         assert!(!result("sqlite", "x", Exit::Success, finished(&["x::a"], &[])).failed());
+    }
 
-        let nothing = UnitResult {
-            scope: Scope::Chosen,
-            ..result("sqlite", "x", Exit::Success, finished(&[], &[]))
-        };
-        assert!(nothing.failed(), "names that matched no test prove nothing");
-        assert!(!nothing.time().every_failure_named);
-        assert_eq!(
-            reruns(&[nothing]),
-            ["cargo xtask test --database sqlite --unit x"]
-        );
+    #[test]
+    fn a_unit_that_ended_after_the_task_was_asked_to_stop_is_interrupted() {
+        let mut stopped = result("sqlite", "x", Exit::Failure, finished(&["x::a"], &["x::b"]));
+        stopped.run.interrupted = true;
+        assert_eq!(stopped.time().verdict, Verdict::Interrupted);
+        assert!(lines(&[stopped], &[], 0).contains("STOP  sqlite    x"));
     }
 
     #[test]
@@ -416,6 +475,22 @@ mod tests {
             [(test_name("postgres", "api", Some("api::y")), 7)],
             "another database's failure is another test"
         );
+    }
+
+    #[test]
+    fn a_name_that_passed_in_one_binary_and_failed_in_another_is_not_flaky() {
+        let both = result(
+            "sqlite",
+            "libs",
+            Exit::Failure,
+            Report {
+                started: 2,
+                finished: 2,
+                ..finished(&["tests::a"], &["tests::a"])
+            },
+        );
+        let earlier = BTreeMap::from([(test_name("sqlite", "libs", Some("tests::a")), 3)]);
+        assert_eq!(flaky(&[both], &earlier), []);
     }
 
     #[test]

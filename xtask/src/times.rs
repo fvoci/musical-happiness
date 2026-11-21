@@ -12,9 +12,10 @@ use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
@@ -123,11 +124,12 @@ pub(crate) struct TestName {
 }
 
 /// When a run started, by the calendar and by the clock that measures it, and the
-/// source it started on: a file changed while it runs is not what it ran.
+/// source it started on.
 #[derive(Debug, Clone)]
 pub(crate) struct Clock {
     wall: SystemTime,
     started: Instant,
+    root: PathBuf,
     source: Source,
 }
 
@@ -137,7 +139,23 @@ impl Clock {
         Self {
             wall: SystemTime::now(),
             started: Instant::now(),
+            root: root.to_owned(),
             source: source(root),
+        }
+    }
+
+    /// The source the run ran: the one it started on, if it is still the checkout's.
+    /// Every unit builds what is there when it starts, so a run during which a file
+    /// changed ran no one source, and is of none (its commit is empty).
+    fn source_ran(&self) -> Source {
+        if source(&self.root) == self.source {
+            self.source.clone()
+        } else {
+            steps::say(
+                "    the checkout changed while the run ran: its record is of no source, \
+                 and it finds no flaky test",
+            );
+            Source::default()
         }
     }
 }
@@ -169,7 +187,7 @@ impl Record {
         Self {
             task: task.to_owned(),
             started_unix: unix(clock.wall),
-            source: clock.source.clone(),
+            source: clock.source_ran(),
             arguments: std::env::args_os()
                 .skip(1)
                 .map(|argument| argument.to_string_lossy().into_owned())
@@ -249,14 +267,51 @@ pub(crate) fn read(file: &Path) -> Result<Vec<Record>> {
         .collect())
 }
 
+/// A time file given on the command line, every line of which must be a record.
+/// Machines that share a run each read their copy, and a copy cut short or not of this
+/// format would weigh the units otherwise and share them out otherwise.
+///
+/// # Errors
+///
+/// Fails if the file cannot be read, holds no record, or holds a line that is not one.
+pub(crate) fn read_given(file: &Path) -> Result<Given> {
+    let bytes = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
+    let text = String::from_utf8(bytes)
+        .with_context(|| format!("{} is no time file: not UTF-8", file.display()))?;
+    let records = text
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+        .map(|(index, line)| {
+            serde_json::from_str(line)
+                .with_context(|| format!("{}:{}: not a record of a run", file.display(), index + 1))
+        })
+        .collect::<Result<Vec<Record>>>()?;
+    if records.is_empty() {
+        bail!("{} holds no record of a run", file.display());
+    }
+    Ok(Given {
+        records,
+        sha256: hexadecimal(&Sha256::digest(text.as_bytes())),
+    })
+}
+
+/// The records of a time file given on the command line.
+#[derive(Debug)]
+pub(crate) struct Given {
+    pub(crate) records: Vec<Record>,
+    /// The SHA-256 of the file, for machines that share a run to compare.
+    pub(crate) sha256: String,
+}
+
 /// How long each unit of `database` took, from the latest test run that ran it whole
-/// and passed: a rerun of some of its tests, a run cut short or a unit whose tests
+/// and passed: a rerun of some of its tests, a unit cut short or one whose tests
 /// failed fast says little of how long it takes.
 pub(crate) fn unit_seconds(records: &[Record], database: &str) -> HashMap<String, f64> {
     let mut seconds = HashMap::new();
     for unit in records
         .iter()
-        .filter(|record| record.task == "test" && record.verdict != Verdict::Interrupted)
+        .filter(|record| record.task == "test")
         .flat_map(|record| &record.units)
         .filter(|unit| {
             unit.database == database
@@ -272,16 +327,18 @@ pub(crate) fn unit_seconds(records: &[Record], database: &str) -> HashMap<String
 
 /// The tests that failed in the test runs of `source`, each with when the latest of
 /// those runs started. A unit that failed without naming every failure is there whole
-/// too, as a test with no name. A run that was interrupted failed nothing, and without
-/// a commit no run is known to be of the same source.
+/// too, as a test with no name. A unit that was interrupted failed nothing (the units
+/// of its run before it did), and without a commit no run is known to be of the same
+/// source.
 pub(crate) fn failures_of(records: &[Record], source: &Source) -> BTreeMap<TestName, u64> {
     let mut failures = BTreeMap::new();
     if source.commit.is_empty() {
         return failures;
     }
-    for record in records.iter().filter(|record| {
-        record.task == "test" && record.verdict != Verdict::Interrupted && record.source == *source
-    }) {
+    for record in records
+        .iter()
+        .filter(|record| record.task == "test" && record.source == *source)
+    {
         for unit in record
             .units
             .iter()
@@ -303,43 +360,59 @@ pub(crate) fn failures_of(records: &[Record], source: &Source) -> BTreeMap<TestN
     failures
 }
 
-/// The source of the checkout at `root`. Without git, or outside a repository, the
-/// commit is empty, and no two runs are known to be of one source.
+/// The source of the checkout at `root`. Without git, outside a repository, or if git
+/// cannot say what changed, the commit is empty, and no two runs are known to be of
+/// one source.
 pub(crate) fn source(root: &Path) -> Source {
-    let root = root.to_string_lossy();
     let git = |arguments: &[&str]| {
-        let mut all = vec!["-C", root.as_ref()];
-        all.extend(arguments);
-        steps::capture("git", &all)
+        Command::new("git")
+            .args(arguments)
+            .current_dir(root)
+            .output()
             .ok()
-            .filter(|captured| captured.succeeded)
-            .map(|captured| captured.output)
+            .filter(|output| output.status.success())
+            .map(|output| output.stdout)
     };
-    let Some(commit) = git(&["rev-parse", "HEAD"]) else {
+    let (Some(commit), Some(status), Some(diff), Some(untracked)) = (
+        git(&["rev-parse", "HEAD"]),
+        // What a run of the same commit may differ by: the changes to tracked files,
+        // and the files git does not track yet (a new test is one), by name and content.
+        git(&["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+        git(&["diff", "HEAD", "--binary"]),
+        git(&["ls-files", "-z", "--others", "--exclude-standard"]),
+    ) else {
         return Source::default();
     };
-    // What a run of the same commit may differ by: the changes to tracked files, and the
-    // files git does not track yet (a new test is one), by name and content.
-    let status = git(&["status", "--porcelain=v1", "--untracked-files=all"]).unwrap_or_default();
     let changes = if status.is_empty() {
         String::new()
     } else {
-        let diff = git(&["diff", "HEAD", "--binary"]).unwrap_or_default();
-        let mut hasher = Sha256::new()
-            .chain_update(status.as_bytes())
-            .chain_update(diff.as_bytes());
-        let untracked = git(&["ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
-        for file in untracked.lines() {
-            hasher.update(file.as_bytes());
-            hasher.update(std::fs::read(Path::new(root.as_ref()).join(file)).unwrap_or_default());
+        let mut hasher = Sha256::new().chain_update(&status).chain_update(&diff);
+        for file in untracked
+            .split(|&byte| byte == 0)
+            .filter(|file| !file.is_empty())
+        {
+            hasher.update(file);
+            hasher.update([0]);
+            // A name that is not UTF-8 is hashed by its bytes alone.
+            if let Ok(file) = std::str::from_utf8(file) {
+                hasher.update(std::fs::read(root.join(file)).unwrap_or_default());
+            }
+            hasher.update([0]);
         }
-        let digest = hasher.finalize();
-        digest.iter().fold(String::new(), |mut hexadecimal, byte| {
-            let _ = write!(hexadecimal, "{byte:02x}");
-            hexadecimal
-        })
+        hexadecimal(&hasher.finalize())
     };
-    Source { commit, changes }
+    Source {
+        commit: String::from_utf8_lossy(&commit).trim().to_owned(),
+        changes,
+    }
+}
+
+/// Bytes in lowercase hexadecimal.
+fn hexadecimal(bytes: &[u8]) -> String {
+    bytes.iter().fold(String::new(), |mut text, byte| {
+        let _ = write!(text, "{byte:02x}");
+        text
+    })
 }
 
 #[cfg(test)]
@@ -440,7 +513,14 @@ mod tests {
             ),
             Record {
                 verdict: Verdict::Interrupted,
-                ..run(4, "b", vec![unit("sqlite", "api", 1.0, &[])])
+                ..run(
+                    4,
+                    "b",
+                    vec![UnitTime {
+                        verdict: Verdict::Interrupted,
+                        ..unit("sqlite", "api", 1.0, &[])
+                    }],
+                )
             },
         ];
         let seconds = unit_seconds(&records, "sqlite");
@@ -477,7 +557,17 @@ mod tests {
             run(2, "b", vec![unit("sqlite", "api", 1.0, &["api::y"])]),
             Record {
                 verdict: Verdict::Interrupted,
-                ..run(4, "a", vec![unit("sqlite", "store", 1.0, &["store::z"])])
+                ..run(
+                    4,
+                    "a",
+                    vec![
+                        unit("sqlite", "card", 1.0, &["card::q"]),
+                        UnitTime {
+                            verdict: Verdict::Interrupted,
+                            ..unit("sqlite", "store", 1.0, &["store::z"])
+                        },
+                    ],
+                )
             },
             run(
                 3,
@@ -511,13 +601,32 @@ mod tests {
             [
                 ("postgres/api/api::x".to_owned(), 3),
                 ("sqlite/api/api::x".to_owned(), 1),
+                ("sqlite/card/card::q".to_owned(), 4),
                 ("sqlite/libs/".to_owned(), 1),
                 ("sqlite/libs/libs::a".to_owned(), 1),
                 ("sqlite/web/".to_owned(), 1)
             ],
-            "commit b's failure is of other code and the interrupted run failed nothing; a \
-             unit that did not name every failure is there whole too"
+            "commit b's failure is of other code; of the interrupted run, the unit before \
+             the interrupt failed and the one it cut short did not; a unit that did not name \
+             every failure is there whole too"
         );
+    }
+
+    #[test]
+    fn a_given_time_file_is_read_whole_or_refused() {
+        let directory = crate::files::testing::scratch("times-given");
+        let file = directory.join("times.jsonl");
+        append_to(&file, &run(1, "a", vec![unit("sqlite", "api", 3.0, &[])])).expect("appends");
+        let given = read_given(&file).expect("a file of records");
+        assert_eq!(given.records.len(), 1);
+        assert_eq!(given.sha256.len(), 64);
+
+        std::fs::write(&file, "").expect("writes");
+        assert!(read_given(&file).is_err(), "no record: cut short");
+        std::fs::write(&file, "<html>not found</html>\n").expect("writes");
+        let error = read_given(&file).expect_err("not a record");
+        assert!(error.to_string().contains("times.jsonl:1"), "{error}");
+        assert!(read_given(&directory.join("absent")).is_err());
     }
 
     #[test]

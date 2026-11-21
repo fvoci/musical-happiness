@@ -66,8 +66,10 @@ enum Command {
         /// same parts.
         #[arg(long, conflicts_with = "unit")]
         part: Option<test::Part>,
-        /// A time file (as `target/xtask-times.jsonl`) whose latest times weigh the
-        /// units of `--part`; without it every unit weighs the same.
+        /// A time file (as `target/xtask-times.jsonl`) whose latest times of units run
+        /// whole and passed weigh the units of `--part`; one that is not there, holds
+        /// no record or a line that is not one fails the run. Without it every unit
+        /// weighs the same.
         #[arg(long, requires = "part")]
         times: Option<PathBuf>,
         /// Runs this unit of one database only; may be given more than once.

@@ -20,6 +20,8 @@ pub(crate) struct Report {
     pub(crate) started: u64,
     /// The test binaries that reported their result (`test result:`).
     pub(crate) finished: u64,
+    /// The test binaries whose result was a failure (`test result: FAILED.`).
+    pub(crate) failed_binaries: u64,
     pub(crate) passed: u64,
     pub(crate) failed: u64,
     pub(crate) ignored: u64,
@@ -70,7 +72,10 @@ impl Reading {
     pub(crate) fn line(&mut self, line: &str) {
         let line = line.trim_end_matches(['\r', '\n']);
         if let Some(result) = line.strip_prefix("test result: ") {
-            self.report.finished += 1;
+            self.report.finished = self.report.finished.saturating_add(1);
+            if result.starts_with("FAILED") {
+                self.report.failed_binaries = self.report.failed_binaries.saturating_add(1);
+            }
             self.counts(result);
             for name in self.listing.take().unwrap_or_default() {
                 self.failed(name);
@@ -79,7 +84,7 @@ impl Reading {
             self.listing = Some(Vec::new());
         } else if is_running(line) {
             self.listing = None;
-            self.report.started += 1;
+            self.report.started = self.report.started.saturating_add(1);
         } else if let Some(names) = &mut self.listing
             && (line.is_empty() || line.starts_with("    "))
         {
@@ -122,12 +127,14 @@ impl Reading {
             let Ok(number) = number.parse::<u64>() else {
                 continue;
             };
-            match what {
-                "passed" => self.report.passed += number,
-                "failed" => self.report.failed += number,
-                "ignored" => self.report.ignored += number,
-                _ => {}
-            }
+            // The numbers come from any line that looks like a result, a test's own too.
+            let count = match what {
+                "passed" => &mut self.report.passed,
+                "failed" => &mut self.report.failed,
+                "ignored" => &mut self.report.ignored,
+                _ => continue,
+            };
+            *count = count.saturating_add(number);
         }
     }
 }
@@ -147,6 +154,9 @@ fn is_running(line: &str) -> bool {
 pub(crate) struct UnitRun {
     /// Whether it exited with success.
     pub(crate) succeeded: bool,
+    /// Whether the task was asked to stop by the time it ended: then its end says
+    /// nothing of its tests (Ctrl-C reaches the tests too).
+    pub(crate) interrupted: bool,
     pub(crate) report: Report,
     pub(crate) elapsed: Duration,
 }
@@ -173,7 +183,9 @@ pub(crate) fn run(
         .args(arguments)
         .envs(environment.iter().map(|(name, value)| (name, value)))
         .current_dir(directory);
-    run_echoing(command, &shown, &mut std::io::stdout())
+    let mut ran = run_echoing(command, &shown, &mut std::io::stdout())?;
+    ran.interrupted = crate::steps::interrupted();
+    Ok(ran)
 }
 
 /// Runs `command`, its standard output read as the harness's and written to `echo`.
@@ -205,6 +217,7 @@ fn run_echoing(mut command: Command, shown: &str, echo: &mut dyn Write) -> Resul
         .with_context(|| format!("waiting for `{shown}`"))?;
     Ok(UnitRun {
         succeeded: status.success(),
+        interrupted: false,
         report: reading.finish(),
         elapsed: started.elapsed(),
     })
@@ -257,6 +270,7 @@ test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; 
         let report = read(TWO_BINARIES);
         assert_eq!((report.passed, report.failed, report.ignored), (3, 2, 1));
         assert_eq!((report.started, report.finished), (2, 2));
+        assert_eq!(report.failed_binaries, 1);
         assert_eq!(
             report.failed_tests,
             ["b::broken", "b::also_broken"],
