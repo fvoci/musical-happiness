@@ -83,14 +83,32 @@ pub mod testing {
     /// Panics if the changes of a copy do not apply to the document they were made
     /// from, which would be a defect.
     pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
-        let (repair, _) = crate::repair::repaired(doc)?;
+        Ok(applied(doc, crate::repair::repaired(doc)?))
+    }
+
+    /// [`repair`], with what the repair writes written as `writer`: the same changes each
+    /// time, where a repair writes as a client new to the document.
+    ///
+    /// # Errors
+    ///
+    /// As [`repair`].
+    ///
+    /// # Panics
+    ///
+    /// As [`repair`].
+    pub fn repair_by(doc: &Doc, writer: u64) -> Result<Repair, BodyError> {
+        Ok(applied(doc, crate::repair::repaired_by(doc, Some(writer))?))
+    }
+
+    /// Makes the changes of a repair to the document it was made from.
+    fn applied(doc: &Doc, (repair, _): (Repair, Option<Doc>)) -> Repair {
         if let Some(changes) = &repair.update {
             let changes = Update::decode_v1(changes).expect("the changes are an update");
             doc.transact_mut()
                 .apply_update(changes)
                 .expect("the changes apply to the document they were made from");
         }
-        Ok(repair)
+        repair
     }
 
     /// The Y document with an update, not yet projected or repaired.
@@ -112,7 +130,7 @@ pub mod testing {
     ///
     /// Returns why the document cannot be read again from its state.
     pub fn copy_of(doc: &Doc) -> Result<Doc, UpdateError> {
-        crate::update::copy_of(doc)
+        crate::update::copy_of(doc, None)
     }
 
     /// How many steps the changes of an update may take to place in a document,

@@ -45,7 +45,7 @@ import {
   type DocMark,
   type DocNode,
 } from './schema.ts';
-import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from './table-grid.ts';
+import { allowedSpan, MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from './table-grid.ts';
 
 export interface RenderBodyOptions {
   /**
@@ -340,12 +340,8 @@ class BodyDrawing {
    */
   #table(node: DocNode): HTMLElement | undefined {
     // Only rows and cells, and spans within the limits, whatever was handed in.
-    const spanOf = (cell: DocNode, name: string, limit: number): number => {
-      const span = cell.attrs?.[name];
-      return typeof span === 'number' && Number.isInteger(span) && span >= 1 && span <= limit
-        ? span
-        : 1;
-    };
+    const spanOf = (cell: DocNode, name: string, limit: number): number =>
+      allowedSpan(cell.attrs?.[name], limit) ?? 1;
     const cellsOf = (row: DocNode): DocNode[] =>
       childrenOf(row).filter((cell) => cell.type === 'tableCell' || cell.type === 'tableHeader');
     const rows = childrenOf(node).filter((row) => row.type === 'tableRow');

@@ -14,9 +14,9 @@ use crate::read::{self, Child, Content, Pushed};
 /// `None` is no body: an empty document, or one empty paragraph.
 ///
 /// The JSON is the stored form: an attribute an editor fills in is there (but for the
-/// start of an ordered list at 1, which a body may leave out), one no editor reads is
-/// not, an empty `attrs` is left out, the marks of a text are in the editor's order,
-/// and neighbouring texts with the same marks are one. So the body of a document made
+/// start of an ordered list at 1 and a cell's span of 1, which a body leaves out), one
+/// no editor reads is not, an empty `attrs` is left out, the marks of a text are in the
+/// editor's order, and neighbouring texts with the same marks are one. So the body of a document made
 /// from a body ([`crate::from_body`]) is no larger than that body.
 ///
 /// # Errors

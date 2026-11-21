@@ -247,41 +247,45 @@ pub fn state_of(doc: &Doc) -> Vec<u8> {
         .encode_state_as_update_v1(&StateVector::default())
 }
 
-/// A copy of a Y document that shares nothing with it. (Cloning a `Doc` gives a second
-/// handle to the same document.)
+/// A copy of a Y document that shares nothing with it, which writes as `writer`, or as
+/// a client new to it if `None`. (Cloning a `Doc` gives a second handle to the same
+/// document.)
 ///
 /// # Errors
 ///
 /// Returns [`UpdateError::DocumentUnreadable`] if the document's own state cannot be
 /// read again as any update is read.
-pub(crate) fn copy_of(doc: &Doc) -> Result<Doc, UpdateError> {
-    doc_of_state(&state_of(doc)).map_err(UpdateError::DocumentUnreadable)
+pub(crate) fn copy_of(doc: &Doc, writer: Option<u64>) -> Result<Doc, UpdateError> {
+    doc_of_state(&state_of(doc), writer).map_err(UpdateError::DocumentUnreadable)
 }
 
 /// The Y document whose state is `state`, read as any update is read: past the walk
-/// (`scan`), with every change it builds on, and with nothing left waiting.
+/// (`scan`), with every change it builds on, and with nothing left waiting. It writes as
+/// `writer`, or as a client new to it if `None`.
 ///
 /// # Errors
 ///
 /// Returns why the state is no whole document.
-fn doc_of_state(state: &[u8]) -> Result<Doc, String> {
-    read_state(state).map(|(doc, _)| doc)
+fn doc_of_state(state: &[u8], writer: Option<u64>) -> Result<Doc, String> {
+    let walked = scan::check(state).map_err(|refusal| refusal.reason().to_owned())?;
+    read_walked(state, &walked, writer)
 }
 
 /// [`doc_of_state`], with what the walk found of the state: how many changes it holds,
 /// and the most of one client.
 fn read_state(state: &[u8]) -> Result<(Doc, scan::Walked), String> {
     let walked = scan::check(state).map_err(|refusal| refusal.reason().to_owned())?;
-    read_walked(state, &walked).map(|doc| (doc, walked))
+    read_walked(state, &walked, None).map(|doc| (doc, walked))
 }
 
-/// The Y document of a state the walk has taken.
-fn read_walked(state: &[u8], walked: &scan::Walked) -> Result<Doc, String> {
+/// The Y document of a state the walk has taken, which writes as `writer`, or as a
+/// client new to it if `None`.
+fn read_walked(state: &[u8], walked: &scan::Walked, writer: Option<u64>) -> Result<Doc, String> {
     if walked.begins.iter().any(|(_, clock)| *clock > 0) {
         return Err(UpdateError::MissingChanges.to_string());
     }
     let update = Update::decode_v1(state).map_err(|error| error.to_string())?;
-    let doc = doc_of_client(None);
+    let doc = doc_of_client(writer);
     {
         let mut txn = doc.transact_mut();
         txn.apply_update(update)
@@ -325,7 +329,7 @@ fn read_counted(state: &[u8], limits: &UpdateLimits) -> Result<Counted, UpdateEr
             limit,
         });
     }
-    let doc = read_walked(state, &read.walked).map_err(UpdateError::LeavesUnreadable)?;
+    let doc = read_walked(state, &read.walked, None).map_err(UpdateError::LeavesUnreadable)?;
     // Lengths counted otherwise than the library counts them would have found the
     // neighbours of the changes in other places than the library does.
     let ends = doc.transact().state_vector();
@@ -642,11 +646,11 @@ mod tests {
     fn a_document_that_cannot_be_read_again_is_refused_and_does_not_panic() {
         let doc = unreadable();
         assert!(
-            doc_of_state(&state_of(&doc)).is_err(),
+            doc_of_state(&state_of(&doc), None).is_err(),
             "its state is not read"
         );
         assert!(
-            matches!(copy_of(&doc), Err(UpdateError::DocumentUnreadable(_))),
+            matches!(copy_of(&doc, None), Err(UpdateError::DocumentUnreadable(_))),
             "no copy"
         );
         let empty = [0, 0];
@@ -662,11 +666,14 @@ mod tests {
     #[test]
     fn a_state_is_read_again_only_whole() {
         let doc = new_doc();
-        assert!(doc_of_state(&state_of(&doc)).is_ok(), "the empty document");
+        assert!(
+            doc_of_state(&state_of(&doc), None).is_ok(),
+            "the empty document"
+        );
         // A change of client 5 that begins at clock 3: the changes before it are missing.
         let mut later = vec![1, 1, 5, 3, 4, 1, 7];
         later.extend_from_slice(b"default");
         later.extend_from_slice(&[1, b'a', 0]);
-        assert!(doc_of_state(&later).is_err(), "a state with a hole");
+        assert!(doc_of_state(&later, None).is_err(), "a state with a hole");
     }
 }

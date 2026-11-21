@@ -7,13 +7,14 @@
  * quote, a list entry or a cell, so that no table is in another: a cell
  * holds blocks, and so does a list entry in a cell. Its grid is filled when
  * it is stored (`table-grid.ts`); the server mends one that a merge of two
- * edits left unfilled, and no editor does it too.
+ * edits left unfilled. (The table plugin pads an unfilled table after any
+ * change, another editor's too, so two editors that see one each pad it.)
  */
 import { Document } from '@tiptap/extension-document';
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table';
 
 import { TABLE_CELL_MIN_WIDTH } from './drawing.ts';
-import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from './table-grid.ts';
+import { allowedSpan, MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from './table-grid.ts';
 
 /** The group of what stands only in the document itself. */
 const DOCUMENT_ONLY = 'documentBlock';
@@ -27,10 +28,9 @@ export const BodyTable = Table.extend({ group: DOCUMENT_ONLY }).configure({
   cellMinWidth: TABLE_CELL_MIN_WIDTH,
 });
 
-/** A span read from pasted HTML: a whole number in range, else one. */
+/** A span read from pasted HTML by its leading digits, as a browser reads it; else one. */
 function spanOf(element: HTMLElement, name: string, limit: number): number {
-  const span = Number(element.getAttribute(name) ?? '1');
-  return Number.isInteger(span) && span >= 1 && span <= limit ? span : 1;
+  return allowedSpan(Number.parseInt(element.getAttribute(name) ?? '1', 10), limit) ?? 1;
 }
 
 /** The spans of a cell, the only attributes it keeps. */

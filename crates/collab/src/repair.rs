@@ -57,7 +57,9 @@ pub struct Repair {
 /// children belong, which an editor passes over, is deleted whole.
 ///
 /// The deletions are made on a copy of the document, which comes back with what the
-/// repair did; no copy if the document is a body already. `doc` is not changed.
+/// repair did; no copy if the document is a body already. `doc` is not changed. What the
+/// repair writes is written as a client new to the document each time, picked at random
+/// as an editor's is, so that no two repairs write as one.
 ///
 /// # Errors
 ///
@@ -74,6 +76,19 @@ pub struct Repair {
 /// leaves it unable to be. Any other error means the document would still be refused
 /// with the deletions.
 pub(crate) fn repaired(doc: &Doc) -> Result<(Repair, Option<Doc>), BodyError> {
+    repaired_by(doc, None)
+}
+
+/// [`repaired`], what it writes written as `writer`, or as a client new to the document
+/// if `None`: a test names one to have the same changes each time.
+///
+/// # Errors
+///
+/// As [`repaired`].
+pub(crate) fn repaired_by(
+    doc: &Doc,
+    writer: Option<u64>,
+) -> Result<(Repair, Option<Doc>), BodyError> {
     if let Ok(body) = to_body(doc) {
         let repair = Repair {
             deleted: 0,
@@ -83,7 +98,7 @@ pub(crate) fn repaired(doc: &Doc) -> Result<(Repair, Option<Doc>), BodyError> {
         };
         return Ok((repair, None));
     }
-    let (repair, copy) = deleting(doc)?;
+    let (repair, copy) = deleting(doc, writer)?;
     Ok((repair, Some(copy)))
 }
 
@@ -93,8 +108,8 @@ pub(crate) fn repaired(doc: &Doc) -> Result<(Repair, Option<Doc>), BodyError> {
 /// # Errors
 ///
 /// As [`repaired`].
-fn deleting(doc: &Doc) -> Result<(Repair, Doc), BodyError> {
-    let copy = copy_of(doc).map_err(|_| uncopied())?;
+fn deleting(doc: &Doc, writer: Option<u64>) -> Result<(Repair, Doc), BodyError> {
+    let copy = copy_of(doc, writer).map_err(|_| uncopied())?;
     let root = copy.get_or_insert_xml_fragment(FIELD);
     let mut txn = copy.transact_mut();
     let found = Survey { txn: &txn }.root(&root)?;
@@ -363,6 +378,9 @@ impl<T: ReadTxn> Survey<'_, T> {
                     content.extend(nodes);
                     cells.push(CellAt::Kept(element));
                 }
+                // A text with nothing in it, which an editor passes over, goes: then
+                // the row's children are its cells, and a cell put in counts among them.
+                (Some(nodes), None) if nodes.is_empty() => own.push(index_of(index)),
                 (Some(nodes), None) => content.extend(nodes),
                 (None, Some(element)) => {
                     own.push(index_of(index));
@@ -498,8 +516,8 @@ fn without_spans(cell: &Value) -> Value {
     cell
 }
 
-/// A row whose cells are without their spans, with an empty cell more: a row that fills
-/// a table of its own, even one that has no cell.
+/// A row whose cells are without their spans, given an empty cell if it has none: a row
+/// that fills a table of its own, and no wider than it is.
 fn filling_row(row: &Value) -> Value {
     let mut row = row.clone();
     if let Some(members) = row.as_object_mut() {
@@ -510,7 +528,9 @@ fn filling_row(row: &Value) -> Value {
             for child in children.iter_mut() {
                 *child = without_spans(child);
             }
-            children.push(mend::empty_cell("tableCell"));
+            if children.is_empty() {
+                children.push(mend::empty_cell("tableCell"));
+            }
         }
     }
     row

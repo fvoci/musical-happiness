@@ -9,8 +9,9 @@
 //! without content, which every editor deletes) is deleted and an empty one is put in
 //! its place, so that the cells after it stay in their columns. Writing is not the same
 //! whoever does it, as deleting is: every editor that wrote the same would add cells of
-//! its own. So no editor mends a table it did not break itself; the server mends the
-//! one it holds, and its editors are sent what it wrote.
+//! its own. So the server mends the one it holds, and its editors are sent what it
+//! wrote. (The editor's table plugin pads an unfilled table after any change, another
+//! editor's too, so two editors that see one would each pad it.)
 
 use fvoci_model::{BodyError, CellFit, TableGrid};
 use serde_json::{Map, Value, json};
@@ -125,8 +126,16 @@ pub(crate) fn mend_grid(
         .get_mut("content")
         .and_then(Value::as_array_mut)
         .map_or(&mut [][..], Vec::as_mut_slice);
+    debug_assert_eq!(grid.rows().len(), rows.len(), "a row surveyed for each row");
+    debug_assert_eq!(grid.rows().len(), nodes.len(), "a node for each row");
     for ((fit, surveyed), node) in grid.rows().iter().zip(rows).zip(nodes) {
         let cells = content_mut(node);
+        debug_assert_eq!(
+            fit.cells.len(),
+            surveyed.cells.len(),
+            "a cell surveyed for each"
+        );
+        debug_assert_eq!(fit.cells.len(), cells.len(), "a node for each cell");
         for (index, ((cell, at), json)) in fit
             .cells
             .iter()

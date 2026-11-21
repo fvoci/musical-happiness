@@ -325,3 +325,55 @@ async fn a_column_and_a_row_added_together_are_mended_by_the_server() {
     );
     th.teardown().await;
 }
+
+/// A table at its limit of columns is mended as any other: a column and a row added
+/// together leave the new row a cell short of twenty, and the server gives it the cell.
+/// A column more is refused, with the limits of a body as the reason.
+#[tokio::test]
+async fn a_table_at_its_limit_is_mended_and_a_column_past_it_is_refused() {
+    let th = Setup::native().start().await.init_basic().await;
+    let start = table(None, &[&["a"; 19], &["b"; 19]]);
+    let e = editing(&th, &json!({"type": "doc", "content": [start]})).await;
+    let collab = e.app.collab();
+    let loaded = collab.open(&e.app, &e.card_id).await.expect("opened");
+    let column = Editor::join(101, &loaded.state).add_table_column();
+    let row = Editor::join(102, &loaded.state).add_table_row(19);
+    for (user, update) in [(&e.user1, column), (&e.user2, row)] {
+        collab
+            .take(&e.app, &e.card_id, loaded.epoch, user, &update)
+            .await
+            .expect("taken");
+    }
+    let widened = |text: &'static str| {
+        let mut cells = vec![text; 19];
+        cells.push("");
+        cells
+    };
+    let rows = [widened("a"), widened("b"), vec![""; 20]];
+    let rows: Vec<&[&str]> = rows.iter().map(Vec::as_slice).collect();
+    let mended = json!({"type": "doc", "content": [table(None, &rows)]});
+    let reopened = collab.open(&e.app, &e.card_id).await.expect("opened");
+    let editor = Editor::join(103, &reopened.state);
+    assert_eq!(
+        editor.body().map(|body| body.document().clone()),
+        Some(mended),
+        "the row is given the cell it lacks"
+    );
+
+    let refused = collab
+        .take(
+            &e.app,
+            &e.card_id,
+            reopened.epoch,
+            &e.user1,
+            &editor.add_table_column(),
+        )
+        .await
+        .expect_err("a twenty-first column");
+    assert_eq!(refused.status(), 413, "{refused}");
+    assert_eq!(
+        refused.reason().map(fvoci_server::error::Reason::as_str),
+        Some("document_too_large")
+    );
+    th.teardown().await;
+}

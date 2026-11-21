@@ -6659,6 +6659,576 @@
       }
     },
     {
+      "name": "a cell with nothing in it, in a table of twenty columns",
+      "update": "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",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "table",
+            "content": [
+              {
+                "type": "tableRow",
+                "content": [
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "1"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "2"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "3"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "4"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "5"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "6"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "7"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "8"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "9"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "10"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "11"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "12"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "13"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "14"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "15"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "16"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "17"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "18"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "19"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tableRow",
+                "content": [
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "0"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "1"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "2"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "3"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "4"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "5"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "6"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "7"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "8"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "9"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "10"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "11"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "12"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "13"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "14"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "15"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "16"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "17"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "18"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "19"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "two people each delete one of the two paragraphs of a cell",
       "update": "ARQBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwBAAECAQACgQEDAQAFhwECAwl0YWJsZUNlbGwHAAEMAwlwYXJhZ3JhcGgHAAENBgQAAQ4BYocBAQMIdGFibGVSb3cHAAEQAwl0YWJsZUNlbGwHAAERAwlwYXJhZ3JhcGgHAAESBgQAARMBY4cBEQMJdGFibGVDZWxsBwABFQMJcGFyYWdyYXBoBwABFgYEAAEXAWQBAQEDCQ==",
       "json": {

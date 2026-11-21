@@ -22,13 +22,17 @@ interface GridNode {
 /** What is wrong with the grid of a table, if anything. */
 export type GridProblem = 'tooLarge' | 'noCell' | 'unfilled';
 
-/** A span a cell states: a whole number up to the limit, one if it has none, undefined if it is not allowed. */
-function statedSpan(cell: GridNode, name: string, limit: number): number | undefined {
-  const value = cell.attrs?.[name];
-  if (value === undefined) return 1;
+/** A span that is allowed: a whole number from one up to the limit; undefined if not. */
+export function allowedSpan(value: unknown, limit: number): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= limit
     ? value
     : undefined;
+}
+
+/** A span a cell states: one if it has none, undefined if it is not allowed. */
+function statedSpan(cell: GridNode, name: string, limit: number): number | undefined {
+  const value = cell.attrs?.[name];
+  return value === undefined ? 1 : allowedSpan(value, limit);
 }
 
 /**

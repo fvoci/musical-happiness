@@ -4,7 +4,7 @@
 
 mod support;
 
-use fvoci_collab::testing::{repair, to_body};
+use fvoci_collab::testing::{repair, repair_by, to_body};
 use fvoci_collab::{from_body, from_body_by, state_of};
 use fvoci_model::BodyError;
 use serde_json::{Value, json};
@@ -314,6 +314,11 @@ fn refused_tables(a: Value) -> Vec<(&'static str, Left)> {
 fn a_cell_that_fails_is_deleted_and_an_empty_one_put_in_its_place() {
     let after = doc(&[table(&[&["", "b"], &["c", "d"]])]);
     let second = doc(&[table(&[&["a", ""], &["c", "d"]])]);
+    let numbers: Vec<String> = (0..20).map(|column| column.to_string()).collect();
+    let all: Vec<&str> = numbers.iter().map(String::as_str).collect();
+    let mut first = all.clone();
+    first[0] = "";
+    let wide = doc(&[table(&[&first, &all])]);
     assert_repairs_to(
         "shortened",
         vec![
@@ -323,6 +328,10 @@ fn a_cell_that_fails_is_deleted_and_an_empty_one_put_in_its_place() {
                 left(1, 1, second.clone()),
             ),
             ("a cell that holds a table", left(1, 1, second)),
+            (
+                "a cell with nothing in it, in a table of twenty columns",
+                left(1, 1, wide),
+            ),
             (
                 "two people each delete one of the two paragraphs of a cell",
                 left(1, 1, after),
@@ -369,6 +378,10 @@ fn a_repair_leaves_what_an_editor_leaves() {
     }
 }
 
+/// The client the repairs of the file for the web app write as, for the same file each
+/// time: past the 32 bits of an editor's, so that no vector's editor has it.
+const MENDER: u64 = 1 << 32;
+
 /// What this crate makes, for the web app's test to read with the editor's binding
 /// (`apps/web/tests/editor/ydoc-vectors.test.ts`): the Y document of every accepted
 /// body, and every repair's document after the repair.
@@ -384,7 +397,7 @@ fn made_here() -> Value {
         .iter()
         .map(|vector| {
             let doc = doc_of(&vector.update);
-            repair(&doc).unwrap_or_else(|error| panic!("{}: {error}", vector.name));
+            repair_by(&doc, MENDER).unwrap_or_else(|error| panic!("{}: {error}", vector.name));
             json!({"name": vector.name, "update": to_base64(&state_of(&doc))})
         })
         .collect();
@@ -394,7 +407,12 @@ fn made_here() -> Value {
         .chain(vectors("shortened"))
         .filter_map(|vector| {
             let doc = doc_of(&vector.update);
-            let repaired = repair(&doc).ok()?;
+            let repaired = match repair_by(&doc, MENDER) {
+                Ok(repaired) => repaired,
+                // A table past a limit is refused, not mended.
+                Err(BodyError::TableTooLarge { .. }) => return None,
+                Err(error) => panic!("{}: {error}", vector.name),
+            };
             let json = json_of(repaired.body.as_ref());
             Some(json!({"name": vector.name, "update": to_base64(&state_of(&doc)), "json": json}))
         })

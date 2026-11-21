@@ -34,6 +34,9 @@ const cellOf =
     attrs ? { element, attrs, children } : { element, children };
 const cell = cellOf('tableCell');
 const header = cellOf('tableHeader');
+/** `count` cells, each one line of its column's number from `from`. */
+const numbered = (from: number, count: number): RawNode[] =>
+  Array.from({ length: count }, (_, index) => cell([line(String(from + index))]));
 
 /** The element at a path of indexes below a fragment: the root is none, so one index at least. */
 function at(parent: Y.XmlFragment, ...indexes: number[]): Y.XmlElement {
@@ -140,6 +143,10 @@ export const TABLE_SHORTENED: RawCase[] = [
         row(cell([line('c')]), cell([line('d')])),
       ),
     ],
+  },
+  {
+    name: 'a cell with nothing in it, in a table of twenty columns',
+    root: [table(row(cell([]), ...numbered(1, 19)), row(...numbered(0, 20)))],
   },
 ];
 
