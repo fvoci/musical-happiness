@@ -91,6 +91,9 @@ describe('what the saved file counts otherwise', () => {
     expect(recountsOf([157, 159], kinds({ pgnp: 3 }), undefined)).toEqual([
       { of: 'pages', before: 157, after: 159 },
     ]);
+    expect(recountsOf([157, 159], undefined, kinds({ pgnp: 2 }))).toEqual([
+      { of: 'pages', before: 157, after: 159 },
+    ]);
   });
 
   it('is the pages first, then each kind that differs by its id, a kind gone or new as 0', () => {

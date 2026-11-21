@@ -197,7 +197,7 @@ test('an editor nobody puts anything into for 30 minutes lets the file go, says 
 
   await page.clock.runFor(25 * MINUTE + A_TURN);
   await expect(said).toHaveText(
-    'If nothing is typed or clicked in the next 5 minutes, editing is let go so that someone else may edit this file.',
+    'If nothing is typed or clicked within 5 min, editing is let go so that someone else may edit this file.',
   );
   await expect(editor(page)).toHaveAttribute('data-lease', 'held');
   await page.clock.runFor(5 * MINUTE);

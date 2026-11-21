@@ -280,8 +280,14 @@ function serve(
   const exportFor = async (request: number): Promise<void> => {
     try {
       const exported = host.exportWithReport(format);
-      // The document's controls as it is exported.
-      const before = tallyControls(host.controls());
+      // The document's controls as it is exported; not counted where rhwp cannot list them, and
+      // then not asked about, as where the saved file's are not counted.
+      let before: ControlTally | undefined;
+      try {
+        before = tallyControls(host.controls());
+      } catch {
+        before = undefined;
+      }
       const report = lossesOf(exported.contentLoss);
       // A comparison that cannot be made is an export that failed: nothing is saved unasked.
       const left = leftOut(opened, exported.bytes);

@@ -33,7 +33,7 @@ export type Resaved = readonly [pages: number, saved: number];
  */
 export function recountsOf(
   pages: Resaved | undefined,
-  before: ControlTally,
+  before: ControlTally | undefined,
   after: ControlTally | undefined,
 ): Recount[] {
   const recounts: Recount[] = [];
@@ -42,7 +42,7 @@ export function recountsOf(
   if (pages && Math.min(...pages) >= 1 && page(pages[0]) !== page(pages[1])) {
     recounts.push({ of: 'pages', before: page(pages[0]), after: page(pages[1]) });
   }
-  if (!after) return recounts;
+  if (!before || !after) return recounts;
   const was = new Map(before);
   const is = new Map(after);
   const ids = [...new Set([...was.keys(), ...is.keys()])].sort();

@@ -37,7 +37,7 @@
     type EditStatus,
     type SaveFailure,
   } from '$lib/file-viewer/editing.svelte.ts';
-  import { IDLE_AFTER, WARN_BEFORE, type EditLease } from '$lib/file-viewer/lease.svelte.ts';
+  import { IDLE_AFTER, type EditLease } from '$lib/file-viewer/lease.svelte.ts';
   import type { VersionsSource } from '$lib/file-viewer/versions.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
@@ -131,7 +131,7 @@
       if (lease.lost) return m.file_editor_lease_lost();
       return lease.resting
         ? m.file_editor_lease_resting({ minutes: IDLE_AFTER / 60_000 })
-        : m.file_editor_lease_idle_soon({ minutes: WARN_BEFORE / 60_000 });
+        : m.file_editor_lease_idle_soon({ minutes: lease.minutesLeft });
     }
     if (saving.name === 'failed') return SAVE_FAILURE[saving.reason]();
     if (lease?.lost) return m.file_editor_lease_lost();

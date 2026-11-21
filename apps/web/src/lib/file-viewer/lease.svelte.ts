@@ -71,6 +71,23 @@ export const LEASE_TIMES: LeaseTimes = {
   warnBefore: WARN_BEFORE,
 };
 
+/**
+ * `promise`, or a rejection once `ms` passed: a request to the server that is
+ * not answered within a turn (a connection half dead, a lid closed mid-way)
+ * is asked again at the next, and keeps no later turn waiting.
+ */
+function within<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error('not answered within a turn'));
+    }, ms);
+  });
+  return Promise.race([promise, late]).finally(() => {
+    clearTimeout(timer);
+  });
+}
+
 /** What taking a lease came to: it is held, another holds the file's, or it could not be asked. */
 export type Taking = 'held' | 'editing' | 'failed';
 
@@ -82,6 +99,8 @@ export class EditLease {
   resting = $state(false);
   /** Nothing was put in for so long that the lease is let go of within `warnBefore`. */
   idleSoon = $state(false);
+  /** While `idleSoon`: in how many minutes at most, as of the last turn (rounded up). */
+  minutesLeft = $state(0);
 
   readonly #source: LeaseSource;
   readonly #times: LeaseTimes;
@@ -143,12 +162,15 @@ export class EditLease {
       return;
     }
     this.idleSoon = idle >= this.#times.idleAfter - this.#times.warnBefore;
+    this.minutesLeft = this.idleSoon ? Math.ceil((this.#times.idleAfter - idle) / 60_000) : 0;
     let held: HeldFileLease | 'editing';
     this.#asking = true;
+    const turn = this.#times.holdEvery;
     try {
-      // Taken again only once it went: asked before, it would be found still held.
-      await this.#resting;
-      held = await this.#source.holdLease(this.#leaseId);
+      // Taken again only once it went: asked before, it would be found still held. A letting go
+      // not answered within a turn is waited for no longer.
+      await within(this.#resting, turn).catch(() => undefined);
+      held = await within(this.#source.holdLease(this.#leaseId), turn);
     } catch {
       // Not reached: asked again at the next turn, within the lease's term.
       return;
@@ -177,8 +199,10 @@ export class EditLease {
     const leaseId = this.#leaseId;
     this.#leaseId = '';
     if (!leaseId) return;
-    this.#resting = this.#source.releaseLease(leaseId, false).catch(() => {
-      if (!this.#leaseId) this.#leaseId = leaseId;
+    this.#resting = this.#source.releaseLease(leaseId, false).catch(async () => {
+      // Closed meanwhile: let go of once more, as nothing will hold on to it.
+      if (this.#ended) await this.#source.releaseLease(leaseId, false).catch(() => undefined);
+      else if (!this.#leaseId) this.#leaseId = leaseId;
     });
   }
 

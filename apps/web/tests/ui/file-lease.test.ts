@@ -239,6 +239,82 @@ describe('the lease of an editor nobody puts anything into', () => {
     await lease.release();
   });
 
+  it('says in how many minutes it goes, counting down at each turn', async () => {
+    const { source } = sourceOf();
+    const times = {
+      holdEvery: 30_000,
+      watchEvery: 15_000,
+      idleAfter: 30 * 60_000,
+      warnBefore: 5 * 60_000,
+    };
+    const lease = new EditLease(source, times);
+    await lease.take();
+    await vi.advanceTimersByTimeAsync(25 * 60_000 + 30_000);
+    expect([lease.idleSoon, lease.minutesLeft]).toEqual([true, 5]);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(lease.minutesLeft).toBe(3);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(lease.minutesLeft).toBe(1);
+    lease.touch();
+    expect(lease.idleSoon).toBe(false);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(lease.minutesLeft).toBe(0);
+    await lease.release();
+  });
+
+  it('asks again at the next turn where a request was not answered within one', async () => {
+    const { source, asked } = sourceOf();
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    source.holdLease = (leaseId) => {
+      asked.push(`hold ${leaseId}`);
+      return new Promise(() => undefined);
+    };
+    await vi.advanceTimersByTimeAsync(3_500);
+    expect(asked.filter((one) => one === 'hold l1').length).toBeGreaterThanOrEqual(2);
+    await lease.release();
+  });
+
+  it('is taken again a turn after the input where letting it go is not answered', async () => {
+    const { source, asked } = sourceOf();
+    source.releaseLease = (leaseId) => {
+      asked.push(`release ${leaseId}`);
+      return new Promise(() => undefined);
+    };
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(lease.resting).toBe(true);
+    lease.touch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(asked.at(-1)).toBe('release l1');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(asked.at(-1)).toBe('hold ');
+    expect(lease.lost).toBe(false);
+  });
+
+  it('is let go of once more where the editor closed while letting it go failed', async () => {
+    const { source, asked } = sourceOf();
+    let fail = (): void => undefined;
+    source.releaseLease = (leaseId) => {
+      asked.push(`release ${leaseId}`);
+      return new Promise((_, reject) => {
+        fail = () => {
+          reject(new Error('unreached'));
+        };
+      });
+    };
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(lease.resting).toBe(true);
+    await lease.release();
+    expect(asked.filter((one) => one.startsWith('release'))).toEqual(['release l1']);
+    fail();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(asked.filter((one) => one.startsWith('release'))).toEqual(['release l1', 'release l1']);
+  });
+
   it('says somebody else holds it where they took it meanwhile, and is the editor’s once they let go', async () => {
     const { source, state } = sourceOf();
     const lease = new EditLease(source, TIMES);
