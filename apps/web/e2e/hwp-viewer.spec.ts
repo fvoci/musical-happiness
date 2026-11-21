@@ -4,7 +4,8 @@
  * and WebAssembly fetched only when one is first opened, a locked one, another
  * compound file (an old Word document) and one past the limit offered as a
  * download, and the worker the renderer runs in kept off the network and
- * stopped past the time limit or when the viewer closes.
+ * stopped when the viewer closes; a long document read past the time limit
+ * asks whether to wait on, and waited on is shown by the worker that read it.
  *
  * With `FVOCI_SCREENS=1` the tests also take pictures of each state into
  * `target/viewer-h1/` (light and dark), at every size the project runs at
@@ -25,6 +26,7 @@ import {
   koreanHwp,
   koreanHwpx,
   lockedHwpx,
+  longHwpx,
   rewriteArchive,
 } from '../tests/support/hwp-files.ts';
 
@@ -383,6 +385,36 @@ test('an engine that does not arrive is given up past its time, and asked for ag
   await expect(viewer(page)).toHaveCount(0);
   await page.getByRole('link', { name: 'slow.hwpx' }).click();
   await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+});
+
+test('a long document read past the time limit asks, and waited on is shown by the worker that read it', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await openCard(page);
+  const started = nextWorker(page);
+  await view(page, 'long.hwpx', longHwpx(), HWPX_TYPE);
+  // Handed the document: the worker lays its pages out, seconds of work.
+  const { ended } = await started;
+  let stopped = false;
+  void ended.then(() => {
+    stopped = true;
+  });
+  await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
+  const frame = page.frames().find((one) => one.url().includes('viewer-frame'));
+  const before = await frame?.evaluate(() => Date.now());
+  await page.clock.runFor(31_000);
+  // The frame's clock is the test's too: a time of its own to read the document in would be over.
+  expect((await frame?.evaluate(() => Date.now())) ?? 0).toBeGreaterThanOrEqual(
+    (before ?? Infinity) + 31_000,
+  );
+  await expect(notice(page)).toContainText('This file is taking long to show.');
+  await notice(page).getByRole('button', { name: 'Keep waiting' }).click();
+  // Laid out at last: the seconds of work the document is made for, more on a busy machine. What
+  // says so is the status; the test's own time bounds the wait.
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown', { timeout: 0 });
+  await expect(frameOf(page).locator('.page[data-page="1"] svg')).toBeVisible();
+  expect(stopped).toBe(false);
 });
 
 test('the notice in place of a page fits in the page, however it is drawn', async ({ page }) => {

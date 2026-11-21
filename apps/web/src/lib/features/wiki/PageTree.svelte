@@ -310,7 +310,11 @@
   }
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col" data-testid="page-tree">
+<div
+  class="flex min-h-0 flex-1 flex-col"
+  data-testid="page-tree"
+  data-settling={wiki.moving > 0 ? '' : undefined}
+>
   <div class="flex shrink-0 items-center gap-1 px-3 pt-3 pb-1">
     <h2 id="{uid}-title" class="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
       {m.wiki_pages()}

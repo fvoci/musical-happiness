@@ -6,11 +6,14 @@
   list is longer than its box (scrolled inside the list, never the page).
 
   Choosing one brings it to the head of the page and the focus to it
-  (`PageOutline.go`); `onChose` hears whether the focus went there.
+  (`PageOutline.go`), unless a finger chose it (the press's own pointer, not
+  the device's: a tablet has a keyboard too); `onChose` hears whether the
+  focus went there.
 
   The list is one stop of the Tab key, at the heading being read (the first
   when none is): a long outline does not stand between the keyboard and the
-  page. The arrow keys, Home and End go from item to item.
+  page. The arrow keys, Home and End go from item to item, which that stop
+  tells as it takes the focus.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -31,6 +34,10 @@
   }
 
   let { outline, id, head, onChose, class: className }: Props = $props();
+
+  const uid = $props.id();
+  /** The pointer that pressed an item last; its click is that press's, or the keyboard's. */
+  let pressedBy = '';
 
   /** The highest level of the page's headings: at the edge of the list. */
   const top = $derived(Math.min(...outline.entries.map((entry) => entry.level)));
@@ -92,11 +99,18 @@
           type="button"
           aria-current={at === outline.current ? 'location' : undefined}
           tabindex={at === stop ? 0 : -1}
+          aria-describedby={at === stop ? `${uid}-keys` : undefined}
           data-level={entry.level}
           class="my-px flex min-h-7 w-full items-center rounded-r-md border-l-2 border-transparent py-1 pr-2 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground aria-[current=location]:border-primary aria-[current=location]:font-semibold aria-[current=location]:text-foreground roomy:min-h-touch"
           style:padding-inline-start="{0.5 + (entry.level - top) * 0.75}rem"
-          onclick={() => {
-            const focused = outline.go(at);
+          onpointerdown={(event) => {
+            pressedBy = event.pointerType;
+          }}
+          onclick={(event) => {
+            // A click of the keyboard (Enter, Space) counts no presses.
+            const finger = event.detail > 0 && (pressedBy === 'touch' || pressedBy === 'pen');
+            pressedBy = '';
+            const focused = outline.go(at, finger);
             onChose?.(focused);
           }}
           onkeydown={(event) => {
@@ -108,4 +122,5 @@
       </li>
     {/each}
   </ol>
+  <p id="{uid}-keys" class="sr-only">{m.wiki_outline_keys()}</p>
 </nav>

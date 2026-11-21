@@ -40,6 +40,20 @@ export function showCodeLines(shown: boolean, page: Document = document): void {
   }
 }
 
+/** How many lines a text has: one more than its line feeds. */
+export function lineCount(text: string): number {
+  let lines = 1;
+  for (let at = text.indexOf('\n'); at !== -1; at = text.indexOf('\n', at + 1)) lines += 1;
+  return lines;
+}
+
+/**
+ * How many digits the number of the last line has: how wide the room for
+ * the numbers is, given to a block as `data-line-digits` (code-block.css)
+ * from its first drawing, so that it does not grow when they come.
+ */
+export const lineDigits = (lines: number): number => String(Math.max(lines, 1)).length;
+
 /** Whether the numbers are shown on this page now. */
 export const codeLinesShown = (page: Document): boolean =>
   page.documentElement.hasAttribute(CODE_LINES_ATTRIBUTE);

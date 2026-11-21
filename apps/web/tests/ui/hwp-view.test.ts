@@ -167,6 +167,43 @@ describe('the renderer of HWP documents', () => {
     await expect(opening).rejects.toBeInstanceOf(WorkerClosed);
   });
 
+  it('lets its worker take as long as it takes until the document is shown, and gives each page its time after', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IntersectionObserver', FakeObserver);
+    observers.length = 0;
+    try {
+      const worker = new FakeWorker();
+      const render = renderer('hwp', new ArrayBuffer(1), { worker: () => worker, limit: 1000 });
+      const told = report();
+      const place = document.createElement('main');
+      const opening = render(new ArrayBuffer(4), place, told, LABELS);
+      expect(worker.sent).toHaveLength(1);
+      // The app keeps the time of the opening, and asks the reader whether to wait on.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(worker.terminated).toBe(false);
+      worker.answer({ kind: 'opened', pages: SIZES });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(worker.sent).toEqual([expect.anything(), { kind: 'page', page: 1 }]);
+      // The second page comes into view meanwhile: it is asked for once the first is drawn.
+      sight(place.querySelector('[data-page="2"]'), true);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(worker.terminated).toBe(false);
+      worker.answer(DRAWN);
+      await expect(opening).resolves.toBeDefined();
+      expect(told.shown).toHaveBeenCalledWith(2);
+      expect(worker.sent.at(-1)).toEqual({ kind: 'page', page: 2 });
+      // Under way as the document was shown: its time counts from then.
+      await vi.advanceTimersByTimeAsync(999);
+      expect(worker.terminated).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(worker.terminated).toBe(true);
+      expect(told.failed).toHaveBeenCalledWith('slow');
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('shows a document whose first page is too large to draw, that page saying so', async () => {
     vi.stubGlobal('IntersectionObserver', FakeObserver);
     const worker = new FakeWorker();

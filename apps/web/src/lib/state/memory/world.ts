@@ -128,6 +128,14 @@ export class World {
    */
   shareRooms: string | undefined;
   /**
+   * How long the changes a room sends wait after the last stroke of a
+   * syllable being composed, in milliseconds, when not the room client's own
+   * (`HELD_IDLE`). A browser test that writes from another tab while one
+   * composes sets it to outlast its own steps, which a busy machine slows
+   * past those two seconds.
+   */
+  heldIdle: number | undefined;
+  /**
    * Whether the client configuration says that bodies are searched
    * (`searchEnabled`): every server does; false shows a client that is told
    * otherwise, which has no search box.

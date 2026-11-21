@@ -213,11 +213,16 @@ test('an editor nobody puts anything into for 30 minutes lets the file go, says 
   expect(theirs).not.toMatch(/^refused/);
   await theirLease(page, name, theirs);
 
-  // The wheel turned over the document: the editor's once more, and nobody else's.
+  // The wheel turned over the document, or on a touch screen a finger put on it (WebKit for
+  // the iPhone and iPad has no wheel): the editor's once more, and nobody else's.
   const frame = await page.getByTestId('file-editor-frame').boundingBox();
   if (!frame) throw new Error('no frame');
-  await page.mouse.move(frame.x + frame.width / 2, frame.y + frame.height / 2);
-  await page.mouse.wheel(0, 120);
+  const [x, y] = [frame.x + frame.width / 2, frame.y + frame.height / 2];
+  if (test.info().project.use.hasTouch) await page.touchscreen.tap(x, y);
+  else {
+    await page.mouse.move(x, y);
+    await page.mouse.wheel(0, 120);
+  }
   await expect(editor(page)).toHaveAttribute('data-lease', 'held');
   await expect(said).toHaveText('There are unsaved changes');
   expect(await theirLease(page, name)).toBe('refused 409');

@@ -135,9 +135,10 @@ describe('what the read-only view is made of', () => {
     );
   });
 
-  it('draws with nothing but the list, the validator and the address of files', () => {
+  it('draws with nothing but the list, the validator, the address of files and the width of the numbers of a code block', () => {
     expect(graphOf('src/lib/editor/render.ts')).toEqual({
       files: [
+        'src/lib/editor/code-lines.ts',
         'src/lib/editor/drawing.ts',
         'src/lib/editor/files.ts',
         'src/lib/editor/render.ts',

@@ -81,7 +81,7 @@ export function openMemoryRoom(
       import('../doc-client.ts'),
     ]);
     const line = roomsOf(world).line(user, containerId, cardId);
-    return (told) => openRoom(line, told);
+    return (told) => openRoom(line, told, world.heldIdle);
   }, hears);
 }
 

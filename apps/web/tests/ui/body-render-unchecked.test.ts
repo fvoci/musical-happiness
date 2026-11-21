@@ -159,9 +159,9 @@ describe('drawing without the validator', () => {
       '<ol></ol>',
       '<ul data-type="taskList"><li data-checked="false"><label><input type="checkbox" aria-readonly="true"></label><div></div></li></ul>',
       '<img loading="lazy" decoding="async">',
-      '<pre><code>c</code></pre>',
-      '<pre><code>c</code></pre>',
-      '<pre><code>c</code></pre>',
+      '<pre data-line-digits="1"><code>c</code></pre>',
+      '<pre data-line-digits="1"><code>c</code></pre>',
+      '<pre data-line-digits="1"><code>c</code></pre>',
       '<p><span data-user-id="" data-mention="" class="mention">@</span></p>',
     ]);
   });

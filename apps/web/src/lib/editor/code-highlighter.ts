@@ -85,7 +85,9 @@ class WorkerHighlighter implements Highlighter {
         answer?.(tokens);
       });
       // A worker that fails to load or to run takes its texts with it, and no other starts.
+      // Stopped here: failed before it was ready, it is no worker that `stop` knows of.
       worker.addEventListener('error', () => {
+        worker.terminate();
         this.#broken = true;
         ready(undefined);
         this.stop();
@@ -238,14 +240,35 @@ export function tokensFor(
   const key = keyOf(language.grammar, text);
   return new Promise((resolve) => {
     const waiting = { resolve, signal };
-    const job = underWay.get(key);
-    if (job) {
-      job.waiting.push(waiting);
-      return;
+    let job = underWay.get(key);
+    if (job) job.waiting.push(waiting);
+    else {
+      job = { key, grammar: language.grammar, text, waiting: [waiting] };
+      underWay.set(key, job);
+      queue.push(job);
     }
-    const added: Job = { key, grammar: language.grammar, text, waiting: [waiting] };
-    underWay.set(key, added);
-    queue.push(added);
+    const asked = job;
+    signal?.addEventListener(
+      'abort',
+      () => {
+        dropUnwanted(asked);
+      },
+      { once: true },
+    );
     void pump();
   });
+}
+
+/**
+ * Takes a job nobody waits for any more out of the queue, if it has not
+ * started, and settles it: at once, and not when the texts before it are
+ * done, which may be never while the worker does not say it is ready.
+ */
+function dropUnwanted(job: Job): void {
+  if (job.waiting.some(({ signal }) => !signal?.aborted)) return;
+  const at = queue.indexOf(job);
+  if (at === -1) return;
+  queue.splice(at, 1);
+  underWay.delete(job.key);
+  for (const { resolve } of job.waiting) resolve(null);
 }

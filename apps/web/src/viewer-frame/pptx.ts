@@ -11,8 +11,9 @@
  * frame's thread (which the app shares), the renderer builds its model of
  * the parts the worker answered with and draws the slides in view one at a
  * time, the thread given back between them (`pptx-view.ts`); the viewer's
- * time limit and its "Close" hold throughout (they throw the frame away,
- * and the worker with it).
+ * time limit (which asks the reader whether to wait on) and its "Close" hold
+ * throughout (closing, or downloading instead, throws the frame away, and
+ * the worker with it).
  *
  * A slide hidden from a show (`p:sld@show`, read by the worker: the
  * renderer's model learns it only of a slide it draws) is left out until
