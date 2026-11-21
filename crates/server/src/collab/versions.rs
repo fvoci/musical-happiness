@@ -144,10 +144,10 @@ impl Collab {
     /// typed is written to the card first, from its open document or from the log of
     /// one that is not open (opened aside for that, and closed after), and the body the
     /// card then holds is kept as a version by hand, unless it is the card's newest one
-    /// already or a version was kept by hand within [`BY_HAND_FLOOR`]. What the store
-    /// keeps is the body of the card, written by whoever holds its place: nothing is
-    /// written to it here but what the document holds, and the document is left as it
-    /// is for those who edit it.
+    /// already or a version was kept by hand within a minute (`BY_HAND_FLOOR`). What the
+    /// store keeps is the body of the card, written by whoever holds its place: nothing is
+    /// written to it here but what the document holds, and the document is left as it is
+    /// for those who edit it.
     ///
     /// # Errors
     ///
