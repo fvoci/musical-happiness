@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
   import ChevronsUpDownIcon from '@lucide/svelte/icons/chevrons-up-down';
+  import LockKeyholeIcon from '@lucide/svelte/icons/lock-keyhole';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import UserRoundIcon from '@lucide/svelte/icons/user-round';
   import UsersRoundIcon from '@lucide/svelte/icons/users-round';
@@ -36,25 +37,31 @@
     nameOfWorkspace(workspace, m.org_untitled_workspace);
 
   const shown = $derived(workspaces.find((workspace) => workspace.id === current));
-  /**
-   * The own space first, the others as the backend lists them. To come with the
-   * server's refusal of a provider's session there: the own space of an account
-   * that has a password opens only to a session its password made, and is shown so.
-   */
+  /** The own space first, the others as the backend lists them. */
   const ordered = $derived([
     ...workspaces.filter(isOwnSpace),
     ...workspaces.filter((workspace) => !isOwnSpace(workspace)),
   ]);
 
+  /** What a line says beyond its name: how a locked own space opens, and which one is shown. */
+  function ariaLabelOf(workspace: WorkspaceInfo): { ariaLabel?: string } {
+    const named = workspace.passwordRequired ? m.own_space_locked_label() : titleOf(workspace);
+    if (workspace.id === current) return { ariaLabel: m.shell_workspace_current({ name: named }) };
+    return workspace.passwordRequired ? { ariaLabel: named } : {};
+  }
+
   const actions = $derived<MenuAction[]>([
     ...ordered.map((workspace) => ({
       id: workspace.id,
       label: titleOf(workspace),
-      icon: isOwnSpace(workspace) ? UserRoundIcon : UsersRoundIcon,
+      // The own space of an account with a password, to a session not made with it: it says so.
+      icon: workspace.passwordRequired
+        ? LockKeyholeIcon
+        : isOwnSpace(workspace)
+          ? UserRoundIcon
+          : UsersRoundIcon,
       checked: workspace.id === current,
-      ...(workspace.id === current
-        ? { ariaLabel: m.shell_workspace_current({ name: titleOf(workspace) }) }
-        : {}),
+      ...ariaLabelOf(workspace),
       run: () => {
         if (workspace.id !== current) onSwitch(workspace.id);
       },

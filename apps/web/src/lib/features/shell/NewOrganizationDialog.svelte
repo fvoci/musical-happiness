@@ -51,7 +51,8 @@
       forget();
     } catch (error) {
       problem = newOrganizationProblemOf(error);
-      // The field was out of use while it worked; the reader goes on from it.
+      // The field was out of use while it worked: back in use first, then the reader goes on from it.
+      working = false;
       await tick();
       field?.focus();
     } finally {

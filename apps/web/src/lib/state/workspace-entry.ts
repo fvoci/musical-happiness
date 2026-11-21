@@ -7,6 +7,7 @@ import { createBoardView, type Container } from '../logic/wire.ts';
 import {
   isBackendError,
   isOwnSpace,
+  isPasswordSignInRequired,
   ssoOrgOf,
   type Backend,
   type Category,
@@ -19,12 +20,18 @@ import {
  * in none), `missing` when the reader works in no workspace by that
  * identifier (there is none, or it is not theirs: the two are not told apart),
  * `sso` when it is theirs and closed to this session: its organization takes
- * no password, and it opens for a session made through its single sign-on.
+ * no password, and it opens for a session made through its single sign-on;
+ * `password` when it is their own space, closed to a session made through a
+ * provider once the account has a password, and opens for one made with it.
  */
-export type EnterStatus = 'none' | 'loading' | 'ready' | 'missing' | 'failed' | 'sso';
+export type EnterStatus = 'none' | 'loading' | 'ready' | 'missing' | 'failed' | 'sso' | 'password';
 
-/** Open to this session: not of an organization that takes its single sign-on alone. */
-export const isOpen = (workspace: WorkspaceInfo): boolean => !workspace.ssoRequired;
+/**
+ * Open to this session: not of an organization that takes its single sign-on
+ * alone, nor an own space that takes the password alone.
+ */
+export const isOpen = (workspace: WorkspaceInfo): boolean =>
+  !workspace.ssoRequired && !workspace.passwordRequired;
 
 /**
  * The workspace to start in when the address names none: `last`, the one
@@ -133,19 +140,20 @@ export type Entered =
       categories: Category[];
     }
   | { status: 'missing'; info: undefined; closed: undefined }
-  | { status: 'sso'; info: undefined; closed: WorkspaceInfo };
+  | { status: 'sso' | 'password'; info: undefined; closed: WorkspaceInfo };
 
 /**
  * Enters a workspace of the reader's: follows it and reads it. One that the
  * list says is closed to this session is not read, and one that turns out
- * closed while it is read (its organization began to take no password since
- * the list was read) is told the same: it is still theirs, known by its name,
- * with the organization to sign in to.
+ * closed while it is read (its organization began to take no password, or the
+ * account was given one, since the list was read) is told the same: it is
+ * still theirs, known by its name, with the way to sign in that opens it.
  */
 export async function enterWorkspace(backend: Backend, workspace: WorkspaceInfo): Promise<Entered> {
   const none = { info: undefined, closed: undefined };
   if (workspace.ssoRequired && workspace.orgId)
     return { ...none, status: 'sso', closed: workspace };
+  if (workspace.passwordRequired) return { ...none, status: 'password', closed: workspace };
   backend.enter?.(workspace.id);
   try {
     const read = await readWorkspace(backend, workspace.id);
@@ -154,25 +162,37 @@ export async function enterWorkspace(backend: Backend, workspace: WorkspaceInfo)
         { status: 'ready', info: { ...workspace }, closed: undefined, ...read }
       : { ...none, status: 'missing' };
   } catch (error) {
-    const orgId = ssoOrgOf(error);
-    if (orgId === undefined) throw error;
-    return { ...none, status: 'sso', closed: { ...workspace, orgId, ssoRequired: true } };
+    const closing = closedBy([workspace], workspace, error);
+    if (!closing?.closed) throw error;
+    return { ...none, status: closing.entered, closed: closing.closed };
   }
 }
 
 /**
- * What a refusal that says an organization takes no password (401,
- * `sso_required`) makes of the reader's workspaces: those of that
- * organization are closed to this session, and `closed` is the one shown,
- * `shown`, if it is one of them (a refusal of something of another
- * organization, still on its way when the reader moved on, closes nothing on
- * the page). Undefined for any other error.
+ * What a refusal that closes workspaces to this session makes of the
+ * reader's: an organization that takes no password (401, `sso_required`)
+ * closes its workspaces, an own space that takes the password alone (401,
+ * `password_sign_in_required`) closes the own space. `closed` is the one
+ * shown, `shown`, if it is one of them (a refusal of something elsewhere,
+ * still on its way when the reader moved on, closes nothing on the page), and
+ * `entered` says how. Undefined for any other error.
  */
-export function closedBySso(
+export function closedBy(
   workspaces: readonly WorkspaceInfo[],
   shown: WorkspaceInfo | undefined,
   error: unknown,
-): { workspaces: WorkspaceInfo[]; closed: WorkspaceInfo | undefined } | undefined {
+):
+  | { workspaces: WorkspaceInfo[]; closed: WorkspaceInfo | undefined; entered: 'sso' | 'password' }
+  | undefined {
+  if (isPasswordSignInRequired(error)) {
+    return {
+      workspaces: workspaces.map((workspace) =>
+        isOwnSpace(workspace) ? { ...workspace, passwordRequired: true } : workspace,
+      ),
+      closed: shown && isOwnSpace(shown) ? { ...shown, passwordRequired: true } : undefined,
+      entered: 'password',
+    };
+  }
   const orgId = ssoOrgOf(error);
   if (orgId === undefined) return undefined;
   const ofIt = shown !== undefined && (shown.orgId === undefined || shown.orgId === orgId);
@@ -181,6 +201,7 @@ export function closedBySso(
       workspace.orgId === orgId ? { ...workspace, ssoRequired: true } : workspace,
     ),
     closed: ofIt ? { ...shown, orgId, ssoRequired: true } : undefined,
+    entered: 'sso',
   };
 }
 

@@ -7,6 +7,8 @@
  */
 import type { WorkspaceInfo } from '../workspace-types.ts';
 
+import { BackendError } from '../problems.ts';
+
 import { fail } from './refuse.ts';
 import { copy } from './shapes.ts';
 import type { World } from './world.ts';
@@ -49,9 +51,20 @@ export function workersOf(world: World, workspaceId: string): ReadonlySet<string
   return new Set();
 }
 
-/** 404 unless the user works in the workspace: the shared one, or their own space. */
+/**
+ * 404 unless the user works in the workspace: the shared one, or their own
+ * space; 401 `password_sign_in_required` in an own space marked closed to the
+ * session (`passwordRequired`), as the server answers a provider's session.
+ */
 export function checkWorkspace(world: World, userId: string, workspaceId: string): void {
-  if (workspaceId !== world.workspace.id && workspaceId !== ownSpaceOf(world, userId).id) {
+  const own = ownSpaceOf(world, userId);
+  if (workspaceId !== world.workspace.id && workspaceId !== own.id) {
     fail(404, 'no such workspace');
+  }
+  if (workspaceId === own.id && own.passwordRequired === true) {
+    throw new BackendError(401, {
+      reason: 'password_sign_in_required',
+      detail: 'the own space opens to a session made with the password',
+    });
   }
 }

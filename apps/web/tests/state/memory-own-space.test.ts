@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { firstKanban } from '$lib/state/workspace-entry.ts';
-import { BackendError, type Change } from '$lib/state/index.ts';
+import { BackendError, passwordSet, type Change } from '$lib/state/index.ts';
 import type { MemoryBackend } from '$lib/state/memory/backend.ts';
 
 import { setup } from './support.ts';
@@ -156,5 +156,71 @@ describe('the own space in memory', () => {
     );
     expect(categories.length).toBeGreaterThan(0);
     expect(categories.every((one) => one.workspaceId === own)).toBe(true);
+  });
+
+  it('links to nothing across spaces: a card of the shared workspace is not found from it', async () => {
+    const { backend, world } = setup();
+    const own = await ownSpace(backend);
+    const shared = await boardIn(backend, world.workspace.id, 'Shared');
+    const card = await backend.createCard(shared.id, { title: 'Crossing card' });
+    const found = await backend.references.search(world.workspace.id, 'Crossing');
+    expect(found.map((one) => one.id)).toEqual([card.id]);
+    expect(await backend.references.search(own, 'Crossing')).toEqual([]);
+    expect(await backend.references.resolve(own, [card.id])).toEqual([]);
+    expect(await statusOf(backend.references.to(own, card.id))).toBe(404);
+  });
+});
+
+describe('the own space, once it takes the password alone', () => {
+  it('is not entered by the list that says so: nothing of it is read, and the session goes on', async () => {
+    const { backend, world, workspace } = setup();
+    const own = await ownSpace(backend);
+    const kept = world.ownSpaces.get(backend.userId);
+    if (!kept) throw new Error('no own space');
+    kept.passwordRequired = true;
+    await workspace.load(own);
+    expect(workspace.status).toBe('ready');
+    expect(workspace.entered).toBe('password');
+    expect(workspace.closed?.id).toBe(own);
+    expect(workspace.info).toBeUndefined();
+    expect(workspace.containers).toEqual([]);
+    // No people of it are read: the reader is named by their own reading.
+    const reader = world.users.get(backend.userId);
+    expect(workspace.userName(backend.userId)).toContain(`@${reader?.username ?? ''}`);
+  });
+
+  it('closes when the backend refuses it to the session, which is not over', async () => {
+    const { backend, world, workspace } = setup();
+    const own = await ownSpace(backend);
+    await boardIn(backend, own, 'Mine');
+    await workspace.load(own);
+    expect(workspace.entered).toBe('ready');
+    const kept = world.ownSpaces.get(backend.userId);
+    if (!kept) throw new Error('no own space');
+    kept.passwordRequired = true;
+    const refused = await backend.boards(own).catch((error: unknown) => error);
+    expect(refused).toMatchObject({ status: 401, reason: 'password_sign_in_required' });
+    workspace.report('load', refused);
+    expect(workspace.status).toBe('ready');
+    expect(workspace.entered).toBe('password');
+    expect(workspace.containers).toEqual([]);
+    expect(workspace.workspaces.find((one) => one.id === own)?.passwordRequired).toBe(true);
+  });
+
+  it('closes on the page that gave the account its first password, and the account has one', async () => {
+    const { backend, world, workspace } = setup();
+    const reader = world.users.get(backend.userId);
+    if (!reader) throw new Error('no reader');
+    world.users.set(reader.id, { ...reader, hasPassword: false });
+    const own = await ownSpace(backend);
+    await workspace.load(own);
+    passwordSet(workspace);
+    expect(workspace.me?.hasPassword).toBe(true);
+    expect(workspace.entered).toBe('password');
+    expect(workspace.closed?.id).toBe(own);
+    // The shared workspace is as it was.
+    expect(
+      workspace.workspaces.find((one) => one.id === world.workspace.id)?.passwordRequired,
+    ).toBe(undefined);
   });
 });

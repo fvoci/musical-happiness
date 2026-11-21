@@ -4,7 +4,9 @@
  * by its public link only, and kept; deleting the account says that it goes
  * with it. An account that signs in through its organization's provider only
  * is asked, once it makes something there, to set a password, and sets it,
- * signing in through the provider again first where its session is too old.
+ * signing in through the provider again first where its session is too old;
+ * set, My space takes only a session made with the password, asks for it in
+ * place of the board, and opens the same board with it.
  *
  * With `FVOCI_SCREENS` set, the screens are pictured light and dark, wide and
  * 390 pixels wide, under `target/screens/own-space/`.
@@ -244,26 +246,51 @@ test('an account of single sign-on only is asked once in its own space to set a 
     expect(page.url()).toBe(boardAddress);
     await page.getByTestId('password-notice-field').fill('a long password of mine');
     await notice(page).getByRole('button', { name: 'Set password' }).click();
-    await expect(page.getByTestId('password-notice-done')).toBeVisible();
+    // Set, My space takes only a session made with the password, which this one was not:
+    // where the board was, the space asks for it, and the notice is gone.
+    const locked = page.getByTestId('own-space-locked');
+    await expect(locked).toBeVisible();
+    await expect(notice(page)).toHaveCount(0);
+    await expect(page.getByTestId('own-space-locked-password')).toBeFocused();
     const me = (await (await page.request.get('/api/v1/users/me')).json()) as Schemas['Me'];
     expect(me.hasPassword).toBe(true);
-    await expect(page.getByTestId('password-notice-done')).toContainText(
-      `Sign in with your user name, ${me.username}, and this password`,
+    await expect(page.getByTestId('own-space-locked-user')).toHaveText(`User name: ${me.username}`);
+    const ownId = new URL(boardAddress).pathname.split('/')[2] ?? '';
+    const refused = await page.request.get(`/api/v1/w/${ownId}/boards`);
+    expect(refused.status()).toBe(401);
+    expect(((await refused.json()) as { reason?: string }).reason).toBe(
+      'password_sign_in_required',
     );
-    await notice(page).getByRole('button', { name: 'Close' }).click();
-    await expect(notice(page)).toHaveCount(0);
-    // It has a password now: loaded again, nothing is asked.
-    await page.reload();
+    // The sidebar names it, has no people of it to manage, and the switcher marks how it opens.
+    await openSwitcher(page);
+    await expect(switcher(page)).toContainText('My space');
+    await expect(page.getByTestId('open-people')).toHaveCount(0);
+    await expect(workspacesMenu(page).locator(`[data-action="${ownId}"]`)).toHaveAttribute(
+      'aria-label',
+      'My space, opens with your password, current',
+    );
+    await pictures(page, 'switcher-locked', openSwitcher);
+    await page.keyboard.press('Escape');
+    // The session goes on where it opens: the workspace people share.
+    expect((await page.request.get('/api/v1/users/me')).ok()).toBe(true);
+    await pictures(page, 'own-space-locked', (seen) =>
+      expect(seen.getByTestId('own-space-locked')).toBeVisible(),
+    );
+    // A wrong password is said; the right one opens the same board again.
+    await page.getByTestId('own-space-locked-password').fill('not my password at all');
+    await locked.getByRole('button', { name: 'Sign in with password' }).click();
+    await expect(page.getByTestId('own-space-locked-problem')).toHaveText(
+      'The name or the password is wrong.',
+    );
+    await page.getByTestId('own-space-locked-password').fill('a long password of mine');
+    await locked.getByRole('button', { name: 'Sign in with password' }).click();
     await expect(page.getByTestId('board-page')).toBeVisible();
-    await expect(page.getByTestId('workspace-switcher')).toBeAttached();
+    expect(page.url()).toBe(boardAddress);
     await expect(notice(page)).toHaveCount(0);
-    // The password signs in.
-    const signed = await signedIn(base, {
-      username: me.username,
-      email: `${second.subject}@example.test`,
-      password: 'a long password of mine',
-    });
-    await signed.dispose();
+    const listed = (await (
+      await page.request.get('/api/v1/users/me/workspaces')
+    ).json()) as Schemas['UserWorkspace'][];
+    expect(listed.find((one) => one.id === ownId)?.passwordRequired).toBe(false);
     expect(second.errors).toEqual([]);
     await second.context.close();
   } finally {

@@ -56,6 +56,16 @@ describe('a refusal that asks for single sign-on', () => {
   });
 });
 
+/** A workspace that people share, as `workspacesOf` makes it, open to a password's session. */
+const shared = (id: string, title: string, role: 'admin' | 'member', orgId: string) => ({
+  id,
+  title,
+  role,
+  orgId,
+  kind: 'team',
+  passwordRequired: false,
+});
+
 describe('the workspaces as the server lists them', () => {
   it('say which organization each is of, what it is, and which are closed to this session', () => {
     const workspaces = workspacesOf([
@@ -88,9 +98,9 @@ describe('the workspaces as the server lists them', () => {
       },
     ]);
     expect(workspaces).toEqual([
-      { id: 'a', title: 'A', role: 'member', orgId: ORG, kind: 'team', ssoRequired: true },
-      { id: 'b', title: 'B', role: 'admin', orgId: 'another', kind: 'team', ssoRequired: false },
-      { id: 'c', title: '', role: 'admin', orgId: 'own', kind: 'personal', ssoRequired: false },
+      { ...shared('a', 'A', 'member', ORG), ssoRequired: true },
+      { ...shared('b', 'B', 'admin', 'another'), ssoRequired: false },
+      { ...shared('c', '', 'admin', 'own'), kind: 'personal', ssoRequired: false },
     ]);
   });
 });

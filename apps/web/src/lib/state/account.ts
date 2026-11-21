@@ -1,7 +1,7 @@
 /** The reader's own account: what the workspace changes of it beside the settings. */
 import type { NameChange } from '../logic/person-names.ts';
 
-import type { User } from './backend.ts';
+import { BackendError, type User } from './backend.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
 /**
@@ -11,6 +11,22 @@ import type { Workspace } from './workspace.svelte.ts';
  */
 export async function changeName(workspace: Workspace, patch: NameChange): Promise<void> {
   takeUser(workspace, await workspace.backend.patchMe(patch));
+}
+
+/**
+ * The reader gave the account its first password: it has one now, and its own
+ * space takes only a session made with it, which this one was not. The page
+ * goes on as the server answers it from now on (`Workspace.report`): the own
+ * space, shown or not, is closed to this session until the reader signs in
+ * with the password.
+ */
+export function passwordSet(workspace: Workspace): void {
+  const me = workspace.me;
+  if (me) workspace.me = { ...me, hasPassword: true };
+  workspace.report(
+    'load',
+    new BackendError(401, { reason: 'password_sign_in_required', detail: 'a password was set' }),
+  );
 }
 
 /** Puts the user as they are now wherever the workspace holds them. */

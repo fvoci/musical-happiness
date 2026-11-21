@@ -7,6 +7,7 @@
     long = false,
     own = false,
     inOwn = false,
+    locked = false,
     starts,
   }: {
     count?: number;
@@ -15,6 +16,8 @@
     own?: boolean;
     /** The own space is the one shown. */
     inOwn?: boolean;
+    /** The own space takes the password alone, and this session was made through a provider. */
+    locked?: boolean;
     /** Organizations can be started: made, or refused as the server refuses one past its limit. */
     starts?: 'made' | 'limit';
   } = $props();
@@ -28,7 +31,9 @@
           ? 'Example workspace · 이름이 긴 작업 공간 '.repeat(8)
           : `Example workspace ${index} · 예시 작업 공간`,
     })),
-    ...(own ? [{ id: 'own-space', kind: 'personal' as const, title: '' }] : []),
+    ...(own
+      ? [{ id: 'own-space', kind: 'personal' as const, title: '', passwordRequired: locked }]
+      : []),
   ]);
   let started = $state<WorkspaceInfo[]>([]);
   const workspaces = $derived([...started, ...listed]);

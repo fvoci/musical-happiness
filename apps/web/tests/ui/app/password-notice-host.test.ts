@@ -69,8 +69,8 @@ describe('the notice to set a password, in the app', () => {
     expect(world.screenState.get(readerId)).toMatchObject({ passwordNoticeDismissed: '1' });
   });
 
-  it('sets the password through the account', async () => {
-    const { setPassword } = await shown();
+  it('sets the password through the account, and then the own space asks for it', async () => {
+    const { setPassword, workspace } = await shown();
     await fireEvent.input(await screen.findByLabelText('New password'), {
       target: { value: 'a long password' },
     });
@@ -78,5 +78,29 @@ describe('the notice to set a password, in the app', () => {
     await waitFor(() => {
       expect(setPassword).toHaveBeenCalledExactlyOnceWith('a long password');
     });
+    // Set, the account has one: the notice is gone, and the space is closed to this session.
+    await waitFor(() => {
+      expect(screen.queryByTestId('password-notice')).toBeNull();
+    });
+    expect(workspace.me?.hasPassword).toBe(true);
+    expect(workspace.entered).toBe('password');
+  });
+
+  it('asks nothing again once set, wherever the reader goes and comes back', async () => {
+    const { workspace, world } = await shown();
+    await fireEvent.input(await screen.findByLabelText('New password'), {
+      target: { value: 'a long password' },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Set password' }));
+    await waitFor(() => {
+      expect(workspace.entered).toBe('password');
+    });
+    const own = workspace.closed?.id ?? '';
+    await workspace.enter(world.workspace.id);
+    expect(workspace.entered).toBe('ready');
+    await workspace.enter(own);
+    await settle();
+    expect(workspace.entered).toBe('password');
+    expect(screen.queryByTestId('password-notice')).toBeNull();
   });
 });

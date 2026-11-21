@@ -85,8 +85,12 @@
     onCreateOrganization,
   }: Props = $props();
 
-  /** The reader's own space: nobody else is in it, and no organization to administer. */
-  const ownSpace = $derived(isOwnSpace(workspace.info));
+  /**
+   * The workspace shown, or the one closed to this session in its place; the
+   * reader's own space has nobody else in it, and no organization to administer.
+   */
+  const shown = $derived(workspace.info ?? workspace.closed);
+  const ownSpace = $derived(isOwnSpace(shown));
 
   let query = $state('');
   /**
@@ -202,7 +206,7 @@
   {#if onSwitchWorkspace && (workspace.workspaces.length > 1 || onCreateOrganization)}
     <WorkspaceSwitcher
       workspaces={workspace.workspaces}
-      current={workspace.info?.id}
+      current={shown?.id}
       onSwitch={onSwitchWorkspace}
       {onCreateOrganization}
     />

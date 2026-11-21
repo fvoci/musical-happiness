@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/svelte';
 import { expect, userEvent, waitFor } from 'storybook/test';
+import { m } from '$lib/i18n/paraglide/messages.js';
 import WorkspaceSample from './WorkspaceSample.svelte';
 import { clickStory, storyElement, visibleStoryElement } from './interactions.ts';
 
@@ -55,6 +56,30 @@ export const InOwnSpace: Story = {
   },
 };
 
+/** The own space of an account with a password, to a provider's session: it says how it opens. */
+export const OwnSpaceLocked: Story = {
+  args: { count: 2, own: true, locked: true },
+  play: async ({ canvasElement }) => {
+    await clickStory(canvasElement, '[data-testid="workspace-switcher"]');
+    const own = await storyElement(canvasElement, '[data-action="own-space"]');
+    await expect(own).toHaveAttribute('aria-label', m.own_space_locked_label());
+    await expect(own).toHaveTextContent(m.own_space_name());
+  },
+};
+
+/** In the own space, locked: its line says both how it opens and that it is the one shown. */
+export const InOwnSpaceLocked: Story = {
+  args: { count: 2, own: true, inOwn: true, locked: true },
+  play: async ({ canvasElement }) => {
+    await clickStory(canvasElement, '[data-testid="workspace-switcher"]');
+    const own = await storyElement(canvasElement, '[data-action="own-space"]');
+    await expect(own).toHaveAttribute(
+      'aria-label',
+      m.shell_workspace_current({ name: m.own_space_locked_label() }),
+    );
+  },
+};
+
 /** An account in no organization: the switcher has its own space and the way to start one. */
 export const OwnSpaceAlone: Story = {
   args: { count: 0, own: true, inOwn: true, starts: 'made' },
@@ -89,6 +114,8 @@ export const OrganizationLimit: Story = {
       '[data-testid="new-organization-problem"]',
     );
     await expect(problem).toHaveTextContent('3');
+    // Refused, the name is in use again and has the focus, to be changed or left.
+    await waitFor(() => expect(name).toHaveFocus());
     await expect(
       canvasElement.ownerDocument.querySelector('[data-testid="new-organization-dialog"]'),
     ).not.toBeNull();

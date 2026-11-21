@@ -68,6 +68,7 @@
   import { placeRoute, type Router } from './router.svelte.ts';
   import { signInOrganizations, signInWays } from './sign-in-organizations.ts';
   import PasswordNoticeHost from './PasswordNoticeHost.svelte';
+  import { signInWithPassword } from './own-space-sign-in.ts';
   import { Administered } from './administered.svelte.ts';
   import WorkspacePane from './WorkspacePane.svelte';
   import WorkspaceSearch from './WorkspaceSearch.svelte';
@@ -467,9 +468,6 @@
       <WorkspaceSearch workspace={shown} {router} />
     {/snippet}
     {#snippet children({ workspace: shown, addBoard }: PaneTools)}
-      {#if account}
-        <PasswordNoticeHost workspace={shown} {account} onProvider={toProvider} />
-      {/if}
       <WorkspacePane
         workspace={shown}
         {router}
@@ -482,7 +480,12 @@
         onOpenLinked={openLinked}
         {openWorkspaces}
         onSso={(orgId: string) => toProvider(orgId)}
+        onPasswordSignIn={(password: string) => signInWithPassword(account, workspace, password)}
       />
+      <!-- After the pane: drawn at its foot, it comes after it when tabbing too. -->
+      {#if account}
+        <PasswordNoticeHost workspace={shown} {account} onProvider={toProvider} />
+      {/if}
     {/snippet}
   </AppShell>
   <Problems {workspace} />

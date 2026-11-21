@@ -22,6 +22,12 @@ export interface WorkspaceInfo {
    */
   ssoRequired?: boolean;
   /**
+   * The workspace is closed to this session: it is the reader's own space, the
+   * account has a password, and the session was not made with it (but through
+   * a provider). Signing in with the password opens it.
+   */
+  passwordRequired?: boolean;
+  /**
    * What the reader is in it; left out by a backend that has no roles, where
    * the reader does everything. A guest is on the boards they were invited
    * to, and makes none.

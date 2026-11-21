@@ -88,6 +88,10 @@ describe('the notice to set a password', () => {
       'This account has a password already.',
     );
     expect(screen.queryByLabelText('New password')).toBeNull();
+    // The form gave way: the focus is on what is left to do.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+    });
   });
 
   it('closes for good with its own button', async () => {

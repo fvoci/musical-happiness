@@ -58,10 +58,9 @@
       closeButton?.focus();
     } catch (error) {
       problem = setPasswordProblemOf(error);
-      if (problem.field) {
-        await tick();
-        field?.focus();
-      }
+      // The form gives way to what is left to do: the field again, or closing.
+      await tick();
+      (problem.field ? field : problem.had ? closeButton : null)?.focus();
     } finally {
       working = false;
     }
