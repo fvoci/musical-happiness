@@ -5,11 +5,6 @@
   typed, the caret and the focus when the pane changes its width. First among
   the tools: an empty field that gives its place back as the focus leaves
   moves no tool to its right from under the pointer pressing it.
-
-  While it is open in the whole row the tabs of the views are one button that
-  names the view shown (ViewHeader.svelte); the focus going from an empty
-  field to what `keeps` names (that button) keeps the field, so that the
-  button stays where it was pressed.
 -->
 <script lang="ts">
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
@@ -29,11 +24,9 @@
     viewId: string;
     /** The header is one whole row. */
     row: boolean;
-    /** Whether the focus going there (or nowhere, `null`) keeps an empty field open. */
-    keeps?: (to: EventTarget | null) => boolean;
   }
 
-  let { search = $bindable(), openIn = $bindable(), viewId, row, keeps }: Props = $props();
+  let { search = $bindable(), openIn = $bindable(), viewId, row }: Props = $props();
 
   /** The search field is open: asked for, or with text. */
   const shown = $derived(openIn === viewId || search !== '');
@@ -61,11 +54,10 @@
     if (event.key === 'Escape' && !isComposing(event)) void close();
   }
 
-  function onblur(event: FocusEvent): void {
+  function onblur(): void {
     if (!row || search !== '') return;
     // Not when the window lost the focus: coming back finds the field where it was.
     if (!document.hasFocus()) return;
-    if (keeps?.(event.relatedTarget)) return;
     openIn = undefined;
   }
 

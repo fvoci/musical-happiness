@@ -42,13 +42,8 @@ test('a calendar view is made from the list of kinds, placed by the first date',
   await page.clock.setFixedTime(NOW);
   await openView(page, info, 'Welcome to fvoci!', 'Onboarding');
   const header = page.getByTestId('view-header');
-  if ((await header.getAttribute('data-layout')) === 'row') {
-    await header.locator('[data-tool="add-view"]').click();
-    await page.getByRole('menuitem', { name: 'Calendar', exact: true }).click();
-  } else {
-    await header.locator('[data-tool="views"]').click();
-    await page.getByRole('menuitem', { name: 'Add calendar view' }).click();
-  }
+  await header.locator('[data-tool="views"]').click();
+  await page.getByRole('menuitem', { name: 'Add calendar view' }).click();
   await expect(calendar(page)).toBeVisible();
   await expect(page.getByTestId('calendar-period')).toHaveText('November 2026');
   if ((await header.getAttribute('data-layout')) === 'row') {

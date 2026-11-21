@@ -164,8 +164,17 @@ test('a board is read by its public link without signing in, and not when the li
   await page.setViewportSize({ width: 1280, height: 800 });
   await shoot('board-wide');
 
-  // Another view, by its tab.
-  await reader.getByRole('link', { name: 'Table of it all' }).first().click();
+  // Another view, from the list behind the button of the views: the views and nothing that
+  // changes them.
+  await reader.getByTestId('view-header').locator('[data-tool="views"]').click();
+  const list = page.getByRole('menu', { name: 'Views' });
+  await expect(list.locator('a[role="menuitem"]')).toHaveText([/.+/, 'Table of it all']);
+  await expect(list.locator('[role="menuitem"]:not(a)')).toHaveCount(0);
+  await expect(reader.locator('[data-tool="rename"], [data-tool="more"]')).toHaveCount(0);
+  await list.getByRole('menuitem', { name: 'Table of it all' }).click();
+  await expect(reader.getByTestId('view-header').locator('[data-tool="views"]')).toHaveText(
+    'Table of it all',
+  );
   await expect(page).toHaveURL(/\/shared\/[^/]+\/[^/?]+\?r=/);
   await expect(reader.getByText('after the frost')).toBeVisible();
   await shoot('table-wide');

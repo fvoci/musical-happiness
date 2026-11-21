@@ -84,8 +84,8 @@ export class PaneRoom extends Room {
   readonly columns = $derived(this.width >= boundary('--container-columns'));
   /** A wide pane: wider columns of a kanban and a table. */
   readonly header = $derived(this.width >= boundary('--container-header'));
-  /** The header of a view fits in one row, with the views as tabs. */
-  readonly tabs = $derived(this.width >= boundary('--container-tabs'));
+  /** The header of a view fits in one row, with every tool. */
+  readonly row = $derived(this.width >= boundary('--container-view-row'));
 }
 
 /** The room the device keeps at each edge, in pixels: for parts that are placed by script. */

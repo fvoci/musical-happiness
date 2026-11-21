@@ -61,6 +61,8 @@ interface Mounted {
   onAddCard: ReturnType<typeof vi.fn<() => void>>;
   /** The view the header is shown for, as the store has it now. */
   view: () => NonNullable<ReturnType<BoardStore['view']>>;
+  /** Shows another view, as the board page does when the address changes. */
+  show: (title: string) => Promise<void>;
   unmount: () => void;
 }
 
@@ -70,7 +72,7 @@ async function mount(title: string, template: SeedTemplate = TWO_VIEWS): Promise
   if (!shown) throw new Error(`no view called ${title}`);
   const onOpenView = vi.fn<(viewId: string) => void>();
   const onAddCard = vi.fn<() => void>();
-  const { unmount } = render(Harness, {
+  const { unmount, rerender } = render(Harness, {
     props: { board, viewId: shown.id, onOpenView, onAddCard },
   });
   return {
@@ -82,6 +84,10 @@ async function mount(title: string, template: SeedTemplate = TWO_VIEWS): Promise
       const view = board.view(shown.id);
       if (!view) throw new Error('the view is gone');
       return view;
+    },
+    show: async (other) => {
+      const viewId = board.views.find((view) => view.title === other)?.id ?? '';
+      await rerender({ board, viewId, onOpenView, onAddCard });
     },
     unmount,
   };
@@ -115,6 +121,10 @@ const menuLines = (): HTMLElement[] => [
   ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
 ];
 const lineTexts = (): string[] => menuLines().map((line) => line.textContent.trim());
+/** The lines of the open list of views that are views: links to them. */
+const viewLinks = (): HTMLAnchorElement[] => [
+  ...document.querySelectorAll<HTMLAnchorElement>('a[role="menuitem"]'),
+];
 
 async function menuLine(name: string): Promise<HTMLElement> {
   return waitFor(() => {
@@ -135,20 +145,38 @@ async function settled(): Promise<void> {
 }
 
 describe('the whole row', () => {
-  it('has the views as links, the current one marked, and every tool', async () => {
+  it('has one button that names the view, the views as links behind it, and every tool', async () => {
     const { board } = await mount('List');
     expect(header()).toHaveAttribute('data-layout', 'row');
-    const tabs = within(header()).getAllByRole('link');
-    expect(tabs.map((tab) => tab.textContent.trim())).toEqual(['Board', 'List']);
-    expect(tabs[1]).toHaveAttribute('aria-current', 'page');
-    expect(tabs[0]).not.toHaveAttribute('aria-current');
-    expect(tabs[0]).toHaveAttribute(
+    // No tabs: the views are behind the one button, which names the one shown.
+    expect(within(header()).queryAllByRole('link')).toHaveLength(0);
+    expect(toolButton('views')).toHaveTextContent('List');
+    expect(toolButton('views')).toHaveAttribute('title', 'List');
+    await openMenu(toolButton('views'));
+    const views = viewLinks();
+    expect(views.map((line) => line.textContent.trim())).toEqual(['Board', 'List']);
+    expect(views[1]).toHaveAttribute('aria-current', 'page');
+    expect(views[0]).not.toHaveAttribute('aria-current');
+    expect(views[0]).toHaveAttribute(
       'href',
       `/view/${board.views.find((view) => view.title === 'Board')?.id ?? ''}`,
     );
-    for (const name of ['add-view', 'properties', 'group', 'filter', 'sort', 'search', 'more']) {
+    // Under them the kinds to add, then what is done to the view shown.
+    expect(lineTexts().slice(2)).toEqual([
+      'Add board view',
+      'Add table view',
+      'Add gallery view',
+      'Add calendar view',
+      'Add Gantt view',
+      'Rename view',
+      'Duplicate view',
+      'Delete view',
+    ]);
+    for (const name of ['properties', 'group', 'filter', 'sort', 'search']) {
       expect(toolButton(name)).toBeVisible();
     }
+    // Every tool of a table has its own button in the whole row: "…" has nothing to hold.
+    expect(header().querySelector('[data-tool="more"]')).toBeNull();
     // A tool is an icon: its name is what a screen reader hears, and its tooltip, with
     // what it has on as a count: here the one property the cards show.
     expect(toolButton('properties')).toHaveTextContent('1');
@@ -161,13 +189,28 @@ describe('the whole row', () => {
     expect(toolButton('group')).toHaveAttribute('title', 'Group by: None');
   });
 
-  it('opens a view by its tab, and leaves a click that asks for a new tab to the browser', async () => {
+  it('opens a view by its line, and leaves a click that asks for a new tab to the browser', async () => {
     const { board, onOpenView } = await mount('List');
-    const tab = within(header()).getByRole('link', { name: 'Board' });
-    expect(await fireEvent.click(tab, { ctrlKey: true })).toBe(true);
+    await openMenu(toolButton('views'));
+    expect(await fireEvent.click(await menuLine('Board'), { ctrlKey: true })).toBe(true);
     expect(onOpenView).not.toHaveBeenCalled();
-    expect(await fireEvent.click(tab)).toBe(false);
+    await openMenu(toolButton('views'));
+    // The line of the view shown changes nothing.
+    await fireEvent.click(await menuLine('List'));
+    expect(onOpenView).not.toHaveBeenCalled();
+    await openMenu(toolButton('views'));
+    expect(await fireEvent.click(await menuLine('Board'))).toBe(false);
     expect(onOpenView).toHaveBeenCalledWith(board.views.find((view) => view.title === 'Board')?.id);
+  });
+
+  it('says the view shown as it changes, in a quiet status', async () => {
+    const { show } = await mount('List');
+    const said = screen.getByTestId('view-shown');
+    expect(said).toHaveAttribute('role', 'status');
+    expect(said).toHaveTextContent('Now showing: List');
+    await show('Board');
+    expect(said).toHaveTextContent('Now showing: Board');
+    expect(toolButton('views')).toHaveTextContent('Board');
   });
 
   it('"New" asks for a card', async () => {
@@ -186,8 +229,7 @@ describe('the whole row', () => {
     expect(header().querySelector('[data-tool="search"]')).toBeNull();
     const field = within(header()).getByRole('searchbox', { name: 'Search cards' });
     expect(field).toHaveFocus();
-    // The tabs are one button that names the view, so that no name is cut beside the field.
-    expect(within(header()).queryAllByRole('link')).toHaveLength(0);
+    // The button of the views stays as it was.
     expect(toolButton('views')).toHaveTextContent('List');
     await fireEvent.input(field, { target: { value: 'alp' } });
     expect(screen.getByTestId('search-text')).toHaveTextContent('alp');
@@ -210,43 +252,6 @@ describe('the whole row', () => {
     await tick();
     expect(header().querySelector('[data-testid="view-search"]')).toHaveClass('hidden');
     expect(toolButton('search')).toBeVisible();
-    expect(within(header()).getAllByRole('link')).toHaveLength(2);
-    vi.restoreAllMocks();
-  });
-
-  it('keeps an empty search field open when the focus goes to the button of the views', async () => {
-    await mount('List');
-    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
-    await fireEvent.click(toolButton('search'));
-    await tick();
-    const field = within(header()).getByRole('searchbox', { name: 'Search cards' });
-    await fireEvent.blur(field, { relatedTarget: toolButton('views') });
-    await tick();
-    expect(header().querySelector('[data-testid="view-search"]')).not.toHaveClass('hidden');
-    expect(toolButton('views')).toBeInTheDocument();
-    // A press on it keeps the field where the browser does not focus a pressed button.
-    field.focus();
-    await fireEvent.pointerDown(toolButton('views'));
-    await fireEvent.blur(field, { relatedTarget: null });
-    await tick();
-    expect(header().querySelector('[data-testid="view-search"]')).not.toHaveClass('hidden');
-    // Until the press is a click: then the field closes as the focus leaves it for nowhere.
-    await fireEvent.click(document.body);
-    field.focus();
-    await fireEvent.blur(field, { relatedTarget: null });
-    await tick();
-    expect(header().querySelector('[data-testid="view-search"]')).toHaveClass('hidden');
-    await fireEvent.click(toolButton('search'));
-    await tick();
-    await fireEvent.blur(within(header()).getByRole('searchbox', { name: 'Search cards' }), {
-      relatedTarget: toolButton('views'),
-    });
-    await tick();
-    // Going on from the button elsewhere, the empty field closes and the tabs are back.
-    await fireEvent.focusOut(toolButton('views'), { relatedTarget: document.body });
-    await tick();
-    expect(header().querySelector('[data-testid="view-search"]')).toHaveClass('hidden');
-    expect(within(header()).getAllByRole('link')).toHaveLength(2);
     vi.restoreAllMocks();
   });
 
@@ -273,9 +278,12 @@ describe('a reader who may only look', () => {
   it('gets the views and the search, and no tool that changes the view', async () => {
     // The seed makes the reader a viewer of the board with this key.
     await mount('List', { ...TWO_VIEWS, key: 'company-goals-okrs' });
-    expect(within(header()).getAllByRole('link')).toHaveLength(2);
     expect(toolButton('search')).toBeVisible();
-    for (const name of ['add-view', 'properties', 'group', 'filter', 'sort', 'more', 'rename']) {
+    // The list of the views switches, and offers nothing else.
+    await openMenu(toolButton('views'));
+    expect(lineTexts()).toEqual(['Board', 'List']);
+    expect(viewLinks()).toHaveLength(2);
+    for (const name of ['properties', 'group', 'filter', 'sort', 'more', 'rename']) {
       expect(header().querySelector(`[data-tool="${name}"]`)).toBeNull();
     }
     expect(screen.queryByTestId('new-card')).toBeNull();
@@ -285,8 +293,8 @@ describe('a reader who may only look', () => {
 describe('views', () => {
   it('adds a view of the chosen kind and shows it', async () => {
     const { board, onOpenView } = await mount('List');
-    await openMenu(toolButton('add-view'));
-    await choose('Gallery');
+    await openMenu(toolButton('views'));
+    await choose('Add gallery view');
     await waitFor(() => {
       expect(onOpenView).toHaveBeenCalledTimes(1);
     });
@@ -298,7 +306,7 @@ describe('views', () => {
 
   it('renames a view with Enter, and not at all after Escape', async () => {
     const { view } = await mount('List');
-    await openMenu(toolButton('more'));
+    await openMenu(toolButton('views'));
     await choose('Rename view');
     const name = await screen.findByLabelText('View name');
     expect(name).toHaveValue('List');
@@ -310,7 +318,7 @@ describe('views', () => {
       expect(screen.queryByLabelText('View name')).toBeNull();
     });
 
-    await openMenu(toolButton('more'));
+    await openMenu(toolButton('views'));
     await choose('Rename view');
     const again = await screen.findByLabelText('View name');
     await fireEvent.input(again, { target: { value: 'Not this' } });
@@ -324,7 +332,7 @@ describe('views', () => {
 
   it('does not rename while an input method is still composing the name', async () => {
     const { view } = await mount('List');
-    await openMenu(toolButton('more'));
+    await openMenu(toolButton('views'));
     await choose('Rename view');
     const name = await screen.findByLabelText('View name');
     await fireEvent.input(name, { target: { value: '목록' } });
@@ -336,7 +344,7 @@ describe('views', () => {
 
   it('copies a view under a name that says so, and shows the copy', async () => {
     const { board, onOpenView } = await mount('List');
-    await openMenu(toolButton('more'));
+    await openMenu(toolButton('views'));
     await choose('Duplicate view');
     await waitFor(() => {
       expect(onOpenView).toHaveBeenCalledTimes(1);
@@ -349,7 +357,7 @@ describe('views', () => {
 
   it('deletes a view only after asking, and undo brings it back', async () => {
     const { board, workspace } = await mount('List');
-    await openMenu(toolButton('more'));
+    await openMenu(toolButton('views'));
     await choose('Delete view');
     const dialog = await screen.findByTestId('confirm-dialog');
     expect(dialog).toHaveTextContent('Delete “List”?');
@@ -363,7 +371,7 @@ describe('views', () => {
 
   it('cannot delete the last view of a board', async () => {
     await mount('Board', SMALL);
-    await openMenu(toolButton('more'));
+    await openMenu(toolButton('views'));
     expect(await menuLine('Delete view')).toHaveAttribute('data-disabled');
     expect(await menuLine('Duplicate view')).not.toHaveAttribute('data-disabled');
   });

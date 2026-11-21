@@ -10,7 +10,7 @@
  *
  * The seed is the same on every load. The first board of the sidebar is
  * "Project Tasks": five cards, the views "Progress Tracker" (a board, the
- * first tab), "Project Priorities" (a board), "Task Calendar" and "Task
+ * first in the list), "Project Priorities" (a board), "Task Calendar" and "Task
  * Overview" (a table without grouping, where the cards are a plain list in
  * the order of the view; the tests that count and order cards use it).
  */
@@ -167,29 +167,16 @@ async function undo(page: Page): Promise<void> {
   });
 }
 
-/** Shows another view of the board: by its tab, or through the list behind the button. */
+/** Shows another view of the board, through the list behind the button of the views. */
 async function showView(page: Page, name: string): Promise<void> {
-  // The whole row has tabs, but while its search field is open.
-  if ((await tool(page, 'views').count()) === 0) {
-    await header(page).getByRole('link', { name, exact: true }).click();
-    await expect(header(page).getByRole('link', { name, exact: true })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-  } else {
-    const folded = (await layout(page)) === 'folded';
-    await tool(page, 'views').click();
-    await page.getByRole('menuitem', { name, exact: true }).click();
-    if (folded) await expect(tool(page, 'views')).toContainText(name);
-    // The whole row has its tabs back: another view starts without the search.
-    else {
-      await expect(header(page).getByRole('link', { name, exact: true })).toHaveAttribute(
-        'aria-current',
-        'page',
-      );
-    }
-  }
+  await tool(page, 'views').click();
+  await page.getByRole('menuitem', { name, exact: true }).click();
+  await expect(tool(page, 'views')).toHaveText(name);
 }
+
+/** The views in the open list: links to them. */
+const listed = (page: Page): Locator =>
+  page.getByRole('menu', { name: 'Views' }).locator('a[role="menuitem"]');
 
 /** Opens a tool: by its own button where the row has one, through "…" otherwise. */
 async function openTool(
@@ -204,9 +191,9 @@ async function openTool(
   }
 }
 
-/** A line of "…". */
+/** A line of the list of views that changes the view shown. */
 async function viewCommand(page: Page, name: 'rename' | 'duplicate' | 'delete'): Promise<void> {
-  await tool(page, 'more').click();
+  await tool(page, 'views').click();
   await page.locator(`[role="menuitem"][data-action="${name}"]`).click();
 }
 
@@ -268,34 +255,25 @@ test.describe('the two rows', () => {
     // 1280 wide, the sidebar beside it: the pane is 1024.
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
 
-    // A pane of 992 has a tab for every view, each at its whole name.
-    const cut = (): Promise<number> =>
-      header(page).evaluate(
-        (element) =>
-          [...element.querySelectorAll('[data-testid="view-tabs"] a span')].filter(
-            (each) => each.scrollWidth > each.clientWidth,
-          ).length,
-      );
+    // The name of the view on its button, whole.
+    const cut = (): Promise<boolean> =>
+      tool(page, 'views')
+        .locator('span')
+        .evaluate((name) => name.scrollWidth > name.clientWidth);
     await setPaneWidth(page, 992);
-    await expect(header(page).getByRole('link')).toHaveCount(4);
-    await expect(tool(page, 'more-views')).toHaveCount(0);
-    expect(await cut()).toBe(0);
+    await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+    expect(await cut()).toBe(false);
 
     await setPaneWidth(page, 704);
     await expect(header(page)).toHaveAttribute('data-layout', 'row');
-    for (const name of ['properties', 'group', 'filter', 'sort', 'search', 'more', 'add-view']) {
+    for (const name of ['views', 'properties', 'group', 'filter', 'sort', 'search']) {
       await expect(tool(page, name)).toBeVisible();
     }
-    // Fewer tabs, the rest behind one more; none of them is cut.
-    const tabs = await header(page).getByRole('link').count();
-    expect(tabs).toBeGreaterThan(0);
-    if (tabs < 4)
-      await expect(tool(page, 'more-views')).toHaveText(`More views: ${String(4 - tabs)}`);
-    expect(await cut()).toBe(0);
-    await expect(header(page).getByRole('link', { name: 'Progress Tracker' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    // No tabs, and no "…": every tool of a board has its own button in the row.
+    await expect(header(page).getByRole('link')).toHaveCount(0);
+    await expect(tool(page, 'more')).toHaveCount(0);
+    await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+    expect(await cut()).toBe(false);
     // "New" is in the row, and the row is as wide as its content.
     await expect(header(page).getByRole('button', { name: 'New', exact: true })).toBeVisible();
     const spill = await header(page).evaluate((element) => {
@@ -315,55 +293,52 @@ test.describe('the two rows', () => {
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
   });
 
-  test('views beyond the room are behind one more tab, and the shown one is always a tab', async ({
+  test('views of long names are each whole in the list, and the one shown is named on the button', async ({
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'needs a window that can be this wide');
     await open(page);
     await setPaneWidth(page, 992);
     // Long names for all four views of the board.
-    await page.evaluate(async (boardId) => {
+    const { boardId, viewId } = placeOf(page.url());
+    const given = await page.evaluate(async (id) => {
       const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-      for (const [at, view] of (await backend.views(boardId)).entries()) {
-        await backend.patchView(boardId, view.id, {
-          title: `A longer view name ${String(at + 1)}`,
-        });
+      const titles: Record<string, string> = {};
+      for (const [at, view] of (await backend.views(id)).entries()) {
+        titles[view.id] = `A longer view name ${String(at + 1)}`;
+        await backend.patchView(id, view.id, { title: titles[view.id] });
       }
-    }, placeOf(page.url()).boardId);
-    const more = tool(page, 'more-views');
-    await expect(more).toBeVisible();
-    const links = header(page).getByRole('link');
-    const tabs = await links.count();
-    expect(tabs).toBeGreaterThan(1);
-    expect(tabs).toBeLessThan(4);
-    await expect(more).toHaveText(`More views: ${String(4 - tabs)}`);
-    // No tab is cut, and nothing spills.
+      return titles;
+    }, boardId);
+    const names = [1, 2, 3, 4].map((at) => `A longer view name ${String(at)}`);
+    await expect(tool(page, 'views')).toHaveText(given[viewId] ?? '');
+    await tool(page, 'views').click();
+    await expect(listed(page)).toHaveText(names);
+    // No line is cut, and nothing spills.
     const fit = await header(page).evaluate((element) => ({
-      cut: [...element.querySelectorAll('[data-testid="view-tabs"] a span')].filter(
+      cut: [...document.querySelectorAll('[role="menu"] a[role="menuitem"] span')].filter(
         (each) => each.scrollWidth > each.clientWidth,
       ).length,
       scroll: element.scrollWidth - element.clientWidth,
     }));
     expect(fit).toEqual({ cut: 0, scroll: 0 });
 
-    // The last view, from the list: it becomes a tab, in place of the last that fitted;
-    // the first stays first.
-    await more.click();
-    await page.getByRole('menuitem', { name: 'A longer view name 4' }).click();
-    await expect(header(page).getByRole('link', { name: 'A longer view name 4' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    await expect(links).toHaveCount(tabs);
-    await expect(header(page).getByRole('link').first()).toHaveText('A longer view name 1');
+    // The last view, from the list: the button names it, and the list marks it.
+    await listed(page).last().click();
+    await expect(tool(page, 'views')).toHaveText('A longer view name 4');
+    await tool(page, 'views').click();
+    await expect(listed(page).last()).toHaveAttribute('aria-current', 'page');
+    await expect(listed(page).first()).not.toHaveAttribute('aria-current');
   });
 
   test('a narrower pane folds the header, and "New" becomes a round button at the bottom', async ({
     page,
   }, testInfo) => {
     await open(page);
-    // A window of 900 with the sidebar beside the board: a pane of 644.
+    // A pane of 644: a window of 900 with the sidebar beside the board, or a device as
+    // wide as an upright tablet (WebKit's "middle" is 834) made that much narrower.
     if (testInfo.project.name === 'desktop') await resize(page, 900, 720);
+    else if ((await layout(page)) === 'row') await setPaneWidth(page, 644);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
 
     await expect(tool(page, 'views')).toContainText('Progress Tracker');
@@ -458,6 +433,9 @@ test.describe('in Korean', () => {
 test.describe('views', () => {
   test('choosing a view shows it and changes the address', async ({ page }) => {
     await open(page);
+    // An address without a view shows the first, and leaves the focus where it was.
+    await expect(page.locator('body')).toBeFocused();
+    await expect(tool(page, 'views')).not.toBeFocused();
     const first = page.url();
     await showView(page, 'Task Overview');
     await expect(page).not.toHaveURL(first);
@@ -467,19 +445,16 @@ test.describe('views', () => {
     // The address is the view: loaded on its own it shows the same one.
     await open(page, overview);
     expect((await storedView(page)).title).toBe('Task Overview');
-    if ((await layout(page)) === 'row') {
-      await expect(header(page).getByRole('link', { name: 'Task Overview' })).toHaveAttribute(
-        'aria-current',
-        'page',
-      );
-      // A tab is a link to its view.
-      const href = await header(page)
-        .getByRole('link', { name: 'Progress Tracker' })
-        .getAttribute('href');
-      expect(new URL(href ?? '', page.url()).href).toBe(first);
-    } else {
-      await expect(tool(page, 'views')).toContainText('Task Overview');
-    }
+    await expect(tool(page, 'views')).toHaveText('Task Overview');
+    await tool(page, 'views').click();
+    await expect(listed(page).filter({ hasText: 'Task Overview' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    // A line of the list is a link to its view.
+    const href = await listed(page).filter({ hasText: 'Progress Tracker' }).getAttribute('href');
+    expect(new URL(href ?? '', page.url()).href).toBe(first);
+    await closeTop(page);
 
     await page.goBack();
     await expect(page).toHaveURL(first);
@@ -491,13 +466,8 @@ test.describe('views', () => {
     const everyProperty = Object.values(await properties(page)).map((property) => property.id);
 
     // Added: a table that shows every property.
-    if ((await layout(page)) === 'row') {
-      await tool(page, 'add-view').click();
-      await page.getByRole('menuitem', { name: 'Table', exact: true }).click();
-    } else {
-      await tool(page, 'views').click();
-      await page.getByRole('menuitem', { name: 'Add table view' }).click();
-    }
+    await tool(page, 'views').click();
+    await page.getByRole('menuitem', { name: 'Add table view' }).click();
     await expect(page).not.toHaveURL(start);
     await expect.poll(async () => (await storedView(page)).title).toBe('Table view');
     const added = await storedView(page);
@@ -551,10 +521,101 @@ test.describe('views', () => {
     expect(page.url()).toBe(copy);
   });
 
+  test('a line of the list opens its view in a new tab, by a held key or the middle button', async ({
+    page,
+    context,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'a mouse and its keys');
+    await open(page);
+    const first = page.url();
+    await tool(page, 'views').click();
+    const line = listed(page).filter({ hasText: 'Task Overview' });
+    const href = new URL((await line.getAttribute('href')) ?? '', page.url()).href;
+
+    const [held] = await Promise.all([
+      context.waitForEvent('page'),
+      line.click({ modifiers: ['ControlOrMeta'] }),
+    ]);
+    await expect(held).toHaveURL(href);
+    await expect(held.getByTestId('view-header').locator('[data-tool="views"]')).toHaveText(
+      'Task Overview',
+    );
+    // This tab shows what it showed.
+    expect(page.url()).toBe(first);
+    await expect(tool(page, 'views')).toHaveText('Progress Tracker');
+    await held.close();
+
+    await tool(page, 'views').click();
+    const [middle] = await Promise.all([
+      context.waitForEvent('page'),
+      line.click({ button: 'middle' }),
+    ]);
+    await expect(middle).toHaveURL(href);
+    expect(page.url()).toBe(first);
+  });
+
+  test('a view is renamed, copied and deleted by the keys alone', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'a keyboard');
+    await open(page);
+    const views = tool(page, 'views');
+    await views.focus();
+    /** Opens the list from the button and goes to the line whose name starts with `letters`. */
+    const choose = async (keys: string[], name: string): Promise<void> => {
+      await expect(views).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(listed(page).first()).toBeFocused();
+      for (const key of keys) await page.keyboard.press(key);
+      await expect(page.getByRole('menuitem', { name })).toBeFocused();
+      await page.keyboard.press('Enter');
+    };
+
+    // By its letters. (The list keeps letters typed for a second, also into its next
+    // opening: the lines after this are reached by End and the arrows.)
+    await choose(['r', 'e', 'n'], 'Rename view');
+    const name = page.getByRole('textbox', { name: 'View name' });
+    await expect(name).toBeFocused();
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.type('Typed');
+    await page.keyboard.press('Enter');
+    await expect(name).toBeHidden();
+    await expect.poll(async () => (await storedView(page)).title).toBe('Typed');
+    await expect(views).toHaveText('Typed');
+
+    const renamed = page.url();
+    await choose(['End', 'ArrowUp'], 'Duplicate view');
+    await expect(page).not.toHaveURL(renamed);
+    await expect(views).toHaveText('Typed copy');
+    await expect(page.getByTestId('view-shown')).toHaveText('Now showing: Typed copy');
+
+    const copy = page.url();
+    // Asked, and let be: the focus is back on the button.
+    await choose(['End'], 'Delete view');
+    await expect(page.getByRole('alertdialog')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+    await expect(views).toBeFocused();
+    expect(page.url()).toBe(copy);
+
+    await choose(['End'], 'Delete view');
+    // The question has the keys, then Cancel, then Delete.
+    const confirm = page.getByTestId('confirm-dialog');
+    await expect(page.getByRole('alertdialog')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(confirm.getByRole('button', { name: 'Delete' })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page).not.toHaveURL(copy);
+    await expect(views).not.toHaveText('Typed copy');
+    await expect(views).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(listed(page).filter({ hasText: 'Typed copy' })).toHaveCount(0);
+  });
+
   test('the last view of a board cannot be deleted', async ({ page }) => {
     await open(page);
     await open(page, await boardAddress(page, 'Meeting Agenda'));
-    await tool(page, 'more').click();
+    await tool(page, 'views').click();
     await expect(page.locator('[role="menuitem"][data-action="delete"]')).toBeDisabled();
     await expect(page.locator('[role="menuitem"][data-action="duplicate"]')).toBeEnabled();
   });
@@ -947,10 +1008,9 @@ test.describe('search', () => {
       await expect(tool(page, 'search')).toBeFocused();
       await expect(tool(page, 'views')).toBeVisible();
     } else {
-      // In the whole row the field is where its button was, and the tabs are one button
-      // that names the view; Escape gives both back.
+      // In the whole row the field is where its button was, and the button of the views
+      // stays as it was; Escape gives the search its button back.
       await expect(tool(page, 'search')).toHaveCount(0);
-      await expect(header(page).getByRole('link')).toHaveCount(0);
       await expect(tool(page, 'views')).toHaveText('Task Overview');
       await field.press('Escape');
       await expect(field).toBeHidden();
@@ -1048,19 +1108,18 @@ test.describe('a board the reader may only look at', () => {
   test('has the views and search, and nothing that changes the view', async ({ page }) => {
     await open(page);
     await open(page, await boardAddress(page, 'Company Goals & OKRs'));
-    for (const name of ['properties', 'group', 'filter', 'sort', 'more', 'add-view', 'rename']) {
+    for (const name of ['properties', 'group', 'filter', 'sort', 'more', 'rename']) {
       await expect(tool(page, name)).toHaveCount(0);
     }
     await expect(page.getByTestId('new-card')).toHaveCount(0);
 
     await showView(page, 'Departments');
     expect((await storedView(page)).title).toBe('Departments');
-    if ((await layout(page)) === 'folded') {
-      // The list switches views and offers nothing else.
-      await tool(page, 'views').click();
-      await expect(page.getByRole('menuitem')).toHaveCount(3);
-      await closeTop(page);
-    }
+    // The list switches views and offers nothing else: its lines are the three views.
+    await tool(page, 'views').click();
+    await expect(page.getByRole('menuitem')).toHaveCount(3);
+    await expect(page.locator('a[role="menuitem"]')).toHaveCount(3);
+    await closeTop(page);
     await tool(page, 'search').click();
     const before = await cards(page).count();
     expect(before).toBeGreaterThan(1);
@@ -1219,11 +1278,11 @@ test.describe('pictures', () => {
   const SCENES: Record<string, Scene> = {
     header: async () => undefined,
     views: async (page) => {
-      if ((await layout(page)) === 'row') await tool(page, 'add-view').click();
-      else await tool(page, 'views').click();
+      await tool(page, 'views').click();
       await expect(page.getByRole('menuitem').first()).toBeVisible();
     },
     more: async (page) => {
+      test.skip((await layout(page)) === 'row', 'the whole row of a table has nothing behind "…"');
       await tool(page, 'more').click();
       await expect(page.getByRole('menuitem').first()).toBeVisible();
     },
