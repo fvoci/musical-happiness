@@ -6,6 +6,55 @@ use super::super::fake_oidc::FakeProvider;
 use super::super::fake_smtp::FakeSmtp;
 use super::{Case, Client, PASSWORD, TestServer, identity, shared};
 
+/// The founder is told that somebody of their organization named them in a card, and
+/// lists it, counts it, and marks it as read, by itself and with all.
+async fn notifications(case: &mut Case, server: &TestServer) {
+    let title = format!("{} told", case.label);
+    let board = case
+        .run("createBoard", &[], json!({"title": title, "type": "P"}))
+        .await
+        .value();
+    let board = case.remember(&board, "id");
+    let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "mention", "attrs": {"userId": case.user}}]}]});
+    let mut card = fvoci_model::Block {
+        id: fvoci_model::new_id(),
+        container_id: board,
+        block_type: fvoci_model::BlockType::Card,
+        title,
+        body: fvoci_model::Body::parse(body).expect("a document"),
+        ..fvoci_model::Block::default()
+    };
+    // Written by the other member, who never signs in: past the API, in the store.
+    server
+        .app
+        .store()
+        .for_org(&case.org)
+        .expect("organization scope")
+        .insert_block(&mut card, &case.peer)
+        .await
+        .expect("the card that names the founder is stored");
+    case.identifiers.push(card.id.clone());
+    fvoci_server::app::tend_notifications(&server.app).await;
+
+    let told = case
+        .present("getNotifications", &[], &card.id)
+        .await
+        .value();
+    let told = told.as_array().expect("a list");
+    assert_eq!(told.len(), 1, "the one mention: {told:?}");
+    let notification = case.remember(&told[0], "id");
+    let unread = case.run("getUnreadNotifications", &[], json!({})).await;
+    assert_eq!(unread.value()["count"], 1, "{}", unread.text());
+    case.run(
+        "readNotification",
+        &[("notificationId", &notification)],
+        json!({}),
+    )
+    .await;
+    case.run("readNotifications", &[], json!({})).await;
+}
+
 pub(super) async fn exercise(
     case: &mut Case,
     server: &TestServer,
@@ -17,6 +66,7 @@ pub(super) async fn exercise(
     }
     account(case).await;
     organization(case).await;
+    notifications(case, server).await;
     shared::exercise(case).await;
     shared::exercise_wiki(case).await;
     invitation(case, server, smtp).await;
