@@ -182,32 +182,26 @@ test('the welcome board shows its five views, its pictures and its document, in 
     'page',
   );
 
-  // Five views, each of its own kind. The tabs are in the order of their titles, and
-  // the board is the first: what the welcome board opens on.
-  const tabs = page.getByTestId('view-tabs');
-  await expect(tabs.getByRole('link')).toHaveText([
-    'Board',
-    'Calendar',
-    'Gallery',
-    'Gantt',
-    'Table',
-  ]);
+  // Five views, each of its own kind, behind the button that names the one shown. The list
+  // is in the order of their titles, and the board is the first: what the welcome board
+  // opens on.
+  const views = page.getByTestId('view-header').locator('[data-tool="views"]');
+  const listed = page.getByRole('menu', { name: 'Views' }).locator('a[role="menuitem"]');
+  await expect(views).toHaveText('Board');
+  await views.click();
+  await expect(listed).toHaveText(['Board', 'Calendar', 'Gallery', 'Gantt', 'Table']);
+  await expect(listed.first()).toHaveAttribute('aria-current', 'page');
+  await page.keyboard.press('Escape');
   await expect(page.getByTestId('kanban')).toBeVisible();
   await expect(page.getByText('Open a card', { exact: true })).toBeVisible();
   await shot(page, 'welcome-en-board');
-  // A window of 1,000 cuts no name of a view: beside the sidebar as many tabs as fit, the
-  // rest behind one more; with the sidebar folded to its strip, every view a tab.
+  // A window of 1,000 cuts no name of a view, beside the sidebar or with it folded to its
+  // strip.
   await page.setViewportSize({ width: 1000, height: 800 });
   await expect(page.getByTestId('view-header')).toHaveAttribute('data-layout', 'row');
   await expect.poll(() => headCuts(page)).toEqual({ cut: [], scroll: 0 });
   await sidebar(page).getByRole('button', { name: 'Collapse sidebar' }).click();
-  await expect(tabs.getByRole('link')).toHaveText([
-    'Board',
-    'Calendar',
-    'Gallery',
-    'Gantt',
-    'Table',
-  ]);
+  await expect(views).toHaveText('Board');
   await expect.poll(() => headCuts(page)).toEqual({ cut: [], scroll: 0 });
   await page.getByTestId('expand-sidebar').click();
   await page.setViewportSize({ width: 1280, height: 720 });
@@ -217,7 +211,9 @@ test('the welcome board shows its five views, its pictures and its document, in 
     ['Gantt', 'gantt'],
     ['Table', 'table-view'],
   ] as const) {
-    await tabs.getByRole('link', { name: view, exact: true }).click();
+    await views.click();
+    await listed.filter({ hasText: view }).click();
+    await expect(views).toHaveText(view);
     await expect(page.getByTestId(shown)).toBeVisible();
     if (view === 'Gallery') {
       // The first picture of a body is the face of its card: a file of this board's own.
@@ -230,7 +226,8 @@ test('the welcome board shows its five views, its pictures and its document, in 
   }
 
   // The document of a card opens in the viewer, where it is.
-  await tabs.getByRole('link', { name: 'Board', exact: true }).click();
+  await views.click();
+  await listed.filter({ hasText: 'Board' }).click();
   await page.getByText('Attach files and open them right here', { exact: true }).click();
   const block = page.locator('[data-file-block]');
   await expect(block).toHaveAttribute('data-state', 'shown');
@@ -258,13 +255,11 @@ test('the welcome board shows its five views, its pictures and its document, in 
   const koreanErrors = watchErrors(koreanPage);
   await koreanPage.goto(boardPath(korean));
   await expect(boardLink(koreanPage, 'fvoci 시작하기')).toHaveAttribute('aria-current', 'page');
-  await expect(koreanPage.getByTestId('view-tabs').getByRole('link')).toHaveText([
-    '가이드',
-    '간트',
-    '갤러리',
-    '달력',
-    '표',
-  ]);
+  await koreanPage.getByTestId('view-header').locator('[data-tool="views"]').click();
+  await expect(
+    koreanPage.getByRole('menu', { name: '뷰' }).locator('a[role="menuitem"]'),
+  ).toHaveText(['가이드', '간트', '갤러리', '달력', '표']);
+  await koreanPage.keyboard.press('Escape');
   await expect(koreanPage.getByText('카드를 열어 보세요', { exact: true })).toBeVisible();
   await shot(koreanPage, 'welcome-ko-board');
   await koreanPage.getByText('파일을 올리고 그 자리에서 여세요', { exact: true }).click();

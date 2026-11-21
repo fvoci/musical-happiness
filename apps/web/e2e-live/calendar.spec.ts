@@ -64,8 +64,8 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
 
   // Made on the page: placed by the first date of the board, "Due".
   const header = page.getByTestId('view-header');
-  await header.locator('[data-tool="add-view"]').click();
-  await page.getByRole('menuitem', { name: 'Calendar', exact: true }).click();
+  await header.locator('[data-tool="views"]').click();
+  await page.getByRole('menuitem', { name: 'Add calendar view' }).click();
   await expect.poll(async () => (await stored())?.title).toBe('Calendar view');
   const viewId = (await stored())?.id ?? '';
   await expect(page).toHaveURL(new RegExp(`${boardPath(board, viewId)}$`));
@@ -125,8 +125,8 @@ test('a date changed on the calendar is kept by the server, whole, after a reloa
   const errors = watchErrors(page);
   await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
-  await page.getByTestId('view-header').locator('[data-tool="add-view"]').click();
-  await page.getByRole('menuitem', { name: 'Calendar', exact: true }).click();
+  await page.getByTestId('view-header').locator('[data-tool="views"]').click();
+  await page.getByRole('menuitem', { name: 'Add calendar view' }).click();
   const grid = page.getByTestId('month-grid');
   await expect(grid.locator('[data-bar]').filter({ hasText: 'Press cider' })).toHaveCount(2);
 
@@ -185,8 +185,8 @@ test('on the server: a card made on a day, undone; a timed card moved keeps its 
   const errors = watchErrors(page);
   await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
-  await page.getByTestId('view-header').locator('[data-tool="add-view"]').click();
-  await page.getByRole('menuitem', { name: 'Calendar', exact: true }).click();
+  await page.getByTestId('view-header').locator('[data-tool="views"]').click();
+  await page.getByRole('menuitem', { name: 'Add calendar view' }).click();
   const grid = page.getByTestId('month-grid');
   await expect(grid.locator('[data-bar]').filter({ hasText: 'Morning call' })).toHaveCount(1);
 

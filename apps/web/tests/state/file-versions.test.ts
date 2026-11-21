@@ -342,9 +342,14 @@ describe('the list of the versions of a file attached to an open card', () => {
 
     backend.failNext('upload', new BackendError(413, { limit: 1 }));
     expect(await list.add(named('paper.txt', 'large'))).toBeUndefined();
-    // The workspace tells an upload that failed, as for any other.
+    // The stack of uploads tells it, as for any other: not the list, nor where problems are.
     expect(list.refusal).toBeUndefined();
-    expect(workspace.problems.map((problem) => problem.action)).toEqual(['upload']);
+    expect(workspace.transfers.list.at(-1)).toMatchObject({
+      name: 'paper.txt',
+      failure: 'too-large',
+      limit: 1,
+    });
+    expect(workspace.problems).toEqual([]);
     expect(list.writing).toBeUndefined();
   });
 
