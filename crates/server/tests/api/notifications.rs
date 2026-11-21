@@ -1,0 +1,578 @@
+//! What a person is told inside the application: a mention in a body (typed together,
+//! or written whole) and in a comment, and a card given to them; that nobody is told
+//! of their own doing, nor twice of the same; and the list as its reader reads it.
+
+use std::time::Duration;
+
+use fvoci_model::{
+    Block, BlockType, Card, Container, ContainerMember, ContainerType, Notification,
+    NotificationKind, SearchKind, UnreadNotifications,
+};
+use fvoci_server::app::tend_notifications;
+use reqwest::StatusCode;
+use serde_json::{Value, json};
+
+use crate::blocks::{block_path, child_of, delete, insert_one, undelete_path};
+use crate::boards::{delete_member, editor, new_board};
+use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID};
+use crate::rooms::{Peer, card_holds, give};
+
+/// The identifier of the person property of [`board_with_owner`].
+pub(crate) const OWNER: &str = "owner";
+
+/// A body of one paragraph that mentions each of `users`.
+pub(crate) fn mentioning(users: &[&str]) -> Value {
+    let mentions: Vec<Value> = users
+        .iter()
+        .map(|user| json!({"type": "mention", "attrs": {"userId": user}}))
+        .collect();
+    json!({"type": "doc", "content": [{"type": "paragraph", "content": mentions}]})
+}
+
+/// A body of one paragraph of text, which mentions nobody.
+pub(crate) fn plain(text: &str) -> Value {
+    json!({"type": "doc", "content": [
+        {"type": "paragraph", "content": [{"type": "text", "text": text}]},
+    ]})
+}
+
+/// A board of the test workspace of `board_type`, made by the first client's user,
+/// whose cards have a person property ([`OWNER`]).
+pub(crate) async fn board_with_owner(th: &TestServer, board_type: ContainerType) -> Container {
+    let definition = json!({"id": OWNER, "name": "Owner", "type": "person", "options": []});
+    th.client
+        .create_board(&Container {
+            card_properties: vec![definition.as_object().expect("an object").clone()],
+            ..new_board(TEST_WORKSPACE_ID, board_type, "Told")
+        })
+        .await
+        .created_json()
+}
+
+/// A card of the board with `body`, made by `client`'s user.
+pub(crate) async fn card_with(client: &Client, board_id: &str, body: &Value) -> Card {
+    client
+        .post(
+            &format!("{TEST_WS}/boards/{board_id}/cards"),
+            &json!({"title": "The card", "body": body}),
+        )
+        .await
+        .created_json()
+}
+
+/// A comment on the card with `body`, made by `client`'s user.
+pub(crate) async fn comment_on(client: &Client, card: &Card, body: &Value) -> Block {
+    let parent = Block {
+        id: card.id.clone(),
+        container_id: card.board_id.clone(),
+        ..Block::default()
+    };
+    let mut comment = child_of(&parent, BlockType::Comment, "");
+    comment.body = fvoci_model::Body::parse(body.clone()).expect("a body");
+    insert_one(client, &comment).await
+}
+
+/// Writes the body of a card whole, as `client`'s user.
+pub(crate) async fn write_body(client: &Client, card_id: &str, body: &Value) {
+    crate::rooms::write_whole(client, card_id, body).await;
+}
+
+/// Works off whom the changes so far may be told to, and answers the first page of
+/// what `client`'s user was told, the newest first.
+pub(crate) async fn told(th: &TestServer, client: &Client) -> Vec<Notification> {
+    tend_notifications(&th.app).await;
+    client.get("/notifications").await.ok_json()
+}
+
+/// How many notifications `client`'s user has not read.
+pub(crate) async fn unread(client: &Client) -> i64 {
+    let unread: UnreadNotifications = client.get("/notifications/unread").await.ok_json();
+    unread.count
+}
+
+/// The kinds of the notifications whose subject their reader sees, sorted, and how
+/// many of them have none.
+pub(crate) fn kinds(told: &[Notification]) -> (Vec<&'static str>, usize) {
+    let mut kinds: Vec<&str> = told
+        .iter()
+        .filter_map(|told| told.subject.as_ref())
+        .map(|subject| subject.kind.as_str())
+        .collect();
+    kinds.sort_unstable();
+    let unseen = told.iter().filter(|told| told.subject.is_none()).count();
+    (kinds, unseen)
+}
+
+/// Waits until the document of the card is written to it, with a body that mentions
+/// `users` in this order, a paragraph each.
+async fn card_mentions(th: &TestServer, card_id: &str, users: &[&str]) {
+    let paragraphs: Vec<Value> = users
+        .iter()
+        .map(|user| {
+            json!({"type": "paragraph", "content": [
+                {"type": "mention", "attrs": {"userId": user}},
+            ]})
+        })
+        .collect();
+    card_holds(
+        &th.client,
+        card_id,
+        &json!({"type": "doc", "content": paragraphs}),
+    )
+    .await;
+}
+
+/// The end of the first slice: A mentions B in a card's body, typing it into the
+/// card's document, and in a comment, and gives B the card. B is told of the three
+/// and A of none; a mention taken out and put back tells B nothing more; and once B
+/// is off the board, B's list still has three entries that say nothing.
+#[tokio::test]
+async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (a, b) = (th.client.me().await, th.client2.me().await);
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "editor").await;
+    let card = card_with(&th.client, &board.id, &Value::Null).await;
+
+    // Typed into the document of the card, and written to the card by the server.
+    let mut one = Peer::connect(&th.client, 101).await;
+    one.joined(TEST_WORKSPACE_ID, &card.id).await;
+    let update = one.editor().append_mention(&b.id);
+    one.send_update(&update).await;
+    one.text("DOC_ACK").await;
+    card_mentions(&th, &card.id, &[&b.id]).await;
+
+    let comment = comment_on(&th.client, &card, &mentioning(&[&b.id])).await;
+    th.client
+        .patch(
+            &block_path(&board.id, &card.id),
+            &json!({"updatedFields": {"properties": {OWNER: b.id}}}),
+        )
+        .await
+        .check_no_content();
+
+    let theirs = told(&th, &th.client2).await;
+    assert_eq!(
+        kinds(&theirs),
+        (vec!["assignment", "mention", "mention"], 0),
+        "{theirs:?}"
+    );
+    for one_told in &theirs {
+        let subject = one_told.subject.as_ref().expect("B reads the card");
+        assert_eq!(
+            (
+                subject.actor_id.as_str(),
+                subject.actor_name.as_str(),
+                subject.workspace_id.as_str(),
+                subject.container_id.as_str(),
+                subject.block_id.as_str(),
+                subject.block_kind,
+                subject.title.as_str(),
+            ),
+            (
+                a.id.as_str(),
+                a.username.as_str(),
+                TEST_WORKSPACE_ID,
+                board.id.as_str(),
+                card.id.as_str(),
+                SearchKind::Card,
+                "The card",
+            ),
+            "{one_told:?}"
+        );
+        assert_eq!(one_told.read_at, 0);
+    }
+    let in_comments: Vec<&str> = theirs
+        .iter()
+        .filter_map(|told| told.subject.as_ref())
+        .filter(|subject| !subject.comment_id.is_empty())
+        .map(|subject| subject.comment_id.as_str())
+        .collect();
+    assert_eq!(
+        in_comments,
+        [comment.id.as_str()],
+        "one of them is of the comment"
+    );
+    assert_eq!(unread(&th.client2).await, 3);
+    assert_eq!(told(&th, &th.client).await, [], "A did all of it");
+    assert_eq!(unread(&th.client).await, 0);
+
+    // Taken out and put back: in the document, in the comment, and in the property.
+    let update = one.editor().delete_last();
+    one.send_update(&update).await;
+    one.text("DOC_ACK").await;
+    let emptied = tokio::time::Instant::now() + Duration::from_secs(20);
+    while crate::collab::body_of(&crate::collab::card(&th.client, &card.id).await).is_some() {
+        assert!(
+            tokio::time::Instant::now() < emptied,
+            "the card keeps its body"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let update = one.editor().append_mention(&b.id);
+    one.send_update(&update).await;
+    one.text("DOC_ACK").await;
+    card_mentions(&th, &card.id, &[&b.id]).await;
+    for body in [plain("nobody"), mentioning(&[&b.id])] {
+        let read_at = crate::blocks::blocks_of(&th.client, &board.id)
+            .await
+            .into_iter()
+            .find(|block| block.id == comment.id)
+            .expect("the comment")
+            .update_at;
+        th.client
+            .patch(
+                &block_path(&board.id, &comment.id),
+                &json!({"body": body, "readAt": read_at}),
+            )
+            .await
+            .check_no_content();
+        tend_notifications(&th.app).await;
+    }
+    for owner in ["", b.id.as_str()] {
+        th.client
+            .patch(
+                &block_path(&board.id, &card.id),
+                &json!({"updatedFields": {"properties": {OWNER: owner}}}),
+            )
+            .await
+            .check_no_content();
+        tend_notifications(&th.app).await;
+    }
+    let again = told(&th, &th.client2).await;
+    assert_eq!(again, theirs, "nothing more, and nothing changed");
+    assert_eq!(
+        th.app
+            .housekeeping()
+            .store()
+            .waiting_notification_events()
+            .await
+            .expect("counted"),
+        0,
+        "what was noted again was worked off, and dropped"
+    );
+
+    // Off the board: the three are still B's, and say nothing.
+    delete_member(&th.client, &editor(&board.id, &b.id))
+        .await
+        .check_no_content();
+    let unseen = told(&th, &th.client2).await;
+    assert_eq!(kinds(&unseen), (vec![], 3), "{unseen:?}");
+    let listed = serde_json::to_value(&unseen).expect("JSON");
+    for (now, before) in listed.as_array().expect("a list").iter().zip(&theirs) {
+        assert_eq!(
+            *now,
+            json!({"id": before.id, "createAt": before.create_at, "readAt": 0, "subject": null}),
+            "nothing but that there was one"
+        );
+    }
+    assert_eq!(unread(&th.client2).await, 3, "unread until they are read");
+    th.teardown().await;
+}
+
+/// Reading: one at a time and all at once, only one's own, and only what was made by
+/// the time given; the list comes in pages, the newest first.
+#[tokio::test]
+async fn notifications_are_read_one_by_one_and_all_at_once_by_their_reader_alone() {
+    let th = Setup::native().start().await.init_basic().await;
+    let b = th.client2.me().await;
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "viewer").await;
+    let card = card_with(&th.client, &board.id, &Value::Null).await;
+    for _ in 0..3 {
+        comment_on(&th.client, &card, &mentioning(&[&b.id])).await;
+        tend_notifications(&th.app).await;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    let theirs = told(&th, &th.client2).await;
+    assert_eq!(theirs.len(), 3);
+    assert!(
+        theirs
+            .windows(2)
+            .all(|pair| pair[0].create_at > pair[1].create_at),
+        "the newest first: {theirs:?}"
+    );
+    let second_page: Vec<Notification> = th
+        .client2
+        .get("/notifications?page=1&perPage=2")
+        .await
+        .ok_json();
+    assert_eq!(
+        second_page,
+        theirs[2..],
+        "the third alone is on the second page"
+    );
+    th.client2
+        .get("/notifications?perPage=0")
+        .await
+        .check_bad_request();
+    th.anonymous()
+        .get("/notifications")
+        .await
+        .check_unauthorized();
+    th.anonymous()
+        .get("/notifications/unread")
+        .await
+        .check_unauthorized();
+
+    // Another's notification is none: A cannot read B's.
+    let oldest = &theirs[2];
+    for path in [
+        format!("/notifications/{}/read", oldest.id),
+        format!("/notifications/{UNKNOWN_ID}/read"),
+        "/notifications/no-identifier/read".to_owned(),
+    ] {
+        th.client.post_empty(&path).await.check_not_found();
+    }
+    assert_eq!(unread(&th.client2).await, 3);
+
+    th.client2
+        .post_empty(&format!("/notifications/{}/read", oldest.id))
+        .await
+        .check_no_content();
+    let read_at = told(&th, &th.client2).await[2].read_at;
+    assert!(read_at > 0, "it is read");
+    assert_eq!(unread(&th.client2).await, 2);
+    // Read again: it stays read since when it was.
+    tokio::time::sleep(Duration::from_millis(2)).await;
+    th.client2
+        .post_empty(&format!("/notifications/{}/read", oldest.id))
+        .await
+        .check_no_content();
+    assert_eq!(told(&th, &th.client2).await[2].read_at, read_at);
+
+    // All that were made up to the second: the newest stays unread.
+    th.client2
+        .post_empty(&format!(
+            "/notifications/read?through={}",
+            theirs[1].create_at
+        ))
+        .await
+        .check_no_content();
+    let now = told(&th, &th.client2).await;
+    assert_eq!(
+        now.iter().map(|told| told.read_at > 0).collect::<Vec<_>>(),
+        [false, true, true],
+        "{now:?}"
+    );
+    th.client
+        .post_empty("/notifications/read")
+        .await
+        .check_no_content();
+    assert_eq!(
+        unread(&th.client2).await,
+        1,
+        "A read A's own, which are none"
+    );
+    th.client2
+        .post_empty("/notifications/read")
+        .await
+        .check_no_content();
+    assert_eq!(unread(&th.client2).await, 0);
+    let bad = th
+        .client2
+        .post_empty("/notifications/read?through=soon")
+        .await;
+    assert_eq!(bad.status, StatusCode::BAD_REQUEST);
+    th.teardown().await;
+}
+
+/// Who typed a mention into a document written by several is not known. One of them
+/// who is named is told by another's doing, also where they were the last to type; a
+/// writer alone is not told of their own.
+#[tokio::test]
+async fn a_mention_typed_while_the_one_named_types_too_is_told_and_ones_own_is_not() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (a, b) = (th.client.me().await, th.client2.me().await);
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "editor").await;
+    let card = card_with(&th.client, &board.id, &Value::Null).await;
+    let mut one = Peer::connect(&th.client, 101).await;
+    let mut two = Peer::connect(&th.client2, 102).await;
+    one.joined(TEST_WORKSPACE_ID, &card.id).await;
+    two.joined(TEST_WORKSPACE_ID, &card.id).await;
+
+    // A names B, and B types after it, before or after the server wrote the card.
+    let update = one.editor().append_mention(&b.id);
+    one.send_update(&update).await;
+    one.text("DOC_ACK").await;
+    two.settle().await;
+    two.write_acked("typed by B").await;
+    th.app
+        .collab()
+        .write_body(&th.app.housekeeping(), &card.id)
+        .await
+        .expect("the body is written to the card");
+    let theirs = told(&th, &th.client2).await;
+    assert_eq!(kinds(&theirs), (vec!["mention"], 0), "{theirs:?}");
+    assert_eq!(
+        theirs[0].subject.as_ref().expect("seen").actor_id,
+        a.id,
+        "by A's doing, whoever typed last"
+    );
+
+    // B alone names B and A in another card: A is told, B is not.
+    let alone = card_with(&th.client2, &board.id, &Value::Null).await;
+    let mut two = Peer::connect(&th.client2, 103).await;
+    two.joined(TEST_WORKSPACE_ID, &alone.id).await;
+    for user in [&b.id, &a.id] {
+        let update = two.editor().append_mention(user);
+        two.send_update(&update).await;
+        two.text("DOC_ACK").await;
+    }
+    th.app
+        .collab()
+        .write_body(&th.app.housekeeping(), &alone.id)
+        .await
+        .expect("the body is written to the card");
+    assert_eq!(
+        told(&th, &th.client2).await,
+        theirs,
+        "nothing of B's own doing"
+    );
+    let of_a = told(&th, &th.client).await;
+    assert_eq!(kinds(&of_a), (vec!["mention"], 0), "{of_a:?}");
+    let subject = of_a[0].subject.as_ref().expect("seen");
+    assert_eq!(
+        (
+            subject.actor_id.as_str(),
+            subject.block_id.as_str(),
+            subject.kind
+        ),
+        (b.id.as_str(), alone.id.as_str(), NotificationKind::Mention)
+    );
+    th.teardown().await;
+}
+
+/// What is no person's own words tells nobody: a write that asks for it, a copy of a
+/// card, a card that comes back from the trash, a version of a body brought back, and
+/// a card that is a template of its board. And a write tells only whom it newly
+/// names: who was named already is not told again by another change of the body.
+#[tokio::test]
+async fn copies_restores_and_quiet_writes_tell_nobody_and_a_body_only_whom_it_newly_names() {
+    let th = Setup::native().start().await.init_basic().await;
+    let b = th.client2.me().await;
+    let c = th.add_user("third").await;
+    let c_id = c.me().await.id;
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    for user in [&b.id, &c_id] {
+        give(&th, &board.id, user, "editor").await;
+    }
+    let card = card_with(&th.client, &board.id, &mentioning(&[&b.id])).await;
+    assert_eq!(kinds(&told(&th, &th.client2).await), (vec!["mention"], 0));
+    th.client2
+        .post_empty("/notifications/read")
+        .await
+        .check_no_content();
+    let waiting = || async {
+        th.app
+            .housekeeping()
+            .store()
+            .waiting_notification_events()
+            .await
+            .expect("counted")
+    };
+
+    // Another change of the body, with B still in it and C new: C alone is told.
+    write_body(&th.client, &card.id, &mentioning(&[&b.id, &c_id])).await;
+    assert_eq!(kinds(&told(&th, &c).await), (vec!["mention"], 0));
+    assert_eq!(unread(&th.client2).await, 0, "B was named already");
+
+    // A copy of the card names whom the card names, and tells nobody.
+    th.client
+        .post_empty(&format!("{}/duplicate", block_path(&board.id, &card.id)))
+        .await
+        .check_created();
+    assert_eq!(waiting().await, 0, "a copy notes nothing");
+
+    // Asked to tell nobody.
+    let quiet = card_with(&th.client, &board.id, &Value::Null).await;
+    let quietly = th
+        .client
+        .patch(
+            &format!("{}?disableNotify=true", block_path(&board.id, &quiet.id)),
+            &json!({"body": mentioning(&[&b.id]), "readAt": quiet.update_at,
+                    "updatedFields": {"properties": {OWNER: b.id}}}),
+        )
+        .await;
+    assert_eq!(quietly.status, StatusCode::NO_CONTENT, "{}", quietly.text());
+    assert_eq!(waiting().await, 0, "a quiet write notes nothing");
+
+    // To the trash and back.
+    let block = Block {
+        id: card.id.clone(),
+        container_id: board.id.clone(),
+        ..Block::default()
+    };
+    delete(&th.client, &block).await;
+    th.client
+        .post_empty(&undelete_path(&board.id, &card.id))
+        .await
+        .check_ok();
+    assert_eq!(waiting().await, 0, "what comes back notes nothing");
+
+    // A version of the body brought back: the one before C was named and after.
+    let versions: Value = th
+        .client
+        .get(&format!("{TEST_WS}/cards/{}/body-versions", card.id))
+        .await
+        .ok_json();
+    let listed = versions.as_array().expect("versions");
+    assert!(listed.len() >= 2, "{versions}");
+    write_body(&th.client, &card.id, &plain("nobody")).await;
+    tend_notifications(&th.app).await;
+    let newest = listed[0]["version"].as_i64().expect("a number");
+    th.client
+        .post_empty(&format!(
+            "{TEST_WS}/cards/{}/body-versions/{newest}/restore",
+            card.id
+        ))
+        .await
+        .check_ok();
+    assert_eq!(waiting().await, 0, "a version brought back notes nothing");
+
+    // A card that is a template of its board.
+    th.client
+        .post(
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
+            &json!({"title": "Template", "isTemplate": true, "body": mentioning(&[&b.id]),
+                    "properties": {OWNER: b.id}}),
+        )
+        .await
+        .check_created();
+    assert_eq!(waiting().await, 0, "a template notes nothing");
+
+    assert_eq!(
+        unread(&th.client2).await,
+        0,
+        "B was told once, at the start"
+    );
+    assert_eq!(told(&th, &c).await.len(), 1);
+    th.teardown().await;
+}
+
+/// Leaving a board and coming back: what was B's is seen again. The membership of a
+/// board is asked each time the list is read, and nothing is kept of what it said.
+#[tokio::test]
+async fn what_cannot_be_seen_is_seen_again_once_its_reader_is_let_back() {
+    let th = Setup::native().start().await.init_basic().await;
+    let b = th.client2.me().await;
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "viewer").await;
+    card_with(&th.client, &board.id, &mentioning(&[&b.id])).await;
+    assert_eq!(kinds(&told(&th, &th.client2).await), (vec!["mention"], 0));
+    delete_member(
+        &th.client,
+        &ContainerMember {
+            container_id: board.id.clone(),
+            user_id: b.id.clone(),
+            ..ContainerMember::default()
+        },
+    )
+    .await
+    .check_no_content();
+    assert_eq!(kinds(&told(&th, &th.client2).await), (vec![], 1));
+    give(&th, &board.id, &b.id, "commenter").await;
+    assert_eq!(kinds(&told(&th, &th.client2).await), (vec!["mention"], 0));
+    th.teardown().await;
+}

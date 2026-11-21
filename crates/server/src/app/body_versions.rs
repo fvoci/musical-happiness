@@ -147,7 +147,12 @@ impl App {
             body: change,
             ..BlockPatch::default()
         };
-        self.store().patch_block(card_id, &patch, user_id).await?;
+        // The words of a version are whose wrote them then: whom they name is not told
+        // by who brings them back.
+        self.store()
+            .telling_nobody()
+            .patch_block(card_id, &patch, user_id)
+            .await?;
         Ok(true)
     }
 }

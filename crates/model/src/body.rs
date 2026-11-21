@@ -176,6 +176,24 @@ impl Body {
         ids
     }
 
+    /// The identifiers of the users the mentions of the body name, each once, in the
+    /// order they come. Whether such a user is there, and reads the body, it does not
+    /// say. A mention emptied for a reader by link ([`Self::clear_mentions`]) names
+    /// nobody.
+    #[must_use]
+    pub fn mention_ids(&self) -> Vec<&str> {
+        let mut ids: Vec<&str> = Vec::new();
+        let mut seen = HashSet::new();
+        visit(&self.document, &mut |node| {
+            if let Some(id) = mentioned_user(node)
+                && seen.insert(id)
+            {
+                ids.push(id);
+            }
+        });
+        ids
+    }
+
     /// The stored name of the file the body's first image shows, in document order
     /// (also inside lists and tables), if it has one. Stops at that image. A file block
     /// is no picture and is passed over.
@@ -255,6 +273,16 @@ fn reference_target(node: &Value) -> Option<&str> {
         return None;
     }
     node.get("attrs")?.get("id")?.as_str()
+}
+
+/// The user a mention node names; `None` for any other node, and for a mention that
+/// names nobody.
+fn mentioned_user(node: &Value) -> Option<&str> {
+    if node.get("type").and_then(Value::as_str) != Some("mention") {
+        return None;
+    }
+    let id = node.get("attrs")?.get("userId")?.as_str()?;
+    (!id.is_empty()).then_some(id)
 }
 
 /// Empties the `userId` of every mention below and at `node`.
@@ -570,6 +598,25 @@ mod tests {
             .expect("a body")
             .expect("not empty");
         assert!(!pictures.has_file_blocks(), "an image is no file block");
+    }
+
+    /// The users a body mentions are named once each, in the order they come, also
+    /// from deep in a list; a mention that was emptied names nobody.
+    #[test]
+    fn the_mentions_of_a_body_name_each_user_once() {
+        let mention = |id: &str| json!({"type": "mention", "attrs": {"userId": id}});
+        let (first, second) = (crate::new_id(), crate::new_id());
+        let mut body = Body::parse(document(&[
+            json!({"type": "paragraph", "content": [mention(&second), mention(&first)]}),
+            json!({"type": "bulletList", "content": [{"type": "listItem", "content": [
+                {"type": "paragraph", "content": [mention(&second)]},
+            ]}]}),
+        ]))
+        .expect("a body")
+        .expect("not empty");
+        assert_eq!(body.mention_ids(), [second.as_str(), first.as_str()]);
+        body.clear_mentions();
+        assert!(body.mention_ids().is_empty());
     }
 
     /// Every mention loses its user, also deep in a list; nothing else changes.

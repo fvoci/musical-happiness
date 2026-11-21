@@ -40,11 +40,12 @@ pub(crate) mod tag {
     pub(crate) const FILES: &str = "files";
     pub(crate) const ARCHIVES: &str = "archives";
     pub(crate) const SUBSCRIPTIONS: &str = "subscriptions";
+    pub(crate) const NOTIFICATIONS: &str = "notifications";
     pub(crate) const ORGANIZATION: &str = "organization";
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 16] = [
+const TAGS: [(&str, &str); 17] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -88,6 +89,10 @@ const TAGS: [(&str, &str); 16] = [
     (tag::FILES, "The files of a board."),
     (tag::ARCHIVES, "Exporting boards and importing them."),
     (tag::SUBSCRIPTIONS, "Subscriptions to blocks."),
+    (
+        tag::NOTIFICATIONS,
+        "What the user was told inside the application: mentions and cards given to them.",
+    ),
     (
         tag::ORGANIZATION,
         "What an organization's administrators manage: the organization, its members' \

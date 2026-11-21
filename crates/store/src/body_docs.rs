@@ -17,6 +17,7 @@ use crate::body_versions::{self, BodyBefore, BodyWrite};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewBodyFiles};
+use crate::notifications::Telling;
 
 /// A stored document and the updates it took after its state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -413,7 +414,15 @@ impl Store {
                     };
                     // No version: the server keeps one when it is due.
                     let projected = BodyWrite::Projected;
-                    blocks::patch_block(scope, block_id, &patch, user_id, projected).await?;
+                    // Who typed it: the last of them is its writer, and which of
+                    // them wrote a name the body newly holds is not known.
+                    let others = writers_since(scope, block_id, as_read.projected_seq).await?;
+                    let telling = match Telling::of(scope) {
+                        Telling::People { .. } => Telling::People { others: &others },
+                        Telling::Nobody => Telling::Nobody,
+                    };
+                    blocks::patch_block(scope, block_id, &patch, user_id, projected, telling)
+                        .await?;
                 }
             }
             // The document's row last, as an update takes it; a document that is not
@@ -608,6 +617,26 @@ async fn not_as_read(scope: &mut Scope<'_>, block_id: &str) -> StoreError {
         Ok(None) => no_doc(block_id),
         Err(error) => error,
     }
+}
+
+/// The users whose updates the log of a block's document holds past `seq`: who typed
+/// what the block's body does not hold yet. Updates that were folded into the state
+/// meanwhile say nothing any more.
+async fn writers_since(
+    scope: &mut Scope<'_>,
+    block_id: &str,
+    seq: i64,
+) -> Result<Vec<String>, StoreError> {
+    let mut sql = scope.sql("SELECT DISTINCT written_by FROM body_updates WHERE block_id = ");
+    sql.bind(Id(block_id))
+        .push_bind(" AND seq > ", seq)
+        .push(" AND written_by IS NOT NULL ORDER BY written_by");
+    scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.id(0))
+        .collect()
 }
 
 /// Removes the documents whose blocks are gone for good: neither there nor in the

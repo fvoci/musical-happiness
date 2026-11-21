@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 49] = [
+const STEPS: [Step; 50] = [
     Step {
         version: 1,
         description: "baseline",
@@ -334,6 +334,13 @@ const STEPS: [Step; 49] = [
         sqlite: include_str!("../schema/sqlite/0051_organizations_made_by.sql"),
         postgres: include_str!("../schema/postgres/0051_organizations_made_by.sql"),
     },
+    // 52 to 55 are other work's.
+    Step {
+        version: 56,
+        description: "notifications",
+        sqlite: include_str!("../schema/sqlite/0056_notifications.sql"),
+        postgres: include_str!("../schema/postgres/0056_notifications.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -376,7 +383,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 10] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 36] = [
+pub(crate) const ORG_TABLES: [&str; 38] = [
     "audit_log",
     "blocks",
     "body_docs",
@@ -397,6 +404,8 @@ pub(crate) const ORG_TABLES: [&str; 36] = [
     "file_versions",
     "invitations",
     "loose_objects",
+    "notification_outbox",
+    "notifications",
     "oidc_former_providers",
     "oidc_held_sign_ins",
     "oidc_login_flows",

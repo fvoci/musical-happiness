@@ -32,6 +32,7 @@ mod limits;
 mod list_page;
 mod loose_objects;
 mod mail;
+mod notifications;
 mod oidc;
 mod oidc_account;
 mod oidc_carry;
@@ -54,6 +55,8 @@ mod snapshots;
 
 pub(crate) use download::download;
 pub use mail::UnsentMail;
+pub(crate) use notifications::start_upkeep as start_notification_upkeep;
+pub use notifications::tend as tend_notifications;
 pub(crate) use presence::PresenceAccess;
 pub(crate) use server_lock::HeldLock;
 pub(crate) use server_lock::take_server_lock;
@@ -178,6 +181,9 @@ struct Inner {
     /// Held while the limits on open uploads are checked and a session is stored, so
     /// that sessions opened at the same moment do not pass the limits together.
     opening_upload: tokio::sync::Mutex<()>,
+    /// Held while the list of whom to tell is worked off (`notifications::tend`): one
+    /// run at a time.
+    telling: tokio::sync::Mutex<()>,
     /// The uploads' turns (`uploads::UploadTurns`).
     upload_turns: uploads::UploadTurns,
     /// The memory the parts of uploads to the object store may take while they are
@@ -315,6 +321,7 @@ impl App {
                 background: TaskTracker::new(),
                 default_category: tokio::sync::Mutex::new(()),
                 opening_upload: tokio::sync::Mutex::new(()),
+                telling: tokio::sync::Mutex::new(()),
                 upload_turns: uploads::UploadTurns::default(),
                 part_memory: Arc::new(tokio::sync::Semaphore::new(part_memory)),
                 readiness: readiness::Kept::default(),

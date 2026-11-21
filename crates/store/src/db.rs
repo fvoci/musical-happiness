@@ -275,6 +275,9 @@ pub(crate) struct Scope<'c> {
     /// Whether the store notes changes for the search server
     /// ([`crate::Store::keep_search_outbox`]); `None` for a scope that notes none.
     search_outbox: Option<&'c AtomicBool>,
+    /// Whether the writes of blocks of this scope note nothing to tell anybody
+    /// ([`crate::Store::telling_nobody`]).
+    quiet: bool,
 }
 
 /// How many versions the store keeps, as it is set when a scope begins. Two counts in
@@ -328,7 +331,18 @@ impl<'c> Scope<'c> {
             visibility: None,
             versions_kept,
             search_outbox: None,
+            quiet: false,
         }
+    }
+
+    /// The same scope, whose writes of blocks note nothing to tell anybody if `quiet`.
+    pub(crate) fn telling_nobody_if(self, quiet: bool) -> Self {
+        Self { quiet, ..self }
+    }
+
+    /// Whether the writes of blocks of this scope note nothing to tell anybody.
+    pub(crate) fn tells_nobody(&self) -> bool {
+        self.quiet
     }
 
     /// The same scope, which notes changes for the search server while `kept` says so.

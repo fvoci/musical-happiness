@@ -69,6 +69,7 @@ parameter!(TeamId: Path "teamId", String, True, "The identifier of a team within
 parameter!(UserId: Path "userId", String, True, "The identifier of the user.");
 parameter!(InvitationId: Path "invitationId", String, True, "The identifier of the invitation, as making it and the list answer it. It is not the link's token.");
 parameter!(FileId: Path "fileId", String, True, "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.");
+parameter!(NotificationId: Path "notificationId", String, True, "The identifier of the notification: one of the user of the session.");
 parameter!(SubscriberId: Path "subscriberId", String, True, "The identifier of the subscriber: the user of the session.");
 parameter!(UploadId: Path "uploadId", String, True, "The identifier of the upload, as opening it answered. Only the user who opened it may use it.");
 parameter!(PartNumber: Path "partNumber", i64, True, "The number of the part, from 1 to the `partCount` of the upload.");
@@ -90,7 +91,7 @@ parameter!(OidcState: Query "state", String, False, "The `state` the sign-in was
 parameter!(OidcCode: Query "code", String, False, "The authorization code the provider gives.");
 parameter!(OidcError: Query "error", String, False, "The provider's code of why it did not let the person sign in.");
 parameter!(SharedReadToken: Query "readToken", String, True, "The read token of the board, as `getSharing` answers it while the board is shared.");
-parameter!(DisableNotify: Query "disableNotify", bool, False, "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.");
+parameter!(DisableNotify: Query "disableNotify", bool, False, "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.");
 parameter!(Preview: Query "preview", bool, False, "`true` gives each card its `preview`. Any other value does not, and the cards have none.");
 parameter!(AsTemplate: Query "asTemplate", bool, False, "`true` makes the copy a template. Any other value does not.");
 parameter!(ToWorkspace: Query "toWorkspace", String, False, "The workspace the copy goes to: one the user works in. Left out, the workspace of the path.");
@@ -99,6 +100,7 @@ parameter!(AllBlocks: Query "all", String, False, "Any value that is not empty a
 parameter!(OneBlockId: Query "blockId", String, False, "Asks for the one block with this identifier, in a list of one. 404 if the board has no such block.");
 parameter!(ParentId: Query "parentId", String, False, "Narrows the list to the blocks below the block of this identifier.");
 parameter!(BlockTypeFilter: Query "type", String, False, "Narrows the list to the blocks of this type, written as the blocks have it.");
+parameter!(ReadThrough: Query "through", i64, False, "The time, in milliseconds, up to which the notifications are read: those made later stay unread. Left out, now.");
 parameter!(Page: Query "page", u32, False, "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.");
 parameter!(PerPage: Query "perPage", PerPageCount, False, "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.");
 parameter!(SearchTerm: Query "q", String, False, "What to look for. Without it nothing is found.");

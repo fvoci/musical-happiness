@@ -46,6 +46,7 @@ mod linked_blocks;
 mod loose_objects;
 mod members;
 mod memberships_everywhere;
+mod notifications;
 mod observe;
 mod oidc;
 mod oidc_former;
@@ -119,6 +120,9 @@ pub use invitations::{
 };
 pub use invited_signups::InvitedConfirmation;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
+pub use notifications::{
+    NotificationEvent, NotificationLimits, NotificationPlace, StoredNotification,
+};
 pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{
     FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoredProvider,
@@ -255,6 +259,8 @@ pub struct PoolStatus {
 pub struct Store {
     inner: Arc<Inner>,
     tenant: Tenant,
+    /// Whether what this handle writes tells nobody ([`Store::telling_nobody`]).
+    quiet: bool,
 }
 
 #[derive(Debug)]
@@ -417,6 +423,7 @@ impl Store {
 
         Ok(Self {
             tenant: Tenant::Unset,
+            quiet: false,
             inner: Arc::new(Inner {
                 pool,
                 sqlite_writers: tokio::sync::Mutex::new(()),
@@ -465,6 +472,18 @@ impl Store {
         Self {
             inner: Arc::clone(&self.inner),
             tenant,
+            quiet: self.quiet,
+        }
+    }
+
+    /// A handle to the same database whose writes of blocks note nothing to tell
+    /// anybody: for a write that is not its writer's own words (a version of a body
+    /// brought back), and for one whose writer asked for that.
+    #[must_use]
+    pub fn telling_nobody(&self) -> Self {
+        Self {
+            quiet: true,
+            ..self.clone()
         }
     }
 
@@ -747,6 +766,7 @@ impl Store {
                 let result = operation(
                     &mut Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept)
                         .noting_for_search(&self.inner.search_outbox)
+                        .telling_nobody_if(self.quiet)
                         .tracking_visibility(visibility),
                 )
                 .await;
@@ -758,6 +778,7 @@ impl Store {
                 let result = operation(
                     &mut Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
                         .noting_for_search(&self.inner.search_outbox)
+                        .telling_nobody_if(self.quiet)
                         .tracking_visibility(visibility),
                 )
                 .await;

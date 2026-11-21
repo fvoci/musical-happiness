@@ -86,6 +86,7 @@ mod metrics;
 mod metrics_accounts;
 mod metrics_listener;
 mod metrics_outcomes;
+mod notifications;
 mod oidc;
 mod oidc_link;
 mod oidc_races;

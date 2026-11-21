@@ -32,6 +32,7 @@ mod id;
 mod invitation;
 mod linked;
 mod name;
+mod notification;
 mod oidc;
 mod org_admin;
 mod org_kind;
@@ -77,9 +78,9 @@ pub use body::{
 pub use body_version::{BodyVersion, BodyVersionContent};
 pub use card::{CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview};
 pub use card_property::{
-    CardPropertyError, DATE_PROPERTY_TYPE, PersonProperties, clear_values_of_another_kind,
-    validate_block_properties, validate_card_property_definitions, validate_card_property_kinds,
-    validate_card_property_values,
+    CardPropertyError, DATE_PROPERTY_TYPE, PersonProperties, assigned_users,
+    clear_values_of_another_kind, validate_block_properties, validate_card_property_definitions,
+    validate_card_property_kinds, validate_card_property_values,
 };
 pub use category::{
     CATEGORY_CONTAINERS_SORT_ORDER_GAP, Category, CategoryContainerMetadata, CategoryContainers,
@@ -113,6 +114,10 @@ pub use invitation::{
 };
 pub use linked::{LinkedBlock, LinkedKind};
 pub use name::{Named, required_name};
+pub use notification::{
+    Notification, NotificationKind, NotificationSubject, UnknownNotificationKind,
+    UnreadNotifications,
+};
 pub use oidc::{
     LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,
     OIDC_ISSUER_MAX_BYTES, OidcFormerProvider, OidcFormerProviderEnd, OidcPendingProvider,

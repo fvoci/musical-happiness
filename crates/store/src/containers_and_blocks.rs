@@ -19,6 +19,7 @@ use crate::file_info;
 use crate::file_refs::NewBodyFiles;
 use crate::loose_objects;
 use crate::members;
+use crate::notifications::Telling;
 use crate::org_admin;
 use crate::trash;
 use crate::workspace_membership;
@@ -230,7 +231,17 @@ pub(crate) async fn create_containers_and_blocks(
     }
     // Parents first, wherever in the list they are: a copied board hands its blocks
     // over oldest first, and a block may be older than the block it is on.
-    blocks::insert_blocks(scope, &mut containers_and_blocks.blocks, user_id, new_files).await
+    // What is made with its board is a copy, a template's or an archive's: it names
+    // whom the original named, and nobody is told.
+    let nobody = Telling::Nobody;
+    blocks::insert_blocks(
+        scope,
+        &mut containers_and_blocks.blocks,
+        user_id,
+        new_files,
+        nobody,
+    )
+    .await
 }
 
 pub(crate) async fn create_containers_and_blocks_with_admin(
@@ -292,7 +303,8 @@ pub(crate) async fn patch_containers_and_blocks(
             .block_patches
             .get(index)
             .ok_or(ContainersAndBlocksError::BlockIdsAndPatchesMismatch)?;
-        blocks::patch_block(scope, block_id, patch, user_id, BodyWrite::Whole).await?;
+        let telling = Telling::of(scope);
+        blocks::patch_block(scope, block_id, patch, user_id, BodyWrite::Whole, telling).await?;
         result
             .blocks
             .push(blocks::get_block(scope, block_id).await?);
