@@ -195,7 +195,9 @@ async fn a_change_of_the_password_leaves_nothing_confirmed_of_the_one_before() {
     assert_eq!(confirmed_of(&test, &alice.id).await, 1);
 
     confirm("before-the-link", "second").await;
-    let made = store.create_password_reset(&alice.id, "reset", T0).await;
+    let made = store
+        .create_password_reset(&alice.id, &alice.email, "reset", T0)
+        .await;
     assert!(made.expect("asked"), "a reset is stored");
     let consumed = store.consume_password_reset("reset", "third", T0 + 1).await;
     assert!(consumed.expect("asked").is_some(), "the reset is consumed");

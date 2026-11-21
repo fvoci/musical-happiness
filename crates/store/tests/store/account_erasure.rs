@@ -153,7 +153,7 @@ async fn person(store: &Store) -> String {
     );
     assert!(
         store
-            .create_password_reset(&user.id, "a credential's digest", T0)
+            .create_password_reset(&user.id, &user.email, "a credential's digest", T0)
             .await
             .expect("stored"),
         "the credential is stored"

@@ -34,6 +34,7 @@ mod containers_and_blocks;
 mod data_steps;
 mod db;
 mod directory;
+mod email_change;
 mod error;
 mod file_info;
 mod file_refs;
@@ -107,6 +108,9 @@ pub use db::Dialect;
 pub use directory::{
     Looking, Making, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SessionTaken, SharedContainer,
     Sight, WorkspaceAccess,
+};
+pub use email_change::{
+    EMAIL_CHANGE_LIFETIME_MILLIS, EMAIL_CHANGE_LINK_LIFETIME_MILLIS, EmailChanged,
 };
 pub use error::{StoreError, Taken};
 pub use file_refs::NewBodyFiles;

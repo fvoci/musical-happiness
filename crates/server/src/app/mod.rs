@@ -19,6 +19,7 @@ mod containers;
 mod containers_and_blocks;
 mod doomed;
 mod download;
+mod email_change;
 mod export;
 mod file_leases;
 mod file_name;

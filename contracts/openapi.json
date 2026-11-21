@@ -1113,6 +1113,18 @@
         ],
         "type": "object"
       },
+      "ConfirmEmailChange": {
+        "properties": {
+          "token": {
+            "description": "The secret from the confirmation link's fragment.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
       "ConfirmPasswordRequest": {
         "description": "A request of a session to be taken as one that has shown its account's password.",
         "properties": {
@@ -2279,12 +2291,24 @@
           },
           {
             "properties": {
+              "email": {
+                "description": "The email address of the account, which nobody else is answered; empty for an\naccount that has none.",
+                "type": "string"
+              },
               "hasPassword": {
                 "description": "Whether the account has a password to sign in with. An account made by a\nsign-in through an organization's provider has none until its person sets one\n(`setPassword`), and signs in through the provider only until then.",
                 "type": "boolean"
+              },
+              "pendingEmail": {
+                "description": "The address the account waits to have confirmed (`requestEmailChange`), which\nbecomes `email` by the link mailed to it; left out when it waits for none.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
+              "email",
               "hasPassword"
             ],
             "type": "object"
@@ -4137,6 +4161,27 @@
         ],
         "type": "object"
       },
+      "RequestEmailChange": {
+        "properties": {
+          "email": {
+            "description": "The address the account is to have. White space around it is dropped.",
+            "type": "string"
+          },
+          "language": {
+            "description": "The requester's language tag (`ko`, `en-GB`), used when the account's own\nsettings name no language the mail is written in (English, Korean); English if\nneither does.",
+            "type": "string"
+          },
+          "password": {
+            "description": "The account's password.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "type": "object"
+      },
       "RequestEmailVerification": {
         "properties": {
           "email": {
@@ -4168,6 +4213,15 @@
         "required": [
           "email"
         ],
+        "type": "object"
+      },
+      "ResendEmailChange": {
+        "properties": {
+          "language": {
+            "description": "The requester's language tag, as in `requestEmailChange`.",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "SearchHit": {
@@ -5504,6 +5558,64 @@
         "summary": "What a client must know about the server",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/api/v1/email-change/confirm": {
+      "post": {
+        "description": "Consumes the token of the link mailed by `requestEmailChange`, within a day of\nthe mail and seven days of the request: the address the link was mailed to becomes\nthe account's. No session is needed and none is made: the link shows that its\nholder reads the new address, and the password was given when the change was\nasked for. From then on reset links go to the new address and `login` finds the\naccount by it; the reset links mailed to the address before end, and that address\nis mailed a notice that it is the account's no more, which names the account and\nnothing of the new address. The account's sessions go on.\n\nA link is used once. A token that is missing, used, ended, replaced by a newer\nmail or request, or taken back (`cancelEmailChange`), one of an account that is no\nlonger in use or whose password was set anew since, and one whose address somebody\nelse took meanwhile are all answered 400 naming `token` in `errors`, and change\nnothing: which of them it was is not said. Requests are counted by where they come\nfrom, as registrations are, and too many are 429.",
+        "operationId": "confirmEmailChange",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmEmailChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The address is the account's."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests from where this one comes from.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Confirm the new email address of an account",
+        "tags": [
+          "auth"
         ]
       }
     },
@@ -7701,7 +7813,7 @@
     },
     "/api/v1/users/me": {
       "get": {
-        "description": "The user as anybody who sees them is answered them, and what only they are told of\ntheir account: whether it has a password (`hasPassword`). An account made by a\nsign-in through an organization's provider has none, and is reached through that\nprovider only, its own space too, until its person sets one (`setPassword`).",
+        "description": "The user as anybody who sees them is answered them, and what only they are told of\ntheir account: its email address (`email`), the one it waits to have confirmed\n(`pendingEmail`, see `requestEmailChange`), and whether it has a password\n(`hasPassword`). An account made by a sign-in through an organization's provider\nhas none, and is reached through that provider only, its own space too, until its\nperson sets one (`setPassword`).",
         "operationId": "getMe",
         "responses": {
           "200": {
@@ -7973,6 +8085,119 @@
           }
         },
         "summary": "Ask to delete the account",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/email-change": {
+      "delete": {
+        "description": "Ends what the account of the session waits for (`pendingEmail` of `getMe`): the\nlink that was mailed confirms nothing any more, and the account keeps the address\nit has. No password is asked for: nothing changes of the account. 204 also when it\nwaited for nothing.",
+        "operationId": "cancelEmailChange",
+        "responses": {
+          "204": {
+            "description": "The account waits for no address."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Take back a change of the email address",
+        "tags": [
+          "users"
+        ]
+      },
+      "post": {
+        "description": "Asks for the address of the account of the session to become `email`. The\naccount's `password` is asked for in this request, whatever the session is and\nwhatever it has shown before: a session alone does not move the address that\npassword resets are mailed to. An account that has no password (`hasPassword` of\n`getMe`) is 409 with the reason `password_not_set`, and sets one first\n(`setPassword`). The account of a session that waits to be deleted changes nothing\n(401, `account_deletion_pending`).\n\n**On a server that sends mail** (`mailEnabled` of `getClientConfig`) the address\ndoes not change yet. The account waits for the new one to be confirmed: `getMe`\nanswers it as `pendingEmail`, and a link is mailed to it\n(`<server_url>/confirm-email#<token>`, for 24 hours, used once) that\n`confirmEmailChange` takes. Until then the account's address is the one it had:\nreset links go there, and `login` finds the account by it. An account waits for\none address: a new request replaces the one before, whose link confirms nothing\nany more, and so does a change or a reset of the password. What is not confirmed\nends after seven days.\n\nThe answer is 204 whether or not another account or a registration has the\naddress: lookup and mail run once the answer is handed off, nothing is mailed for\nan address somebody has, and nothing holds the address until it is confirmed. An\naccount, and an address, are mailed at most `mail_reset_per_account_hour` such\nlinks an hour; more requests are answered the same and mail nothing.\n\n**On a server that sends no mail** there is nothing to confirm an address with, as\nat registration: the address changes with this request, and the answer is 409 with\nthe reason `email_taken` if another account or a registration has it, in any\nletter case. The account's reset links end.\n\nAn address is told apart from another as at registration: by its letters in any\ncase. What is no address, or is the account's already, is 400 naming `email`. A\nwrong password is 400 (not 401: the session is good) with the reason\n`invalid_credentials`, naming `password`, counted with the failed logins to the\naccount by its name; too many are 429, also for a login. Requests are also limited\nby where they come from, with the requests for a reset link (429). A password that\nwas changed while this request was under way is 409.",
+        "operationId": "requestEmailChange",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestEmailChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The account waits for the address to be confirmed, or, on a server that sends no mail, has it."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The password was wrong too often, or too many requests came from where this one comes from.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Change the email address of the account",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/email-change/resend": {
+      "post": {
+        "description": "Mails a new link to the address the account of the session waits for\n(`pendingEmail` of `getMe`); the link of the mail before confirms nothing once\nthe new one is written. No password is asked for: the address is the one the\npassword was given for. Answers 204 whatever became of the message, as\n`requestEmailChange` does, within the same hourly limits. 404 for an account that\nwaits for no address, and on a server that sends no mail. Requests are limited by\nwhere they come from, with the requests for a reset link (429).",
+        "operationId": "resendEmailChange",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendEmailChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "If nobody has the address, it will receive a new link."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Mail the link of a change of the email address again",
         "tags": [
           "users"
         ]

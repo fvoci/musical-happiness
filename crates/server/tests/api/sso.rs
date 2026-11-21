@@ -453,12 +453,17 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     // it. An organization that would go with the account is asked for
     // (`account_deletion::an_organization_behind_the_wall_does_not_go_by_a_password`).
     "cancelAccountDeletion",
+    // The account's address is the account's own: asked to change under its password
+    // (`requestEmailChange`), and changed by whoever holds the link mailed to the new
+    // one, signed in or not (`email_change`).
+    "cancelEmailChange",
     "changePassword",
     // Confirming a registration's address asks for no session: there is no account yet.
     "completeEmailVerification",
     // Giving the account's password in a session is the account's own: it opens the
     // account's own space to the session, and nothing of an organization the session
     // does not open (`confirmed_password`).
+    "confirmEmailChange",
     "confirmPassword",
     // Recovering a password asks for no session; what it changes is the account's own.
     "completePasswordReset",
@@ -499,8 +504,10 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "ready",
     "register",
     "requestAccountDeletion",
+    "requestEmailChange",
     "requestEmailVerification",
     "requestPasswordReset",
+    "resendEmailChange",
     // The first password of an account that has none is the account's own, as
     // changing one is.
     "setPassword",

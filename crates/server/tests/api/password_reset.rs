@@ -462,7 +462,12 @@ async fn an_account_being_erased_gets_no_reset_and_an_earlier_link_sets_nothing(
     let stored = th
         .app
         .store()
-        .create_password_reset(&user2, "a-digest", fvoci_server::auth::now_millis())
+        .create_password_reset(
+            &user2,
+            "user2@sample.com",
+            "a-digest",
+            fvoci_server::auth::now_millis(),
+        )
         .await
         .expect("asked");
     assert!(!stored, "nor one stored");

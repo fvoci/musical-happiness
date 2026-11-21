@@ -226,6 +226,51 @@ async fn the_password_is_not_guessed_at_through_confirming_it() {
     th.teardown().await;
 }
 
+/// Nor through asking to change the account's address: the guesses are counted with the
+/// logins to the account by its name and wait as long, and nothing is asked for.
+#[tokio::test]
+async fn the_password_is_not_guessed_at_through_changing_the_address() {
+    let th = Setup::native()
+        .configure(|config| {
+            config.login_pair_free_failures = 2;
+            config.login_pair_base_delay_seconds = 30;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let ask = |password: &'static str| {
+        let client = &th.client;
+        async move {
+            client
+                .post(
+                    "/users/me/email-change",
+                    &json!({"email": "moved@example.test", "password": password}),
+                )
+                .await
+        }
+    };
+
+    for _ in 0..3 {
+        let response = ask("a wrong guess").await;
+        response.check_error(StatusCode::BAD_REQUEST, "the password is wrong");
+        assert_eq!(response.error_reason(), "invalid_credentials");
+    }
+    let wait = retry_after(&ask("a wrong guess").await);
+    assert!((29..=30).contains(&wait), "about 30 s, was {wait}");
+    retry_after(&ask(PASSWORD).await);
+    // The same count as signing in to the account by its name.
+    retry_after(&login(&th, USER1_USERNAME, PASSWORD).await);
+    // The address is as it was, and the session goes on.
+    let me: fvoci_model::Me = th.client.get("/users/me").await.ok_json();
+    assert_eq!(
+        (me.email.as_str(), me.pending_email),
+        ("user1@sample.com", None)
+    );
+
+    th.teardown().await;
+}
+
 /// Only who fails waits: the same account from another address is not held up, and a
 /// success ends the count of the address that succeeded, not of the one that guesses.
 /// Addresses are told apart behind a trusted proxy by what the proxy says; the header
