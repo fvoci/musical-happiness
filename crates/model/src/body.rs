@@ -616,7 +616,8 @@ mod tests {
         .expect("not empty");
         assert_eq!(body.mention_ids(), [second.as_str(), first.as_str()]);
         body.clear_mentions();
-        assert!(body.mention_ids().is_empty());
+        let nobody: [&str; 0] = [];
+        assert_eq!(body.mention_ids(), nobody);
     }
 
     /// Every mention loses its user, also deep in a list; nothing else changes.

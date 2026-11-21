@@ -127,6 +127,10 @@ async fn card_mentions(th: &TestServer, card_id: &str, users: &[&str]) {
 /// and A of none; a mention taken out and put back tells B nothing more; and once B
 /// is off the board, B's list still has three entries that say nothing.
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the end of the slice as one story: told, told no more, and seen no more"
+)]
 async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once() {
     let th = Setup::native().start().await.init_basic().await;
     let (a, b) = (th.client.me().await, th.client2.me().await);

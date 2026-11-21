@@ -488,6 +488,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The notifications of the user
+         * @description One page of what the user of the session was told, in every organization, the
+         *     newest first: that somebody mentioned them in a card, a page or a comment
+         *     (`mention`), or gave them a card (`assignment`). Nobody is told of their own doing,
+         *     nor of anything in a user's own space.
+         *
+         *     A notification is made only for somebody who reads the card or the page at that
+         *     time, and each one listed is asked again: its `subject` says what it is about, as
+         *     that is now, only where the user reads it now with this session. Where they do not
+         *     (it is in the trash or gone, they left the board or the workspace, or its
+         *     organization takes a sign-in this session was not made through) `subject` is
+         *     `null`, and nothing says what it was about, where or by whom. Such a one is still
+         *     listed, and counted while unread.
+         *
+         *     A notification that was read is kept for ninety days, and a user has ten thousand
+         *     at most: past that the oldest go, those that were read first.
+         */
+        get: operations["getNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark every notification as read
+         * @description Marks as read every notification of the user of the session that was made up to
+         *     `through`, or up to now where that is left out: a client gives the `createAt` of
+         *     the newest it has shown, so that one that came since stays unread.
+         */
+        post: operations["readNotifications"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/unread": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How many notifications the user has not read
+         * @description The number of notifications of the user of the session that are not read, in every
+         *     organization: those whose `subject` is `null` among them.
+         */
+        get: operations["getUnreadNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{notificationId}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a notification as read
+         * @description Marks one notification of the user of the session as read; one that was read stays
+         *     read since when it was. 404 for a notification of somebody else, as for one that
+         *     is not there.
+         */
+        post: operations["readNotification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/org": {
         parameters: {
             query?: never;
@@ -5617,6 +5716,56 @@ export interface components {
              */
             type: components["schemas"]["ContainerType"];
         };
+        /** @description One thing a person was told. */
+        Notification: {
+            /**
+             * Format: int64
+             * @description When it was made.
+             */
+            createAt: number;
+            /** @description Its identifier. */
+            id: string;
+            /**
+             * Format: int64
+             * @description When its reader read it; 0 until then.
+             */
+            readAt: number;
+            subject: components["schemas"]["NotificationSubject"] | null;
+        };
+        /**
+         * @description What a notification tells of.
+         * @enum {string}
+         */
+        NotificationKind: "mention" | "assignment" | "comment";
+        /** @description What a notification is about, for a reader who reads it now. */
+        NotificationSubject: {
+            /** @description Who did it; empty where nobody is known to have. */
+            actorId: string;
+            /**
+             * @description The name that person is shown by; empty with `actorId`, and for an account
+             *     that is gone.
+             */
+            actorName: string;
+            /** @description The card or the page it is about: what the reader opens. */
+            blockId: string;
+            /** @description What that is. */
+            blockKind: components["schemas"]["SearchKind"];
+            /**
+             * @description The comment it happened in; empty where it happened in the card or the page
+             *     itself.
+             */
+            commentId: string;
+            /** @description The board the card is on, or the wiki the page is in. */
+            containerId: string;
+            /** @description What that container is: a board, or a wiki. */
+            containerKind: components["schemas"]["ContainerKind"];
+            /** @description What happened. */
+            kind: components["schemas"]["NotificationKind"];
+            /** @description Its title as it is now. */
+            title: string;
+            /** @description The workspace of the card or the page. */
+            workspaceId: string;
+        };
         /**
          * @description The provider an organization moved away from, kept for a while: nobody signs in
          *     through it, but somebody the new provider vouches for who has no account yet may
@@ -6359,6 +6508,14 @@ export interface components {
             password: string;
             /** @description Its subject. */
             subject: string;
+        };
+        /** @description How many notifications a person has not read. */
+        UnreadNotifications: {
+            /**
+             * Format: int64
+             * @description How many.
+             */
+            count: number;
         };
         /** @description An upload that is open. */
         UploadOpened: {
@@ -7190,6 +7347,129 @@ export interface operations {
                 headers: {
                     /** @description Clears the session cookie. */
                     "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getNotifications: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400. */
+                page?: number;
+                /** @description How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page. */
+                perPage?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The notifications of the page, the newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Notification"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    readNotifications: {
+        parameters: {
+            query?: {
+                /** @description The time, in milliseconds, up to which the notifications are read: those made later stay unread. Left out, now. */
+                through?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description They are read. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getUnreadNotifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnreadNotifications"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    readNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the notification: one of the user of the session. */
+                notificationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description It is read. */
+            204: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -9329,7 +9609,7 @@ export interface operations {
             query?: {
                 /** @description The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies. */
                 sourceBoardId?: string;
-                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
+                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
                 disableNotify?: boolean;
             };
             header?: never;
@@ -9370,7 +9650,7 @@ export interface operations {
     patchBlocks: {
         parameters: {
             query?: {
-                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
+                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
                 disableNotify?: boolean;
             };
             header?: never;
@@ -9409,7 +9689,7 @@ export interface operations {
     deleteBlock: {
         parameters: {
             query?: {
-                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
+                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
                 disableNotify?: boolean;
             };
             header?: never;
@@ -9446,7 +9726,7 @@ export interface operations {
     patchBlock: {
         parameters: {
             query?: {
-                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
+                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
                 disableNotify?: boolean;
             };
             header?: never;
@@ -9639,7 +9919,7 @@ export interface operations {
     createCard: {
         parameters: {
             query?: {
-                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
+                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
                 disableNotify?: boolean;
             };
             header?: never;
@@ -9791,7 +10071,7 @@ export interface operations {
     patchCard: {
         parameters: {
             query?: {
-                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
+                /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
                 disableNotify?: boolean;
             };
             header?: never;

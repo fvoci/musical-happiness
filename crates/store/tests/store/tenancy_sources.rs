@@ -23,15 +23,19 @@ fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
 /// operator in each organization of a person, the deleting of a person's account (whose
 /// memberships are of several organizations), the changes of the data after a
 /// migration, and the one function of the server that its housekeeping works through;
-/// and the revisions of the cached checks, which name it to tell what its writes move.
+/// the revisions of the cached checks, which name it to tell what its writes move;
+/// and what a person was told (`notifications.rs`), which is theirs in whichever
+/// organization it was made: each of its statements names the person, and reads or
+/// marks the rows of nobody else.
 /// Asked by the handle or by the setting of a transaction alike. Anywhere else, a
 /// request would be let past the wall it is there to be held by. (The system
 /// organization, which holds the built-in templates, is an
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 11] = [
+    const ALLOWED: [&str; 12] = [
         "store/src/lib.rs",
+        "store/src/notifications.rs",
         "store/src/account_deletion.rs",
         "store/src/account_erasure.rs",
         "store/src/directory.rs",
@@ -117,17 +121,21 @@ fn the_wall_of_a_transaction_is_moved_in_one_place() {
 /// organization of the routes that name no workspace), the housekeeping, the
 /// application's own `scoped`, the erasing of an account (each organization the store
 /// says it has something in), the asking to delete one (the account's own space), and the documents of bodies edited together, which the
-/// server writes to their cards as the organization of each when it starts and stops. All of them are the logic's; no handler names one. A handler that named an organization by what a request
+/// server writes to their cards as the organization of each when it starts and stops;
+/// and the notifications, which ask as the organization a stored row is of whether its
+/// person reads what it is about (the row is the server's own, read by its person or
+/// off the list of whom to tell). All of them are the logic's; no handler names one. A handler that named an organization by what a request
 /// says, past the extractor, would open the wall from the inside.
 #[test]
 fn the_server_names_an_organization_for_a_handle_in_few_places() {
     const NAMING: &str = ".scoped( for_org( Tenant::org( Tenant::Org( .in_organization(";
-    const ALLOWED: [&str; 7] = [
+    const ALLOWED: [&str; 8] = [
         // The space of the account that asks what goes with it: named by its owner.
         "app/account_deletion.rs",
         "app/account_erasure.rs",
         "app/housekeeping.rs",
         "app/mod.rs",
+        "app/notifications.rs",
         "app/templates.rs",
         "app/workspaces.rs",
         "collab/mod.rs",

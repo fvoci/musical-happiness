@@ -44,7 +44,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     operation_id = "getNotifications",
     tag = tag::NOTIFICATIONS,
     params(Page, PerPage),
-    responses((status = 200, description = "The notifications of the page.", body = Vec<Notification>)),
+    responses((status = 200, description = "The notifications of the page, the newest first.", body = Vec<Notification>)),
 )]
 async fn handle_get_notifications(
     State(app): State<App>,

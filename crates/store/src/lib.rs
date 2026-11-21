@@ -10,6 +10,7 @@ mod account_deletion;
 mod account_erasure;
 mod accounts;
 mod audit;
+mod block_copies;
 mod block_derived;
 mod blocks;
 mod body_digest;
@@ -259,8 +260,8 @@ pub struct PoolStatus {
 pub struct Store {
     inner: Arc<Inner>,
     tenant: Tenant,
-    /// Whether what this handle writes tells nobody ([`Store::telling_nobody`]).
-    quiet: bool,
+    /// Whom what this handle writes notes to be told ([`Store::telling_nobody`]).
+    noting: db::Noting,
 }
 
 #[derive(Debug)]
@@ -423,7 +424,7 @@ impl Store {
 
         Ok(Self {
             tenant: Tenant::Unset,
-            quiet: false,
+            noting: db::Noting::Named,
             inner: Arc::new(Inner {
                 pool,
                 sqlite_writers: tokio::sync::Mutex::new(()),
@@ -472,7 +473,7 @@ impl Store {
         Self {
             inner: Arc::clone(&self.inner),
             tenant,
-            quiet: self.quiet,
+            noting: self.noting,
         }
     }
 
@@ -482,7 +483,7 @@ impl Store {
     #[must_use]
     pub fn telling_nobody(&self) -> Self {
         Self {
-            quiet: true,
+            noting: db::Noting::Nobody,
             ..self.clone()
         }
     }
@@ -766,7 +767,7 @@ impl Store {
                 let result = operation(
                     &mut Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept)
                         .noting_for_search(&self.inner.search_outbox)
-                        .telling_nobody_if(self.quiet)
+                        .noting(self.noting)
                         .tracking_visibility(visibility),
                 )
                 .await;
@@ -778,7 +779,7 @@ impl Store {
                 let result = operation(
                     &mut Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
                         .noting_for_search(&self.inner.search_outbox)
-                        .telling_nobody_if(self.quiet)
+                        .noting(self.noting)
                         .tracking_visibility(visibility),
                 )
                 .await;

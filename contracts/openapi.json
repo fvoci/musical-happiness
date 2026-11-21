@@ -2767,6 +2767,110 @@
         ],
         "type": "object"
       },
+      "Notification": {
+        "description": "One thing a person was told.",
+        "properties": {
+          "createAt": {
+            "description": "When it was made.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Its identifier.",
+            "type": "string"
+          },
+          "readAt": {
+            "description": "When its reader read it; 0 until then.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "subject": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NotificationSubject",
+                "description": "What it is about; `null` where its reader does not read that now (it is gone,\nor theirs no more), and is told nothing of it: not what, not where, not by\nwhom."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "createAt",
+          "id",
+          "readAt",
+          "subject"
+        ],
+        "type": "object"
+      },
+      "NotificationKind": {
+        "description": "What a notification tells of.",
+        "enum": [
+          "mention",
+          "assignment",
+          "comment"
+        ],
+        "type": "string"
+      },
+      "NotificationSubject": {
+        "description": "What a notification is about, for a reader who reads it now.",
+        "properties": {
+          "actorId": {
+            "description": "Who did it; empty where nobody is known to have.",
+            "type": "string"
+          },
+          "actorName": {
+            "description": "The name that person is shown by; empty with `actorId`, and for an account\nthat is gone.",
+            "type": "string"
+          },
+          "blockId": {
+            "description": "The card or the page it is about: what the reader opens.",
+            "type": "string"
+          },
+          "blockKind": {
+            "$ref": "#/components/schemas/SearchKind",
+            "description": "What that is."
+          },
+          "commentId": {
+            "description": "The comment it happened in; empty where it happened in the card or the page\nitself.",
+            "type": "string"
+          },
+          "containerId": {
+            "description": "The board the card is on, or the wiki the page is in.",
+            "type": "string"
+          },
+          "containerKind": {
+            "$ref": "#/components/schemas/ContainerKind",
+            "description": "What that container is: a board, or a wiki."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/NotificationKind",
+            "description": "What happened."
+          },
+          "title": {
+            "description": "Its title as it is now.",
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "The workspace of the card or the page.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actorId",
+          "actorName",
+          "blockId",
+          "blockKind",
+          "commentId",
+          "containerId",
+          "containerKind",
+          "kind",
+          "title",
+          "workspaceId"
+        ],
+        "type": "object"
+      },
       "OidcFormerProvider": {
         "description": "The provider an organization moved away from, kept for a while: nobody signs in\nthrough it, but somebody the new provider vouches for who has no account yet may\nshow who they were at it, and so tie the new identity to the account they had.",
         "properties": {
@@ -4581,6 +4685,20 @@
         ],
         "type": "object"
       },
+      "UnreadNotifications": {
+        "description": "How many notifications a person has not read.",
+        "properties": {
+          "count": {
+            "description": "How many.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count"
+        ],
+        "type": "object"
+      },
       "UploadOpened": {
         "description": "An upload that is open.",
         "properties": {
@@ -5940,6 +6058,171 @@
         "summary": "Sign out",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "description": "One page of what the user of the session was told, in every organization, the\nnewest first: that somebody mentioned them in a card, a page or a comment\n(`mention`), or gave them a card (`assignment`). Nobody is told of their own doing,\nnor of anything in a user's own space.\n\nA notification is made only for somebody who reads the card or the page at that\ntime, and each one listed is asked again: its `subject` says what it is about, as\nthat is now, only where the user reads it now with this session. Where they do not\n(it is in the trash or gone, they left the board or the workspace, or its\norganization takes a sign-in this session was not made through) `subject` is\n`null`, and nothing says what it was about, where or by whom. Such a one is still\nlisted, and counted while unread.\n\nA notification that was read is kept for ninety days, and a user has ten thousand\nat most: past that the oldest go, those that were read first.",
+        "operationId": "getNotifications",
+        "parameters": [
+          {
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Notification"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The notifications of the page, the newest first."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The notifications of the user",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/read": {
+      "post": {
+        "description": "Marks as read every notification of the user of the session that was made up to\n`through`, or up to now where that is left out: a client gives the `createAt` of\nthe newest it has shown, so that one that came since stays unread.",
+        "operationId": "readNotifications",
+        "parameters": [
+          {
+            "description": "The time, in milliseconds, up to which the notifications are read: those made later stay unread. Left out, now.",
+            "in": "query",
+            "name": "through",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "They are read."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Mark every notification as read",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/unread": {
+      "get": {
+        "description": "The number of notifications of the user of the session that are not read, in every\norganization: those whose `subject` is `null` among them.",
+        "operationId": "getUnreadNotifications",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadNotifications"
+                }
+              }
+            },
+            "description": "How many."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "How many notifications the user has not read",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/{notificationId}/read": {
+      "post": {
+        "description": "Marks one notification of the user of the session as read; one that was read stays\nread since when it was. 404 for a notification of somebody else, as for one that\nis not there.",
+        "operationId": "readNotification",
+        "parameters": [
+          {
+            "description": "The identifier of the notification: one of the user of the session.",
+            "in": "path",
+            "name": "notificationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "It is read."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Mark a notification as read",
+        "tags": [
+          "notifications"
         ]
       }
     },
@@ -9073,7 +9356,7 @@
             }
           },
           {
-            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
             "in": "query",
             "name": "disableNotify",
             "required": false,
@@ -9144,7 +9427,7 @@
             }
           },
           {
-            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
             "in": "query",
             "name": "disableNotify",
             "required": false,
@@ -9230,7 +9513,7 @@
             }
           },
           {
-            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
             "in": "query",
             "name": "disableNotify",
             "required": false,
@@ -9291,7 +9574,7 @@
             }
           },
           {
-            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
             "in": "query",
             "name": "disableNotify",
             "required": false,
@@ -9638,7 +9921,7 @@
             }
           },
           {
-            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
             "in": "query",
             "name": "disableNotify",
             "required": false,
@@ -9905,7 +10188,7 @@
             }
           },
           {
-            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "description": "`true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it.",
             "in": "query",
             "name": "disableNotify",
             "required": false,
@@ -15532,6 +15815,10 @@
     {
       "description": "Subscriptions to blocks.",
       "name": "subscriptions"
+    },
+    {
+      "description": "What the user was told inside the application: mentions and cards given to them.",
+      "name": "notifications"
     },
     {
       "description": "What an organization's administrators manage: the organization, its members' roles, its workspaces and their trash, joining a workspace, and the audit logs.",

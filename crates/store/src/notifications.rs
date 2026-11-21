@@ -705,7 +705,8 @@ impl Noted<'_> {
             .find(|other| *other != user)
     }
 
-    /// Notes that `users` may be told of `kind`: those of them that are accounts, for
+    /// Notes that `users` may be told of `kind`: those of them that are accounts (one
+    /// that was erased is none), for
     /// a block of an organization people work in together and of no template. In the
     /// space of one account nobody else reads anything, and nothing is noted. A row
     /// that is there already (the same person, kind and place) moves its `seq` on and
@@ -747,7 +748,10 @@ impl Noted<'_> {
                         " JOIN organizations AS o ON o.id = w.org_id JOIN users AS u ON u.id IN (",
                     )
                     .bind_list(batch.iter().map(|user| Id(user)))
-                    .push_bind(") WHERE bo.id = ", Id(&self.block.container_id))
+                    .push_bind(
+                        ") WHERE u.erased_at = 0 AND bo.id = ",
+                        Id(&self.block.container_id),
+                    )
                     .push_bind(" AND bo.is_template = ", false)
                     .push_bind(" AND o.kind = ", OrgKind::Team.as_str())
                     // In one order, whoever notes: two writers that name the same

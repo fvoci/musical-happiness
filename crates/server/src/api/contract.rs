@@ -343,6 +343,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("OidcFormerProvider", Members::All),
     ("OidcFormerProviderEnd", Members::All),
     ("OidcPendingProvider", Members::All),
+    ("Notification", Members::All),
+    ("NotificationKind", Members::AsWritten),
+    ("NotificationSubject", Members::All),
     (
         "Problem",
         Members::Only(&["type", "title", "status", "detail"]),
@@ -375,6 +378,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Me", Members::All),
     ("PersonName", Members::All),
     ("UserSettings", Members::AsWritten),
+    ("UnreadNotifications", Members::All),
     ("UserWorkspace", Members::All),
     ("WorkspaceMember", Members::All),
     ("WorkspaceRole", Members::AsWritten),

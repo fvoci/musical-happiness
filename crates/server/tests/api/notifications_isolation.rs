@@ -189,7 +189,8 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
     th.client
         .patch(
             &format!("{TEST_WS}/wikis/{wiki}/pages/{}", page.id),
-            &json!({"body": mentioning(&[&by_link, &other_guest]), "readAt": page.update_at}),
+            &json!({"body": mentioning(&[&by_link, &other_guest, &elsewhere, &of_another_org, &ghost]),
+                    "readAt": page.update_at}),
         )
         .await
         .check_ok();
@@ -200,6 +201,13 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
         "of the page of the open wiki, not of the card of the open board"
     );
     assert_eq!(held_by(&th, &other_guest).await, 0, "a guest reads neither");
+    for (who, user) in [
+        ("of another workspace", &elsewhere),
+        ("of another organization", &of_another_org),
+        ("an account that is gone", &ghost),
+    ] {
+        assert_eq!(held_by(&th, user).await, 0, "{who}, named in an open wiki");
+    }
 
     // Written where the one named is not: in another workspace of the organization,
     // and in another organization.
@@ -259,10 +267,6 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
 /// page of a wiki in the trash, and everything of a workspace that was left. What its
 /// writer's account going leaves is the notification, by nobody.
 #[tokio::test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "every way a card stops being read, side by side"
-)]
 async fn what_its_reader_reads_no_more_says_nothing_of_itself() {
     let th = Setup::native().start().await.init_basic().await;
     let b = th.client2.me().await;
