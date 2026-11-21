@@ -230,8 +230,10 @@ impl Hub {
             .by_id
             .get(&id)
             .ok_or(NotOpened::Ended(Ended::Access))?;
-        if listener.session_opens(access.required_provider.as_deref()) {
+        if access.takes.opened_by(listener.login_provider()) {
             Ok((access.workspace_role, access.org_id))
+        } else if access.takes.asks_for_password() {
+            Err(NotOpened::Ended(Ended::Password))
         } else {
             Err(NotOpened::Ended(Ended::Sso))
         }

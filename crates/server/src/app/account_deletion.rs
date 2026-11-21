@@ -6,7 +6,7 @@ use fvoci_model::{
     ACCOUNT_DELETION_GRACE_DAYS, AccountDeletion, AccountDeletionAsked, DeleteAccountRequest,
     DeletionProof, Leaving, LeavingOrganization, OrgKind, Session, User,
 };
-use fvoci_store::{DeletionAsking, DeletionStanding};
+use fvoci_store::{DeletionAsking, DeletionStanding, SessionTaken};
 
 use super::App;
 use super::auth::WrongPassword;
@@ -38,11 +38,16 @@ impl App {
             .account_deletion_standing(&session.user_id)
             .await?;
         let mut organizations = Vec::with_capacity(standing.alone_in.len() + 1);
-        // The account's own space is its owner's to count, whatever session asks: it
-        // takes any, and nobody enters it as an administrator.
+        // The account's own space is its owner's to count, and nobody enters it as an
+        // administrator: asked of a session that opens it, as its workspace is.
         if let Some(own_space) = standing.own_space {
-            let within = self.in_organization(&own_space.id)?;
-            organizations.push(within.store().leaving_organization(own_space).await?);
+            let takes = SessionTaken::of_space(&user.password_hash);
+            organizations.push(if takes.opened_by(session.login_provider_id()) {
+                let within = self.in_organization(&own_space.id)?;
+                within.store().leaving_organization(own_space).await?
+            } else {
+                LeavingOrganization::closed(own_space, OrgKind::Personal)
+            });
         }
         for organization in standing.alone_in {
             let within = match self.enter_org_as_admin(session, &organization.id).await {

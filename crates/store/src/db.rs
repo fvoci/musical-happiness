@@ -378,6 +378,23 @@ impl<'c> Scope<'c> {
         }
     }
 
+    /// The operation changes what is read of the organization `org_id` without
+    /// writing a table of it, whatever organization the scope reaches: that one's
+    /// cached reads are thrown away, and no other's.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::InvalidId`] if `org_id` is no identifier.
+    pub(crate) fn invalidate_visibility_of(&self, org_id: &str) -> Result<(), StoreError> {
+        let Tenant::Org(org) = Tenant::org(org_id)? else {
+            return Err(StoreError::InvalidId(org_id.to_owned()));
+        };
+        if let Some(visibility) = self.visibility {
+            visibility.invalidate_of(org);
+        }
+        Ok(())
+    }
+
     /// Whether the operation ran a statement that may have changed something. One that
     /// only read has nothing to commit.
     pub(crate) fn wrote(&self) -> bool {

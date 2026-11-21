@@ -1340,7 +1340,9 @@ export interface paths {
          *     account (`organizations`) goes with it, with everything in it: its workspaces,
          *     boards and wikis, their files, and its records. How much it holds (`boards`,
          *     `wikis`, `files`) is told to a session that opens it, and left out for one of an
-         *     organization that takes only sessions made through its provider. `proof` says what
+         *     organization that takes only sessions made through its provider, and for the
+         *     account's own space where that takes only sessions made with the password
+         *     (`passwordRequired` of `getMyWorkspaces`). `proof` says what
          *     `requestAccountDeletion` asks for.
          *
          *     Also answered to the session of an account that waits to be deleted, the one
@@ -1446,7 +1448,9 @@ export interface paths {
          * The boards the user is a member of
          * @description The user's memberships, with the roles of each, of the boards of the workspaces the
          *     user is a member of, in every organization the session opens: one that takes only
-         *     sessions made through its provider leaves its boards out of another session's list.
+         *     sessions made through its provider leaves its boards out of another session's list,
+         *     and the user's own space, once the account has a password, out of the list of a
+         *     session made through a provider.
          *     A board the user has a role on only through a team of its workspace is listed too
          *     (`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. A
          *     wiki the user is on is listed as a board is, under its identifier as `containerId`. By
@@ -1482,6 +1486,11 @@ export interface paths {
          *     it; an organization that takes only sessions made through its provider goes on
          *     asking for those (`sso_required`). The account's other sessions end, and this one
          *     goes on under a new cookie, as after `changePassword`.
+         *
+         *     From then on the account's own space takes only sessions made with the password
+         *     (`password_sign_in_required`, see "The user's own space"): this session, which was
+         *     made through a provider, opens it no more, and the account's websocket
+         *     connections are closed, to come back to what the session opens.
          *
          *     Once only: an account that has a password is 409, and changes it with
          *     `changePassword`. The password must have at least 8 characters and at most 1024
@@ -1551,8 +1560,11 @@ export interface paths {
          *     organization that takes only sessions made
          *     through its provider is listed for any session, with `ssoRequired` true for one that
          *     was not made so: what is under it answers 401 with the reason `sso_required` until
-         *     the user signs in through the provider of `orgId`. The user's own space takes any
-         *     session of the account: its `ssoRequired` is false.
+         *     the user signs in through the provider of `orgId`. The user's own space asks for no
+         *     provider: its `ssoRequired` is false. Once its account has a password it takes only
+         *     sessions made with that, and is listed with `passwordRequired` true for a session
+         *     made through a provider: what is under it answers 401 with the reason
+         *     `password_sign_in_required` until the user signs in with the password (`login`).
          */
         get: operations["getMyWorkspaces"];
         put?: never;
@@ -6516,6 +6528,15 @@ export interface components {
             name: string;
             /** @description The identifier of the organization the workspace belongs to. */
             orgId: string;
+            /**
+             * @description Whether the workspace is closed to the session that asks for being the user's
+             *     own space, of an account that has a password, while the session was made
+             *     through a provider. What is under the workspace then answers 401 with the
+             *     reason `password_sign_in_required`; signing in with the account's password
+             *     (`login`) opens it. Always false for a workspace of an organization that people
+             *     work in.
+             */
+            passwordRequired: boolean;
             /** @description What the user is in the workspace. */
             role: components["schemas"]["WorkspaceRole"];
             /**

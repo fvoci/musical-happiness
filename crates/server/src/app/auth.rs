@@ -633,8 +633,10 @@ impl App {
             return Err(has_one());
         }
         tracing::info!(user_id = %user.id, "an account without a password was given one");
-        self.ws()
-            .close_other_sessions_of_user(&user.id, &session.id);
+        // Its own space takes a session made with the password from here on, and this
+        // one was made through a provider: what its connections follow of the space
+        // ends with them, and they come back to what the session still opens.
+        self.ws().close_user(&user.id);
         Ok(token)
     }
 }

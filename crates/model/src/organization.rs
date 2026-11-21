@@ -105,6 +105,13 @@ pub struct UserWorkspace {
     /// under the workspace then answers 401 with the reason `sso_required`; signing in
     /// through the provider of `orgId` opens it.
     pub sso_required: bool,
+    /// Whether the workspace is closed to the session that asks for being the user's
+    /// own space, of an account that has a password, while the session was made
+    /// through a provider. What is under the workspace then answers 401 with the
+    /// reason `password_sign_in_required`; signing in with the account's password
+    /// (`login`) opens it. Always false for a workspace of an organization that people
+    /// work in.
+    pub password_required: bool,
 }
 
 /// A member of a workspace, as its administrators list them.

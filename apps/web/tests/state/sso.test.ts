@@ -59,8 +59,24 @@ describe('a refusal that asks for single sign-on', () => {
 describe('the workspaces as the server lists them', () => {
   it('say which organization each is of, and which are closed to this session', () => {
     const workspaces = workspacesOf([
-      { id: 'a', orgId: ORG, kind: 'team', name: 'A', role: 'member', ssoRequired: true },
-      { id: 'b', orgId: 'another', kind: 'team', name: 'B', role: 'admin', ssoRequired: false },
+      {
+        id: 'a',
+        orgId: ORG,
+        kind: 'team',
+        name: 'A',
+        role: 'member',
+        ssoRequired: true,
+        passwordRequired: false,
+      },
+      {
+        id: 'b',
+        orgId: 'another',
+        kind: 'team',
+        name: 'B',
+        role: 'admin',
+        ssoRequired: false,
+        passwordRequired: false,
+      },
     ]);
     expect(workspaces).toEqual([
       { id: 'a', title: 'A', role: 'member', orgId: ORG, ssoRequired: true },

@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use fvoci_model::{Session, new_id};
 use fvoci_store::{
-    DbType, Identity, LinkRefusal, LinkingSession, OidcAccount, OidcRefusal, Removal, Store,
-    StoredProvider, Tenant, Unlinked,
+    DbType, Identity, LinkRefusal, LinkingSession, OidcAccount, OidcRefusal, Removal, SessionTaken,
+    Store, StoredProvider, Tenant, Unlinked,
 };
 use sqlx::Connection as _;
 
@@ -398,7 +398,11 @@ async fn the_required_provider_is_told_to_who_has_a_place_in_the_organization() 
         test.resolve_workspace(user_id, &test.workspace_id)
             .await
             .expect("asked")
-            .map(|access| access.required_provider)
+            .map(|access| match access.takes {
+                SessionTaken::Any => None,
+                SessionTaken::Through(provider) => Some(provider),
+                SessionTaken::WithPassword => panic!("an organization takes no password alone"),
+            })
     };
     let listed = async |user_id: &str, through: Option<&str>| {
         test.workspaces_of_user(user_id, through)

@@ -333,6 +333,16 @@ impl AppError {
         error
     }
 
+    /// The 401 of a session that is good and does not open the user's own space: the
+    /// account has a password, and the space takes only sessions made with it.
+    pub fn password_sign_in_required() -> Self {
+        Self::new(
+            ErrorKind::Unauthorized,
+            "sign in with the account's password to open this",
+        )
+        .with_reason(Reason::PasswordSignInRequired)
+    }
+
     /// A 403 error with the given message.
     pub fn forbidden(message: impl std::fmt::Display) -> Self {
         Self::new(ErrorKind::Forbidden, message)

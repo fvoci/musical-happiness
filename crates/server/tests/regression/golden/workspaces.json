@@ -10,6 +10,7 @@
         "kind": "team",
         "name": "The Firm",
         "orgId": "<id:2>",
+        "passwordRequired": false,
         "role": "member",
         "ssoRequired": false
       },
@@ -18,6 +19,7 @@
         "kind": "team",
         "name": "",
         "orgId": "<id:2>",
+        "passwordRequired": false,
         "role": "member",
         "ssoRequired": false
       },
@@ -26,6 +28,7 @@
         "kind": "personal",
         "name": "",
         "orgId": "<id:5>",
+        "passwordRequired": false,
         "role": "admin",
         "ssoRequired": false
       }

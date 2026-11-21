@@ -109,6 +109,7 @@
         "kind": "team",
         "name": "The Firm",
         "orgId": "<id:4>",
+        "passwordRequired": false,
         "role": "admin",
         "ssoRequired": false
       },
@@ -117,6 +118,7 @@
         "kind": "team",
         "name": "",
         "orgId": "<id:4>",
+        "passwordRequired": false,
         "role": "member",
         "ssoRequired": false
       },
@@ -125,6 +127,7 @@
         "kind": "personal",
         "name": "",
         "orgId": "<id:7>",
+        "passwordRequired": false,
         "role": "admin",
         "ssoRequired": false
       }
@@ -141,6 +144,7 @@
         "kind": "team",
         "name": "The Firm",
         "orgId": "<id:4>",
+        "passwordRequired": false,
         "role": "member",
         "ssoRequired": false
       },
@@ -149,6 +153,7 @@
         "kind": "team",
         "name": "",
         "orgId": "<id:4>",
+        "passwordRequired": false,
         "role": "member",
         "ssoRequired": false
       },
@@ -157,6 +162,7 @@
         "kind": "personal",
         "name": "",
         "orgId": "<id:9>",
+        "passwordRequired": false,
         "role": "admin",
         "ssoRequired": false
       }

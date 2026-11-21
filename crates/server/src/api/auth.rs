@@ -315,6 +315,11 @@ async fn handle_change_password(
 /// asking for those (`sso_required`). The account's other sessions end, and this one
 /// goes on under a new cookie, as after `changePassword`.
 ///
+/// From then on the account's own space takes only sessions made with the password
+/// (`password_sign_in_required`, see "The user's own space"): this session, which was
+/// made through a provider, opens it no more, and the account's websocket
+/// connections are closed, to come back to what the session opens.
+///
 /// Once only: an account that has a password is 409, and changes it with
 /// `changePassword`. The password must have at least 8 characters and at most 1024
 /// bytes; otherwise the request is 400 and `errors` names `password`.

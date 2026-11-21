@@ -73,6 +73,7 @@ async fn a_user_lists_the_workspaces_they_are_a_member_of() {
             "name": crate::common::ORG_NAME,
             "role": "admin",
             "ssoRequired": false,
+            "passwordRequired": false,
         }),
         "the members of a workspace in the list"
     );
