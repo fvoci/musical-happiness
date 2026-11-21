@@ -468,6 +468,8 @@
   "file_editor_save_upload": "파일을 올리지 못했습니다. 저장되지 않았습니다.",
   "file_editor_save_refused": "저장하지 못했습니다.",
   "file_editor_lease_lost": "다른 사람이 이 파일을 편집하기 시작했습니다. 저장해도 더 새로운 판을 덮어쓰지는 않습니다.",
+  "file_editor_lease_resting": "{minutes}분 동안 입력이 없어 편집 권한을 놓았습니다. 이제 다른 사람이 이 파일을 편집할 수 있습니다. 저장하지 않은 변경은 그대로 있고, 다시 입력하면 편집 권한을 다시 받습니다.",
+  "file_editor_lease_idle_soon": "{minutes}분 더 입력이 없으면 편집 권한을 놓습니다.",
   "file_editor_loss_title": "저장하면 문서의 일부가 사라집니다",
   "file_editor_loss_description": "이 형식으로 저장하면 아래 {count}곳의 내용이 사라지거나 줄어듭니다. 지금까지의 판은 그대로 남습니다. 다른 이름으로 저장하면 이 파일은 바뀌지 않고 별도의 파일로 첨부됩니다.",
   "file_editor_loss_more": "그 밖에 {count}곳",

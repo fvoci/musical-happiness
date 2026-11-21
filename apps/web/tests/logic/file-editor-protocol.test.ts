@@ -50,6 +50,7 @@ describe('a message from the editor’s frame, in the app', () => {
       { kind: 'changed', dirty: false },
       { kind: 'save-asked' },
       { kind: 'leave' },
+      { kind: 'input' },
       {
         kind: 'exported',
         request: 1,
@@ -229,6 +230,8 @@ describe('a message from the editor’s frame, in the app', () => {
       { kind: 'changed' },
       { kind: 'save-asked', as: 'copy' },
       { kind: 'leave', to: 'https://example.invalid/' },
+      { kind: 'input', key: 'a' },
+      { kind: 'input', at: 1 },
       { kind: 'export-failed' },
       { kind: 'export-failed', request: 0 },
       // What the app says to the frame is not what the frame says to the app.

@@ -46,6 +46,8 @@ import.meta.glob('../styles/fonts/faces-noto-sans-kr.css', { eager: true });
 
 /** How long the check of the bytes may take, in milliseconds: the viewer's time for its worker. */
 const CHECK_LIMIT = 30_000;
+/** How often keys, the pointer and the wheel are told as input at most, in milliseconds. */
+const INPUT_EVERY = 1_000;
 
 /** What the editor's page exposes for its host (our change in rhwp-studio's main.ts). */
 interface Host {
@@ -200,6 +202,29 @@ async function resaved(
   }
 }
 
+/**
+ * The keys the app answers, told it: Ctrl+S (Cmd+S) to save, which the
+ * editor's host profile swallows itself; F6 to leave the document for the
+ * app's controls, the editor keeping Tab and Escape to itself.
+ */
+function answerKeys(): void {
+  document.addEventListener(
+    'keydown',
+    (event) => {
+      const key = event.key.toLowerCase();
+      const plain = !event.altKey && !event.shiftKey;
+      if ((event.ctrlKey || event.metaKey) && plain) {
+        if (key === 's' || key === 'ㄴ') tell({ kind: 'save-asked' });
+      } else if (event.key === 'F6' && plain) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        tell({ kind: 'leave' });
+      }
+    },
+    true,
+  );
+}
+
 /** The editor at work on one document: answers the app's requests to export and to mark it stored. */
 function serve(
   host: Host,
@@ -216,8 +241,21 @@ function serve(
   // exported is the document only while nothing changed since.
   let changes = 0;
   const exportedAt = new Map<number, number>();
+  // The writer's input, which the app does not see in here, is told: the file's lease is let
+  // go of when there is none for a while (lease.svelte.ts). Every change to the document is
+  // told; keys, the pointer and the wheel at most once in `INPUT_EVERY`, by the events' own time.
+  let inputAt = -Infinity;
+  const input = (event: Event): void => {
+    if (event.timeStamp - inputAt < INPUT_EVERY) return;
+    inputAt = event.timeStamp;
+    tell({ kind: 'input' });
+  };
+  for (const type of ['keydown', 'pointerdown', 'wheel'] as const) {
+    document.addEventListener(type, input, { capture: true, passive: true });
+  }
   host.onMutated(() => {
     changes += 1;
+    tell({ kind: 'input' });
   });
   // When the app gives the frame the focus (as the document opens, and after a save asked with
   // the app's button), what is typed goes to the document again. WebKit lets a frame of another
@@ -229,23 +267,7 @@ function serve(
   window.addEventListener('focus', toDocument);
   if (document.hasFocus()) toDocument();
   document.addEventListener('keydown', toDocument, true);
-  // Ctrl+S (Cmd+S) is the app's to answer. The editor's host profile swallows the key itself.
-  // F6 leaves the document for the app's controls: the editor keeps Tab and Escape to itself.
-  document.addEventListener(
-    'keydown',
-    (event) => {
-      const key = event.key.toLowerCase();
-      const plain = !event.altKey && !event.shiftKey;
-      if ((event.ctrlKey || event.metaKey) && plain) {
-        if (key === 's' || key === 'ㄴ') tell({ kind: 'save-asked' });
-      } else if (event.key === 'F6' && plain) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        tell({ kind: 'leave' });
-      }
-    },
-    true,
-  );
+  answerKeys();
   // What is kept of the last export: once stored as the file's new version, it is what later
   // saves are compared with (the file is then what was stored, not what was opened), and the
   // counts it read back with otherwise are ones the writer chose to save with.

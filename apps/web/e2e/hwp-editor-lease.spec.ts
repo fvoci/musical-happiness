@@ -2,8 +2,12 @@
  * One editor of a file at a time: while somebody else has a Hangul document
  * open in the editor, the viewer says who and offers no "Edit", until their
  * lease is let go of or ends; the editor holds the lease while it is open and
- * lets it go when it closes; a lease lost while editing is told to the
- * writer; and the page asks before it goes with changes that are not saved.
+ * lets it go when it closes, and when nobody puts anything into it for 30
+ * minutes, saying so; a lease lost while editing is told to the writer; and
+ * the page asks before it goes with changes that are not saved.
+ *
+ * With `FVOCI_SCREENS=1` the editor that let the lease go is pictured into
+ * `target/viewer-h3/screens/`.
  *
  * Somebody else is the memory backend's other person (`fvociDev.someoneElse`),
  * an editor of the board.
@@ -13,10 +17,14 @@ import { expect, test, type Page } from '@playwright/test';
 import { koreanHwpx } from '../tests/support/hwp-files.ts';
 
 import { attach, openCard, picture, viewer } from './file-viewer.support.ts';
+import { writtenElsewhere } from './hwp-editor.support.ts';
 
 const HWPX_TYPE = 'application/hwp+zip';
 /** The lease's term (the server's 90 seconds), and a little more. */
 const PAST_THE_TERM = 91_000;
+const MINUTE = 60_000;
+/** A turn of the editor's holding on to its lease (30 seconds), and a little more. */
+const A_TURN = 31_000;
 
 interface DevBackend {
   workspaces(): Promise<{ id: string }[]>;
@@ -171,6 +179,80 @@ test('a lease lost while editing is told to the writer, who goes on', async ({ p
     'Someone else started editing this file. A save still never writes over a newer version.',
   );
   await expect(page.getByTestId('file-editor-save')).toBeEnabled();
+});
+
+test('an editor nobody puts anything into for 30 minutes lets the file go, says so first, and takes it back at the next input', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await openCard(page);
+  const name = '쉬는 창.hwpx';
+  await shown(page, name);
+  await editButton(page).click();
+  await expect(editor(page)).toHaveAttribute('data-status', 'ready');
+  await expect(page.getByTestId('file-editor-frame')).toBeFocused();
+  await page.keyboard.type('NOT SAVED');
+  await expect(editor(page)).toHaveAttribute('data-dirty', 'true');
+  const said = page.getByTestId('file-editor-said');
+
+  await page.clock.runFor(25 * MINUTE + A_TURN);
+  await expect(said).toHaveText(
+    'With no input for 5 more minutes, you let go of editing this file.',
+  );
+  await expect(editor(page)).toHaveAttribute('data-lease', 'held');
+  await page.clock.runFor(5 * MINUTE);
+  await expect(editor(page)).toHaveAttribute('data-lease', 'resting');
+  await expect(said).toHaveText(
+    'No input for 30 minutes, so you let go of editing this file: someone else may edit it now. Your unsaved changes stay; type or click to take it back.',
+  );
+  // What was not saved is there still.
+  await expect(editor(page)).toHaveAttribute('data-dirty', 'true');
+  await picture(page, 'viewer-h3/screens', 'lease-resting');
+  // Somebody else may take it, and lets it go again.
+  const theirs = await theirLease(page, name);
+  expect(theirs).not.toMatch(/^refused/);
+  await theirLease(page, name, theirs);
+
+  // Typed into again: the editor's once more, and nobody else's.
+  await page.keyboard.type('!');
+  await expect(editor(page)).toHaveAttribute('data-lease', 'held');
+  await expect(said).toHaveText('There are unsaved changes');
+  expect(await theirLease(page, name)).toBe('refused 409');
+});
+
+test('where somebody else took the file and wrote a version while the editor let it go, the writer is told and nothing is saved over', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await openCard(page);
+  const name = '쉬는 동안.hwpx';
+  await shown(page, name);
+  await editButton(page).click();
+  await expect(editor(page)).toHaveAttribute('data-status', 'ready');
+  await page.keyboard.type('MINE');
+  await page.clock.runFor(30 * MINUTE + A_TURN);
+  await expect(editor(page)).toHaveAttribute('data-lease', 'resting');
+
+  // Somebody else edits it meanwhile, writes a version, and is at it still.
+  const theirs = await theirLease(page, name);
+  expect(theirs).not.toMatch(/^refused/);
+  await writtenElsewhere(page, name, koreanHwpx());
+  await page.keyboard.type('!');
+  await expect(editor(page)).toHaveAttribute('data-lease', 'lost');
+  await expect(page.getByTestId('file-editor-said')).toHaveText(
+    'Someone else started editing this file. A save still never writes over a newer version.',
+  );
+  // They let it go: it is the editor's again at its next turn.
+  await theirLease(page, name, theirs);
+  await page.clock.runFor(A_TURN);
+  await expect(editor(page)).toHaveAttribute('data-lease', 'held');
+
+  // Their version is not saved over: the edit may be kept as a file of its own.
+  await page.getByTestId('file-editor-save').click();
+  const stale = page.getByTestId('file-editor-stale');
+  await expect(stale).toContainText('The file got a newer version meanwhile');
+  await stale.getByRole('button', { name: 'Cancel' }).click();
+  await expect(editor(page)).toHaveAttribute('data-dirty', 'true');
 });
 
 test('the page asks before it goes with changes that are not saved', async ({ page }) => {

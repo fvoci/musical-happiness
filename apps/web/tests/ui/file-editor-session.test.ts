@@ -109,6 +109,7 @@ function editing(
   engine = () => Promise.resolve(new ArrayBuffer(8)),
 ) {
   const left = vi.fn();
+  const input = vi.fn();
   const { made, source } = versions();
   const edited: EditedFile = {
     name: '회의록.hwpx',
@@ -124,6 +125,7 @@ function editing(
     limits: LIMITS,
     engine,
     onLeave: left,
+    onInput: input,
   });
   const frame = document.createElement('iframe');
   document.body.append(frame);
@@ -180,6 +182,7 @@ function editing(
     detach,
     edited,
     left,
+    input,
   };
 }
 
@@ -288,6 +291,18 @@ describe('a document handed to the editor’s frame', () => {
     expect(left).not.toHaveBeenCalled();
     says({ kind: 'leave' });
     expect(left).toHaveBeenCalledOnce();
+  });
+
+  it('tells the writer’s input in the document, which holds the file’s lease', async () => {
+    const { opened, says, input } = editing();
+    await opened();
+    expect(input).not.toHaveBeenCalled();
+    says({ kind: 'input' });
+    says({ kind: 'input' });
+    expect(input).toHaveBeenCalledTimes(2);
+    // Not in the protocol's shape: nothing is told.
+    says({ kind: 'input', at: 1 });
+    expect(input).toHaveBeenCalledTimes(2);
   });
 
   it('is at the editor’s address, with the profile of a host that saves', () => {

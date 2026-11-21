@@ -6,10 +6,16 @@
  * outlives it). A window that dies keeps it only until its term ends (90
  * seconds, the server's): nothing is held for ever.
  *
+ * An editor nobody puts anything into for 30 minutes (`IDLE_AFTER`: no key,
+ * no pointer, no change to the document) lets its lease go, says so, and
+ * keeps what is not saved; the next input takes the lease again. It says so
+ * 5 minutes before (`WARN_BEFORE`). The time is the clock's, read at each
+ * turn: a window asleep that long lets the lease go as it wakes.
+ *
  * A lease keeps nobody from writing a version: a save is held to the version
  * it was made from. A lease lost (a window asleep past its term while
- * somebody else took the file's) is told to the writer, and the editor goes
- * on.
+ * somebody else took the file's, or somebody else took it while the editor
+ * had let it go) is told to the writer, and the editor goes on.
  *
  * The viewer asks whether somebody edits the file (`LeaseWatch`) as it opens,
  * every 15 seconds while it is shown, and after a lease was refused.
@@ -47,9 +53,23 @@ export interface LeaseTimes {
   holdEvery: number;
   /** How often the viewer asks who edits the file. */
   watchEvery: number;
+  /** How long the editor holds on to its lease with no input. */
+  idleAfter: number;
+  /** How long before it lets the lease go the editor says it will. */
+  warnBefore: number;
 }
 
-export const LEASE_TIMES: LeaseTimes = { holdEvery: 30_000, watchEvery: 15_000 };
+/** How long an editor with no input holds on to the file's lease: 30 minutes. */
+export const IDLE_AFTER = 30 * 60_000;
+/** How long before then it says so: 5 minutes, time to come back to it. */
+export const WARN_BEFORE = 5 * 60_000;
+
+export const LEASE_TIMES: LeaseTimes = {
+  holdEvery: 30_000,
+  watchEvery: 15_000,
+  idleAfter: IDLE_AFTER,
+  warnBefore: WARN_BEFORE,
+};
 
 /** What taking a lease came to: it is held, another holds the file's, or it could not be asked. */
 export type Taking = 'held' | 'editing' | 'failed';
@@ -58,12 +78,22 @@ export type Taking = 'held' | 'editing' | 'failed';
 export class EditLease {
   /** Somebody else holds the file's lease now: this one ended unheld, and was taken meanwhile. */
   lost = $state(false);
+  /** Nothing was put in for `idleAfter`: the lease was let go of, and the next input takes it. */
+  resting = $state(false);
+  /** Nothing was put in for so long that the lease is let go of within `warnBefore`. */
+  idleSoon = $state(false);
 
   readonly #source: LeaseSource;
   readonly #times: LeaseTimes;
   #leaseId = '';
   #timer: ReturnType<typeof setInterval> | undefined;
   #ended = false;
+  /** When the writer last put something in, by the clock. */
+  #inputAt = Date.now();
+  /** A request to hold on is under way: another waits for its turn. */
+  #asking = false;
+  /** The lease let go of for want of input, until the server answered: it is taken after. */
+  #resting: Promise<void> = Promise.resolve();
 
   constructor(source: LeaseSource, times: LeaseTimes = LEASE_TIMES) {
     this.#source = source;
@@ -80,6 +110,7 @@ export class EditLease {
     }
     if (held === 'editing') return 'editing';
     this.#leaseId = held.leaseId;
+    this.#inputAt = Date.now();
     if (this.#ended) {
       // Let go of before it was given.
       void this.#letGo(false);
@@ -94,14 +125,35 @@ export class EditLease {
     return 'held';
   }
 
-  async #holdOn(): Promise<void> {
+  /** The writer put something in (a key, the pointer, a change): a lease let go of is taken. */
+  touch(): void {
     if (this.#ended) return;
+    this.#inputAt = Date.now();
+    this.idleSoon = false;
+    if (!this.resting) return;
+    this.resting = false;
+    void this.#holdOn();
+  }
+
+  async #holdOn(): Promise<void> {
+    if (this.#ended || this.resting || this.#asking) return;
+    const idle = Date.now() - this.#inputAt;
+    if (idle >= this.#times.idleAfter) {
+      this.#rest();
+      return;
+    }
+    this.idleSoon = idle >= this.#times.idleAfter - this.#times.warnBefore;
     let held: HeldFileLease | 'editing';
+    this.#asking = true;
     try {
+      // Taken again only once it went: asked before, it would be found still held.
+      await this.#resting;
       held = await this.#source.holdLease(this.#leaseId);
     } catch {
       // Not reached: asked again at the next turn, within the lease's term.
       return;
+    } finally {
+      this.#asking = false;
     }
     if (held === 'editing') {
       this.lost = true;
@@ -112,6 +164,14 @@ export class EditLease {
     this.lost = false;
     // Let go of while it was asked for: what was given since goes too.
     if (this.#over()) void this.#letGo(false);
+  }
+
+  /** No input for `idleAfter`: the lease goes, and nobody else is told the writer is at work. */
+  #rest(): void {
+    this.resting = true;
+    this.idleSoon = false;
+    this.lost = false;
+    this.#resting = this.#letGo(false);
   }
 
   /** Whether the lease was let go of, read anew after a wait. */

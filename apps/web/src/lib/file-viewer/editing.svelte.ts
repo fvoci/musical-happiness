@@ -165,6 +165,7 @@ export class EditingSession {
   readonly #apartName: (name: string) => string;
   readonly #engine: () => Promise<ArrayBuffer>;
   readonly #onLeave: () => void;
+  readonly #onInput: () => void;
   /** The version a new one is written from: the one opened, then each one written here. */
   #base: number;
   #bytes: ArrayBuffer | undefined;
@@ -185,6 +186,8 @@ export class EditingSession {
       engine?: () => Promise<ArrayBuffer>;
       /** The writer asked, in the document, for the app's controls (F6). */
       onLeave?: () => void;
+      /** The writer is at work in the document: a key, the pointer, a change. */
+      onInput?: () => void;
     },
   ) {
     this.file = file;
@@ -197,6 +200,7 @@ export class EditingSession {
     this.#limits = options.limits ?? EDIT_LIMITS;
     this.#engine = options.engine ?? engineBytes;
     this.#onLeave = options.onLeave ?? (() => undefined);
+    this.#onInput = options.onInput ?? (() => undefined);
   }
 
   /** A save is under way or waits for a choice: the editor is not closed over it. */
@@ -279,6 +283,9 @@ export class EditingSession {
         break;
       case 'leave':
         this.#onLeave();
+        break;
+      case 'input':
+        this.#onInput();
         break;
       case 'exported':
         if (this.saving.name === 'exporting' && message.request === this.#request) {

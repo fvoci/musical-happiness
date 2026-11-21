@@ -14,7 +14,9 @@
 
   Closing with changes that are not saved asks first, and so does the
   browser before the page goes. The file's lease (lib/file-viewer/lease.svelte.ts)
-  is held on to while the editor is open; where somebody else took it
+  is held on to while the editor is open and the writer at work: with no input
+  for 30 minutes it is let go of, which the header says (and, 5 minutes before,
+  that it will be), and input takes it again. Where somebody else took it
   meanwhile, the header says so. It is mounted for one version and closed by
   unmounting it, which takes the frame out of the page.
 -->
@@ -35,7 +37,7 @@
     type EditStatus,
     type SaveFailure,
   } from '$lib/file-viewer/editing.svelte.ts';
-  import type { EditLease } from '$lib/file-viewer/lease.svelte.ts';
+  import { IDLE_AFTER, WARN_BEFORE, type EditLease } from '$lib/file-viewer/lease.svelte.ts';
   import type { VersionsSource } from '$lib/file-viewer/versions.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
@@ -79,6 +81,7 @@
         apartName,
         // Out of the document, which keeps Tab and Escape to itself: to the first control.
         onLeave: () => header?.querySelector<HTMLElement>('button:not(:disabled)')?.focus(),
+        onInput: () => lease?.touch(),
       }),
   );
   onDestroy(() => {
@@ -118,6 +121,8 @@
     if (saving.name === 'exporting' || saving.name === 'storing') return m.file_editor_saving();
     if (saving.name === 'failed') return SAVE_FAILURE[saving.reason]();
     if (lease?.lost) return m.file_editor_lease_lost();
+    if (lease?.resting) return m.file_editor_lease_resting({ minutes: IDLE_AFTER / 60_000 });
+    if (lease?.idleSoon) return m.file_editor_lease_idle_soon({ minutes: WARN_BEFORE / 60_000 });
     if (session.dirty) return m.file_editor_unsaved();
     const saved = session.saved;
     if (saved?.as === 'version') {
@@ -127,6 +132,7 @@
   });
 
   function saveOnKey(event: KeyboardEvent): void {
+    lease?.touch();
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
     if (event.key.toLowerCase() !== 's' && event.key !== 'ㄴ') return;
     event.preventDefault();
@@ -147,7 +153,11 @@
 </script>
 
 <!-- Ctrl+S (Cmd+S) saves from the app's own controls too, as it does from the document. -->
-<svelte:window onkeydown={saveOnKey} onbeforeunload={beforeUnload} />
+<svelte:window
+  onkeydown={saveOnKey}
+  onpointerdown={() => lease?.touch()}
+  onbeforeunload={beforeUnload}
+/>
 
 <!-- Open while it is mounted: Escape and the like ask to close, and `close` decides. -->
 <Dialog.Root
@@ -164,7 +174,7 @@
     data-status={status.name}
     data-saving={saving.name}
     data-dirty={session.dirty}
-    data-lease={lease?.lost ? 'lost' : 'held'}
+    data-lease={lease?.lost ? 'lost' : lease?.resting ? 'resting' : 'held'}
     class={[
       'flex flex-col gap-0 overflow-hidden bg-background p-0',
       compact

@@ -123,6 +123,8 @@ export type FromEditor =
   | { kind: 'save-asked' }
   /** The writer asked, in the frame, to go to the app's controls (F6): the frame keeps the keys. */
   | { kind: 'leave' }
+  /** The writer is at work in the document (a key, the pointer, a change): the lease is held. */
+  | { kind: 'input' }
   | {
       kind: 'exported';
       request: number;
@@ -240,8 +242,9 @@ export function readFromEditor(data: unknown): FromEditor | undefined {
       return typeof dirty === 'boolean' ? { kind: 'changed', dirty } : undefined;
     }
     case 'save-asked':
-    case 'leave': {
-      const kind = kindOf(data) as 'save-asked' | 'leave';
+    case 'leave':
+    case 'input': {
+      const kind = kindOf(data) as 'save-asked' | 'leave' | 'input';
       return exactly(data, ['kind']) ? { kind } : undefined;
     }
     case 'exported':
