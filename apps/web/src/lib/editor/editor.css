@@ -198,6 +198,23 @@ img.ProseMirror-separator {
 :root[data-code-lines] .doc-body pre:has(> code:not(.language-mermaid)) {
   padding-inline-start: calc(1.75em + var(--code-digits, 3) * 1ch);
 }
+/*
+ * A block of a thousand lines or more has a room as wide as its last number
+ * (`data-line-digits`): on the block from the first drawing where it is only
+ * shown (render.ts), on the frame around it in the editor.
+ */
+.doc-body :is(.doc-code, pre)[data-line-digits='4'] {
+  --code-digits: 4;
+}
+.doc-body :is(.doc-code, pre)[data-line-digits='5'] {
+  --code-digits: 5;
+}
+.doc-body :is(.doc-code, pre)[data-line-digits='6'] {
+  --code-digits: 6;
+}
+.doc-body :is(.doc-code, pre)[data-line-digits='7'] {
+  --code-digits: 7;
+}
 
 .doc-body hr {
   border: none;

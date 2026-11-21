@@ -339,6 +339,47 @@ test('a version read in the dialog is coloured as the editor colours it', async 
   expect(await colours(shown)).toEqual(inEditor);
 });
 
+/** Where the first letter of a block's text is in the window. */
+const firstLetter = (code: Locator): Promise<{ x: number; y: number }> =>
+  code.evaluate((element) => {
+    const text = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode();
+    if (!text) throw new Error('the block has no text');
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 1);
+    const { x, y } = range.getBoundingClientRect();
+    return { x, y };
+  });
+
+test('a block of a thousand lines, numbered and only shown, keeps its text where it is when its frame comes', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fvoci:code-lines', '1');
+  });
+  // What frames the code blocks of a body that is only shown comes late, as on a slow network.
+  let release = (): void => undefined;
+  const late = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(/\/code-view-[^/]*\.js$/, async (route) => {
+    await late;
+    await route.continue();
+  });
+  // Past the length that is coloured (CODE_HIGHLIGHT_LIMIT): only the frame and the numbers come.
+  const source = Array.from({ length: 1_200 }, (_, index) => `line ${index + 1}`).join('\n');
+  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', source));
+  const shown = await openVersionBefore(page, body);
+  const code = shown.locator('pre > code').first();
+  await expect(code).toContainText('line 1200');
+  await expect(shown.locator('.doc-code')).toHaveCount(0);
+  const before = await firstLetter(code);
+  release();
+  await expect(block(shown).locator('.doc-code-line')).toHaveCount(1_200);
+  // Four digits from the first drawing: the room of the numbers does not grow when they come.
+  expect(await firstLetter(code)).toEqual(before);
+});
+
 test('a syllable composed in a code block is kept, and coloured once it is done', async ({
   page,
 }) => {
