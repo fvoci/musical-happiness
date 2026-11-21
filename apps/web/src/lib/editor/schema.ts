@@ -9,13 +9,15 @@
  * editor's extensions (extensions.ts) are configured to match, and a test
  * holds the two together.
  */
+import { gridProblem, MAX_TABLE_COLUMNS, MAX_TABLE_ROWS, type GridProblem } from './table-grid.ts';
 
 /**
  * The version of this list. A stored body carries the version it was written
  * under. Version 2 added the two formula nodes, `inlineMath` and `blockMath`;
- * version 3 the `reference` to a card or a page; version 4 the `file` block.
+ * version 3 the `reference` to a card or a page; version 4 the `file` block;
+ * version 5 the table and its rows and cells.
  */
-export const BODY_VERSION = 4;
+export const BODY_VERSION = 5;
 
 /** The largest body, as the bytes of its JSON in UTF-8 (`storedSize`). */
 export const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -117,9 +119,16 @@ const BLOCKS = [
   'blockMath',
 ] as const;
 const INLINE = ['text', 'hardBreak', 'mention', 'reference', 'inlineMath'] as const;
+/** A table stands in the document alone, so that none is in another (`table.ts`). */
+const DOCUMENT_BLOCKS = [...BLOCKS, 'table'] as const;
+/** A cell spans one column and one row unless it says more, at most a whole table. */
+const CELL_ATTRS = {
+  colspan: optional(isIntegerBetween(1, MAX_TABLE_COLUMNS)),
+  rowspan: optional(isIntegerBetween(1, MAX_TABLE_ROWS)),
+};
 
 export const NODE_SPECS: Record<string, NodeSpec> = {
-  doc: { attrs: {}, children: BLOCKS, minChildren: 1 },
+  doc: { attrs: {}, children: DOCUMENT_BLOCKS, minChildren: 1 },
   paragraph: { attrs: {}, children: INLINE, minChildren: 0 },
   heading: { attrs: { level: required(isIntegerBetween(1, 3)) }, children: INLINE, minChildren: 0 },
   bulletList: { attrs: {}, children: ['listItem'], minChildren: 1 },
@@ -156,6 +165,11 @@ export const NODE_SPECS: Record<string, NodeSpec> = {
     children: [],
     minChildren: 0,
   },
+  table: { attrs: {}, children: ['tableRow'], minChildren: 1 },
+  // A row may have no cell of its own where the cells above cover it.
+  tableRow: { attrs: {}, children: ['tableHeader', 'tableCell'], minChildren: 0 },
+  tableHeader: { attrs: CELL_ATTRS, children: BLOCKS, minChildren: 1 },
+  tableCell: { attrs: CELL_ATTRS, children: BLOCKS, minChildren: 1 },
   text: { attrs: {}, children: [], minChildren: 0 },
 };
 
@@ -165,6 +179,13 @@ export const MARK_SPECS: Record<string, Record<string, AttributeSpec>> = {
   strike: {},
   code: {},
   link: { href: required(isAllowedHref) },
+};
+
+/** What a table's grid being wrong is written as. */
+const GRID_PROBLEMS: Record<GridProblem, string> = {
+  tooLarge: `more than ${MAX_TABLE_ROWS} rows or ${MAX_TABLE_COLUMNS} columns`,
+  noCell: 'no cell',
+  unfilled: 'a cell spans past the table or over another, or a row is narrower than the table',
 };
 
 /** Nodes whose first child has to be a paragraph (the editor's own rule for list entries). */
@@ -196,6 +217,8 @@ function checkAttributes(
       problems.push(`${where}: attribute "${name}" is missing`);
   }
 }
+
+const CELLS = new Set(['tableCell', 'tableHeader']);
 
 /**
  * Whether any text or member name of a value holds U+0000, which the
@@ -313,6 +336,7 @@ export function validateDoc(doc: unknown, options: ValidateOptions = {}): string
       problems.push(`${where}: unknown node type "${typeName}"`);
       return;
     }
+    const before = problems.length;
     if (allowed && !allowed.includes(type))
       problems.push(`${at}: not allowed inside ${where || 'the root'}`);
     for (const key of Object.keys(rest)) problems.push(`${at}: unknown member "${key}"`);
@@ -358,6 +382,10 @@ export function validateDoc(doc: unknown, options: ValidateOptions = {}): string
     (children as unknown[]).forEach((child, index) => {
       visit(child, `${at}[${index}]`, depth + 1, spec.children);
     });
+    // The grid of a table is judged when it and its parts are each allowed.
+    const fits = type === 'table' && problems.length === before;
+    const grid = fits ? gridProblem(node) : undefined;
+    if (grid) problems.push(`${at}: ${GRID_PROBLEMS[grid]}`);
   }
 
   visit(doc, '', 1, ['doc']);
@@ -386,9 +414,10 @@ export function isEmptyDoc(doc: DocNode): boolean {
  * A document in the form that is stored: attributes without a value are left
  * out, and so is an attribute list that became empty. The editor gives every
  * attribute it knows a slot, `null` when unset; the stored form has no nulls.
- * The start of an ordered list at 1 is left out too: a list without a start
- * starts at 1, and the server stores a body that way (its projection of a
- * document edited together leaves it out), so a body has one form.
+ * The start of an ordered list at 1 is left out too, and so is a cell's span
+ * of 1: a list without a start starts at 1, a cell without a span spans one,
+ * and the server stores a body that way (its projection of a document edited
+ * together leaves them out), so a body has one form.
  * Marks stay on text alone: the editor lets a line break or a mention inside
  * bold text carry the mark too (`<strong>a<br>b</strong>`), which means
  * nothing for a node without text and is not on the list.
@@ -399,7 +428,8 @@ export function toStoredDoc(node: DocNode): DocNode {
     ([name, value]) =>
       value !== null &&
       value !== undefined &&
-      !(node.type === 'orderedList' && name === 'start' && value === 1),
+      !(node.type === 'orderedList' && name === 'start' && value === 1) &&
+      !(CELLS.has(node.type) && (name === 'colspan' || name === 'rowspan') && value === 1),
   );
   if (attrs.length > 0) stored.attrs = Object.fromEntries(attrs);
   if (node.content) stored.content = node.content.map(toStoredDoc);
@@ -422,26 +452,6 @@ export function storedSize(doc: DocNode): number {
   return new TextEncoder().encode(JSON.stringify(doc)).length;
 }
 
-/** How many tasks a document has and how many are ticked, for the badge on a card. */
-export function countTasks(node: DocNode): { total: number; checked: number } {
-  const count = { total: 0, checked: 0 };
-  if (node.type === 'taskItem') {
-    count.total += 1;
-    if (node.attrs?.checked === true) count.checked += 1;
-  }
-  for (const child of node.content ?? []) {
-    const inner = countTasks(child);
-    count.total += inner.total;
-    count.checked += inner.checked;
-  }
-  return count;
-}
-
-const TEXT_BLOCKS = new Set(['paragraph', 'heading', 'codeBlock']);
-
-const latexOf = (node: DocNode): string =>
-  typeof node.attrs?.latex === 'string' ? node.attrs.latex : '';
-
 /** The language a code block has to name for it to be drawn as a diagram. */
 export const DIAGRAM_LANGUAGE = 'mermaid';
 /**
@@ -450,32 +460,3 @@ export const DIAGRAM_LANGUAGE = 'mermaid';
  * is valid, and the server does not look at its language.
  */
 export const MAX_DIAGRAM_SOURCE = 20_000;
-
-/**
- * The words of a document without its structure, one line per paragraph:
- * for search, previews and notifications. `mentionLabel` names a mentioned
- * user; a reference gives nothing, as on the server. A formula gives its source: inside a line where it stands in one, on
- * a line of its own when it is a block. A diagram is a code block and gives
- * its source like any other code.
- */
-export function plainText(
-  node: DocNode,
-  mentionLabel: (userId: string) => string = (id) => id,
-): string {
-  const lines: string[] = [];
-  function visit(current: DocNode): string {
-    if (current.type === 'text') return current.text ?? '';
-    if (current.type === 'hardBreak') return '\n';
-    if (current.type === 'mention') return `@${mentionLabel(String(current.attrs?.userId))}`;
-    if (current.type === 'inlineMath') return latexOf(current);
-    if (current.type === 'blockMath') {
-      lines.push(latexOf(current));
-      return '';
-    }
-    const inner = (current.content ?? []).map(visit).join('');
-    if (TEXT_BLOCKS.has(current.type)) lines.push(inner);
-    return '';
-  }
-  visit(node);
-  return lines.filter((line) => line !== '').join('\n');
-}

@@ -58,3 +58,10 @@ export function mathSlotAttributes(name: MathNodeName, latex: string): Record<st
 
 /** The class a code block carries when its language is the one of diagrams (`language-mermaid`). */
 export const DIAGRAM_CODE_SELECTOR = 'pre > code.language-mermaid';
+
+/**
+ * The narrowest a column of a table is drawn, in pixels: the editor's table
+ * (table.ts) and the read-only view give each column this as its least
+ * width, and the table the sum.
+ */
+export const TABLE_CELL_MIN_WIDTH = 25;

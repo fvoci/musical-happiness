@@ -14,8 +14,8 @@ use thiserror::Error;
 use crate::allowlist;
 
 /// The version of the set of nodes and marks a stored body is written in: 4 added the
-/// file block.
-pub const BODY_VERSION: i64 = 4;
+/// file block, 5 the table.
+pub const BODY_VERSION: i64 = 5;
 
 /// The largest body, as serialized JSON, in bytes.
 pub const BODY_MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -41,6 +41,17 @@ pub enum BodyError {
     /// The body has more than [`BODY_MAX_NODES`] nodes.
     #[error("the body has more than {BODY_MAX_NODES} nodes")]
     TooManyNodes,
+    /// A table has more rows or columns than a table may
+    /// ([`crate::TABLE_MAX_ROWS`], [`crate::TABLE_MAX_COLUMNS`]).
+    #[error(
+        "the table at {path} has more than {} rows or more than {} columns",
+        crate::TABLE_MAX_ROWS,
+        crate::TABLE_MAX_COLUMNS
+    )]
+    TableTooLarge {
+        /// Where the table is, as a JSON pointer.
+        path: String,
+    },
     /// A node is malformed.
     #[error("invalid body node: {problem}")]
     InvalidNode {

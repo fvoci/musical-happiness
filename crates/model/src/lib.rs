@@ -47,6 +47,7 @@ mod serde_util;
 mod settings;
 mod sharing;
 mod subscription;
+mod table_grid;
 mod team;
 mod upload;
 mod user;
@@ -151,6 +152,9 @@ pub use settings::{
 };
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
+pub use table_grid::{
+    CellFit, Reach, RowFit, TABLE_MAX_COLUMNS, TABLE_MAX_ROWS, TableGrid, TableTooLarge,
+};
 pub use team::{Team, TeamMember, TeamName, team_name, team_name_key};
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{LoginOrigin, Me, Session, User, UserPreferencesPatch};

@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use yrs::{Array, ArrayRef, Doc, ReadTxn, Transact, TransactionMut, XmlElementRef, XmlFragmentRef};
 
 use crate::FIELD;
+use crate::mend::{self, CellAt, Mend, SurveyedRow};
 use crate::project::{project, to_body};
 use crate::read::{self, Child, Content};
 use crate::schema::{self, Place};
@@ -14,11 +15,14 @@ use crate::update::copy_of;
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Repair {
-    /// How many nodes and texts were deleted, each with all it held. 0: the document was
-    /// a body already and is as it was.
+    /// How many nodes and texts were deleted, each with all it held.
     pub deleted: usize,
-    /// The deletions as a version 1 update, for the editors that hold the document;
-    /// `None` if nothing was deleted.
+    /// How many cells of tables were put in, or had their spans written again, to mend
+    /// the tables' grids (`mend.rs`): by the server alone, as no editor does. With
+    /// [`Self::deleted`] 0, the document was a body already and is as it was.
+    pub mended: usize,
+    /// The deletions and what mended the tables, as a version 1 update for the editors
+    /// that hold the document; `None` if nothing was changed.
     pub update: Option<Vec<u8>>,
     /// The body of the document as it now is; `None` for no body.
     pub body: Option<Body>,
@@ -39,6 +43,12 @@ pub struct Repair {
 /// deleted whole if a run of it fails. Deleting is the same whoever does it and however
 /// often, so the editors and the server end with the same document.
 ///
+/// A table is mended, not only deleted from: what the merge of two edits leaves in a
+/// table that does not fill its grid (a row a cell short, a span past the last row) is
+/// written here, as `mend.rs` says, and the editors are sent it. A cell that fails is
+/// deleted as every editor deletes it, and an empty one is put in its place; a row that
+/// holds anything but cells goes whole, as in an editor.
+///
 /// The allowlist refuses more than the editor's schema, which checks no value: a
 /// heading of level 9 or a link to `javascript:` stays in an editor and is deleted here.
 /// At the root an editor wraps a node the document may not hold (a list entry, a
@@ -53,8 +63,8 @@ pub struct Repair {
 ///
 /// Nothing is deleted when an error is returned.
 ///
-/// Returns [`BodyError::TooLarge`], [`BodyError::TooDeep`] or
-/// [`BodyError::TooManyNodes`] if what would be left is past a limit, or a node that is
+/// Returns [`BodyError::TooLarge`], [`BodyError::TooDeep`], [`BodyError::TooManyNodes`] or
+/// [`BodyError::TableTooLarge`] if what would be left is past a limit, or a node that is
 /// judged is past one by itself: deleting what fails is not meant to bring a document
 /// under a limit. Returns [`BodyError::InvalidNode`] with an empty path if the root
 /// itself holds letters or values (there is no node to delete in their place), if
@@ -67,6 +77,7 @@ pub(crate) fn repaired(doc: &Doc) -> Result<(Repair, Option<Doc>), BodyError> {
     if let Ok(body) = to_body(doc) {
         let repair = Repair {
             deleted: 0,
+            mended: 0,
             update: None,
             body,
         };
@@ -92,21 +103,28 @@ fn deleting(doc: &Doc) -> Result<(Repair, Doc), BodyError> {
     if !left.is_empty() {
         Body::parse(json!({"type": "doc", "content": left}))?;
     }
-    if found.cuts.iter().map(Cuts::stretches).sum::<usize>() > MAX_STRETCHES {
+    let Changes { cuts, mends } = found.changes;
+    if cuts.iter().map(Cuts::stretches).sum::<usize>() > MAX_STRETCHES {
         return Err(BodyError::InvalidNode {
             path: String::new(),
             problem: "more separate parts of the document fail than a repair deletes",
         });
     }
-    let deleted = found.cuts.iter().map(|cuts| cuts.indexes.len()).sum();
-    for cuts in &found.cuts {
+    let deleted = cuts.iter().map(|cuts| cuts.indexes.len()).sum();
+    let mended = mends.iter().map(Mend::cells).sum();
+    for cuts in &cuts {
         cuts.make(&mut txn);
     }
+    // After the deletions, which leave every index a mend counts.
+    for mend in &mends {
+        mend.make(&mut txn);
+    }
     let body = project(&txn, &root)?;
-    let update = (deleted > 0).then(|| txn.encode_update_v1());
+    let update = (deleted > 0 || mended > 0).then(|| txn.encode_update_v1());
     drop(txn);
     let repair = Repair {
         deleted,
+        mended,
         update,
         body,
     };
@@ -173,11 +191,19 @@ struct Survey<'txn, T> {
 struct Found {
     /// The JSON of the children that stay.
     content: Content,
-    /// The children to delete, here and below, parent by parent.
-    cuts: Vec<Cuts>,
+    /// What to change, here and below.
+    changes: Changes,
 }
 
-impl Found {
+/// What a repair changes below a node: the children to delete, parent by parent, and
+/// the mends of tables, made after them.
+#[derive(Debug, Default)]
+struct Changes {
+    cuts: Vec<Cuts>,
+    mends: Vec<Mend>,
+}
+
+impl Changes {
     /// Notes the children of a parent that are to be deleted, if there are any.
     fn note(&mut self, parent: &ArrayRef, indexes: Vec<u32>) {
         if !indexes.is_empty() {
@@ -186,6 +212,23 @@ impl Found {
                 indexes,
             });
         }
+    }
+
+    /// Takes on the changes below a node that stays.
+    fn take(&mut self, below: Self) {
+        self.cuts.extend(below.cuts);
+        self.mends.extend(below.mends);
+    }
+
+    /// How many changes of each kind there are, to go back to.
+    fn mark(&self) -> (usize, usize) {
+        (self.cuts.len(), self.mends.len())
+    }
+
+    /// Drops what was noted after a mark: the changes below a node that goes.
+    fn rewind(&mut self, (cuts, mends): (usize, usize)) {
+        self.cuts.truncate(cuts);
+        self.mends.truncate(mends);
     }
 }
 
@@ -203,10 +246,10 @@ impl<T: ReadTxn> Survey<'_, T> {
         let mut own = Vec::new();
         for (index, child) in children.into_iter().enumerate() {
             // What is noted below this child from here on goes with it if it goes.
-            let noted = found.cuts.len();
+            let noted = found.changes.mark();
             // A text at the root goes whatever it holds: an editor's binding throws on one.
             let is_node = !matches!(child, Child::Text(_));
-            let stays = match self.child(child, 2, &mut found.cuts)? {
+            let stays = match self.child(child, 2, &mut found.changes)? {
                 // Each was within the limits as the node it is, so this gives no error.
                 Some(nodes)
                     if is_node
@@ -220,11 +263,11 @@ impl<T: ReadTxn> Survey<'_, T> {
                 _ => false,
             };
             if !stays {
-                found.cuts.truncate(noted);
+                found.changes.rewind(noted);
                 own.push(index_of(index));
             }
         }
-        found.note(root.as_ref(), own);
+        found.changes.note(root.as_ref(), own);
         Ok(found)
     }
 
@@ -237,13 +280,119 @@ impl<T: ReadTxn> Survey<'_, T> {
         let mut found = Found::default();
         let mut own = Vec::new();
         for (index, child) in children.into_iter().enumerate() {
-            match self.child(child, depth, &mut found.cuts)? {
+            match self.child(child, depth, &mut found.changes)? {
                 Some(nodes) => found.content.extend(nodes),
                 None => own.push(index_of(index)),
             }
         }
-        found.note(element.as_ref(), own);
+        found.changes.note(element.as_ref(), own);
         Ok(Some(found))
+    }
+
+    /// Judges a table at `depth`: its rows, each with what it holds, then its grid,
+    /// mended. `None` if it is to be deleted.
+    fn table(
+        &self,
+        table: &XmlElementRef,
+        depth: usize,
+        changes: &mut Changes,
+    ) -> Result<Option<Vec<Value>>, BodyError> {
+        let Some(children) = read::children(self.txn, table) else {
+            return Ok(None);
+        };
+        let mut below = Changes::default();
+        let mut content = Vec::new();
+        let mut rows = Vec::new();
+        let mut own = Vec::new();
+        for (index, child) in children.into_iter().enumerate() {
+            let stays = match child {
+                Child::Element(row) if row.tag().as_ref() == "tableRow" => {
+                    self.row(row, depth + 1, &mut below)?.map(|(json, row)| {
+                        content.push(json);
+                        rows.push(row);
+                    })
+                }
+                other => self
+                    .child(other, depth + 1, &mut below)?
+                    .map(|nodes| content.extend(nodes)),
+            };
+            if stays.is_none() {
+                own.push(index_of(index));
+            }
+        }
+        // Anything but rows that stays makes the table go, as in an editor.
+        if content.len() != rows.len() {
+            return Ok(None);
+        }
+        below.note(table.as_ref(), own);
+        let node = read::element_node(self.txn, table, content);
+        let (node, mends) = mend::mend_grid(node, &rows)?;
+        if !passes(&node, Place::Block)? {
+            return Ok(None);
+        }
+        changes.take(below);
+        changes.mends.extend(mends);
+        Ok(Some(vec![node]))
+    }
+
+    /// Judges a row of a table at `depth`: its JSON, with an empty cell where a cell
+    /// that fails was, and where its cells come from. `None` if it is to be deleted.
+    fn row(
+        &self,
+        row: XmlElementRef,
+        depth: usize,
+        changes: &mut Changes,
+    ) -> Result<Option<(Value, SurveyedRow)>, BodyError> {
+        if depth > BODY_MAX_DEPTH {
+            return Err(BodyError::TooDeep);
+        }
+        let Some(children) = read::children(self.txn, &row) else {
+            return Ok(None);
+        };
+        let mut below = Changes::default();
+        let mut content = Vec::new();
+        let mut cells = Vec::new();
+        let mut own = Vec::new();
+        for (index, child) in children.into_iter().enumerate() {
+            let cell = match &child {
+                Child::Element(element) if is_cell(element.tag()) => Some(element.clone()),
+                _ => None,
+            };
+            match (self.child(child, depth + 1, &mut below)?, cell) {
+                (Some(nodes), Some(element)) => {
+                    content.extend(nodes);
+                    cells.push(CellAt::Kept(element));
+                }
+                (Some(nodes), None) => content.extend(nodes),
+                (None, Some(element)) => {
+                    own.push(index_of(index));
+                    content.push(read::element_node(
+                        self.txn,
+                        &element,
+                        vec![json!({"type": "paragraph"})],
+                    ));
+                    cells.push(CellAt::Put);
+                }
+                (None, None) => own.push(index_of(index)),
+            }
+        }
+        // Anything but cells that stays makes the row go, as in an editor.
+        if content.len() != cells.len() {
+            return Ok(None);
+        }
+        below.note(row.as_ref(), own);
+        let node = read::element_node(self.txn, &row, content);
+        if !passes(&node, Place::TableRow)? {
+            return Ok(None);
+        }
+        changes.take(below);
+        Ok(Some((
+            node,
+            SurveyedRow {
+                element: row,
+                cells,
+            },
+        )))
     }
 
     /// Judges one child at `depth`: its JSON if it stays (a text may be several nodes,
@@ -253,19 +402,22 @@ impl<T: ReadTxn> Survey<'_, T> {
         &self,
         child: Child,
         depth: usize,
-        cuts: &mut Vec<Cuts>,
+        changes: &mut Changes,
     ) -> Result<Option<Vec<Value>>, BodyError> {
         match child {
             Child::Element(element) => {
                 if depth > BODY_MAX_DEPTH {
                     return Err(BodyError::TooDeep);
                 }
+                if element.tag().as_ref() == "table" {
+                    return self.table(&element, depth, changes);
+                }
                 let Some(below) = self.element(&element, depth + 1)? else {
                     return Ok(None);
                 };
                 let node = read::element_node(self.txn, &element, below.content.into_nodes());
                 if passes(&node, schema::place(element.tag()))? {
-                    cuts.extend(below.cuts);
+                    changes.take(below.changes);
                     Ok(Some(vec![node]))
                 } else {
                     Ok(None)
@@ -297,7 +449,9 @@ fn index_of(index: usize) -> u32 {
 
 /// Whether the allowlist takes a node by itself, with what it holds: the node is put
 /// where a node of its kind stands, in a document of nothing else, and that document is
-/// checked.
+/// checked. A row or a cell is put in a table whose grid it fills: its cells' spans are
+/// left out, and a row is given one more cell, so that only what it is and holds is
+/// judged; where it falls in its own table is for the table's mending.
 ///
 /// # Errors
 ///
@@ -311,12 +465,53 @@ fn passes(node: &Value, place: Place) -> Result<bool, BodyError> {
         Place::Line => around("doc", around("paragraph", node.clone())),
         Place::ListEntry => around("doc", around("bulletList", node.clone())),
         Place::TaskEntry => around("doc", around("taskList", node.clone())),
+        Place::TableRow => around("doc", around("table", filling_row(node))),
+        Place::TableCell => around(
+            "doc",
+            around("table", around("tableRow", without_spans(node))),
+        ),
     };
     match Body::parse(document) {
         Ok(_) => Ok(true),
         Err(BodyError::InvalidNode { .. } | BodyError::NotADocument) => Ok(false),
-        Err(limit @ (BodyError::TooLarge | BodyError::TooDeep | BodyError::TooManyNodes)) => {
-            Err(limit)
+        Err(
+            limit @ (BodyError::TooLarge
+            | BodyError::TooDeep
+            | BodyError::TooManyNodes
+            | BodyError::TableTooLarge { .. }),
+        ) => Err(limit),
+    }
+}
+
+/// Whether an element of this name is a cell of a table.
+fn is_cell(tag: &str) -> bool {
+    matches!(tag, "tableCell" | "tableHeader")
+}
+
+/// A cell without its spans.
+fn without_spans(cell: &Value) -> Value {
+    let mut cell = cell.clone();
+    if let Some(attrs) = cell.get_mut("attrs").and_then(Value::as_object_mut) {
+        attrs.remove("colspan");
+        attrs.remove("rowspan");
+    }
+    cell
+}
+
+/// A row whose cells are without their spans, with an empty cell more: a row that fills
+/// a table of its own, even one that has no cell.
+fn filling_row(row: &Value) -> Value {
+    let mut row = row.clone();
+    if let Some(members) = row.as_object_mut() {
+        let content = members
+            .entry("content")
+            .or_insert_with(|| Value::Array(Vec::new()));
+        if let Some(children) = content.as_array_mut() {
+            for child in children.iter_mut() {
+                *child = without_spans(child);
+            }
+            children.push(mend::empty_cell("tableCell"));
         }
     }
+    row
 }

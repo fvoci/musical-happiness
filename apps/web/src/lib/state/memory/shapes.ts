@@ -4,7 +4,8 @@
  * in, and an order of lists nobody should lean on.
  */
 import { cardPreviewOf } from '../../editor/card-preview.ts';
-import { countTasks, MAX_BODY_BYTES, type DocNode } from '../../editor/schema.ts';
+import { countTasks } from '../../editor/body-text.ts';
+import { MAX_BODY_BYTES, type DocNode } from '../../editor/schema.ts';
 import {
   createBoardView,
   createCard,

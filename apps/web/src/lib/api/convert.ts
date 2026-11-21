@@ -7,7 +7,8 @@
  * settled here; what is still open is listed in `docs/contract-assumptions.md`.
  */
 import { cardPreviewOf, type CardPreview } from '../editor/card-preview.ts';
-import { countTasks, type DocNode } from '../editor/schema.ts';
+import { countTasks } from '../editor/body-text.ts';
+import type { DocNode } from '../editor/schema.ts';
 import { readDisplaySettings } from '../logic/display.ts';
 import { readLanguageSettings } from '../logic/language.ts';
 import type { PersonName } from '../logic/person-names.ts';

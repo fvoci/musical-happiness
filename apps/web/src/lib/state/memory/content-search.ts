@@ -15,7 +15,7 @@
  * (`bodyFlushed`): the words just typed are found at once. The server finds
  * them once it has written the body and sent it to its search server.
  */
-import { plainText } from '../../editor/schema.ts';
+import { plainText } from '../../editor/body-text.ts';
 import { BackendError, problemOf } from '../backend.ts';
 import {
   MAX_SEARCH_CHARS,

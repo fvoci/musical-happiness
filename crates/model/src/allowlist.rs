@@ -1,5 +1,5 @@
 //! The allowlist of a body: which nodes and marks a document may have, with which
-//! attributes, and which node may be inside which (`docs/s6-design.md` 5.7, version 4).
+//! attributes, and which node may be inside which (`docs/s6-design.md` 5.7, version 5).
 //!
 //! The web app's validator (`apps/web/src/lib/editor/schema.ts`) is the same list as
 //! TypeScript; the shared vectors of `contracts/body-vectors.json` hold the two
@@ -11,6 +11,7 @@ use serde_json::{Map, Value};
 
 use crate::body::{BODY_MAX_DEPTH, BODY_MAX_NODES, BodyError};
 use crate::id::is_id;
+use crate::table_grid::{TABLE_MAX_COLUMNS, TABLE_MAX_ROWS, TableGrid};
 
 /// The members a node may have. Any other, and any member that is `null`, is refused.
 const NODE_MEMBERS: [&str; 5] = ["type", "attrs", "content", "marks", "text"];
@@ -18,7 +19,8 @@ const NODE_MEMBERS: [&str; 5] = ["type", "attrs", "content", "marks", "text"];
 /// The members a mark may have.
 const MARK_MEMBERS: [&str; 2] = ["type", "attrs"];
 
-/// The nodes that stand as blocks.
+/// The nodes that stand as blocks: in the document, a quote, a list entry and a cell
+/// of a table.
 const BLOCKS: &[&str] = &[
     "paragraph",
     "heading",
@@ -33,13 +35,39 @@ const BLOCKS: &[&str] = &[
     "blockMath",
 ];
 
+/// The nodes that stand in the document itself: the blocks, and a table. A table stands
+/// nowhere else, so that no table is in another: a cell holds blocks, and so does a list
+/// entry in a cell.
+const DOCUMENT_BLOCKS: &[&str] = &[
+    "paragraph",
+    "heading",
+    "bulletList",
+    "orderedList",
+    "taskList",
+    "blockquote",
+    "codeBlock",
+    "horizontalRule",
+    "image",
+    "file",
+    "blockMath",
+    "table",
+];
+
 /// The nodes that stand inside a line.
 const INLINE: &[&str] = &["text", "hardBreak", "mention", "reference", "inlineMath"];
 
+/// The parts of a table, below it.
+const TABLE_PARTS: &[&str] = &["tableRow", "tableHeader", "tableCell"];
+
 /// The types of node a body may hold besides the document itself and the items of its
-/// lists: those that stand as blocks, then those that stand inside a line.
+/// lists: those that stand in the document, the parts of a table, then those that stand
+/// inside a line.
 pub fn body_node_types() -> impl Iterator<Item = &'static str> {
-    BLOCKS.iter().chain(INLINE).copied()
+    DOCUMENT_BLOCKS
+        .iter()
+        .chain(TABLE_PARTS)
+        .chain(INLINE)
+        .copied()
 }
 
 /// The longest source of a formula.
@@ -128,6 +156,16 @@ const IMAGE: &[Attribute] = &[
 /// A file block names its file and nothing else: its name, size and kind are read from
 /// the file's record where it is shown.
 const FILE: &[Attribute] = &[required("fileId", Rule::NonEmptyText(100))];
+/// A cell spans one column and one row unless it says more, at most a whole table: the
+/// limits of `table_grid.rs`, as the rule of an integer takes them (no `From` is const).
+const CELL: &[Attribute] = &[
+    optional("colspan", Rule::Integer(1, 20)),
+    optional("rowspan", Rule::Integer(1, 200)),
+];
+const _: () = assert!(
+    TABLE_MAX_COLUMNS == 20 && TABLE_MAX_ROWS == 200,
+    "a cell spans at most the columns and the rows of a table"
+);
 const MENTION: &[Attribute] = &[required("userId", Rule::Id)];
 const REFERENCE: &[Attribute] = &[required("id", Rule::Id)];
 const MATH: &[Attribute] = &[required("latex", Rule::NonEmptyText(LATEX_MAX))];
@@ -141,7 +179,12 @@ fn node_spec(name: &str) -> Option<NodeSpec> {
         "heading" => node(HEADING, INLINE, 0),
         "bulletList" => node(&[], &["listItem"], 1),
         "orderedList" => node(ORDERED_LIST, &["listItem"], 1),
-        "doc" | "listItem" | "blockquote" => node(&[], BLOCKS, 1),
+        "doc" => node(&[], DOCUMENT_BLOCKS, 1),
+        "listItem" | "blockquote" => node(&[], BLOCKS, 1),
+        "table" => node(&[], &["tableRow"], 1),
+        // A row may have no cell of its own where the cells above cover it.
+        "tableRow" => node(&[], &["tableHeader", "tableCell"], 0),
+        "tableHeader" | "tableCell" => node(CELL, BLOCKS, 1),
         "taskList" => node(&[], &["taskItem"], 1),
         "taskItem" => node(TASK_ITEM, BLOCKS, 1),
         "codeBlock" => node(CODE_BLOCK, &["text"], 0),
@@ -261,14 +304,22 @@ struct Walk {
 }
 
 impl Walk {
-    /// A refusal of the node the walk is at.
-    fn invalid(&self, problem: &'static str) -> BodyError {
+    /// Where the walk is, as a JSON pointer.
+    fn pointer(&self) -> String {
         let mut path = String::new();
         for index in &self.path {
             // Writing to a string cannot fail.
             let _ = write!(path, "/content/{index}");
         }
-        BodyError::InvalidNode { path, problem }
+        path
+    }
+
+    /// A refusal of the node the walk is at.
+    fn invalid(&self, problem: &'static str) -> BodyError {
+        BodyError::InvalidNode {
+            path: self.pointer(),
+            problem,
+        }
     }
 
     fn node(&mut self, value: &Value, depth: usize, allowed: &[&str]) -> Result<(), BodyError> {
@@ -332,6 +383,25 @@ impl Walk {
             self.path.push(index);
             self.node(child, depth + 1, spec.children)?;
             self.path.pop();
+        }
+        if name == "table" {
+            self.check_grid(value)?;
+        }
+        Ok(())
+    }
+
+    /// Checks that a table, whose parts are each allowed, fills its grid.
+    fn check_grid(&self, table: &Value) -> Result<(), BodyError> {
+        let grid = TableGrid::of(table).map_err(|_| BodyError::TableTooLarge {
+            path: self.pointer(),
+        })?;
+        if grid.width() == 0 {
+            return Err(self.invalid("table has no cell"));
+        }
+        if !grid.is_filled() {
+            return Err(self.invalid(
+                "table has a cell that spans past the table or over another, or a row narrower than the table",
+            ));
         }
         Ok(())
     }
@@ -419,6 +489,7 @@ fn check_text(members: &Map<String, Value>) -> Result<(), &'static str> {
 /// formula in a line gives its source there. A mention gives nothing: the name is not
 /// stored. Nor does a reference: the title of what it names is not the body's, and not
 /// every reader's to see. Nor does a file block: the name is its file's, not the body's.
+/// A table gives the lines of its cells, row after row.
 pub(crate) fn plain_text(document: &Value) -> String {
     let mut lines = Vec::new();
     collect_lines(document, &mut lines);
@@ -494,6 +565,13 @@ mod tests {
         }
         assert!(is_allowed_href(&format!("/{}", "a".repeat(HREF_MAX - 1))));
         assert!(!is_allowed_href(&format!("/{}", "a".repeat(HREF_MAX))));
+    }
+
+    #[test]
+    fn the_document_holds_the_blocks_and_a_table() {
+        let mut expected = BLOCKS.to_vec();
+        expected.push("table");
+        assert_eq!(DOCUMENT_BLOCKS, expected.as_slice());
     }
 
     #[test]

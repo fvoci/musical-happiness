@@ -33,6 +33,7 @@ import {
   mathSlotAttributes,
   REFERENCE_CLASS,
   REFERENCE_ID_ATTRIBUTE,
+  TABLE_CELL_MIN_WIDTH,
   type MathNodeName,
 } from './drawing.ts';
 import { fileUrl } from './files.ts';
@@ -44,6 +45,7 @@ import {
   type DocMark,
   type DocNode,
 } from './schema.ts';
+import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS } from './table-grid.ts';
 
 export interface RenderBodyOptions {
   /**
@@ -331,6 +333,56 @@ class BodyDrawing {
     return element;
   }
 
+  /**
+   * A table as the editor's view of one draws it: in a frame, with a column
+   * for each that its first row spans, each column at least so wide and the
+   * table at least as wide as they are together.
+   */
+  #table(node: DocNode): HTMLElement | undefined {
+    // Only rows and cells, and spans within the limits, whatever was handed in.
+    const spanOf = (cell: DocNode, name: string, limit: number): number => {
+      const span = cell.attrs?.[name];
+      return typeof span === 'number' && Number.isInteger(span) && span >= 1 && span <= limit
+        ? span
+        : 1;
+    };
+    const cellsOf = (row: DocNode): DocNode[] =>
+      childrenOf(row).filter((cell) => cell.type === 'tableCell' || cell.type === 'tableHeader');
+    const rows = childrenOf(node).filter((row) => row.type === 'tableRow');
+    if (rows.length === 0) return undefined;
+    const first = rows[0] ? cellsOf(rows[0]) : [];
+    const width = first.reduce((sum, cell) => sum + spanOf(cell, 'colspan', MAX_TABLE_COLUMNS), 0);
+    const columns = this.#page.createElement('colgroup');
+    for (let column = 0; column < width; column += 1) {
+      const col = this.#page.createElement('col');
+      col.style.setProperty('min-width', `${TABLE_CELL_MIN_WIDTH}px`);
+      columns.append(col);
+    }
+    const body = this.#page.createElement('tbody');
+    for (const row of rows) {
+      const line = this.#page.createElement('tr');
+      for (const cell of cellsOf(row)) {
+        const drawn = this.#container(cell.type === 'tableHeader' ? 'th' : 'td', cell);
+        for (const [name, limit] of [
+          ['colspan', MAX_TABLE_COLUMNS],
+          ['rowspan', MAX_TABLE_ROWS],
+        ] as const) {
+          const span = spanOf(cell, name, limit);
+          if (span !== 1) drawn.setAttribute(name, String(span));
+        }
+        line.append(drawn);
+      }
+      body.append(line);
+    }
+    const table = this.#page.createElement('table');
+    table.style.setProperty('min-width', `${width * TABLE_CELL_MIN_WIDTH}px`);
+    table.append(columns, body);
+    const frame = this.#page.createElement('div');
+    frame.setAttribute('class', 'tableWrapper');
+    frame.append(table);
+    return frame;
+  }
+
   #block(node: DocNode): HTMLElement | undefined {
     switch (node.type) {
       case 'paragraph':
@@ -379,6 +431,8 @@ class BodyDrawing {
         return this.#fileBlock(node);
       case 'blockMath':
         return this.#math('blockMath', node);
+      case 'table':
+        return this.#table(node);
       default:
         // Not on the list: not drawn.
         return undefined;

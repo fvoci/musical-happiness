@@ -29,6 +29,7 @@
 
 mod build;
 mod doc;
+mod mend;
 mod placing;
 mod project;
 mod read;
@@ -69,8 +70,8 @@ pub mod testing {
         crate::project::to_body(doc)
     }
 
-    /// Repairs a Y document in place: the deletions of a repaired copy are made to it
-    /// too, as an editor that holds the document makes them. A repair that fails
+    /// Repairs a Y document in place: the changes of a repaired copy are made to it
+    /// too, as an editor that holds the document takes them. A repair that fails
     /// leaves it as it was.
     ///
     /// # Errors
@@ -79,15 +80,15 @@ pub mod testing {
     ///
     /// # Panics
     ///
-    /// Panics if the deletions of a copy do not apply to the document they were made
+    /// Panics if the changes of a copy do not apply to the document they were made
     /// from, which would be a defect.
     pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
         let (repair, _) = crate::repair::repaired(doc)?;
-        if let Some(deletions) = &repair.update {
-            let deletions = Update::decode_v1(deletions).expect("the deletions are an update");
+        if let Some(changes) = &repair.update {
+            let changes = Update::decode_v1(changes).expect("the changes are an update");
             doc.transact_mut()
-                .apply_update(deletions)
-                .expect("the deletions apply to the document they were made from");
+                .apply_update(changes)
+                .expect("the changes apply to the document they were made from");
         }
         Ok(repair)
     }
@@ -246,6 +247,68 @@ pub mod testing {
                 };
                 let end = text.len(&txn);
                 text.insert(&mut txn, end, letters);
+            }
+            self.doc.transact().encode_diff_v1(&before)
+        }
+
+        /// Adds a column to the first table at the top: an empty cell at the end of
+        /// each row, and gives the update of it.
+        ///
+        /// # Panics
+        ///
+        /// Panics if there is no table at the top.
+        #[must_use]
+        pub fn add_table_column(&self) -> Vec<u8> {
+            self.edit_table(|txn, table| {
+                use yrs::{XmlFragment as _, XmlOut};
+                let rows: Vec<_> = table.children(txn).collect();
+                for row in rows {
+                    if let XmlOut::Element(row) = row {
+                        let end = row.len(txn);
+                        let cell = serde_json::json!({"type": "tableCell", "content": [{"type": "paragraph"}]});
+                        crate::build::insert_node(txn, &row, end, &cell);
+                    }
+                }
+            })
+        }
+
+        /// Adds a row of `cells` empty cells at the end of the first table at the top,
+        /// and gives the update of it.
+        ///
+        /// # Panics
+        ///
+        /// Panics if there is no table at the top.
+        #[must_use]
+        pub fn add_table_row(&self, cells: usize) -> Vec<u8> {
+            self.edit_table(|txn, table| {
+                use yrs::XmlFragment as _;
+                let cell =
+                    serde_json::json!({"type": "tableCell", "content": [{"type": "paragraph"}]});
+                let row = serde_json::json!({"type": "tableRow", "content": vec![cell; cells]});
+                let end = table.len(txn);
+                crate::build::insert_node(txn, table, end, &row);
+            })
+        }
+
+        fn edit_table(
+            &self,
+            edit: impl FnOnce(&mut yrs::TransactionMut<'_>, &yrs::XmlElementRef),
+        ) -> Vec<u8> {
+            use yrs::{ReadTxn as _, XmlFragment as _, XmlOut};
+            let before = self.doc.transact().state_vector();
+            let root = self.doc.get_or_insert_xml_fragment(crate::FIELD);
+            {
+                let mut txn = self.doc.transact_mut();
+                let table = root
+                    .children(&txn)
+                    .find_map(|child| match child {
+                        XmlOut::Element(element) if element.tag().as_ref() == "table" => {
+                            Some(element)
+                        }
+                        _ => None,
+                    })
+                    .expect("a table at the top");
+                edit(&mut txn, &table);
             }
             self.doc.transact().encode_diff_v1(&before)
         }

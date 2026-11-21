@@ -18,7 +18,6 @@ import {
 import { Blockquote } from '@tiptap/extension-blockquote';
 import { Bold } from '@tiptap/extension-bold';
 import { Code } from '@tiptap/extension-code';
-import { Document } from '@tiptap/extension-document';
 import { HardBreak } from '@tiptap/extension-hard-break';
 import { Heading } from '@tiptap/extension-heading';
 import { HorizontalRule } from '@tiptap/extension-horizontal-rule';
@@ -47,6 +46,7 @@ import { KeyReadsCaret } from './key-caret.ts';
 import { BlockMath, InlineMath } from './math-nodes.ts';
 import { Reference, type ReferenceOptions } from './reference.ts';
 import { isAllowedHref, isUserId } from './schema.ts';
+import { BodyDocument, BodyTable, BodyTableCell, BodyTableHeader, BodyTableRow } from './table.ts';
 import { BodyTaskItem } from './task-item.ts';
 
 /** A link keeps its target and nothing else; how it opens is the app's business, not the document's. */
@@ -305,7 +305,7 @@ export interface BodyExtensionOptions {
 export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension[] {
   return [
     // Nodes
-    Document,
+    BodyDocument,
     Paragraph,
     Text,
     Heading.configure({ levels: [1, 2, 3] }),
@@ -324,6 +324,10 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     Reference.configure(options.reference ?? {}),
     InlineMath,
     BlockMath,
+    BodyTable,
+    BodyTableRow,
+    BodyTableHeader,
+    BodyTableCell,
     // Marks
     Bold,
     Italic,

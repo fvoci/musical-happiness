@@ -45,6 +45,14 @@ import {
 
 import { BODIES, READINGS, REFUSED, REPAIRS, SESSION, type RawCase } from './cases.ts';
 import { rawType, type RawNode } from './shape.ts';
+import {
+  TABLE_MERGED_REFUSED,
+  TABLE_MERGED_SHORTENED,
+  TABLE_REFUSED,
+  TABLE_REPAIRS,
+  TABLE_SHORTENED,
+  type MergedCase,
+} from './table-cases.ts';
 
 /** The shared type an editor is bound to: the collaboration extension's own name for it. */
 export const FIELD = 'default';
@@ -67,7 +75,9 @@ const DESCRIPTION =
   'write it keeps as it is, and how it is read. refused: shared content the editors keep the ' +
   "same way though what they read (json) is no body: the editor's schema checks no value, the " +
   "server's rules do. repairs: shared content that does not fit the schema; json is what is left " +
-  'when an editor has deleted what fails. session: start is the document a server opens, ' +
+  'when an editor has deleted what fails. shortened: shared content from which an editor ' +
+  'deletes a cell that fails, which leaves its row a cell short, so that json is no body; the ' +
+  'server puts an empty cell in its place. session: start is the document a server opens, ' +
   'updates are what the binding of one editor sends after it, in order, as it makes one edit ' +
   'after another, and json is what an editor reads at the end. schema: the marks in the order the editor stores them, ' +
   'and the attributes of each mark and node with the value given to one that is left out ' +
@@ -105,6 +115,7 @@ export interface YdocVectors {
   readings: YdocVector[];
   refused: YdocVector[];
   repairs: YdocVector[];
+  shortened: YdocVector[];
   session: { start: string; updates: string[]; json: DocNode | null };
 }
 
@@ -148,13 +159,13 @@ const sameBytes = (one: Uint8Array, other: Uint8Array): boolean =>
   one.length === other.length && one.every((byte, index) => byte === other[index]);
 
 /** What a case is filed under, which says what an editor does with it. */
-type Filed = 'kept' | 'refused' | 'repaired';
+type Filed = 'kept' | 'refused' | 'repaired' | 'shortened';
 
 /**
  * The vector of a Y document: its update and what an editor makes of it.
  * Fails if the editor does not do what the case is filed under: delete from
- * what is repaired and from nothing else, and read a body from everything
- * but what is refused.
+ * what is repaired or shortened and from nothing else, and read a body from
+ * everything but what is refused or shortened.
  */
 function vectorOf(name: string, written: Y.Doc, schema: Schema, filed: Filed): YdocVector {
   const update = Y.encodeStateAsUpdate(written);
@@ -162,7 +173,7 @@ function vectorOf(name: string, written: Y.Doc, schema: Schema, filed: Filed): Y
   const json = readStored(reader, schema);
   const after = Y.encodeStateAsUpdate(reader);
   const deleted = !sameBytes(update, after);
-  if (deleted !== (filed === 'repaired')) {
+  if (deleted !== (filed === 'repaired' || filed === 'shortened')) {
     throw new Error(
       `${name}: the editor ${deleted ? 'deleted something' : 'deleted nothing'} when it read`,
     );
@@ -174,9 +185,10 @@ function vectorOf(name: string, written: Y.Doc, schema: Schema, filed: Filed): Y
   )
     throw new Error(`${name}: reading a second time changed what was read`);
   const problems = json === null ? [] : validateDoc(json);
-  if (filed === 'refused' ? problems.length === 0 : problems.length > 0) {
+  const noBody = filed === 'refused' || filed === 'shortened';
+  if (noBody ? problems.length === 0 : problems.length > 0) {
     throw new Error(
-      filed === 'refused'
+      noBody
         ? `${name}: what the editor reads is a body`
         : `${name}: what the editor reads is not a body: ${problems.join('; ')}`,
     );
@@ -279,6 +291,18 @@ function mergedRepairs(schema: Schema): YdocVector[] {
   return made.map(([name, doc]) => vectorOf(name, doc, schema, 'repaired'));
 }
 
+/** The vectors of merged cases, filed as what an editor does with what they leave. */
+function mergedVectors(cases: MergedCase[], schema: Schema, filed: Filed): YdocVector[] {
+  return cases.map((one) =>
+    vectorOf(
+      one.name,
+      merged(rawDoc(one.base), one.first, one.second, schema, one.name),
+      schema,
+      filed,
+    ),
+  );
+}
+
 /** The attributes a kind of node or mark has, with the value given to one left out. */
 function attributesOf(
   kind: string,
@@ -352,8 +376,20 @@ export function buildVectors(schema: Schema, bodyCases: BodyCase[]): YdocVectors
     documents,
     bodies,
     readings: raw(READINGS, 'kept'),
-    refused: raw(REFUSED, 'refused'),
-    repairs: [...mergedRepairs(schema), ...raw(REPAIRS, 'repaired')],
+    refused: [
+      ...raw(REFUSED, 'refused'),
+      ...raw(TABLE_REFUSED, 'refused'),
+      ...mergedVectors(TABLE_MERGED_REFUSED, schema, 'refused'),
+    ],
+    repairs: [
+      ...mergedRepairs(schema),
+      ...raw(REPAIRS, 'repaired'),
+      ...raw(TABLE_REPAIRS, 'repaired'),
+    ],
+    shortened: [
+      ...raw(TABLE_SHORTENED, 'shortened'),
+      ...mergedVectors(TABLE_MERGED_SHORTENED, schema, 'shortened'),
+    ],
     session: session(schema),
   };
 }
