@@ -449,7 +449,7 @@
           "number": {
             "description": "A card's number on its board, as `Card.number` gives it; absent for a template\nof the board's cards and for every other block. The server gives it and ignores\na client's, whatever it is.",
             "format": "int32",
-            "minimum": 0,
+            "minimum": 1,
             "type": [
               "integer",
               "null"
@@ -726,9 +726,9 @@
             "type": "string"
           },
           "number": {
-            "description": "The card's number on its board, as `#12` names it: from 1, one more for each card\nmade on the board, never changed and never given again, also once the card is\ngone. A copy and an import are new cards with new numbers; a card that comes back\nfrom the trash has its own. `null` for a template of the board's cards\n(`isTemplate`). The server gives it: what a request sends here is ignored,\nwhatever it is.",
+            "description": "The card's number on its board, as `#12` names it: from 1, one more for each card\nmade on the board, never given again, also once the card is gone. A card keeps it\nwhile it is one; a copy and an import are new cards with new numbers, and a card\nthat comes back from the trash has its own. `null` for a template of the board's\ncards (`isTemplate`): a card made a template loses its number, and takes the next\none if it is made a card again. The server gives it: what a request sends here is\nignored, whatever it is.",
             "format": "int32",
-            "minimum": 0,
+            "minimum": 1,
             "type": [
               "integer",
               "null"
@@ -2139,7 +2139,7 @@
           "number": {
             "description": "A card's number on its board, as `Card.number` gives it; absent for a page.",
             "format": "int32",
-            "minimum": 0,
+            "minimum": 1,
             "type": [
               "integer",
               "null"
@@ -4207,7 +4207,7 @@
           "number": {
             "description": "A card's number on its board, as `Card.number` gives it; absent for a page.",
             "format": "int32",
-            "minimum": 0,
+            "minimum": 1,
             "type": [
               "integer",
               "null"

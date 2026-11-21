@@ -402,6 +402,7 @@ pub struct Block {
     /// A card's number on its board, as `Card.number` gives it; absent for a template
     /// of the board's cards and for every other block. The server gives it and ignores
     /// a client's, whatever it is.
+    #[schema(minimum = 1)]
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -443,16 +444,23 @@ where
 }
 
 impl Block {
+    /// Whether the block is a template of its board's cards: its `isTemplate` is the
+    /// JSON `true` (a block without the field, or with another value, is none).
+    #[must_use]
+    pub fn is_template(&self) -> bool {
+        self.fields.get("isTemplate") == Some(&Value::Bool(true))
+    }
+
     /// Whether the block has a number on its board: a card that is no template of its
-    /// board's cards (`isTemplate` the JSON `true`). The first card stored on a board
-    /// gets 1 and each one stored after it the next number; a number never changes and
-    /// is never given again, also once its card is gone. A card that is copied or
-    /// imported is a new card with a new number; a card that comes back from the trash
-    /// has its own. A block that stops being such a card loses its number.
+    /// board's cards ([`Block::is_template`]). The first card stored on a board gets 1
+    /// and each one stored after it the next number; a card keeps its number while it is
+    /// one, and a number is never given again, also once its card is gone. A card that
+    /// is copied or imported is a new card with a new number; a card that comes back
+    /// from the trash has its own. A block that stops being such a card loses its
+    /// number, and takes the next one if it becomes one again.
     #[must_use]
     pub fn takes_number(&self) -> bool {
-        self.block_type == BlockType::Card
-            && self.fields.get("isTemplate") != Some(&Value::Bool(true))
+        self.block_type == BlockType::Card && !self.is_template()
     }
 
     /// Checks that the block may be stored.

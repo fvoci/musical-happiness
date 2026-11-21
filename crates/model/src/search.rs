@@ -99,6 +99,7 @@ pub struct SearchHit {
     /// Its title as it is now.
     pub title: String,
     /// A card's number on its board, as `Card.number` gives it; absent for a page.
+    #[schema(minimum = 1)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number: Option<u32>,
     /// A piece of its body around what matched, in stretches that follow one

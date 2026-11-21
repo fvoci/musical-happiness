@@ -47,11 +47,13 @@ pub struct Card {
     /// The identifier of the board the card belongs to.
     pub board_id: String,
     /// The card's number on its board, as `#12` names it: from 1, one more for each card
-    /// made on the board, never changed and never given again, also once the card is
-    /// gone. A copy and an import are new cards with new numbers; a card that comes back
-    /// from the trash has its own. `null` for a template of the board's cards
-    /// (`isTemplate`). The server gives it: what a request sends here is ignored,
-    /// whatever it is.
+    /// made on the board, never given again, also once the card is gone. A card keeps it
+    /// while it is one; a copy and an import are new cards with new numbers, and a card
+    /// that comes back from the trash has its own. `null` for a template of the board's
+    /// cards (`isTemplate`): a card made a template loses its number, and takes the next
+    /// one if it is made a card again. The server gives it: what a request sends here is
+    /// ignored, whatever it is.
+    #[schema(minimum = 1)]
     #[serde(deserialize_with = "crate::block::number_as_sent")]
     pub number: Option<u32>,
     /// The identifier of the user who created the card.

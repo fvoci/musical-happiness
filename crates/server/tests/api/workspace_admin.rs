@@ -75,6 +75,10 @@ fn content(board_id: &str, card_id: &str) -> Vec<(Method, String, String)> {
             format!("{TEST_WS}/cards/{UNKNOWN_ID}"),
         ),
         get(
+            format!("{TEST_WS}/boards/{board_id}/cards/by-number/1"),
+            format!("{TEST_WS}/boards/{UNKNOWN_ID}/cards/by-number/1"),
+        ),
+        get(
             format!("{TEST_WS}/containers/{board_id}/sharing"),
             format!("{TEST_WS}/containers/{UNKNOWN_ID}/sharing"),
         ),
