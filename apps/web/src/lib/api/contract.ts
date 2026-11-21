@@ -2146,7 +2146,25 @@ export interface paths {
          */
         get: operations["getCardBodyVersions"];
         put?: never;
-        post?: never;
+        /**
+         * Keep a card's body as a version now
+         * @description Keeps the body the card has as a version, by hand (`cause` `manual`), as an editor
+         *     asks for one: what those who edit the card together typed is written to it first, so
+         *     that the version is their body of that moment, and what they see and type goes on as
+         *     it was. The version names who wrote the body since the one before, as every version
+         *     does, and is as of now; the caller is not named for asking. It counts with the
+         *     others against the versions kept, the oldest going. After it, the next version the
+         *     server keeps on its own is of what is typed after it.
+         *
+         *     Nothing is kept (`outcome` `unchanged`, `version` the newest) of a body that is the
+         *     card's newest version already, nor (`outcome` `recent`, `version` that one) within
+         *     a minute of a version kept by hand, the server then keeping what was typed since on
+         *     its own. For editors of the card's board, as `restoreCardBodyVersion` is (403 for
+         *     its other members); to a user who is no member of it there is no such card, and a
+         *     card in the trash is not there (404). 503 (`document_unavailable`) if what was typed
+         *     cannot be written to the card now.
+         */
+        post: operations["keepCardBodyVersion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3831,7 +3849,15 @@ export interface paths {
          */
         get: operations["getPageBodyVersions"];
         put?: never;
-        post?: never;
+        /**
+         * Keep a page's body as a version now
+         * @description As `keepCardBodyVersion` keeps a card's: the body the page has, with what those who
+         *     edit it together typed, by hand; nothing of a body that is its newest version
+         *     already (`unchanged`), nor within a minute of a version kept by hand (`recent`). For
+         *     editors of the wiki (403 for its other members). A page in the trash is not there
+         *     (404).
+         */
+        post: operations["keepPageBodyVersion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4396,10 +4422,13 @@ export interface components {
          *     to then.
          */
         BodyVersion: {
+            /** @description How it came to be kept. */
+            cause: components["schemas"]["BodyVersionCause"];
             /**
              * @description Who wrote the body up to this version since the one before, in the order of
              *     their identifiers: those who edited it and those who wrote it whole. Empty for
-             *     a body nobody is known to have written.
+             *     a body nobody is known to have written; who asked for a version is not named
+             *     for asking.
              */
             editors: string[];
             /**
@@ -4412,7 +4441,7 @@ export interface components {
              * Format: int64
              * @description When the version was kept, in milliseconds since the Unix epoch. For a body
              *     nobody is known to have written (one from before versions were kept, or from an
-             *     import), when the card was last changed.
+             *     import) that the server kept, when the card was last changed.
              */
             keptAt: number;
             /**
@@ -4422,9 +4451,17 @@ export interface components {
              */
             version: number;
         };
+        /**
+         * @description How a version of a card's body came to be kept, as its readers are told: by somebody
+         *     who asked for it, by going back to a version, or by the server on its own.
+         * @enum {string}
+         */
+        BodyVersionCause: "auto" | "manual" | "restored";
         /** @description A version kept of a card's body, with the body. */
         BodyVersionContent: {
             body: components["schemas"]["Body"] | null;
+            /** @description How it came to be kept. */
+            cause: components["schemas"]["BodyVersionCause"];
             /**
              * @description Who wrote the body up to this version since the one before, in the order of
              *     their identifiers. Empty for a body nobody is known to have written.
@@ -5181,6 +5218,17 @@ export interface components {
             /** @description The token of the link. */
             token: string;
         };
+        /** @description The answer to an editor who asked to keep a body as a version now. */
+        KeptBodyVersion: {
+            /** @description Whether a version was kept, and if not, why. */
+            outcome: components["schemas"]["KeptOutcome"];
+            version: components["schemas"]["BodyVersion"] | null;
+        };
+        /**
+         * @description What became of a body an editor asked to keep as a version now.
+         * @enum {string}
+         */
+        KeptOutcome: "kept" | "unchanged" | "recent";
         /**
          * @description An organization that goes with the account of its only member, and how much is in
          *     it: the account's own space, and an organization of people that has nobody else. The
@@ -9863,6 +9911,40 @@ export interface operations {
             };
         };
     };
+    keepCardBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What became of the body. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeptBodyVersion"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getCardBodyVersion: {
         parameters: {
             query?: never;
@@ -12759,6 +12841,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BodyVersion"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    keepPageBodyVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is. */
+                wikiId: string;
+                /** @description The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki. */
+                pageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What became of the body. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeptBodyVersion"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
