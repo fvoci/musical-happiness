@@ -4,8 +4,8 @@
  * of 744) and folded to its strip (944), with the card search closed and
  * open; a window of 1,280; one of 626; a phone of 390. Whatever the width,
  * the views are behind one button that names the view shown, its name not
- * cut, and the list it opens has every view in its order, each name whole or,
- * cut, whole in its tooltip.
+ * cut, and the list it opens has every view in its order, each name whole:
+ * on its line in a sheet, which wraps it, or in the tooltip of a dropdown's.
  *
  * The first board of the seed has four views of long names: "Progress
  * Tracker" (shown first), "Project Priorities", "Task Calendar", "Task
@@ -274,8 +274,10 @@ for (const scheme of ['light', 'dark'] as const) {
         const long = names.find((name) => name.startsWith('Everything')) ?? '';
         await openList(page);
         await expect(listed(page)).toHaveText(names);
-        // Cut in the list too, where it is too long, and whole in the line's tooltip.
+        // A sheet wraps it; a dropdown cuts it, whole in the line's tooltip.
         await expect(listed(page).filter({ hasText: long })).toHaveAttribute('title', long);
+        if (width === 390) expect(await cutLines(page)).toEqual([]);
+        else expect(await cutLines(page)).toEqual([long]);
         await picture(page, `${String(width)}-eight-list-${scheme}`);
         await listed(page).filter({ hasText: long }).click();
         const views = tool(page, 'views');

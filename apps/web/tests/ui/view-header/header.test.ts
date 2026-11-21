@@ -61,7 +61,7 @@ interface Mounted {
   onAddCard: ReturnType<typeof vi.fn<() => void>>;
   /** The view the header is shown for, as the store has it now. */
   view: () => NonNullable<ReturnType<BoardStore['view']>>;
-  /** Shows another view, as the board page does when the address changes. */
+  /** Shows another view (by its title or identifier), as the board page does when the address changes. */
   show: (title: string) => Promise<void>;
   unmount: () => void;
 }
@@ -86,7 +86,8 @@ async function mount(title: string, template: SeedTemplate = TWO_VIEWS): Promise
       return view;
     },
     show: async (other) => {
-      const viewId = board.views.find((view) => view.title === other)?.id ?? '';
+      const viewId =
+        board.views.find((view) => view.id === other || view.title === other)?.id ?? '';
       await rerender({ board, viewId, onOpenView, onAddCard });
     },
     unmount,
@@ -220,6 +221,15 @@ describe('the whole row', () => {
     expect(said.textContent.trim()).toBe('Now showing: Board');
     await show('List');
     expect(said.textContent.trim()).toBe('Now showing: List');
+
+    // Another view of the same name: the same words, said again as a new line.
+    await board.changeView(shown, (current) => ({ ...current, title: 'List' }), 'renameView');
+    await settled();
+    const line = said.firstElementChild;
+    await show(shown);
+    expect(toolButton('views')).toHaveTextContent('List');
+    expect(said.textContent.trim()).toBe('Now showing: List');
+    expect(said.firstElementChild).not.toBe(line);
   });
 
   it('"New" asks for a card', async () => {
@@ -389,6 +399,19 @@ describe('views', () => {
     expect(board.views.map((view) => view.title)).toEqual(['Board']);
     await workspace.undoLast();
     expect(board.views.map((view) => view.title).sort()).toEqual(['Board', 'List']);
+  });
+
+  it('deletes the view it asked about, also when another is shown before the answer', async () => {
+    const { board, show } = await mount('List');
+    await openMenu(toolButton('views'));
+    await choose('Delete view');
+    const dialog = await screen.findByTestId('confirm-dialog');
+    // The address goes back to another view (the browser's back) while the question is open.
+    await show('Board');
+    expect(dialog).toHaveTextContent('Delete “List”?');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    await settled();
+    expect(board.views.map((view) => view.title)).toEqual(['Board']);
   });
 
   it('cannot delete the last view of a board', async () => {

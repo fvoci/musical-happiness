@@ -10,7 +10,7 @@
   A line with an address (`href`) is a link, in either: it can be opened in
   a new tab (a click or Enter with Ctrl, ⌘ or Shift, the middle button), the
   one marked is the page shown (`aria-current`), and its whole label is its
-  tooltip, for a label too long for the line.
+  tooltip, for a label the dropdown cuts. The sheet's lines wrap instead.
 -->
 <script lang="ts">
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -68,7 +68,8 @@
 {#snippet sheetLine(action: MenuAction)}
   {@const Icon = action.icon}
   {#if Icon}<Icon class="size-5 shrink-0" />{/if}
-  <span class="min-w-0 flex-1 truncate">{action.label}</span>
+  <!-- Wrapped, not cut: a sheet is read by touch, where no tooltip shows. -->
+  <span class="min-w-0 flex-1 py-1 break-words">{action.label}</span>
   {#if action.hint}
     <span class="shrink-0 text-sm text-muted-foreground">{action.hint}</span>
   {/if}

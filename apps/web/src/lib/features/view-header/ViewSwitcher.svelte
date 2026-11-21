@@ -4,9 +4,9 @@
   cut short where it is long and whole in its tooltip) and opens the list of
   all of them, in their order, the one shown marked: a dropdown, or a sheet
   on a compact page. Each line is a link to its view's address, which a
-  click that asks for a new tab or window opens there; any other click, and
-  Enter, shows the view here, and the focus is back on the button, which
-  now names it.
+  click or Enter that asks for a new tab or window (Ctrl, ⌘, Shift, the
+  middle button) opens there; any other click, and Enter, shows the view
+  here, and the focus is back on the button, which now names it.
 
   A reader who may change the board finds under the views the kinds of view
   to add, and what is done to the view that is shown: a new name, a copy,
@@ -55,6 +55,8 @@
 
   let renameOpen = $state(false);
   let deleteOpen = $state(false);
+  /** The view the question is about, as it was asked: the page may show another by the answer. */
+  let deleting = $state.raw<BoardView | undefined>(undefined);
   let box = $state<HTMLElement | null>(null);
 
   let renameDraft = $state('');
@@ -150,6 +152,7 @@
       separated: true,
       disabled: board.views.length <= 1,
       run: () => {
+        deleting = view;
         deleteOpen = true;
       },
     },
@@ -221,11 +224,14 @@
 {#if board.canEdit}
   <ConfirmDialog
     bind:open={deleteOpen}
-    title={m.viewheader_delete_view_title({ name: viewTitle(view) })}
+    title={m.viewheader_delete_view_title({ name: viewTitle(deleting ?? view) })}
     description={m.viewheader_delete_view_description()}
     confirmLabel={m.shared_delete()}
     destructive
-    onConfirm={() => void board.deleteView(view.id)}
+    onConfirm={() => {
+      // Gone already (deleted elsewhere): nothing else is deleted in its place.
+      if (deleting && board.view(deleting.id)) void board.deleteView(deleting.id);
+    }}
     focusAfter={() =>
       // The line it was asked from is gone with the list: the button, which names the view now.
       box?.querySelector<HTMLElement>('[data-tool="views"]')}

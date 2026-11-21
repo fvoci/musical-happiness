@@ -18,9 +18,9 @@ export interface MenuAction {
   separated?: boolean;
   disabled?: boolean;
   /**
-   * The line is a link to this address. A click that asks for a new tab or
-   * window (a key held, the middle button) is the browser's; any other, and
-   * Enter, runs `run` in place of following it.
+   * The line is a link to this address. A click or Enter that asks for a new
+   * tab or window (Ctrl, ⌘ or Shift held, the middle button) is the
+   * browser's; any other click, and Enter, runs `run` in place of following it.
    */
   href?: string;
   run: () => void;

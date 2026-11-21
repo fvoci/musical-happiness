@@ -424,6 +424,7 @@
 {/if}
 
 <!-- Outside the header: in the folded row an open search field leaves the rest of it out of reach. -->
+<!-- Each view shown is a new line in it, said also where its name is the one said before. -->
 <p class="sr-only" role="status" data-testid="view-shown">
-  {m.viewheader_view_shown({ name: shownName })}
+  {#key shownId}<span>{m.viewheader_view_shown({ name: shownName })}</span>{/key}
 </p>
