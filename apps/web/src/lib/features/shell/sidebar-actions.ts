@@ -3,7 +3,8 @@
  * from the list (`SidebarList.svelte`), which is long.
  *
  * A wiki's menu is a board's without what is only a board's: making a
- * template of it.
+ * template of it. A diary's has neither that nor a copy: a diary is one of a
+ * kind in its own space.
  */
 import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
@@ -124,7 +125,8 @@ export function containerActions(
   home: Category,
 ): MenuAction[] {
   const { workspace } = menus;
-  const wiki = container.kind === 'wiki';
+  const kind = container.kind ?? 'board';
+  const wiki = kind === 'wiki';
   const moves = workspace.sidebar
     .filter((entry) => entry.category.id !== home.id)
     .map((entry): MenuAction => ({
@@ -141,17 +143,20 @@ export function containerActions(
   return [
     ...moves,
     ...saving,
-    {
-      id: 'duplicate',
-      label: wiki ? m.shell_duplicate_wiki() : m['Sidebar.duplicate-board'](),
-      icon: CopyIcon,
-      run: () => {
-        menus.onDuplicateContainer(container.id);
-      },
-    },
-    ...(wiki
+    ...(kind === 'diary'
       ? []
       : [
+          {
+            id: 'duplicate',
+            label: wiki ? m.shell_duplicate_wiki() : m['Sidebar.duplicate-board'](),
+            icon: CopyIcon,
+            run: () => {
+              menus.onDuplicateContainer(container.id);
+            },
+          },
+        ]),
+    ...(kind === 'board'
+      ? [
           {
             id: 'template-from-board',
             label: m['Sidebar.template-from-board'](),
@@ -160,16 +165,25 @@ export function containerActions(
               menus.onTemplateFromBoard(container.id);
             },
           },
-        ]),
+        ]
+      : []),
     {
       id: 'hide',
-      label: wiki ? m.shell_hide_wiki() : m['HideBoard.MenuOption'](),
+      label: {
+        board: m['HideBoard.MenuOption'],
+        wiki: m.shell_hide_wiki,
+        diary: m.shell_hide_diary,
+      }[kind](),
       icon: EyeOffIcon,
       run: () => void workspace.hideContainer(container.id),
     },
     {
       id: 'delete',
-      label: wiki ? m.shell_delete_wiki() : m['Sidebar.delete-board'](),
+      label: {
+        board: m['Sidebar.delete-board'],
+        wiki: m.shell_delete_wiki,
+        diary: m.shell_delete_diary,
+      }[kind](),
       icon: Trash2Icon,
       destructive: true,
       separated: true,

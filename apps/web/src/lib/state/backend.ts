@@ -42,6 +42,7 @@ import type { TrashReads } from './trash-reads.ts';
 import type { ChangeListener } from './changes.ts';
 import type { ContentSearchOfBackend } from './content-search.ts';
 import type { WikisOfBackend } from './wiki-types.ts';
+import type { DiariesOfBackend } from './diary-types.ts';
 import type { WorkspaceInfo } from './workspace-types.ts';
 
 export type {
@@ -62,6 +63,7 @@ export * from './content-search.ts';
 export type { BodyDoc, BodyDocHears, BodyDocState, BodyDocStatus, DocRooms } from './body-doc.ts';
 export { isCardBlock, isViewBlock, type Change, type ChangeListener } from './changes.ts';
 export type * from './wiki-types.ts';
+export type * from './diary-types.ts';
 export { isOwnSpace, type OrgKind, type WorkspaceInfo } from './workspace-types.ts';
 
 /** What an import did beyond making the archive's boards. */
@@ -277,6 +279,7 @@ export interface Backend
     PresenceOfContainers,
     OfBodies,
     WikisOfBackend,
+    DiariesOfBackend,
     ContentSearchOfBackend,
     VersionsOfFiles {
   // The reader and the people around them.

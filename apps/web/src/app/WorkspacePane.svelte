@@ -20,9 +20,10 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import BoardPage from './BoardPage.svelte';
+  import DiaryPage from './DiaryPage.svelte';
   import { lastPlace, rememberPlace } from './last-workspace.ts';
   import NotFound from './NotFound.svelte';
-  import { placeRoute, type Router } from './router.svelte.ts';
+  import { placeRoute, shownContainerId, type Router } from './router.svelte.ts';
   import WikiPage from './WikiPage.svelte';
 
   interface Props {
@@ -60,8 +61,8 @@
       : undefined,
   );
   const here = $derived(workspace.asked === router.route.workspaceId);
-  /** The board or the wiki of the address. */
-  const placeId = $derived(router.route.boardId ?? router.route.wikiId);
+  /** The board, wiki or diary of the address. */
+  const placeId = $derived(shownContainerId(router.route));
 
   // Without a board or a wiki in the address: the last one the reader was on, or the first.
   $effect(() => {
@@ -122,6 +123,8 @@
   <BoardPage {workspace} {router} />
 {:else if router.route.wikiId}
   <WikiPage {workspace} {router} />
+{:else if router.route.diaryId}
+  <DiaryPage {workspace} {router} />
 {:else}
   <WorkspaceStart own={isOwnSpace(shown)} {onAddBoard} />
 {/if}

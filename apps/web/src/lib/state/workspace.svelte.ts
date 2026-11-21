@@ -320,7 +320,7 @@ export class Workspace {
     const begun = this.#sidebarWrites.begun;
     try {
       const [boards, categories] = await Promise.all([
-        entry.modulesOf(this.backend, workspace.id),
+        entry.modulesOf(this.backend, workspace),
         this.backend.categories(workspace.id),
       ]);
       // Superseded, or another workspace was entered meanwhile.

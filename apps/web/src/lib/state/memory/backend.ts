@@ -77,6 +77,7 @@ import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
+import { MemoryDiaries } from './diaries.ts';
 import { MemoryCategories, fileAsNew } from './categories.ts';
 import { checkWorkspace, workersOf, workspacesOf } from './spaces.ts';
 import { copiedBlocks, copyTitle, giveCopiesFiles } from './copies.ts';
@@ -125,6 +126,7 @@ export class MemoryBackend implements Backend {
   readonly userId: string;
   readonly presence: MemoryPresence;
   readonly wiki = new MemoryWikis(this);
+  readonly diary = new MemoryDiaries(this);
   readonly bodyVersions: MemoryBodyVersions;
   readonly search: MemoryContentSearch;
   readonly references = new MemoryReferences(this, () => this.#enter('references'));
@@ -328,7 +330,7 @@ export class MemoryBackend implements Backend {
     const mine = [...this.world.containers.values()].filter(
       (board) =>
         board.workspaceId === workspaceId &&
-        board.kind !== 'wiki' &&
+        (board.kind ?? 'board') === 'board' &&
         this.#memberIds(board.id).includes(this.userId),
     );
     return scramble(mine).map(copy);

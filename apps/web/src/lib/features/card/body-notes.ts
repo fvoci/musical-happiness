@@ -68,6 +68,24 @@ export const PAGE_WORDS: BodyWords = {
 };
 
 /** How long joining or receiving lasts before it is said, in milliseconds. */
+export const ENTRY_WORDS: BodyWords = {
+  label: m.diary_entry_body,
+  placeholder: m.diary_entry_placeholder,
+  empty: m.diary_entry_empty,
+  invalid: m.diary_body_invalid,
+  joining: m.diary_body_joining,
+  receiving: m.diary_body_receiving,
+  offline: m.diary_body_offline,
+  readOnly: m.diary_body_read_only,
+  gone: m.diary_body_gone,
+  unavailable: m.diary_body_unavailable,
+  notOpened: m.diary_body_not_opened,
+  lostReset: m.diary_body_lost_reset,
+  lostImage: m.diary_body_lost_image,
+  lostFile: m.diary_body_lost_file,
+  lostFormula: m.diary_body_lost_formula,
+};
+
 export const LATE_NOTE = 1000;
 
 export interface RoomNote {

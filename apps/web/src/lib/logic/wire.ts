@@ -84,6 +84,7 @@ export const BLOCK_TYPES = [
   'card',
   'comment',
   'page',
+  'entry',
   'unknown',
 ] as const;
 
