@@ -80,8 +80,8 @@
   --container-columns: 34rem;
   /* pane: 992px, the wide pane: kanban and table columns widen, "Share" has its word. */
   --container-header: 62rem;
-  /* pane: 704px, the header of a view in one row: the views as tabs, the tools as icons. */
-  --container-tabs: 44rem;
+  /* pane: 704px, the header of a view in one row: the button of the views, the tools as icons. */
+  --container-view-row: 44rem;
   /* card: 576px. From here the names of the properties get a wider column. */
   --container-card-roomy: 36rem;
 }

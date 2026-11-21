@@ -74,14 +74,8 @@ export async function storedFields(page: Page): Promise<Record<string, unknown>>
 
 /** Adds a Gantt view to the board that is open, from the list of kinds. */
 export async function addGantt(page: Page): Promise<void> {
-  const header = page.getByTestId('view-header');
-  if ((await header.getAttribute('data-layout')) === 'row') {
-    await header.locator('[data-tool="add-view"]').click();
-    await page.getByRole('menuitem', { name: 'Gantt', exact: true }).click();
-  } else {
-    await header.locator('[data-tool="views"]').click();
-    await page.getByRole('menuitem', { name: 'Add Gantt view' }).click();
-  }
+  await page.getByTestId('view-header').locator('[data-tool="views"]').click();
+  await page.getByRole('menuitem', { name: 'Add Gantt view' }).click();
   await expect(gantt(page)).toBeVisible();
   await expect(scroller(page)).toBeVisible();
 }

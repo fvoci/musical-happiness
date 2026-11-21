@@ -39,16 +39,7 @@ export function viewTitle(view: BoardView): string {
   return view.title || m['Sidebar.untitled-view']();
 }
 
-/** What a kind of view is called where one is added from a list of kinds. */
-export const VIEW_KIND_NAMES: Record<AddableViewType, () => string> = {
-  board: m['View.Board'],
-  table: m['View.Table'],
-  gallery: m['View.Gallery'],
-  calendar: m.viewheader_kind_calendar,
-  gantt: m.viewheader_kind_gantt,
-};
-
-/** The line that adds a view of a kind, where it stands among other lines. */
+/** The line that adds a view of a kind, in the list of views. */
 export const ADD_VIEW_LABELS: Record<AddableViewType, () => string> = {
   board: m.viewheader_add_board_view,
   table: m.viewheader_add_table_view,
@@ -129,8 +120,7 @@ const HINT_LETTERS = 20;
 /**
  * The lines of "…" for the tools that have no button of their own: in the
  * folded row most of them; in the whole row "dependencies" alone (set once
- * for a Gantt chart and seldom again, it does not take a place from the
- * tabs of the views).
+ * for a Gantt chart and seldom again, it takes no place in the row).
  */
 export function asideTools(offer: AsideOffer, open: Record<AsideTool, () => void>): MenuAction[] {
   const line = (id: AsideTool, label: string, icon: Icon, hint?: string): MenuAction => ({

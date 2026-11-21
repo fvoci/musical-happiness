@@ -51,6 +51,9 @@ test('a file chosen through the slash menu is a file block that saves its bytes 
   const block = page.getByTestId('page-body').locator('[data-file-block]');
   await expect(block).toHaveAttribute('data-state', 'shown');
   await expect(block).toHaveAttribute('aria-label', `File: ${NAME}, ${PDF.length} B`);
+  await expect(
+    page.getByTestId('transfers').locator('[data-transfer="upload"]').filter({ hasText: NAME }),
+  ).toHaveAttribute('data-finished', '');
   await expect(block.locator('.doc-file-name')).toHaveText(NAME);
   await expect(body).not.toContainText('/');
 
@@ -165,14 +168,22 @@ test('a file still going up when the page is left is given up, and the reader is
     buffer: Buffer.from(PDF),
   });
   await expect(page.getByTestId('page-body').locator('.doc-upload')).toHaveCount(1);
+  // Going up is told where every upload is, not in a line under the body that blinks away.
+  await expect(
+    page.getByTestId('transfers').locator('[data-transfer="upload"][data-name="slow.pdf"]'),
+  ).toContainText('Uploading slow.pdf');
+  await expect(page.getByTestId('page-body').locator('.doc-editor-status')).toHaveText('');
   await latency(page, 40);
 
-  const told = page.getByTestId('problems').locator('[data-problem="left"]');
+  // Given up as the page is left, and told so in the stack until dismissed: not where problems are.
+  const told = page.getByTestId('transfers').locator('[data-failed="left"]');
   await expect(told).toHaveCount(0);
   await showTree(page);
   await treeItem(page, 'Agenda').click();
   await expect(page.getByTestId('page-title')).toHaveValue('Agenda');
-  await expect(told).toHaveText(/A file was still going up when you left: it was not added\./);
+  await expect(told).toContainText('slow.pdf was not uploaded.');
+  await expect(told).toContainText('You left before it was in. Add it once more.');
+  await expect(page.locator('[data-problem]')).toHaveCount(0);
 
   // Nothing of it is on the page it was going up for.
   await showTree(page);

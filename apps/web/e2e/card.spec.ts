@@ -1037,7 +1037,7 @@ test('attachments: several files at once, a link to each, deleting and bringing 
   expect([...names].sort()).toEqual(['figures.csv', 'notes.txt']);
 });
 
-test('an upload shows how far it is and can be given up; one that fails stays until dismissed', async ({
+test('an upload shows how far it is, in place and in the stack, and can be given up; one that fails stays until dismissed', async ({
   page,
 }) => {
   await openTaskCard(page);
@@ -1055,9 +1055,13 @@ test('an upload shows how far it is and can be given up; one that fails stays un
   });
   await page.getByTestId('attach-input').setInputFiles([file('slow.txt')]);
   const slow = uploads.filter({ hasText: 'slow.txt' });
+  const stacked = page.getByTestId('transfers').locator('[data-transfer="upload"]');
   await expect(slow.getByRole('progressbar', { name: 'Uploading slow.txt' })).toBeVisible();
+  await expect(stacked.filter({ hasText: 'slow.txt' })).toBeVisible();
+  // Given up in place, it is given up in the stack too: the same upload.
   await slow.getByRole('button', { name: 'Cancel the upload of slow.txt' }).click();
   await expect(uploads).toHaveCount(0);
+  await expect(stacked).toHaveCount(0);
   await page.evaluate(() => {
     window.fvociDev.backend.latency = 40;
   });
@@ -1074,9 +1078,12 @@ test('an upload shows how far it is and can be given up; one that fails stays un
   const refused = uploads.filter({ hasText: 'refused.txt' });
   await expect(refused).toContainText('Not uploaded');
   await expect(refused).toHaveAttribute('data-failed', '');
-  await expect(page.getByTestId('problems')).toContainText('The file is larger than');
+  // Why is told where every upload is, and not again where problems are.
+  await expect(stacked.filter({ hasText: 'refused.txt' })).toContainText('It is larger than');
+  await expect(page.getByTestId('problems').locator('[data-problem]')).toHaveCount(0);
   await refused.getByRole('button', { name: 'Dismiss refused.txt' }).click();
   await expect(uploads).toHaveCount(0);
+  await expect(stacked).toHaveCount(0);
   // Given up and refused: neither was attached.
   await expect(section.locator('[data-attachment]')).toHaveCount(0);
 });

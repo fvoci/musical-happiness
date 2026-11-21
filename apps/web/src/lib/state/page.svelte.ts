@@ -224,14 +224,12 @@ export class PageStore {
    * Uploads a file for the body, a file of the wiki, and gives the identifier
    * its image or file block names. Closing the page gives it up.
    */
-  async uploadFile(file: File): Promise<string> {
-    const going = (signal: AbortSignal) =>
-      this.wiki.workspace.backend.upload(this.#wikiId, file, { signal });
-    return (await this.#bodyUploads.run(going)).fileId;
+  uploadFile(file: File): Promise<string> {
+    return this.#bodyUploads.run(file, (options) =>
+      this.wiki.workspace.backend.upload(this.#wikiId, file, options),
+    );
   }
 
   /** The uploads of files for the body under way, given up when the page closes. */
-  readonly #bodyUploads = new BodyUploads((action, error) => {
-    this.wiki.workspace.report(action, error);
-  });
+  readonly #bodyUploads = new BodyUploads(() => this.wiki.workspace);
 }
