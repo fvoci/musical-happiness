@@ -254,53 +254,42 @@ impl Mailer {
             })
     }
 
-    /// Takes the place of one message that carries the link confirming the change of
-    /// the account `user_id` to the address `email`, in the recovery queue. The
-    /// account's hour is counted, and the address's with the messages that confirm a
-    /// registration's: neither an account nor an address is sent more than the number
-    /// an hour, whoever asks.
+    /// Counts one link the account `user_id` asks for in the account's hour, whatever
+    /// becomes of it: mailed, left out because the address is somebody's, or dropped
+    /// for the address's own hour or a full queue. So what the account is mailed
+    /// afterwards tells nothing of the address it asked for. False once the account
+    /// has had the number an hour: nothing is mailed then.
+    pub(super) fn count_email_change(&self, user_id: &str) -> bool {
+        self.change_quota
+            .take(user_id, 1, self.reset_per_hour, Instant::now(), || {
+                Ok::<(), std::convert::Infallible>(())
+            })
+            .is_ok()
+    }
+
+    /// Takes the place of one message that carries the link confirming a change to
+    /// the address `email`, in the recovery queue. The address's hour is counted, with
+    /// the messages that confirm a registration's: an address is sent no more than the
+    /// number an hour, whoever asks. The account's hour is counted before, apart
+    /// ([`Self::count_email_change`]).
     ///
     /// # Errors
     /// Returns why the message is dropped, as [`Mailer::queue_reset`] does.
-    pub(super) fn queue_email_change(
-        &self,
-        user_id: &str,
-        email: &str,
-    ) -> Result<Queued, ResetMailDrop> {
-        let (now, per_hour) = (Instant::now(), self.reset_per_hour);
-        let address = email.to_lowercase();
-        self.change_quota
-            .take(user_id, 1, per_hour, now, || {
-                self.verification_quota
-                    .take(&address, 1, per_hour, now, || {
-                        Arc::clone(&self.reset_queue).try_acquire_owned()
-                    })
-                    .map_err(|refusal| dropped(&refusal))
-            })
+    pub(super) fn queue_email_change(&self, email: &str) -> Result<Queued, ResetMailDrop> {
+        self.verification_quota
+            .take(
+                &email.to_lowercase(),
+                1,
+                self.reset_per_hour,
+                Instant::now(),
+                || Arc::clone(&self.reset_queue).try_acquire_owned(),
+            )
             .map(|place| Queued {
                 kind: MailKind::EmailChange,
                 place,
                 org: None,
             })
-            .map_err(|refusal| match refusal {
-                quota::Refusal::Limit(_) => ResetMailDrop::AccountLimit,
-                quota::Refusal::Unplaced(drop) => drop,
-            })
-    }
-
-    /// Counts a link the account `user_id` asked for and is not mailed, its address
-    /// being somebody's, in the account's hour as one that is mailed: what the account
-    /// is mailed afterwards does not tell that this one was left out. The address's
-    /// hour is not counted: nothing goes to it.
-    pub(super) fn count_email_change(&self, user_id: &str) {
-        let counted =
-            self.change_quota
-                .take(user_id, 1, self.reset_per_hour, Instant::now(), || {
-                    Ok::<(), std::convert::Infallible>(())
-                });
-        if counted.is_err() {
-            tracing::info!("a link of a change of address not mailed: an hourly limit");
-        }
+            .map_err(|refusal| dropped(&refusal))
     }
 
     /// Takes the place of one notice to the account `user_id` that its address was

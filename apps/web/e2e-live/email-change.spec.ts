@@ -55,7 +55,9 @@ test('the address is changed by the link mailed to the new one, opened where nob
       .map((line) => line.trim());
   await expect.poll(async () => (await linksTo(moved)).length).toBe(1);
   await pending.getByRole('button', { name: 'Send the link again' }).click();
-  await expect(section.getByRole('status')).toContainText('A new link is on its way');
+  await expect(section.getByRole('status')).toContainText(
+    'Asked for again. A new link ends the one before it.',
+  );
   await expect.poll(async () => (await linksTo(moved)).length).toBe(2);
   const [first, second] = await linksTo(moved);
   if (!first || !second) throw new Error('the links were not mailed');

@@ -146,7 +146,7 @@ describe('the server backend', () => {
     // No new connection: the server takes this one as the session's that it is now.
     expect(made).toHaveLength(1);
     expect(socket?.closed).toBe(false);
-    // The workspace entered again (`Workspace.enter`), what was ignored is asked for again.
+    // The workspace entered again (`Workspace.enter`): what was ignored is asked for again.
     backend.enter('w1');
     expect(socket?.sent).toEqual([subscribe, subscribe, subscribe]);
     unwatch();

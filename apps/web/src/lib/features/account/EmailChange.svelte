@@ -46,12 +46,13 @@
   let working = $state(false);
   let problem = $state.raw<EmailChangeProblem | undefined>(undefined);
   /** What was done last, said once below the address. */
-  let said = $state<'changed' | 'resent' | 'cancelled' | 'gone' | undefined>(undefined);
+  let said = $state<'asked' | 'changed' | 'resent' | 'cancelled' | 'gone' | undefined>(undefined);
   let toggle = $state<HTMLElement | null>(null);
   let nextField = $state<HTMLInputElement | null>(null);
   let passwordField = $state<HTMLInputElement | null>(null);
 
   const status = $derived.by(() => {
+    if (said === 'asked') return m.email_change_asked();
     if (said === 'changed') return m.email_change_done();
     if (said === 'resent') return m.email_change_resent();
     if (said === 'cancelled') return m.email_change_cancelled();
@@ -79,6 +80,8 @@
       // No link to wait for: the server changed it with the password alone.
       if (pending === undefined && email.toLowerCase() === asked.trim().toLowerCase()) {
         said = 'changed';
+      } else if (pending !== undefined) {
+        said = 'asked';
       }
       toggle?.focus();
     } catch (error) {
@@ -165,8 +168,16 @@
     </div>
   {/if}
 
-  <!-- In the page from the start: a live region that appears with its words is often not read. -->
-  <p class="text-sm text-muted-foreground empty:hidden" role="status">{status}</p>
+  <!--
+    In the page from the start: a live region that appears with its words is often not read.
+    That the change was asked for is said to a screen reader only: the box above says it to the eye.
+  -->
+  <p
+    class={['text-sm text-muted-foreground empty:hidden', said === 'asked' && 'sr-only']}
+    role="status"
+  >
+    {status}
+  </p>
 
   {#if open}
     <form id="{uid}-form" class="grid gap-3" onsubmit={(event) => void submit(event)}>

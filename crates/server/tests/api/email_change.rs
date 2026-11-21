@@ -501,9 +501,42 @@ async fn the_links_are_limited_by_account_and_by_address() {
         2,
         "the address's third link of the hour is not mailed"
     );
-    // Which counted nothing against the account that asked.
+    // Which was one of the hour of the account that asked all the same: what it is
+    // mailed next does not tell that the address had its number.
     ask(&th.client2, "four@example.test").await;
-    assert_eq!(mailed_to(&th, &smtp, "four@example.test").await.len(), 1);
+    assert!(
+        mailed_to(&th, &smtp, "four@example.test").await.is_empty(),
+        "the account's third asking of the hour is not mailed"
+    );
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+/// Nor does it tell through another account: an address that has had its number of
+/// links, asked for by somebody else, is one of the asker's hour as any other is.
+#[tokio::test]
+async fn an_asking_for_an_address_that_has_had_its_links_counts_as_any_other() {
+    const FULL: &str = "full@example.test";
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = mailing(&smtp).await;
+    for _ in 0..3 {
+        ask(&th.client2, FULL).await;
+    }
+    assert_eq!(mailed_to(&th, &smtp, FULL).await.len(), 3);
+    for email in [
+        "mine@example.test",
+        FULL,
+        "mine@example.test",
+        "mine@example.test",
+    ] {
+        ask(&th.client, email).await;
+    }
+    assert_eq!(mailed_to(&th, &smtp, FULL).await.len(), 3, "no fourth");
+    assert_eq!(
+        mailed_to(&th, &smtp, "mine@example.test").await.len(),
+        2,
+        "the asking that was not mailed was the second of the account's hour"
+    );
     th.teardown().await;
     smtp.stop().await;
 }

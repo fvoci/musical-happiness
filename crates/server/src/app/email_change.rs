@@ -243,11 +243,15 @@ impl App {
 
     /// Mails the link that confirms the change the account waits for to its new
     /// address, unless somebody has that address: then nothing is mailed, and the
-    /// account goes on waiting, so that what it is answered tells nothing. The link
-    /// left out is counted in the account's hour as one mailed, so that the mail the
-    /// account gets afterwards tells nothing either. What became of the message is
-    /// logged, never told.
+    /// account goes on waiting, so that what it is answered tells nothing. Every
+    /// asking is one of the account's hour before anything is known of the address, so
+    /// that the mail the account gets afterwards tells nothing either. What became of
+    /// the message is logged, never told.
     async fn mail_email_change(&self, waiting: &Waiting, requested: Option<Language>) {
+        if !self.inner.mail.count_email_change(&waiting.user_id) {
+            tracing::info!("address change mail dropped: the account's hourly limit");
+            return;
+        }
         match self
             .store()
             .email_is_held(&waiting.email, now_millis())
@@ -256,7 +260,6 @@ impl App {
             Ok(false) => {}
             Ok(true) => {
                 tracing::info!("no link mailed for a change of address: the address is held");
-                self.inner.mail.count_email_change(&waiting.user_id);
                 return;
             }
             Err(error) => {
@@ -264,14 +267,10 @@ impl App {
                 return;
             }
         }
-        let queued = match self
-            .inner
-            .mail
-            .queue_email_change(&waiting.user_id, &waiting.email)
-        {
+        let queued = match self.inner.mail.queue_email_change(&waiting.email) {
             Ok(queued) => queued,
             Err(ResetMailDrop::AccountLimit) => {
-                tracing::info!("address change mail dropped: an hourly limit");
+                tracing::info!("address change mail dropped: the address's hourly limit");
                 return;
             }
             Err(ResetMailDrop::QueueFull) => {

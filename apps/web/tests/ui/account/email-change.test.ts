@@ -79,11 +79,31 @@ describe("the account's address in the settings", () => {
     expect(screen.queryByTestId('email-change-pending')).toBeNull();
   });
 
+  it('says that it was asked, to a screen reader, once the change waits', async () => {
+    // As the host does: what waits is read anew before the asking resolves.
+    const shown: { rerender?: (props: { pending: string }) => Promise<void> } = {};
+    const onRequest = vi.fn(async () => {
+      await shown.rerender?.({ pending: NEW });
+    });
+    shown.rerender = section({ onRequest }).rerender;
+    await ask(NEW, 'the password');
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Asked. The address changes when the link mailed to the new address is opened.',
+      );
+    });
+    // The box says it to the eye.
+    expect(screen.getByRole('status')).toHaveClass('sr-only');
+    expect(screen.getByTestId('email-change-pending')).toHaveTextContent(NEW);
+  });
+
   it('mails the link again and takes the change back, and says which', async () => {
     const { onResend, onCancel, rerender } = section({ pending: NEW });
     await fireEvent.click(screen.getByRole('button', { name: 'Send the link again' }));
     expect(onResend).toHaveBeenCalledOnce();
-    expect(await screen.findByText(/A new link is on its way/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Asked for again. A new link ends the one before it./),
+    ).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Cancel the change' }));
     expect(onCancel).toHaveBeenCalledOnce();
     await rerender({ pending: undefined });

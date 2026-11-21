@@ -274,32 +274,32 @@ describe('changes from the server', () => {
     expect(self).toEqual([{ kind: 'resync' }]);
   });
 
-  it('asks again for a workspace the server ended when it is entered again, and has everyone read again', async () => {
+  it('asks again for its workspace whenever it is entered again, also on a connection made since the server ended it', async () => {
     const { live, socket, board } = await connected();
     const subscribe = { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' };
-    // Entered again with nothing ended, it is followed already.
-    live.enter('t');
-    expect(socket.sent).toEqual([subscribe]);
     // As the server ends the own space for a session that has not shown the password:
     // asked again at once, which the server ignores and says nothing of.
     socket.message({ action: 'UNSUBSCRIBED_WORKSPACE', workspaceId: 't' });
     expect(socket.sent).toEqual([subscribe, subscribe]);
     expect(board).toEqual([{ kind: 'resync' }]);
+    // The connection comes again meanwhile, and its asking is ignored as silently.
+    live.restart();
+    await settle();
+    const again = FakeSocket.made[1];
+    again?.open();
+    expect(again?.sent).toEqual([subscribe]);
     // The session has shown the password, and the space is entered again.
     live.enter('t');
-    expect(FakeSocket.made).toHaveLength(1);
-    expect(socket.closed).toBe(false);
-    expect(socket.sent).toEqual([subscribe, subscribe, subscribe]);
-    expect(board).toEqual([{ kind: 'resync' }, { kind: 'resync' }]);
+    expect(FakeSocket.made).toHaveLength(2);
+    expect(again?.closed).toBe(false);
+    expect(again?.sent).toEqual([subscribe, subscribe]);
   });
 
-  it('asks for nothing again of a workspace entered after the one that was ended', async () => {
-    const { live, socket } = await connected();
-    socket.message({ action: 'UNSUBSCRIBED_WORKSPACE', workspaceId: 't' });
-    live.enter('t2');
-    const sent = socket.sent.length;
-    live.enter('t2');
-    expect(socket.sent).toHaveLength(sent);
+  it('asks for nothing on entering again before its connection is open', () => {
+    const live = new LiveChanges('ws://here/ws', reads);
+    live.enter('t');
+    live.enter('t');
+    expect(FakeSocket.made).toHaveLength(0);
   });
 
   it('opens again at once after signing in, and has everyone read again', async () => {
@@ -331,6 +331,8 @@ describe('changes from the server', () => {
     expect(socket.sent).toEqual([
       { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
       { action: 'UNSUBSCRIBE_WORKSPACE', workspaceId: 't' },
+      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't2' },
+      // Entered again, asked for again: the server takes that for what is followed.
       { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't2' },
     ]);
     const board = (workspaceId: string, id: string): unknown => ({

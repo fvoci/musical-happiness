@@ -193,6 +193,60 @@ async fn a_session_that_gave_the_password_opens_the_space_beside_its_organizatio
 /// the account's other sessions: the one that changed it keeps what it confirmed, the
 /// others are gone with theirs, and after the operator's reset no session of the
 /// account is left that confirmed the password before it.
+/// What a session has confirmed stands in for nothing where the password itself is
+/// asked for: the account's address is changed by the password in that request, in a
+/// session of the provider that has shown it as in one that has not. With it, the
+/// account made through the provider, which has no address, is given its first.
+#[tokio::test]
+async fn the_address_is_changed_by_the_password_whatever_the_session_confirmed() {
+    const ASK: &str = "/users/me/email-change";
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let browser = Browser::new(&ts, &fake);
+    fake.sign_in_as(person("ada"));
+    let unconfirmed = with_a_first_password(&ts, &browser, &org_id).await;
+    let refused = async |client: &Client, what: &str| {
+        let without = client
+            .post(ASK, &json!({"email": "ada@home.example"}))
+            .await;
+        assert!(
+            without.status.is_client_error(),
+            "{what}, no password: {}",
+            without.text()
+        );
+        let wrong = client
+            .post(
+                ASK,
+                &json!({"email": "ada@home.example", "password": "a wrong guess"}),
+            )
+            .await;
+        wrong.check_status(StatusCode::BAD_REQUEST);
+        assert_eq!(wrong.error_reason(), "invalid_credentials", "{what}");
+        let me: fvoci_model::Me = client.get("/users/me").await.ok_json();
+        assert_eq!((me.email.as_str(), me.pending_email), ("", None), "{what}");
+    };
+    refused(&unconfirmed, "a session that has not shown the password").await;
+    let confirmed = confirm(&ts, &unconfirmed, FIRST_PASSWORD).await;
+    refused(&confirmed, "a session that has shown the password").await;
+
+    // The server of this test sends no mail: the password changes the address at once.
+    confirmed
+        .post(
+            ASK,
+            &json!({"email": "ada@home.example", "password": FIRST_PASSWORD}),
+        )
+        .await
+        .check_no_content();
+    let me: fvoci_model::Me = confirmed.get("/users/me").await.ok_json();
+    assert_eq!(
+        (me.email.as_str(), me.pending_email),
+        ("ada@home.example", None)
+    );
+    ts.teardown().await;
+}
+
 #[tokio::test]
 async fn what_a_session_confirmed_ends_with_a_change_of_the_password() {
     let fake = FakeProvider::start().await;
