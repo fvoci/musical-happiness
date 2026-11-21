@@ -11,7 +11,7 @@ use crate::common::{Client, TestServer};
 use crate::fake_oidc::{FakeProvider, Person};
 use crate::first_password::{
     FIRST_PASSWORD, board_in_the_space, boards_of, card_in_the_space, check_asks_for_the_password,
-    counted_in_the_space, login, told_of_the_space,
+    counted_in_the_space, login, told_of_the_space, told_on,
 };
 use crate::oidc::{Browser, org_of, server_for, set_provider};
 use crate::own_space::workspaces_and_own;
@@ -249,16 +249,32 @@ async fn closed(peer: &mut Peer) -> bool {
     peer.unread().contains(&json!({"action": "CLOSED"}))
 }
 
-/// The connections of a session keep what the session was at their handshake. One of
-/// a provider's session follows nothing of the space and is refused its rooms; as the
-/// session gives the password it is closed, and the connection that comes back under
-/// the new cookie follows the space and comes into the room of its card. Another
-/// session's connection is told nothing still. When the password is changed elsewhere
-/// the session ends, and its connection in the room is closed with it.
+/// The server of the tests, looking at the session of each connection every second.
+async fn server_looking_at_sessions(fake: &FakeProvider) -> TestServer {
+    crate::common::Setup::native()
+        .trusting_oidc_provider(&fake.certificate_der)
+        .configure(|config| {
+            crate::oidc::with_key_and_private_addresses(config);
+            config.websocket_ping_seconds = 1;
+            config.skip_websocket_pings = false;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await
+}
+
+/// The connections of a session are asked as the session is. One of a provider's
+/// session follows nothing of the space and is refused its rooms; as the session gives
+/// the password its connections stay open, though the session goes on under another
+/// token and each connection looks at its session every second: the same connection
+/// then follows the space and comes into the room of its card. Another session's
+/// connection is told nothing still. When the password is changed elsewhere the
+/// session ends, and its connection in the room is closed with it.
 #[tokio::test]
 async fn a_connection_follows_the_space_once_its_session_gave_the_password() {
     let fake = FakeProvider::start().await;
-    let ts = server_for(&fake).await;
+    let ts = server_looking_at_sessions(&fake).await;
     let org_id = org_of(&ts).await;
     set_provider(&ts, &org_id, &fake).await;
     let browser = Browser::new(&ts, &fake);
@@ -271,20 +287,29 @@ async fn a_connection_follows_the_space_once_its_session_gave_the_password() {
     let card = card_in_the_space(&ts, &own, &board, &user_id).await;
     let at = (&own, board.as_str());
 
-    assert!(!told_of_the_space(&ts, &client, at).await, "before");
-    let mut before = Peer::connect(&client, 311).await;
-    let refused: Value = before.join(&own.id, &card).await;
+    let mut following = client.connect_websocket().await;
+    assert!(!told_on(&ts, &mut following, &client, at).await, "before");
+    let mut within = Peer::connect(&client, 311).await;
+    let refused: Value = within.join(&own.id, &card).await;
     assert_eq!(refused["action"], json!("DOC_REFUSED"), "{refused}");
     assert_eq!(refused["reason"], json!("not_found"), "{refused}");
 
     let client = confirm(&ts, &client, FIRST_PASSWORD).await;
+    // Longer than two looks at the session, whose token of the handshakes is good no
+    // more: the connections go on under the one the session has now.
+    let looked_twice = tokio::time::Instant::now() + Duration::from_millis(2500);
+    while tokio::time::Instant::now() < looked_twice && !closed_by_now(&within) {
+        within.step(Duration::from_millis(200)).await;
+    }
     assert!(
-        closed(&mut before).await,
-        "the connection of the session as it was is closed: {:?}",
-        before.unread()
+        !within.unread().contains(&json!({"action": "CLOSED"})),
+        "the connection of the session stays open: {:?}",
+        within.unread()
     );
-    assert!(told_of_the_space(&ts, &client, at).await, "after");
-    let mut within = Peer::connect(&client, 312).await;
+    assert!(
+        told_on(&ts, &mut following, &client, at).await,
+        "the connection that was told nothing follows the space where it is"
+    );
     within.joined(&own.id, &card).await;
     assert!(
         !told_of_the_space(&ts, &other, at).await,
@@ -311,6 +336,51 @@ async fn a_connection_follows_the_space_once_its_session_gave_the_password() {
         within.unread()
     );
     client.get("/users/me").await.check_unauthorized();
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// Whether the peer has read that its connection closed.
+fn closed_by_now(peer: &Peer) -> bool {
+    peer.unread().contains(&json!({"action": "CLOSED"}))
+}
+
+/// The connections of the session that sets the account's first password, and then
+/// changes it, stay through both: the session goes on under another token each time,
+/// and each connection looks at its session every second under the one it has now.
+#[tokio::test]
+async fn the_connection_of_the_session_that_sets_or_changes_the_password_stays() {
+    let fake = FakeProvider::start().await;
+    let ts = server_looking_at_sessions(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let browser = Browser::new(&ts, &fake);
+    fake.sign_in_as(person("ada"));
+    let client = ts.client_with_token(browser.sign_in(&org_id).await.token());
+    let mut peer = Peer::connect(&client, 321).await;
+
+    let set = client
+        .put("/users/me/password", &json!({"password": FIRST_PASSWORD}))
+        .await;
+    set.check_no_content();
+    let client = ts.client_with_token(&set.session_cookie().expect("the session's new cookie"));
+    let changed = client
+        .post(
+            "/users/me/password",
+            &json!({"oldPassword": FIRST_PASSWORD, "newPassword": "another Pa$$word"}),
+        )
+        .await;
+    changed.check_no_content();
+    let looked_twice = tokio::time::Instant::now() + Duration::from_millis(2500);
+    while tokio::time::Instant::now() < looked_twice && !closed_by_now(&peer) {
+        peer.step(Duration::from_millis(200)).await;
+    }
+    assert!(
+        !peer.unread().contains(&json!({"action": "CLOSED"})),
+        "the connection of the session stays open: {:?}",
+        peer.unread()
+    );
+    peer.barrier(&ts).await;
     ts.teardown().await;
     fake.stop();
 }

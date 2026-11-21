@@ -1,7 +1,7 @@
 /** The reader's own account: what the workspace changes of it beside the settings. */
 import type { NameChange } from '../logic/person-names.ts';
 
-import { BackendError, type User } from './backend.ts';
+import { BackendError, isOwnSpace, type User } from './backend.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
 /**
@@ -14,15 +14,45 @@ export async function changeName(workspace: Workspace, patch: NameChange): Promi
 }
 
 /**
- * The reader gave the account its first password: it has one now, and its own
- * space takes only a session made with it, which this one was not. The page
- * goes on as the server answers it from now on (`Workspace.report`): the own
- * space, shown or not, is closed to this session until the reader signs in
- * with the password.
+ * Gives `password`, which the account was just given, in the session where
+ * the reader's own space asks for it (`Backend.confirmPassword`): a session
+ * made through a provider, as the server lists the workspaces to it. The
+ * reader is not asked for what they typed a moment ago. Whether the own
+ * space is open to the session afterwards; a refusal (too many tries, a
+ * password changed again meanwhile) or a failed reading leaves it as it is.
  */
-export function passwordSet(workspace: Workspace): void {
+async function showPassword(workspace: Workspace, password: string): Promise<boolean> {
+  try {
+    let listed = await workspace.backend.workspaces();
+    if (listed.some((one) => one.passwordRequired)) {
+      await workspace.backend.confirmPassword(password);
+      listed = await workspace.backend.workspaces();
+    }
+    workspace.workspaces = listed;
+    return !listed.some((one) => one.passwordRequired);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The reader gave the account its first password: it has one now, and its own
+ * space takes only a session that has shown it. This one shows the password
+ * it was just given, and the space, which the server stopped telling it of,
+ * is entered again where it is shown. Where that is refused the page goes on
+ * as the server answers it from now on (`Workspace.report`): the own space
+ * asks for the password.
+ */
+export async function passwordSet(workspace: Workspace, password: string): Promise<void> {
   const me = workspace.me;
   if (me) workspace.me = { ...me, hasPassword: true };
+  if (await showPassword(workspace, password)) {
+    const shown = workspace.info ?? workspace.closed;
+    if (workspace.asked !== undefined && shown && isOwnSpace(shown)) {
+      await workspace.enter(workspace.asked, true);
+    }
+    return;
+  }
   workspace.report(
     'load',
     new BackendError(401, { reason: 'password_sign_in_required', detail: 'a password was set' }),
@@ -30,17 +60,32 @@ export function passwordSet(workspace: Workspace): void {
 }
 
 /**
+ * The reader changed the account's password in this session: where its own
+ * space asked the session for the password, the session shows the new one,
+ * and the space, if it is the one shown, opens.
+ */
+export async function passwordChanged(workspace: Workspace, password: string): Promise<void> {
+  if (!(await showPassword(workspace, password))) return;
+  if (workspace.entered === 'password' && workspace.asked !== undefined) {
+    await workspace.enter(workspace.asked, true);
+  }
+}
+
+/**
  * The reader gives the account's password in the session they have
  * (`Backend.confirmPassword`), and their own space opens to it where it is:
  * no other session is made, and nothing else of the page starts again. The
  * workspaces are read as the server lists them to the session now, and the
- * one shown, closed until then, is entered. A refusal (a wrong password, too
- * many tries) rejects, for the form to say.
+ * one shown, if it is still the space that asked, is entered. A refusal (a
+ * wrong password, too many tries) rejects, for the form to say.
  */
 export async function confirmPassword(workspace: Workspace, password: string): Promise<void> {
   await workspace.backend.confirmPassword(password);
   workspace.workspaces = await workspace.backend.workspaces();
-  if (workspace.asked !== undefined) await workspace.enter(workspace.asked, true);
+  // Not a workspace the reader went to while this was under way.
+  if (workspace.entered === 'password' && workspace.asked !== undefined) {
+    await workspace.enter(workspace.asked, true);
+  }
 }
 
 /** Puts the user as they are now wherever the workspace holds them. */

@@ -320,8 +320,9 @@ async fn handle_change_password(
 /// From then on the account's own space takes only sessions that have shown the
 /// password (`password_sign_in_required`, see "The user's own space"): this session,
 /// which was made through a provider and set the password without being asked for
-/// one, opens it no more until it gives the password (`confirmPassword`), and the
-/// account's websocket connections are closed, to come back to what the session opens.
+/// one, opens it no more until it gives the password (`confirmPassword`). Its
+/// websocket connections stay open and hear no more of the space; those of the
+/// account's other sessions are closed.
 ///
 /// Once only: an account that has a password is 409, and changes it with
 /// `changePassword`. The password must have at least 8 characters and at most 1024
@@ -372,7 +373,8 @@ async fn handle_set_password(
 ///
 /// The session goes on under a new cookie, as after `changePassword`: it opens more
 /// than it did, and the value that opened less is no longer accepted. Its websocket
-/// connections are closed, to come back under the new cookie and follow the space.
+/// connections stay open, and are the confirmed session's from then on: what the
+/// space refused them is asked again on the same connection.
 ///
 /// A wrong password is 400 (not 401: the session is good) with the reason
 /// `invalid_credentials`, and `errors` names `password`. Wrong ones are counted with

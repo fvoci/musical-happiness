@@ -190,7 +190,7 @@ impl Hub {
             ids.iter()
                 .filter_map(|id| {
                     let listener = listeners.by_id.get(id)?;
-                    Some((*id, listener.user_id.clone(), listener.making.clone()))
+                    Some((*id, listener.user_id.clone(), listener.made()))
                 })
                 .collect()
         };
@@ -495,7 +495,7 @@ fn following_workspace<'a>(
         workspace,
         user: listener.user_id.clone(),
         role: *role,
-        making: listener.making.clone(),
+        making: listener.made(),
         told,
     })
 }

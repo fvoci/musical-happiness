@@ -5,8 +5,10 @@
  * with it. An account that signs in through its organization's provider only
  * is asked, once it makes something there, to set a password, and sets it,
  * signing in through the provider again first where its session is too old;
- * set, My space takes the password, asks for it in place of the board, and
- * opens the same board, where the page is, to the session that gives it.
+ * set, the session that set it shows it and stays in My space, which goes on
+ * hearing its changes; another sign-in through the provider is asked for it in
+ * place of the board, and the same board opens, where the page is, to the
+ * session that gives it.
  *
  * With `FVOCI_SCREENS` set, the screens are pictured light and dark, wide and
  * 390 pixels wide, under `target/screens/own-space/`.
@@ -192,6 +194,18 @@ async function newcomer(browser: Browser, prefix: string) {
   return { page, context, errors, subject };
 }
 
+/** Signs the person `subject` in through the provider once more, in a new browser. */
+async function again(browser: Browser, subject: string) {
+  await providerSignsIn({ subject, email: `${subject}@example.test`, preferredUsername: subject });
+  const context = await browser.newContext({ locale: 'en-US', ignoreHTTPSErrors: true });
+  const page = await context.newPage();
+  const errors = watchErrors(page);
+  await page.goto('/');
+  await page.getByTestId('oidc-continue').click();
+  await expect(page.getByTestId('app-shell')).toBeVisible();
+  return { page, context, errors };
+}
+
 /** Waits for the page loaded again to have read the state the account keeps. */
 async function reloadRead(page: Page): Promise<void> {
   const read = page.waitForResponse(
@@ -253,40 +267,76 @@ test('an account of single sign-on only is asked once in its own space to set a 
     expect(page.url()).toBe(boardAddress);
     await page.getByTestId('password-notice-field').fill('a long password of mine');
     await notice(page).getByRole('button', { name: 'Set password' }).click();
-    // Set, My space takes only a session made with the password, which this one was not:
-    // where the board was, the space asks for it, and the notice is gone.
-    const locked = page.getByTestId('own-space-locked');
-    await expect(locked).toBeVisible();
+    // Set, My space takes only a session that has shown the password, and this one shows
+    // the one it was just given: the board stays where it is, and nothing asks again.
     await expect(notice(page)).toHaveCount(0);
-    await expect(page.getByTestId('own-space-locked-password')).toBeFocused();
+    await expect(page.getByTestId('board-page')).toBeVisible();
+    await expect(page.getByTestId('own-space-locked')).toHaveCount(0);
+    expect(page.url()).toBe(boardAddress);
     const me = (await (await page.request.get('/api/v1/users/me')).json()) as Schemas['Me'];
     expect(me.hasPassword).toBe(true);
-    await expect(page.getByTestId('own-space-locked-user')).toHaveText(`User name: ${me.username}`);
-    const ownId = new URL(boardAddress).pathname.split('/')[2] ?? '';
-    const refused = await page.request.get(`/api/v1/w/${ownId}/boards`);
+    const [, , ownId = '', , boardId = ''] = new URL(boardAddress).pathname.split('/');
+    await expect
+      .poll(async () => {
+        const listed = (await (
+          await page.request.get('/api/v1/users/me/workspaces')
+        ).json()) as Schemas['UserWorkspace'][];
+        return listed.find((one) => one.id === ownId)?.passwordRequired;
+      })
+      .toBe(false);
+    // The page's connection is the one it had, and still hears the space: a change made
+    // elsewhere in the session comes without loading the page again.
+    await page.evaluate(() => {
+      (window as unknown as { stayed?: boolean }).stayed = true;
+    });
+    const renamed = await page.request.patch(`/api/v1/w/${ownId}/containers/${boardId}`, {
+      data: { title: 'Renamed elsewhere' },
+    });
+    expect(renamed.ok(), await renamed.text()).toBe(true);
+    await expect(page.getByTestId('top-bar').getByTestId('board-title')).toHaveValue(
+      'Renamed elsewhere',
+    );
+    expect(await page.evaluate(() => (window as unknown as { stayed?: boolean }).stayed)).toBe(
+      true,
+    );
+    expect(second.errors).toEqual([]);
+    await second.context.close();
+
+    // Another sign-in through the provider has shown nothing: where the board was, the
+    // space asks for the password.
+    const third = await again(browser, second.subject);
+    const { page: later } = third;
+    await later.goto(boardAddress);
+    const locked = later.getByTestId('own-space-locked');
+    await expect(locked).toBeVisible();
+    await expect(later.getByTestId('own-space-locked-password')).toBeFocused();
+    await expect(later.getByTestId('own-space-locked-user')).toHaveText(
+      `User name: ${me.username}`,
+    );
+    const refused = await later.request.get(`/api/v1/w/${ownId}/boards`);
     expect(refused.status()).toBe(401);
     expect(((await refused.json()) as { reason?: string }).reason).toBe(
       'password_sign_in_required',
     );
     // The sidebar names it, has no people of it to manage, and the switcher marks how it opens.
-    await openSwitcher(page);
-    await expect(switcher(page)).toContainText('My space');
-    await expect(page.getByTestId('open-people')).toHaveCount(0);
-    await expect(workspacesMenu(page).locator(`[data-action="${ownId}"]`)).toHaveAttribute(
+    await openSwitcher(later);
+    await expect(switcher(later)).toContainText('My space');
+    await expect(later.getByTestId('open-people')).toHaveCount(0);
+    await expect(workspacesMenu(later).locator(`[data-action="${ownId}"]`)).toHaveAttribute(
       'aria-label',
       'My space, opens with your password, current',
     );
-    await pictures(page, 'switcher-locked', openSwitcher);
-    await page.keyboard.press('Escape');
+    await pictures(later, 'switcher-locked', openSwitcher);
+    await later.keyboard.press('Escape');
     // The session goes on where it opens: the workspace people share.
-    expect((await page.request.get('/api/v1/users/me')).ok()).toBe(true);
-    await pictures(page, 'own-space-locked', (seen) =>
+    expect((await later.request.get('/api/v1/users/me')).ok()).toBe(true);
+    await pictures(later, 'own-space-locked', (seen) =>
       expect(seen.getByTestId('own-space-locked')).toBeVisible(),
     );
     // Deleting the account: My space goes with it, what is in it not counted for this session.
-    await showSidebar(page);
-    await page.getByTestId('open-settings').click();
-    const deletion = page.getByTestId('settings-dialog').getByTestId('account-deletion');
+    await showSidebar(later);
+    await later.getByTestId('open-settings').click();
+    const deletion = later.getByTestId('settings-dialog').getByTestId('account-deletion');
     await deletion.getByRole('button', { name: 'Delete account' }).click();
     await expect(deletion.getByTestId('account-deletion-own-space')).toHaveText(
       'My space is deleted with your account, with everything in it.',
@@ -296,40 +346,39 @@ test('an account of single sign-on only is asked once in its own space to set a 
     const listen = (response: Response): void => {
       if (response.url().includes(`/api/v1/w/${ownId}`)) askedOfIt.push(response.url());
     };
-    page.on('response', listen);
-    await page.reload();
+    later.on('response', listen);
+    await later.reload();
     await expect(locked).toBeVisible();
-    await expect(page.getByTestId('workspace-switcher')).toBeAttached();
-    page.off('response', listen);
+    await expect(later.getByTestId('workspace-switcher')).toBeAttached();
+    later.off('response', listen);
     expect(askedOfIt).toEqual([]);
     // A wrong password is said; the right one opens the same board again, where the page
     // is: the session is the one the provider made, and the page is not loaded again.
-    await page.evaluate(() => {
+    await later.evaluate(() => {
       (window as unknown as { stayed?: boolean }).stayed = true;
     });
-    const session = (await (await page.request.get('/api/v1/users/me')).json()) as Schemas['Me'];
-    await page.getByTestId('own-space-locked-password').fill('not my password at all');
+    const session = (await (await later.request.get('/api/v1/users/me')).json()) as Schemas['Me'];
+    await later.getByTestId('own-space-locked-password').fill('not my password at all');
     await locked.getByRole('button', { name: 'Open My space' }).click();
-    await expect(page.getByTestId('own-space-locked-problem')).toHaveText(
+    await expect(later.getByTestId('own-space-locked-problem')).toHaveText(
       'The current password is wrong.',
     );
-    await page.getByTestId('own-space-locked-password').fill('a long password of mine');
+    await later.getByTestId('own-space-locked-password').fill('a long password of mine');
     await locked.getByRole('button', { name: 'Open My space' }).click();
-    await expect(page.getByTestId('board-page')).toBeVisible();
-    expect(page.url()).toBe(boardAddress);
-    expect(await page.evaluate(() => (window as unknown as { stayed?: boolean }).stayed)).toBe(
+    await expect(later.getByTestId('board-page')).toBeVisible();
+    expect(later.url()).toBe(boardAddress);
+    expect(await later.evaluate(() => (window as unknown as { stayed?: boolean }).stayed)).toBe(
       true,
     );
-    expect(((await (await page.request.get('/api/v1/users/me')).json()) as Schemas['Me']).id).toBe(
+    expect(((await (await later.request.get('/api/v1/users/me')).json()) as Schemas['Me']).id).toBe(
       session.id,
     );
-    await expect(notice(page)).toHaveCount(0);
     const listed = (await (
-      await page.request.get('/api/v1/users/me/workspaces')
+      await later.request.get('/api/v1/users/me/workspaces')
     ).json()) as Schemas['UserWorkspace'][];
     expect(listed.find((one) => one.id === ownId)?.passwordRequired).toBe(false);
-    expect(second.errors).toEqual([]);
-    await second.context.close();
+    expect(third.errors).toEqual([]);
+    await third.context.close();
   } finally {
     await providerSignsIn({
       subject: 'oidc-person',

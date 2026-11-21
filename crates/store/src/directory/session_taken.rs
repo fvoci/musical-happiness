@@ -44,8 +44,10 @@ impl<P> Making<P> {
         }
     }
 
-    /// The same making, of a session that has confirmed the account's password since.
-    #[cfg(any(test, feature = "test-util"))]
+    /// The same making, of a session that has confirmed the account's password since:
+    /// for a connection that kept the making of its handshake and whose session the
+    /// store recorded as having confirmed it meanwhile
+    /// (`Store::confirm_session_password`).
     #[must_use]
     pub fn having_confirmed_password(self) -> Self {
         Self {

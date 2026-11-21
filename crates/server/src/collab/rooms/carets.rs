@@ -260,7 +260,7 @@ mod tests {
             connection: Arc::new(Connection {
                 id,
                 user_id: format!("user {id}"),
-                making: fvoci_store::Making::with_password(),
+                making: crate::app::SessionKept::with_password(),
                 queue: Queue::new(Capacity {
                     messages: 512,
                     bytes: 1 << 20,

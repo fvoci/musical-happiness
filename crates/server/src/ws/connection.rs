@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use super::inbound::{Came, Inbound};
 use super::{
     Command, Hub, Identity, Listener, ListenerId, OUTBOX_CAPACITY, SESSION_CHECK_WITHOUT_PING,
-    WRITER_GRACE, presence, subscribe, writer,
+    SessionToken, WRITER_GRACE, presence, subscribe, writer,
 };
 use crate::app::App;
 use crate::auth::limiter::AddressKey;
@@ -39,8 +39,11 @@ impl Hub {
         let closed = CancellationToken::new();
         let closed_because = Arc::new(OnceLock::new());
         let mut who = subscribe::Who::of(identity);
-        let (mut docs, docs_outbox) = app.collab().seat(app, who.asker());
-        let token = who.token.take();
+        let (mut docs, docs_outbox) = app.collab().seat(app, &who.user_id, who.making.clone());
+        let token = who
+            .token
+            .take()
+            .map(|token| Arc::new(SessionToken::new(token)));
         let docs_overrun = docs.overrun();
         let docs_ended_worker = docs.ended_worker();
         self.watch_access_changes(app);
@@ -49,6 +52,7 @@ impl Hub {
             address: address.map(AddressKey::from),
             closed: closed.clone(),
             closed_because: Arc::clone(&closed_because),
+            token: token.clone(),
             ..Listener::new(who, outbox)
         });
         let _connection = Connection {
@@ -63,7 +67,7 @@ impl Hub {
         // connections would then have passed this one by. Looked up once more, now that
         // it is closable, the session is either still there or the connection ends.
         if let Some(token) = &token
-            && let Err(error) = self.inner.auth.find_session(token).await
+            && let Err(error) = self.inner.auth.find_session(&token.current()).await
         {
             self.listeners().remove(id);
             if error.kind() == ErrorKind::Unauthorized {
@@ -183,9 +187,10 @@ impl Hub {
         }
     }
 
-    /// Returns once the session of `token` has ended, looked up every `period`; never
-    /// for a connection without a session. A store that cannot be read ends nothing.
-    async fn session_ends(&self, token: Option<&str>, period: Duration) {
+    /// Returns once the session of `token` has ended, looked up every `period` under
+    /// the token it has then; never for a connection without a session. A store that
+    /// cannot be read ends nothing.
+    async fn session_ends(&self, token: Option<&SessionToken>, period: Duration) {
         let Some(token) = token else {
             return std::future::pending().await;
         };
@@ -195,7 +200,7 @@ impl Hub {
         checks.tick().await;
         loop {
             checks.tick().await;
-            match self.inner.auth.find_session(token).await {
+            match self.inner.auth.find_session(&token.current()).await {
                 Ok(_) => {}
                 Err(error) if error.kind() == ErrorKind::Unauthorized => return,
                 Err(error) => {
@@ -215,6 +220,7 @@ impl Listener {
             session_id: who.session_id,
             login: who.login,
             making: who.making,
+            token: None,
             address: None,
             outbox,
             closed: CancellationToken::new(),

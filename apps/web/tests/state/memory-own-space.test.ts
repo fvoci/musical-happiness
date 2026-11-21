@@ -8,7 +8,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { firstKanban } from '$lib/state/workspace-entry.ts';
-import { BackendError, confirmPassword, passwordSet, type Change } from '$lib/state/index.ts';
+import {
+  BackendError,
+  confirmPassword,
+  passwordChanged,
+  passwordSet,
+  type Change,
+} from '$lib/state/index.ts';
 import type { MemoryBackend } from '$lib/state/memory/backend.ts';
 import { closeOwnSpace } from '$lib/state/memory/spaces.ts';
 
@@ -240,14 +246,31 @@ describe('the own space, once it takes the password alone', () => {
     expect(workspace.containers).toEqual([]);
   });
 
-  it('closes on the page that gave the account its first password, and the account has one', async () => {
+  it('stays open on the page that gave the account its first password: the session shows it', async () => {
     const { backend, world, workspace } = setup();
     const reader = world.users.get(backend.userId);
     if (!reader) throw new Error('no reader');
     world.users.set(reader.id, { ...reader, hasPassword: false });
     const own = await ownSpace(backend);
+    const board = await boardIn(backend, own, 'Mine');
     await workspace.load(own);
-    passwordSet(workspace);
+    // As the server does to the provider's session that sets it.
+    closeOwnSpace(world, backend.userId, 'a long password');
+    await passwordSet(workspace, 'a long password');
+    expect(workspace.me?.hasPassword).toBe(true);
+    expect(workspace.entered).toBe('ready');
+    expect(workspace.info?.id).toBe(own);
+    expect(workspace.containers.map((one) => one.id)).toEqual([board.id]);
+    expect(workspace.workspaces.some((one) => one.passwordRequired)).toBe(false);
+  });
+
+  it('closes on the page that gave the account its first password where the session cannot show it', async () => {
+    const { backend, world, workspace } = setup();
+    const own = await ownSpace(backend);
+    await workspace.load(own);
+    closeOwnSpace(world, backend.userId, 'a long password');
+    // Another password than the account has now: set again elsewhere meanwhile.
+    await passwordSet(workspace, 'the one before it');
     expect(workspace.me?.hasPassword).toBe(true);
     expect(workspace.entered).toBe('password');
     expect(workspace.closed?.id).toBe(own);
@@ -255,6 +278,24 @@ describe('the own space, once it takes the password alone', () => {
     expect(
       workspace.workspaces.find((one) => one.id === world.workspace.id)?.passwordRequired,
     ).toBe(undefined);
+  });
+
+  it('shows a changed password where the own space asked the session for it, and enters no other workspace for it', async () => {
+    const { backend, world, workspace } = setup();
+    const own = await ownSpace(backend);
+    closeOwnSpace(world, backend.userId, 'the new password');
+    await workspace.load(own);
+    expect(workspace.entered).toBe('password');
+    await passwordChanged(workspace, 'the new password');
+    expect(workspace.entered).toBe('ready');
+    expect(workspace.info?.id).toBe(own);
+
+    closeOwnSpace(world, backend.userId, 'a third password');
+    await workspace.enter(world.workspace.id);
+    const entered = workspace.info;
+    await passwordChanged(workspace, 'a third password');
+    expect(workspace.info).toBe(entered);
+    expect(workspace.workspaces.some((one) => one.passwordRequired)).toBe(false);
   });
 
   it('opens where it is to the session that gives the password, and to no other password', async () => {

@@ -328,7 +328,7 @@ impl Hub {
             counted: Instant::now(),
         });
         rate.admits(per_second)
-            .then(|| (listener.user_id.clone(), listener.making.clone()))
+            .then(|| (listener.user_id.clone(), listener.made()))
     }
 
     /// Places a visit read before now: not if the link it came by was taken back since

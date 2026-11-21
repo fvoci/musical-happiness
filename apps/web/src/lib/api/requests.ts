@@ -403,10 +403,9 @@ export class ServerRequests implements TrashReads {
   }
 
   /**
-   * The session goes on under a new cookie. The server closes the session's
-   * connections before it answers, and a connection the page opened again
-   * meanwhile came under the old cookie: it is anonymous and hears nothing.
-   * So the backend opens its connection anew once this has answered.
+   * The session goes on under a new cookie, and its connections stay: the
+   * server asks them as the session is from then on, so what the own space
+   * had refused is asked again on the connection the page has.
    */
   async confirmPassword(password: string): Promise<void> {
     const request: Schemas['ConfirmPasswordRequest'] = { password };

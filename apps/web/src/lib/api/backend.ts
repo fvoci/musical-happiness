@@ -124,12 +124,6 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     await this.#http.request('/api/v1/logout', {}, { method: 'POST' });
   }
 
-  /** As after signing in: the page's connection must not be one opened under the old cookie. */
-  override async confirmPassword(password: string): Promise<void> {
-    await super.confirmPassword(password);
-    this.#live.restart();
-  }
-
   // ------------------------------------------- the reader and their workspace
 
   /**

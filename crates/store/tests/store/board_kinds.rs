@@ -146,6 +146,36 @@ async fn a_wiki_is_no_template_and_has_no_card_properties() {
     test.teardown().await;
 }
 
+/// Closed to the session, the workspace gives it no board: neither one the user is
+/// on, nor one a team of theirs is on. `admin` has the organization take its
+/// provider's sessions only, and each of `users` asks with a session made with the
+/// password.
+async fn nothing_is_listed_once_closed(store: &Store, admin: &str, users: [&String; 2]) {
+    store
+        .put_oidc_provider_as_read(
+            &crate::oidc_audit::settings(),
+            None,
+            admin,
+            std::time::Duration::ZERO,
+        )
+        .await
+        .expect("the organization takes its provider's sessions only");
+    for who in users {
+        let listed = store
+            .container_memberships_of_user(
+                who,
+                fvoci_store::Making::with_password(),
+                ContainerKinds::Every,
+            )
+            .await
+            .expect("the memberships of a session the workspace is closed to");
+        assert!(
+            listed.is_empty(),
+            "nothing of a closed workspace: {listed:?}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn every_list_of_boards_is_of_the_kinds_it_is_asked_for() {
     let test = common::setup().await;
@@ -248,6 +278,8 @@ async fn every_list_of_boards_is_of_the_kinds_it_is_asked_for() {
             assert_eq!(&listed, expected, "the boards {list}, of {kinds:?}");
         }
     }
+
+    nothing_is_listed_once_closed(&test, &admin, [&user_id, &through_team]).await;
     test.teardown().await;
 }
 

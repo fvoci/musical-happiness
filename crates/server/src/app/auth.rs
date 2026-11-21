@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use fvoci_model::{
-    MAXIMUM_PASSWORD_BYTES, NewAccount, PersonName, RegisterRequest, Session, User, new_id,
+    MAXIMUM_PASSWORD_BYTES, NewAccount, OrgKind, PersonName, RegisterRequest, Session, User, new_id,
 };
 use fvoci_store::{ConfirmedPassword, Founding, SignupLookup, StoreError, Taken};
 
@@ -15,6 +15,7 @@ use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::password::{Verdict, hash_password, verify_against_no_account, verify_password};
 use crate::auth::secret::{new_secret, token_digest};
+use crate::collab::AccessScope;
 use crate::error::{AppError, ErrorKind, Reason};
 use crate::metrics::{LoginOutcome, Metrics};
 
@@ -584,6 +585,7 @@ impl App {
         }
         self.ws()
             .close_other_sessions_of_user(&user.id, &session.id);
+        self.ws().session_goes_on_under(&session.id, &token);
         Ok(token)
     }
 
@@ -633,11 +635,43 @@ impl App {
             return Err(has_one());
         }
         tracing::info!(user_id = %user.id, "an account without a password was given one");
-        // Its own space takes a session made with the password from here on, and this
-        // one was made through a provider: what its connections follow of the space
-        // ends with them, and they come back to what the session still opens.
-        self.ws().close_user(&user.id);
+        self.ws()
+            .close_other_sessions_of_user(&user.id, &session.id);
+        self.ws().session_goes_on_under(&session.id, &token);
+        self.shut_own_space_to(session).await;
         Ok(token)
+    }
+
+    /// Puts the connections of `session`, which gave its account the first password
+    /// and has not shown it, out of the account's own space: the space takes a session
+    /// that has shown the password from here on. What they follow of it ends and its
+    /// rooms let them go; they stay open for what the session still opens, and for the
+    /// space once the session gives the password (`App::confirm_session_password`).
+    /// If the space cannot be read the connections are closed instead, and come back
+    /// to be asked.
+    async fn shut_own_space_to(&self, session: &Session) {
+        let shut = async {
+            let workspaces = self
+                .store()
+                .workspaces_of_user(&session.user_id, session.into())
+                .await?;
+            for own in workspaces
+                .iter()
+                .filter(|workspace| workspace.kind == OrgKind::Personal)
+            {
+                let space = self.in_organization(&own.org_id)?;
+                space
+                    .ws()
+                    .end_subscriptions_without_password(&own.id, &session.user_id);
+                let scope = AccessScope::workspace(&own.id).of_user(&session.user_id);
+                space.collab().recheck_access(&space, scope).await;
+            }
+            Ok::<(), AppError>(())
+        };
+        if let Err(error) = shut.await {
+            tracing::warn!(%error, user_id = %session.user_id, "the own space was not shut to the session that set its password; its connections are closed");
+            self.ws().close_session(&session.id);
+        }
     }
 }
 
@@ -646,9 +680,10 @@ impl App {
     /// account's own space as a session made with the password does
     /// (`SessionTaken::opened_by`), and nothing else that it did not open. The session
     /// goes on under a new token, which is returned: it opens more than it did, and
-    /// whoever held the token that opened less holds nothing now. Its websocket
-    /// connections are closed, which kept what the session was at their handshake:
-    /// they come back under the new token and are asked anew.
+    /// the token that opened less is taken by no request and no handshake from here
+    /// on. Its websocket connections stay, marked as the session's that it is now
+    /// (`Hub::session_gave_password`): they follow the space once they ask to, and no
+    /// tab comes back under a cookie the answer has not replaced yet.
     ///
     /// # Errors
     ///
@@ -699,7 +734,7 @@ impl App {
             ));
         }
         tracing::info!(user_id = %user.id, session_id = %session.id, "a session confirmed its account's password");
-        self.ws().close_session(&session.id);
+        self.ws().session_gave_password(&session.id, &token);
         Ok(token)
     }
 }

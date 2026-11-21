@@ -4,8 +4,8 @@
   no password, once something is made there, until it is closed for good. That
   it was closed is kept with the account (the client state), so that no other
   browser shows it again. Set, the password ends it: the account has one, and
-  the own space takes only a session made with it, so the pane asks for it
-  (`passwordSet`) where the space was.
+  the own space takes only a session that has shown it, which this one then
+  does with the password it was given (`passwordSet`): the space stays open.
 
   A session too old to vouch is signed in again through the provider of the
   first of the reader's organizations that has one, and comes back here.
@@ -48,12 +48,12 @@
   }
 
   /**
-   * Set, the account has a password and its own space takes only a session made
-   * with it, which this one was not: the notice goes, and the space asks for it.
+   * Set, the account has a password and its own space takes only a session that
+   * has shown it: this one shows it, and the notice goes.
    */
   async function setPassword(password: string): Promise<void> {
     await account.setPassword(password);
-    passwordSet(workspace);
+    await passwordSet(workspace, password);
   }
 
   async function signInAgain(): Promise<void> {

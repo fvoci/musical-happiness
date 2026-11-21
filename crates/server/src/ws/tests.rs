@@ -33,7 +33,8 @@ fn add_listener_reading(
             user_id: user_id.to_owned(),
             session_id: String::new(),
             login: None,
-            making: SessionMade::with_password(),
+            making: SessionKept::with_password(),
+            token: None,
             address: None,
             outbox,
             closed: CancellationToken::new(),
@@ -326,7 +327,7 @@ fn a_wall_shuts_out_who_follows_the_organization_with_another_session() {
     let follows = |listeners: &mut Listeners, session: Session, workspace: Option<&str>| {
         let id = add_listener(listeners, "user");
         if let Some(listener) = listeners.by_id.get_mut(&id) {
-            listener.making = SessionMade::of(&session);
+            listener.making = SessionKept::of(&session);
             listener.login = session.login;
         }
         if let Some(workspace) = workspace {

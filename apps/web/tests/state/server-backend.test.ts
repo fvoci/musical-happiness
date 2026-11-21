@@ -70,7 +70,7 @@ describe('the server backend', () => {
     expect(sent[0]?.headers['X-Requested-With']).toBe('XMLHttpRequest');
   });
 
-  it('opens its connection anew once the session gave its password, whatever came back meanwhile', async () => {
+  it('keeps its connection as the session gives its password: the server asks it as the session is now', async () => {
     const made: { url: string; closed: boolean }[] = [];
     class Socket extends EventTarget {
       readonly made = { url: '', closed: false };
@@ -95,12 +95,9 @@ describe('the server backend', () => {
     });
 
     await backend.confirmPassword('a long password');
-    // The one that was open, or that came back under the old cookie, is let go.
-    expect(made[0]?.closed).toBe(true);
-    await vi.waitFor(() => {
-      expect(made).toHaveLength(2);
-    });
-    expect(made[1]?.closed).toBe(false);
+    await new Promise((done) => setTimeout(done, 20));
+    expect(made).toHaveLength(1);
+    expect(made[0]?.closed).toBe(false);
     unwatch();
   });
 

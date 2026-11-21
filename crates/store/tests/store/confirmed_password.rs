@@ -212,9 +212,20 @@ async fn a_change_of_the_password_leaves_nothing_confirmed_of_the_one_before() {
     test.teardown().await;
 }
 
+/// Whether a line of code names the column in the text of a statement: anywhere but
+/// as the field of a session (`session.password_confirmed_at`,
+/// `password_confirmed_at: ...`), whether the text starts with it, has it after
+/// `UPDATE sessions SET`, or goes on from the line before.
+fn names_column(line: &str) -> bool {
+    line.replace(".password_confirmed_at", "")
+        .replace("password_confirmed_at:", "")
+        .contains("password_confirmed_at")
+}
+
 /// One statement sets what a session confirmed: the column is named by one constant
 /// of one file, which is read wherever a session is and written by one `UPDATE`. A
-/// session is stored without it.
+/// session is stored without it. A file whose tests are a file of their own
+/// (`mod tests;`) is read to its end.
 #[test]
 fn what_a_session_confirmed_is_set_by_one_statement() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -225,6 +236,15 @@ fn what_a_session_confirmed_is_set_by_one_statement() {
         rust_sources(&crates.join(source), &mut files);
     }
     assert!(files.len() > 50, "the sources are found: {}", files.len());
+    for (line, named) in [
+        ("\"UPDATE sessions SET password_confirmed_at = 1\"", true),
+        ("SET password_confirmed_at = \"", true),
+        ("\"password_confirmed_at\"", true),
+        ("session.password_confirmed_at.is_some()", false),
+        ("password_confirmed_at: Some(1),", false),
+    ] {
+        assert_eq!(names_column(line), named, "{line}");
+    }
     let mut naming = Vec::new();
     let mut uses = Vec::new();
     for file in files {
@@ -236,12 +256,12 @@ fn what_a_session_confirmed_is_set_by_one_statement() {
         let text = std::fs::read_to_string(&file).expect("a source file");
         let code = text
             .lines()
-            .take_while(|line| !line.trim_start().starts_with("mod tests"))
+            .take_while(|line| !line.trim_start().starts_with("mod tests {"))
             .map(str::trim)
             .filter(|line| !line.starts_with("//"));
         for line in code {
             // In the text of a statement: by its name, or by the constant that is it.
-            if line.contains("\"password_confirmed_at") || line.contains("CONFIRMED_COLUMN") {
+            if names_column(line) || line.contains("CONFIRMED_COLUMN") {
                 naming.push(name.clone());
             }
             if line.contains("{CONFIRMED_COLUMN}") {

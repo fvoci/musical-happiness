@@ -384,6 +384,23 @@ impl Hub {
         );
     }
 
+    /// Stops what the user's connections follow of `workspace_id`, the workspace of
+    /// their own space, with a session that has not shown the account's password, as
+    /// the account is given its first one: the space takes no other session from then
+    /// on. For after that is stored. A subscription of theirs being checked meanwhile
+    /// is checked again, against access read anew.
+    pub fn end_subscriptions_without_password(&self, workspace_id: &str, user_id: &str) {
+        self.end_workspaces_where(
+            Ended::Password,
+            |revoked| revoked.user_in_workspace(user_id, workspace_id),
+            |listener, workspace| {
+                listener.user_id == user_id
+                    && workspace == workspace_id
+                    && !listener.made().has_shown_password()
+            },
+        );
+    }
+
     /// As [`Self::end_subscriptions_shut_out`] where the organization's workspaces are
     /// not known: stops every workspace followed with a session that was not made
     /// through the provider, whichever. Blocks followed by a read token carry no user's

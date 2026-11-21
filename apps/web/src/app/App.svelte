@@ -35,6 +35,7 @@
     isBackendError,
     isOpen,
     isSignedOut,
+    passwordChanged,
     providePeople,
     startOrganization,
     whileHere,
@@ -452,7 +453,10 @@
     onSignOut={account ? () => void signOut() : undefined}
     onChangePassword={account
       ? (oldPassword: string, newPassword: string) =>
-          signedIn(async () => account?.changePassword(oldPassword, newPassword))
+          signedIn(async () => {
+            await account?.changePassword(oldPassword, newPassword);
+            if (workspace) await passwordChanged(workspace, newPassword);
+          })
       : undefined}
     accountSettings={account ? accountSettings : undefined}
     bind:settingsOpen={

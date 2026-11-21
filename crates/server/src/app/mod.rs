@@ -104,7 +104,7 @@ pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded
 pub use references::MAX_REFERENCE_IDS;
 pub use shared_reads::{MAX_SHARED_READ_FAILURES, SHARED_READ_WINDOW, SharedReads};
 pub use signups::{ConfirmedSignup, Registrant, SignupMarker};
-pub use sso::{Asker, SessionMade};
+pub use sso::{Asker, SessionKept, SessionMade};
 pub use uploads::{
     CLOSED_UPLOAD_GRACE_MILLIS, CleanedUp, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
     PARTS_IN_MEMORY, PartDigest, UPLOAD_LIFETIME_MILLIS,

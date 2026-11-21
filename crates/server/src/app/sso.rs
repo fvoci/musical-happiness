@@ -17,6 +17,9 @@
 //! store (`SessionTaken`), whichever of the two it is, and what is read of a session
 //! is one value (`Making`).
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use fvoci_model::Session;
 use fvoci_store::{Making, SessionTaken, StoredProvider};
 
@@ -158,12 +161,72 @@ pub struct Asker<'a> {
     pub making: Making<&'a str>,
 }
 
-/// What a connection keeps of its session for as long as it lasts: how the session
-/// was made and what it had confirmed when the connection began ([`Making`]). The
-/// connections hold it and hand it back to be asked with; a session that confirms its
-/// password afterwards has its connections closed, so none is left with an older one.
+/// How a session was made and what it had confirmed at one moment ([`Making`]), to be
+/// asked with after that moment: what is read of a connection's keeping
+/// ([`SessionKept::made`]) under the lock of the connections and asked with outside
+/// it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SessionMade(Making);
+
+/// What a connection keeps of its session for as long as it lasts: how the session
+/// was made, as the handshake found it, and whether it has given the account's
+/// password, then or since. A clone is the same keeping: the websocket connection and
+/// its place among the rooms share one, so that a session that confirms its password
+/// (`App::confirm_session_password`) has confirmed it on every connection it has from
+/// that moment, and none of them comes back to be told so. Nothing takes it back: what
+/// a session confirmed goes only with the session, and its connections with it.
+#[derive(Debug, Clone)]
+pub struct SessionKept {
+    /// As the handshake found the session.
+    made: Making,
+    /// The session gave the account's password after the handshake.
+    confirmed_since: Arc<AtomicBool>,
+}
+
+impl SessionKept {
+    /// What is kept of `session`, as it is now.
+    #[must_use]
+    pub fn of(session: &Session) -> Self {
+        Self {
+            made: Making::from(session).into_owned(),
+            confirmed_since: Arc::default(),
+        }
+    }
+
+    /// As of a session made with a password, through no provider: what a connection
+    /// without a session is given, which opens nothing that asks for one.
+    #[must_use]
+    pub fn with_password() -> Self {
+        Self {
+            made: Making::with_password(),
+            confirmed_since: Arc::default(),
+        }
+    }
+
+    /// The value the rule of which session opens what is asked with, as it is now.
+    #[must_use]
+    pub fn making(&self) -> Making<&str> {
+        let made = self.made.as_deref();
+        if self.confirmed_since.load(Ordering::Acquire) {
+            made.having_confirmed_password()
+        } else {
+            made
+        }
+    }
+
+    /// The same, to be asked with later.
+    #[must_use]
+    pub fn made(&self) -> SessionMade {
+        SessionMade(self.making().into_owned())
+    }
+
+    /// The session gave the account's password, and the store recorded it
+    /// (`Store::confirm_session_password`): every holder of this keeping asks as a
+    /// session that confirmed it from here on.
+    pub fn gave_password(&self) {
+        self.confirmed_since.store(true, Ordering::Release);
+    }
+}
 
 impl SessionMade {
     /// What is kept of `session`, as it is now.
@@ -192,6 +255,14 @@ impl SessionMade {
     #[must_use]
     pub fn is_made_otherwise_than(&self, provider_id: &str) -> bool {
         !SessionTaken::Through(provider_id.to_owned()).opened_by(self.making())
+    }
+
+    /// Whether the session has shown the account's password, by being made with it or
+    /// by confirming it since: the rule of the store, for a connection that follows
+    /// the account's own space as the space begins to take no other session.
+    #[must_use]
+    pub fn has_shown_password(&self) -> bool {
+        SessionTaken::WithPassword.opened_by(self.making())
     }
 }
 

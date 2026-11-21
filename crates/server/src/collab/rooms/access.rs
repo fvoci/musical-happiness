@@ -201,7 +201,7 @@ impl Asked {
             doc: member.doc,
             who: Who {
                 user_id: member.connection.user_id.clone(),
-                making: member.connection.making.clone(),
+                making: member.connection.making.making().into_owned(),
                 workspace_id: member.workspace_id.clone(),
             },
         }
@@ -516,7 +516,7 @@ mod tests {
         let connection = Arc::new(Connection {
             id: 1,
             user_id: user.to_owned(),
-            making: fvoci_store::Making::with_password(),
+            making: crate::app::SessionKept::with_password(),
             queue: Queue::new(Capacity {
                 messages: 8,
                 bytes: 1024,
