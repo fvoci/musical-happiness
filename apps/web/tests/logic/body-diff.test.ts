@@ -204,6 +204,13 @@ describe('blocks', () => {
     const removed = diffBodies(doc(code('a = 1\nb = 2')), doc(code('a = 1')));
     expect(pieces(removed.blocks[0])).toEqual(['=a = 1', '-\nb = 2']);
     expect([removed.added, removed.removed]).toEqual([0, 1]);
+    // An empty line between two lines changed stays, the same in both.
+    const around = diffBodies(doc(code('p\n\nq')), doc(code('r\n\ns')));
+    expect(pieces(around.blocks[0])).toEqual(['-p', '/\n', '+r', '=\n\n', '-q', '/\n', '+s']);
+    expect([around.added, around.removed]).toEqual([2, 2]);
+    // An empty line added in place of a last line with no end is a line of its own.
+    const emptied = diffBodies(doc(code('x')), doc(code('\ny')));
+    expect(pieces(emptied.blocks[0])).toEqual(['-x', '/\n', '+\ny']);
     const rewritten = diffBodies(doc(code('a\nb\nc\nd')), doc(code('a\nx\ny\nd')));
     expect(pieces(rewritten.blocks[0])).toEqual(['=a\n', '-b\nc', '/\n', '+x\ny', '=\nd']);
     expect([rewritten.added, rewritten.removed]).toEqual([2, 2]);

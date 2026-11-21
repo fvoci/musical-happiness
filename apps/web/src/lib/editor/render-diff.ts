@@ -96,16 +96,23 @@ export function noteOf(node: DiffNode): string | undefined {
 }
 
 /**
- * Makes an element a stop of the way through the changes, and the only one of
- * what it holds: a task checked and reworded is one change to go to, not two.
+ * Makes an element a stop of the way through the changes. A stop may hold
+ * others (a list made numbered, its items reworded): the way goes to it,
+ * then into it (VersionDiff.svelte).
  */
 function stopAt(element: HTMLElement): void {
-  for (const inner of element.querySelectorAll(`[${DIFF_STOP}]`)) {
+  element.setAttribute(DIFF_STOP, '');
+  element.setAttribute('tabindex', '-1');
+}
+
+/** An item's own text is in the item's stop: a task checked and reworded is one change to go to. */
+function stopAtItem(item: HTMLElement): void {
+  for (const inner of item.querySelectorAll(`[${DIFF_STOP}]`)) {
+    if (inner.closest('li') !== item) continue;
     inner.removeAttribute(DIFF_STOP);
     inner.removeAttribute('tabindex');
   }
-  element.setAttribute(DIFF_STOP, '');
-  element.setAttribute('tabindex', '-1');
+  stopAt(item);
 }
 
 /**
@@ -142,7 +149,7 @@ function decorate(page: Document, node: DiffNode, element: HTMLElement): HTMLEle
     // A task's text is in its second part, after its box; an item's at its start.
     const into = element.hasAttribute('data-checked') ? element.lastElementChild : element;
     into?.prepend(note);
-    stopAt(element);
+    stopAtItem(element);
     return element;
   }
   const holder = page.createElement('div');

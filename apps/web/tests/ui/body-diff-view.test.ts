@@ -5,6 +5,7 @@
  * and code whose lines changed keeping its marks through its colours
  * (code-view.ts). No stored body can carry the marks.
  */
+import { render } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { answer } from '$lib/editor/code-highlight-worker.ts';
@@ -14,9 +15,20 @@ import { drawCodeBlocks } from '$lib/editor/code-view.ts';
 import { DIFF_STOP, drawDiffBlocks } from '$lib/editor/render-diff.ts';
 import { renderBody } from '$lib/editor/render.ts';
 import { DIAGRAM_LANGUAGE, type DocNode } from '$lib/editor/schema.ts';
+import VersionDiff from '$lib/features/card/VersionDiff.svelte';
 import { diffBodies } from '$lib/logic/body-diff.ts';
 
-import { bullets, code, doc, heading, image, item, paragraph, text } from '../support/body-docs.ts';
+import {
+  bullets,
+  code,
+  doc,
+  heading,
+  image,
+  item,
+  numbered,
+  paragraph,
+  text,
+} from '../support/body-docs.ts';
 import { clipboardOf, codeRuns } from '../support/code-blocks.ts';
 
 const inProcess: Highlighter = {
@@ -102,6 +114,30 @@ describe('the marks of a comparison', () => {
     const stops = root.querySelectorAll(`[${DIFF_STOP}]`);
     expect([...stops].map((stop) => stop.tagName)).toEqual(['LI']);
     expect(root.querySelector('li del')?.textContent).toBe('bank');
+  });
+
+  it('keeps the stops of the items of a list made numbered, and goes into the list from its own', async () => {
+    const before = doc(bullets(item(paragraph(text('milk'))), item(paragraph(text('bread')))));
+    const after = doc(
+      numbered(undefined, item(paragraph(text('milk'))), item(paragraph(text('jam')))),
+    );
+    const root = drawn(before, after);
+    const stops = [...root.querySelectorAll<HTMLElement>(`[${DIFF_STOP}]`)];
+    expect(stops.map((stop) => stop.tagName)).toEqual(['DIV', 'P']);
+    expect(stops[1]?.textContent).toBe('breadjam');
+
+    // The way through them, by the button: the list, the item in it, and round to the list.
+    HTMLElement.prototype.scrollIntoView = () => undefined;
+    const view = render(VersionDiff, { diff: diffBodies(before, after) });
+    const next = view.getByTestId('body-diff-next');
+    const shown = [...view.container.querySelectorAll<HTMLElement>(`[${DIFF_STOP}]`)];
+    for (const expected of [0, 1, 0]) {
+      next.click();
+      await vi.waitFor(() => {
+        expect(document.activeElement).toBe(shown[expected]);
+      });
+    }
+    view.unmount();
   });
 
   it('puts a diagram added or removed in an element that carries the mark, where its picture goes too', () => {

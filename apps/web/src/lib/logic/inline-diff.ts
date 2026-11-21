@@ -112,13 +112,15 @@ function tokensOf(inline: Inline, from: number, to: number, unit: Unit): Token[]
   }
   if (unit === 'lines') {
     // A line and its end are two: the last line, which has no end, is the same line given one.
+    // The end of a line with text is as a space between two changes; an empty line is a line.
     let at = 0;
     while (at < part.length) {
       const end = part.indexOf('\n', at);
       const stop = end === -1 ? part.length : end;
       if (stop > at)
         tokens.push({ from: from + at, to: from + stop, key: part.slice(at, stop), space: false });
-      if (end !== -1) tokens.push({ from: from + end, to: from + end + 1, key: '\n', space: true });
+      if (end !== -1)
+        tokens.push({ from: from + end, to: from + end + 1, key: '\n', space: stop > at });
       at = stop + 1;
     }
     return tokens;
@@ -390,7 +392,7 @@ class Merging {
       return;
     }
     // A line of code removed with no end of its own: what is added after it starts a line.
-    if (this.unit === 'lines' && this.#afterRemovedLine() && this.b.text[piece.from] !== '\n')
+    if (this.unit === 'lines' && this.#afterRemovedLine())
       this.content.push({ type: 'text', text: '\n', marks: [diffMark('break')] });
     this.added += Math.max(1, weight(this.b, piece.from, piece.to, this.unit));
     this.#push(slice(this.b, piece.from, piece.to, 'added'));

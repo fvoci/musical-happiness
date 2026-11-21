@@ -51,7 +51,8 @@
   function go(step: 1 | -1): void {
     const stops = [...(region?.querySelectorAll<HTMLElement>(`[${DIFF_STOP}]`) ?? [])];
     if (stops.length === 0) return;
-    const focused = stops.findIndex((stop) => stop.contains(document.activeElement));
+    // The innermost stop with the focus: a stop may hold others.
+    const focused = stops.findLastIndex((stop) => stop.contains(document.activeElement));
     const from = focused >= 0 ? focused : Math.min(reached, stops.length - 1);
     const next =
       from < 0 ? (step === 1 ? 0 : stops.length - 1) : (from + step + stops.length) % stops.length;
