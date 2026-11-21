@@ -3,7 +3,8 @@
  * the frame's main thread, so that the viewer's time limit and its "Close"
  * hold while it works. The frame ends the worker once it has answered, and
  * the viewer throws the whole frame away (and the worker with it) when the
- * time is up or the viewer closes.
+ * reader, asked at the time limit, downloads the file instead, or the viewer
+ * closes.
  *
  * A worker has no `document` and no `DOMParser`: `worker-scope.ts` puts
  * the worker's own on the global object, with their ceilings. Like pdf.js's

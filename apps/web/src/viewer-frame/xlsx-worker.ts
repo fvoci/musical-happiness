@@ -3,8 +3,8 @@
  * main thread, so that the viewer's time limit and its "Close" hold while
  * it works, and answers once, moving the cells' arrays rather than copying
  * them. The frame ends the worker once it has answered, and the viewer
- * throws the whole frame away (and the worker with it) when the time is up
- * or the viewer closes. Built into the frame's chunk and started from a
+ * throws the whole frame away (and the worker with it) when the reader,
+ * asked at the time limit, downloads the file instead, or the viewer closes. Built into the frame's chunk and started from a
  * `blob:`, as the Word worker is (`?worker&inline`).
  */
 import { transfers, type FromXlsxWorker, type ToXlsxWorker } from './xlsx-protocol.ts';

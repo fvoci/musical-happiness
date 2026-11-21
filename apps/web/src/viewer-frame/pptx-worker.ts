@@ -3,7 +3,8 @@
  * ceilings (`pptx-read.ts`) off the frame's main thread, so that the
  * viewer's time limit and its "Close" hold while it works. The frame ends
  * the worker once it has answered, and the viewer throws the whole frame
- * away (and the worker with it) when the time is up or the viewer closes.
+ * away (and the worker with it) when the reader, asked at the time limit,
+ * downloads the file instead, or the viewer closes.
  *
  * Like the Word worker, this is built into the frame's chunk and started
  * from a `blob:` (`?worker&inline`). The pictures' bytes go to the frame
