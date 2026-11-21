@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/svelte';
 import { expect, userEvent, waitFor } from 'storybook/test';
+import { m } from '$lib/i18n/paraglide/messages.js';
+
 import WikiSample from './WikiSample.svelte';
 import { clickStory, storyElement } from './interactions.ts';
 
@@ -51,5 +53,29 @@ export const KeyboardInTheTree: Story = {
     await waitFor(() =>
       expect(canvasElement.ownerDocument.activeElement).toHaveAttribute('aria-expanded', 'false'),
     );
+  },
+};
+export const Outline: Story = {
+  args: { outlined: true },
+  play: async ({ canvasElement }) => {
+    // Beside the page where the column has room, behind its button where it has not.
+    const shown = await storyElement(
+      canvasElement,
+      'nav[data-testid="page-outline"], [data-testid="open-page-outline"]',
+    );
+    const opener = shown.dataset.testid === 'open-page-outline' ? shown : undefined;
+    if (opener) await userEvent.click(opener);
+    const nav = await storyElement(canvasElement, 'nav[data-testid="page-outline"]');
+    await expect(nav).toHaveAccessibleName(m.wiki_outline());
+    const items = nav.querySelectorAll<HTMLElement>('li button');
+    await expect(items).toHaveLength(10);
+    const chosen = items[3];
+    if (!chosen) throw new Error('no fourth heading in the outline');
+    await userEvent.click(chosen);
+    const heading = Array.from(canvasElement.querySelectorAll('.doc-body h3')).find((one) =>
+      one.textContent.startsWith('Two steps'),
+    );
+    await waitFor(() => expect(canvasElement.ownerDocument.activeElement).toBe(heading));
+    if (!opener) await expect(chosen).toHaveAttribute('aria-current', 'location');
   },
 };
