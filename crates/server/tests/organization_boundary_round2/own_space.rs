@@ -988,3 +988,286 @@ async fn the_links_of_a_space_are_closed_while_its_account_waits() {
     ts.anonymous().get(&cards).await.check_ok();
     ts.teardown().await;
 }
+
+/// A server whose search answers every asker with the card of a space, and the space:
+/// what a search answers of it is what the server lets through.
+async fn a_server_with_a_space() -> (FakeSearch, TestServer, Space) {
+    let index = FakeSearch::start().await;
+    let ts = Setup::local_mode().search(index.settings()).start().await;
+    fvoci_server::search::tend(&ts.app).await;
+    let ts = ts.init_basic().await;
+    let space = Space::of_a_new_member(&ts).await;
+    let planted = document(
+        &space.workspace.org_id,
+        &space.workspace.id,
+        &space.board.id,
+        &space.card.title,
+        "",
+    );
+    index.plant(&space.card.id, planted);
+    (index, ts, space)
+}
+
+/// A board under the root workspace that `clients` read: without one their search of
+/// bodies is answered before the search server is asked.
+async fn a_board_read_by(ts: &TestServer, clients: &[&Client]) {
+    let board = ts
+        .create_board(ROOT_WORKSPACE_ID, ContainerType::Private)
+        .await;
+    for client in clients {
+        let member = ContainerMember {
+            container_id: board.id.clone(),
+            user_id: client.me().await.id,
+            scheme_viewer: true,
+            ..ContainerMember::default()
+        };
+        let saved = ts.app.store().save_member(&member).await;
+        saved.expect("a viewer of the board");
+    }
+}
+
+/// Follows the workspace of the space and its card on the connection, makes a change
+/// in the space as its owner, and returns what the connection is told of the space.
+/// A connection of the owner's session follows the same and is told: an answer of
+/// nothing is not that of a change nobody hears of.
+async fn told_of_a_change(space: &Space, socket: &mut super::common::WebSocket) -> Vec<String> {
+    let mut owners = space.owner.connect_websocket().await;
+    let workspace = &space.workspace.id;
+    let follow = [
+        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace}),
+        json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": workspace, "blockIds": [space.card.id]}),
+        json!({
+            "action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID,
+            "blockIds": [space.card.id],
+        }),
+    ];
+    for connection in [&mut owners, &mut *socket] {
+        for command in &follow {
+            let command = Message::Text(command.to_string().into());
+            connection.send(command).await.expect("the command is sent");
+        }
+        carried_out(space.app.ws(), connection).await;
+        heard(connection).await;
+    }
+    let mut card = Block {
+        id: new_id(),
+        container_id: space.board.id.clone(),
+        block_type: BlockType::Card,
+        title: format!("{SECRET} told"),
+        ..Block::default()
+    };
+    space
+        .app
+        .insert_block(&mut card, &space.owner_id, ChangeNotification::Suppress)
+        .await
+        .expect("the owner's change");
+    assert!(
+        space.app.finish_background(Duration::from_secs(5)).await,
+        "the change is told"
+    );
+    let told_the_owner = heard(&mut owners).await;
+    assert!(
+        told_the_owner.iter().any(|message| space.named_in(message)),
+        "the owner's connection is told of the change: {told_the_owner:?}"
+    );
+    heard(socket)
+        .await
+        .into_iter()
+        .filter(|message| space.named_in(message))
+        .collect()
+}
+
+/// A role on a board of a space opens nothing to an account that is not its owner. No
+/// door of the server gives one: the owner who asks for a colleague on a board of
+/// their space is refused, and no row is stored. A row that is there all the same,
+/// past every door and with the highest role, on an open board and on a private one,
+/// opens no route, no search, no list, no archive, no audit log and no change told:
+/// who is no member of the space's workspace is not let into it.
+#[tokio::test]
+async fn a_role_on_a_board_of_a_space_opens_nothing_to_another_account() {
+    let (index, ts, space) = a_server_with_a_space().await;
+    let colleague = &ts.client2;
+    let colleague_id = colleague.me().await.id;
+    let boards = [&space.board.id, &space.managed.id];
+    let rows = async || -> Vec<String> {
+        let query = format!(
+            "SELECT CAST(container_id AS TEXT) FROM container_members \
+             WHERE user_id = '{colleague_id}' AND container_id IN ('{}', '{}')",
+            boards[0], boards[1]
+        );
+        let store = ts.app.store().system();
+        store.texts_unchecked(&query).await.expect("read")
+    };
+    for board in boards {
+        let path = format!("/w/{}/containers/{board}/members", space.workspace.id);
+        let role = json!({"userId": colleague_id, "schemeAdmin": true});
+        let asked = space.owner.post(&path, &role).await;
+        assert_eq!(
+            asked.status,
+            StatusCode::BAD_REQUEST,
+            "the owner puts nobody else on a board of their space: {}",
+            asked.text()
+        );
+    }
+    assert_eq!(rows().await, NO_ROWS, "and no door stored a row");
+
+    for board in boards {
+        let member = ContainerMember {
+            container_id: board.clone(),
+            user_id: colleague_id.clone(),
+            scheme_admin: true,
+            ..ContainerMember::default()
+        };
+        let planted = space.app.store().save_member(&member).await;
+        planted.expect("a row past every door");
+    }
+    assert_eq!(rows().await.len(), 2, "the rows are there");
+
+    a_board_read_by(&ts, &[colleague]).await;
+    let who = ("an account with a role on its boards", Asker::Outsider);
+    let mut violations = compare_routes(who, colleague, (&space, &index), ROOT_WORKSPACE_ID).await;
+    let mut socket = colleague.connect_websocket().await;
+    for told in told_of_a_change(&space, &mut socket).await {
+        violations.push(format!("told over the websocket: {told}"));
+    }
+    check_the_owner_reaches_it(&space).await;
+    ts.teardown().await;
+    assert!(
+        violations.is_empty(),
+        "a role on a board of a space opens something of it:\n{}",
+        violations.join("\n")
+    );
+}
+
+const NO_ROWS: [String; 0] = [];
+
+/// A session of the space's owner that was made through a provider, of an account
+/// that has a password: the owner signs in once more, and the session that comes of
+/// it is written down as a provider's, as the sign-in through one stores it.
+async fn a_provider_session_of_the_owner(ts: &TestServer, space: &Space) -> Client {
+    let store = ts.app.store().system();
+    let owner = &space.owner_id;
+    let of_root =
+        format!("SELECT CAST(org_id AS TEXT) FROM workspaces WHERE id = '{ROOT_WORKSPACE_ID}'");
+    let org_id = store
+        .texts_unchecked(&of_root)
+        .await
+        .expect("read")
+        .remove(0);
+    let of_owner = format!("SELECT CAST(id AS TEXT) FROM sessions WHERE user_id = '{owner}'");
+    let before = store.texts_unchecked(&of_owner).await.expect("read");
+    let mut client = ts.anonymous();
+    let signed_in = client.login("space-owner", PASSWORD).await;
+    assert!(signed_in.status.is_success(), "{}", signed_in.text());
+    let known: Vec<String> = before.iter().map(|id| format!("'{id}'")).collect();
+    let provider = new_id();
+    let changed = store
+        .execute_unchecked(&format!(
+            "UPDATE sessions SET login_provider_id = '{provider}', \
+             login_org_id = '{}', login_issuer = 'https://provider.example' \
+             WHERE user_id = '{owner}' AND CAST(id AS TEXT) NOT IN ({})",
+            org_id,
+            known.join(", ")
+        ))
+        .await;
+    changed.expect("the new session is a provider's");
+    client
+}
+
+/// Once the account of a space has a password, a session of it made through a
+/// provider opens nothing of the space: an organization holds its provider, and the
+/// space is its person's alone. Every route under the space's workspace answers that
+/// the password is asked for, and names nothing of the space; what is of the space is
+/// not found under the workspace the session does open; the list of boards and what
+/// deleting the account comes to leave it out; the websocket tells such a connection
+/// no change. The session opens the organization as before, the space is listed (so
+/// that its person is asked for the password), a public link of the space is read by
+/// anybody, and a session made with the password reaches all of it.
+#[tokio::test]
+async fn a_provider_session_opens_nothing_of_a_space_whose_account_has_a_password() {
+    let (index, ts, space) = a_server_with_a_space().await;
+    let token = space
+        .app
+        .set_sharing(&space.board.id, SharingChange::On, &space.owner_id)
+        .await
+        .expect("the owner shares the board")
+        .token;
+    let by_provider = a_provider_session_of_the_owner(&ts, &space).await;
+    a_board_read_by(&ts, &[&by_provider]).await;
+    let root = ROOT_WORKSPACE_ID;
+    let mut violations = Vec::new();
+
+    // The session is seen as a provider's: the space is listed, and closed to it.
+    let listed: Vec<UserWorkspace> = by_provider.get("/users/me/workspaces").await.ok_json();
+    let closed: Vec<&UserWorkspace> = listed
+        .iter()
+        .filter(|workspace| workspace.password_required)
+        .collect();
+    assert_eq!(closed.len(), 1, "the space alone is closed: {listed:?}");
+    assert_eq!(closed[0].id, space.workspace.id, "{listed:?}");
+    by_provider.get(&format!("/w/{root}")).await.check_ok();
+
+    for (method, suffix, operation) in WORKSPACE_ROUTES {
+        let method = method.parse().expect("an HTTP method");
+        let path = format!("/w/{}{}", space.workspace.id, fill_with_nothing(suffix));
+        let refused = Client::send(by_provider.request(method, &path).json(&json!({}))).await;
+        if refused.status != StatusCode::UNAUTHORIZED
+            || refused.error_reason() != "password_sign_in_required"
+            || space.named_in(&refused.text())
+        {
+            violations.push(format!("{operation}: {:?}", answer(&refused)));
+        }
+    }
+    let here = format!("/w/{}", space.workspace.id);
+    for path in [
+        format!("{here}/containers/{}/files/{}", space.board.id, space.file),
+        format!("{here}/archive/export"),
+        format!("{here}/search?q={SECRET}"),
+        format!("{here}/boards/search?q={SECRET}"),
+        format!("{here}/audit"),
+    ] {
+        let refused = by_provider.get(&path).await;
+        if refused.status != StatusCode::UNAUTHORIZED || space.named_in(&refused.text()) {
+            violations.push(format!("GET {path}: {:?}", answer(&refused)));
+        }
+    }
+    violations.extend(compare_resource_routes(&by_provider, root, &space.items()).await);
+    violations.extend(compare_what_is_found(&by_provider, &space, root, &index).await);
+    for path in ["/users/me/memberships", "/users/me/deletion"] {
+        let found = by_provider.get(path).await;
+        found.check_ok();
+        if [&space.board.id, &space.managed.id, &space.page.container_id]
+            .iter()
+            .any(|board| found.text().contains(*board))
+        {
+            violations.push(format!("GET {path}: {}", found.text()));
+        }
+    }
+    let deletion: Value = by_provider.get("/users/me/deletion").await.ok_json();
+    assert_eq!(
+        deletion["organizations"][0]["boards"],
+        Value::Null,
+        "what the space holds is not counted for the session: {deletion}"
+    );
+    let mut socket = by_provider.connect_websocket().await;
+    for told in told_of_a_change(&space, &mut socket).await {
+        violations.push(format!("told over the websocket: {told}"));
+    }
+
+    // What stays open: the link anybody reads, and the space to the password.
+    let link = format!("/shared/{}?readToken={token}", space.board.id);
+    ts.anonymous().get(&link).await.check_ok();
+    check_the_owner_reaches_it(&space).await;
+    let memberships = space.owner.get("/users/me/memberships").await;
+    assert!(
+        memberships.text().contains(&space.board.id),
+        "the password's session lists the boards of the space: {}",
+        memberships.text()
+    );
+    ts.teardown().await;
+    assert!(
+        violations.is_empty(),
+        "a provider's session reaches something of a space that takes the password:\n{}",
+        violations.join("\n")
+    );
+}

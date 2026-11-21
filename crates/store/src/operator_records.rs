@@ -9,7 +9,7 @@ use fvoci_model::{AuditAction, OrgKind};
 use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Id, Scope};
 use crate::error::StoreError;
-use crate::{Store, password_reset, users};
+use crate::{Store, directory, password_reset, users};
 
 impl Store {
     /// Sets the password hash of the user with the given name, in any letter case, and
@@ -31,6 +31,12 @@ impl Store {
         self.system()
             .transaction(async |scope| {
                 let user_id = users::reset_password(scope, username, password_hash).await?;
+                // It may be the account's first, which changes which sessions its own
+                // space takes (`SessionTaken::of_space`): what was read of that is
+                // read again.
+                if let Some(space) = directory::space_of(scope, &user_id).await? {
+                    scope.invalidate_visibility_of(&space)?;
+                }
                 record_in_organizations_of(scope, &user_id, AuditAction::PasswordSetByOperator)
                     .await?;
                 Ok(user_id)

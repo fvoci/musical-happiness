@@ -2,6 +2,10 @@
 //! wall of the transaction opened for that read and closed again before anything else
 //! runs in it. Each read here names what it asks for (the oldest organization, the
 //! organizations one account made), and nothing is written past the wall.
+//!
+//! The opening and the closing are here too ([`open_wall`], [`close_wall`]), for the
+//! one other place that opens a transaction's wall: a registration's statement on the
+//! one link it was made by (`signups.rs`).
 
 use fvoci_model::OrgKind;
 
@@ -9,14 +13,54 @@ use super::oldest_organization;
 use crate::db::{Dialect, Id, Scope, Sql};
 use crate::error::StoreError;
 
+/// What the reach of a transaction was before its wall was opened.
+#[must_use = "the wall is closed again with `close_wall`"]
+pub(crate) struct OpenedWall(String);
+
+/// Opens the wall of the transaction of `scope`, on PostgreSQL: the rows of every
+/// organization are in its reach until [`close_wall`] puts the reach back as it was,
+/// which is not always closed: a transaction that opened it before keeps it open.
+/// Only inside a transaction, whose setting the reach is.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Database`] if the reach cannot be read or changed.
+pub(crate) async fn open_wall(scope: &mut Scope<'_>) -> Result<OpenedWall, StoreError> {
+    let sql = scope.sql("SELECT COALESCE(current_setting('fvoci.system', true), 'off')");
+    let before = match scope.fetch_optional(sql).await? {
+        Some(row) => row.text(0)?,
+        None => "off".to_owned(),
+    };
+    set_reach(scope, "on").await?;
+    Ok(OpenedWall(before))
+}
+
+/// Puts the reach of the transaction back as it was before [`open_wall`].
+///
+/// # Errors
+///
+/// Returns [`StoreError::Database`] if the reach cannot be changed.
+pub(crate) async fn close_wall(scope: &mut Scope<'_>, wall: OpenedWall) -> Result<(), StoreError> {
+    set_reach(scope, &wall.0).await
+}
+
+async fn set_reach(scope: &mut Scope<'_>, reach: &str) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT set_config('fvoci.system', ");
+    sql.bind(reach).push(", true)");
+    scope.fetch_optional(sql).await?;
+    Ok(())
+}
+
 /// Runs the one read `read` with the rows of every organization in reach, in the
-/// transaction of `scope`, which is one of an organization, and closes the wall again.
-/// On SQLite, which has no wall, `read` runs as it is; so it does for a scope that
-/// names no organization, whose reach is not this function's to change. Only inside a
+/// transaction of `scope`, which is one of an organization, and puts the reach back
+/// as it was. On SQLite, which has no wall, `read` runs as it is. Only inside a
 /// transaction, whose setting the reach is.
 ///
 /// # Errors
 ///
+/// Returns [`StoreError::NoOrganization`] for a scope that names no organization, on
+/// either database: what such a scope reaches is not this function's to change, and
+/// a read that it could not make would answer as if there were nothing to find.
 /// Returns the error of `read`, and [`StoreError::Database`] if the reach cannot be
 /// changed. It is put back whatever `read` answered; where that fails after `read`
 /// failed, the error of `read` is the one returned, and the transaction is one
@@ -25,17 +69,17 @@ async fn past_the_wall<T>(
     scope: &mut Scope<'_>,
     read: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
 ) -> Result<T, StoreError> {
-    if scope.dialect() != Dialect::Postgres || !scope.has_org() {
+    if !scope.has_org() {
+        return Err(StoreError::NoOrganization);
+    }
+    if scope.dialect() != Dialect::Postgres {
         return read(scope).await;
     }
-    let reach = |on: &str| format!("SELECT set_config('fvoci.system', '{on}', true)");
-    let sql = scope.sql(&reach("on"));
-    scope.fetch_optional(sql).await?;
+    let wall = open_wall(scope).await?;
     let result = read(scope).await;
-    let sql = scope.sql(&reach("off"));
-    let closed = scope.fetch_optional(sql).await;
+    let closed = close_wall(scope, wall).await;
     match (result, closed) {
-        (Ok(value), Ok(_)) => Ok(value),
+        (Ok(value), Ok(())) => Ok(value),
         (Err(error), _) | (Ok(_), Err(error)) => Err(error),
     }
 }
@@ -58,6 +102,12 @@ pub(crate) async fn is_the_instances_organization(
 /// together: by signing up with the name of one, or later. Of all, which the wall of
 /// the caller's transaction hides and is opened for this one read. Not the ones it was
 /// let into, and not its own space.
+///
+/// # Errors
+///
+/// Returns [`StoreError::NoOrganization`] for a scope that names no organization: the
+/// count is asked by a transaction that makes one, and nothing is counted as none
+/// for want of reach.
 pub(crate) async fn organizations_made_by(
     scope: &mut Scope<'_>,
     user_id: &str,

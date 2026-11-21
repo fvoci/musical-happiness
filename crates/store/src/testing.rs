@@ -711,6 +711,43 @@ impl Store {
         .await
     }
 
+    /// What the reach of a transaction of this handle is after it asked, with its wall
+    /// open already, whether its organization is the instance's own: for the test that
+    /// a read past the wall leaves the reach as it found it. PostgreSQL only, which
+    /// has the wall.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn reach_after_asking_with_the_wall_open(&self) -> Result<String, StoreError> {
+        self.transaction(async |scope| {
+            let wall = crate::directory::open_wall(scope).await?;
+            crate::directory::is_the_instances_organization(scope).await?;
+            let sql = scope.sql("SELECT current_setting('fvoci.system', true)");
+            let reach = match scope.fetch_optional(sql).await? {
+                Some(row) => row.text(0)?,
+                None => String::new(),
+            };
+            crate::directory::close_wall(scope, wall).await?;
+            Ok(reach)
+        })
+        .await
+    }
+
+    /// How many organizations the account made, asked in a transaction of this
+    /// handle as the start of an organization asks it: for the test of what a handle
+    /// that names no organization is answered.
+    ///
+    /// # Errors
+    ///
+    /// As `directory::organizations_made_by`.
+    pub async fn organizations_made_by(&self, user_id: &str) -> Result<i64, StoreError> {
+        self.transaction(async |scope| {
+            crate::directory::organizations_made_by(scope, user_id).await
+        })
+        .await
+    }
+
     /// How many rows of a table this handle reaches, with no condition: for the tests
     /// of the wall between organizations.
     ///
