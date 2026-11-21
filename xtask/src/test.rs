@@ -294,52 +294,25 @@ impl Run<'_> {
             }
             self.results.borrow_mut().push(result);
         }
-        let unmatched = self.unmatched_names(database);
-        if !failed.is_empty() {
-            bail!(
-                "{} of {} units failed: {}",
+        let results = self.results.borrow();
+        let of_database: Vec<&UnitResult> = results
+            .iter()
+            .filter(|result| result.database == database.name())
+            .collect();
+        let chose_wrongly = chose_wrongly(database, instead, &of_database);
+        match (failed.is_empty(), chose_wrongly) {
+            (true, None) => Ok(()),
+            (true, Some(wrongly)) => bail!("{wrongly}"),
+            (false, wrongly) => bail!(
+                "{} of {} units failed: {}{}",
                 failed.len(),
                 chosen.len(),
-                failed.join(", ")
-            );
+                failed.join(", "),
+                wrongly
+                    .map(|wrongly| format!("; and {wrongly}"))
+                    .unwrap_or_default()
+            ),
         }
-        if !unmatched.is_empty() {
-            bail!(
-                "no test of {} is named {}: a name that moved, or a rerun of another source",
-                database.name(),
-                unmatched.join(", ")
-            );
-        }
-        Ok(())
-    }
-
-    /// The names of a rerun (`-- --exact` and names) that no test of `database` had in
-    /// this run: a rerun of them proves nothing.
-    fn unmatched_names(&self, database: Database) -> Vec<&str> {
-        let Choice::Units { arguments, .. } = self.choice else {
-            return Vec::new();
-        };
-        let Some(names) = exact_names(arguments) else {
-            return Vec::new();
-        };
-        let results = self.results.borrow();
-        let ran = |name: &String| {
-            results
-                .iter()
-                .filter(|result| result.database == database.name())
-                .flat_map(|result| {
-                    [
-                        &result.run.report.passed_tests,
-                        &result.run.report.failed_tests,
-                    ]
-                })
-                .any(|tests| tests.contains(name))
-        };
-        names
-            .iter()
-            .filter(|name| !ran(name))
-            .map(String::as_str)
-            .collect()
     }
 
     /// The units of `all` the choice of the run takes.
@@ -484,6 +457,47 @@ impl Backends {
     }
 }
 
+/// What is wrong with the tests that `arguments` for the harness chose, which ran in
+/// `results`, the units of `database`: they were none, or some of the names of a rerun
+/// line (`-- --exact` and names) are of no test that ran. Either proves nothing.
+fn chose_wrongly(
+    database: Database,
+    arguments: &[String],
+    results: &[&UnitResult],
+) -> Option<String> {
+    if arguments.is_empty() {
+        return None;
+    }
+    let seen = |name: &String| {
+        results
+            .iter()
+            .any(|result| result.run.report.seen_tests.contains(name))
+    };
+    if results.iter().all(|result| {
+        let report = &result.run.report;
+        report.passed == 0 && report.failed == 0 && report.seen_tests.is_empty()
+    }) {
+        return Some(format!(
+            "`{}` chose no test of {}",
+            arguments.join(" "),
+            database.name()
+        ));
+    }
+    let unseen: Vec<&str> = exact_names(arguments)
+        .unwrap_or_default()
+        .iter()
+        .filter(|name| !seen(name))
+        .map(String::as_str)
+        .collect();
+    (!unseen.is_empty()).then(|| {
+        format!(
+            "no test of {} is named {}: a name that moved, or a rerun of another source",
+            database.name(),
+            unseen.join(", ")
+        )
+    })
+}
+
 /// The names of arguments for the harness that are `--exact` and names only, as the
 /// rerun lines of the summary give them.
 fn exact_names(arguments: &[String]) -> Option<&[String]> {
@@ -562,6 +576,55 @@ mod tests {
             build_arguments(Database::Sqlite, &named(&["api"]), &doc),
             None,
             "documentation tests are built as they run"
+        );
+    }
+
+    #[test]
+    fn a_rerun_fails_when_it_chose_no_test_or_a_name_of_none() {
+        use crate::test::harness::{Report, UnitRun};
+        let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
+        let ran = |unit: &str, seen: &[&str]| UnitResult {
+            database: "sqlite",
+            unit: unit.to_owned(),
+            scope: Scope::Chosen,
+            run: UnitRun {
+                succeeded: true,
+                interrupted: false,
+                failed_targets: None,
+                report: Report {
+                    passed: u64::try_from(seen.len()).expect("a few"),
+                    seen_tests: seen.iter().map(|&name| name.to_owned()).collect(),
+                    ..Report::default()
+                },
+                elapsed: std::time::Duration::ZERO,
+            },
+        };
+        let api = ran("api", &["api::a"]);
+        let web = ran("web", &[]);
+        let both = [&api, &web];
+        let wrongly = |arguments: &str, results: &[&UnitResult]| {
+            chose_wrongly(Database::Sqlite, &words(arguments), results)
+        };
+        assert_eq!(
+            wrongly("--exact api::a", &both),
+            None,
+            "web ran none of it: no matter"
+        );
+        assert_eq!(wrongly("api", &both), None, "a filter that chose a test");
+        assert!(
+            wrongly("--exact api::a api::moved", &both)
+                .is_some_and(|wrongly| wrongly.contains("named api::moved")),
+            "one stale name of two"
+        );
+        assert!(
+            wrongly("--exact api::moved --nocapture", &[&web])
+                .is_some_and(|wrongly| wrongly.contains("chose no test of sqlite")),
+            "a rerun line with more after it that runs nothing"
+        );
+        assert_eq!(
+            chose_wrongly(Database::Sqlite, &[], &[&web]),
+            None,
+            "a whole unit"
         );
     }
 

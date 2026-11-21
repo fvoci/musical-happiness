@@ -40,17 +40,27 @@ impl UnitResult {
     }
 
     /// Whether the names of its failed tests are all its failures: every binary
-    /// reported, named as many failures as it counted, and a command that failed had a
-    /// binary that failed (not one that died after its result, nor a build).
+    /// reported, named as many failures as it counted, a command that failed had a
+    /// binary whose result was a failure (not only a build that failed), and cargo
+    /// counted no more failed binaries than those (none that died after its result).
     fn every_failure_named(&self) -> bool {
         let report = &self.run.report;
-        report.names_every_failure() && (self.run.succeeded || report.failed_binaries > 0)
+        report.names_every_failure()
+            && (self.run.succeeded || report.failed_binaries > 0)
+            && self
+                .run
+                .failed_targets
+                .is_none_or(|targets| targets <= report.failed_binaries)
     }
 
     /// Whether its failures run again by name. Documentation tests do not: rustdoc
     /// cuts the arguments for their harness at spaces, and every name of one has some.
     fn reruns_by_name(&self) -> bool {
-        self.unit != DOC && !self.run.report.failed_tests.is_empty() && self.every_failure_named()
+        // Stopped between two of its binaries, it did not start the later ones.
+        !self.run.interrupted
+            && self.unit != DOC
+            && !self.run.report.failed_tests.is_empty()
+            && self.every_failure_named()
     }
 
     pub(crate) fn time(&self) -> UnitTime {
@@ -140,15 +150,14 @@ pub(crate) fn flaky(
         {
             flaky.push((whole, started));
         }
-        let failed = &result.run.report.failed_tests;
-        // A name can be in two binaries of a unit and fail in one: that is no pass.
-        for test in result
-            .run
-            .report
+        let report = &result.run.report;
+        // A name can be in two binaries of a unit and fail in one, or not be reached
+        // in one that died: a pass of it in the other is no pass of the test.
+        let passes = report
             .passed_tests
             .iter()
-            .filter(|test| !failed.contains(test))
-        {
+            .filter(|test| report.every_binary_finished() && !report.failed_tests.contains(test));
+        for test in passes {
             let named = name(Some(test));
             if let Some(&started) = earlier.get(&named) {
                 flaky.push((named, started));
@@ -273,6 +282,7 @@ mod tests {
             run: UnitRun {
                 succeeded: matches!(exit, Exit::Success),
                 interrupted: false,
+                failed_targets: None,
                 report,
                 elapsed: Duration::from_millis(83_400),
             },
@@ -422,11 +432,42 @@ mod tests {
     }
 
     #[test]
-    fn a_unit_that_ended_after_the_task_was_asked_to_stop_is_interrupted() {
+    fn a_unit_that_was_asked_to_stop_is_interrupted_and_runs_again_whole() {
         let mut stopped = result("sqlite", "x", Exit::Failure, finished(&["x::a"], &["x::b"]));
         stopped.run.interrupted = true;
         assert_eq!(stopped.time().verdict, Verdict::Interrupted);
-        assert!(lines(&[stopped], &[], 0).contains("STOP  sqlite    x"));
+        assert!(lines(std::slice::from_ref(&stopped), &[], 0).contains("STOP  sqlite    x"));
+        assert_eq!(
+            reruns(&[stopped]),
+            ["cargo xtask test --database sqlite --unit x"],
+            "the binaries after the one it stopped in did not start"
+        );
+    }
+
+    #[test]
+    fn a_binary_cargo_counts_as_failed_beside_one_that_named_its_failure_is_unnamed() {
+        // Binary A named `x::b`; binary B said `test result: ok` and then died.
+        let mut died = result(
+            "sqlite",
+            "x",
+            Exit::Failure,
+            Report {
+                started: 2,
+                finished: 2,
+                ..finished(&["x::a"], &["x::b"])
+            },
+        );
+        died.run.failed_targets = Some(2);
+        assert!(!died.time().every_failure_named);
+        assert_eq!(
+            reruns(std::slice::from_ref(&died)),
+            ["cargo xtask test --database sqlite --unit x"]
+        );
+        died.run.failed_targets = Some(1);
+        assert!(
+            died.time().every_failure_named,
+            "cargo counts the one that named it"
+        );
     }
 
     #[test]
@@ -474,6 +515,25 @@ mod tests {
             flaky,
             [(test_name("postgres", "api", Some("api::y")), 7)],
             "another database's failure is another test"
+        );
+    }
+
+    #[test]
+    fn a_pass_beside_a_binary_that_died_is_not_flaky() {
+        let died = result(
+            "sqlite",
+            "libs",
+            Exit::Failure,
+            Report {
+                started: 2,
+                ..finished(&["tests::a"], &[])
+            },
+        );
+        let earlier = BTreeMap::from([(test_name("sqlite", "libs", Some("tests::a")), 3)]);
+        assert_eq!(
+            flaky(&[died], &earlier),
+            [],
+            "the binary that died may have had it too"
         );
     }
 

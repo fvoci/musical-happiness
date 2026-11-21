@@ -3,12 +3,14 @@
 //!
 //! A unit failed if its command failed, if its harness named a failed test, or if one of
 //! its test binaries started and never reported its result (it aborted, was killed, or
-//! a test ended its process). Only when every failure was named are the names run
-//! again; else the whole unit is.
+//! a test ended its process). Cargo's count of the binaries that failed, on its standard
+//! error, tells whether a binary failed that named nothing (one that died after its
+//! result). Only when every failure was named are the names run again, and never those
+//! of documentation tests ([`super::report`]); else the whole unit is.
 
-use std::io::{BufRead as _, BufReader, Write};
+use std::io::{BufRead as _, BufReader, Read, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
@@ -29,6 +31,9 @@ pub(crate) struct Report {
     pub(crate) failed_tests: Vec<String>,
     /// The tests it named as passed.
     pub(crate) passed_tests: Vec<String>,
+    /// Every test it named in a line of its own (`test x ... `), whatever followed: a
+    /// test that prints with its output not captured has its output there.
+    pub(crate) seen_tests: Vec<String>,
 }
 
 impl Report {
@@ -93,10 +98,11 @@ impl Reading {
             }
         } else {
             self.listing = None;
-            if let Some((name, verdict)) = line
-                .strip_prefix("test ")
-                .and_then(|rest| rest.rsplit_once(" ... "))
-            {
+            let rest = line.strip_prefix("test ");
+            if let Some((name, _)) = rest.and_then(|rest| rest.split_once(" ... ")) {
+                self.report.seen_tests.push(bare(name).to_owned());
+            }
+            if let Some((name, verdict)) = rest.and_then(|rest| rest.rsplit_once(" ... ")) {
                 match verdict {
                     "FAILED" => self.failed(bare(name).to_owned()),
                     "ok" => self.report.passed_tests.push(bare(name).to_owned()),
@@ -149,20 +155,68 @@ fn is_running(line: &str) -> bool {
         .is_some_and(|count| !count.is_empty() && count.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
-/// A command of tests that ran to its end.
+/// A command of tests, after it ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct UnitRun {
     /// Whether it exited with success.
     pub(crate) succeeded: bool,
-    /// Whether the task was asked to stop by the time it ended: then its end says
-    /// nothing of its tests (Ctrl-C reaches the tests too).
+    /// Whether it was asked to stop (Ctrl-C reaches it as it reaches this task): then
+    /// its end says nothing of its tests.
     pub(crate) interrupted: bool,
+    /// How many test binaries cargo said failed (`error: 2 targets failed:`), if it said.
+    pub(crate) failed_targets: Option<u64>,
     pub(crate) report: Report,
     pub(crate) elapsed: Duration,
 }
 
+/// What cargo says on its standard error at the end of a `cargo test --no-fail-fast`
+/// whose test binaries failed: `error: 2 targets failed:`, `error: 1 target failed:`.
+fn failed_targets(line: &str) -> Option<u64> {
+    let (count, what) = line.trim_end().strip_prefix("error: ")?.split_once(' ')?;
+    if matches!(what, "targets failed:" | "target failed:") {
+        count.parse().ok()
+    } else {
+        None
+    }
+}
+
+/// Passes `errors` on to `echo` a line at a time, and returns the last count of failed
+/// test binaries cargo gave in it.
+fn read_errors(errors: impl Read, mut echo: impl Write) -> Option<u64> {
+    let mut errors = BufReader::new(errors);
+    let mut line = Vec::new();
+    let mut count = None;
+    // An error reading the stream ends it: what cargo said before still counts.
+    while errors
+        .read_until(b'\n', &mut line)
+        .is_ok_and(|read| read > 0)
+    {
+        let _ = echo.write_all(&line);
+        count = failed_targets(&String::from_utf8_lossy(&line)).or(count);
+        line.clear();
+    }
+    count
+}
+
+/// Whether a command that ended with `status` was asked to stop: on Unix, ended by
+/// `SIGHUP`, `SIGINT` or `SIGTERM`, which this task's terminal or caller sends to every
+/// command of it; elsewhere, whether this task was asked to stop.
+fn asked_to_stop(status: ExitStatus) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt as _;
+        // SIGHUP, SIGINT and SIGTERM have these numbers on every Unix.
+        matches!(status.signal(), Some(1 | 2 | 15))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        crate::steps::interrupted()
+    }
+}
+
 /// Runs a command of tests in `directory`, its standard output read as the harness's
-/// and passed on to this task's, its standard error going where this task's goes.
+/// and its standard error as cargo's, each passed on to this task's.
 ///
 /// # Errors
 ///
@@ -183,18 +237,28 @@ pub(crate) fn run(
         .args(arguments)
         .envs(environment.iter().map(|(name, value)| (name, value)))
         .current_dir(directory);
-    let mut ran = run_echoing(command, &shown, &mut std::io::stdout())?;
-    ran.interrupted = crate::steps::interrupted();
-    Ok(ran)
+    run_echoing(command, &shown, &mut std::io::stdout(), std::io::stderr())
 }
 
-/// Runs `command`, its standard output read as the harness's and written to `echo`.
-fn run_echoing(mut command: Command, shown: &str, echo: &mut dyn Write) -> Result<UnitRun> {
+/// Runs `command`, its standard output read as the harness's and written to `echo`, its
+/// standard error read as cargo's and written to `echo_errors`.
+fn run_echoing(
+    mut command: Command,
+    shown: &str,
+    echo: &mut dyn Write,
+    echo_errors: impl Write + Send + 'static,
+) -> Result<UnitRun> {
     let started = Instant::now();
     let mut child = command
         .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!("starting `{shown}`"))?;
+    // Read on a thread of its own, so that neither stream fills while the other is read.
+    let errors = child
+        .stderr
+        .take()
+        .map(|errors| std::thread::spawn(move || read_errors(errors, echo_errors)));
     let mut reading = Reading::default();
     if let Some(output) = child.stdout.take() {
         let mut output = BufReader::new(output);
@@ -215,9 +279,11 @@ fn run_echoing(mut command: Command, shown: &str, echo: &mut dyn Write) -> Resul
     let status = child
         .wait()
         .with_context(|| format!("waiting for `{shown}`"))?;
+    let failed_targets = errors.and_then(|reading| reading.join().ok()).flatten();
     Ok(UnitRun {
         succeeded: status.success(),
-        interrupted: false,
+        interrupted: asked_to_stop(status),
+        failed_targets,
         report: reading.finish(),
         elapsed: started.elapsed(),
     })
@@ -371,8 +437,9 @@ test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; 
         let mut command = Command::new("sh");
         command.args(["-c", script]);
         let mut echo = Vec::new();
-        let ran = run_echoing(command, "sh", &mut echo).expect("sh starts");
+        let ran = run_echoing(command, "sh", &mut echo, std::io::sink()).expect("sh starts");
         assert!(!ran.succeeded, "the exit status is kept");
+        assert!(!ran.interrupted);
         assert_eq!(ran.report.failed_tests, ["e::x"]);
         assert!(
             String::from_utf8_lossy(&echo).starts_with("test e::x ... FAILED\n"),
@@ -383,7 +450,43 @@ test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; 
         command
             .args(["-c", "test \"$THE_VALUE\" = given"])
             .env("THE_VALUE", "given");
-        let ran = run_echoing(command, "sh", &mut Vec::new()).expect("sh starts");
+        let ran = run_echoing(command, "sh", &mut Vec::new(), std::io::sink()).expect("sh starts");
         assert!(ran.succeeded, "a command that succeeds");
+        assert_eq!(ran.failed_targets, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cargos_count_of_failed_binaries_is_read_from_its_standard_error() {
+        // As cargo ends a run of which two binaries failed; the error stream goes to
+        // the sink, not to this test's, which the task of a run of these tests reads.
+        let script = "echo 'error: test failed, to rerun pass `--lib`' >&2; \
+                      echo 'error: 2 targets failed:' >&2; echo '    `--lib`' >&2; exit 101";
+        let mut command = Command::new("sh");
+        command.args(["-c", script]);
+        let ran = run_echoing(command, "sh", &mut Vec::new(), std::io::sink()).expect("sh starts");
+        assert_eq!(ran.failed_targets, Some(2));
+        assert_eq!(failed_targets("error: 1 target failed:\n"), Some(1));
+        assert_eq!(failed_targets("error: could not compile `x`"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_command_ended_by_ctrl_c_was_asked_to_stop() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "kill -INT $$"]);
+        let ran = run_echoing(command, "sh", &mut Vec::new(), std::io::sink()).expect("sh starts");
+        assert!(ran.interrupted && !ran.succeeded, "{ran:?}");
+        let mut command = Command::new("sh");
+        command.args(["-c", "kill -KILL $$"]);
+        let ran = run_echoing(command, "sh", &mut Vec::new(), std::io::sink()).expect("sh starts");
+        assert!(!ran.interrupted, "killed, but not asked to stop: {ran:?}");
+    }
+
+    #[test]
+    fn a_test_whose_output_follows_its_name_is_seen() {
+        let report = read("running 1 test\ntest api::talks ... it says hello\nok\n");
+        assert_eq!(report.seen_tests, ["api::talks"]);
+        assert!(report.passed_tests.is_empty(), "{report:?}");
     }
 }

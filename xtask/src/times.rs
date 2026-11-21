@@ -110,7 +110,8 @@ pub(crate) struct UnitTime {
     pub(crate) ignored: u64,
     pub(crate) failed_tests: Vec<String>,
     /// Whether `failed_tests` are all its failures: false when a test binary never
-    /// reported, or a failure had no name.
+    /// reported, a failure had no name, or the command failed and no binary's result
+    /// was a failure or cargo counted more failed binaries than those.
     pub(crate) every_failure_named: bool,
 }
 
@@ -151,10 +152,7 @@ impl Clock {
         if source(&self.root) == self.source {
             self.source.clone()
         } else {
-            steps::say(
-                "    the checkout changed while the run ran: its record is of no source, \
-                 and it finds no flaky test",
-            );
+            steps::say("    the checkout changed during the run: its record is of no source");
             Source::default()
         }
     }
@@ -267,9 +265,10 @@ pub(crate) fn read(file: &Path) -> Result<Vec<Record>> {
         .collect())
 }
 
-/// A time file given on the command line, every line of which must be a record.
-/// Machines that share a run each read their copy, and a copy cut short or not of this
-/// format would weigh the units otherwise and share them out otherwise.
+/// A time file given on the command line, every line of which must be a record of a
+/// run of `check` or `test`. Machines that share a run each read their copy, and a copy
+/// cut short or of another kind (a JSON error a download saved) would weigh the units
+/// otherwise and share them out otherwise.
 ///
 /// # Errors
 ///
@@ -283,8 +282,13 @@ pub(crate) fn read_given(file: &Path) -> Result<Given> {
         .enumerate()
         .filter(|(_, line)| !line.trim().is_empty())
         .map(|(index, line)| {
-            serde_json::from_str(line)
-                .with_context(|| format!("{}:{}: not a record of a run", file.display(), index + 1))
+            let not_one = || format!("{}:{}: not a record of a run", file.display(), index + 1);
+            let record: Record = serde_json::from_str(line).with_context(not_one)?;
+            // Every field has a default: any JSON object would read as a record.
+            if !matches!(record.task.as_str(), "check" | "test") || record.started_unix == 0 {
+                bail!(not_one());
+            }
+            Ok(record)
         })
         .collect::<Result<Vec<Record>>>()?;
     if records.is_empty() {
@@ -393,10 +397,7 @@ pub(crate) fn source(root: &Path) -> Source {
         {
             hasher.update(file);
             hasher.update([0]);
-            // A name that is not UTF-8 is hashed by its bytes alone.
-            if let Ok(file) = std::str::from_utf8(file) {
-                hasher.update(std::fs::read(root.join(file)).unwrap_or_default());
-            }
+            hasher.update(std::fs::read(root.join(file_name(file))).unwrap_or_default());
             hasher.update([0]);
         }
         hexadecimal(&hasher.finalize())
@@ -404,6 +405,19 @@ pub(crate) fn source(root: &Path) -> Source {
     Source {
         commit: String::from_utf8_lossy(&commit).trim().to_owned(),
         changes,
+    }
+}
+
+/// A path git gave as bytes (elsewhere than on Unix, read as UTF-8).
+fn file_name(bytes: &[u8]) -> PathBuf {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt as _;
+        PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+    }
+    #[cfg(not(unix))]
+    {
+        PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
     }
 }
 
@@ -623,9 +637,19 @@ mod tests {
 
         std::fs::write(&file, "").expect("writes");
         assert!(read_given(&file).is_err(), "no record: cut short");
-        std::fs::write(&file, "<html>not found</html>\n").expect("writes");
-        let error = read_given(&file).expect_err("not a record");
-        assert!(error.to_string().contains("times.jsonl:1"), "{error}");
+        for other in [
+            "<html>not found</html>",
+            r#"{"message":"Not Found"}"#,
+            "{}",
+            "[]",
+        ] {
+            std::fs::write(&file, format!("{other}\n")).expect("writes");
+            let error = read_given(&file).expect_err(other);
+            assert!(
+                error.to_string().contains("times.jsonl:1"),
+                "{other}: {error}"
+            );
+        }
         assert!(read_given(&directory.join("absent")).is_err());
     }
 
