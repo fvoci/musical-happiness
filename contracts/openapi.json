@@ -2137,7 +2137,7 @@
             "description": "Whether it is a card or a page."
           },
           "number": {
-            "description": "A card's number on its board, as `Card.number` gives it; absent for a page.",
+            "description": "A card's number on its board, as `Card.number` gives it; absent for a page and\nfor a template of the board's cards.",
             "format": "int32",
             "minimum": 1,
             "type": [

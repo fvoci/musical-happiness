@@ -5268,7 +5268,8 @@ export interface components {
             kind: components["schemas"]["LinkedKind"];
             /**
              * Format: int32
-             * @description A card's number on its board, as `Card.number` gives it; absent for a page.
+             * @description A card's number on its board, as `Card.number` gives it; absent for a page and
+             *     for a template of the board's cards.
              */
             number?: number | null;
             /** @description Its title; empty for one without. */

@@ -446,7 +446,7 @@ where
 impl Block {
     /// Whether the block's `isTemplate` is the JSON `true`, of a block of any type: for
     /// a card, that it is a template of its board's cards. A block without the field, or
-    /// with another value, is none.
+    /// with another value, is no template.
     #[must_use]
     pub fn is_template(&self) -> bool {
         self.fields.get("isTemplate") == Some(&Value::Bool(true))

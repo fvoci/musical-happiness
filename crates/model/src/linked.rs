@@ -44,7 +44,8 @@ pub struct LinkedBlock {
     pub kind: LinkedKind,
     /// Its title; empty for one without.
     pub title: String,
-    /// A card's number on its board, as `Card.number` gives it; absent for a page.
+    /// A card's number on its board, as `Card.number` gives it; absent for a page and
+    /// for a template of the board's cards.
     #[schema(minimum = 1)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number: Option<u32>,

@@ -13,9 +13,9 @@ use crate::search_outbox;
 use crate::{body_docs, body_links, body_versions, comment_versions};
 
 /// Whether the search server holds a document of the block: of a card or a page, but
-/// not of a card that is a template of its board ([`Block::is_template`]), as
-/// `search_docs` reads them. A card that becomes a template, or stops being one, is
-/// so told.
+/// not of one whose `isTemplate` is `true` ([`Block::is_template`]: for a card, a
+/// template of its board's cards), as `search_docs` reads them. A card that becomes a
+/// template, or stops being one, is so told.
 fn is_searched(block: &Block) -> bool {
     SearchKind::of_block(&block.block_type).is_some() && !block.is_template()
 }
