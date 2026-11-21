@@ -322,6 +322,26 @@ describe('the display name, on the server', () => {
     });
   });
 
+  it('gives the password in the session it has, to the operation that confirms it', async () => {
+    const sent: { method: string | undefined; url: string; body: unknown }[] = [];
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      sent.push({
+        method: init.method,
+        url,
+        body: typeof init.body === 'string' ? JSON.parse(init.body) : undefined,
+      });
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+    await serverBackend('').confirmPassword('a long password');
+    expect(sent).toEqual([
+      {
+        method: 'POST',
+        url: '/api/v1/users/me/password/confirm',
+        body: { password: 'a long password' },
+      },
+    ]);
+  });
+
   it('reads whether the server needs the name of the organization a registration starts', async () => {
     vi.stubGlobal('fetch', () =>
       Promise.resolve(

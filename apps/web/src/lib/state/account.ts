@@ -29,6 +29,20 @@ export function passwordSet(workspace: Workspace): void {
   );
 }
 
+/**
+ * The reader gives the account's password in the session they have
+ * (`Backend.confirmPassword`), and their own space opens to it where it is:
+ * no other session is made, and nothing else of the page starts again. The
+ * workspaces are read as the server lists them to the session now, and the
+ * one shown, closed until then, is entered. A refusal (a wrong password, too
+ * many tries) rejects, for the form to say.
+ */
+export async function confirmPassword(workspace: Workspace, password: string): Promise<void> {
+  await workspace.backend.confirmPassword(password);
+  workspace.workspaces = await workspace.backend.workspaces();
+  if (workspace.asked !== undefined) await workspace.enter(workspace.asked, true);
+}
+
 /** Puts the user as they are now wherever the workspace holds them. */
 export function takeUser(workspace: Workspace, changed: User): void {
   const replace = (users: User[]): User[] =>

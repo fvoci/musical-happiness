@@ -193,11 +193,11 @@ export class Workspace {
   /**
    * Shows the workspace `workspaceId`: its people, boards and sidebar are
    * read, and what was shown of another (the open board, undo) is let go.
-   * Nothing is done when it is the one entered or being entered. A failure
-   * is told; the status says it (`entered`).
+   * Nothing is done when it is the one entered or being entered, unless
+   * `again`. A failure is told; the status says it (`entered`).
    */
-  async enter(workspaceId: string): Promise<void> {
-    if (this.asked === workspaceId && this.entered !== 'failed') return;
+  async enter(workspaceId: string, again = false): Promise<void> {
+    if (!again && this.asked === workspaceId && this.entered !== 'failed') return;
     const turn = this.#entering + 1;
     try {
       await this.#enter(workspaceId);

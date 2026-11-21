@@ -8,8 +8,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { firstKanban } from '$lib/state/workspace-entry.ts';
-import { BackendError, passwordSet, type Change } from '$lib/state/index.ts';
+import { BackendError, confirmPassword, passwordSet, type Change } from '$lib/state/index.ts';
 import type { MemoryBackend } from '$lib/state/memory/backend.ts';
+import { closeOwnSpace } from '$lib/state/memory/spaces.ts';
 
 import { settle, setup } from './support.ts';
 
@@ -254,5 +255,35 @@ describe('the own space, once it takes the password alone', () => {
     expect(
       workspace.workspaces.find((one) => one.id === world.workspace.id)?.passwordRequired,
     ).toBe(undefined);
+  });
+
+  it('opens where it is to the session that gives the password, and to no other password', async () => {
+    const { backend, other, world, workspace } = setup();
+    const own = await ownSpace(backend);
+    const board = await boardIn(backend, own, 'Mine');
+    closeOwnSpace(world, backend.userId, 'a long password');
+    await workspace.load(own);
+    expect(workspace.entered).toBe('password');
+
+    const wrong: unknown = await confirmPassword(workspace, 'not it at all').catch(
+      (error: unknown) => error,
+    );
+    expect(wrong).toMatchObject({ status: 400, reason: 'invalid_credentials' });
+    expect(wrong).toHaveProperty('errors.0.pointer', '/password');
+    expect(workspace.entered).toBe('password');
+    expect(await statusOf(backend.boards(own))).toBe(401);
+
+    await confirmPassword(workspace, 'a long password');
+    // The same page and the same reader: the space is entered, and read.
+    expect(workspace.status).toBe('ready');
+    expect(workspace.entered).toBe('ready');
+    expect(workspace.info?.id).toBe(own);
+    expect(workspace.closed).toBeUndefined();
+    expect(workspace.containers.map((one) => one.id)).toEqual([board.id]);
+    expect(workspace.workspaces.find((one) => one.id === own)?.passwordRequired).toBe(false);
+    // What it opened before, it opens still; and it is nobody else's password.
+    expect(await statusOf(backend.boards(world.workspace.id))).toBe('ok');
+    expect(await statusOf(other.confirmPassword('a long password'))).toBe(409);
+    expect(await statusOf(other.boards(own))).toBe(404);
   });
 });

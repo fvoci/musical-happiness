@@ -396,6 +396,13 @@ export class ServerRequests implements TrashReads {
     await this.#http.request('/api/v1/users/me/password', {}, { method: 'PUT', json: request });
   }
 
+  /** The session goes on under a new cookie, and its connection is opened anew under it. */
+  async confirmPassword(password: string): Promise<void> {
+    const request: Schemas['ConfirmPasswordRequest'] = { password };
+    const path = '/api/v1/users/me/password/confirm';
+    await this.#http.request(path, {}, { method: 'POST', json: request });
+  }
+
   async patchMe(patch: NameChange): Promise<User> {
     const change: Schemas['AccountChange'] = patch;
     return userOf(

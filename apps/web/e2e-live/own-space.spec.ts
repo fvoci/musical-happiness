@@ -5,8 +5,8 @@
  * with it. An account that signs in through its organization's provider only
  * is asked, once it makes something there, to set a password, and sets it,
  * signing in through the provider again first where its session is too old;
- * set, My space takes only a session made with the password, asks for it in
- * place of the board, and opens the same board with it.
+ * set, My space takes the password, asks for it in place of the board, and
+ * opens the same board, where the page is, to the session that gives it.
  *
  * With `FVOCI_SCREENS` set, the screens are pictured light and dark, wide and
  * 390 pixels wide, under `target/screens/own-space/`.
@@ -302,16 +302,27 @@ test('an account of single sign-on only is asked once in its own space to set a 
     await expect(page.getByTestId('workspace-switcher')).toBeAttached();
     page.off('response', listen);
     expect(askedOfIt).toEqual([]);
-    // A wrong password is said; the right one opens the same board again.
+    // A wrong password is said; the right one opens the same board again, where the page
+    // is: the session is the one the provider made, and the page is not loaded again.
+    await page.evaluate(() => {
+      (window as unknown as { stayed?: boolean }).stayed = true;
+    });
+    const session = (await (await page.request.get('/api/v1/users/me')).json()) as Schemas['Me'];
     await page.getByTestId('own-space-locked-password').fill('not my password at all');
-    await locked.getByRole('button', { name: 'Sign in with password' }).click();
+    await locked.getByRole('button', { name: 'Open My space' }).click();
     await expect(page.getByTestId('own-space-locked-problem')).toHaveText(
-      'The name or the password is wrong.',
+      'The current password is wrong.',
     );
     await page.getByTestId('own-space-locked-password').fill('a long password of mine');
-    await locked.getByRole('button', { name: 'Sign in with password' }).click();
+    await locked.getByRole('button', { name: 'Open My space' }).click();
     await expect(page.getByTestId('board-page')).toBeVisible();
     expect(page.url()).toBe(boardAddress);
+    expect(await page.evaluate(() => (window as unknown as { stayed?: boolean }).stayed)).toBe(
+      true,
+    );
+    expect(((await (await page.request.get('/api/v1/users/me')).json()) as Schemas['Me']).id).toBe(
+      session.id,
+    );
     await expect(notice(page)).toHaveCount(0);
     const listed = (await (
       await page.request.get('/api/v1/users/me/workspaces')

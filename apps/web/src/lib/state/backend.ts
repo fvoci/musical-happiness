@@ -286,6 +286,14 @@ export interface Backend
    * (`patchMe`); the user as they are now, `displayName` made anew.
    */
   patchMe(patch: NameChange): Promise<User>;
+  /**
+   * Gives the account's password in the session the reader has: their own
+   * space, closed to it until then (`passwordRequired`), opens to it for as
+   * long as it lasts, and it is the same session to everything else. A wrong
+   * password is 400 `invalid_credentials`, too many tries 429, an account
+   * without a password 409.
+   */
+  confirmPassword(password: string): Promise<void>;
   workspaces(): Promise<WorkspaceInfo[]>;
   /** The people of a workspace: who can be mentioned or set as a person. */
   users(workspaceId: string): Promise<User[]>;
