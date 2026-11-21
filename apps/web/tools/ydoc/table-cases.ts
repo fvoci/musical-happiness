@@ -145,6 +145,15 @@ export const TABLE_SHORTENED: RawCase[] = [
     ],
   },
   {
+    name: 'a cell with nothing in it, after a text with nothing in it',
+    root: [
+      table(
+        row({ text: [] }, cell([line('a')]), cell([]), cell([line('c')])),
+        row(cell([line('d')]), cell([line('e')]), cell([line('f')])),
+      ),
+    ],
+  },
+  {
     name: 'a cell with nothing in it, in a table of twenty columns',
     root: [table(row(cell([]), ...numbered(1, 19)), row(...numbered(0, 20)))],
   },

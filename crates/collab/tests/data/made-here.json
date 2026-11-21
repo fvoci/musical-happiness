@@ -1432,6 +1432,108 @@
                   {
                     "content": [
                       {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "c",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "d",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "e",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "f",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a cell with nothing in it, after a text with nothing in it",
+      "update": "AgSAgICAEADHAQMBBwMJdGFibGVDZWxsBwCAgICAEAADCXBhcmFncmFwaCgAgICAgBAAB2NvbHNwYW4BfQEoAICAgIAQAAdyb3dzcGFuAX0BGQEABwEHZGVmYXVsdAMFdGFibGUHAAEAAwh0YWJsZVJvdwcAAQEGhwECAwl0YWJsZUNlbGwHAAEDAwlwYXJhZ3JhcGgHAAEEBgQAAQUBYYcBAwMJdGFibGVDZWxshwEHAwl0YWJsZUNlbGwHAAEIAwlwYXJhZ3JhcGgHAAEJBgQAAQoBY4cBAQMIdGFibGVSb3cHAAEMAwl0YWJsZUNlbGwHAAENAwlwYXJhZ3JhcGgHAAEOBgQAAQ8BZIcBDQMJdGFibGVDZWxsBwABEQMJcGFyYWdyYXBoBwABEgYEAAETAWWHAREDCXRhYmxlQ2VsbAcAARUDCXBhcmFncmFwaAcAARYGBAABFwFmAQECAgEHAQ=="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
                         "type": "paragraph"
                       }
                     ],

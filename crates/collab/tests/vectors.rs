@@ -328,6 +328,12 @@ fn a_cell_that_fails_is_deleted_and_an_empty_one_put_in_its_place() {
                 left(1, 1, second.clone()),
             ),
             ("a cell that holds a table", left(1, 1, second)),
+            // The empty text goes too, which an editor keeps: the cell put in goes
+            // between the cells it was between.
+            (
+                "a cell with nothing in it, after a text with nothing in it",
+                left(2, 1, doc(&[table(&[&["a", "", "c"], &["d", "e", "f"]])])),
+            ),
             (
                 "a cell with nothing in it, in a table of twenty columns",
                 left(1, 1, wide),
