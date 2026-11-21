@@ -26,6 +26,8 @@ function inviteOnlyBoard(): MemoryBackend {
     updateAt: NOW,
     deleteAt: 0,
   });
+  // Both work in the workspace: an open board of it asks the reader to join.
+  world.workspaceMembers.add('reader').add('someone-else');
   const board = {
     ...createBoard(),
     id: 'b',

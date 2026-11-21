@@ -1,6 +1,7 @@
 <!--
   What the pane of the workspace shows, by the address: the board or the wiki
-  it names, the way into a workspace closed to this session, a sign-in that
+  it names, the way into a workspace closed to this session (an
+  organization's single sign-on, the own space's password), a sign-in that
   came back refused, a workspace or a place that is not there, and the
   workspace while it is entered.
 
@@ -11,9 +12,11 @@
 -->
 <script lang="ts">
   import SignInNotice from '$lib/features/account/SignInNotice.svelte';
+  import OwnSpaceLocked from '$lib/features/account/OwnSpaceLocked.svelte';
   import SsoRequired from '$lib/features/account/SsoRequired.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { Workspace, WorkspaceInfo } from '$lib/state/index.ts';
+  import WorkspaceStart from '$lib/features/shell/WorkspaceStart.svelte';
+  import { isOwnSpace, type Workspace, type WorkspaceInfo } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import BoardPage from './BoardPage.svelte';
@@ -32,9 +35,23 @@
     /** The reader's workspaces this session opens, with their addresses. */
     openWorkspaces: readonly (WorkspaceInfo & { href: string })[];
     onSso: (orgId: string) => Promise<void>;
+    /** Signs in with the account's password, which opens the own space; a refusal rejects. */
+    onPasswordSignIn: (password: string) => Promise<void>;
+    /** Opens the picker of what to make, for a workspace with nothing in it yet. */
+    onAddBoard?: (() => void) | undefined;
   }
 
-  let { workspace, router, refused, onGoOn, onOpenLinked, openWorkspaces, onSso }: Props = $props();
+  let {
+    workspace,
+    router,
+    refused,
+    onGoOn,
+    onOpenLinked,
+    openWorkspaces,
+    onSso,
+    onPasswordSignIn,
+    onAddBoard,
+  }: Props = $props();
 
   /** The workspace the address names, entered and read. */
   const shown = $derived(
@@ -79,6 +96,8 @@
       }}
     />
   {/key}
+{:else if here && workspace.entered === 'password'}
+  <OwnSpaceLocked username={workspace.me?.username ?? ''} onSignIn={onPasswordSignIn} />
 {:else if !router.route.workspaceId && workspace.workspaces.length === 0}
   <div class="grid h-full place-items-center p-6 text-center">
     <p class="text-muted-foreground">{m.app_no_boards()}</p>
@@ -104,7 +123,5 @@
 {:else if router.route.wikiId}
   <WikiPage {workspace} {router} />
 {:else}
-  <div class="grid h-full place-items-center p-6 text-center">
-    <p class="text-muted-foreground">{m.app_no_boards()}</p>
-  </div>
+  <WorkspaceStart own={isOwnSpace(shown)} {onAddBoard} />
 {/if}

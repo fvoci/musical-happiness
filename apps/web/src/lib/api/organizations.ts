@@ -15,9 +15,10 @@ import type {
   OrgWorkspace,
 } from '../state/organization.ts';
 
-import { personNameOf, type Schemas } from './convert.ts';
+import { personNameOf, workspaceOf, type Schemas } from './convert.ts';
 import type { Http } from './http.ts';
 import type { OidcProvider, OidcSettings } from '../state/oidc.ts';
+import type { WorkspaceInfo } from '../state/workspace-types.ts';
 
 /** How many of the newest audit records a screen shows: one page of that many. */
 const RECENT_RECORDS = { page: 0, perPage: 200 };
@@ -33,7 +34,9 @@ export class ServerOrganizations implements Organizations {
     const workspaces = await this.#http.request<Schemas['UserWorkspace'][]>(
       '/api/v1/users/me/workspaces',
     );
-    for (const orgId of new Set(workspaces.map((workspace) => workspace.orgId))) {
+    // The reader's own space has nobody to administer it: it is not asked for.
+    const shared = workspaces.filter((workspace) => workspace.kind !== 'personal');
+    for (const orgId of new Set(shared.map((workspace) => workspace.orgId))) {
       try {
         await this.organization(orgId);
         return orgId;
@@ -46,6 +49,16 @@ export class ServerOrganizations implements Organizations {
       }
     }
     return undefined;
+  }
+
+  async createOrganization(name: string): Promise<WorkspaceInfo> {
+    const json: Schemas['NewOrganization'] = { name };
+    const made = await this.#http.request<Schemas['UserWorkspace']>(
+      '/api/v1/org',
+      {},
+      { method: 'POST', json },
+    );
+    return workspaceOf(made);
   }
 
   organization(orgId: string): Promise<Organization> {

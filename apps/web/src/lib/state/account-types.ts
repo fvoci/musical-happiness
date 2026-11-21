@@ -1,6 +1,8 @@
 /** Signing in and out and making an account, where a backend has accounts (part of `backend.ts`). */
 import type { ContainerKind } from '../logic/wire.ts';
 
+import type { OrgKind } from './workspace-types.ts';
+
 /** What an account is made with. */
 export interface NewAccount {
   /** The name to sign in with. */
@@ -13,8 +15,11 @@ export interface NewAccount {
 
 /** An account that starts an organization: whoever signs up without an invitation. */
 export interface Registration extends NewAccount {
-  /** The name of the organization the account starts, and of its first workspace. */
-  organizationName: string;
+  /**
+   * The name of the organization the account starts, and of its first
+   * workspace; left out for none: the account starts in its own space alone.
+   */
+  organizationName?: string;
 }
 
 /** What the link of an invitation shows of where it leads, to whoever holds it. */
@@ -51,6 +56,12 @@ export interface LoginOptions {
   mailEnabled?: boolean;
   /** Whether a registration waits for the link mailed to its address before there is an account. */
   emailVerification?: boolean;
+  /**
+   * Whether a registration must name the organization it starts: until the
+   * server has its first user, who starts the server's own. After, an
+   * account may start in its own space alone.
+   */
+  organizationRequired?: boolean;
 }
 
 /**
@@ -90,11 +101,14 @@ export interface SignInOrganization {
 /** An organization the deletion of the account is about, as the reader is told it. */
 export interface LeavingOrganization {
   id: string;
-  /** Empty if it was given none. */
+  /** `personal` for the account's own space, which always goes with it. */
+  kind: OrgKind;
+  /** Empty if it was given none, as the own space always is. */
   name: string;
   /**
    * How much is in it, which goes with it. Absent when the session does not
-   * open the organization: it takes its single sign-on.
+   * open the organization: it takes its single sign-on, or it is the own space
+   * of an account with a password and the session was not made with it.
    */
   boards?: number;
   wikis?: number;
@@ -157,6 +171,13 @@ export interface Account {
    * the reason `invalid_credentials`, too many tries 429.
    */
   changePassword(oldPassword: string, newPassword: string): Promise<void>;
+  /**
+   * Gives an account that has no password (`User.hasPassword`) its first:
+   * from a session made through the provider in the last five minutes, else
+   * 403 `sign_in_again`. Its other sessions end, this one goes on. An account
+   * with a password is 409; a password too short or too long is 400.
+   */
+  setPassword(password: string): Promise<void>;
   /**
    * What the login page shows: the organization it is for (the one `orgId`
    * names, or the only one of a server that holds one), and whether an

@@ -29,6 +29,7 @@ import type {
   Wikis,
 } from '../wiki-types.ts';
 
+import { fileAsNew } from './categories.ts';
 import { memberRole } from './container-access.ts';
 import { checkedWhole } from './bodies.ts';
 import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
@@ -36,6 +37,7 @@ import { MemoryPageComments, type OnPage } from './page-comments.ts';
 import { DEFAULT_LIMITS, PageTree, type PageLimits, type Place } from './page-tree.ts';
 import { fail } from './refuse.ts';
 import { commentOf, copy, memberOf, orderOf, pageOf, scramble } from './shapes.ts';
+import { checkWorkspace } from './spaces.ts';
 import { deletedPagesOf, deletion } from './trash.ts';
 import type { StoredBlock, StoredCard, World } from './world.ts';
 
@@ -159,7 +161,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
   /** As the server: the reader's wikis and the workspace's open ones, in no order to count on. */
   async wikis(workspaceId: string): Promise<Container[]> {
     await this.#enter('wikis');
-    if (workspaceId !== this.#world.workspace.id) fail(404, 'no such workspace');
+    checkWorkspace(this.#world, this.#host.userId, workspaceId);
     const userId = this.#host.userId;
     const theirs = [...this.#world.containers.values()].filter(
       (board) =>
@@ -173,7 +175,7 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
 
   async createWiki(workspaceId: string, draft: WikiDraft): Promise<Container> {
     await this.#enter('createWiki');
-    if (workspaceId !== this.#world.workspace.id) fail(404, 'no such workspace');
+    checkWorkspace(this.#world, this.#host.userId, workspaceId);
     const world = this.#world;
     const userId = this.#host.userId;
     const now = world.now();
@@ -195,16 +197,10 @@ export class MemoryWikis extends MemoryPageComments implements Wikis {
     };
     world.containers.set(wiki.id, wiki);
     world.members.set(wiki.id, [memberOf(wiki.id, userId, 'admin')]);
-    // Filed under the maker's default category, as a board is.
-    const fallback = world.categories.get(userId)?.find((category) => category.type === 'system');
-    fallback?.containerIds.push(wiki.id);
     world.tellContainer(wiki.id, { kind: 'container', container: copy(wiki) });
     world.tellUsers([userId], { kind: 'container', container: copy(wiki) });
-    if (fallback)
-      world.tellUsers([userId], {
-        kind: 'categories',
-        categories: copy(world.categories.get(userId) ?? []),
-      });
+    // Filed under the maker's default category, as a board is.
+    fileAsNew(world, userId, wiki);
     return copy(wiki);
   }
 

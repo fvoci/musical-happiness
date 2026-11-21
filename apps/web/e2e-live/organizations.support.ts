@@ -56,13 +56,16 @@ export async function firstOrganization(base: string): Promise<string[]> {
 
 export async function startOrganization(page: Page, owner: Person): Promise<void> {
   await page.goto('/');
-  await page.getByRole('button', { name: 'New here? Start an organization' }).click();
+  await page.getByRole('button', { name: 'New here? Create an account' }).click();
   const form = page.getByTestId('register-form');
-  await form.getByLabel(/^organization name$/i).fill('Second organization');
+  // After the server's first account, one starts on its own unless it chooses otherwise.
+  await expect(form.getByTestId('register-solo')).toBeChecked();
+  await form.getByTestId('register-together').check();
+  await form.getByLabel(/^team name$/i).fill('Second organization');
   await form.getByLabel(/^user name$/i).fill(owner.username);
   await form.getByLabel(/email/i).fill(owner.email);
   await form.getByLabel(/^password$/i).fill(owner.password);
-  await form.getByRole('button', { name: 'Start organization' }).click();
+  await form.getByRole('button', { name: 'Create account' }).click();
   await expect(page.getByTestId('app-shell')).toBeVisible();
   await expect(boardLink(page, 'Getting started with fvoci')).toHaveAttribute(
     'aria-current',

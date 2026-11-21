@@ -6,6 +6,7 @@ import type { User } from '../backend.ts';
 import { isOpenWiki } from './container-access.ts';
 import { roleOn } from './comments.ts';
 import { fail } from './refuse.ts';
+import { workersOf } from './spaces.ts';
 import { copy, scramble } from './shapes.ts';
 import type { World } from './world.ts';
 
@@ -63,17 +64,24 @@ export function eraseUser(world: World, userId: string): void {
   }
 }
 
-export function usersAmong(world: World): User[] {
+/** The people who work in a workspace (`workersOf`), but who are gone. */
+export function usersAmong(world: World, workers: ReadonlySet<string>): User[] {
   return scramble([...world.users.values()])
-    .filter((user) => world.workspaceMembers.has(user.id) && !isGone(user) && user.deleteAt === 0)
+    .filter((user) => workers.has(user.id) && !isGone(user) && user.deleteAt === 0)
     .map(listed);
 }
 
-export function usersNamed(world: World, readerId: string, userIds: readonly string[]): User[] {
-  if (!world.workspaceMembers.has(readerId)) fail(404, 'no such workspace');
-  const visible = new Set(world.workspaceMembers);
+export function usersNamed(
+  world: World,
+  readerId: string,
+  workspaceId: string,
+  userIds: readonly string[],
+): User[] {
+  const workers = workersOf(world, workspaceId);
+  if (!workers.has(readerId)) fail(404, 'no such workspace');
+  const visible = new Set(workers);
   for (const board of world.containers.values()) {
-    if (board.workspaceId !== world.workspace.id) continue;
+    if (board.workspaceId !== workspaceId) continue;
     const role = roleOn(world.members.get(board.id) ?? [], readerId);
     if (!role && !(board.isTemplate && board.type === 'O') && !isOpenWiki(board)) continue;
     visible.add(board.createdBy);

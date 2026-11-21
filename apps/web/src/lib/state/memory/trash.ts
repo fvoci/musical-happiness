@@ -5,8 +5,9 @@
  * sidebars, to file it there again when it comes back.
  */
 import type { Container, ContainerMember } from '../../logic/wire.ts';
-import type { Category, DeletedItem, Paging } from '../backend.ts';
+import type { DeletedItem, Paging } from '../backend.ts';
 
+import { categoriesIn, tellCategories } from './categories.ts';
 import { pageOf } from './paging.ts';
 import { fail } from './refuse.ts';
 import type { World } from './world.ts';
@@ -134,7 +135,7 @@ export function putBack(
   const told: string[] = [];
   for (const place of places) {
     if (board.type !== 'O' && !memberIds.includes(place.userId)) continue;
-    const theirs: Category[] = world.categories.get(place.userId) ?? [];
+    const theirs = categoriesIn(world, place.userId, board.workspaceId);
     const kept = theirs.find((category) => category.id === place.categoryId);
     const category = kept ?? theirs.find((each) => each.type === 'system');
     if (!category || category.containerIds.includes(board.id)) continue;
@@ -193,8 +194,7 @@ export function takeContainerBack(world: World, userId: string, containerId: str
   world.members.set(containerId, deleted.members);
   for (const block of deleted.blocks) world.blocks.set(block.id, block);
   for (const person of putBack(world, deleted.container, deleted.places)) {
-    const categories = structuredClone(world.categories.get(person) ?? []);
-    world.tellUsers([person], { kind: 'categories', categories });
+    tellCategories(world, person, deleted.container.workspaceId);
   }
   return deleted.container;
 }

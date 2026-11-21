@@ -4,7 +4,13 @@
  * of its workspaces the reader is in. One whose provider is off, or that has
  * none, is left out.
  */
-import type { Account, LoginOptions, SignInOrganization, WorkspaceInfo } from '$lib/state/index.ts';
+import {
+  isOwnSpace,
+  type Account,
+  type LoginOptions,
+  type SignInOrganization,
+  type WorkspaceInfo,
+} from '$lib/state/index.ts';
 
 export async function signInOrganizations(
   workspaces: readonly WorkspaceInfo[],
@@ -14,7 +20,8 @@ export async function signInOrganizations(
   // names they know it by. Its own name stands in where none of them has one.
   const titles = new Map<string, string[]>();
   for (const workspace of workspaces) {
-    if (workspace.orgId === undefined) continue;
+    // The reader's own space has no sign-in of its own.
+    if (workspace.orgId === undefined || isOwnSpace(workspace)) continue;
     const known = titles.get(workspace.orgId) ?? [];
     titles.set(workspace.orgId, workspace.title ? [...known, workspace.title] : known);
   }

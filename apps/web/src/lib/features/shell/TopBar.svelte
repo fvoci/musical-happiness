@@ -38,7 +38,13 @@
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { cardTrash, shownWiki, type Trash, type Workspace } from '$lib/state/index.ts';
+  import {
+    cardTrash,
+    isOwnSpace,
+    shownWiki,
+    type Trash,
+    type Workspace,
+  } from '$lib/state/index.ts';
 
   import { Button } from '$lib/ui/button/index.js';
 
@@ -246,7 +252,8 @@
 
   <div class="min-w-0 flex-1"></div>
 
-  {#if store && !store.missing && !store.joinable}
+  <!-- The own space has its owner alone: nobody to see here, no members to count. -->
+  {#if store && !store.missing && !store.joinable && !isOwnSpace(workspace.info)}
     <PresenceRoster
       board={store}
       onMembers={() => {

@@ -123,9 +123,27 @@ export function ssoOrgOf(error: unknown): string | undefined {
     : undefined;
 }
 
-/** The session is over (401), which an organization asking for its single sign-on is not. */
+/**
+ * The reader's own space takes only a session made with the account's password,
+ * which this one was not (401, `password_sign_in_required`): the session is good.
+ */
+export function isPasswordSignInRequired(error: unknown): error is BackendError {
+  return (
+    isBackendError(error) && error.status === 401 && error.reason === 'password_sign_in_required'
+  );
+}
+
+/**
+ * The session is over (401), which an organization asking for its single
+ * sign-on, or an own space asking for the password, is not.
+ */
 export function isSignedOut(error: unknown): error is BackendError {
-  return isBackendError(error) && error.status === 401 && error.reason !== 'sso_required';
+  return (
+    isBackendError(error) &&
+    error.status === 401 &&
+    error.reason !== 'sso_required' &&
+    error.reason !== 'password_sign_in_required'
+  );
 }
 
 /**

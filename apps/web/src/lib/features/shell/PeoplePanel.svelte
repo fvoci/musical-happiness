@@ -12,6 +12,7 @@
 <script lang="ts">
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import PersonProfile from '$lib/components/person/PersonProfile.svelte';
+  import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDate } from '$lib/logic/format.ts';
   import { userDisplayName } from '$lib/logic/users.ts';
@@ -39,7 +40,7 @@
   let { workspace, people, inviteLink }: Props = $props();
 
   const uid = $props.id();
-  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
+  const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
   const workspaceId = $derived(workspace.info?.id);
 
   let members = $state.raw<WorkspaceMember[]>([]);

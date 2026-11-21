@@ -9,6 +9,7 @@ export {
   BackendError,
   isBackendError,
   isConflict,
+  isOwnSpace,
   isSignedOut,
   ssoOrgOf,
   type Account,
@@ -36,6 +37,7 @@ export {
   type LoginOptions,
   type LoginOrganization,
   type NewAccount,
+  type OrgKind,
   type Registration,
   type SignInOrganization,
   type Sharing,
@@ -58,7 +60,7 @@ export { WikiStore, type PageLooks, type WikiLooks } from './wiki.svelte.ts';
 export { createWiki } from './wiki-parts.ts';
 export { shownWiki } from './shown-wiki.svelte.ts';
 export type { PageDraft, PageMove, WikiDraft, WikiPage, WikiPageDetail } from './wiki-types.ts';
-export { changeName } from './account.ts';
+export { changeName, passwordSet } from './account.ts';
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';
 export type {
@@ -78,7 +80,7 @@ export {
 export type { LinkedBlock } from './references.ts';
 export { byCreation, byTitle, type SidebarCategory } from './order.ts';
 export { type Transfer } from './transfers.svelte.ts';
-export { type EnterStatus } from './workspace-entry.ts';
+export { isOpen, startOrganization, type EnterStatus } from './workspace-entry.ts';
 export { containerTrash, cardTrash, pageTrash, Trash, type TrashStatus } from './trash.svelte.ts';
 export {
   Workspace,

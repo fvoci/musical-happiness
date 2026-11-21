@@ -10,14 +10,16 @@
   address being an account's already.
 -->
 <script lang="ts">
+  import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { OrgKind } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   interface Props {
     /** The workspace's name; empty if it has none. */
     name: string;
     /** The reader's workspaces that are open to this session: where else they can go. */
-    others: readonly { id: string; title: string; href: string }[];
+    others: readonly { id: string; title: string; kind?: OrgKind; href: string }[];
     /** Starts the sign-in and sends the browser to the provider; a refusal rejects. */
     onContinue: () => Promise<void>;
     /** Opens the connected sign-ins of the settings. */
@@ -100,7 +102,7 @@
                 href={other.href}
                 onclick={(event) => {
                   follow(event, other.id);
-                }}>{other.title || m.account_sso_other_unnamed()}</a
+                }}>{nameOfWorkspace(other, m.account_sso_other_unnamed)}</a
               >
             </li>
           {/each}

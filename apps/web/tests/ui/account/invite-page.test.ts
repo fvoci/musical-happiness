@@ -256,25 +256,119 @@ describe('the sign-in page and who may make an account', () => {
     return { onRegister, onSignIn };
   }
 
-  it('starts an organization with the account where the server takes one', async () => {
+  it('makes an account on its own by default, which names no organization', async () => {
     const { onRegister, onSignIn } = signInPage(true);
     await fireEvent.click(
-      await screen.findByRole('button', { name: 'New here? Start an organization' }),
+      await screen.findByRole('button', { name: 'New here? Create an account' }),
     );
-    await fill(/^organization name$/i, ' Acme ');
+    expect(await screen.findByTestId('register-solo')).toBeChecked();
+    expect(screen.queryByLabelText(/^team name$/i)).toBeNull();
     await fill(/^user name$/i, 'ada');
     await fill(/email/i, 'ada@example.test');
     await fill(/^password$/i, 'a long password');
-    await fireEvent.click(screen.getByRole('button', { name: 'Start organization' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
     await waitFor(() => {
       expect(onSignIn).toHaveBeenCalledExactlyOnceWith('ada', 'a long password');
     });
     expect(onRegister).toHaveBeenCalledExactlyOnceWith({
-      organizationName: 'Acme',
       username: 'ada',
       displayName: '',
       email: 'ada@example.test',
       password: 'a long password',
+    });
+  });
+
+  it('asks for the name of what is started when the reader works together with others', async () => {
+    const { onRegister } = signInPage(true);
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'New here? Create an account' }),
+    );
+    await fireEvent.click(await screen.findByTestId('register-together'));
+    await fill(/^team name$/i, ' Acme ');
+    await fill(/^user name$/i, 'ada');
+    await fill(/email/i, 'ada@example.test');
+    await fill(/^password$/i, 'a long password');
+    await fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+    await waitFor(() => {
+      expect(onRegister).toHaveBeenCalledExactlyOnceWith({
+        organizationName: 'Acme',
+        username: 'ada',
+        displayName: '',
+        email: 'ada@example.test',
+        password: 'a long password',
+      });
+    });
+  });
+
+  it('sends nothing with a blank name where one was asked for, and says so at the field', async () => {
+    const { onRegister } = signInPage(true);
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'New here? Create an account' }),
+    );
+    await fireEvent.click(await screen.findByTestId('register-together'));
+    await fill(/^team name$/i, '   ');
+    await fill(/^user name$/i, 'ada');
+    await fill(/email/i, 'ada@example.test');
+    await fill(/^password$/i, 'a long password');
+    await fireEvent.submit(screen.getByTestId('register-form'));
+    expect(await screen.findByTestId('problem-organizationName')).toHaveTextContent(
+      'Fill this in.',
+    );
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^team name$/i)).toHaveFocus();
+    });
+    expect(onRegister).not.toHaveBeenCalled();
+  });
+
+  it('asks the first account of the server for the name, with no choice, and says why', async () => {
+    const onRegister = vi.fn(() => Promise.resolve('made' as const));
+    render(SignInPage, {
+      props: {
+        onSignIn: vi.fn(() => Promise.resolve()),
+        onRegister,
+        optionsOf: () => Promise.resolve({ registrationOpen: true, organizationRequired: true }),
+      },
+    });
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'New here? Create an account' }),
+    );
+    expect(await screen.findByTestId('register-first')).toHaveTextContent(
+      'The first account of this server creates its',
+    );
+    expect(screen.queryByTestId('register-use')).toBeNull();
+    await fill(/^team name$/i, 'Acme');
+    await fill(/^user name$/i, 'ada');
+    await fill(/email/i, 'ada@example.test');
+    await fill(/^password$/i, 'a long password');
+    await fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+    await waitFor(() => {
+      expect(onRegister).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ organizationName: 'Acme', username: 'ada' }),
+      );
+    });
+  });
+
+  it('leaves a blank name of the first account to the server, which tells it with all else wrong', async () => {
+    const onRegister = vi.fn(() => Promise.resolve('made' as const));
+    render(SignInPage, {
+      props: {
+        onSignIn: vi.fn(() => Promise.resolve()),
+        onRegister,
+        optionsOf: () => Promise.resolve({ registrationOpen: true, organizationRequired: true }),
+      },
+    });
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'New here? Create an account' }),
+    );
+    await screen.findByTestId('register-first');
+    await fill(/^user name$/i, 'ada');
+    await fill(/email/i, 'ada@example.test');
+    await fill(/^password$/i, 'a long password');
+    await fireEvent.submit(screen.getByTestId('register-form'));
+    await waitFor(() => {
+      expect(onRegister).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ organizationName: '', username: 'ada' }),
+      );
     });
   });
 
@@ -283,8 +377,6 @@ describe('the sign-in page and who may make an account', () => {
     expect(await screen.findByTestId('invitation-needed')).toHaveTextContent(
       'No account yet? Ask an administrator of your organization for an invite link.',
     );
-    expect(
-      screen.queryByRole('button', { name: /start an organization/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /create an account/i })).not.toBeInTheDocument();
   });
 });

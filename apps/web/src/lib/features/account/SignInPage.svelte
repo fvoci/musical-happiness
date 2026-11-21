@@ -1,7 +1,9 @@
 <!--
-  Signing in, and starting an organization with an account of one's own, on a backend
-  that has accounts (the server). The page the app shows while nobody is
-  signed in.
+  Signing in, and making an account, on a backend that has accounts (the
+  server). The page the app shows while nobody is signed in. A new account
+  starts on its own, in its own space, unless the reader chooses to work
+  together and names what they start (`RegisterUse.svelte`); the server's
+  first account names one.
 
   The two forms share the page: a link turns one into the other. Making an
   account does not sign in on the server, so the page signs in right after
@@ -44,6 +46,7 @@
   import { oidcProblemOf } from './oidc-problems.ts';
   import AccountFields from './AccountFields.svelte';
   import CheckMailPage from './CheckMailPage.svelte';
+  import RegisterUse from './RegisterUse.svelte';
   import ResendLink from './ResendLink.svelte';
   import SignInChoice from './SignInChoice.svelte';
   import {
@@ -128,6 +131,8 @@
   let mode = $state<'signIn' | 'register'>('signIn');
   let login = $state('');
   let organizationName = $state('');
+  /** The new account starts an organization, named `organizationName`; on its own otherwise. */
+  let together = $state(false);
   let username = $state('');
   let displayName = $state('');
   let email = $state('');
@@ -185,8 +190,19 @@
     fieldProblems = {};
     try {
       if (mode === 'register') {
+        const required = (await options)?.organizationRequired === true;
+        const named = together || required;
+        const started = organizationName.trim();
+        // Blank, the server makes an account on its own: refused here when one chose to start
+        // an organization. The server's first account it refuses itself, with all else wrong.
+        if (together && !required && started === '') {
+          fieldProblems = { organizationName: m.account_field_required() };
+          await tick();
+          document.getElementById('account-organizationName')?.focus();
+          return;
+        }
         const registered = await onRegister({
-          organizationName: organizationName.trim(),
+          ...(named ? { organizationName: started } : {}),
           username: username.trim(),
           // Trimmed by the server, as it counts white space.
           displayName,
@@ -237,13 +253,16 @@
     waitingFor = undefined;
     switchTo('register');
     await tick();
-    document.getElementById('account-organizationName')?.focus();
+    (
+      document.getElementById('account-organizationName') ??
+      document.getElementById('account-username')
+    )?.focus();
   }
 </script>
 
 <svelte:window {onpageshow} />
 
-{#snippet fieldProblem(field: 'login' | 'password' | 'organizationName')}
+{#snippet fieldProblem(field: 'login' | 'password')}
   {#if fieldProblems[field]}
     <p
       id="account-{field}-problem"
@@ -336,25 +355,14 @@
           {@render fieldProblem('password')}
         </div>
       {:else}
-        <div class="grid gap-1.5">
-          <Label for="account-organizationName">{m.account_organization_name()}</Label>
-          <Input
-            id="account-organizationName"
-            name="organizationName"
-            bind:value={organizationName}
-            autocomplete="organization"
-            required
-            aria-invalid={fieldProblems.organizationName ? 'true' : undefined}
-            aria-describedby={fieldProblems.organizationName
-              ? 'account-organizationName-problem account-organizationName-hint'
-              : 'account-organizationName-hint'}
-            class="roomy:h-touch roomy:text-base"
+        {#await options then read}
+          <RegisterUse
+            bind:together
+            bind:name={organizationName}
+            required={read?.organizationRequired === true}
+            problem={fieldProblems.organizationName}
           />
-          {@render fieldProblem('organizationName')}
-          <p id="account-organizationName-hint" class="text-xs text-muted-foreground">
-            {m.account_organization_name_hint()}
-          </p>
-        </div>
+        {/await}
         <AccountFields
           bind:username
           bind:displayName

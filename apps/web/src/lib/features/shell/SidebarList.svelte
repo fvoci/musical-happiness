@@ -421,7 +421,8 @@
     </div>
   {/if}
 
-  {#if !filtering && !guest}
+  <!-- No category of a workspace that is not shown, as one closed to this session. -->
+  {#if !filtering && !guest && workspace.info}
     <button
       type="button"
       data-testid="new-category"

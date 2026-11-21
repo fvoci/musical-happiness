@@ -36,13 +36,13 @@ import type {
 
 import type { PresenceOfContainers } from './presence.ts';
 import type { DocRooms } from './body-doc.ts';
-import type { WorkspaceRole } from './people-types.ts';
 import type { VersionsOfFiles } from './file-versions.ts';
 import type { OfBodies } from './references.ts';
 import type { TrashReads } from './trash-reads.ts';
 import type { ChangeListener } from './changes.ts';
 import type { ContentSearchOfBackend } from './content-search.ts';
 import type { WikisOfBackend } from './wiki-types.ts';
+import type { WorkspaceInfo } from './workspace-types.ts';
 
 export type {
   AcceptedInvitation,
@@ -62,6 +62,7 @@ export * from './content-search.ts';
 export type { BodyDoc, BodyDocHears, BodyDocState, BodyDocStatus, DocRooms } from './body-doc.ts';
 export { isCardBlock, isViewBlock, type Change, type ChangeListener } from './changes.ts';
 export type * from './wiki-types.ts';
+export { isOwnSpace, type OrgKind, type WorkspaceInfo } from './workspace-types.ts';
 
 /** What an import did beyond making the archive's boards. */
 export interface Imported {
@@ -86,6 +87,11 @@ export interface User extends UserNames {
   name?: PersonName;
   /** Only on the reader's own user. */
   isAdmin?: boolean;
+  /**
+   * Only on the reader's own user, where the backend has accounts: false for
+   * one made through an organization's provider until its person sets one.
+   */
+  hasPassword?: boolean;
   createAt: number;
   updateAt: number;
   /**
@@ -93,24 +99,6 @@ export interface User extends UserNames {
    * One that was deleted has an empty `username` and all three times 0.
    */
   deleteAt: number;
-}
-
-export interface WorkspaceInfo {
-  id: string;
-  title: string;
-  /** The organization the workspace belongs to, where the backend has organizations (the server). */
-  orgId?: string;
-  /**
-   * The workspace is closed to this session: its organization takes no
-   * password, and it opens for a session made through the provider of `orgId`.
-   */
-  ssoRequired?: boolean;
-  /**
-   * What the reader is in it; left out by a backend that has no roles, where
-   * the reader does everything. A guest is on the boards they were invited
-   * to, and makes none.
-   */
-  role?: WorkspaceRole;
 }
 
 /**

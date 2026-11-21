@@ -13,7 +13,7 @@
   import type { AccountDeletion } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { daysLeft, waitsNoMore } from './account-deletion.ts';
+  import { daysLeft, leavingOf, waitsNoMore } from './account-deletion.ts';
 
   interface Props {
     /** Until when the account waits, and what goes with it. */
@@ -122,11 +122,17 @@
           </ul>
         </div>
       {/if}
-      {#if standing.organizations.length > 0}
+      {@const leaving = leavingOf(standing.organizations)}
+      {#if leaving.own}
+        <p class="text-sm" data-testid="account-leaving-own-space">
+          {m.account_leaving_own_space()}
+        </p>
+      {/if}
+      {#if leaving.alone.length > 0}
         <div class="grid gap-1 text-sm" data-testid="account-leaving-organizations">
           <p>{m.account_leaving_organizations()}</p>
           <ul>
-            {#each standing.organizations as organization (organization.id)}
+            {#each leaving.alone as organization (organization.id)}
               <li class="font-medium">
                 {organization.name || m.account_delete_organization_unnamed()}
               </li>

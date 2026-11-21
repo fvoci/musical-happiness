@@ -53,6 +53,7 @@ export {
 } from '../logic/audit.ts';
 import type { AuditRecord } from '../logic/audit.ts';
 import type { OidcProvider, OidcSettings } from './oidc.ts';
+import type { WorkspaceInfo } from './workspace-types.ts';
 
 export interface OrganizationPatch {
   name?: string;
@@ -79,6 +80,14 @@ export interface Organizations {
   startOidcTrial(orgId: string): Promise<string>;
   /** The organization the reader administers; undefined when they administer none. */
   administered(): Promise<string | undefined>;
+  /**
+   * Starts an organization of people with its first workspace, both under
+   * `name`, which the reader administers; that workspace as their list has it
+   * from then on. 400 with `too_many_organizations` and its `limit` past the
+   * organizations an account may start; 403 with `invitation_required` on a
+   * server that takes one organization.
+   */
+  createOrganization(name: string): Promise<WorkspaceInfo>;
   organization(orgId: string): Promise<Organization>;
   changeOrganization(orgId: string, patch: OrganizationPatch): Promise<Organization>;
   /** Its members, the oldest first. */

@@ -166,7 +166,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
   const clock = (): number => SEED_EPOCH + (tick += 1) * MINUTE;
   const world = new World(clock);
 
-  world.workspace = { id: world.newId(), title: 'fvoci' };
+  world.workspace = { id: world.newId(), title: 'fvoci', kind: 'team' };
 
   const users: User[] = PEOPLE.map((person, index) => {
     const at = world.now();

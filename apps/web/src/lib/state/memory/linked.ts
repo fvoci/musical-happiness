@@ -12,6 +12,7 @@ import type { Paging } from '../trash-reads.ts';
 import { reads } from './container-access.ts';
 import { pageOf } from './paging.ts';
 import { fail } from './refuse.ts';
+import { checkWorkspace } from './spaces.ts';
 import type { StoredBlock, World } from './world.ts';
 
 /** The most cards a search finds (the server's). */
@@ -52,10 +53,14 @@ export class MemoryReferences implements References {
     this.#enter = enter;
   }
 
-  /** The card or the page as a reference shows it, if the reader is on its board or its wiki. */
-  #shown(block: StoredBlock | undefined): LinkedBlock | undefined {
+  /**
+   * The card or the page as a reference shows it, if it is of the workspace
+   * and the reader is on its board or its wiki: nothing reaches across spaces.
+   */
+  #shown(block: StoredBlock | undefined, workspaceId: string): LinkedBlock | undefined {
     const { world, userId } = this.#asker;
     if (block?.type !== 'card' && block?.type !== 'page') return undefined;
+    if (world.containers.get(block.containerId)?.workspaceId !== workspaceId) return undefined;
     if (!reads(world, userId, block.containerId)) return undefined;
     const icon = typeof block.fields.icon === 'string' ? block.fields.icon : '';
     const { id, title, containerId } = block;
@@ -65,7 +70,7 @@ export class MemoryReferences implements References {
   }
 
   #check(workspaceId: string): void {
-    if (workspaceId !== this.#asker.world.workspace.id) fail(404, 'no such workspace');
+    checkWorkspace(this.#asker.world, this.#asker.userId, workspaceId);
   }
 
   async resolve(workspaceId: string, ids: readonly string[]): Promise<LinkedBlock[]> {
@@ -75,14 +80,14 @@ export class MemoryReferences implements References {
       fail(400, `at most ${String(REFERENCES_AT_ONCE)} references are resolved at once`);
     }
     const blocks = this.#asker.world.blocks;
-    return [...new Set(ids)].flatMap((id) => this.#shown(blocks.get(id)) ?? []);
+    return [...new Set(ids)].flatMap((id) => this.#shown(blocks.get(id), workspaceId) ?? []);
   }
 
   async to(workspaceId: string, blockId: string, paging?: Paging): Promise<LinkedBlock[]> {
     await this.#enter();
     this.#check(workspaceId);
     const blocks = this.#asker.world.blocks;
-    if (!this.#shown(blocks.get(blockId))) fail(404, 'no such block');
+    if (!this.#shown(blocks.get(blockId), workspaceId)) fail(404, 'no such block');
     const naming = new Map<string, StoredBlock>();
     for (const block of blocks.values()) {
       if (!namedIn(block.body).includes(blockId)) continue;
@@ -92,7 +97,7 @@ export class MemoryReferences implements References {
     }
     const shown = [...naming.values()]
       .sort((a, b) => a.createAt - b.createAt || a.id.localeCompare(b.id))
-      .flatMap((block) => this.#shown(block) ?? []);
+      .flatMap((block) => this.#shown(block, workspaceId) ?? []);
     return pageOf(shown, paging);
   }
 
@@ -109,7 +114,7 @@ export class MemoryReferences implements References {
       .filter((block) => world.containers.get(block.containerId)?.isTemplate !== true)
       .filter((block) => words.every((word) => block.title.toLowerCase().includes(word)))
       .sort((a, b) => b.updateAt - a.updateAt || a.id.localeCompare(b.id))
-      .flatMap((block) => this.#shown(block) ?? [])
+      .flatMap((block) => this.#shown(block, workspaceId) ?? [])
       .slice(0, FOUND_AT_MOST);
   }
 }

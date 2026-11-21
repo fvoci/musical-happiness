@@ -27,7 +27,7 @@ import {
 } from '../content-search.ts';
 
 import { reads } from './container-access.ts';
-import { fail } from './refuse.ts';
+import { checkWorkspace } from './spaces.ts';
 import type { StoredBlock, World } from './world.ts';
 
 /** About how many characters of a body a snippet shows, as the server's. */
@@ -104,7 +104,7 @@ export class MemoryContentSearch implements ContentSearch {
   async find(workspaceId: string, ask: SearchAsk): Promise<SearchHit[]> {
     await this.#enter();
     const world = this.#world;
-    if (workspaceId !== world.workspace.id) fail(404, 'no such workspace');
+    checkWorkspace(world, this.#userId, workspaceId);
     const query = ask.query.trim();
     if (Array.from(query).length > MAX_SEARCH_CHARS)
       refusedParameter('q', 'the words are too long');
