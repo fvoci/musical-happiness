@@ -46,12 +46,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: The runner
+      # What the jobs below are cut for: four processors and 16 GB when this was written.
+      - name: The runner's processors, memory and disk
         run: |
           nproc
           free --giga
-          df --human-readable / /mnt || true
-          docker version --format '{{.Server.Version}}'
+          df --human-readable /
       - name: Fetch actionlint and zizmor
         run: |
           .github/scripts/pinned-tool.sh \
@@ -78,7 +78,7 @@ jobs:
   rust-check:
     name: cargo xtask check
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -99,7 +99,7 @@ jobs:
   rust-sqlite:
     name: cargo xtask test (SQLite)
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -113,7 +113,7 @@ jobs:
   rust-postgres:
     name: cargo xtask test (PostgreSQL)
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -131,7 +131,7 @@ jobs:
   rust-s3:
     name: cargo xtask test (S3)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -155,7 +155,7 @@ jobs:
   web-check:
     name: web check
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -183,7 +183,7 @@ jobs:
   web-build:
     name: web build
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -205,7 +205,7 @@ jobs:
   web-storybook:
     name: web test:storybook
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -228,7 +228,7 @@ jobs:
     name: web e2e (${{ matrix.shard }}/4)
     needs: web-build
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -267,7 +267,7 @@ jobs:
     name: web e2e:apple (${{ matrix.shard }}/12)
     needs: web-build
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -302,7 +302,7 @@ jobs:
     name: web e2e:live
     needs: web-build
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

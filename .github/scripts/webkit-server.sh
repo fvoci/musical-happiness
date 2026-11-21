@@ -6,10 +6,10 @@
 #
 #   webkit-server.sh
 #
-# The image is the one the tests are written against. WebKit installed on a runner
-# beside it took 20 minutes for what took 14 in the image, and failed tests the image
-# passed: it draws with other fonts (the runner's sans-serif is DejaVu Sans, the image's
-# WenQuanYi Zen Hei).
+# The image is where the developers run these tests, so the tests are written against
+# it. WebKit installed on a runner is not the same place: it has other fonts (the
+# runner's sans-serif is DejaVu Sans, the image's WenQuanYi Zen Hei), and it took 20
+# minutes for the 96 tests the image ran in 14.
 set -euo pipefail
 
 # The version of Playwright in apps/web/package.json. The image holds the browsers of
