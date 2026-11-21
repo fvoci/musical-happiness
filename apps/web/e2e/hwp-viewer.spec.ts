@@ -36,6 +36,8 @@ const HWPX_TYPE = 'application/hwp+zip';
 const HWP_TYPE = 'application/x-hwp';
 /** How long the app gives rhwp's engine to arrive (ENGINE_FETCH_LIMIT in lib/file-viewer/engine.ts). */
 const ENGINE_LIMIT = 120_000;
+/** How long the frame has to say it is ready (session.svelte.ts). */
+const READY_LIMIT = 15_000;
 
 async function view(page: Page, name: string, buffer: Buffer, mimeType: string): Promise<void> {
   const row = await attach(page, name, buffer, mimeType);
@@ -305,6 +307,51 @@ test('a document locked with a password says so', async ({ page }) => {
   await expect(notice(page)).toContainText('protected with a password');
 });
 
+test('a frame whose script a gate in front of the server refuses says the preview did not start', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await openCard(page);
+  // As an access gate answers a request that came without its cookie: its login page, in the
+  // place of the frame's script (a redirect to it, followed, comes to the same).
+  await page.route(/\/static\/viewer-frame-[0-9a-f]+\.js$/, (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Sign in</title>' }),
+  );
+  await view(page, 'gated.hwpx', koreanHwpx(), HWPX_TYPE);
+  await expect(viewer(page)).toHaveAttribute('data-status', 'opening');
+  await page.clock.fastForward(READY_LIMIT + 1000);
+  await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
+  await expect(notice(page)).toContainText(
+    'This file could not be shown: the preview did not start.',
+  );
+  await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
+});
+
+test('an engine answered with a gate’s login page is told as an engine that did not come', async ({
+  page,
+}) => {
+  await openCard(page);
+  await page.route(/rhwp-wasm/, (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Sign in</title>' }),
+  );
+  const workers: Worker[] = [];
+  page.on('worker', (worker) => workers.push(worker));
+  await view(page, 'gated.hwpx', koreanHwpx(), HWPX_TYPE);
+  await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
+  await expect(notice(page)).toContainText(
+    'This file could not be shown: what the preview needs could not be loaded.',
+  );
+  // The frame was never handed the document.
+  expect(workers).toEqual([]);
+
+  // What was not the engine is not kept: the next file asks for it again, and is shown.
+  await page.unroute(/rhwp-wasm/);
+  await page.keyboard.press('Escape');
+  await expect(viewer(page)).toHaveCount(0);
+  await page.getByRole('link', { name: 'gated.hwpx' }).click();
+  await expect(viewer(page)).toHaveAttribute('data-status', 'shown');
+});
+
 test('an engine that does not arrive is given up past its time, and asked for again by the next file', async ({
   page,
 }) => {
@@ -322,7 +369,10 @@ test('an engine that does not arrive is given up past its time, and asked for ag
   await expect.poll(() => held.length).toBe(1);
   await page.clock.fastForward(ENGINE_LIMIT + 1000);
   await expect(viewer(page)).toHaveAttribute('data-status', 'failed');
-  await expect(notice(page)).toContainText('The file took too long to show.');
+  // Told as an engine that did not come, not as a file too slow to draw.
+  await expect(notice(page)).toContainText(
+    'This file could not be shown: what the preview needs could not be loaded.',
+  );
   await expect(page.getByTestId('file-viewer-frame')).toHaveCount(0);
   // The frame was never handed the document: nothing of it was read.
   expect(workers).toEqual([]);

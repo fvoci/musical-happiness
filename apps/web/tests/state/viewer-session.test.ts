@@ -4,14 +4,17 @@
  * the deck opens on the first slide a show gives, pages are turned past the
  * slides left out, showing them keeps the reader's slide, leaving them out
  * lands on the next one, a page told before they were left out is not the
- * reader's, and only a deck has hidden slides.
+ * reader's, and only a deck has hidden slides. And a frame given up: one that
+ * did not start, an engine that did not come, a file not drawn in its time,
+ * each told as its own cause.
  */
 import { Blob as NodeBlob } from 'node:buffer';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ViewerSession } from '$lib/file-viewer/session.svelte.ts';
+import { LIMITS, ViewerSession } from '$lib/file-viewer/session.svelte.ts';
 
+import { koreanHwpx } from '../support/hwp-files.ts';
 import { koreanPdf } from '../support/viewer-files.ts';
 import { numberedPptx } from '../support/viewer-pptx.ts';
 
@@ -23,15 +26,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** A session of `file` with its frame told it is ready; what it sends, and a way to answer. */
-async function opened(name: string, file: Buffer) {
+/** A session of `file` with its frame in the page; what it sends, and a way to answer. */
+async function mounted(name: string, file: Buffer, engine?: () => Promise<ArrayBuffer>) {
   const session = new ViewerSession(
     {
       name,
       size: file.length,
       read: () => Promise.resolve(new NodeBlob([new Uint8Array(file)]) as Blob),
     },
-    { theme: () => 'light', lang: () => 'en', onKey: () => undefined, onDownload: () => undefined },
+    {
+      theme: () => 'light',
+      lang: () => 'en',
+      onKey: () => undefined,
+      onDownload: () => undefined,
+      ...(engine ? { engine } : {}),
+    },
   );
   sessions.push(session);
   await vi.waitFor(() => {
@@ -49,9 +58,69 @@ async function opened(name: string, file: Buffer) {
   const tell = (data: unknown): void => {
     window.dispatchEvent(new MessageEvent('message', { data, source: window_ }));
   };
-  tell({ kind: 'ready' });
   return { session, sent, tell };
 }
+
+/** As `mounted`, the frame told it is ready. */
+async function opened(name: string, file: Buffer, engine?: () => Promise<ArrayBuffer>) {
+  const shown = await mounted(name, file, engine);
+  shown.tell({ kind: 'ready' });
+  return shown;
+}
+
+describe('a frame given up in the session, each cause told apart', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a frame that does not say it is ready did not start', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { session } = await mounted('deck.pptx', numberedPptx(3, []));
+    await vi.advanceTimersByTimeAsync(LIMITS.ready - 1);
+    expect(session.status.name).toBe('opening');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(session.status).toEqual({ name: 'failed', reason: 'unstarted' });
+  });
+
+  it('a frame given up is not heard, nor handed the file, when it says it is ready after all', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { session, sent, tell } = await mounted('deck.pptx', numberedPptx(3, []));
+    await vi.advanceTimersByTimeAsync(LIMITS.ready);
+    tell({ kind: 'ready' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.status).toEqual({ name: 'failed', reason: 'unstarted' });
+    expect(sent).toEqual([]);
+  });
+
+  it('an engine that does not come, or is refused, is the engine', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const hwp = koreanHwpx();
+    let arrive = (_bytes: ArrayBuffer): void => undefined;
+    const asked = vi.fn(() => new Promise<ArrayBuffer>((resolve) => (arrive = resolve)));
+    const late = await opened('slow.hwpx', hwp, asked);
+    await vi.advanceTimersByTimeAsync(LIMITS.engine);
+    expect(late.session.status).toEqual({ name: 'failed', reason: 'engine' });
+    expect(asked).toHaveBeenCalledTimes(1);
+    // An engine that comes after it was given up hands the frame nothing.
+    arrive(new ArrayBuffer(8));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(late.session.status).toEqual({ name: 'failed', reason: 'engine' });
+    expect(late.sent).toEqual([]);
+    const refused = await opened('gone.hwpx', hwp, () => Promise.reject(new Error('gone')));
+    await vi.waitFor(() => {
+      expect(refused.session.status).toEqual({ name: 'failed', reason: 'engine' });
+    });
+    expect(refused.sent).toEqual([]);
+  });
+
+  it('a file that is not drawn in its time is slow', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { session, sent } = await opened('deck.pptx', numberedPptx(3, []));
+    expect(sent).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(LIMITS.draw);
+    expect(session.status).toEqual({ name: 'failed', reason: 'slow' });
+  });
+});
 
 describe("a deck's hidden slides in the session", () => {
   it('first and last: opened on the first a show gives, turned past them both ways', async () => {

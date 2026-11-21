@@ -42,7 +42,7 @@ import {
 import { ENGINE_FETCH_LIMIT, engineBytes } from './engine.ts';
 import { examine, VIEW_LIMIT_BYTES } from './formats.ts';
 import type { Theme } from './protocol.ts';
-import { frameAddress } from './session.svelte.ts';
+import { frameAddress, type BeforeFile } from './session.svelte.ts';
 import type { FileVersion, VersionsSource, VersionUpload } from './versions.svelte.ts';
 
 /** The document handed to the editor. */
@@ -77,7 +77,7 @@ export const EDIT_LIMITS: EditLimits = {
 export type EditStatus =
   | { name: 'opening' }
   | { name: 'ready'; pages: number }
-  | { name: 'failed'; reason: EditFailure | 'slow' };
+  | { name: 'failed'; reason: EditFailure | 'slow' | BeforeFile };
 
 /** Why a save did not go through. */
 export type SaveFailure =
@@ -224,7 +224,7 @@ export class EditingSession {
     window.addEventListener('message', onMessage);
     frame.addEventListener('load', onLoad);
     this.#wait(this.#limits.ready, () => {
-      this.#fail('slow');
+      this.#fail('unstarted');
     });
     return () => {
       window.removeEventListener('message', onMessage);
@@ -304,15 +304,14 @@ export class EditingSession {
 
   /** Hands the frame the document and rhwp's engine; its time to open starts when it has both. */
   async #open(bytes: ArrayBuffer): Promise<void> {
-    const slow = (): void => {
-      this.#fail('slow');
-    };
-    this.#wait(this.#limits.engine, slow);
+    this.#wait(this.#limits.engine, () => {
+      this.#fail('engine');
+    });
     let engine: ArrayBuffer;
     try {
       engine = await this.#engine();
     } catch {
-      if (this.status.name === 'opening') this.#fail('editor');
+      if (this.status.name === 'opening') this.#fail('engine');
       return;
     }
     // Closed, or given up on, while the engine was on its way.
@@ -320,7 +319,9 @@ export class EditingSession {
     const { format, name } = this.file;
     const open = { format, name, bytes, engine, theme: this.#theme(), lang: this.#lang() };
     this.#send({ kind: 'open', ...open }, [bytes, engine]);
-    this.#wait(this.#limits.open, slow);
+    this.#wait(this.#limits.open, () => {
+      this.#fail('slow');
+    });
   }
 
   /** Asks the editor for the document, to save it. */

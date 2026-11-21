@@ -10,12 +10,16 @@
  * whatever runs the engine. The app itself never runs them.
  *
  * A fetch that fails, or is not done within `ENGINE_FETCH_LIMIT`, is given up
- * and not kept: the next document asks again.
+ * and not kept: the next document asks again. So is an answer that is not
+ * WebAssembly (a gate in front of the server answers with its login page).
  */
 import address from 'virtual:rhwp-wasm';
 
 /** How long the fetch may take, in milliseconds: 7 MB on the wire, the first time in a visit. */
 export const ENGINE_FETCH_LIMIT = 120_000;
+
+/** What every WebAssembly module starts with: `\0asm`. */
+const MAGIC = [0x00, 0x61, 0x73, 0x6d];
 
 let fetched: Promise<ArrayBuffer> | undefined;
 
@@ -28,7 +32,12 @@ async function fetchEngine(): Promise<ArrayBuffer> {
     // eslint-disable-next-line fvoci/no-direct-server -- a file of the build, not the server's data
     const response = await fetch(address, { credentials: 'omit', signal: late.signal });
     if (!response.ok) throw new Error(`the engine was not served: ${String(response.status)}`);
-    return await response.arrayBuffer();
+    const bytes = await response.arrayBuffer();
+    const start = new Uint8Array(bytes, 0, Math.min(MAGIC.length, bytes.byteLength));
+    if (!MAGIC.every((byte, index) => start[index] === byte)) {
+      throw new Error('what was served as the engine is not WebAssembly');
+    }
+    return bytes;
   } finally {
     clearTimeout(timer);
   }

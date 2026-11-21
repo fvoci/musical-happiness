@@ -109,6 +109,8 @@
     locked: m.file_editor_locked,
     'too-large': m.file_editor_too_large,
     slow: m.file_editor_slow,
+    unstarted: m.file_editor_unstarted,
+    engine: m.file_editor_engine,
   };
 
   const SAVE_FAILURE: Record<SaveFailure, () => string> = {

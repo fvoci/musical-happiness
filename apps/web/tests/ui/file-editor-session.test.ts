@@ -229,21 +229,33 @@ describe('a document handed to the editor’s frame', () => {
     const { session, sent, says, settled } = editing({}, () => Promise.reject(new Error('gone')));
     says({ kind: 'ready' });
     await settled();
-    expect(session.status).toEqual({ name: 'failed', reason: 'editor' });
+    expect(session.status).toEqual({ name: 'failed', reason: 'engine' });
     expect(sent).toEqual([]);
   });
 
-  it('is given up when the frame, the engine or the opening takes too long', async () => {
+  it('is given up when the frame, the engine or the opening takes too long, each told apart', async () => {
     const never = editing();
     await vi.advanceTimersByTimeAsync(LIMITS.ready);
-    expect(never.session.status).toEqual({ name: 'failed', reason: 'slow' });
+    expect(never.session.status).toEqual({ name: 'failed', reason: 'unstarted' });
+    // Given up, it is not heard, nor handed the document, when it says it is ready after all.
+    never.says({ kind: 'ready' });
+    await never.settled();
+    expect(never.session.status).toEqual({ name: 'failed', reason: 'unstarted' });
+    expect(never.sent).toEqual([]);
 
-    const waiting = editing({}, () => new Promise<ArrayBuffer>(() => undefined));
+    let arrive = (_bytes: ArrayBuffer): void => undefined;
+    const asked = vi.fn(() => new Promise<ArrayBuffer>((resolve) => (arrive = resolve)));
+    const waiting = editing({}, asked);
     waiting.says({ kind: 'ready' });
     await vi.advanceTimersByTimeAsync(LIMITS.engine - 1);
     expect(waiting.session.status).toEqual({ name: 'opening' });
     await vi.advanceTimersByTimeAsync(1);
-    expect(waiting.session.status).toEqual({ name: 'failed', reason: 'slow' });
+    expect(waiting.session.status).toEqual({ name: 'failed', reason: 'engine' });
+    // An engine that comes after it was given up hands the frame nothing.
+    expect(asked).toHaveBeenCalledTimes(1);
+    arrive(new ArrayBuffer(8));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(waiting.session.status).toEqual({ name: 'failed', reason: 'engine' });
     expect(waiting.sent).toEqual([]);
 
     const slow = editing();
