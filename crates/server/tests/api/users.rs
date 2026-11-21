@@ -404,13 +404,18 @@ async fn a_registration_answers_the_user_that_was_made() {
     );
 
     // The answer is the user as the API tells it afterwards, who is told of their own
-    // account besides that it has the password it was registered with.
+    // account besides that it has the password and the address it was registered with.
     let client = th.login(username, PASSWORD).await;
     let mut me = client.get("/users/me").await.value();
+    let own = me.as_object_mut().expect("an object");
     assert_eq!(
-        me.as_object_mut().expect("an object").remove("hasPassword"),
+        own.remove("hasPassword"),
         Some(json!(true)),
         "{username}: the account has the password it registered with"
+    );
+    assert!(
+        own.remove("email").is_some_and(|email| email != ""),
+        "{username}: and the address"
     );
     assert_eq!(
         me, made,
@@ -448,7 +453,6 @@ async fn get_me_logged_in() {
     let response = client.get("/users/me").await;
 
     let me: User = response.ok_json();
-    assert_eq!(me.email, "", "the address is not sent");
     assert_eq!(me.username, FAKE_USERNAME, "the name is");
     let raw = response.value();
     assert_eq!(
@@ -472,8 +476,11 @@ async fn get_me_logged_in() {
             "isAdmin": true,
             // Told to the user themselves only: whether, never what.
             "hasPassword": true,
+            // And their own address, which no other answer carries; nothing waits to
+            // replace it, so `pendingEmail` is left out.
+            "email": FAKE_EMAIL,
         }),
-        "the members of a user on the wire: no password, no address, nothing else"
+        "the members of a user on the wire to themselves: no password, nothing else"
     );
     assert!(me.create_at > 0, "a creation time: {raw}");
 
