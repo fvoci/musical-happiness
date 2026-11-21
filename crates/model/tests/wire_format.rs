@@ -29,6 +29,7 @@ fn block_json_members() {
         update_at: 20,
         delete_at: 0,
         container_id: "b1".to_owned(),
+        number: None,
         edited_at: 0,
     };
     let want = json!({
@@ -50,6 +51,17 @@ fn block_json_members() {
         ..block
     };
     assert_eq!(to_json(&edited)["editedAt"], json!(30), "one that was has");
+    let card = Block {
+        block_type: BlockType::Card,
+        number: Some(12),
+        ..edited
+    };
+    assert_eq!(to_json(&card)["number"], json!(12), "a card has its number");
+    assert_eq!(
+        serde_json::from_value::<Block>(to_json(&card)).expect("decodes"),
+        card,
+        "and keeps it when read back, as the trash does"
+    );
 }
 
 #[test]

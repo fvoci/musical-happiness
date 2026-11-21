@@ -142,6 +142,8 @@ impl Named {
             .replace("{teamId}", &self.team)
             .replace("{partNumber}", "1")
             .replace("{version}", "1")
+            // The board's card is its first.
+            .replace("{number}", "1")
             // A lease never given: its release is the member's answer as an editor's or not.
             .replace("{leaseId}", "a-lease-never-given")
     }
@@ -470,6 +472,7 @@ async fn every_contract_operation_answers_a_plain_member_alike_in_both_organizat
         "getBlocks",
         "getCards",
         "getCard",
+        "getCardByNumber",
         "getWikis",
         "getPageTree",
         "getPage",

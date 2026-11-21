@@ -32,11 +32,13 @@ pub struct SearchDocument {
     pub title: String,
     /// The plain text of its body; empty without one.
     pub text: String,
+    /// A card's number on its board; `None` for a page. No document says it either.
+    pub number: Option<u32>,
 }
 
 /// The columns of a document, of the blocks `b`, their boards `bo` and the boards'
 /// workspaces `w`.
-const DOCUMENT_COLUMNS: &str = "b.id, w.org_id, bo.workspace_id, b.container_id, b.title, COALESCE(b.body_text, ''), b.type, bo.kind";
+const DOCUMENT_COLUMNS: &str = "b.id, w.org_id, bo.workspace_id, b.container_id, b.title, COALESCE(b.body_text, ''), b.type, bo.kind, b.number";
 
 /// Starts the statement that reads `columns` of the blocks that have a document, with
 /// their boards `bo` and workspaces `w`: the cards and the pages of the boards and
@@ -146,5 +148,6 @@ fn document_from_row(row: &Row) -> Result<SearchDocument, StoreError> {
         kind,
         title: row.text(4)?,
         text: row.text(5)?,
+        number: crate::card_numbers::number_from_row(row, 8)?,
     })
 }

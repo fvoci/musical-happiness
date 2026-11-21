@@ -640,6 +640,7 @@ pub(crate) async fn take_blocks_out_of_trash(
             .forget_if_gone(scope, &mut block.created_by)
             .await?;
     }
+    crate::card_numbers::number_restored(scope, &mut restored).await?;
     // A statement per block: each is checked on its own, so a parent goes first. What
     // they show, the trash kept for them.
     for index in parents_first(&restored) {
@@ -758,6 +759,7 @@ pub(crate) async fn delete_container(
         .push_bind(", ", Param::json(&places)?)
         .push(")");
     scope.execute(sql).await?;
+    crate::card_numbers::keep_with_trashed(scope, container_id).await?;
 
     crate::container_team_trash::keep(scope, container_id).await?;
     block_derived::container_trashed(scope, container_id).await?;
@@ -806,6 +808,7 @@ pub(crate) async fn undelete_container(
         .forget_if_gone(scope, &mut container.created_by)
         .await?;
     containers::insert_container_row(scope, &container).await?;
+    crate::card_numbers::bring_back(scope, container_id).await?;
 
     for member in &members {
         // A membership of a user whose row is gone since does not come back.

@@ -287,7 +287,7 @@ const SCHEMAS: &[(&str, Members)] = &[
         "EmailVerified",
         Members::AllBut(&["containerId", "containerKind"]),
     ),
-    ("Block", Members::AllBut(&["editedAt"])),
+    ("Block", Members::AllBut(&["editedAt", "number"])),
     ("Body", Members::AsWritten),
     ("Container", Members::All),
     (
@@ -344,7 +344,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ),
     ("Readiness", Members::All),
     ("ReadinessCheck", Members::AsWritten),
-    ("SearchHit", Members::All),
+    ("SearchHit", Members::AllBut(&["number"])),
     ("SearchKind", Members::AsWritten),
     ("ServerMetadata", Members::AsWritten),
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
@@ -377,7 +377,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("OrgKind", Members::AsWritten),
     ("Page", Members::All),
     ("PageNode", Members::All),
-    ("LinkedBlock", Members::All),
+    ("LinkedBlock", Members::AllBut(&["number"])),
     ("WorkspaceRoleChange", Members::All),
     // What a request carries.
     ("AcceptInvitation", Members::Only(&["token"])),

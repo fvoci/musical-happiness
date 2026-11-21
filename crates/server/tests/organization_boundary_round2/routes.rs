@@ -94,6 +94,11 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/boards/{boardId}/cards", "createCard"),
     ("GET", "/boards/{boardId}/cards", "getCards"),
     (
+        "GET",
+        "/boards/{boardId}/cards/by-number/{number}",
+        "getCardByNumber",
+    ),
+    (
         "POST",
         "/containers/{containerId}/duplicate",
         "duplicateContainer",
@@ -358,6 +363,7 @@ const REACHED_BY_ITEM: &[&str] = &[
     "getCommentVersions",
     "createCard",
     "getCards",
+    "getCardByNumber",
     "duplicateContainer",
     "uploadFile",
     "getFile",
@@ -1035,6 +1041,7 @@ impl Items<'_> {
         } else {
             self.subscriber.0
         };
+        let number = self.card.number.unwrap_or_default().to_string();
         template
             .trim_start_matches("/api/v1")
             .replace("{workspaceId}", workspace)
@@ -1053,6 +1060,8 @@ impl Items<'_> {
             .replace("{subscriberId}", subscriber)
             .replace("{partNumber}", "1")
             .replace("{version}", "1")
+            // The card's number on its board; of nothing, one that no card has.
+            .replace("{number}", &pick(&number, "999999"))
             .replace("{leaseId}", UNKNOWN_ID)
             .replace("{categoryId}", &pick(self.category, UNKNOWN_ID))
     }
@@ -1617,7 +1626,7 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
     }
     ts.teardown().await;
     assert_eq!(
-        count, 56,
+        count, 57,
         "the operations that moved or came after under the workspace, and the two that went"
     );
     assert!(violations.is_empty(), "{}", violations.join("\n"));

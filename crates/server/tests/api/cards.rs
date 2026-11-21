@@ -827,6 +827,7 @@ async fn create_card_answer_and_stored_block() {
         json!({
             "id": card.id,
             "boardId": board.id,
+            "number": null,
             "createdBy": me.id,
             "modifiedBy": me.id,
             "title": "t",
@@ -856,8 +857,7 @@ async fn create_card_answer_and_stored_block() {
             "schema": 1,
             "type": "card",
             "title": "t",
-            // A content order is no member of a card: what the request had is not
-            // stored.
+            // A content order is no member of a card: what the request had is not stored.
             "fields": {
                 "icon": "👨‍👩‍👧",
                 "isTemplate": true,
@@ -891,6 +891,7 @@ async fn create_card_without_members() {
         json!({
             "id": card.id,
             "boardId": board.id,
+            "number": 1,
             "createdBy": me.id,
             "modifiedBy": me.id,
             "title": "",
@@ -1404,6 +1405,7 @@ async fn get_card_permissions_and_refusals() {
         json!({
             "id": bare.id,
             "boardId": board_id,
+            "number": bare.number,
             "createdBy": bare.created_by,
             "modifiedBy": bare.modified_by,
             "title": "",

@@ -15,7 +15,7 @@ use crate::db::{Id, Row, Scope};
 use crate::error::StoreError;
 
 /// The columns of a block as a reference shows it ([`shown_block`]): without its body.
-const SHOWN_COLUMNS: &str = "id, container_id, parent_id, type, title, fields, update_at";
+const SHOWN_COLUMNS: &str = "id, container_id, parent_id, type, title, fields, update_at, number";
 
 /// The member of a card's fields that says it is a template of its board's cards.
 const IS_TEMPLATE_FIELD: &str = "isTemplate";
@@ -38,6 +38,7 @@ fn shown_block(row: &Row) -> Result<Block, StoreError> {
         title: row.text(4)?,
         fields: row.json_map(5, "fields")?,
         update_at: row.int(6)?,
+        number: crate::card_numbers::number_from_row(row, 7)?,
         ..Block::default()
     })
 }

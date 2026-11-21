@@ -88,6 +88,7 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getCommentVersions", Reaches::Boards),
     ("createCard", Reaches::Boards),
     ("getCards", Reaches::Boards),
+    ("getCardByNumber", Reaches::Boards),
     ("getCard", Reaches::Boards),
     ("patchCard", Reaches::Boards),
     ("getCardBodyVersions", Reaches::Boards),
@@ -387,6 +388,8 @@ impl World {
             .replace("{subscriberId}", &self.me)
             .replace("{partNumber}", "1")
             .replace("{version}", "1")
+            // The board's card is its first.
+            .replace("{number}", "1")
             .replace("{leaseId}", "no-lease");
         assert!(
             !path.contains('{'),

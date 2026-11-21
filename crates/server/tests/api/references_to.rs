@@ -136,9 +136,9 @@ async fn what_names_a_card_or_a_page_is_told_once_and_in_pages() {
         json!([
             {"id": page, "kind": "page", "title": "The plan", "icon": "",
                 "containerId": mine.wiki, "containerKind": "wiki"},
-            {"id": first, "kind": "card", "title": "first", "icon": "",
+            {"id": first, "kind": "card", "title": "first", "number": 2, "icon": "",
                 "containerId": mine.board, "containerKind": "board"},
-            {"id": second, "kind": "card", "title": "second", "icon": "",
+            {"id": second, "kind": "card", "title": "second", "number": 3, "icon": "",
                 "containerId": mine.board, "containerKind": "board"},
         ]),
     );
@@ -502,8 +502,8 @@ async fn what_a_reference_may_name_is_found_by_its_title() {
         json!([
             {"id": mine.page, "kind": "page", "title": "Quarterly Plan", "icon": "",
                 "containerId": mine.wiki, "containerKind": "wiki"},
-            {"id": mine.card, "kind": "card", "title": "Quarterly Plan", "icon": "",
-                "containerId": mine.board, "containerKind": "board"},
+            {"id": mine.card, "kind": "card", "title": "Quarterly Plan", "number": 1,
+                "icon": "", "containerId": mine.board, "containerKind": "board"},
         ]),
     );
     for (term, expected) in [

@@ -296,6 +296,7 @@ pub(super) fn found_hit(document: SearchDocument, snippet: Vec<SnippetPart>) -> 
         container_id: document.container_id,
         container_kind: document.container_kind,
         title: document.title,
+        number: document.number,
         snippet,
     }
 }

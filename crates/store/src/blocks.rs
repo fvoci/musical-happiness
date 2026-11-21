@@ -16,6 +16,7 @@ use serde_json::Value;
 use crate::Store;
 use crate::block_derived::{self, Before};
 use crate::body_versions::{self, BodyWrite};
+use crate::card_numbers;
 use crate::card_values::{self, NamedCards};
 use crate::comment_places;
 use crate::comment_versions::{self, EDITED_AT_COLUMN};
@@ -27,7 +28,7 @@ use crate::page_places;
 
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
-                             fields, create_at, update_at, container_id, body";
+                             fields, create_at, update_at, container_id, number, body";
 
 /// The columns a block is read with: [`BLOCK_COLUMNS`], and when its body was last
 /// changed if it is a comment with versions.
@@ -37,7 +38,7 @@ pub(crate) fn block_read_columns() -> String {
 
 /// The column of a block read with [`block_read_columns`] that says when its body was
 /// last changed.
-const EDITED_AT: usize = 12;
+const EDITED_AT: usize = 13;
 
 /// The columns that [`BLOCK_COLUMNS`] does not read: what is worked out from the body
 /// when it is stored.
@@ -46,7 +47,7 @@ const BODY_SUMMARY_COLUMNS: &str = "body_version, body_text, body_tasks_total, b
 /// The columns of a listed block: [`BLOCK_COLUMNS`] with no body, and what a list says
 /// about the body in its place.
 const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
-                             fields, create_at, update_at, container_id, NULL, \
+                             fields, create_at, update_at, container_id, number, NULL, \
                              body IS NOT NULL, body_tasks_total, body_tasks_done";
 
 /// When the last comment on the block `blocks.id` was posted, zero for none: its
@@ -58,13 +59,13 @@ const LAST_COMMENT_AT_COLUMN: &str = "COALESCE((SELECT MAX(c.create_at) FROM blo
                                       WHERE c.parent_id = blocks.id AND c.type = 'comment'), 0)";
 
 /// The column of [`LISTED_BLOCK_COLUMNS`] that says whether there is a body.
-const LISTED_HAS_BODY: usize = 12;
+const LISTED_HAS_BODY: usize = 13;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with the body's task items.
-const LISTED_TASKS_TOTAL: usize = 13;
+const LISTED_TASKS_TOTAL: usize = 14;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with the body's checked task items.
-const LISTED_TASKS_DONE: usize = 14;
+const LISTED_TASKS_DONE: usize = 15;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with when the block's last comment was posted.
-const LISTED_LAST_COMMENT_AT: usize = 15;
+const LISTED_LAST_COMMENT_AT: usize = 16;
 /// The columns a list reads for previews, after the last comment's time: the beginning
 /// of the plain text of the body, worked out when it was stored, and the body. The text
 /// is 201 characters (code points, each of one or two UTF-16 code units): the 200 units
@@ -72,9 +73,9 @@ const LISTED_LAST_COMMENT_AT: usize = 15;
 /// runs past 200 units, so the preview leaves it out whole.
 const PREVIEW_COLUMNS: &str = "SUBSTR(body_text, 1, 201), body";
 /// The column of the plain text of the body, read for previews.
-const LISTED_BODY_TEXT: usize = 16;
+const LISTED_BODY_TEXT: usize = 17;
 /// The column of the body, read for previews.
-const LISTED_BODY: usize = 17;
+const LISTED_BODY: usize = 18;
 
 /// The order of every list of blocks.
 const OLDEST_FIRST: &str = " ORDER BY create_at, id";
@@ -578,7 +579,8 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
         // A block that exists is not deleted.
         delete_at: 0,
         container_id: row.id(10)?,
-        body: match row.json(11, "body")? {
+        number: card_numbers::number_from_row(row, 11)?,
+        body: match row.json(12, "body")? {
             Value::Null => None,
             document => Some(Body::from_stored(document)),
         },
@@ -745,6 +747,7 @@ async fn insert_block_at(
     page_places::check(block, kind, parent_type.as_ref())?;
     comment_places::check(scope, block, parent_type.as_ref(), existing.as_ref()).await?;
     let named = card_values::check_written(scope, block, existing.as_ref()).await?;
+    card_numbers::number_written(scope, block, existing.as_ref()).await?;
     if let Some(existing) = existing {
         if block.block_type != existing.block_type {
             scope.invalidate_visibility();
@@ -770,6 +773,7 @@ async fn insert_block_at(
             .push_bind(", type = ", block.block_type.as_str())
             .push_bind(", title = ", &block.title)
             .push_bind(", fields = ", Param::json(&block.fields)?)
+            .push_bind(", number = ", card_numbers::number_param(block.number))
             .push_bind(", update_at = ", block.update_at);
         push_body(&mut sql, block.body.as_ref(), BodyColumns::Assign)?;
         sql.push_bind(" WHERE id = ", Id(&block.id))
@@ -821,7 +825,8 @@ pub(crate) async fn insert_block_row(
         .push_bind(", ", Param::json(&block.fields)?)
         .push_bind(", ", block.create_at)
         .push_bind(", ", block.update_at)
-        .push_bind(", ", Id(&block.container_id));
+        .push_bind(", ", Id(&block.container_id))
+        .push_bind(", ", card_numbers::number_param(block.number));
     push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
     sql.push(")");
     scope.execute(sql).await?;

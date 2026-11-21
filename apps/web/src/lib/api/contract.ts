@@ -2048,6 +2048,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards/by-number/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A card by its number
+         * @description The card of the board that has the number (`Card.number`, as `#12` names the card),
+         *     for the members of the board, as `getCard` gives it. One answer, 404, says that there
+         *     is no such card, whatever the reason: no card of the board has the number (the card
+         *     is in the trash, is gone for good, or is a template of the board's cards), the
+         *     number is none, the board is one the user does not read (a private board they are
+         *     no member of, one they only manage, one they are no guest of), or is no board of
+         *     this workspace (of another workspace or organization, a wiki, or none at all).
+         */
+        get: operations["getCardByNumber"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/boards/{boardId}/property-order": {
         parameters: {
             query?: never;
@@ -4328,6 +4354,13 @@ export interface components {
             id: string;
             /** @description The identifier of the user who last modified the block. */
             modifiedBy: string;
+            /**
+             * Format: int32
+             * @description A card's number on its board, as `Card.number` gives it; absent for a template
+             *     of the board's cards and for every other block. The server gives it and ignores
+             *     a client's.
+             */
+            number?: number | null;
             /** @description The identifier of the parent block; empty for root blocks. */
             parentId: string;
             /**
@@ -4485,6 +4518,15 @@ export interface components {
             lastCommentAt: number;
             /** @description The identifier of the user who last modified the card. */
             modifiedBy: string;
+            /**
+             * Format: int32
+             * @description The card's number on its board, as `#12` names it: from 1, one more for each card
+             *     made on the board, never changed and never given again, also once the card is
+             *     gone. A copy and an import are new cards with new numbers; a card that comes back
+             *     from the trash has its own. `null` for a template of the board's cards
+             *     (`isTemplate`). The server gives it: what a request sends here is ignored.
+             */
+            number: number | null;
             preview?: components["schemas"]["CardPreview"] | null;
             /**
              * @description Property values keyed by property identifier: a string, a list of strings, or
@@ -5222,6 +5264,11 @@ export interface components {
             id: string;
             /** @description Whether it is a card or a page. */
             kind: components["schemas"]["LinkedKind"];
+            /**
+             * Format: int32
+             * @description A card's number on its board, as `Card.number` gives it; absent for a page.
+             */
+            number?: number | null;
             /** @description Its title; empty for one without. */
             title: string;
         };
@@ -6169,6 +6216,11 @@ export interface components {
             id: string;
             /** @description What it is. */
             kind: components["schemas"]["SearchKind"];
+            /**
+             * Format: int32
+             * @description A card's number on its board, as `Card.number` gives it; absent for a page.
+             */
+            number?: number | null;
             /**
              * @description A piece of its body around what matched, in stretches that follow one
              *     another; empty where the body has changed since it was indexed, or has nothing
@@ -9659,6 +9711,42 @@ export interface operations {
         responses: {
             /** @description The card that was made. */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCardByNumber: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The number of the card on the board, as `Card.number` gives it. One that no card of the board has, and what is no number, is 404. */
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

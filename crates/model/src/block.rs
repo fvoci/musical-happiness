@@ -399,6 +399,11 @@ pub struct Block {
     pub delete_at: i64,
     /// The identifier of the board the block belongs to.
     pub container_id: String,
+    /// A card's number on its board, as `Card.number` gives it; absent for a template
+    /// of the board's cards and for every other block. The server gives it and ignores
+    /// a client's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<u32>,
     /// For a comment whose body was changed: when that last happened, in milliseconds
     /// since the Unix epoch. Absent for a comment never changed and for every other
     /// block. The server sets it, and ignores a client's. What the body said before is
@@ -417,6 +422,18 @@ fn is_zero(time: &i64) -> bool {
 }
 
 impl Block {
+    /// Whether the block has a number on its board: a card that is no template of its
+    /// board's cards (`isTemplate` the JSON `true`). The first card stored on a board
+    /// gets 1 and each one stored after it the next number; a number never changes and
+    /// is never given again, also once its card is gone. A card that is copied or
+    /// imported is a new card with a new number; a card that comes back from the trash
+    /// has its own. A block that stops being such a card loses its number.
+    #[must_use]
+    pub fn takes_number(&self) -> bool {
+        self.block_type == BlockType::Card
+            && self.fields.get("isTemplate") != Some(&Value::Bool(true))
+    }
+
     /// Checks that the block may be stored.
     ///
     /// # Errors
