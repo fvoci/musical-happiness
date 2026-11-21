@@ -765,6 +765,7 @@
   "shell_transfer_ask_stop": "Stop",
   "shell_transfer_ask_keep": "Keep going",
   "shell_uploads_running": "Uploading {count} files",
+  "shell_uploads_running_one": "Uploading 1 file",
   "shell_uploads_done": "{count} files are uploaded.",
   "shell_uploads_failed": "{count} not uploaded",
   "shell_uploads_each": "Each file",

@@ -28,7 +28,6 @@ interface Dev {
   backend: {
     views: (boardId: string) => Promise<{ id: string; fields: object }[]>;
     createView: (boardId: string, draft: { title: string; fields: object }) => Promise<unknown>;
-    patchView: (boardId: string, viewId: string, patch: object) => Promise<unknown>;
   };
 }
 

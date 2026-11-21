@@ -416,6 +416,7 @@
     aria-label={m['ViewHeader.new']()}
     title={m['ViewHeader.new']()}
     data-testid="new-card"
+    data-round
     class="absolute right-4 bottom-[calc(1rem+var(--safe-bottom)+var(--keyboard))] z-20 size-14 rounded-full shadow-lg"
     onclick={onAddCard}
   >

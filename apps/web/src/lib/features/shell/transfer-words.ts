@@ -8,6 +8,17 @@ import type { Transfer, UploadFailure } from '$lib/state/index.ts';
 
 const nameOf = (transfer: Transfer): string => transfer.name || m['Sidebar.untitled-board']();
 
+/** What the one card of many uploads says: how many are going up, failed, or are up. */
+export function uploadsLabel(running: number, failed: number, all: number): string {
+  if (running > 0) {
+    return running === 1
+      ? m.shell_uploads_running_one()
+      : m.shell_uploads_running({ count: running });
+  }
+  if (failed > 0) return m.shell_uploads_failed({ count: failed });
+  return m.shell_uploads_done({ count: all });
+}
+
 /** What a transfer is doing, or did: its line in the stack. */
 export function transferLabel(transfer: Transfer): string {
   const name = nameOf(transfer);

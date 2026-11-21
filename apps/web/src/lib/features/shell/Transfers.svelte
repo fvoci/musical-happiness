@@ -42,7 +42,7 @@
 
   import TransferAsk from './TransferAsk.svelte';
   import TransferCard from './TransferCard.svelte';
-  import { transferSaying, underWay } from './transfer-words.ts';
+  import { transferSaying, underWay, uploadsLabel } from './transfer-words.ts';
 
   let { workspace }: { workspace: Workspace } = $props();
 
@@ -78,11 +78,7 @@
     return transferSaying(said);
   });
 
-  const groupLabel = $derived.by(() => {
-    if (running.length > 0) return m.shell_uploads_running({ count: running.length });
-    if (failed.length > 0) return m.shell_uploads_failed({ count: failed.length });
-    return m.shell_uploads_done({ count: uploads.length });
-  });
+  const groupLabel = $derived(uploadsLabel(running.length, failed.length, uploads.length));
   const groupDone = $derived(running.reduce((sum, one) => sum + one.done, 0));
   const groupTotal = $derived(running.reduce((sum, one) => sum + one.total, 0));
 
@@ -348,7 +344,7 @@
   }
 
   /* Above the round "New" button of a folded board header (ViewHeader.svelte). */
-  :global(:root:has([data-testid='new-card'])) section {
+  :global(:root:has([data-testid='new-card'][data-round])) section {
     --transfers-lift: 5.5rem;
   }
 
