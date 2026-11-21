@@ -78,22 +78,11 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 | 권한 표 | 636칸 |
 
 - 수는 커밋마다 달라진다. 문서보다 실행 결과를 믿는다.
-- 건너뛴 단계는 요약에 `SKIP`으로 나온다(`--skip-licenses`, `--database sqlite|postgres`). `SKIP`이 있는 실행을 전체 통과로 보고하지 않는다.
+- 건너뛴 단계는 요약에 `SKIP`으로 나온다(`--skip-licenses`, `--database`). `SKIP`이 있는 실행, `--part`·`--unit`으로 나눠 돈 실행을 전체 통과로 보고하지 않는다.
 - `cargo xtask test`는 `FVOCI_REGRESSION_UPDATE`가 설정돼 있으면 시작하지 않는다(아래의 갱신 절차).
 - 환경 변수로 다른 PostgreSQL·S3·컨테이너 이름·포트를 주는 법은 `xtask/src/test.rs`와 `xtask/src/containers.rs`의 머리 주석에 있다. PostgreSQL을 직접 줄 때는 슈퍼유저가 아닌 역할의 주소와 함께 슈퍼유저의 주소(`FVOCI_STORE_TEST_SUPERUSER_CONN_STRING`)를 준다(조직 사이의 벽은 슈퍼유저에게 걸리지 않는다. 서버와 저장소가 그런 역할을 어떻게 다루는지 보는 테스트만 그 주소를 쓴다).
 
-**걸리는 시간.** 이 기기에서 빌드 캐시가 있을 때, 2026-11-11 02–03시 KST에 잰 값이다.
-
-| 무엇 | 시간 |
-|---|---|
-| `cargo xtask check`, 소스를 고친 뒤 | 30–40초 |
-| `cargo xtask check`, 고친 것이 없을 때 | 10초(2026-11-11 17시 KST, 층과 길이 단계가 든 뒤) |
-| `cargo xtask test` | 2분 40초–4분 10초 |
-| 회귀 테스트만(`cargo test -p fvoci-server --test regression`) | SQLite 29–30초 |
-| API 테스트만(`--test api`, 487건) | SQLite 15초, PostgreSQL 37초 |
-
-- `check`의 단계별 시간은 clippy 10초, 단위 테스트 3–13초, 문서 4초, 층 2초, 길이 3초, 계약 3초, cargo-deny 1–2초다.
-- `test`의 단계별 시간은 SQLite 65초, PostgreSQL 96–186초, S3 1초 미만이다. PostgreSQL은 기기가 바쁘면 길어진다. 186초였던 실행의 원인은 따로 보지 않았다.
+**걸리는 시간.** `cargo xtask check`와 `test`가 실행마다 단계·빌드·단위의 시간을 `target/xtask-times.jsonl`에 한 줄씩 더한다(`jq -s . target/xtask-times.jsonl`). 문서에 적은 수는 낡으니 이 파일을 본다.
 
 **커밋마다 clippy를 통과시킨다.** 워크스페이스 린트가 엄격해서(`too_many_lines`, `as_conversions`, `print_stderr`, `similar_names` 등) 테스트 코드에서 자주 걸린다. `cargo doc`도 경고가 오류다. 없는 항목을 가리키는 문서 링크 하나로 check가 실패한다.
 

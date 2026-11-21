@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { playwrightWorkers } from './tools/test-cpus.ts';
+
 /**
  * Browser tests of the spikes (`spikes/<name>/*.spec.ts`), against the
  * spikes' development server. Separate from the product's end-to-end tests.
@@ -13,6 +15,7 @@ export default defineConfig({
   outputDir: 'test-results/spikes',
   forbidOnly: Boolean(process.env.CI),
   reporter: [['list']],
+  workers: playwrightWorkers(),
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: 'retain-on-failure',
