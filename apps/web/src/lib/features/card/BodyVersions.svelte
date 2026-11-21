@@ -15,6 +15,10 @@
   this too (`of="page"`), with the wiki in place of the board, in the page's
   own words.
 
+  The version read shows what it changed from the version before it, or is
+  compared with the body now or another version, or shown as it is
+  (VersionCompare.svelte).
+
   Each version says how it was kept, in words: by hand, on its own, or as a
   version gone back to. Who edits can keep one now, from the button over the
   list or with ⌘S or Ctrl+S in the dialog (the browser's dialog to save the
@@ -33,7 +37,6 @@
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
-  import BodyView from '$lib/editor/BodyView.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { isSaveKey, shortcutKeys, shortcutLabel } from '$lib/keys.ts';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
@@ -45,6 +48,7 @@
   import { KEPT_SAID } from './body-notes.ts';
   import { bodyReferences } from './body-references.ts';
   import type { VersionsReading } from './body-versions.svelte.ts';
+  import VersionCompare from './VersionCompare.svelte';
 
   interface Props {
     open: boolean;
@@ -102,6 +106,7 @@
     manual: m.card_version_cause_manual,
     restored: m.card_version_cause_restored,
   };
+  const causeOf = (version: BodyVersion): string => CAUSES[version.cause]();
 
   /** The keys that keep a version, in the dialog: as its button, for who edits. */
   function keyInDialog(event: KeyboardEvent): void {
@@ -260,7 +265,7 @@
                     </span>
                     <span class="text-xs text-muted-foreground">
                       {when} ·
-                      <span data-testid="body-version-cause">{CAUSES[version.cause]()}</span>
+                      <span data-testid="body-version-cause">{causeOf(version)}</span>
                     </span>
                     {#if version.editors.length > 0}
                       <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
@@ -299,34 +304,32 @@
           {:else}
             <p class="border-b px-4 py-2.5 text-xs text-muted-foreground">
               <span class="font-medium text-foreground">{whenKept(chosen)}</span>
-              · {CAUSES[chosen.cause]()}
+              · {causeOf(chosen)}
               {#if chosen.editors.length > 0}
                 · {m.card_version_by({ who: whoWrote(chosen) })}
               {/if}
             </p>
-            <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
-              {#if reading.contentStatus === 'loading'}
-                <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
-              {:else if reading.contentStatus === 'gone'}
-                <p role="alert">{m.card_version_gone()}</p>
-              {:else if reading.contentStatus === 'failed'}
-                <p role="alert">{m.card_version_read_failed()}</p>
-              {:else}
-                <BodyView
-                  doc={reading.content?.body ?? null}
-                  {resolveUser}
-                  {references}
-                  class="text-base"
-                >
-                  {#snippet empty()}
-                    <p class="text-muted-foreground">{words.noBody()}</p>
-                  {/snippet}
-                  {#snippet invalid()}
-                    <p class="text-muted-foreground" role="alert">{words.invalid()}</p>
-                  {/snippet}
-                </BodyView>
-              {/if}
-            </div>
+            {#if reading.contentStatus === 'ready'}
+              <VersionCompare
+                {reading}
+                {whenKept}
+                {causeOf}
+                {whoWrote}
+                {resolveUser}
+                {references}
+                {words}
+              />
+            {:else}
+              <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+                {#if reading.contentStatus === 'loading'}
+                  <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
+                {:else if reading.contentStatus === 'gone'}
+                  <p role="alert">{m.card_version_gone()}</p>
+                {:else}
+                  <p role="alert">{m.card_version_read_failed()}</p>
+                {/if}
+              </div>
+            {/if}
             {#if container.canEdit && reading.contentStatus === 'ready'}
               <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t p-3">
                 {#if reading.refusal}

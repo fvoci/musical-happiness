@@ -13,102 +13,25 @@ import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { boardPath } from './address.ts';
 import { focusAtEnd } from './embeds.support.ts';
 import { primaryKey } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
 import { openApp } from './shell.support.ts';
+import {
+  closeVersions,
+  editor,
+  narrow,
+  openTaskCard,
+  openVersions,
+  rows,
+  shown,
+  versions,
+  writtenWholeElsewhere,
+  type Dev,
+} from './versions.support.ts';
 import { nameThePage, newWiki, pageBody } from './wiki.support.ts';
 
 test.describe.configure({ mode: 'parallel', timeout: 90_000 });
-
-/** What `(window as unknown as { fvociDev: Dev }).fvociDev` offers a test (src/app/backend.ts). Only what is used here. */
-interface DevBackend {
-  me(): Promise<{ id: string; username: string }>;
-  workspaces(): Promise<{ id: string }[]>;
-  boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
-  views(boardId: string): Promise<{ id: string; title: string }[]>;
-  cards(boardId: string): Promise<{ id: string; title: string }[]>;
-  card(boardId: string, cardId: string): Promise<{ updateAt: number }>;
-  addMember(boardId: string, userId: string, role: 'admin'): Promise<unknown>;
-  setMemberRole(boardId: string, userId: string, role: 'viewer'): Promise<unknown>;
-  writeCardBody(boardId: string, cardId: string, write: object): Promise<unknown>;
-  failNext(method: string, error: unknown): void;
-}
-interface Dev {
-  backend: DevBackend;
-  someoneElse(): DevBackend;
-}
-
-interface Place {
-  boardId: string;
-  viewId: string;
-  cardId: string;
-}
-
-const paragraph = (text: string): object => ({
-  type: 'doc',
-  content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
-});
-
-/** Opens a card that has a body, by its address, and waits until its editor is there. */
-async function openTaskCard(page: Page): Promise<Place> {
-  await page.goto('/');
-  await expect(page.getByTestId('board-page')).toBeVisible();
-  const place = await page.evaluate(async () => {
-    const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const [workspace] = await backend.workspaces();
-    const boards = await backend.boards(workspace?.id ?? '');
-    const board = boards.find((each) => each.title.startsWith('Project Tasks'));
-    if (!board) throw new Error('no board of tasks');
-    const views = await backend.views(board.id);
-    const cards = await backend.cards(board.id);
-    const card = cards.find((each) => each.title === 'Identify dependencies');
-    if (!card) throw new Error('no card');
-    const first = [...views].sort((a, b) => a.title.localeCompare(b.title))[0];
-    return { boardId: board.id, viewId: first?.id ?? '', cardId: card.id };
-  });
-  await page.goto(boardPath(place.boardId, place.viewId, place.cardId));
-  await expect(page.getByTestId('card-dialog')).toBeVisible();
-  await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
-  return place;
-}
-
-const editor = (page: Page): Locator =>
-  page.getByTestId('card-body').locator('[contenteditable]').first();
-const versions = (page: Page): Locator => page.getByTestId('body-versions');
-const rows = (page: Page): Locator => versions(page).locator('[data-version]');
-const shown = (page: Page): Locator => page.getByTestId('body-version');
-
-async function openVersions(page: Page): Promise<void> {
-  await page.getByTestId('card-menu').click();
-  await page.locator('[data-action="versions"]').click();
-  await expect(versions(page)).toBeVisible();
-}
-
-async function closeVersions(page: Page): Promise<void> {
-  await versions(page).getByRole('button', { name: 'Close' }).click();
-  await expect(versions(page)).toHaveCount(0);
-  // The card under it stays.
-  await expect(page.getByTestId('card-dialog')).toBeVisible();
-}
-
-/** Narrow, the body of a version takes the place of the list. */
-const narrow = (page: Page): boolean => (page.viewportSize()?.width ?? 0) < 640;
-
-/** Somebody else, made an admin of the board, writes the card's body whole. */
-async function writtenWholeElsewhere(page: Page, place: Place, text: string): Promise<void> {
-  await page.evaluate(
-    async ({ at, body }) => {
-      const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
-      const other = dev.someoneElse();
-      await dev.backend.addMember(at.boardId, (await other.me()).id, 'admin');
-      const card = await other.card(at.boardId, at.cardId);
-      await other.writeCardBody(at.boardId, at.cardId, { body, readAt: card.updateAt });
-    },
-    { at: place, body: paragraph(text) },
-  );
-}
 
 test('the versions of a body are listed and read, and one is restored: not an undo step of the editor', async ({
   page,

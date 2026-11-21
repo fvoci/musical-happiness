@@ -7,7 +7,7 @@
  * version now, of a card or a wiki's page, with what was typed just before,
  * the other in the room going on as they were; the browser saves no page.
  */
-import { expect, test, type APIRequestContext, type Browser, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 import { focusAtEnd } from '../e2e/embeds.support.ts';
 import { primaryKey } from '../e2e/keyboard.support.ts';
@@ -22,59 +22,20 @@ import {
   signInOnPage,
   watchErrors,
 } from './support.ts';
+import {
+  cardAt,
+  editor,
+  kept,
+  openVersions,
+  pageOf,
+  paragraph,
+  rows,
+  shown,
+  versions,
+  writeWhole,
+} from './versions.support.ts';
 
 test.use({ locale: 'en-US' });
-
-type Board = Awaited<ReturnType<typeof makeBoard>>;
-
-const paragraph = (text: string): object => ({
-  type: 'doc',
-  content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
-});
-
-const cardAt = (board: Board, cardId: string): string =>
-  `/api/v1/w/${board.workspaceId}/cards/${cardId}`;
-
-/** Writes a card's body whole through the API, as whoever `api` is signed in as. */
-async function writeWhole(
-  api: APIRequestContext,
-  board: Board,
-  cardId: string,
-  text: string,
-): Promise<void> {
-  const card = (await (await api.get(cardAt(board, cardId))).json()) as Schemas['Card'];
-  const written = await api.patch(cardAt(board, cardId), {
-    data: { body: paragraph(text), readAt: card.updateAt },
-  });
-  expect(written.ok()).toBe(true);
-}
-
-async function kept(
-  api: APIRequestContext,
-  board: Board,
-  cardId: string,
-): Promise<Schemas['BodyVersion'][]> {
-  const answer = await api.get(`${cardAt(board, cardId)}/body-versions`);
-  expect(answer.ok()).toBe(true);
-  return (await answer.json()) as Schemas['BodyVersion'][];
-}
-
-async function pageOf(
-  browser: Browser,
-  path: string,
-  who: Parameters<typeof signInOnPage>[1],
-): Promise<Page> {
-  const page = await (await browser.newContext({ locale: 'en-US' })).newPage();
-  await page.goto(path);
-  await signInOnPage(page, who);
-  await expect(page.getByTestId('card-dialog')).toBeVisible();
-  return page;
-}
-
-const editor = (page: Page) => page.getByTestId('card-body').locator('[contenteditable]').first();
-const versions = (page: Page) => page.getByTestId('body-versions');
-const rows = (page: Page) => versions(page).locator('[data-version]');
-const shown = (page: Page) => page.getByTestId('body-version');
 
 /**
  * Types at the end of the body, once the room's document is all there: the
@@ -118,12 +79,6 @@ async function watchSaveKeys(page: Page): Promise<() => Promise<boolean[]>> {
     });
   });
   return () => page.evaluate(() => (window as unknown as { saveKeys: boolean[] }).saveKeys);
-}
-
-async function openVersions(page: Page): Promise<void> {
-  await page.getByTestId('card-menu').click();
-  await page.locator('[data-action="versions"]').click();
-  await expect(versions(page)).toBeVisible();
 }
 
 /** Goes back to the version shown, after the question. */
@@ -325,6 +280,8 @@ test('the keys keep what was typed just before as a version, and the other in th
   }
 
   await typeAtEnd(first, ', Ada too');
+  // In the room before the other types: on WebKit the two otherwise interleave.
+  await expect(editor(second).locator('p')).toHaveText(['The first plan, Ada too']);
   await typeAtEnd(second, 'Bora adds a line', true);
   const both = ['The first plan, Ada too', 'Bora adds a line'];
   await expect(editor(first).locator('p')).toHaveText(both);
