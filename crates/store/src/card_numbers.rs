@@ -22,7 +22,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails, and [`StoreError::Corrupt`]
-    /// if the stored block is not one the store writes (a number that is none).
+    /// if the stored block cannot be read.
     pub async fn get_card_by_number(
         &self,
         container_id: &str,
