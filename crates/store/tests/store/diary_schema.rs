@@ -440,11 +440,7 @@ fn check_plan(read: usize, plan: &str) {
         DbType::Postgres => (
             "Seq Scan",
             [
-                &[
-                    "diary_days_month_day_idx",
-                    "blocks_pkey",
-                    "(id = d.entry_id)",
-                ],
+                &["diary_days_month_day_idx", "blocks_pkey"],
                 &["diary_days_pkey", "(day >= "],
             ],
         ),

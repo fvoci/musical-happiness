@@ -824,9 +824,9 @@ async fn the_days_of_a_diary_stay_in_its_space() {
 
     let at: MonthDay = "02-29".parse().expect("a month and day");
     let entries = ones.get_diary_entries_on(&others_diary, at).await;
-    assert_eq!(entries.unwrap_or_default(), [], "the entries of another's");
+    assert_eq!(entries.expect("read"), [], "the entries of another's");
     let days = ones.get_diary_days(&others_diary, None, None).await;
-    assert_eq!(days.unwrap_or_default(), [], "the days of another's");
+    assert_eq!(days.expect("read"), [], "the days of another's");
     let made = ones
         .create_diary_entry(
             &others_diary,
@@ -836,9 +836,12 @@ async fn the_days_of_a_diary_stay_in_its_space() {
             &one,
         )
         .await;
-    assert!(made.is_err(), "an entry in another's diary: {made:?}");
+    assert!(
+        matches!(&made, Err(error) if error.is_not_found()),
+        "an entry in another's diary: {made:?}"
+    );
     let trash = ones.get_deleted_diary_entries(&others_diary, None).await;
-    assert_eq!(trash.unwrap_or_default(), [], "the trash of another's");
+    assert_eq!(trash.expect("read"), [], "the trash of another's");
     assert_eq!((count(&ones).await, count(&others).await), (1, 2));
     test.teardown().await;
 }

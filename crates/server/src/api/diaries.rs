@@ -204,7 +204,7 @@ async fn handle_get_diary_days(
         .with_parameter("to")
         .with_limit(u64::from(DAYS_PER_LIST)));
     }
-    let days = ws.app.diary_days(&diary_id, Some(from), Some(to)).await?;
+    let days = ws.app.diary_days(&diary_id, from, to).await?;
     Ok(json_response(&days))
 }
 

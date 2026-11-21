@@ -125,8 +125,8 @@ impl App {
         Ok(entries.into_iter().map(DiaryEntry::from).collect())
     }
 
-    /// The days of the diary that have an entry, from `from` to `to` (each included;
-    /// `None` for no bound), the earliest first.
+    /// The days of the diary that have an entry, from `from` to `to` (each included),
+    /// the earliest first. Both are asked for: nothing reads the days of a whole diary.
     ///
     /// # Errors
     ///
@@ -134,10 +134,11 @@ impl App {
     pub async fn diary_days(
         &self,
         diary_id: &str,
-        from: Option<DiaryDate>,
-        to: Option<DiaryDate>,
+        from: DiaryDate,
+        to: DiaryDate,
     ) -> Result<Vec<DiaryDay>, AppError> {
-        Ok(self.store().get_diary_days(diary_id, from, to).await?)
+        let days = self.store().get_diary_days(diary_id, Some(from), Some(to));
+        Ok(days.await?)
     }
 
     /// The diary's entries in the trash, one page of the list ([`ListPage`]).
