@@ -120,6 +120,27 @@ export function koreanHwpx(): Buffer {
   return rewriteArchive(exported, (member) => (member.name === RHWP_ORIGIN ? undefined : member));
 }
 
+/** The place of the page numbers at the foot of the page, as Hangul writes it in a section. */
+const PAGE_NUMBER =
+  '<hp:ctrl><hp:pageNum pos="BOTTOM_CENTER" formatType="DIGIT" sideChar="-"/></hp:ctrl>';
+
+/**
+ * The Korean HWPX with the place of its page numbers set twice in its first
+ * paragraph, as Hangul can write it: rhwp keeps one, and the saved file reads
+ * back with one place of page numbers where the document in the editor had
+ * two, which its report does not say.
+ */
+export function pageNumbersTwiceHwpx(): Buffer {
+  return rewriteArchive(koreanHwpx(), (member) => {
+    if (member.name !== 'Contents/section0.xml') return member;
+    const section = member.data.toString('utf8');
+    const at = section.indexOf('</hp:ctrl>') + '</hp:ctrl>'.length;
+    if (at < '</hp:ctrl>'.length) throw new Error('the section has no control');
+    const twice = `${section.slice(0, at)}${PAGE_NUMBER}${PAGE_NUMBER}${section.slice(at)}`;
+    return { ...member, data: Buffer.from(twice) };
+  });
+}
+
 /** Parts rhwp does not keep, and a piece of data it keeps under a name of its own. */
 const OTHER_PARTS: ZipMember[] = [
   {

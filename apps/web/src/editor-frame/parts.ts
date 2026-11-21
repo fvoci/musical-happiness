@@ -33,9 +33,8 @@ export function packageParts(bytes: Uint8Array): readonly ZipEntry[] {
 
 const content = (part: ZipEntry): string => `${String(part.crc)}:${String(part.size)}`;
 
-/** The parts of `given` that the saved package does not have, each as a loss. */
-export function partsLeftOut(given: readonly ZipEntry[], saved: Uint8Array): Loss[] {
-  const kept = packageParts(saved);
+/** The parts of `given` that the saved package's (`kept`) does not have, each as a loss. */
+export function partsLeftOut(given: readonly ZipEntry[], kept: readonly ZipEntry[]): Loss[] {
   const names = new Set(kept.map((part) => part.name));
   // How many of each content the saved package's data holds, taken as they are found again.
   const data = new Map<string, number>();
@@ -57,13 +56,23 @@ export function partsLeftOut(given: readonly ZipEntry[], saved: Uint8Array): Los
   });
 }
 
-/** rhwp's report with the parts left out added: counted, and listed first as far as a message lists. */
+/** A path as compared: rhwp's report names a stream from the root (`/BinData/BIN0001.png`). */
+const pathKey = (path: string): string => path.replace(/^\//, '').toUpperCase();
+
+/**
+ * rhwp's report with the parts or streams left out added: counted, and listed
+ * first as far as a message lists. One the report names already (a picture it
+ * wrote empty, which is then no longer found by what it held) is told once,
+ * as the report tells it.
+ */
 export function withPartsLeftOut(
   report: { count: number; losses: Loss[] },
   left: Loss[],
 ): { count: number; losses: Loss[] } {
+  const named = new Set(report.losses.map((loss) => pathKey(loss.path)));
+  const added = left.filter((loss) => !named.has(pathKey(loss.path)));
   return {
-    count: Math.min(report.count + left.length, LOSS_COUNT_LIMIT),
-    losses: [...left, ...report.losses].slice(0, LOSS_LIST_LIMIT),
+    count: Math.min(report.count + added.length, LOSS_COUNT_LIMIT),
+    losses: [...added, ...report.losses].slice(0, LOSS_LIST_LIMIT),
   };
 }

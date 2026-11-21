@@ -66,19 +66,19 @@ const hwp = (properties: number, streams: Record<string, string>): Uint8Array =>
   ]);
 
 const paths = (given: Uint8Array, kept: Uint8Array): string[] =>
-  streamsLeftOut(hwpStreams(given), kept).losses.map((loss) => loss.path);
+  streamsLeftOut(hwpStreams(given), hwpStreams(kept)).losses.map((loss) => loss.path);
 
 describe('the streams a save leaves out of an HWP', () => {
   it('are none of a document rhwp keeps whole, nor of what it saved itself', async () => {
     const given = await checked(koreanHwp());
     const once = saved(given);
     expect(once.reported).toBe(0);
-    expect(streamsLeftOut(hwpStreams(given), once.bytes)).toEqual({
+    expect(streamsLeftOut(hwpStreams(given), hwpStreams(once.bytes))).toEqual({
       unprotected: false,
       losses: [],
     });
     const again = await checked(once.bytes);
-    expect(streamsLeftOut(hwpStreams(again), saved(again).bytes).losses).toEqual([]);
+    expect(streamsLeftOut(hwpStreams(again), hwpStreams(saved(again).bytes)).losses).toEqual([]);
   });
 
   it('are the streams rhwp does not keep, which its report does not name', async () => {
@@ -88,7 +88,7 @@ describe('the streams a save leaves out of an HWP', () => {
     const once = saved(given);
     expect(once.reported).toBe(0);
     expect(once.text).not.toContain(DISTRIBUTED_TEXT);
-    expect(streamsLeftOut(hwpStreams(given), once.bytes)).toEqual({
+    expect(streamsLeftOut(hwpStreams(given), hwpStreams(once.bytes))).toEqual({
       unprotected: false,
       losses: [
         {
@@ -101,7 +101,7 @@ describe('the streams a save leaves out of an HWP', () => {
     });
     // A stream of another program's rhwp keeps as it is.
     const other = await checked(withStreams(koreanHwp(), [OTHER_STREAM]));
-    expect(streamsLeftOut(hwpStreams(other), saved(other).bytes).losses).toEqual([]);
+    expect(streamsLeftOut(hwpStreams(other), hwpStreams(saved(other).bytes)).losses).toEqual([]);
   });
 
   it('are found by path ignoring case, and in any order', () => {
@@ -109,7 +109,9 @@ describe('the streams a save leaves out of an HWP', () => {
     expect(paths(given, hwp(COMPRESSED, { DOCINFO: '1', 'SCRIPTS/defaultjscript': '2' }))).toEqual([
       'Custom/a',
     ]);
-    expect(streamsLeftOut(hwpStreams(given), hwp(COMPRESSED, { DocInfo: '1' })).losses).toEqual(
+    expect(
+      streamsLeftOut(hwpStreams(given), hwpStreams(hwp(COMPRESSED, { DocInfo: '1' }))).losses,
+    ).toEqual(
       ['Custom/a', 'Scripts/DefaultJScript'].map((path) => ({
         code: 'partOmitted',
         subject: 'stream',
@@ -127,7 +129,10 @@ describe('the streams a save leaves out of an HWP', () => {
 
   it('tell the preview Hangul makes again apart from what is lost', () => {
     const given = hwp(COMPRESSED, { PrvImage: 'picture', PrvText: 'text', DocInfo: 'y' });
-    const { losses } = streamsLeftOut(hwpStreams(given), hwp(COMPRESSED, { DocInfo: 'y' }));
+    const { losses } = streamsLeftOut(
+      hwpStreams(given),
+      hwpStreams(hwp(COMPRESSED, { DocInfo: 'y' })),
+    );
     expect(losses.map((loss) => [loss.path, loss.reason])).toEqual([
       ['PrvImage', 'previewMadeAgain'],
       ['PrvText', 'previewMadeAgain'],
@@ -159,9 +164,12 @@ describe('the streams a save leaves out of an HWP', () => {
 
   it('are no save of bytes that are no HWP', () => {
     const given = hwpStreams(hwp(COMPRESSED, { DocInfo: 'y' }));
-    expect(() => streamsLeftOut(given, new Uint8Array(600))).toThrow();
+    expect(() => streamsLeftOut(given, hwpStreams(new Uint8Array(600)))).toThrow();
     expect(() =>
-      streamsLeftOut(given, compoundFile([{ path: 'DocInfo', data: Buffer.from('y') }])),
+      streamsLeftOut(
+        given,
+        hwpStreams(compoundFile([{ path: 'DocInfo', data: Buffer.from('y') }])),
+      ),
     ).toThrow();
   });
 });
@@ -181,8 +189,11 @@ describe('a distribution document saved', () => {
     expect(hwpStreams(once.bytes).distribution).toBe(false);
 
     const opened = openedOf('hwp', given);
-    const left = leftOut(opened, once.bytes);
-    expect(left).toEqual({ unprotected: true, losses: [] });
+    const { unprotected, losses, kept } = leftOut(opened, once.bytes);
+    expect({ unprotected, losses }).toEqual({ unprotected: true, losses: [] });
+    // What is kept of the saved file is what a later save is compared with: no distribution
+    // document, so nothing is said of protection again.
+    expect(leftOut(kept, once.bytes)).toMatchObject({ unprotected: false, losses: [] });
     const message = {
       kind: 'exported',
       request: 1,
@@ -190,6 +201,7 @@ describe('a distribution document saved', () => {
       count: 0,
       losses: [],
       unprotected: true,
+      recounts: [],
     };
     expect(readFromEditor(message)).toEqual(message);
     expect(readFromEditor({ ...message, unprotected: 'yes' })).toBeUndefined();
@@ -203,16 +215,16 @@ describe('a distribution document saved', () => {
     expect(
       streamsLeftOut(
         hwpStreams(given),
-        hwp(COMPRESSED | DISTRIBUTION, { 'ViewText/Section0': 'y', PrvImage: 'p' }),
+        hwpStreams(hwp(COMPRESSED | DISTRIBUTION, { 'ViewText/Section0': 'y', PrvImage: 'p' })),
       ),
     ).toEqual({ unprotected: false, losses: [] });
     // Said to be one, without its protected body: unprotected, the body not said again.
-    const bare = streamsLeftOut(hwpStreams(given), hwp(COMPRESSED | DISTRIBUTION, {}));
+    const bare = streamsLeftOut(hwpStreams(given), hwpStreams(hwp(COMPRESSED | DISTRIBUTION, {})));
     expect(bare.unprotected).toBe(true);
     expect(bare.losses.map((loss) => loss.path)).toEqual(['PrvImage']);
     // A document that is no distribution document loses `ViewText` as any stream.
     const plain = hwp(COMPRESSED, { 'ViewText/Section0': 'x' });
-    expect(streamsLeftOut(hwpStreams(plain), hwp(COMPRESSED, {}))).toEqual({
+    expect(streamsLeftOut(hwpStreams(plain), hwpStreams(hwp(COMPRESSED, {})))).toEqual({
       unprotected: false,
       losses: [expect.objectContaining({ path: 'ViewText/Section0' })],
     });

@@ -226,6 +226,8 @@ let hostDocument: 'none' | 'loading' | 'given' = 'none';
     }
     return format === 'hwpx' ? wasm.exportHwpxWithReport() : wasm.exportHwpWithReport();
   },
+  // The document's controls as it is exported, which the host counts its saved file's against.
+  controls: () => wasm.getControls(),
   isDirty: () => documentState.isDirty(),
   onDirtyChanged: (listener: (dirty: boolean) => void) =>
     eventBus.on('document-dirty-changed', (change) => {

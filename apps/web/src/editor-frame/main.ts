@@ -25,9 +25,11 @@ import {
   type EditFailure,
   type EditFormat,
   type FromEditor,
+  type Recount,
   type ToEditor,
 } from '$lib/file-viewer/editor-protocol.ts';
 
+import { tallyControls, type ControlTally } from '../viewer-frame/hwp-controls.ts';
 import type { FromWorker, ToWorker } from '../viewer-frame/hwp-messages.ts';
 import HwpWorker from '../viewer-frame/hwp-worker.ts?worker&inline';
 import { WorkerClient } from '../viewer-frame/worker-client.ts';
@@ -35,6 +37,7 @@ import { WorkerClient } from '../viewer-frame/worker-client.ts';
 import { leftOut, openedOf, type Opened } from './comparison.ts';
 import { lossesOf } from './losses.ts';
 import { withPartsLeftOut } from './parts.ts';
+import { notAccepted, recountsOf, type Resaved } from './recounts.ts';
 import { provide } from './rhwp.ts';
 import { memoryStorage } from './storage.ts';
 
@@ -49,6 +52,8 @@ interface Host {
   ready(): Promise<void>;
   load(data: Uint8Array, fileName: string): Promise<{ pageCount: number }>;
   exportWithReport(format: EditFormat): { bytes: Uint8Array; contentLoss: unknown };
+  /** rhwp's list of the document's controls, as it is now. */
+  controls(): unknown;
   onDirtyChanged(listener: (dirty: boolean) => void): () => void;
   /** Called on every change to the document. */
   onMutated(listener: () => void): () => void;
@@ -124,22 +129,51 @@ async function startEditor(theme: string, lang: string): Promise<Host> {
 }
 
 /**
- * Whether the bytes to save are a document the viewer opens: checked as the
- * viewer checks a file, and read by rhwp in a worker of their own, apart from
- * the document being edited. What is not is not handed to the app.
+ * The bytes to save, read back as the viewer reads a file: checked as it
+ * checks one, and opened by rhwp in a worker of their own, apart from the
+ * document being edited; then its controls counted, as the document's in the
+ * editor are (recounts.ts). Undefined where they do not open: what does not
+ * is not handed to the app.
  */
-async function opens(
+async function readBack(
   format: EditFormat,
   bytes: ArrayBuffer,
   engine: ArrayBuffer,
-): Promise<boolean> {
+): Promise<ControlTally | undefined> {
   const client = new WorkerClient(new HwpWorker(), CHECK_LIMIT);
   try {
     const message: ToWorker = { kind: 'open', format, bytes, wasm: engine };
-    const answer = (await client.request(message, [bytes, engine])) as FromWorker;
-    return answer.kind === 'opened';
+    const opened = (await client.request(message, [bytes, engine])) as FromWorker;
+    if (opened.kind !== 'opened') return undefined;
+    const counted = (await client.request({ kind: 'controls' } satisfies ToWorker)) as FromWorker;
+    return counted.kind === 'controls' ? counted.controls : undefined;
   } catch {
-    return false;
+    return undefined;
+  } finally {
+    client.close();
+  }
+}
+
+/**
+ * The pages the file given lays out on, and the pages it lays out on saved
+ * unchanged and read back, both in a worker of their own as the viewer lays a
+ * file out (recounts.ts). Undefined where it could not be counted: then no
+ * page is asked about, and the controls are still.
+ */
+async function resaved(
+  format: EditFormat,
+  bytes: ArrayBuffer,
+  engine: ArrayBuffer,
+): Promise<Resaved | undefined> {
+  const client = new WorkerClient(new HwpWorker(), CHECK_LIMIT);
+  try {
+    const message: ToWorker = { kind: 'open', format, bytes, wasm: engine };
+    const opened = (await client.request(message, [bytes, engine])) as FromWorker;
+    if (opened.kind !== 'opened') return undefined;
+    const counted = (await client.request({ kind: 'resaved' } satisfies ToWorker)) as FromWorker;
+    return counted.kind === 'resaved' ? [counted.pages, counted.saved] : undefined;
+  } catch {
+    return undefined;
   } finally {
     client.close();
   }
@@ -151,6 +185,7 @@ function serve(
   format: EditFormat,
   engine: ArrayBuffer,
   given: Opened,
+  pages: Promise<Resaved | undefined>,
 ): (message: ToEditor) => void {
   let opened = given;
   host.onDirtyChanged((dirty) => {
@@ -190,23 +225,29 @@ function serve(
     },
     true,
   );
-  // What the last export was of: once stored as the file's new version, it is what later saves
-  // are compared with (the file is then what was stored, not what was opened).
-  let last: { request: number; bytes: Uint8Array } | undefined;
+  // What is kept of the last export: once stored as the file's new version, it is what later
+  // saves are compared with (the file is then what was stored, not what was opened), and the
+  // counts it read back with otherwise are ones the writer chose to save with.
+  let last: { request: number; kept: Opened; recounts: Recount[] } | undefined;
+  let accepted: Recount[] = [];
   const exportFor = async (request: number): Promise<void> => {
     try {
       const exported = host.exportWithReport(format);
+      // The document's controls as it is exported.
+      const before = tallyControls(host.controls());
       const report = lossesOf(exported.contentLoss);
       // A comparison that cannot be made is an export that failed: nothing is saved unasked.
       const left = leftOut(opened, exported.bytes);
       const { count, losses } = withPartsLeftOut(report, left.losses);
       const bytes = exported.bytes.slice().buffer;
       const at = changes;
-      if (!(await opens(format, bytes.slice(0), engine.slice(0)))) throw new Error('not opened');
+      const after = await readBack(format, bytes.slice(0), engine.slice(0));
+      if (!after) throw new Error('not opened');
       exportedAt.set(request, at);
-      last = { request, bytes: exported.bytes };
+      const recounts = notAccepted(recountsOf(await pages, before, after), accepted);
+      last = { request, kept: left.kept, recounts };
       const { unprotected } = left;
-      tell({ kind: 'exported', request, bytes, count, losses, unprotected }, [bytes]);
+      tell({ kind: 'exported', request, bytes, count, losses, unprotected, recounts }, [bytes]);
     } catch {
       tell({ kind: 'export-failed', request });
     }
@@ -216,11 +257,8 @@ function serve(
       void exportFor(message.request);
     } else if (message.kind === 'stored') {
       if (message.as === 'version' && last?.request === message.request) {
-        try {
-          opened = openedOf(format, last.bytes);
-        } catch {
-          // Compared with what was opened still: asked more, not less.
-        }
+        opened = last.kept;
+        accepted = [...accepted, ...last.recounts];
       }
       last = undefined;
       // Only what was exported is stored: a change made since keeps the document changed.
@@ -278,9 +316,11 @@ function listen(): void {
         provide(engine);
         // The check writes the file anew with every part and stream it had.
         const opened = openedOf(format, new Uint8Array(file));
+        // Counted while the editor starts: a save that comes first waits for it.
+        const pages = resaved(format, file.slice(0), engine.slice(0));
         const host = await startEditor(theme, lang);
         const { pageCount } = await host.load(new Uint8Array(file), name);
-        serving = serve(host, format, engine, opened);
+        serving = serve(host, format, engine, opened, pages);
         tell({ kind: 'opened', pages: pageCount });
       } catch {
         tell({ kind: 'failed', reason: 'editor' });

@@ -1,7 +1,8 @@
 /**
  * What a save of a Hangul document asks before it changes the file in a way
  * the writer does not see in the editor: a distribution document (배포용
- * 문서) saved as an open one, and streams of an HWP that rhwp does not keep.
+ * 문서) saved as an open one, streams of an HWP that rhwp does not keep, and a
+ * saved file that reads back with other counts of pages or controls.
  * One question, asked before anything is uploaded, in the dialog that asks
  * about rhwp's own losses; not answered, nothing is saved.
  *
@@ -10,10 +11,14 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
-import { distributionHwp, withViewTextLeft } from '../tests/support/hwp-files.ts';
+import {
+  distributionHwp,
+  pageNumbersTwiceHwpx,
+  withViewTextLeft,
+} from '../tests/support/hwp-files.ts';
 
 import { openCard, picture, viewer } from './file-viewer.support.ts';
-import { edit, editor, HWP_TYPE, said, type, TYPED } from './hwp-editor.support.ts';
+import { edit, editor, HWP_TYPE, HWPX_TYPE, said, type, TYPED } from './hwp-editor.support.ts';
 
 const SCREENS = 'viewer-h3/screens';
 
@@ -97,4 +102,39 @@ test('streams of an HWP that rhwp does not keep are named, and asked about first
   await expect(asked).toHaveCount(0);
   await expect(said(page)).toHaveText('There are unsaved changes');
   expect(made).toEqual([]);
+});
+
+test('a saved file that reads back with other counts says which, and is saved only when chosen', async ({
+  page,
+}) => {
+  await openCard(page);
+  // The place of the page numbers set twice in a paragraph: the saved file has it once.
+  await edit(page, '쪽 번호.hwpx', pageNumbersTwiceHwpx(), HWPX_TYPE);
+  await type(page, TYPED);
+  const made = writes(page);
+  await page.getByTestId('file-editor-save').click();
+  const asked = losses(page);
+  await expect(page.getByRole('alertdialog')).toHaveCount(1);
+  await expect(
+    page.getByRole('alertdialog', { name: 'The saved file reads back differently' }),
+  ).toHaveAccessibleDescription(/Opened again, the saved file has other counts/);
+  await expect(page.getByRole('alertdialog')).toBeFocused();
+  await expect(page.getByTestId('file-editor-recounts').locator('li')).toHaveText([
+    'Page number position: 2 → 1',
+  ]);
+  await picture(page, SCREENS, 'question-recounts');
+  await asked.getByRole('button', { name: 'Cancel' }).click();
+  await expect(asked).toHaveCount(0);
+  await expect(said(page)).toHaveText('There are unsaved changes');
+  expect(made).toEqual([]);
+
+  await page.getByTestId('file-editor-save').click();
+  await page.getByTestId('file-editor-losses-version').click();
+  await expect(said(page)).toHaveText('Saved as version 2.');
+  // Saved again: the editor's document has the place of its page numbers twice still, and the
+  // file once, as the writer chose to save it; that is not asked about again.
+  await type(page, '!');
+  await page.getByTestId('file-editor-save').click();
+  await expect(said(page)).toHaveText('Saved as version 3.');
+  await expect(asked).toHaveCount(0);
 });

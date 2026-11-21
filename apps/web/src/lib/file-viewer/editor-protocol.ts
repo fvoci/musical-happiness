@@ -75,6 +75,22 @@ export const NAME_LIMIT = 255;
 /** The most requests to export a session numbers. */
 export const REQUEST_LIMIT = 1_000_000;
 
+/**
+ * A count the saved file, read back as the viewer reads it, has otherwise than
+ * the document in the editor: its pages, or its controls of one kind (Hangul's
+ * 조판 부호, such as `tbl` a table or `pgnp` the place of the page numbers), by
+ * the id the format gives the kind. The frame sends the ids; the app names them.
+ */
+export type Recount =
+  | { of: 'pages'; before: number; after: number }
+  | { of: 'controls'; id: string; before: number; after: number };
+/** A kind's id as the format gives it: up to four printable ASCII characters. */
+export const CONTROL_ID = /^[\x20-\x7e]{0,4}$/;
+/** The most counts one save carries; past it, the first are told. */
+export const RECOUNT_LIMIT = 64;
+/** The most controls of a kind a count says. */
+export const CONTROL_COUNT_LIMIT = 10_000_000;
+
 export type ToEditor =
   | {
       kind: 'open';
@@ -112,6 +128,8 @@ export type FromEditor =
       losses: Loss[];
       /** The document is a distribution document (배포용 문서), and the bytes are not one. */
       unprotected: boolean;
+      /** What the saved file, read back, counts otherwise than the document in the editor. */
+      recounts: Recount[];
     }
   | { kind: 'export-failed'; request: number };
 
@@ -152,19 +170,48 @@ function lossOf(data: unknown): Loss | undefined {
   return { code, subject, reason, path };
 }
 
+function recountOf(data: unknown): Recount | undefined {
+  const of = (data as { of?: unknown } | null)?.of;
+  const fields = exactly(
+    data,
+    of === 'pages' ? ['of', 'before', 'after'] : ['of', 'id', 'before', 'after'],
+  );
+  if (!fields) return undefined;
+  const { id, before, after } = fields;
+  const most = of === 'pages' ? PAGE_LIMIT : CONTROL_COUNT_LIMIT;
+  // A count that did not change is not one to tell.
+  if (!isCount(before, most) || !isCount(after, most) || before === after) return undefined;
+  if (of === 'pages') return { of, before, after };
+  if (of !== 'controls' || typeof id !== 'string' || !CONTROL_ID.test(id)) return undefined;
+  return { of, id, before, after };
+}
+
+/** The counts as the frame tells them: each once, the pages first. */
+function recountsOf(data: unknown): Recount[] | undefined {
+  if (!Array.isArray(data) || data.length > RECOUNT_LIMIT) return undefined;
+  const read = data.map(recountOf);
+  if (!read.every((recount) => recount !== undefined)) return undefined;
+  const keys = read.map((recount) => (recount.of === 'pages' ? undefined : recount.id));
+  if (new Set(keys).size !== keys.length || keys.indexOf(undefined) > 0) return undefined;
+  return read;
+}
+
 function exportedOf(data: unknown): Extract<FromEditor, { kind: 'exported' }> | undefined {
-  const fields = exactly(data, ['kind', 'request', 'bytes', 'count', 'losses', 'unprotected']);
+  const keys = ['kind', 'request', 'bytes', 'count', 'losses', 'unprotected', 'recounts'];
+  const fields = exactly(data, keys);
   if (!fields) return undefined;
   const { request, bytes, count, losses, unprotected } = fields;
   if (!isRequest(request) || !(bytes instanceof ArrayBuffer)) return undefined;
   if (typeof unprotected !== 'boolean') return undefined;
+  const recounts = recountsOf(fields.recounts);
+  if (!recounts) return undefined;
   if (!isCount(count, LOSS_COUNT_LIMIT) || !Array.isArray(losses)) return undefined;
   // A count that is not the list's, where the list is whole, is a report that does not agree
   // with itself; a longer one is cut at the limit, and only there.
   if (losses.length !== Math.min(count, LOSS_LIST_LIMIT)) return undefined;
   const read = losses.map(lossOf);
   if (!read.every((loss) => loss !== undefined)) return undefined;
-  return { kind: 'exported', request, bytes, count, losses: read, unprotected };
+  return { kind: 'exported', request, bytes, count, losses: read, unprotected, recounts };
 }
 
 function kindOf(data: unknown): unknown {

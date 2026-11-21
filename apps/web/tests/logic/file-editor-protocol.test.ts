@@ -6,14 +6,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CONTROL_COUNT_LIMIT,
   LOSS_COUNT_LIMIT,
   LOSS_LIST_LIMIT,
   LOSS_PATH_LIMIT,
   NAME_LIMIT,
   readFromEditor,
   readToEditor,
+  RECOUNT_LIMIT,
   REQUEST_LIMIT,
   type Loss,
+  type Recount,
 } from '$lib/file-viewer/editor-protocol.ts';
 import { PAGE_LIMIT } from '$lib/file-viewer/protocol.ts';
 
@@ -23,6 +26,9 @@ const LOSS: Loss = {
   reason: 'resourceReadFailedOrLimitExceeded',
   path: 'BinData/image1.png',
 };
+
+const PAGES = { of: 'pages', before: 157, after: 159 } satisfies Recount;
+const PGNP = { of: 'controls', id: 'pgnp', before: 3, after: 2 } satisfies Recount;
 
 describe('a message from the editor’s frame, in the app', () => {
   it('is one of the protocol’s', () => {
@@ -39,8 +45,24 @@ describe('a message from the editor’s frame, in the app', () => {
       { kind: 'changed', dirty: false },
       { kind: 'save-asked' },
       { kind: 'leave' },
-      { kind: 'exported', request: 1, bytes, count: 0, losses: [], unprotected: false },
-      { kind: 'exported', request: 1, bytes, count: 0, losses: [], unprotected: true },
+      {
+        kind: 'exported',
+        request: 1,
+        bytes,
+        count: 0,
+        losses: [],
+        unprotected: false,
+        recounts: [],
+      },
+      {
+        kind: 'exported',
+        request: 1,
+        bytes,
+        count: 0,
+        losses: [],
+        unprotected: true,
+        recounts: [],
+      },
       {
         kind: 'exported',
         request: REQUEST_LIMIT,
@@ -48,6 +70,7 @@ describe('a message from the editor’s frame, in the app', () => {
         count: 1,
         losses: [LOSS],
         unprotected: false,
+        recounts: [PAGES, PGNP],
       },
       { kind: 'export-failed', request: 3 },
     ]) {
@@ -64,6 +87,7 @@ describe('a message from the editor’s frame, in the app', () => {
       count: 1,
       losses: [LOSS],
       unprotected: false,
+      recounts: [],
     };
     const full = Array<Loss>(LOSS_LIST_LIMIT).fill(LOSS);
     // More losses than a message lists: the count says how many, the list is cut at the limit.
@@ -74,6 +98,7 @@ describe('a message from the editor’s frame, in the app', () => {
       { kind: 'exported', request: 1, bytes, count: 0 },
       { kind: 'exported', request: 1, count: 0, losses: [] },
       { kind: 'exported', request: 1, bytes, count: 0, losses: [] },
+      { kind: 'exported', request: 1, bytes, count: 0, losses: [], unprotected: false },
       { ...exported, unprotected: 1 },
       { ...exported, unprotected: 'true' },
       { ...exported, unprotected: null },
@@ -100,6 +125,60 @@ describe('a message from the editor’s frame, in the app', () => {
       { ...exported, saved: true },
     ]) {
       expect(readFromEditor(wrong), JSON.stringify(wrong).slice(0, 120)).toBeUndefined();
+    }
+  });
+
+  it('counts what the saved file reads back with otherwise: pages first, each kind once', () => {
+    const bytes = new ArrayBuffer(4);
+    const exported = {
+      kind: 'exported',
+      request: 1,
+      bytes,
+      count: 0,
+      losses: [],
+      unprotected: false,
+    };
+    const most = Array.from({ length: RECOUNT_LIMIT }, (_, at) => ({
+      of: 'controls',
+      id: `k${String(at)}`,
+      before: 1,
+      after: 0,
+    }));
+    for (const recounts of [
+      [PAGES],
+      [PGNP],
+      [PAGES, PGNP, { of: 'controls', id: '', before: 0, after: 2 }],
+      [{ of: 'controls', id: '%hlk', before: CONTROL_COUNT_LIMIT, after: 0 }],
+      [{ of: 'pages', before: PAGE_LIMIT, after: 1 }],
+      most,
+    ]) {
+      expect(readFromEditor({ ...exported, recounts })).toEqual({ ...exported, recounts });
+    }
+    for (const recounts of [
+      undefined,
+      'none',
+      [null],
+      [{ ...PAGES, after: PAGES.before }],
+      [{ ...PGNP, after: PGNP.before }],
+      [{ ...PAGES, before: -1 }],
+      [{ ...PAGES, after: 1.5 }],
+      [{ ...PAGES, before: PAGE_LIMIT + 1 }],
+      [{ ...PGNP, before: CONTROL_COUNT_LIMIT + 1 }],
+      [{ ...PAGES, id: 'page' }],
+      [{ of: 'controls', before: 1, after: 2 }],
+      [{ ...PGNP, id: 'pgnp!' }],
+      [{ ...PGNP, id: 'tb\u0000' }],
+      [{ ...PGNP, id: '표' }],
+      [{ ...PGNP, id: 7 }],
+      [{ ...PGNP, of: 'sections' }],
+      [{ ...PGNP, name: '쪽 번호 위치' }],
+      [PAGES, PAGES],
+      [PGNP, PGNP],
+      [PGNP, PAGES],
+      [...most, PAGES],
+    ]) {
+      const wrong = { ...exported, recounts };
+      expect(readFromEditor(wrong), JSON.stringify([recounts]).slice(0, 120)).toBeUndefined();
     }
   });
 

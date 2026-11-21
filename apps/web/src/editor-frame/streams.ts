@@ -90,15 +90,15 @@ const loss = (stream: Stream): Loss => ({
 });
 
 /**
- * What a save leaves out of the document `given` was read from: whether it
- * takes the protection of a distribution document away (`unprotected`), and
- * the streams that are not in the saved file, each as a loss.
+ * What a save (`kept`, read of the saved file) leaves out of the document
+ * `given` was read from: whether it takes the protection of a distribution
+ * document away (`unprotected`), and the streams that are not in the saved
+ * file, each as a loss.
  */
 export function streamsLeftOut(
   given: HwpStreams,
-  saved: Uint8Array,
+  kept: HwpStreams,
 ): { unprotected: boolean; losses: Loss[] } {
-  const kept = hwpStreams(saved);
   const unprotected =
     given.distribution &&
     (!kept.distribution || !kept.streams.some((stream) => stream.key.startsWith(VIEW_TEXT)));

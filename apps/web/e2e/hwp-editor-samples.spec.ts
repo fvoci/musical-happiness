@@ -1,0 +1,99 @@
+/**
+ * Real documents in the editor, as a writer edits and saves them: run by
+ * hand against a folder of samples, in the desktop project only,
+ *
+ *   FVOCI_HWP_SAMPLES=<folder> FVOCI_HWP_SAMPLE_FILES=<list> pnpm exec playwright test e2e/hwp-editor-samples.spec.ts --project desktop
+ *
+ * where the list names files of the folder, one a line. Each is attached and
+ * opened in the editor. By default it is typed into at its start and saved:
+ * what the save asks (the protection, what is left out, what reads back with
+ * other counts) and how long it took to ask or to save are written, a line a
+ * file, to `FVOCI_HWP_SAMPLE_REPORT`; `FVOCI_HWP_SAMPLE_WAIT` (milliseconds)
+ * waits that long before saving. With `FVOCI_HWP_SAMPLE_MODE=pages` it is
+ * not saved: the pages the editor lays it out on are written instead, as it
+ * opens, a while after, and once typed into. The editor lays a document out
+ * on the frame's thread, measuring its text there; the viewer's worker lays
+ * the saved file out without that, as tests/logic/hwp-save-samples.test.ts
+ * does in Node.
+ */
+import { appendFileSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+
+import { expect, test, type Page } from '@playwright/test';
+
+import { attach, openCard, viewer } from './file-viewer.support.ts';
+import { editor, editorFrame, HWP_TYPE, HWPX_TYPE, said } from './hwp-editor.support.ts';
+
+const FOLDER = process.env.FVOCI_HWP_SAMPLES ?? '';
+const FILES = (process.env.FVOCI_HWP_SAMPLE_FILES ?? '')
+  .split('\n')
+  .map((line) => line.trim())
+  .filter(Boolean);
+const REPORT = process.env.FVOCI_HWP_SAMPLE_REPORT;
+const PAGES_ONLY = process.env.FVOCI_HWP_SAMPLE_MODE === 'pages';
+/** How long to wait after typing before saving, in milliseconds: the frame counts the pages meanwhile. */
+const WAIT = Number(process.env.FVOCI_HWP_SAMPLE_WAIT ?? '0');
+/** How long a large document may take to open in the viewer and in the editor. */
+const OPENING = 120_000;
+
+test.describe.configure({ timeout: 300_000 });
+
+/** The pages the editor has laid the document out on, as its host's hook counts them. */
+const editorPages = (page: Page): Promise<number> =>
+  editorFrame(page).evaluate(
+    () =>
+      (
+        window as unknown as { rhwpStudio: { host: { tally(): { pages: number } } } }
+      ).rhwpStudio.host.tally().pages,
+  );
+
+for (const file of FILES) {
+  test(`a sample in the editor: ${file}`, async ({ page }, info) => {
+    test.skip(info.project.name !== 'desktop', 'once, in the desktop project');
+    const data = readFileSync(path.join(FOLDER, file));
+    const zipped = data.subarray(0, 2).toString('latin1') === 'PK';
+    const name = path.basename(file);
+    await openCard(page);
+    const row = await attach(page, name, data, zipped ? HWPX_TYPE : HWP_TYPE);
+    await row.getByRole('link', { name }).click();
+    await expect(viewer(page)).toHaveAttribute('data-status', 'shown', { timeout: OPENING });
+    await page.getByTestId('file-viewer-edit').click();
+    await expect(editor(page)).toHaveAttribute('data-status', 'ready', { timeout: OPENING });
+    await expect(page.getByTestId('file-editor-frame')).toBeFocused();
+
+    if (PAGES_ONLY) {
+      const opened = await editorPages(page);
+      await page.waitForTimeout(3_000);
+      const after = await editorPages(page);
+      await page.keyboard.type('1');
+      await expect(editor(page)).toHaveAttribute('data-dirty', 'true');
+      await page.waitForTimeout(1_000);
+      const typed = await editorPages(page);
+      if (REPORT) appendFileSync(REPORT, `${JSON.stringify({ file, opened, after, typed })}\n`);
+      return;
+    }
+
+    await page.keyboard.type('1');
+    await expect(editor(page)).toHaveAttribute('data-dirty', 'true');
+    if (WAIT > 0) await page.waitForTimeout(WAIT);
+    const started = Date.now();
+    await page.getByTestId('file-editor-save').click();
+    const asked = page.getByTestId('file-editor-losses');
+    const saved = said(page).filter({ hasText: /^Saved as version 2\.$/ });
+    const failed = said(page).filter({ hasText: /not saved|could not|did not/ });
+    await expect(asked.or(saved).or(failed)).toBeVisible({ timeout: 240_000 });
+    const outcome = {
+      file,
+      bytes: data.byteLength,
+      waited: WAIT,
+      ms: Date.now() - started,
+      asked: await asked.isVisible(),
+      title: await asked.locator('[data-slot="alert-dialog-title"]').allInnerTexts(),
+      losses: await asked.locator('ul:not([data-testid]) li').allInnerTexts(),
+      recounts: await page.getByTestId('file-editor-recounts').locator('li').allInnerTexts(),
+      said: await said(page).innerText(),
+    };
+    if (REPORT) appendFileSync(REPORT, `${JSON.stringify(outcome)}\n`);
+    expect(await failed.count(), outcome.said).toBe(0);
+  });
+}

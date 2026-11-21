@@ -36,6 +36,7 @@ import {
   type EditFormat,
   type FromEditor,
   type Loss,
+  type Recount,
   type ToEditor,
 } from './editor-protocol.ts';
 import { ENGINE_FETCH_LIMIT, engineBytes } from './engine.ts';
@@ -99,14 +100,16 @@ export type Saving =
   | { name: 'idle' }
   | { name: 'exporting' }
   /**
-   * The saved file loses something (as rhwp says, or the frame finds), or takes a distribution
-   * document's protection away: the writer chooses.
+   * The saved file loses something (as rhwp says, or the frame finds), takes a distribution
+   * document's protection away, or reads back with other counts of pages or controls than the
+   * document in the editor: the writer chooses.
    */
   | {
       name: 'lossy';
       count: number;
       losses: readonly Loss[];
       unprotected: boolean;
+      recounts: readonly Recount[];
       exported: Exported;
     }
   | { name: 'storing' }
@@ -331,6 +334,7 @@ export class EditingSession {
     count,
     losses,
     unprotected,
+    recounts,
   }: Extract<FromEditor, { kind: 'exported' }>): void {
     if (bytes.byteLength > this.#limits.bytes) {
       this.saving = { name: 'failed', reason: 'too-large' };
@@ -343,8 +347,8 @@ export class EditingSession {
     }
     const file = new File([bytes], this.file.name, { type: MIME[this.file.format] });
     const exported = { request, file };
-    if (count > 0 || unprotected) {
-      this.saving = { name: 'lossy', count, losses, unprotected, exported };
+    if (count > 0 || unprotected || recounts.length > 0) {
+      this.saving = { name: 'lossy', count, losses, unprotected, recounts, exported };
       return;
     }
     void this.#store(exported, 'version');

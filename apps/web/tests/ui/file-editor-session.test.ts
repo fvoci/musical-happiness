@@ -14,7 +14,7 @@ import {
   type EditedFile,
   type EditLimits,
 } from '$lib/file-viewer/editing.svelte.ts';
-import type { FromEditor, Loss, ToEditor } from '$lib/file-viewer/editor-protocol.ts';
+import type { FromEditor, Loss, Recount, ToEditor } from '$lib/file-viewer/editor-protocol.ts';
 import type {
   FileVersion,
   VersionsSource,
@@ -49,7 +49,13 @@ const bufferOf = (data: Uint8Array): ArrayBuffer => {
 const HWPX = koreanHwpx();
 const HWP = koreanHwp();
 /** An export that loses nothing, as the frame says it. */
-const EXPORTED = { kind: 'exported', count: 0, losses: [], unprotected: false } as const;
+const EXPORTED = {
+  kind: 'exported',
+  count: 0,
+  losses: [],
+  unprotected: false,
+  recounts: [],
+} as const;
 
 class Stale extends Error {}
 
@@ -142,7 +148,12 @@ function editing(
     await settled();
   };
   /** The frame's answer to the last request to export. */
-  const exports = (data: Uint8Array, losses: Loss[] = [], unprotected = false): void => {
+  const exports = (
+    data: Uint8Array,
+    losses: Loss[] = [],
+    unprotected = false,
+    recounts: Recount[] = [],
+  ): void => {
     const asked = sent.findLast(({ message }) => message.kind === 'export')?.message;
     if (asked?.kind !== 'export') throw new Error('no export was asked');
     says({
@@ -152,6 +163,7 @@ function editing(
       count: losses.length,
       losses,
       unprotected,
+      recounts,
     });
   };
   const kinds = (): string[] => sent.map(({ message }) => message.kind);
@@ -446,6 +458,29 @@ describe('a save that loses something of the document', () => {
     exports(HWPX, [LOSS], true);
     await settled();
     expect(session.saving).toMatchObject({ name: 'lossy', count: 1, unprotected: true });
+    session.saveWithLosses();
+    await settled();
+    expect(made.added.map(({ base }) => base)).toEqual([4]);
+  });
+
+  it('is asked about where the saved file reads back with other counts, nothing lost', async () => {
+    const { session, made, opened, exports, settled, kinds } = editing();
+    await opened();
+    const recounts: Recount[] = [
+      { of: 'pages', before: 157, after: 159 },
+      { of: 'controls', id: 'pgnp', before: 3, after: 2 },
+    ];
+    session.save();
+    exports(HWPX, [], false, recounts);
+    await settled();
+    expect(session.saving).toMatchObject({ name: 'lossy', count: 0, unprotected: false, recounts });
+    session.dismiss();
+    await settled();
+    expect(made.uploads).toEqual([]);
+    expect(kinds()).not.toContain('stored');
+    session.save();
+    exports(HWPX, [], false, recounts);
+    await settled();
     session.saveWithLosses();
     await settled();
     expect(made.added.map(({ base }) => base)).toEqual([4]);
