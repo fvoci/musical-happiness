@@ -173,8 +173,16 @@ pub(crate) struct UnitRun {
 }
 
 /// How long the standard error of a command that ended may stay open: a process it
-/// left behind may hold it, and the count in it is then not known.
+/// left behind may hold it. Cargo's words are all in it by then.
 const ERRORS_AFTER_THE_END: Duration = Duration::from_secs(30);
+
+/// What the reader of a command's standard error tells.
+enum Errors {
+    /// Cargo counted this many failed test binaries.
+    Counted(u64),
+    /// The stream ended.
+    Ended,
+}
 
 /// What cargo says on its standard error at the end of a `cargo test --no-fail-fast`
 /// whose test binaries failed: `error: 2 targets failed:`, `error: 1 target failed:`,
@@ -211,22 +219,45 @@ fn without_colour(line: &str) -> Cow<'_, str> {
     Cow::Owned(plain)
 }
 
-/// Passes `errors` on to `echo` a line at a time, and returns the last count of failed
-/// test binaries cargo gave in it.
-fn read_errors(errors: impl Read, mut echo: impl Write) -> Option<u64> {
+/// Passes `errors` on to `echo` a line at a time, and tells `told` each count of failed
+/// test binaries cargo gives in it as it comes, then that the stream ended.
+fn read_errors(errors: impl Read, mut echo: impl Write, told: &mpsc::Sender<Errors>) {
     let mut errors = BufReader::new(errors);
     let mut line = Vec::new();
-    let mut count = None;
-    // An error reading the stream ends it: what cargo said before still counts.
+    // An error reading the stream ends it: what cargo said before still counts. Nobody
+    // to tell is a task that waits no longer.
     while errors
         .read_until(b'\n', &mut line)
         .is_ok_and(|read| read > 0)
     {
         let _ = echo.write_all(&line);
-        count = failed_targets(&String::from_utf8_lossy(&line)).or(count);
+        if let Some(count) = failed_targets(&String::from_utf8_lossy(&line)) {
+            let _ = told.send(Errors::Counted(count));
+        }
         line.clear();
     }
-    count
+    let _ = told.send(Errors::Ended);
+}
+
+/// The last count of failed test binaries `told` gives until the stream it reads ends,
+/// or until `wait` after the command's end, when a process it left holds the stream.
+fn last_count(told: &mpsc::Receiver<Errors>, wait: Duration, shown: &str) -> Option<u64> {
+    let deadline = Instant::now() + wait;
+    let mut count = None;
+    loop {
+        match told.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(Errors::Counted(counted)) => count = Some(counted),
+            Ok(Errors::Ended) | Err(mpsc::RecvTimeoutError::Disconnected) => return count,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                crate::steps::say(&format!(
+                    "    the standard error of `{shown}` is still open {:.1}s after its end: \
+                     a process it started holds it",
+                    wait.as_secs_f64()
+                ));
+                return count;
+            }
+        }
+    }
 }
 
 /// Whether a command that ended with `status` was asked to stop: on Unix, ended by
@@ -269,20 +300,33 @@ pub(crate) fn run(
         .envs(environment.iter().map(|(name, value)| (name, value)))
         .current_dir(directory);
     // Cargo writes to a pipe here: in colour still, if it is a terminal it writes to in
-    // the end and the caller did not say otherwise.
-    if std::io::stderr().is_terminal() && std::env::var_os("CARGO_TERM_COLOR").is_none() {
+    // the end and the environment does not say otherwise (cargo's own config can).
+    let unset = |name: &str| std::env::var_os(name).is_none_or(|value| value.is_empty());
+    if std::io::stderr().is_terminal()
+        && unset("CARGO_TERM_COLOR")
+        && unset("NO_COLOR")
+        && std::env::var_os("TERM").is_none_or(|term| term != "dumb")
+    {
         command.env("CARGO_TERM_COLOR", "always");
     }
-    run_echoing(command, &shown, &mut std::io::stdout(), std::io::stderr())
+    run_echoing(
+        command,
+        &shown,
+        &mut std::io::stdout(),
+        std::io::stderr(),
+        ERRORS_AFTER_THE_END,
+    )
 }
 
 /// Runs `command`, its standard output read as the harness's and written to `echo`, its
-/// standard error read as cargo's and written to `echo_errors`.
+/// standard error read as cargo's and written to `echo_errors`, for no longer than
+/// `errors_wait` after the command's end.
 fn run_echoing(
     mut command: Command,
     shown: &str,
     echo: &mut dyn Write,
     echo_errors: impl Write + Send + 'static,
+    errors_wait: Duration,
 ) -> Result<UnitRun> {
     let started = Instant::now();
     let mut child = command
@@ -291,13 +335,12 @@ fn run_echoing(
         .spawn()
         .with_context(|| format!("starting `{shown}`"))?;
     // Read on a thread of its own, so that neither stream fills while the other is read.
-    let (counted, count) = mpsc::channel();
-    if let Some(errors) = child.stderr.take() {
-        std::thread::spawn(move || {
-            // The command's end is waited for no longer once the time is up.
-            let _ = counted.send(read_errors(errors, echo_errors));
-        });
-    }
+    let (tell, told) = mpsc::channel();
+    let errors = child
+        .stderr
+        .take()
+        .context("the standard error of a command that pipes it")?;
+    std::thread::spawn(move || read_errors(errors, echo_errors, &tell));
     let mut reading = Reading::default();
     if let Some(output) = child.stdout.take() {
         let mut output = BufReader::new(output);
@@ -318,18 +361,7 @@ fn run_echoing(
     let status = child
         .wait()
         .with_context(|| format!("waiting for `{shown}`"))?;
-    let failed_targets = match count.recv_timeout(ERRORS_AFTER_THE_END) {
-        Ok(count) => count,
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            crate::steps::say(&format!(
-                "    the standard error of `{shown}` is still open {}s after its end: a \
-                 process it started holds it",
-                ERRORS_AFTER_THE_END.as_secs()
-            ));
-            None
-        }
-        Err(mpsc::RecvTimeoutError::Disconnected) => None,
-    };
+    let failed_targets = last_count(&told, errors_wait, shown);
     Ok(UnitRun {
         succeeded: status.success(),
         interrupted: asked_to_stop(status),
@@ -342,6 +374,9 @@ fn run_echoing(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// How long the tests wait for a command's standard error after its end.
+    const WAIT: Duration = Duration::from_secs(5);
 
     fn read(text: &str) -> Report {
         let mut reading = Reading::default();
@@ -487,7 +522,7 @@ test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; 
         let mut command = Command::new("sh");
         command.args(["-c", script]);
         let mut echo = Vec::new();
-        let ran = run_echoing(command, "sh", &mut echo, std::io::sink()).expect("sh starts");
+        let ran = run_echoing(command, "sh", &mut echo, std::io::sink(), WAIT).expect("sh starts");
         assert!(!ran.succeeded, "the exit status is kept");
         assert!(!ran.interrupted);
         assert_eq!(ran.report.failed_tests, ["e::x"]);
@@ -500,7 +535,8 @@ test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; 
         command
             .args(["-c", "test \"$THE_VALUE\" = given"])
             .env("THE_VALUE", "given");
-        let ran = run_echoing(command, "sh", &mut Vec::new(), std::io::sink()).expect("sh starts");
+        let ran =
+            run_echoing(command, "sh", &mut Vec::new(), std::io::sink(), WAIT).expect("sh starts");
         assert!(ran.succeeded, "a command that succeeds");
         assert_eq!(ran.failed_targets, None);
     }
@@ -514,10 +550,35 @@ test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; 
                       echo 'error: 2 targets failed:' >&2; echo '    `--lib`' >&2; exit 101";
         let mut command = Command::new("sh");
         command.args(["-c", script]);
-        let ran = run_echoing(command, "sh", &mut Vec::new(), std::io::sink()).expect("sh starts");
+        let ran =
+            run_echoing(command, "sh", &mut Vec::new(), std::io::sink(), WAIT).expect("sh starts");
         assert_eq!(ran.failed_targets, Some(2));
         assert_eq!(failed_targets("error: 1 target failed:\n"), Some(1));
         assert_eq!(failed_targets("error: could not compile `x`"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_process_left_holding_the_standard_error_holds_the_task_no_longer_than_the_wait() {
+        // It does not hold the standard output, which the task reads to its end.
+        let script = "sleep 30 >/dev/null & echo 'error: 1 target failed:' >&2; exit 101";
+        let mut command = Command::new("sh");
+        command.args(["-c", script]);
+        let started = Instant::now();
+        let wait = Duration::from_secs(2);
+        let ran =
+            run_echoing(command, "sh", &mut Vec::new(), std::io::sink(), wait).expect("sh starts");
+        // The process left behind holds the stream for 30 s; the wait is much shorter.
+        assert!(
+            started.elapsed() < Duration::from_secs(15),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            ran.failed_targets,
+            Some(1),
+            "what cargo said before still counts"
+        );
     }
 
     #[cfg(unix)]

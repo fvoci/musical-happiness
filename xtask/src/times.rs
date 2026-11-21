@@ -109,9 +109,10 @@ pub(crate) struct UnitTime {
     pub(crate) failed: u64,
     pub(crate) ignored: u64,
     pub(crate) failed_tests: Vec<String>,
-    /// Whether `failed_tests` are all its failures: false when a test binary never
-    /// reported, a failure had no name, or the command failed and no binary's result
-    /// was a failure or cargo counted more failed binaries than those.
+    /// Whether `failed_tests` are all its failures: false when a signal stopped it, a
+    /// test binary never reported, a failure had no name, or the command failed and
+    /// cargo's count of failed binaries was not read (cargo killed), or was more than
+    /// the binaries whose result was a failure, or none was a failure (a build).
     pub(crate) every_failure_named: bool,
 }
 

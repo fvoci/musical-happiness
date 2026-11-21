@@ -40,14 +40,15 @@ impl UnitResult {
         }
     }
 
-    /// Whether the names of its failed tests are all its failures: every binary
-    /// reported and named as many failures as it counted, and a command that failed
-    /// had cargo count its failed binaries, no more than those whose result was a
-    /// failure (none that died after its result, no build that failed). Without the
-    /// count (cargo killed, its words not read) the failures are not known to be named.
-    fn every_failure_named(&self) -> bool {
+    /// Whether every test binary of it is accounted for: no signal stopped it (the
+    /// binaries after the one it stopped in did not start), every binary that started
+    /// reported, and a command that failed had cargo count its failed binaries, no more
+    /// than those whose result was a failure (none that died after its result, no build
+    /// that failed). Without the count (cargo killed) they are not known.
+    pub(crate) fn every_binary_accounted_for(&self) -> bool {
         let report = &self.run.report;
-        report.names_every_failure()
+        !self.run.interrupted
+            && report.every_binary_finished()
             && (self.run.succeeded
                 || self
                     .run
@@ -55,14 +56,16 @@ impl UnitResult {
                     .is_some_and(|targets| targets > 0 && targets <= report.failed_binaries))
     }
 
+    /// Whether the names of its failed tests are all its failures: every binary is
+    /// accounted for, and named as many failures as it counted.
+    fn every_failure_named(&self) -> bool {
+        self.every_binary_accounted_for() && self.run.report.names_every_failure()
+    }
+
     /// Whether its failures run again by name. Documentation tests do not: rustdoc
     /// cuts the arguments for their harness at spaces, and every name of one has some.
     fn reruns_by_name(&self) -> bool {
-        // Stopped between two of its binaries, it did not start the later ones.
-        !self.run.interrupted
-            && self.unit != DOC
-            && !self.run.report.failed_tests.is_empty()
-            && self.every_failure_named()
+        self.unit != DOC && !self.run.report.failed_tests.is_empty() && self.every_failure_named()
     }
 
     pub(crate) fn time(&self) -> UnitTime {
@@ -212,8 +215,9 @@ pub(crate) fn lines(results: &[UnitResult], flaky: &[(TestName, u64)], now_unix:
                 );
             } else if !result.reruns_by_name() {
                 text.push_str(
-                    "    (a failure has no name, or a test binary never reported: see the \
-                     output above; it runs again whole)\n",
+                    "    (a failure has no name, a test binary never reported, or cargo's \
+                     count of failed binaries was not read: see the output above; it runs \
+                     again whole)\n",
                 );
             }
         }

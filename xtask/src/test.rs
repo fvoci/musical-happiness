@@ -460,16 +460,19 @@ impl Backends {
 /// What is wrong with the tests that `arguments` for the harness chose, which ran in
 /// `results`, the units of `database`: they were none, or some of the names of a rerun
 /// line (`-- --exact` and names) are of no test the harness named (run or ignored).
-/// Either proves nothing. When a unit's binary died or a signal stopped it, its tests
-/// are not all known, and nothing is said of them: the unit failed.
+/// Either proves nothing. When a binary of a unit is not accounted for (it died, a
+/// signal stopped it, cargo's count was not read), its tests are not all known, and
+/// nothing is said of them: the unit failed.
 fn chose_wrongly(
     database: Database,
     arguments: &[String],
     results: &[&UnitResult],
 ) -> Option<String> {
-    let cut_short =
-        |result: &&UnitResult| result.run.interrupted || !result.run.report.every_binary_finished();
-    if arguments.is_empty() || results.iter().any(cut_short) {
+    if arguments.is_empty()
+        || !results
+            .iter()
+            .all(|result| result.every_binary_accounted_for())
+    {
         return None;
     }
     let seen = |name: &String| {
