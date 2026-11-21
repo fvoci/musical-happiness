@@ -101,9 +101,9 @@ test('a file attached is told in the stack: how far it is, then that it is in, a
 }, info) => {
   await phoneWidth(page, info.project.name);
   await openTaskCard(page);
-  // Three parts of 8 MiB, each a while on its way.
+  // Two parts (8 MiB, then 1), each a while on its way; no larger, for the specs run beside it.
   await latency(page, 600);
-  await page.getByTestId('attach-input').setInputFiles([file('scan.bin', 17 * MIB)]);
+  await page.getByTestId('attach-input').setInputFiles([file('scan.bin', 9 * MIB)]);
   const card = cardOf(page, 'scan.bin');
   await expect(card).toContainText('Uploading scan.bin');
   await expect(card.getByRole('progressbar')).toBeVisible();
@@ -112,7 +112,7 @@ test('a file attached is told in the stack: how far it is, then that it is in, a
   await expect(page.getByTestId('card-uploads').locator('[data-upload="scan.bin"]')).toBeVisible();
   // How much has gone shows, where there is room for it; it is never said.
   if ((page.viewportSize()?.width ?? 0) >= 640) {
-    await expect(card).toContainText(/8\.0 MiB of 17\.0 MiB/);
+    await expect(card).toContainText(/8\.0 MiB of 9\.0 MiB/);
   }
   await expect(said(page)).toHaveText('Uploading scan.bin');
 
@@ -204,6 +204,66 @@ test('closing an upload under way asks first; given up, nothing is attached', as
   await expect(said(page)).toHaveText('Uploading maybe.txt');
 });
 
+test('the keyboard reaches the stack over the card’s dialog by F8; Escape goes back, the dialog stays', async ({
+  page,
+}) => {
+  await openTaskCard(page);
+  const attached = page.getByTestId('card-attachments').locator('[data-attachment]');
+  const before = await attached.count();
+  await latency(page, 1500);
+  await page.getByTestId('attach-input').setInputFiles([file('keys.txt')]);
+  const card = cardOf(page, 'keys.txt');
+  await expect(card).toBeVisible();
+  const field = page.getByTestId('comment-field');
+  await field.focus();
+
+  await page.keyboard.press('F8');
+  const close = card.getByRole('button', { name: 'Stop keys.txt' });
+  await expect(close).toBeFocused();
+  await page.keyboard.press('Enter');
+  // The question takes the focus, and the dialog's trap does not take it back.
+  await expect(card.getByRole('button', { name: 'Keep going' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(close).toBeFocused();
+  await expect(card.getByRole('progressbar')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(field).toBeFocused();
+  await expect(page.getByTestId('card-dialog')).toBeVisible();
+
+  // Stopped with the keyboard alone.
+  await page.keyboard.press('F8');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Shift+Tab');
+  await expect(card.getByRole('button', { name: 'Stop', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(card).toHaveCount(0);
+  await expect(page.getByTestId('card-dialog')).toBeVisible();
+  await latency(page, 40);
+  await expect(page.getByTestId('card-uploads').locator('[data-upload]')).toHaveCount(0);
+  await expect(attached).toHaveCount(before);
+});
+
+test('a sheet from the bottom of a narrow window is not covered by the stack', async ({
+  page,
+}, info) => {
+  await phoneWidth(page, info.project.name);
+  test.skip(
+    info.project.name !== 'mobile',
+    'the card’s menu is a sheet from the bottom on a phone',
+  );
+  await openTaskCard(page);
+  await failNextUpload(page, 0, { detail: 'no answer' });
+  await page.getByTestId('attach-input').setInputFiles([file('stays.txt')]);
+  const card = cardOf(page, 'stays.txt');
+  await expect(card).toHaveAttribute('data-failed', 'network');
+  await page.getByTestId('card-menu').click();
+  await expect(page.getByTestId('bottom-sheet')).toBeVisible();
+  await expect(stack(page)).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('bottom-sheet')).toHaveCount(0);
+  await expect(card).toBeVisible();
+});
+
 test('a failed upload stays with why until dismissed, and can be sent again', async ({ page }) => {
   await openTaskCard(page);
   await failNextUpload(page, 0, { detail: 'no answer' });
@@ -279,7 +339,7 @@ if (process.env.FVOCI_SCREENS) {
         });
       };
       await latency(page, 1200);
-      await page.getByTestId('attach-input').setInputFiles([file('회의록 2026-11.hwp', 17 * MIB)]);
+      await page.getByTestId('attach-input').setInputFiles([file('회의록 2026-11.hwp', 9 * MIB)]);
       await expect(cardOf(page, '회의록 2026-11.hwp').getByRole('progressbar')).toBeVisible();
       await page.waitForTimeout(1500);
       await shot('progress');

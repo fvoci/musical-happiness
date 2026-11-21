@@ -15,7 +15,13 @@
   above a line of problems too, and it steps aside while the reader writes
   (the focus in a field): there the keyboard, the comment field and the line
   being written are all at the bottom. The top is the bars' buttons. The
-  uploads are one card there as soon as there are two.
+  uploads are one card there as soon as there are two. It steps aside, too,
+  while a sheet is open from the bottom (the menus and pickers of a phone),
+  whose last rows it would cover.
+
+  The keyboard reaches it by F8 from anywhere, an open dialog too (whose
+  trap would take the focus back, and whose Tab goes round inside it), and
+  Escape there takes the focus back to where it was: the dialog stays.
 
   Only a start, an end and a failure are announced (one quiet region with the
   latest of them); the counts that change with every piece are not.
@@ -58,6 +64,8 @@
   /** The group's list of each upload is shown. */
   let opened = $state(false);
   let stack = $state<HTMLElement>();
+  /** Where the focus was when F8 brought it into the stack. */
+  let cameFrom: HTMLElement | undefined;
   /** The focus is in a field: a narrow window keeps its bottom for what is written. */
   let writing = $state(false);
 
@@ -104,6 +112,56 @@
     else for (const one of uploads) workspace.transfers.dismiss(one.id);
   }
 
+  /** F8 brings the focus into the stack, to its first button. */
+  function reach(event: KeyboardEvent): void {
+    if (event.key !== 'F8' || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+      return;
+    }
+    const first = stack?.querySelector<HTMLElement>('button');
+    if (!first) return;
+    event.preventDefault();
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && !stack?.contains(active)) cameFrom = active;
+    // Shown again first, where a narrow window had it step aside for a field.
+    writing = false;
+    void tick().then(() => {
+      first.focus();
+    });
+  }
+
+  /**
+   * The focus in the stack is the stack's: an open dialog does not take it
+   * back (Bits UI's trap and its focus outside listen on the document, which a
+   * focus stopped on the window does not reach), and Escape there takes it back
+   * to where it was, or into the open dialog (TransferAsk answers it first):
+   * it does not close the dialog.
+   */
+  const ownFocus: Attachment<HTMLElement> = (element) => {
+    const stops = [
+      on(
+        window,
+        'focusin',
+        (event) => {
+          if (element.contains(event.target as Node | null)) event.stopImmediatePropagation();
+        },
+        { capture: true },
+      ),
+      on(element, 'keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        const dialogs = element.ownerDocument.querySelectorAll<HTMLElement>('[role="dialog"]');
+        const back = cameFrom?.isConnected ? cameFrom : [...dialogs].at(-1);
+        cameFrom = undefined;
+        // Nothing to go back to: Escape is the page's.
+        if (!back) return;
+        event.stopPropagation();
+        back.focus();
+      }),
+    ];
+    return () => {
+      for (const stop of stops) stop();
+    };
+  };
+
   /**
    * The finished stay while a mouse is over the stack or the focus in it (asked
    * when one would go: a focused button that goes takes no event with it), and
@@ -138,6 +196,8 @@
   };
 </script>
 
+<svelte:window onkeydown={reach} />
+
 <svelte:document
   onfocusin={(event: FocusEvent) => {
     writing = inField(event.target) && !stack?.contains(event.target as Node);
@@ -154,11 +214,13 @@
   <section
     bind:this={stack}
     aria-label={m.shell_transfers_label()}
+    aria-keyshortcuts="F8"
     class="pointer-events-none fixed right-[calc(0.75rem+var(--safe-right))] bottom-[calc(var(--transfers-lift)+var(--safe-bottom)+var(--keyboard))] left-[calc(0.75rem+var(--safe-left))] z-[60] data-writing:max-sm:hidden sm:right-[calc(1rem+var(--safe-right))] sm:left-auto sm:w-[22rem]"
     data-testid="transfers"
     data-transfers
     data-writing={writing ? '' : undefined}
     {@attach holding}
+    {@attach ownFocus}
   >
     <ul class="grid max-h-[calc(100dvh-var(--keyboard)-2rem)] gap-2 overflow-y-auto">
       {#each archives as transfer (transfer.id)}
@@ -274,5 +336,10 @@
   /* Above the comment field, the last row of an open card. */
   :global(:root:has([data-card-dialog])) section {
     --transfers-lift: 6.5rem;
+  }
+
+  /* Aside while a sheet is open from the bottom (BottomSheet): back when it closes. */
+  :global(:root:has([data-slot='sheet-content'][data-side='bottom'])) section {
+    display: none;
   }
 </style>

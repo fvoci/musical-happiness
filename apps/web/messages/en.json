@@ -744,7 +744,7 @@
   "shell_transfer_done_export": "{name} is saved.",
   "shell_transfer_done_import": "{name} is imported.",
   "shell_transfer_progress": "{done} of {total}",
-  "shell_transfers_label": "Transfers",
+  "shell_transfers_label": "Transfers (F8)",
   "shell_transfer_upload": "Uploading {name}",
   "shell_transfer_done_upload": "{name} is uploaded.",
   "shell_transfer_failed_upload": "{name} was not uploaded.",

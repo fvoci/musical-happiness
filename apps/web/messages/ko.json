@@ -744,7 +744,7 @@
   "shell_transfer_done_export": "{name}을(를) 저장했습니다.",
   "shell_transfer_done_import": "{name}을(를) 가져왔습니다.",
   "shell_transfer_progress": "{total} 가운데 {done}",
-  "shell_transfers_label": "주고받는 파일",
+  "shell_transfers_label": "주고받는 파일 (F8)",
   "shell_transfer_upload": "{name} 올리는 중",
   "shell_transfer_done_upload": "{name}을(를) 올렸습니다.",
   "shell_transfer_failed_upload": "{name}을(를) 올리지 못했습니다.",
