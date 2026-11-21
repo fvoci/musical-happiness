@@ -1,0 +1,70 @@
+# Temporary, removed before this branch is merged: the WebKit tests that failed on the
+# runner, run four ways, to tell what they depend on. WebKit installed on the runner or
+# reached in Playwright's image (as on the developers' machine), with one worker or two.
+name: probe
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: probe-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  webkit:
+    name: webkit ${{ matrix.where }}, ${{ matrix.workers }} workers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        where: [runner, image]
+        workers: [1, 2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/web
+        with:
+          fonts: 'true'
+          browser: ${{ matrix.where == 'runner' && 'webkit' || '' }}
+      - run: pnpm --filter web run build
+      - name: The fonts of the runner
+        run: |
+          fc-list | wc --lines
+          fc-match sans-serif
+          fc-match serif
+          fc-match monospace
+          fc-match 'sans-serif:lang=ko'
+      - name: Start WebKit's server in Playwright's image
+        if: ${{ matrix.where == 'image' }}
+        run: |
+          docker run --detach --name fvoci-pw-webkit --publish 127.0.0.1:18699:18699 \
+            --init --ipc=host --user pwuser --workdir /home/pwuser \
+            mcr.microsoft.com/playwright:v1.65.1-noble \
+            npx --yes playwright@1.65.1 run-server --port 18699 --host 0.0.0.0
+          for _ in $(seq 120); do
+            if docker logs fvoci-pw-webkit 2>&1 | grep --quiet 'Listening on'; then break; fi
+            sleep 1
+          done
+          docker logs fvoci-pw-webkit
+          docker exec fvoci-pw-webkit sh -c \
+            'fc-list | wc -l; fc-match sans-serif; fc-match serif; fc-match monospace; fc-match "sans-serif:lang=ko"; nproc'
+          {
+            echo "PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:18699/"
+            echo "PW_TEST_CONNECT_EXPOSE_NETWORK=<loopback>"
+          } >>"$GITHUB_ENV"
+      - name: The tests that failed
+        env:
+          WORKERS: ${{ matrix.workers }}
+        run: |
+          pnpm --filter web run e2e:apple --workers="$WORKERS" \
+            carets.spec.ts:226 hwp-editor file-viewer-xlsx view-header.spec.ts:1227 \
+            gantt-many table.spec.ts:1239
