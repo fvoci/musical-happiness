@@ -1,5 +1,5 @@
-//! What the user of the session was told: mentions, cards they were given, and
-//! comments on what they watch.
+//! What the user of the session was told: that they were mentioned, and that a card
+//! was given to them.
 
 use axum::extract::{Path, RawQuery, State};
 use fvoci_model::{Notification, UnreadNotifications};

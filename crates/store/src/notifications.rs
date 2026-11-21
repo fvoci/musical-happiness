@@ -23,6 +23,7 @@ use serde_json::Value;
 
 use crate::Store;
 use crate::blocks::Paging;
+use crate::body_docs;
 use crate::containers;
 use crate::db::{Id, OptId, Row, Scope, Sql};
 use crate::error::StoreError;
@@ -110,26 +111,42 @@ pub struct NotificationLimits {
     pub most_of_a_person: i64,
 }
 
-/// Who is told of what a write of a block newly names.
+/// Who is told of what a write of a block newly names, and as whose doing.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Telling<'a> {
-    /// The people it names, as its writer's doing. `others` wrote it with the writer:
-    /// the editors of a body typed by several, the writer being the last of them. One
-    /// of them who is named is told by another's doing, for which of them wrote the
-    /// name is not known; a writer alone is not told of their own.
-    People { others: &'a [String] },
+pub(crate) enum Telling {
+    /// The people it names, as its writer's doing.
+    Written,
+    /// The people its body newly names, each as the doing of whoever typed the name:
+    /// a body written from its document, by the last of several who typed it. The
+    /// updates of the document past `since` (the last the block's body held) say who
+    /// sent what: the first of them that holds a user's identifier is where that
+    /// user was named. A name no update holds any more (they were folded into the
+    /// document's state before the body was written) is the writer's doing.
+    Typed {
+        /// The last update the body of the block held before this write.
+        since: i64,
+    },
     /// Nobody: a copy, a card or a board made from a template, what comes back from
     /// the trash or from an archive.
     Nobody,
 }
 
-impl Telling<'_> {
-    /// The people a write names, of its one writer, unless the scope tells nobody.
+impl Telling {
+    /// The people a write names, as its writer's doing, unless the scope tells nobody.
     pub(crate) fn of(scope: &Scope<'_>) -> Self {
         if scope.tells_nobody() {
             Self::Nobody
         } else {
-            Self::People { others: &[] }
+            Self::Written
+        }
+    }
+
+    /// As [`Telling::of`], for a body written from its document.
+    pub(crate) fn of_typed(scope: &Scope<'_>, since: i64) -> Self {
+        if scope.tells_nobody() {
+            Self::Nobody
+        } else {
+            Self::Typed { since }
         }
     }
 }
@@ -464,36 +481,6 @@ impl Store {
         })
         .await
     }
-
-    /// The names the users among `user_ids` are shown by, each with its user: the
-    /// name of the account, or its username where it has none. An account that was
-    /// erased has neither, and is not among them.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if a query fails.
-    pub async fn names_shown_of(
-        &self,
-        user_ids: &[&str],
-    ) -> Result<Vec<(String, String)>, StoreError> {
-        let ids: BTreeSet<&str> = user_ids.iter().copied().collect();
-        let ids: Vec<&str> = ids.into_iter().collect();
-        self.with_conn(async |scope| {
-            let mut names = Vec::with_capacity(ids.len());
-            for batch in ids.chunks(BATCH) {
-                let mut sql = scope.sql(
-                    "SELECT id, CASE WHEN display_name = '' THEN username ELSE display_name END \
-                     FROM users WHERE erased_at = 0 AND id IN (",
-                );
-                sql.bind_list(batch.iter().map(|id| Id(id))).push(")");
-                for row in scope.fetch_all(sql).await? {
-                    names.push((row.id(0)?, row.text(1)?));
-                }
-            }
-            Ok(names)
-        })
-        .await
-    }
 }
 
 /// Takes the row of `event` off the list, if it is as it was read.
@@ -585,10 +572,7 @@ fn place_from_row(row: &Row) -> Result<NotificationPlace, StoreError> {
         column: "type",
         reason: format!("a block of type {block_type} is no card and no page"),
     })?;
-    let container_kind = row.text(4)?.parse().map_err(|_| StoreError::Corrupt {
-        column: "kind",
-        reason: "unknown kind of container".to_owned(),
-    })?;
+    let container_kind = crate::container_kinds::kind_from_text(&row.text(4)?)?;
     Ok(NotificationPlace {
         block_id: row.id(0)?,
         block_kind,
@@ -623,11 +607,11 @@ pub(crate) async fn note_named(
     block: &Block,
     before: Option<&Block>,
     writer: &str,
-    telling: Telling<'_>,
+    telling: Telling,
 ) -> Result<(), StoreError> {
-    let Telling::People { others } = telling else {
+    if matches!(telling, Telling::Nobody) {
         return Ok(());
-    };
+    }
     let about = match block.block_type {
         BlockType::Card | BlockType::Page => block.id.as_str(),
         BlockType::Comment => block.parent_id.as_str(),
@@ -648,11 +632,18 @@ pub(crate) async fn note_named(
         .into_iter()
         .filter(|user| !mentioned_before.contains(user))
         .collect();
+    // Who typed what is read only for a body that names somebody new.
+    let typed = match telling {
+        Telling::Typed { since } if !mentioned.is_empty() => {
+            body_docs::updates_since(scope, &block.id, since).await?
+        }
+        _ => Vec::new(),
+    };
     let event = Noted {
         block,
         about,
         writer,
-        others,
+        typed: &typed,
     };
     event
         .note(scope, NotificationKind::Mention, &mentioned)
@@ -681,6 +672,12 @@ pub(crate) async fn note_named(
         .await
 }
 
+/// Whether `bytes` hold `word` somewhere. An update of a document holds the text of
+/// what it puts in as it is, an identifier that an attribute takes among it.
+fn holds(bytes: &[u8], word: &[u8]) -> bool {
+    !word.is_empty() && bytes.windows(word.len()).any(|window| window == word)
+}
+
 /// A write of a block that names people.
 struct Noted<'a> {
     /// The block that was written: where it happened.
@@ -688,21 +685,23 @@ struct Noted<'a> {
     /// The card or the page it is about.
     about: &'a str,
     writer: &'a str,
-    /// Who wrote it with the writer ([`Telling::People`]).
-    others: &'a [String],
+    /// The updates of its document that its body did not hold before, the oldest
+    /// first, each with who sent it ([`Telling::Typed`]); none for a block that was
+    /// written as it is.
+    typed: &'a [(String, Vec<u8>)],
 }
 
 impl Noted<'_> {
-    /// Who did it, for `user`: the writer, or for the writer one of the others;
-    /// `None` for a writer alone, who is not told of their own doing.
+    /// Who named `user`: whoever sent the first update that holds the user's
+    /// identifier, or the writer where no update does. `None` where that is the user:
+    /// nobody is told of their own doing.
     fn doer_for(&self, user: &str) -> Option<&str> {
-        if user != self.writer {
-            return Some(self.writer);
-        }
-        self.others
+        let doer = self
+            .typed
             .iter()
-            .map(String::as_str)
-            .find(|other| *other != user)
+            .find(|(_, bytes)| holds(bytes, user.as_bytes()))
+            .map_or(self.writer, |(typist, _)| typist.as_str());
+        (doer != user).then_some(doer)
     }
 
     /// Notes that `users` may be told of `kind`: those of them that are accounts (one

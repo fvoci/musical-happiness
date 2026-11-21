@@ -2817,11 +2817,7 @@
         "description": "What a notification is about, for a reader who reads it now.",
         "properties": {
           "actorId": {
-            "description": "Who did it; empty where nobody is known to have.",
-            "type": "string"
-          },
-          "actorName": {
-            "description": "The name that person is shown by; empty with `actorId`, and for an account\nthat is gone.",
+            "description": "Who did it; empty where nobody is known to have. The identifier alone, as a\ncard says who wrote it: the name is asked of the workspace's people, where\nits reader is told the names they may see.",
             "type": "string"
           },
           "blockId": {
@@ -2859,7 +2855,6 @@
         },
         "required": [
           "actorId",
-          "actorName",
           "blockId",
           "blockKind",
           "commentId",
@@ -9418,7 +9413,7 @@
             }
           },
           {
-            "description": "The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies.",
+            "description": "The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies. Such blocks are copies: the people they name are told nothing of them.",
             "in": "query",
             "name": "sourceBoardId",
             "required": false,

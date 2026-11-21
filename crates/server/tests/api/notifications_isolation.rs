@@ -8,14 +8,14 @@
 
 use std::collections::HashMap;
 
-use fvoci_model::{Block, BlockType, Container, ContainerType, Notification, new_id};
+use fvoci_model::{Block, BlockPatch, BodyChange, Container, ContainerType, Notification};
 use fvoci_server::app::tend_notifications;
 use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, Paging, Store};
 use serde_json::{Value, json};
 
 use crate::blocks::{delete, undelete_path};
-use crate::boards::{board_with_admin, delete_member, member, new_board};
+use crate::boards::{delete_member, member, new_board};
 use crate::common::{
     HIDDEN_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer, UNKNOWN_ID,
 };
@@ -25,7 +25,7 @@ use crate::notifications::{
 };
 use crate::own_space::own_workspace;
 use crate::rooms::{give, give_in};
-use crate::search_pages::{new_page, new_wiki};
+use crate::search_pages::{new_page, new_wiki, stored_wiki};
 use crate::workspaces::another_organization;
 
 /// How many notifications the user has, read past the API: of somebody who never
@@ -65,21 +65,57 @@ async fn erase(th: &TestServer, user_id: &str) {
     th.app.erase_due_accounts().await;
 }
 
-/// A card stored past the API on the board, written by `author`, whose body mentions
-/// `users`: through whichever handle reaches the board.
-async fn stored_card_mentioning(store: &Store, board_id: &str, author: &str, users: &[&str]) {
-    let mut card = Block {
-        id: new_id(),
-        container_id: board_id.to_owned(),
-        block_type: BlockType::Card,
-        title: "Elsewhere".to_owned(),
-        body: fvoci_model::Body::parse(mentioning(users)).expect("a body"),
-        ..Block::default()
+/// A wiki open to whoever works in the workspace, stored past the API by `author`,
+/// with a page whose body mentions `users`: through whichever handle reaches the
+/// workspace. Somebody of the workspace reads the page without being asked in, so
+/// that whoever is not told of it is not for want of a role on it.
+async fn open_page_mentioning(store: &Store, workspace_id: &str, author: &str, users: &[&str]) {
+    let (_, page_id) = stored_wiki(store, workspace_id, ContainerType::Open, author).await;
+    let patch = BlockPatch {
+        body: BodyChange::Set(
+            fvoci_model::Body::parse(mentioning(users))
+                .expect("a document")
+                .expect("a body"),
+        ),
+        ..BlockPatch::default()
     };
     store
-        .insert_block(&mut card, author)
+        .patch_block(&page_id, &patch, author)
         .await
-        .expect("the card is stored");
+        .expect("the page names them");
+}
+
+/// A page with `body` in a new wiki of the test workspace that is open to whoever
+/// works there, made by the first client's user. Its identifier.
+async fn open_wiki_page(th: &TestServer, body: &Value) -> String {
+    let wiki = th
+        .client
+        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "O"}))
+        .await
+        .value()["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let page = new_page(&th.client, &wiki, "", "An open page", "text").await;
+    th.client
+        .patch(
+            &format!("{TEST_WS}/wikis/{wiki}/pages/{}", page.id),
+            &json!({"body": body, "readAt": page.update_at}),
+        )
+        .await
+        .check_ok();
+    page.id
+}
+
+/// A user who never signs in and works in the workspace.
+async fn stored_member(th: &TestServer, workspace_id: &str, username: &str) -> String {
+    let user_id = crate::boards::stored_user(th, username).await;
+    th.app
+        .store()
+        .add_workspace_member(workspace_id, &user_id, fvoci_model::WorkspaceRole::Member)
+        .await
+        .expect("the user works in the workspace");
+    user_id
 }
 
 /// Everybody a body may name. Those who read the card are told; nobody else is told
@@ -111,21 +147,21 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
     delete_member(&th.client, &member(&board.id, &former))
         .await
         .check_no_content();
-    // Somebody of the workspace with no role on the board, which is shared by its
-    // link: whoever has the link reads it, and is nobody it could name.
-    let by_link = th.add_user("bylink").await.me().await.id;
+    // Somebody of the workspace with no role on the board. The board is shared by its
+    // link, which lets in whoever has it and makes nobody a reader by name.
+    let no_role = th.add_user("norole").await.me().await.id;
     th.share(&board.id).await;
     let elsewhere = th.stranger_in(HIDDEN_WORKSPACE_ID).await;
     // Another organization, where the database holds more than one: its board, and
     // the user of its own who made it.
     let another = if db_type_of_the_tests() == DbType::Postgres {
-        let (theirs, _, their_board) = another_organization(&th).await;
+        let (theirs, their_workspace, their_board) = another_organization(&th).await;
         let owner = theirs
             .get_container(&their_board)
             .await
             .expect("their board")
             .created_by;
-        Some((theirs, their_board, owner))
+        Some((theirs, their_workspace, owner))
     } else {
         None
     };
@@ -141,7 +177,10 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
         ("the writer", &a.id),
         ("a guest invited elsewhere", &other_guest),
         ("who left the board", &former),
-        ("who has the link alone", &by_link),
+        (
+            "of the workspace, with no role on the shared board",
+            &no_role,
+        ),
         ("of another workspace", &elsewhere),
         ("of another organization", &of_another_org),
         ("an account that is gone", &ghost),
@@ -176,27 +215,12 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
     // An open board is theirs to join, and not read until they do; an open wiki is
     // read by whoever works in the workspace.
     let open = board_with_owner(&th, ContainerType::Open).await;
-    card_with(&th.client, &open.id, &mentioning(&[&by_link, &other_guest])).await;
-    let wiki = th
-        .client
-        .post(&format!("{TEST_WS}/wikis"), &json!({"type": "O"}))
-        .await
-        .value()["id"]
-        .as_str()
-        .expect("an id")
-        .to_owned();
-    let page = new_page(&th.client, &wiki, "", "A page", "text").await;
-    th.client
-        .patch(
-            &format!("{TEST_WS}/wikis/{wiki}/pages/{}", page.id),
-            &json!({"body": mentioning(&[&by_link, &other_guest, &elsewhere, &of_another_org, &ghost]),
-                    "readAt": page.update_at}),
-        )
-        .await
-        .check_ok();
+    card_with(&th.client, &open.id, &mentioning(&[&no_role, &other_guest])).await;
+    let open_names = mentioning(&[&no_role, &other_guest, &elsewhere, &of_another_org, &ghost]);
+    open_wiki_page(&th, &open_names).await;
     tend_notifications(&th.app).await;
     assert_eq!(
-        held_by(&th, &by_link).await,
+        held_by(&th, &no_role).await,
         1,
         "of the page of the open wiki, not of the card of the open board"
     );
@@ -209,21 +233,23 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
         assert_eq!(held_by(&th, user).await, 0, "{who}, named in an open wiki");
     }
 
-    // Written where the one named is not: in another workspace of the organization,
-    // and in another organization.
-    let hidden = board_with_admin(
-        &th,
-        new_board(HIDDEN_WORKSPACE_ID, ContainerType::Open, "Hidden"),
-        &elsewhere,
-    )
-    .await;
-    stored_card_mentioning(th.app.store(), &hidden.id, &elsewhere, &[&viewer, &a.id]).await;
-    if let Some((theirs, their_board, owner)) = &another {
-        stored_card_mentioning(theirs, their_board, owner, &[&viewer, &a.id]).await;
+    // Written where the one named is not, on a page whoever works there reads: in
+    // another workspace of the organization, and in another organization. Who works
+    // there is told, so that the page is one that tells.
+    let there = stored_member(&th, HIDDEN_WORKSPACE_ID, "there").await;
+    let named = [viewer.as_str(), a.id.as_str(), there.as_str()];
+    open_page_mentioning(th.app.store(), HIDDEN_WORKSPACE_ID, &elsewhere, &named).await;
+    if let Some((theirs, their_workspace, owner)) = &another {
+        open_page_mentioning(theirs, their_workspace, owner, &named).await;
     }
     assert!(waiting(&th).await > 0, "they were noted, to be asked about");
     tend_notifications(&th.app).await;
     assert_eq!(waiting(&th).await, 0);
+    assert_eq!(
+        held_by(&th, &there).await,
+        1,
+        "who works there, and nowhere else"
+    );
     assert_eq!(
         held_by(&th, &viewer).await,
         3,
@@ -267,6 +293,10 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
 /// page of a wiki in the trash, and everything of a workspace that was left. What its
 /// writer's account going leaves is the notification, by nobody.
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "every way a card stops being read, side by side"
+)]
 async fn what_its_reader_reads_no_more_says_nothing_of_itself() {
     let th = Setup::native().start().await.init_basic().await;
     let b = th.client2.me().await;
@@ -294,8 +324,11 @@ async fn what_its_reader_reads_no_more_says_nothing_of_itself() {
         .await
         .check_ok();
 
+    // A page of a wiki open to the workspace, which B reads for working there alone.
+    let open_page = open_wiki_page(&th, &body).await;
+
     let theirs = told(&th, &th.client2).await;
-    assert_eq!(kinds(&theirs), (vec!["mention"; 6], 0), "{theirs:?}");
+    assert_eq!(kinds(&theirs), (vec!["mention"; 7], 0), "{theirs:?}");
     // Which notification is of which card or page: asked while B reads them all.
     let of: HashMap<String, String> = theirs
         .iter()
@@ -336,7 +369,7 @@ async fn what_its_reader_reads_no_more_says_nothing_of_itself() {
     erase(&th, &c_id).await;
 
     let now = told(&th, &th.client2).await;
-    assert_eq!(now.len(), 6, "all are still listed");
+    assert_eq!(now.len(), 7, "all are still listed");
     for (what, block_id) in [
         ("in the trash", &trashed.id),
         ("gone for good", &purged.id),
@@ -346,13 +379,13 @@ async fn what_its_reader_reads_no_more_says_nothing_of_itself() {
         assert_eq!(seen(&now, block_id), None, "a card or a page {what}");
     }
     assert!(seen(&now, &kept.id).is_some(), "the one that stays");
+    assert!(seen(&now, &open_page).is_some(), "and the open page");
     let orphaned = seen(&now, &by_ghost.id).expect("the card is read as before");
     assert_eq!(
-        (orphaned.actor_id.as_str(), orphaned.actor_name.as_str()),
-        (c_id.as_str(), ""),
-        "by somebody who is gone, and has no name"
+        orphaned.actor_id, c_id,
+        "by somebody who is gone, whose identifier says nothing of them"
     );
-    assert_eq!(unread(&th.client2).await, 6);
+    assert_eq!(unread(&th.client2).await, 7);
 
     // Back from the trash: read again.
     th.client
@@ -372,6 +405,61 @@ async fn what_its_reader_reads_no_more_says_nothing_of_itself() {
         .await
         .expect("B is taken out of the workspace");
     let left = told(&th, &th.client2).await;
-    assert_eq!(kinds(&left), (vec![], 6), "{left:?}");
+    assert_eq!(
+        kinds(&left),
+        (vec![], 7),
+        "the open page too, which nothing but the workspace let B read: {left:?}"
+    );
     th.teardown().await;
+}
+
+/// An organization that takes only the sessions made through its provider: a session
+/// made by a password lists what its user was told there, and is told nothing of
+/// what any of it is about.
+#[tokio::test]
+async fn a_session_its_organization_does_not_take_is_told_nothing_of_what_it_lists() {
+    use crate::common::ROOT_WORKSPACE_ID;
+    use crate::fake_oidc::FakeProvider;
+    use crate::oidc::{org_of, set_provider, with_key_and_private_addresses};
+    use crate::sso::{Passwords, admin_through_provider, require_sso};
+
+    let fake = FakeProvider::start().await;
+    let th = Setup::local_mode()
+        .trusting_oidc_provider(&fake.certificate_der)
+        .configure(with_key_and_private_addresses)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let org_id = org_of(&th).await;
+    set_provider(&th, &org_id, &fake).await;
+    let b = th.client2.me().await.id;
+    let board: Container = th
+        .client
+        .create_board(&new_board(
+            ROOT_WORKSPACE_ID,
+            ContainerType::Private,
+            "Walled",
+        ))
+        .await
+        .created_json();
+    give_in(&th, ROOT_WORKSPACE_ID, &board.id, &b, "viewer").await;
+    th.client
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/boards/{}/cards", board.id),
+            &json!({"title": "Behind the provider", "body": mentioning(&[&b])}),
+        )
+        .await
+        .check_created();
+    assert_eq!(kinds(&told(&th, &th.client2).await), (vec!["mention"], 0));
+
+    let admin = admin_through_provider(&th, &fake, &org_id).await;
+    require_sso(&admin, &org_id, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+    let closed = told(&th, &th.client2).await;
+    assert_eq!(kinds(&closed), (vec![], 1), "{closed:?}");
+    assert_eq!(unread(&th.client2).await, 1, "counted, and no more is said");
+    th.teardown().await;
+    fake.stop();
 }

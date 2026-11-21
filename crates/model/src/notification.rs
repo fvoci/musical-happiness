@@ -62,11 +62,10 @@ impl FromStr for NotificationKind {
 pub struct NotificationSubject {
     /// What happened.
     pub kind: NotificationKind,
-    /// Who did it; empty where nobody is known to have.
+    /// Who did it; empty where nobody is known to have. The identifier alone, as a
+    /// card says who wrote it: the name is asked of the workspace's people, where
+    /// its reader is told the names they may see.
     pub actor_id: String,
-    /// The name that person is shown by; empty with `actorId`, and for an account
-    /// that is gone.
-    pub actor_name: String,
     /// The workspace of the card or the page.
     pub workspace_id: String,
     /// The board the card is on, or the wiki the page is in.

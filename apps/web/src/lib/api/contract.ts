@@ -5739,13 +5739,12 @@ export interface components {
         NotificationKind: "mention" | "assignment" | "comment";
         /** @description What a notification is about, for a reader who reads it now. */
         NotificationSubject: {
-            /** @description Who did it; empty where nobody is known to have. */
-            actorId: string;
             /**
-             * @description The name that person is shown by; empty with `actorId`, and for an account
-             *     that is gone.
+             * @description Who did it; empty where nobody is known to have. The identifier alone, as a
+             *     card says who wrote it: the name is asked of the workspace's people, where
+             *     its reader is told the names they may see.
              */
-            actorName: string;
+            actorId: string;
             /** @description The card or the page it is about: what the reader opens. */
             blockId: string;
             /** @description What that is. */
@@ -9607,7 +9606,7 @@ export interface operations {
     createBlocks: {
         parameters: {
             query?: {
-                /** @description The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies. */
+                /** @description The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies. Such blocks are copies: the people they name are told nothing of them. */
                 sourceBoardId?: string;
                 /** @description `true` keeps the change from being told to anybody: the people it newly mentions, or gives a card to, get no notification of it. */
                 disableNotify?: boolean;

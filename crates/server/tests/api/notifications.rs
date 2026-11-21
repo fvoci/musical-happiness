@@ -166,7 +166,6 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
         assert_eq!(
             (
                 subject.actor_id.as_str(),
-                subject.actor_name.as_str(),
                 subject.workspace_id.as_str(),
                 subject.container_id.as_str(),
                 subject.block_id.as_str(),
@@ -175,7 +174,6 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
             ),
             (
                 a.id.as_str(),
-                a.username.as_str(),
                 TEST_WORKSPACE_ID,
                 board.id.as_str(),
                 card.id.as_str(),
@@ -381,25 +379,37 @@ async fn notifications_are_read_one_by_one_and_all_at_once_by_their_reader_alone
     th.teardown().await;
 }
 
-/// Who typed a mention into a document written by several is not known. One of them
-/// who is named is told by another's doing, also where they were the last to type; a
-/// writer alone is not told of their own.
+/// Types a mention of `user` into the document the peer holds, and waits for the
+/// server to have it.
+async fn type_mention(peer: &mut Peer, user: &str) {
+    let update = peer.editor().append_mention(user);
+    peer.send_update(&update).await;
+    peer.text("DOC_ACK").await;
+}
+
+/// A body typed by several is written to its card by the last of them, and each name
+/// in it is the doing of whoever typed it. A names B, a third and themself, and B
+/// types after: B and the third are told by A's doing, though B wrote last, and A is
+/// told nothing of their own, though another typed too.
 #[tokio::test]
-async fn a_mention_typed_while_the_one_named_types_too_is_told_and_ones_own_is_not() {
+async fn a_mention_typed_by_one_of_several_is_told_as_theirs_and_ones_own_is_not() {
     let th = Setup::native().start().await.init_basic().await;
     let (a, b) = (th.client.me().await, th.client2.me().await);
+    let c = th.add_user("third").await;
+    let c_id = c.me().await.id;
     let board = board_with_owner(&th, ContainerType::Private).await;
-    give(&th, &board.id, &b.id, "editor").await;
+    for user in [&b.id, &c_id] {
+        give(&th, &board.id, user, "editor").await;
+    }
     let card = card_with(&th.client, &board.id, &Value::Null).await;
     let mut one = Peer::connect(&th.client, 101).await;
     let mut two = Peer::connect(&th.client2, 102).await;
     one.joined(TEST_WORKSPACE_ID, &card.id).await;
     two.joined(TEST_WORKSPACE_ID, &card.id).await;
 
-    // A names B, and B types after it, before or after the server wrote the card.
-    let update = one.editor().append_mention(&b.id);
-    one.send_update(&update).await;
-    one.text("DOC_ACK").await;
+    for user in [&b.id, &c_id, &a.id] {
+        type_mention(&mut one, user).await;
+    }
     two.settle().await;
     two.write_acked("typed by B").await;
     th.app
@@ -407,22 +417,33 @@ async fn a_mention_typed_while_the_one_named_types_too_is_told_and_ones_own_is_n
         .write_body(&th.app.housekeeping(), &card.id)
         .await
         .expect("the body is written to the card");
-    let theirs = told(&th, &th.client2).await;
-    assert_eq!(kinds(&theirs), (vec!["mention"], 0), "{theirs:?}");
     assert_eq!(
-        theirs[0].subject.as_ref().expect("seen").actor_id,
-        a.id,
-        "by A's doing, whoever typed last"
+        crate::collab::card(&th.client, &card.id).await.modified_by,
+        b.id,
+        "B wrote last, and is the writer of the body"
+    );
+    for (who, client) in [("B", &th.client2), ("the third", &c)] {
+        let theirs = told(&th, client).await;
+        assert_eq!(kinds(&theirs), (vec!["mention"], 0), "{who}: {theirs:?}");
+        assert_eq!(
+            theirs[0].subject.as_ref().expect("seen").actor_id,
+            a.id,
+            "{who} was named by A, whoever typed last"
+        );
+    }
+    assert_eq!(
+        told(&th, &th.client).await,
+        [],
+        "A named A, and is told nothing"
     );
 
     // B alone names B and A in another card: A is told, B is not.
+    let before = told(&th, &th.client2).await;
     let alone = card_with(&th.client2, &board.id, &Value::Null).await;
     let mut two = Peer::connect(&th.client2, 103).await;
     two.joined(TEST_WORKSPACE_ID, &alone.id).await;
     for user in [&b.id, &a.id] {
-        let update = two.editor().append_mention(user);
-        two.send_update(&update).await;
-        two.text("DOC_ACK").await;
+        type_mention(&mut two, user).await;
     }
     th.app
         .collab()
@@ -431,7 +452,7 @@ async fn a_mention_typed_while_the_one_named_types_too_is_told_and_ones_own_is_n
         .expect("the body is written to the card");
     assert_eq!(
         told(&th, &th.client2).await,
-        theirs,
+        before,
         "nothing of B's own doing"
     );
     let of_a = told(&th, &th.client).await;
@@ -446,6 +467,25 @@ async fn a_mention_typed_while_the_one_named_types_too_is_told_and_ones_own_is_n
         (b.id.as_str(), alone.id.as_str(), NotificationKind::Mention)
     );
     th.teardown().await;
+}
+
+/// Makes a card of the board that names the user in its body and by its person
+/// property, as one of those of another board: with `sourceBoardId`.
+async fn made_from_another_board(client: &Client, board_id: &str, user_id: &str) {
+    let mut card = crate::blocks::new_block(board_id, BlockType::Card, "Made from");
+    card.body = fvoci_model::Body::parse(mentioning(&[user_id])).expect("a body");
+    card.fields
+        .insert("properties".to_owned(), json!({OWNER: user_id}));
+    client
+        .post(
+            &format!(
+                "{}?sourceBoardId={board_id}",
+                crate::blocks::blocks_path(board_id)
+            ),
+            &[card],
+        )
+        .await
+        .check_created();
 }
 
 /// What is no person's own words tells nobody: a write that asks for it, a copy of a
@@ -488,6 +528,14 @@ async fn copies_restores_and_quiet_writes_tell_nobody_and_a_body_only_whom_it_ne
         .await
         .check_created();
     assert_eq!(waiting().await, 0, "a copy notes nothing");
+
+    // Blocks made from those of another board, as a board is from a template.
+    made_from_another_board(&th.client, &board.id, &b.id).await;
+    assert_eq!(
+        waiting().await,
+        0,
+        "blocks made from another board's note nothing"
+    );
 
     // Asked to tell nobody.
     let quiet = card_with(&th.client, &board.id, &Value::Null).await;

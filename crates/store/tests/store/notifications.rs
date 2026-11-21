@@ -233,6 +233,28 @@ async fn the_same_within_the_hour_is_told_once() {
     test.teardown().await;
 }
 
+/// Stores a card of the board that names the user, by the board's writer, and tells
+/// the user of it at `at`. The identifier of the notification.
+async fn told_of_a_new_card(
+    store: &Store,
+    (board_id, writer): (&str, &str),
+    user_id: &str,
+    at: i64,
+    limits: NotificationLimits,
+) -> String {
+    let mut block = card(board_id, mentioning(user_id));
+    store
+        .insert_block(&mut block, writer)
+        .await
+        .expect("the card is stored");
+    let event = events(store).await.remove(0);
+    store
+        .tell_of(&event, at, limits)
+        .await
+        .expect("told")
+        .expect("a notification")
+}
+
 /// A person has so many notifications and no more: past it the oldest go, those that
 /// were read before those that were not. And those read long ago are forgotten.
 #[tokio::test]
@@ -244,21 +266,23 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
         most_of_a_person: 3,
         ..LIMITS
     };
+    // Somebody else has two, the oldest of all and read: nothing of theirs goes
+    // for what the other is told.
+    let other = common::user(store, &format!("o{}", &new_id()[24..])).await;
+    for at in [1_i64, 2] {
+        let id = told_of_a_new_card(store, (&board_id, &writer), &other, at, few).await;
+        assert!(
+            store
+                .read_notification(&other, &id, at + 1)
+                .await
+                .expect("read")
+        );
+    }
     // Five, one after another, each of another card; the second and the fourth are
     // read as they come.
     let mut made = Vec::new();
     for at in 1..=5_i64 {
-        let mut block = card(&board_id, mentioning(&named));
-        store
-            .insert_block(&mut block, &writer)
-            .await
-            .expect("the card is stored");
-        let event = events(store).await.remove(0);
-        let id = store
-            .tell_of(&event, at * 100, few)
-            .await
-            .expect("told")
-            .expect("a notification");
+        let id = told_of_a_new_card(store, (&board_id, &writer), &named, at * 100, few).await;
         if at == 2 || at == 4 {
             assert!(
                 store
@@ -285,6 +309,12 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
         assert_eq!(held.iter().collect::<Vec<_>>(), expected, "after {at}");
     }
 
+    assert_eq!(
+        told(store, &other).await.len(),
+        2,
+        "the other's are as they were"
+    );
+
     // Another's notification is none of theirs to read.
     assert!(
         !store
@@ -308,14 +338,16 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
             .expect("read"),
         2
     );
-    assert_eq!(
-        store.forget_read_notifications(2000).await.expect("asked"),
-        0
-    );
-    assert_eq!(
-        store.forget_read_notifications(2001).await.expect("asked"),
-        2
-    );
+    // Read before a time: the other's two, read long ago; then the two read at 2000.
+    let forgotten = async |before: i64| {
+        store
+            .forget_read_notifications(before)
+            .await
+            .expect("asked")
+    };
+    assert_eq!(forgotten(4).await, 2, "the other's, read at 2 and 3");
+    assert_eq!(forgotten(2000).await, 0, "read at 2000, and not before it");
+    assert_eq!(forgotten(2001).await, 2);
     let left = told(store, &named).await;
     assert_eq!(left.len(), 1, "what was not read is kept however old");
     assert_eq!(

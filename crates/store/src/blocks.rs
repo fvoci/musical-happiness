@@ -661,13 +661,13 @@ async fn type_of_parent(
 
 /// How a block is written, beyond what it is and by whom.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Written<'a> {
+pub(crate) struct Written {
     /// How the files its body names newly are asked for.
     pub(crate) new_files: NewBodyFiles,
     /// What the write is for the versions kept of a card's body.
     pub(crate) body_write: BodyWrite,
     /// Who is told of whom it newly names.
-    pub(crate) telling: Telling<'a>,
+    pub(crate) telling: Telling,
 }
 
 /// Stores a block as created or changed at `at`, or now, once its board is held, if
@@ -680,7 +680,7 @@ async fn insert_block_at(
     block: &mut Block,
     user_id: &str,
     at: Option<i64>,
-    how: Written<'_>,
+    how: Written,
 ) -> Result<Vec<NamedCards>, StoreError> {
     let Written {
         new_files,
@@ -829,7 +829,7 @@ pub(crate) async fn insert_blocks(
     blocks: &mut [Block],
     user_id: &str,
     new_files: NewBodyFiles,
-    telling: Telling<'_>,
+    telling: Telling,
 ) -> Result<(), StoreError> {
     for block in blocks.iter() {
         block
@@ -916,7 +916,7 @@ pub(crate) async fn patch_block(
     patch: &BlockPatch,
     user_id: &str,
     body_write: BodyWrite,
-    telling: Telling<'_>,
+    telling: Telling,
 ) -> Result<(), StoreError> {
     // The block says which board to hold; what is patched is read under the lock, so
     // that of two patches at once the second is applied to what the first left.

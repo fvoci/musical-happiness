@@ -200,18 +200,6 @@ impl App {
                 }
             }
         }
-        let actors: Vec<&str> = stored
-            .iter()
-            .filter(|told| places.contains_key(told.id.as_str()))
-            .map(|told| told.actor_id.as_str())
-            .filter(|actor| !actor.is_empty())
-            .collect();
-        let names: HashMap<String, String> = self
-            .store()
-            .names_shown_of(&actors)
-            .await?
-            .into_iter()
-            .collect();
         Ok(stored
             .iter()
             .map(|told| Notification {
@@ -220,7 +208,7 @@ impl App {
                 read_at: told.read_at,
                 subject: places
                     .remove(told.id.as_str())
-                    .map(|place| subject(told, place, &names)),
+                    .map(|place| subject(told, place)),
             })
             .collect())
     }
@@ -288,11 +276,7 @@ impl App {
 }
 
 /// What a notification is about, for a reader who reads `place` now.
-fn subject(
-    told: &StoredNotification,
-    place: NotificationPlace,
-    names: &HashMap<String, String>,
-) -> NotificationSubject {
+fn subject(told: &StoredNotification, place: NotificationPlace) -> NotificationSubject {
     let comment_id = if told.source_id == told.block_id {
         String::new()
     } else {
@@ -301,7 +285,6 @@ fn subject(
     NotificationSubject {
         kind: told.kind,
         actor_id: told.actor_id.clone(),
-        actor_name: names.get(&told.actor_id).cloned().unwrap_or_default(),
         workspace_id: place.workspace_id,
         container_id: place.container_id,
         container_kind: place.container_kind,

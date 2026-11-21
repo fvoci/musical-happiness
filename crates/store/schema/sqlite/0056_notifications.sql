@@ -57,3 +57,7 @@ CREATE INDEX notifications_recipient_idx ON notifications (recipient_id, create_
 CREATE INDEX notifications_unread_idx ON notifications (recipient_id) WHERE read_at = 0;
 -- Whether a person was told the same a moment ago.
 CREATE INDEX notifications_same_idx ON notifications (recipient_id, source_id, kind, create_at);
+-- One of a person's, by its identifier, in whichever organization it is.
+CREATE INDEX notifications_id_idx ON notifications (id);
+-- Those that were read long ago, which are forgotten.
+CREATE INDEX notifications_read_at_idx ON notifications (read_at) WHERE read_at > 0;
