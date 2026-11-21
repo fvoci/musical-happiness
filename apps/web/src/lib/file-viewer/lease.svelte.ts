@@ -166,12 +166,20 @@ export class EditLease {
     if (this.#over()) void this.#letGo(false);
   }
 
-  /** No input for `idleAfter`: the lease goes, and nobody else is told the writer is at work. */
+  /**
+   * No input for `idleAfter`: the lease goes, and nobody else is told the writer is at work.
+   * A lease another took meanwhile stays told (`lost`). Where the server was not reached the
+   * lease may be held still: the next input holds on to it by its name, as at any turn.
+   */
   #rest(): void {
     this.resting = true;
     this.idleSoon = false;
-    this.lost = false;
-    this.#resting = this.#letGo(false);
+    const leaseId = this.#leaseId;
+    this.#leaseId = '';
+    if (!leaseId) return;
+    this.#resting = this.#source.releaseLease(leaseId, false).catch(() => {
+      if (!this.#leaseId) this.#leaseId = leaseId;
+    });
   }
 
   /** Whether the lease was let go of, read anew after a wait. */

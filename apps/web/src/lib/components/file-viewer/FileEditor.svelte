@@ -91,7 +91,13 @@
   const address = editorAddress(document);
   const compact = $derived(page.stage === 'compact');
   /** Short of the widest screens, what the editor says has a line of its own, whole. */
-  const sayApart = $derived(page.stage !== 'expanded');
+  // What the lease says is long: a line of its own, whole, on the widest screens too.
+  const sayApart = $derived(
+    page.stage !== 'expanded' ||
+      lease?.lost === true ||
+      lease?.resting === true ||
+      lease?.idleSoon === true,
+  );
   const status = $derived(session.status);
   const saving = $derived(session.saving);
   /** Asked whether to close over changes that are not saved. */
@@ -114,15 +120,21 @@
   };
 
   /**
-   * What the header says of the document: a save under way, how one ended, somebody else
-   * editing, changes not saved.
+   * What the header says of the document: a save under way, the lease let go of for want of
+   * input (or soon to be), how a save ended, somebody else editing, changes not saved. A
+   * save's end said 25 minutes ago or more gives way to the lease: it is said where the lease
+   * goes, as somebody else editing is where they took it.
    */
   const said = $derived.by((): string => {
     if (saving.name === 'exporting' || saving.name === 'storing') return m.file_editor_saving();
+    if (lease?.resting || lease?.idleSoon) {
+      if (lease.lost) return m.file_editor_lease_lost();
+      return lease.resting
+        ? m.file_editor_lease_resting({ minutes: IDLE_AFTER / 60_000 })
+        : m.file_editor_lease_idle_soon({ minutes: WARN_BEFORE / 60_000 });
+    }
     if (saving.name === 'failed') return SAVE_FAILURE[saving.reason]();
     if (lease?.lost) return m.file_editor_lease_lost();
-    if (lease?.resting) return m.file_editor_lease_resting({ minutes: IDLE_AFTER / 60_000 });
-    if (lease?.idleSoon) return m.file_editor_lease_idle_soon({ minutes: WARN_BEFORE / 60_000 });
     if (session.dirty) return m.file_editor_unsaved();
     const saved = session.saved;
     if (saved?.as === 'version') {
@@ -131,8 +143,12 @@
     return saved ? m.file_editor_saved_apart({ name: saved.name }) : '';
   });
 
-  function saveOnKey(event: KeyboardEvent): void {
+  /** Input in the app's own controls: before they answer it, which may stop it going on. */
+  const touch = (): void => {
     lease?.touch();
+  };
+
+  function saveOnKey(event: KeyboardEvent): void {
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
     if (event.key.toLowerCase() !== 's' && event.key !== 'ㄴ') return;
     event.preventDefault();
@@ -155,7 +171,8 @@
 <!-- Ctrl+S (Cmd+S) saves from the app's own controls too, as it does from the document. -->
 <svelte:window
   onkeydown={saveOnKey}
-  onpointerdown={() => lease?.touch()}
+  onkeydowncapture={touch}
+  onpointerdowncapture={touch}
   onbeforeunload={beforeUnload}
 />
 

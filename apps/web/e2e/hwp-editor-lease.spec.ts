@@ -197,13 +197,13 @@ test('an editor nobody puts anything into for 30 minutes lets the file go, says 
 
   await page.clock.runFor(25 * MINUTE + A_TURN);
   await expect(said).toHaveText(
-    'With no input for 5 more minutes, you let go of editing this file.',
+    'If nothing is typed or clicked in the next 5 minutes, editing is let go so that someone else may edit this file.',
   );
   await expect(editor(page)).toHaveAttribute('data-lease', 'held');
   await page.clock.runFor(5 * MINUTE);
   await expect(editor(page)).toHaveAttribute('data-lease', 'resting');
   await expect(said).toHaveText(
-    'No input for 30 minutes, so you let go of editing this file: someone else may edit it now. Your unsaved changes stay; type or click to take it back.',
+    'Editing was let go after 30 minutes without input: someone else may edit this file now. Your unsaved changes stay; type or click to edit again.',
   );
   // What was not saved is there still.
   await expect(editor(page)).toHaveAttribute('data-dirty', 'true');
@@ -213,8 +213,11 @@ test('an editor nobody puts anything into for 30 minutes lets the file go, says 
   expect(theirs).not.toMatch(/^refused/);
   await theirLease(page, name, theirs);
 
-  // Typed into again: the editor's once more, and nobody else's.
-  await page.keyboard.type('!');
+  // The wheel turned over the document: the editor's once more, and nobody else's.
+  const frame = await page.getByTestId('file-editor-frame').boundingBox();
+  if (!frame) throw new Error('no frame');
+  await page.mouse.move(frame.x + frame.width / 2, frame.y + frame.height / 2);
+  await page.mouse.wheel(0, 120);
   await expect(editor(page)).toHaveAttribute('data-lease', 'held');
   await expect(said).toHaveText('There are unsaved changes');
   expect(await theirLease(page, name)).toBe('refused 409');
@@ -237,7 +240,8 @@ test('where somebody else took the file and wrote a version while the editor let
   const theirs = await theirLease(page, name);
   expect(theirs).not.toMatch(/^refused/);
   await writtenElsewhere(page, name, koreanHwpx());
-  await page.keyboard.type('!');
+  // A press on the app's own header is input too.
+  await page.getByTestId('file-editor-said').click();
   await expect(editor(page)).toHaveAttribute('data-lease', 'lost');
   await expect(page.getByTestId('file-editor-said')).toHaveText(
     'Someone else started editing this file. A save still never writes over a newer version.',

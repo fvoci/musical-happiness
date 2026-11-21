@@ -205,6 +205,40 @@ describe('the lease of an editor nobody puts anything into', () => {
     await closed;
   });
 
+  it('is held on to by its name at the next input where letting it go did not reach the server', async () => {
+    const { source, asked } = sourceOf();
+    source.releaseLease = (leaseId) => {
+      asked.push(`release ${leaseId}`);
+      return Promise.reject(new Error('unreached'));
+    };
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(lease.resting).toBe(true);
+    lease.touch();
+    await vi.advanceTimersByTimeAsync(0);
+    // Still the editor's on the server: held on to, not taken anew and found held.
+    expect(asked.slice(-2)).toEqual(['release l1', 'hold l1']);
+    expect(lease.lost).toBe(false);
+    await lease.release();
+  });
+
+  it('says still that somebody else took it, where they had as it went', async () => {
+    const { source, state } = sourceOf();
+    const lease = new EditLease(source, TIMES);
+    await lease.take();
+    state.holding = 'editing';
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(lease.lost).toBe(true);
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(lease.resting).toBe(true);
+    expect(lease.lost).toBe(true);
+    lease.touch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lease.lost).toBe(true);
+    await lease.release();
+  });
+
   it('says somebody else holds it where they took it meanwhile, and is the editor’s once they let go', async () => {
     const { source, state } = sourceOf();
     const lease = new EditLease(source, TIMES);

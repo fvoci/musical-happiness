@@ -46,7 +46,7 @@ import.meta.glob('../styles/fonts/faces-noto-sans-kr.css', { eager: true });
 
 /** How long the check of the bytes may take, in milliseconds: the viewer's time for its worker. */
 const CHECK_LIMIT = 30_000;
-/** How often keys, the pointer and the wheel are told as input at most, in milliseconds. */
+/** How often input (keys, the pointer, the wheel, changes) is told at most, in milliseconds. */
 const INPUT_EVERY = 1_000;
 
 /** What the editor's page exposes for its host (our change in rhwp-studio's main.ts). */
@@ -242,20 +242,24 @@ function serve(
   let changes = 0;
   const exportedAt = new Map<number, number>();
   // The writer's input, which the app does not see in here, is told: the file's lease is let
-  // go of when there is none for a while (lease.svelte.ts). Every change to the document is
-  // told; keys, the pointer and the wheel at most once in `INPUT_EVERY`, by the events' own time.
+  // go of when there is none for a while (lease.svelte.ts). Keys, the pointer, the wheel and
+  // changes to the document, at most once in `INPUT_EVERY` (a replacement of every match is
+  // many changes at once), by the events' own time.
   let inputAt = -Infinity;
-  const input = (event: Event): void => {
-    if (event.timeStamp - inputAt < INPUT_EVERY) return;
-    inputAt = event.timeStamp;
+  const input = (at: number): void => {
+    if (at - inputAt < INPUT_EVERY) return;
+    inputAt = at;
     tell({ kind: 'input' });
   };
+  const told = (event: Event): void => {
+    input(event.timeStamp);
+  };
   for (const type of ['keydown', 'pointerdown', 'wheel'] as const) {
-    document.addEventListener(type, input, { capture: true, passive: true });
+    document.addEventListener(type, told, { capture: true, passive: true });
   }
   host.onMutated(() => {
     changes += 1;
-    tell({ kind: 'input' });
+    input(performance.now());
   });
   // When the app gives the frame the focus (as the document opens, and after a save asked with
   // the app's button), what is typed goes to the document again. WebKit lets a frame of another
