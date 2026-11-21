@@ -11,9 +11,13 @@
   may write in it. A page made here is shown with the caret in its title, the
   page it went below opened in the tree. The pages above the page shown are
   open, so that it is in sight.
+
+  The page's headings are its outline (`PageOutline`): beside the page where
+  there is room, otherwise behind a button in the bar at the head of the page.
 -->
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
+  import type { Attachment } from 'svelte/attachments';
 
   import FilePlusIcon from '@lucide/svelte/icons/file-plus';
   import ListTreeIcon from '@lucide/svelte/icons/list-tree';
@@ -36,6 +40,9 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import MovePageDialog from './MovePageDialog.svelte';
+  import OutlineButton from './OutlineButton.svelte';
+  import OutlineColumns from './OutlineColumns.svelte';
+  import { PageOutline } from './page-outline.svelte.ts';
   import PageTree from './PageTree.svelte';
   import WikiHeader from './WikiHeader.svelte';
   import PageView from './PageView.svelte';
@@ -48,8 +55,11 @@
     onOpenPage: (pageId: string) => void;
     /** What a page that is not there shows. */
     missingPage: Snippet;
-    /** The body of the page shown, and what goes below it. */
-    body: Snippet<[PageStore]>;
+    /**
+     * The body of the page shown, and what goes below it; the body alone, and
+     * nothing else, is put in an element with `outlined` attached (its headings).
+     */
+    body: Snippet<[PageStore, Attachment<HTMLElement>]>;
     /** What the head of the page shown offers to do with it, beside who is on it. */
     pageActions?: Snippet<[PageStore]> | undefined;
     /** Asks to delete a page; left out where pages are not deleted here. */
@@ -90,6 +100,8 @@
   const uid = $props.id();
   const open = $derived(new TreeOpen(wiki.workspace.me?.id ?? '', wiki.wikiId));
   const shown = $derived(page ? wiki.page(page.pageId) : undefined);
+  /** A page is shown (and with it what is told at its head, beside its outline). */
+  const reading = $derived(wiki.pages.length > 0 && !page?.missing && shown !== undefined);
   /** The pages above the page shown, as one key: it changes with the page, not with a rename. */
   const above = $derived(page ? ancestorsOf(wiki.pages, page.pageId).join(' ') : '');
   $effect(() => {
@@ -100,6 +112,9 @@
         target.set(ids.split(' '));
       });
   });
+
+  /** The headings of the page shown. */
+  const outline = new PageOutline();
 
   /** The page made last here: shown with the caret in its title. */
   let made = $state<string | undefined>(undefined);
@@ -304,39 +319,39 @@
     />
   </div>
 
-  <div class="min-w-0 flex-1 overflow-y-auto overscroll-contain" inert={drawerOut}>
-    {#if narrow}
-      <div class="sticky top-0 z-10 flex items-center gap-1 bg-background/95 px-2 py-1">
-        <Button
-          bind:ref={opener}
-          variant="ghost"
-          size="sm"
-          class="text-muted-foreground roomy:min-h-touch"
-          data-testid="open-page-tree"
-          aria-haspopup="dialog"
-          aria-expanded={drawer}
-          aria-controls="{uid}-tree"
-          onclick={() => void openDrawer()}
-        >
-          <ListTreeIcon aria-hidden="true" />
-          {m.wiki_pages()}
-        </Button>
-      </div>
-    {/if}
-    {#if notice}
+  <div
+    class="min-w-0 flex-1 overflow-y-auto overscroll-contain"
+    inert={drawerOut}
+    {@attach outline.follow}
+  >
+    {#if narrow || outline.mode === 'button'}
       <div
-        class="mx-auto mt-4 flex max-w-3xl items-center gap-2 rounded-lg border bg-muted px-3 py-2"
-        role="status"
-        data-testid="wiki-notice"
+        class="sticky top-0 z-10 flex items-center gap-1 bg-background/95 px-2 py-1"
+        {@attach outline.bar}
       >
-        <p class="min-w-0 flex-1">{notice}</p>
-        {#if onDismissNotice}
-          <IconButton label={m.ui_close()} onclick={onDismissNotice}>
-            <XIcon />
-          </IconButton>
+        {#if narrow}
+          <Button
+            bind:ref={opener}
+            variant="ghost"
+            size="sm"
+            class="text-muted-foreground roomy:min-h-touch"
+            data-testid="open-page-tree"
+            aria-haspopup="dialog"
+            aria-expanded={drawer}
+            aria-controls="{uid}-tree"
+            onclick={() => void openDrawer()}
+          >
+            <ListTreeIcon aria-hidden="true" />
+            {m.wiki_pages()}
+          </Button>
+        {/if}
+        <div class="min-w-0 flex-1"></div>
+        {#if outline.mode === 'button'}
+          <OutlineButton {outline} id="{uid}-outline" />
         {/if}
       </div>
     {/if}
+    {#if notice && !reading}{@render told(notice)}{/if}
     {#if wiki.pages.length === 0}
       <div class="grid h-full place-items-center p-6 text-center" data-testid="wiki-empty">
         <div class="flex max-w-md flex-col items-center gap-3">
@@ -357,19 +372,41 @@
     {:else if page?.missing}
       {@render missingPage()}
     {:else if page && shown}
-      {#key page}
-        <PageView
-          {wiki}
-          store={page}
-          page={shown}
-          autofocus={made === page.pageId}
-          {body}
-          actions={pageActions}
-        />
-      {/key}
+      <OutlineColumns {outline} id="{uid}-outline">
+        {#if notice}{@render told(notice)}{/if}
+        {#key page}
+          <PageView
+            {wiki}
+            store={page}
+            page={shown}
+            autofocus={made === page.pageId}
+            body={outlinedBody}
+            actions={pageActions}
+          />
+        {/key}
+      </OutlineColumns>
     {/if}
   </div>
 </div>
+
+{#snippet told(text: string)}
+  <div
+    class="mx-auto mt-4 flex max-w-3xl items-center gap-2 rounded-lg border bg-muted px-3 py-2"
+    role="status"
+    data-testid="wiki-notice"
+  >
+    <p class="min-w-0 flex-1">{text}</p>
+    {#if onDismissNotice}
+      <IconButton label={m.ui_close()} onclick={onDismissNotice}>
+        <XIcon />
+      </IconButton>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet outlinedBody(store: PageStore)}
+  {@render body(store, outline.source)}
+{/snippet}
 
 <MovePageDialog
   bind:open={movingOpen}

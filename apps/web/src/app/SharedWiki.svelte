@@ -6,13 +6,17 @@
   page of the wiki opens it; the server sent nothing of anything else. In a
   wide pane the tree is a column beside the page; at a phone's width it is a
   list above it that opens and closes. The visit counts as an anonymous one
-  on the wiki and its page; nothing of who else is there comes back.
+  on the wiki and its page; nothing of who else is there comes back. The
+  page's headings are its outline, as in the app (`PageOutline`).
 -->
 <script lang="ts">
   import ListTreeIcon from '@lucide/svelte/icons/list-tree';
 
   import BodyView from '$lib/editor/BodyView.svelte';
   import type { ReferenceDrawing } from '$lib/editor/reference-chip.ts';
+  import OutlineButton from '$lib/features/wiki/OutlineButton.svelte';
+  import OutlineColumns from '$lib/features/wiki/OutlineColumns.svelte';
+  import { PageOutline } from '$lib/features/wiki/page-outline.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { pane } from '$lib/layout/room.svelte.ts';
   import { firstPage, pageRows, pageTree } from '$lib/logic/page-tree.ts';
@@ -51,6 +55,7 @@
   const pageId = $derived(router.route.viewId);
   const rows = $derived(pageRows(pageTree(pages), () => true));
   const narrow = $derived(pane.measured && !pane.columns);
+  const outline = new PageOutline();
   const hrefOf = (id: string): string =>
     router.href({ ...router.route, viewId: id, cardId: undefined });
 
@@ -171,47 +176,66 @@
   <div class={['flex min-h-0 flex-1', narrow && 'flex-col']} data-testid="shared-wiki">
     {#if narrow}
       <div class="shrink-0 border-b">
-        <button
-          type="button"
-          class="flex min-h-touch w-full items-center gap-2 px-4 text-sm text-muted-foreground"
-          aria-expanded={treeOpen}
-          aria-controls="{uid}-tree"
-          onclick={() => {
-            treeOpen = !treeOpen;
-          }}
-        >
-          <ListTreeIcon class="size-4" aria-hidden="true" />
-          {m.wiki_pages()}
-        </button>
+        <div class="flex items-center">
+          <button
+            type="button"
+            class="flex min-h-touch min-w-0 flex-1 items-center gap-2 px-4 text-sm text-muted-foreground"
+            aria-expanded={treeOpen}
+            aria-controls="{uid}-tree"
+            onclick={() => {
+              treeOpen = !treeOpen;
+            }}
+          >
+            <ListTreeIcon class="size-4" aria-hidden="true" />
+            {m.wiki_pages()}
+          </button>
+          {#if outline.mode === 'button'}
+            <div class="shrink-0 pr-2"><OutlineButton {outline} id="{uid}-outline" /></div>
+          {/if}
+        </div>
         {#if treeOpen}{@render tree()}{/if}
       </div>
     {:else}
       <div class="w-64 shrink-0 overflow-y-auto border-r">{@render tree()}</div>
     {/if}
-    <article class="min-w-0 flex-1 overflow-y-auto px-4 py-6" data-testid="shared-page">
+    <article
+      class="min-w-0 flex-1 overflow-y-auto px-4"
+      data-testid="shared-page"
+      {@attach outline.follow}
+    >
+      {#if !narrow && outline.mode === 'button'}
+        <div
+          class="sticky top-0 z-10 -mx-4 flex justify-end bg-background/95 px-2 py-1"
+          {@attach outline.bar}
+        >
+          <OutlineButton {outline} id="{uid}-outline" />
+        </div>
+      {/if}
       {#if pages.length === 0}
-        <p class="text-muted-foreground">{m.wiki_no_pages()}</p>
+        <p class="py-6 text-muted-foreground">{m.wiki_no_pages()}</p>
       {:else if shown === null}
         <NotFound {router} />
       {:else if pageFailed && pageId}
         {@const id = pageId}
         {@render problem(() => void readPage(id))}
       {:else if shown}
-        <div class="mx-auto max-w-3xl">
-          <h2 class="mb-4 text-2xl font-semibold break-words" data-testid="page-title">
-            {#if shown.icon}<span aria-hidden="true">{shown.icon} </span>{/if}{shown.title ||
-              m.wiki_page_untitled()}
-          </h2>
-          <div data-testid="page-body">
-            <BodyView doc={shown.body} {references}>
-              {#snippet empty()}
-                <p class="text-muted-foreground">{m.wiki_page_body_empty()}</p>
-              {/snippet}
-            </BodyView>
+        <OutlineColumns {outline} id="{uid}-outline">
+          <div class="mx-auto max-w-3xl py-6">
+            <h2 class="mb-4 text-2xl font-semibold break-words" data-testid="page-title">
+              {#if shown.icon}<span aria-hidden="true">{shown.icon} </span>{/if}{shown.title ||
+                m.wiki_page_untitled()}
+            </h2>
+            <div data-testid="page-body" {@attach outline.source}>
+              <BodyView doc={shown.body} {references}>
+                {#snippet empty()}
+                  <p class="text-muted-foreground">{m.wiki_page_body_empty()}</p>
+                {/snippet}
+              </BodyView>
+            </div>
           </div>
-        </div>
+        </OutlineColumns>
       {:else}
-        <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
+        <p class="py-6 text-muted-foreground" role="status">{m.app_loading()}</p>
       {/if}
     </article>
   </div>
