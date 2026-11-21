@@ -1601,6 +1601,7 @@
   "wiki_move_confirm": "옮기기",
   "wiki_move_drop_hint": "놓으면 이 자리로 옮겨집니다",
   "wiki_outline": "목차",
+  "wiki_outline_keys": "화살표 키와 Home, End로 제목 사이를 오가고, Enter로 고른 제목에 갑니다.",
   "wiki_outline_fold": "목차 접기",
   "wiki_outline_unfold": "목차를 옆에 펼치기",
   "app_problem_page_too_deep": "페이지는 {limit}단계까지만 들어갈 수 있습니다. 아무것도 바뀌지 않았습니다.",

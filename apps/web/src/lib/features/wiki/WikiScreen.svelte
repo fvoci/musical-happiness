@@ -14,6 +14,10 @@
 
   The page's headings are its outline (`PageOutline`): beside the page where
   there is room, otherwise behind a button in the bar at the head of the page.
+  Where it would be behind the button, the bar's place is kept above a page
+  with too few headings for one, so that the page does not move down and up
+  as a second heading is written and taken out; it stays at the head as the
+  page scrolls only with something in it.
 -->
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
@@ -324,9 +328,12 @@
     inert={drawerOut}
     {@attach outline.follow}
   >
-    {#if narrow || outline.mode === 'button'}
+    {#if narrow || outline.mode === 'button' || (reading && outline.where === 'button')}
       <div
-        class="sticky top-0 z-10 flex items-center gap-1 bg-background/95 px-2 py-1"
+        class={[
+          'top-0 z-10 flex min-h-9 items-center gap-1 px-2 py-1 roomy:min-h-[calc(var(--spacing-touch)+0.5rem)]',
+          (narrow || outline.mode === 'button') && 'sticky bg-background/95',
+        ]}
         {@attach outline.bar}
       >
         {#if narrow}

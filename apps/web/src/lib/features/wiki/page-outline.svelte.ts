@@ -11,17 +11,20 @@
  *
  * The heading being read is the last one whose top has passed a line a
  * quarter of the way down the visible part of the page, found by halving the
- * list (a few measurements a frame, however long the page). A heading the
- * reader chose stays the one marked until they move the page themselves: one
- * near the end of the page cannot reach the line.
+ * list (a few measurements a frame, however long the page), again whenever
+ * the page scrolls or it, its column or what is above it changes size. A
+ * heading the reader chose stays the one marked until they move the page
+ * themselves (one near the end of the page cannot reach the line): until it
+ * scrolls after a press, a wheel or a key that moves the page, not after
+ * typing.
  *
- * Beside the page when the page's column has room for both (`side`), unless
- * the reader folded it away, which this device remembers; otherwise behind a
- * button (`button`). None for a page with fewer than two headings.
+ * Beside the page when the page's column has room for both, the page giving
+ * up some of its width for it (`side`), unless the reader folded it away,
+ * which this device remembers; otherwise behind a button (`button`). None
+ * for a page with fewer than two headings, but its place is kept (`where`):
+ * the page does not move as a second heading is written or taken out.
  */
 import { untrack } from 'svelte';
-
-import { fingerPointer } from '$lib/layout/room.svelte.ts';
 
 import {
   focusHeading,
@@ -38,14 +41,30 @@ export type { OutlineEntry } from './outline-dom.ts';
 /** Where the device remembers that the reader folded the outline away. */
 export const OUTLINE_STORAGE_KEY = 'fvoci:wiki-outline';
 
-/** The width the outline takes beside the page, in rem; the page keeps its own. */
+/** The width the outline takes beside the page, in rem. */
 const OUTLINE_WIDTH = 12;
+/** The narrowest the page is drawn beside the outline, in rem: so much of its width it gives up for it. */
+const NARROWEST_PAGE = 40;
 /** How far below the head of the page a heading that is gone to stays, in pixels. */
 const MARGIN = 16;
-/** The events by which the reader moves the page themselves. */
-const MOVES = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
+/** The events by which the reader may be moving the page themselves: a scroll after one is theirs. */
+const MOVES = ['wheel', 'touchstart', 'pointerdown'] as const;
+/** The keys that move the page, or the caret across it; any other writes, or leaves the page be. */
+const PAGE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
 
 export type OutlineMode = 'none' | 'side' | 'button';
+
+/**
+ * Whether a key may move the page: not one that writes (a letter, Enter, a
+ * key of an input method), which scrolls the page only to keep the caret in
+ * sight, and a space only outside what is edited.
+ */
+function movesPage(event: KeyboardEvent): boolean {
+  if (event.isComposing || !PAGE_KEYS.has(event.key)) return false;
+  return (
+    event.key !== ' ' || !(event.target instanceof HTMLElement && event.target.isContentEditable)
+  );
+}
 
 function remembered(): boolean {
   try {
@@ -81,15 +100,17 @@ export class PageOutline {
   #bar: HTMLElement | undefined;
   /** The heading the reader chose, marked until they move the page themselves. */
   #chosen: HTMLElement | undefined;
+  /** The reader pressed, turned the wheel or pressed a key that moves the page: a scroll now is theirs. */
+  #moving = false;
   #stale = false;
   #frame: number | undefined;
 
-  /** `page` is the width the page itself is drawn in, in rem (`max-w-3xl`). */
+  /** `page` is the widest the page itself is drawn, in rem (`max-w-3xl`). */
   constructor(page = 48) {
     this.#page = page;
   }
 
-  /** The width the page is drawn in beside the outline, and the outline's own, in rem. */
+  /** The widest the page is drawn beside the outline, and the outline's own width, in rem. */
   get page(): number {
     return this.#page;
   }
@@ -99,12 +120,19 @@ export class PageOutline {
     return this.#height;
   }
 
-  /** There is room beside the page for the outline. */
-  readonly room = $derived(this.#width > 0 && this.#width >= (this.#page + OUTLINE_WIDTH) * rem());
-
-  readonly mode = $derived<OutlineMode>(
-    this.entries.length < 2 ? 'none' : this.room && !this.folded ? 'side' : 'button',
+  /** There is room beside the page for the outline, the page drawn narrower as far as it must. */
+  readonly room = $derived(
+    this.#width > 0 && this.#width >= (NARROWEST_PAGE + OUTLINE_WIDTH) * rem(),
   );
+
+  /**
+   * Where the outline stands when the page has headings enough for one: beside
+   * the page or behind the button. Kept for a page with fewer, so that the
+   * page is drawn where it would be with one.
+   */
+  readonly where = $derived<'side' | 'button'>(this.room && !this.folded ? 'side' : 'button');
+
+  readonly mode = $derived<OutlineMode>(this.entries.length < 2 ? 'none' : this.where);
 
   /**
    * The list behind the button is out. It is shut again whenever the button goes
@@ -133,14 +161,9 @@ export class PageOutline {
       if (this.#stale) this.#soon();
     });
     changes.observe(element, { childList: true, characterData: true, subtree: true });
-    // A body that grows or shrinks (others' writing above) moves what is being read.
-    const sized =
-      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(this.#soon);
-    sized?.observe(element);
     this.#soon();
     return () => {
       changes.disconnect();
-      sized?.disconnect();
       if (this.#source !== element) return;
       this.#source = undefined;
       this.#chosen = undefined;
@@ -158,23 +181,46 @@ export class PageOutline {
       const padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
       this.#width = element.clientWidth - padding;
       this.#height = element.clientHeight;
+      // A taller or shorter column moves the reading line.
+      this.#soon();
     };
     measure();
     const sized = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
     sized?.observe(element);
-    const moved = (): void => {
-      if (!this.#chosen) return;
-      this.#chosen = undefined;
+    const moving = (): void => {
+      this.#moving = true;
+    };
+    const keyed = (event: KeyboardEvent): void => {
+      this.#moving = movesPage(event);
+    };
+    const scrolled = (): void => {
+      if (this.#moving) this.#chosen = undefined;
       this.#soon();
     };
     for (const name of MOVES)
-      element.addEventListener(name, moved, { passive: true, capture: true });
-    element.addEventListener('scroll', this.#soon, { passive: true });
+      element.addEventListener(name, moving, { passive: true, capture: true });
+    element.addEventListener('keydown', keyed, { passive: true, capture: true });
+    element.addEventListener('scroll', scrolled, { passive: true });
     return () => {
       sized?.disconnect();
-      for (const name of MOVES) element.removeEventListener(name, moved, { capture: true });
-      element.removeEventListener('scroll', this.#soon);
+      for (const name of MOVES) element.removeEventListener(name, moving, { capture: true });
+      element.removeEventListener('keydown', keyed, { capture: true });
+      element.removeEventListener('scroll', scrolled);
       if (this.#scroller === element) this.#scroller = undefined;
+    };
+  };
+
+  /**
+   * For `{@attach}` on what holds the page, its head and its body: its growing
+   * or shrinking moves the headings without a scroll (a picture drawn late,
+   * something above the body that opens, others' writing).
+   */
+  readonly holder = (element: HTMLElement): (() => void) => {
+    const sized =
+      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(this.#soon);
+    sized?.observe(element);
+    return () => {
+      sized?.disconnect();
     };
   };
 
@@ -188,19 +234,21 @@ export class PageOutline {
 
   /**
    * Brings the heading at `at` to the head of the page and the focus to it
-   * (outline-dom.ts says where in the editor); marked as the one being read.
-   * Gives whether the focus went there.
+   * (outline-dom.ts says where in the editor), unless it was chosen by a
+   * finger and the editor would bring up the keyboard; marked as the one
+   * being read. Gives whether the focus went there.
    */
-  go(at: number): boolean {
+  go(at: number, finger = false): boolean {
     const entry = this.entries[at];
     const scroller = this.#scroller;
     if (!entry?.element.isConnected || !scroller) return false;
     this.open = false;
     this.#chosen = entry.element;
+    this.#moving = false;
     this.current = at;
     // The focus first: WebKit brings the caret into sight as the editor takes the
     // focus, which would cut a smooth scroll short; the scroll then starts from there.
-    const focused = focusHeading(entry.element, fingerPointer.current);
+    const focused = focusHeading(entry.element, finger);
     scrollToHeading(scroller, entry.element, this.#head() + MARGIN);
     return focused;
   }

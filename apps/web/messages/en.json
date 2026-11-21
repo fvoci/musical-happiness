@@ -1601,6 +1601,7 @@
   "wiki_move_confirm": "Move",
   "wiki_move_drop_hint": "Drop to put the page here",
   "wiki_outline": "Contents",
+  "wiki_outline_keys": "The arrow keys, Home and End go from heading to heading; Enter goes to the one chosen.",
   "wiki_outline_fold": "Fold the contents away",
   "wiki_outline_unfold": "Show the contents beside the page",
   "app_problem_page_too_deep": "Pages go no more than {limit} levels deep. Nothing was changed.",
