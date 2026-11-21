@@ -61,8 +61,13 @@ async fn write_body(client: &Client, entry: &str, made: &Value, text: &str) -> V
     patched.value()
 }
 
-/// The days of the diary that are written, as `query` asks: each day and its entry.
+/// The days of the diary that are written, as `query` asks, or those of 2024 (the year
+/// the tests write in) where it asks nothing: each day and its entry.
 async fn days(client: &Client, diary: &str, query: &str) -> Vec<(String, String)> {
+    let query = match query {
+        "" => "?from=2024-01-01&to=2024-12-31",
+        query => query,
+    };
     let listed = client.get(&format!("{diary}/days{query}")).await;
     listed.check_ok();
     let listed = listed.value();
@@ -158,7 +163,8 @@ async fn a_day_has_one_entry_whoever_asks_for_it() {
         (&json!(last_of(&diary)), &Value::Null, &json!("2024-02-29")),
         "{entry}"
     );
-    let listed = client.get(&format!("{diary}/days")).await;
+    let listed = format!("{diary}/days?from=2024-02-01&to=2024-02-29");
+    let listed = client.get(&listed).await;
     assert_eq!(
         listed.value(),
         json!([{"date": "2024-02-29", "entryId": id_of(&one), "mood": "good"}]),
@@ -226,7 +232,14 @@ async fn the_day_of_an_entry_is_a_day_of_the_calendar_not_far_ahead() {
         written(client, &diary, &json!({"date": ahead(days)})).await;
     }
     written(client, &diary, &json!({"date": "1987-06-10"})).await;
-    assert_eq!(days(client, &diary, "").await.len(), 5);
+    for (from, to, written) in [
+        (ahead(-1), ahead(2), 3),
+        ("1987-06-10".to_owned(), "1987-06-10".to_owned(), 1),
+        ("2024-03-01".to_owned(), "2024-03-01".to_owned(), 1),
+    ] {
+        let listed = days(client, &diary, &format!("?from={from}&to={to}")).await;
+        assert_eq!(listed.len(), written, "from {from} to {to}");
+    }
     th.teardown().await;
 }
 
@@ -265,21 +278,40 @@ async fn the_days_of_a_diary_are_read_by_month_and_day_and_by_range() {
         listed.into_iter().map(|(date, _)| date).collect()
     };
     assert_eq!(
-        dates("").await,
-        ["2020-02-28", "2020-02-29", "2023-02-28", "2024-02-29"]
+        dates("?from=2020-01-01&to=2020-12-31").await,
+        ["2020-02-28", "2020-02-29"]
     );
     assert_eq!(
         dates("?from=2024-02-01&to=2024-02-29").await,
         ["2024-02-29"]
     );
-    assert_eq!(dates("?from=2020-02-29&to=2023-02-28").await.len(), 2);
-    assert_eq!(dates("?from=2024-03-01").await, [""; 0]);
-    assert_eq!(dates("?to=2020-02-28").await, ["2020-02-28"]);
-    for (query, place) in [("?from=2024-02-30", "from"), ("?to=march", "to")] {
+    // A year at most, both of its ends counted; a range that ends before it begins is
+    // of no days.
+    assert_eq!(
+        dates("?from=2023-02-28&to=2024-02-28").await,
+        ["2023-02-28"]
+    );
+    assert_eq!(dates("?from=2024-03-01&to=2024-03-31").await, [""; 0]);
+    assert_eq!(dates("?from=2024-03-01&to=2020-01-01").await, [""; 0]);
+    for (query, place) in [
+        ("?from=2024-02-30&to=2024-03-01", "from"),
+        ("?from=2024-02-01&to=march", "to"),
+        ("", "from"),
+        ("?to=2024-02-01", "from"),
+        ("?from=2024-02-01", "to"),
+        ("?from=2023-02-28&to=2024-02-29", "to"),
+    ] {
         let refused = client.get(&format!("{diary}/days{query}")).await;
         refused.check_bad_request();
-        assert_eq!(refused.refused_at(), format!("parameter {place}"));
+        assert_eq!(
+            refused.refused_at(),
+            format!("parameter {place}"),
+            "{query}"
+        );
     }
+    let too_wide = format!("{diary}/days?from=2023-02-28&to=2024-02-29");
+    let too_wide = client.get(&too_wide).await.value();
+    assert_eq!(too_wide["limit"], json!(fvoci_model::DAYS_PER_LIST));
     th.teardown().await;
 }
 
@@ -576,11 +608,13 @@ async fn an_archive_puts_a_diary_in_a_space_alone_and_as_a_diary_is() {
     });
     let a_card = spoiled(&archive, &|more, _| more["data"]["type"] = json!("card"));
     let no_day = spoiled(&archive, &|more, _| another_day(more, "2019-02-30"));
+    let to_come = spoiled(&archive, &|more, _| another_day(more, "9999-12-31"));
     for (what, spoiled) in [
         ("a day twice", twice),
         ("an entry below an entry", below),
         ("a card", a_card),
         ("a day that is none", no_day),
+        ("a day yet to come", to_come),
     ] {
         let refused = crate::export::import(client, &own, &spoiled).await;
         let (status, text) = (refused.status, refused.text());
@@ -595,6 +629,65 @@ async fn an_archive_puts_a_diary_in_a_space_alone_and_as_a_diary_is() {
             .check_ok();
     }
     assert_eq!(stored().await, ["3"]);
+    th.teardown().await;
+}
+
+/// An archive whose diaries the workspace does not take stores nothing, not the board
+/// that comes before a diary in it either: no workspace of an organization of people
+/// takes a diary, and a space takes no more diaries than it may have.
+#[tokio::test]
+async fn an_archive_with_diaries_a_workspace_does_not_take_stores_nothing() {
+    let (th, ws) = in_a_space().await;
+    let client = &th.client;
+    let own = last_of(&ws).to_owned();
+    let board = json!({"type": "P", "title": "Beside the diaries"});
+    let board = client.post(&format!("{ws}/boards"), &board).await;
+    assert!(board.status.is_success(), "{}", board.text());
+    let (_, _, one_diary) = an_archived_diary(client, &ws).await;
+    a_diary(client, &ws).await;
+    let whole = client.get(&format!("{ws}/archive/export")).await;
+    whole.check_ok();
+    // The board first, as an archive may have it: it would be stored before a diary
+    // is refused.
+    let of_a_diary = |lines: &Vec<Value>| lines.iter().any(|line| line["data"]["kind"] == "diary");
+    let mut files = archive_lines(&whole.body);
+    files.sort_by_key(|(_, lines)| of_a_diary(lines));
+    let diaries = files.iter().filter(|(_, lines)| of_a_diary(lines)).count();
+    let boards = files
+        .iter()
+        .filter(|(name, _)| name.ends_with("board.jsonl"));
+    assert_eq!((boards.count(), diaries), (3, 2), "a board and two diaries");
+    let whole = archive_of_lines(&files);
+    let stored = async || {
+        let count = "SELECT CAST(count(*) AS TEXT) FROM containers";
+        let counted = th.app.store().system().texts_unchecked(count).await;
+        counted.expect("counted")
+    };
+
+    let before = stored().await;
+    let refused = crate::export::import(client, ROOT_WORKSPACE_ID, &whole).await;
+    refused.check_bad_request();
+    assert_eq!(stored().await, before, "nor the board beside the diaries");
+    // One diary short of full, the space has no room for the two of the archive.
+    for _ in 2..DIARIES_PER_SPACE - 1 {
+        a_diary(client, &ws).await;
+    }
+    let before = stored().await;
+    let refused = crate::export::import(client, &own, &whole).await;
+    refused.check_bad_request();
+    assert_eq!(
+        refused.error_reason(),
+        "too_many_diaries",
+        "{}",
+        refused.text()
+    );
+    assert_eq!(stored().await, before, "nor the board beside the diaries");
+    crate::export::import(client, &own, &one_diary)
+        .await
+        .check_ok();
+    let listed = client.get(&format!("{ws}/diaries")).await.value();
+    let most = usize::try_from(DIARIES_PER_SPACE).expect("a count");
+    assert_eq!(listed.as_array().map(Vec::len), Some(most));
     th.teardown().await;
 }
 

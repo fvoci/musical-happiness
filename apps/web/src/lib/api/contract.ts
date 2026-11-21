@@ -3010,9 +3010,9 @@ export interface paths {
          * The days of a diary that are written
          * @description Each day of the diary that has an entry, from `from` to `to` (each included), the
          *     earliest first: its `date`, its entry (`entryId`) and the entry's `mood`, and nothing
-         *     else of the entry. For a calendar, and for counting the days written in a row: the
-         *     range is as wide as it is asked, and without `from` and `to` every day the diary has
-         *     is listed (at most 40,000). Entries in the trash have no day.
+         *     else of the entry. For a calendar: a month, or as much as a year (366 days) at once.
+         *     400 at the parameter for a range that is wider or has no `from` or `to`; one that
+         *     ends before it begins lists nothing. Entries in the trash have no day.
          */
         get: operations["getDiaryDays"];
         put?: never;
@@ -11839,11 +11839,11 @@ export interface operations {
     };
     getDiaryDays: {
         parameters: {
-            query?: {
-                /** @description The first day to list, as `2026-11-01`. Left out, from the first day written. 400 for what is no day. */
-                from?: string;
-                /** @description The last day to list, as `2026-11-30`. Left out, to the last day written. 400 for what is no day. */
-                to?: string;
+            query: {
+                /** @description The first day to list, as `2026-11-01`. 400 for what is no day, and where it is left out. */
+                from: string;
+                /** @description The last day to list, as `2026-11-30`, at most 365 days after the first. 400 for what is no day, and where it is left out. */
+                to: string;
             };
             header?: never;
             path: {

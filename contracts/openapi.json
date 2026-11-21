@@ -12822,7 +12822,7 @@
     },
     "/api/v1/w/{workspaceId}/diaries/{diaryId}/days": {
       "get": {
-        "description": "Each day of the diary that has an entry, from `from` to `to` (each included), the\nearliest first: its `date`, its entry (`entryId`) and the entry's `mood`, and nothing\nelse of the entry. For a calendar, and for counting the days written in a row: the\nrange is as wide as it is asked, and without `from` and `to` every day the diary has\nis listed (at most 40,000). Entries in the trash have no day.",
+        "description": "Each day of the diary that has an entry, from `from` to `to` (each included), the\nearliest first: its `date`, its entry (`entryId`) and the entry's `mood`, and nothing\nelse of the entry. For a calendar: a month, or as much as a year (366 days) at once.\n400 at the parameter for a range that is wider or has no `from` or `to`; one that\nends before it begins lists nothing. Entries in the trash have no day.",
         "operationId": "getDiaryDays",
         "parameters": [
           {
@@ -12844,19 +12844,19 @@
             }
           },
           {
-            "description": "The first day to list, as `2026-11-01`. Left out, from the first day written. 400 for what is no day.",
+            "description": "The first day to list, as `2026-11-01`. 400 for what is no day, and where it is left out.",
             "in": "query",
             "name": "from",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }
           },
           {
-            "description": "The last day to list, as `2026-11-30`. Left out, to the last day written. 400 for what is no day.",
+            "description": "The last day to list, as `2026-11-30`, at most 365 days after the first. 400 for what is no day, and where it is left out.",
             "in": "query",
             "name": "to",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             }

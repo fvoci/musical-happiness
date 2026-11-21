@@ -54,6 +54,10 @@ pub const ENTRIES_PER_DIARY: u32 = 40_000;
 /// keep a diary from being filled with days far to come.
 pub const ENTRY_DAYS_AHEAD: i32 = 2;
 
+/// How many days of a diary one list of its written days spans at most: a year, the
+/// most a calendar shows at once. A diary is not read whole for its days.
+pub const DAYS_PER_LIST: u16 = 366;
+
 /// A day of the calendar, as a diary's entry is of one: no time and no time zone, since
 /// the day is the one its writer's device said it was. Written `2026-11-21`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -491,6 +495,14 @@ impl NewDiaryEntry {
 }
 
 impl DiaryDate {
+    /// Whether the days from this one to `to` are no more than are listed at once
+    /// ([`DAYS_PER_LIST`]). A range that ends before it begins is of no days.
+    #[must_use]
+    pub fn lists_to(self, to: Self) -> bool {
+        self.plus_days(i32::from(DAYS_PER_LIST) - 1)
+            .is_none_or(|last| to <= last)
+    }
+
     /// Whether an entry of this day may be made when the server's own day is `today`:
     /// any day up to [`ENTRY_DAYS_AHEAD`] days past it.
     #[must_use]

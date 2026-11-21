@@ -8,8 +8,8 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Block, Container, ContainerKind, ContainerType, DeletedDiaryEntry, DiaryDate, DiaryDay,
-    DiaryEntry, DiaryEntryPatch, DiaryMaking, MonthDay, NewDiaryEntry,
+    Block, Container, ContainerKind, ContainerType, DAYS_PER_LIST, DeletedDiaryEntry, DiaryDate,
+    DiaryDay, DiaryEntry, DiaryEntryPatch, DiaryMaking, MonthDay, NewDiaryEntry,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -154,13 +154,15 @@ pub(super) async fn entry_with_permission(
     ws.app.diary_entry_of(diary_id, entry_id).await
 }
 
-/// A day a query names, or none where it names none.
-fn day_param(query: Option<&str>, name: &str) -> Result<Option<DiaryDate>, AppError> {
+/// The day a query names, which it must.
+fn day_param(query: Option<&str>, name: &str) -> Result<DiaryDate, AppError> {
     match query_param(query, name).as_str() {
-        "" => Ok(None),
+        "" => Err(AppError::bad_request(format_args!(
+            "the days of a diary are listed from a day to a day: `{name}` is left out"
+        ))
+        .with_parameter(name)),
         day => day
             .parse()
-            .map(Some)
             .map_err(|error| AppError::bad_request(error).with_parameter(name)),
     }
 }
@@ -169,9 +171,9 @@ fn day_param(query: Option<&str>, name: &str) -> Result<Option<DiaryDate>, AppEr
 ///
 /// Each day of the diary that has an entry, from `from` to `to` (each included), the
 /// earliest first: its `date`, its entry (`entryId`) and the entry's `mood`, and nothing
-/// else of the entry. For a calendar, and for counting the days written in a row: the
-/// range is as wide as it is asked, and without `from` and `to` every day the diary has
-/// is listed (at most 40,000). Entries in the trash have no day.
+/// else of the entry. For a calendar: a month, or as much as a year (366 days) at once.
+/// 400 at the parameter for a range that is wider or has no `from` or `to`; one that
+/// ends before it begins lists nothing. Entries in the trash have no day.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/diaries/{diaryId}/days",
@@ -195,9 +197,15 @@ async fn handle_get_diary_days(
     .await?;
     let query = query.as_deref();
     let (from, to) = (day_param(query, "from")?, day_param(query, "to")?);
-    Ok(json_response(
-        &ws.app.diary_days(&diary_id, from, to).await?,
-    ))
+    if !from.lists_to(to) {
+        return Err(AppError::bad_request(format_args!(
+            "at most {DAYS_PER_LIST} days of a diary are listed at once"
+        ))
+        .with_parameter("to")
+        .with_limit(u64::from(DAYS_PER_LIST)));
+    }
+    let days = ws.app.diary_days(&diary_id, Some(from), Some(to)).await?;
+    Ok(json_response(&days))
 }
 
 /// The entries of a month and day in every year

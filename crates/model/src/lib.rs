@@ -105,10 +105,11 @@ pub use date_value::{
 };
 pub use deleted_item::DeletedItem;
 pub use diary::{
-    DIARIES_PER_SPACE, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryEntry, DiaryEntryPatch,
-    DiaryMaking, ENTRIES_PER_DIARY, ENTRY_DATE_FIELD, ENTRY_DAYS_AHEAD, ENTRY_MOOD_FIELD,
-    ENTRY_NOTE_MAX_CHARS, ENTRY_PLACE_FIELD, ENTRY_WEATHER_FIELD, MonthDay, Mood, MoodChange,
-    NewDiaryEntry, ParseDiaryDateError, ParseMonthDayError, ParseMoodError, entry_date, entry_mood,
+    DAYS_PER_LIST, DIARIES_PER_SPACE, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryEntry,
+    DiaryEntryPatch, DiaryMaking, ENTRIES_PER_DIARY, ENTRY_DATE_FIELD, ENTRY_DAYS_AHEAD,
+    ENTRY_MOOD_FIELD, ENTRY_NOTE_MAX_CHARS, ENTRY_PLACE_FIELD, ENTRY_WEATHER_FIELD, MonthDay, Mood,
+    MoodChange, NewDiaryEntry, ParseDiaryDateError, ParseMonthDayError, ParseMoodError, entry_date,
+    entry_mood,
 };
 pub use file_info::{FileInfo, FileKey, is_storage_path};
 pub use file_lease::{FileLease, FileLeaseRequest, HeldFileLease};

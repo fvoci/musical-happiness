@@ -17,7 +17,9 @@ use fvoci_model::{
 use crate::block_derived::Refreshing;
 use crate::blocks::{self, Paging};
 use crate::db::{Dialect, Id, Param, Scope, Sql, now_millis};
-use crate::trash::{block_from_json, block_not_in_trash, push_paging, take_blocks_out_of_trash};
+use crate::trash::{
+    block_from_json, block_not_in_trash, from_json, push_paging, take_blocks_out_of_trash,
+};
 use crate::{Store, StoreError, containers, directory, org_admin, workspace_membership};
 
 /// What [`Store::create_diary`] did.
@@ -140,6 +142,24 @@ impl Store {
             blocks::fetch_blocks(scope, sql).await
         })
         .await
+    }
+
+    /// Checks that `coming` more diaries may be made in the workspace, as each is
+    /// checked when it is made: for what makes several at once and would be left with
+    /// some of them, asked before the first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::InvalidContainer`] if the workspace is not of a user's own
+    /// space ([`ContainerError::DiaryOffOwnSpace`]) or would have more diaries than a
+    /// space may ([`ContainerError::TooManyDiaries`]).
+    pub async fn check_room_for_diaries(
+        &self,
+        workspace_id: &str,
+        coming: u32,
+    ) -> Result<(), StoreError> {
+        self.transaction(async |scope| check_space(scope, workspace_id, coming).await)
+            .await
     }
 
     /// The days of the diary that have an entry, from `from` to `to` (each included;
@@ -407,11 +427,22 @@ pub(crate) async fn check_place(
     if container.kind != ContainerKind::Diary {
         return Ok(());
     }
+    check_space(scope, &container.workspace_id, 1).await
+}
+
+/// Checks that `coming` more diaries may be in the workspace: it is of a user's own
+/// space, and with them it has no more diaries than a space may have. The workspace is
+/// held from before its diaries are counted.
+async fn check_space(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    coming: u32,
+) -> Result<(), StoreError> {
     let mut sql = scope.sql(
         "SELECT o.kind FROM workspaces AS w JOIN organizations AS o ON o.id = w.org_id \
          WHERE w.id = ",
     );
-    sql.bind(Id(&container.workspace_id));
+    sql.bind(Id(workspace_id));
     if scope.dialect() == Dialect::Postgres {
         // One diary is put down in a workspace at a time: the count below is of what
         // is there when this one is.
@@ -426,17 +457,39 @@ pub(crate) async fn check_place(
     }
     let mut sql =
         scope.sql("SELECT CAST(COUNT(*) AS BIGINT) FROM containers WHERE workspace_id = ");
-    sql.bind(Id(&container.workspace_id))
+    sql.bind(Id(workspace_id))
         .push_bind(" AND kind = ", ContainerKind::Diary.as_str());
     let diaries = match scope.fetch_optional(sql).await? {
         Some(row) => row.int(0)?,
         None => 0,
     };
-    if diaries >= i64::from(DIARIES_PER_SPACE) {
+    if diaries.saturating_add(i64::from(coming)) > i64::from(DIARIES_PER_SPACE) {
         return Err(ContainerError::TooManyDiaries {
             limit: DIARIES_PER_SPACE,
         }
         .into());
+    }
+    Ok(())
+}
+
+/// Holds the workspace of a diary that is in the trash, before the row of the trash is
+/// held to bring it back: a workspace is held before the trash, and [`check_place`]
+/// holds this one. Nothing is held for what is no diary, or is not in the trash.
+pub(crate) async fn hold_place_of_deleted(
+    scope: &mut Scope<'_>,
+    container_id: &str,
+) -> Result<(), StoreError> {
+    if scope.dialect() != Dialect::Postgres {
+        return Ok(());
+    }
+    let mut sql = scope.sql("SELECT container FROM deleted_containers WHERE id = ");
+    sql.bind(Id(container_id));
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Ok(());
+    };
+    let container: Container = from_json(&row, 0, "container")?;
+    if container.kind == ContainerKind::Diary {
+        workspace_membership::hold_workspace(scope, &container.workspace_id).await?;
     }
     Ok(())
 }
@@ -473,17 +526,20 @@ pub(crate) async fn refresh(
         })
     })?;
     let day = date.to_string();
-    let mood = || Param::OptText(entry_mood(block).map(|mood| mood.as_str().to_owned()));
-    let mut sql = scope.sql("SELECT day FROM diary_days WHERE entry_id = ");
+    let mood = entry_mood(block).map(|mood| mood.as_str().to_owned());
+    let mut sql = scope.sql("SELECT day, mood FROM diary_days WHERE entry_id = ");
     sql.bind(Id(&block.id));
     if let Some(row) = scope.fetch_optional(sql).await? {
         if row.text(0)? != day {
             return Err(invalid(BlockError::EntryDateChanges));
         }
-        let mut sql = scope.sql("UPDATE diary_days SET mood = ");
-        sql.bind(mood())
-            .push_bind(" WHERE entry_id = ", Id(&block.id));
-        scope.execute(sql).await?;
+        // Most writes of an entry are of its body, and leave its row as it is.
+        if row.opt_text(1)? != mood {
+            let mut sql = scope.sql("UPDATE diary_days SET mood = ");
+            sql.bind(Param::OptText(mood))
+                .push_bind(" WHERE entry_id = ", Id(&block.id));
+            scope.execute(sql).await?;
+        }
         return Ok(());
     }
     if entry_of_day(scope, &block.container_id, &day)
@@ -498,7 +554,7 @@ pub(crate) async fn refresh(
         .push_bind(", ", day)
         .push_bind(", ", date.month_day().to_string())
         .push_bind(", ", Id(&block.id))
-        .push_bind(", ", mood())
+        .push_bind(", ", Param::OptText(mood))
         .push(")");
     scope.execute(sql).await?;
     Ok(())

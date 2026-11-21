@@ -8,12 +8,13 @@
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
-    Block, BlockError, BlockType, ContainerKind, ContainersAndBlocks, PageLimits, PageNode,
-    PageTree,
+    Block, BlockError, BlockType, ContainerKind, ContainersAndBlocks, DiaryDate, PageLimits,
+    PageNode, PageTree,
 };
 use fvoci_store::StoreError;
 
 use crate::app::pages::refused_without_member;
+use crate::auth::now_millis;
 use crate::error::AppError;
 
 /// Checks the blocks of each board of `containers_and_blocks` against the kind of their
@@ -158,8 +159,9 @@ fn check_type(block: &Block, kind: ContainerKind) -> Result<(), AppError> {
 }
 
 /// Checks that the entries of the diary are no more than a diary may have, and each of
-/// a day of its own: what the store refuses one entry at a time, said of the archive
-/// before anything of it is stored. An entry that says no day is the store's to refuse.
+/// a day of its own that an entry may be made on today: what the store refuses one
+/// entry at a time and a request for an entry is refused, said of the archive before
+/// anything of it is stored. An entry that says no day is the store's to refuse.
 fn check_days(diary_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
     let limit = fvoci_model::ENTRIES_PER_DIARY;
     if blocks.len() > usize::try_from(limit).unwrap_or(usize::MAX) {
@@ -169,11 +171,19 @@ fn check_days(diary_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
         }
         .into());
     }
+    let today = DiaryDate::of_utc_millis(now_millis());
     let mut days = HashSet::new();
     for block in blocks {
-        if let Some(date) = fvoci_model::entry_date(block)
-            && !days.insert(date)
-        {
+        let Some(date) = fvoci_model::entry_date(block) else {
+            continue;
+        };
+        // No export holds such a day: none was ever made.
+        if today.is_some_and(|today| !date.is_within_reach_of(today)) {
+            return Err(AppError::bad_request(format_args!(
+                "the archive's diary {diary_id} has an entry of {date}, a day that is yet to come"
+            )));
+        }
+        if !days.insert(date) {
             // Of the archive, which is wrong in itself: no day of a diary that is
             // there is taken.
             return Err(AppError::bad_request(format_args!(

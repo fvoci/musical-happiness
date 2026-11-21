@@ -417,24 +417,44 @@ async fn fill(test: &common::TestStore, own: &Store, diary_id: &str, user_id: &s
     }
 }
 
-/// What the plan of a read of a diary must say: an index of its days, and no table
+/// What the plan of a read of a diary must say, the entries of a month and day first
+/// and the days of a month second: the days are found by the index the read is for, an
+/// entry by its own key and not by going through those of its diary, and no table is
 /// read through.
-fn check_plan(plan: &str) {
-    match db_type() {
-        DbType::Sqlite => {
-            assert!(!plan.contains("SCAN"), "a table is read through: {plan}");
-            assert!(
-                plan.contains("diary_days_month_day_idx")
-                    || plan.contains("sqlite_autoindex_diary_days"),
-                "{plan}"
-            );
-        }
-        DbType::Postgres => {
-            assert!(
-                !plan.contains("Seq Scan"),
-                "a table is read through: {plan}"
-            );
-        }
+fn check_plan(read: usize, plan: &str) {
+    let (through, said): (&str, [&[&str]; 2]) = match db_type() {
+        DbType::Sqlite => (
+            "SCAN",
+            [
+                &[
+                    "diary_days_month_day_idx (container_id=? AND month_day=?)",
+                    "SEARCH blocks USING INDEX",
+                    "AND id=?)",
+                ],
+                &[
+                    "SEARCH diary_days USING INDEX",
+                    "(container_id=? AND day>? AND day<?)",
+                ],
+            ],
+        ),
+        DbType::Postgres => (
+            "Seq Scan",
+            [
+                &[
+                    "diary_days_month_day_idx",
+                    "blocks_pkey",
+                    "(id = d.entry_id)",
+                ],
+                &["diary_days_pkey", "(day >= "],
+            ],
+        ),
+    };
+    assert!(!plan.contains(through), "a table is read through: {plan}");
+    for part in said[read] {
+        assert!(
+            plan.contains(part),
+            "the plan does not say `{part}`: {plan}"
+        );
     }
 }
 
@@ -500,10 +520,12 @@ async fn a_full_diary_answers_for_a_day_without_being_read() {
         all.len(),
         usize::try_from(ENTRIES_PER_DIARY).expect("a count")
     );
-    for ((name, plan), took) in ["the entries of 11-21 in every year", "the days of a month"]
-        .into_iter()
-        .zip(&plans)
-        .zip(took)
+    for (read, ((name, plan), took)) in
+        ["the entries of 11-21 in every year", "the days of a month"]
+            .into_iter()
+            .zip(&plans)
+            .zip(took)
+            .enumerate()
     {
         println!(
             "{name}, of {ENTRIES_PER_DIARY} entries on {:?}: {:?} a read; the plan:\n  {}",
@@ -511,7 +533,7 @@ async fn a_full_diary_answers_for_a_day_without_being_read() {
             took / RUNS,
             plan.join("\n  ")
         );
-        check_plan(&plan.join("\n"));
+        check_plan(read, &plan.join("\n"));
     }
     test.teardown().await;
 }

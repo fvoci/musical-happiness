@@ -444,6 +444,12 @@ impl World {
             .replace("{partNumber}", "1")
             .replace("{version}", "1")
             .replace("{leaseId}", "no-lease");
+        // The one operation of the table that asks its query for something.
+        let path = if operation == "getDiaryDays" {
+            format!("{path}?from=2026-11-01&to=2026-11-30")
+        } else {
+            path
+        };
         assert!(
             !path.contains('{'),
             "{operation}: a parameter of {path} is not filled in"

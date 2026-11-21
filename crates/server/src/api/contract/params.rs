@@ -112,7 +112,7 @@ parameter!(TitleTerm: Query "q", String, False, "The words to look for in titles
 parameter!(SearchField: Query "field", String, False, "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.");
 parameter!(ContentText: Query "q", String, False, "The words to find, at most 200 characters. Without it nothing is found.");
 parameter!(ContentKind: Query "kind", String, False, "The kind of thing to find: `card`, `page` or `entry`. Left out, every kind. Anything else is 400.");
-parameter!(DaysFrom: Query "from", String, False, "The first day to list, as `2026-11-01`. Left out, from the first day written. 400 for what is no day.");
-parameter!(DaysTo: Query "to", String, False, "The last day to list, as `2026-11-30`. Left out, to the last day written. 400 for what is no day.");
+parameter!(DaysFrom: Query "from", String, True, "The first day to list, as `2026-11-01`. 400 for what is no day, and where it is left out.");
+parameter!(DaysTo: Query "to", String, True, "The last day to list, as `2026-11-30`, at most 365 days after the first. 400 for what is no day, and where it is left out.");
 parameter!(ContentLimit: Query "limit", i64, False, "How many hits to answer with at most, from 1 to 50; 20 if left out.");
 parameter!(UserSearch: Query "search", String, False, "Narrows the list to users whose name has this text in it. In the text `%` stands for any text and `_` for any one character. Whether the case of letters counts depends on the database the server runs on.");

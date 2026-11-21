@@ -399,7 +399,11 @@ async fn keep_a_diary(case: &mut Case) {
     let versions = format!("{entry}/body-versions");
     for (operation, method, path) in [
         ("getDiaryEntry", &get, entry.clone()),
-        ("getDiaryDays", &get, format!("{diary}/days")),
+        (
+            "getDiaryDays",
+            &get,
+            format!("{diary}/days?from=2024-02-01&to=2024-02-29"),
+        ),
         ("getDiaryEntriesOn", &get, format!("{diary}/days/02-29")),
         ("getDiaryEntryBodyVersions", &get, versions.clone()),
         ("getDiaryEntryBodyVersion", &get, format!("{versions}/1")),
