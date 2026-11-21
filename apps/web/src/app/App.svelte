@@ -69,6 +69,7 @@
   import { keepReturn, resume, takeReturn } from './return-to.ts';
   import { placeRoute, type Router } from './router.svelte.ts';
   import { signInOrganizations, signInWays } from './sign-in-organizations.ts';
+  import EmailChangeHost from './EmailChangeHost.svelte';
   import PasswordNoticeHost from './PasswordNoticeHost.svelte';
   import { Administered } from './administered.svelte.ts';
   import WorkspacePane from './WorkspacePane.svelte';
@@ -269,6 +270,7 @@
   {#if account && workspace}
     {@const of = account}
     {@const mine = workspace.workspaces}
+    <EmailChangeHost {workspace} account={of} />
     <LinkedSignIns
       read={() => signedIn(() => of.identities())}
       organizations={() => signInOrganizations(mine, (orgId) => of.loginOptions(orgId))}

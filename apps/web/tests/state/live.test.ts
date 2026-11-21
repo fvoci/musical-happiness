@@ -274,6 +274,26 @@ describe('changes from the server', () => {
     expect(self).toEqual([{ kind: 'resync' }]);
   });
 
+  it('asks again for its workspace on the connection it has, once the session opens it', async () => {
+    const { live, socket } = await connected();
+    // As the server ends the own space for a session that has not shown the password.
+    socket.message({ action: 'UNSUBSCRIBED_WORKSPACE', workspaceId: 't' });
+    live.askAgain();
+    expect(FakeSocket.made).toHaveLength(1);
+    expect(socket.closed).toBe(false);
+    expect(socket.sent).toEqual([
+      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
+      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
+      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
+    ]);
+  });
+
+  it('asks for nothing again before it follows anything', () => {
+    const live = new LiveChanges('ws://here/ws', reads);
+    live.askAgain();
+    expect(FakeSocket.made).toHaveLength(0);
+  });
+
   it('opens again at once after signing in, and has everyone read again', async () => {
     const { live, socket, board } = await connected();
     live.restart();

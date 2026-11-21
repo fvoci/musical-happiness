@@ -129,6 +129,11 @@ test('an invited member works alone in their own space, shares by link, and is t
   await boardFromStart(page);
   const boardAddress = page.url();
   await expect(page.getByTestId('board-people')).toHaveCount(0);
+  // Something is made here: the account, which has a password, is told once where its reset mail goes.
+  const told = page.getByTestId('email-notice');
+  await expect(told).toContainText('If that is a company address, change it to a personal one');
+  await told.getByTestId('email-notice-dismiss').click();
+  await expect(told).toHaveCount(0);
   const openShare = async (seen: Page): Promise<void> => {
     await seen.getByTestId('share-board').click();
     await expect(seen.getByTestId('share-public-section')).toBeVisible();
@@ -145,6 +150,7 @@ test('an invited member works alone in their own space, shares by link, and is t
   await page.reload();
   await expect(page.getByTestId('board-page')).toBeVisible();
   expect(page.url()).toBe(boardAddress);
+  await expect(page.getByTestId('email-notice')).toHaveCount(0);
   await showSidebar(page);
   await expect(switcher(page)).toHaveAccessibleName('Switch workspace: My space');
 
@@ -291,6 +297,8 @@ test('an account of single sign-on only is asked once in its own space to set a 
     });
     const renamed = await page.request.patch(`/api/v1/w/${ownId}/containers/${boardId}`, {
       data: { title: 'Renamed elsewhere' },
+      // As the app sends every request that changes something.
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
     });
     expect(renamed.ok(), await renamed.text()).toBe(true);
     await expect(page.getByTestId('top-bar').getByTestId('board-title')).toHaveValue(

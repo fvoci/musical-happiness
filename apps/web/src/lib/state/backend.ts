@@ -78,7 +78,13 @@ export * from './problems.ts';
 
 export interface User extends UserNames {
   id: string;
+  /** Of the reader's own user only where the backend has accounts: nobody is told another's. */
   email: string;
+  /**
+   * Only on the reader's own user: the address the account waits to change
+   * to, until the link mailed there is opened (`Account.emailChange`).
+   */
+  pendingEmail?: string | undefined;
   /**
    * The parts of the name, which of them the user is shown by
    * (`displayName` is made of them), the title and the credentials: whoever

@@ -60,7 +60,14 @@ export { WikiStore, type PageLooks, type WikiLooks } from './wiki.svelte.ts';
 export { createWiki } from './wiki-parts.ts';
 export { shownWiki } from './shown-wiki.svelte.ts';
 export type { PageDraft, PageMove, WikiDraft, WikiPage, WikiPageDetail } from './wiki-types.ts';
-export { changeName, confirmPassword, passwordChanged, passwordSet } from './account.ts';
+export {
+  changeName,
+  confirmPassword,
+  passwordChanged,
+  passwordSet,
+  rereadEmail,
+} from './account.ts';
+export type { EmailChange } from './email-change.ts';
 export { whileHere } from './here.ts';
 export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from './people.ts';
 export type {

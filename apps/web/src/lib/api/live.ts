@@ -186,6 +186,15 @@ export class LiveChanges {
     }
   }
 
+  /**
+   * Asks again for the workspace it follows, on the connection it has: the
+   * session opens now what the server ended or ignored before (its own space,
+   * once it has shown the account's password). Who asked reads again.
+   */
+  askAgain(): void {
+    this.#send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId: this.#workspaceId }));
+  }
+
   watch(containerId: string | undefined, listener: ChangeListener): () => void {
     const entry: Listening = { containerId, listener };
     this.#listening.add(entry);

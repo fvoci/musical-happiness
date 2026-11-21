@@ -88,6 +88,20 @@ export async function confirmPassword(workspace: Workspace, password: string): P
   }
 }
 
+/**
+ * Reads the account's address anew, and the one it waits to change to: after
+ * the reader asked for a change or took one back, and where the settings show
+ * them, since the link is mostly opened in another browser. A failed reading
+ * leaves them as they were.
+ */
+export async function rereadEmail(workspace: Workspace): Promise<void> {
+  const read = await workspace.backend.me().catch(() => undefined);
+  const me = workspace.me;
+  if (read && me?.id === read.id) {
+    workspace.me = { ...me, email: read.email, pendingEmail: read.pendingEmail };
+  }
+}
+
 /** Puts the user as they are now wherever the workspace holds them. */
 export function takeUser(workspace: Workspace, changed: User): void {
   const replace = (users: User[]): User[] =>
@@ -99,6 +113,8 @@ export function takeUser(workspace: Workspace, changed: User): void {
       ...changed,
       isAdmin: changed.isAdmin ?? me.isAdmin,
       hasPassword: changed.hasPassword ?? me.hasPassword,
+      email: changed.email || me.email,
+      pendingEmail: changed.pendingEmail ?? me.pendingEmail,
     };
   }
   workspace.users = workspace.user(changed.id)

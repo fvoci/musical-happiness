@@ -27,6 +27,7 @@ import type {
 import type { Registered } from '../state/account-types.ts';
 import { BackendError } from '../state/backend.ts';
 import type { BodyVersions } from '../state/body-versions.ts';
+import type { EmailChange } from '../state/email-change.ts';
 import type { FileVersions } from '../state/file-versions.ts';
 import type { People } from '../state/people-types.ts';
 import type { References } from '../state/references.ts';
@@ -34,6 +35,7 @@ import type { References } from '../state/references.ts';
 import { ServerBodyVersions } from './body-versions.ts';
 import { ServerFileVersions } from './file-versions.ts';
 import { containerOf, workspacesOf, userOf, type Schemas } from './convert.ts';
+import { ServerEmailChange } from './email-change.ts';
 import type { ApiPath, Http, RequestOptions } from './http.ts';
 import { ServerPeople } from './people.ts';
 import { ServerReferences } from './references.ts';
@@ -83,6 +85,7 @@ export class ServerRequests implements TrashReads {
   readonly fileVersions: FileVersions;
   /** What bodies name, as the reader may see it. */
   readonly references: References;
+  readonly emailChange: EmailChange;
   /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
   #workspaceId: string | undefined;
   /**
@@ -95,6 +98,7 @@ export class ServerRequests implements TrashReads {
   constructor(http: Http) {
     this.#http = http;
     this.people = new ServerPeople(http);
+    this.emailChange = new ServerEmailChange(http);
     this.bodyVersions = new ServerBodyVersions((path, params, options) =>
       this.inWorkspace(path, params, options),
     );
@@ -380,10 +384,11 @@ export class ServerRequests implements TrashReads {
     );
   }
 
-  /** The reader, with what only they are told of their account: whether it has a password. */
+  /** The reader, with what only they are told of their account: its address, whether it has a password. */
   async me(): Promise<User> {
     const me = await this.#http.request<Schemas['Me']>('/api/v1/users/me');
-    return { ...userOf(me), hasPassword: me.hasPassword };
+    const { email, pendingEmail, hasPassword } = me;
+    return { ...userOf(me), email, pendingEmail: pendingEmail ?? undefined, hasPassword };
   }
 
   /**

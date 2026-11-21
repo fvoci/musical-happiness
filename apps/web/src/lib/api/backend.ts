@@ -120,6 +120,12 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     this.#live.restart();
   }
 
+  /** The connection stays, and asks again for what the server kept from the session until now. */
+  override async confirmPassword(password: string): Promise<void> {
+    await super.confirmPassword(password);
+    this.#live.askAgain();
+  }
+
   async signOut(): Promise<void> {
     await this.#http.request('/api/v1/logout', {}, { method: 'POST' });
   }

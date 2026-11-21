@@ -9,8 +9,13 @@
 
   A session too old to vouch is signed in again through the provider of the
   first of the reader's organizations that has one, and comes back here.
+
+  An account that has a password is told one thing in the same place, until
+  that is closed for good too (`features/account/EmailNotice`): where the mail
+  that resets it goes. Not in the page the password was just set in.
 -->
 <script lang="ts">
+  import EmailNotice from '$lib/features/account/EmailNotice.svelte';
   import Notice from '$lib/features/account/PasswordNotice.svelte';
   import { isOwnSpace, passwordSet, type Account, type Workspace } from '$lib/state/index.ts';
 
@@ -27,24 +32,30 @@
 
   /** The entry of the client state that says the notice was closed for good. */
   const DISMISSED = 'passwordNoticeDismissed';
+  /** The same of the line about the account's address. */
+  const EMAIL_DISMISSED = 'emailNoticeDismissed';
 
   const asks = $derived(isOwnSpace(workspace.info) && workspace.me?.hasPassword === false);
+  /** The account has a password: its address is where a reset of it is mailed. */
+  const tells = $derived(isOwnSpace(workspace.info) && workspace.me?.hasPassword === true);
+  /** The entry of whichever could be shown. */
+  const entry = $derived(asks ? DISMISSED : tells ? EMAIL_DISMISSED : undefined);
   /** Whether it was closed for good, read once it could be shown; a failed reading shows it. */
-  const dismissed = $derived(
-    asks
-      ? workspace.backend
-          .screenState()
-          .then((kept) => kept[DISMISSED] === '1')
-          .catch(() => false)
-      : undefined,
-  );
+  const dismissed = $derived.by(() => {
+    const kept = entry;
+    if (kept === undefined) return undefined;
+    return workspace.backend
+      .screenState()
+      .then((state) => state[kept] === '1')
+      .catch(() => false);
+  });
   const made = $derived(workspace.containers.some((container) => !container.isTemplate));
   /** Closed in this page: for good, or once the password is set. */
   let closed = $state(false);
 
-  function dismiss(): void {
+  function dismiss(kept: string): void {
     closed = true;
-    void workspace.backend.patchScreenState({ [DISMISSED]: '1' }).catch(() => undefined);
+    void workspace.backend.patchScreenState({ [kept]: '1' }).catch(() => undefined);
   }
 
   /**
@@ -53,6 +64,8 @@
    */
   async function setPassword(password: string): Promise<void> {
     await account.setPassword(password);
+    // The line about the address is for another visit: the reader was just asked one thing.
+    closed = true;
     await passwordSet(workspace, password);
   }
 
@@ -73,15 +86,25 @@
         class="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3 pb-[calc(5.5rem+var(--safe-bottom))] @tabs/pane:pb-[calc(0.75rem+var(--safe-bottom))]"
       >
         <div class="pointer-events-auto w-full max-w-md">
-          <Notice
-            username={workspace.me?.username ?? ''}
-            onSet={(password: string) => setPassword(password)}
-            onSignInAgain={signInAgain}
-            onDismiss={dismiss}
-            onClose={() => {
-              closed = true;
-            }}
-          />
+          {#if asks}
+            <Notice
+              username={workspace.me?.username ?? ''}
+              onSet={(password: string) => setPassword(password)}
+              onSignInAgain={signInAgain}
+              onDismiss={() => {
+                dismiss(DISMISSED);
+              }}
+              onClose={() => {
+                closed = true;
+              }}
+            />
+          {:else}
+            <EmailNotice
+              onDismiss={() => {
+                dismiss(EMAIL_DISMISSED);
+              }}
+            />
+          {/if}
         </div>
       </div>
     {/if}

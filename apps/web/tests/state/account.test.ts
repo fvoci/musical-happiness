@@ -106,6 +106,25 @@ describe('a change of a name, told', () => {
     expect(workspace.me).toMatchObject({ displayName: 'Ada', hasPassword: false });
   });
 
+  it("keeps the reader's address, and the one they wait for, which a changed name comes back without", async () => {
+    const { workspace, world, backend } = setup();
+    const reader = world.users.get(backend.userId);
+    if (!reader) throw new Error('no reader');
+    world.users.set(reader.id, {
+      ...reader,
+      email: 'ada@home.example',
+      pendingEmail: 'a@b.example',
+    });
+    await workspace.load();
+    // As the server answers `patchMe`: nobody's address is in a user.
+    takeUser(workspace, { ...reader, displayName: 'Ada', email: '' });
+    expect(workspace.me).toMatchObject({
+      displayName: 'Ada',
+      email: 'ada@home.example',
+      pendingEmail: 'a@b.example',
+    });
+  });
+
   it('keeps the later of two readings of one person, whichever answers last', async () => {
     const { workspace, backend, other } = setup();
     await workspace.load();

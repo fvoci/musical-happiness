@@ -9,6 +9,7 @@ import { insets, page } from '$lib/layout/room.svelte.ts';
 import { watchSystemTheme } from '$lib/theme.svelte.js';
 
 import App from './App.svelte';
+import ConfirmEmailApp from './ConfirmEmailApp.svelte';
 import ResetPasswordApp from './ResetPasswordApp.svelte';
 import SharedApp from './SharedApp.svelte';
 import VerifyEmailApp from './VerifyEmailApp.svelte';
@@ -39,6 +40,8 @@ export default router.route.passwordReset || router.route.passwordForgot
   ? mount(ResetPasswordApp, { target, props: { router } })
   : router.route.emailVerify
     ? mount(VerifyEmailApp, { target, props: { router } })
-    : router.route.shared
-      ? mount(SharedApp, { target, props: { router } })
-      : mount(App, { target, props: { router } });
+    : router.route.emailConfirm
+      ? mount(ConfirmEmailApp, { target, props: { router } })
+      : router.route.shared
+        ? mount(SharedApp, { target, props: { router } })
+        : mount(App, { target, props: { router } });
