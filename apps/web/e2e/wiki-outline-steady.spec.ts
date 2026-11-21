@@ -60,24 +60,28 @@ test('typing in the heading chosen keeps it the one marked; a key that moves the
 test.describe('where the reader has not asked for less motion', () => {
   test.use({ reducedMotion: 'no-preference' });
 
-  test('a key pressed while the heading chosen is still coming up does not let go of it', async ({
-    page,
-  }, info) => {
-    test.skip(info.project.name !== 'desktop', 'one wide window');
-    await page.setViewportSize(WIDE);
-    await pageWith(page, 'Guide', longBody(24));
-    await pageColumn(page).evaluate((column) => {
-      column.scrollTop = 0;
+  // A key with a modifier held is one key: Shift, Control, Command alone move nothing.
+  for (const key of ['End', 'Shift+End'] as const) {
+    test(`${key} pressed while the heading chosen is still coming up does not let go of it`, async ({
+      page,
+    }, info) => {
+      test.skip(info.project.name !== 'desktop', 'one wide window');
+      await page.setViewportSize(WIDE);
+      await pageWith(page, 'Guide', longBody(24));
+      await pageColumn(page).evaluate((column) => {
+        column.scrollTop = 0;
+      });
+      await outlineItem(page, 'Section 24').click();
+      await page.keyboard.press(key);
+      // The scroll comes to rest (the key may have cut it short).
+      await expect.poll(() => scrollAtRest(page)).toBe(true);
+      await expect(currentItem(page)).toHaveText('Section 24');
+      if (key !== 'End') return;
+      await page.keyboard.type(' and more');
+      await expect(outlineItem(page, 'Section 24 and more')).toBeVisible();
+      await expect(currentItem(page)).toHaveText('Section 24 and more');
     });
-    await outlineItem(page, 'Section 24').click();
-    await page.keyboard.press('End');
-    // The scroll comes to rest (the key may have cut it short).
-    await expect.poll(() => scrollAtRest(page)).toBe(true);
-    await expect(currentItem(page)).toHaveText('Section 24');
-    await page.keyboard.type(' and more');
-    await expect(outlineItem(page, 'Section 24 and more')).toBeVisible();
-    await expect(currentItem(page)).toHaveText('Section 24 and more');
-  });
+  }
 
   for (const then of ['the wheel', 'a second key'] as const) {
     test(`once a key cut the scroll to the heading chosen short, ${then} lets go of it`, async ({

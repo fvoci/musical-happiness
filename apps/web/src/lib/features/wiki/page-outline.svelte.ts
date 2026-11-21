@@ -53,6 +53,24 @@ const MOVES = ['wheel', 'touchstart', 'pointerdown'] as const;
 const WRITING_KEYS = new Set(['Enter', 'Backspace', 'Delete', 'Process', 'Unidentified', 'Dead']);
 /** The letters of the browser's Find with Control or Command: it takes the page elsewhere. */
 const FIND_KEYS = new Set(['f', 'g']);
+/** Keys that move nothing by themselves: the key they are held with tells. */
+const MODIFIER_KEYS = new Set([
+  'Shift',
+  'Control',
+  'Alt',
+  'AltGraph',
+  'Meta',
+  'CapsLock',
+  'Fn',
+  'FnLock',
+  'NumLock',
+  'ScrollLock',
+  'Symbol',
+  'SymbolLock',
+  'Hyper',
+  'Super',
+  'OS',
+]);
 
 export type OutlineMode = 'none' | 'side' | 'button';
 
@@ -213,11 +231,12 @@ export class PageOutline {
       this.#going = undefined;
     };
     const keyed = (event: KeyboardEvent): void => {
+      if (MODIFIER_KEYS.has(event.key)) return;
       this.#moving = !writes(event);
-      if (!this.#moving || !this.#going) return;
+      if (!this.#moving || !this.#going || event.repeat) return;
       // The first such key may cut the scroll to the heading short (End, an
-      // arrow), its scroll to the caret on the way there; a second is the
-      // reader moving the page.
+      // arrow, with Shift or not), its scroll to the caret on the way there; a
+      // second is the reader moving the page (a held key's repeats are not).
       if (this.#going.keyed) this.#going = undefined;
       else this.#going.keyed = true;
     };

@@ -223,9 +223,11 @@ describe('the outline of the read-only view', () => {
     key({ key: 'PageDown' });
     await scrolled();
     expect(outline.current).toBe(2);
-    // Paste, cut and undo write, as does a letter typed with AltGr (Control and Alt).
+    // Paste, cut and undo write, as does a letter typed with AltGr (Control and Alt); Shift
+    // alone, held for a capital, moves nothing.
     outline.go(0);
     for (const chord of [
+      { key: 'Shift', shiftKey: true },
       { key: 'v', ctrlKey: true },
       { key: 'z', metaKey: true },
       { key: 'ę', ctrlKey: true, altKey: true },
