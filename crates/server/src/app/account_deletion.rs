@@ -10,7 +10,7 @@ use fvoci_store::{DeletionAsking, DeletionStanding};
 
 use super::App;
 use super::auth::WrongPassword;
-use super::oidc_pending::FRESH_SIGN_IN_MILLIS;
+use super::oidc_pending::require_fresh_sign_in;
 use crate::auth::now_millis;
 use crate::error::{AppError, Reason};
 
@@ -113,16 +113,7 @@ impl App {
                 self.confirm_password(&user, &request.password, wrong, address)
                     .await?;
             }
-            DeletionProof::SignIn => {
-                let made_just_now = session.login.is_some()
-                    && now.saturating_sub(session.created_at) <= FRESH_SIGN_IN_MILLIS;
-                if !made_just_now {
-                    return Err(AppError::forbidden(
-                        "sign in through the provider again to delete the account",
-                    )
-                    .with_reason(Reason::SignInAgain));
-                }
-            }
+            DeletionProof::SignIn => require_fresh_sign_in(session, now, "delete the account")?,
         }
         let asking = self
             .store()
