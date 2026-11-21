@@ -304,6 +304,28 @@ export function denseHwpx(): Buffer {
 }
 
 /**
+ * The Korean HWPX with its body's paragraph after it `count` times more: a
+ * long document that rhwp takes seconds to lay out as it opens it (60,000
+ * make 1,465 pages, 3.3 s in Node on the machine of 2026-11; the archive is
+ * 113 KB). Many more go past what the worker takes on.
+ */
+export function longHwpx(count = 60_000): Buffer {
+  return rewriteArchive(koreanHwpx(), (member) => {
+    if (member.name !== 'Contents/section0.xml') return member;
+    const text = member.data.toString('utf8');
+    const at = text.indexOf(HWP_TEXT.body);
+    const start = text.lastIndexOf('<hp:p ', at);
+    const end = text.indexOf('</hp:p>', at) + '</hp:p>'.length;
+    if (at < 0 || start < 0 || end < at) throw new Error('the sample has no body paragraph');
+    const paragraph = text.slice(start, end);
+    return {
+      ...member,
+      data: Buffer.from(text.slice(0, end) + paragraph.repeat(count) + text.slice(end)),
+    };
+  });
+}
+
+/**
  * An HWPX whose header says it has `count` sections. rhwp (from 0.9.0) reads
  * only as many of the spine's sections as the header says, when it says fewer
  * than the spine names; the sample's says one.

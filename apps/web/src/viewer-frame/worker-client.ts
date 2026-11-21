@@ -6,7 +6,9 @@
  * sent once the one before it is answered, so its time counts its own work
  * only; one given up (`signal`) before it is sent is not sent. A request not
  * answered in time stops the worker (`terminate()`) and fails as
- * `SlowRenderer`, with every request after it. So does closing the client,
+ * `SlowRenderer`, with every request after it. A client may be made with no
+ * time, and given one later (`limitEach`): until then it waits as long as it
+ * takes, and whoever made it keeps the time. So does closing the client,
  * as `WorkerClosed`, and the worker failing on its own (an uncaught error, a
  * message that cannot be read), as `WorkerFailed`. A stopped worker takes its
  * memory with it: the WebAssembly the renderer grew and the document it read.
@@ -37,14 +39,14 @@ interface Pending {
 
 export class WorkerClient {
   readonly #worker: WorkerLike;
-  readonly #limit: number;
+  #limit: number | undefined;
   readonly #queue: Pending[] = [];
   #current: Pending | undefined;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #closed: Error | undefined;
 
-  /** `limit`: how long each request may take, in milliseconds. */
-  constructor(worker: WorkerLike, limit: number) {
+  /** `limit`: how long each request may take, in milliseconds; undefined for as long as it takes. */
+  constructor(worker: WorkerLike, limit: number | undefined) {
     this.#worker = worker;
     this.#limit = limit;
     worker.addEventListener('message', (event) => {
@@ -80,11 +82,27 @@ export class WorkerClient {
         continue;
       }
       this.#current = pending;
-      this.#timer = setTimeout(() => {
-        this.close(new SlowRenderer());
-      }, this.#limit);
+      this.#time();
       this.#worker.postMessage(pending.message, pending.transfer);
     }
+  }
+
+  /** Gives the request under way its time, from now. */
+  #time(): void {
+    clearTimeout(this.#timer);
+    if (this.#limit === undefined) return;
+    this.#timer = setTimeout(() => {
+      this.close(new SlowRenderer());
+    }, this.#limit);
+  }
+
+  /**
+   * From now on each request may take `limit`, in milliseconds: the one under
+   * way counted from now, and each after it from when it is sent.
+   */
+  limitEach(limit: number): void {
+    this.#limit = limit;
+    if (this.#current && !this.#closed) this.#time();
   }
 
   #answer(data: unknown): void {

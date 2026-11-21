@@ -1,7 +1,8 @@
 <!--
-  What the viewer (FileViewer.svelte) shows in the document's place when it
-  cannot show the file: why, and the file offered as a download. Nothing for
-  a status that is no such case.
+  What the viewer (FileViewer.svelte) shows in the document's place until it
+  is shown: that the file opens; a file not drawn in its time, and whether to
+  wait on for it or download it instead; or why the file cannot be shown, and
+  the file offered as a download. Nothing once it is shown.
 -->
 <script lang="ts">
   import DownloadIcon from '@lucide/svelte/icons/download';
@@ -13,9 +14,14 @@
   interface Props {
     status: Status;
     onDownload: () => void;
+    /** The reader's answer for a file not drawn in its time: to wait on for it, or not. */
+    onAnswer: (wait: boolean) => void;
   }
 
-  let { status, onDownload }: Props = $props();
+  let { status, onDownload, onAnswer }: Props = $props();
+
+  /** The document's place: it keeps the focus while what it says changes under it. */
+  let place: HTMLElement | undefined = $state();
 
   /** What the viewer says when it cannot show the file. */
   const FAILURE: Record<Extract<Status, { name: 'failed' }>['reason'], () => string> = {
@@ -29,7 +35,9 @@
     renderer: m.viewer_failed,
   };
 
-  /** What the viewer says instead of the document, if anything. */
+  const late = $derived(status.name === 'opening' && status.late);
+
+  /** What the viewer says instead of the document, if anything but that it opens. */
   const notice = $derived.by((): string | undefined => {
     if (status.name === 'too-large')
       return status.what === 'file'
@@ -37,25 +45,56 @@
         : m.viewer_unpacks_too_large();
     if (status.name === 'unknown') return m.viewer_unknown();
     if (status.name === 'failed') return FAILURE[status.reason]();
-    return undefined;
+    return late ? m.viewer_late() : undefined;
   });
+
+  function answer(wait: boolean): void {
+    // The buttons go with the question: the focus stays in the place they were in.
+    place?.focus();
+    onAnswer(wait);
+    if (!wait) onDownload();
+  }
 </script>
 
-{#if notice}
+{#if status.name !== 'shown'}
   <div
-    class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center"
+    bind:this={place}
+    tabindex="-1"
+    class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center outline-none"
     role="status"
-    data-testid="file-viewer-notice"
+    data-testid={notice ? 'file-viewer-notice' : 'file-viewer-opening'}
   >
-    <p class="font-medium">{notice}</p>
-    <p class="text-muted-foreground">{m.viewer_download_instead()}</p>
-    <button
-      type="button"
-      class="inline-flex min-h-9 items-center gap-2 rounded-md border bg-background px-3 hover:bg-accent roomy:min-h-touch"
-      onclick={onDownload}
-    >
-      <DownloadIcon class="size-4" aria-hidden="true" />
-      {m.viewer_download()}
-    </button>
+    {#if notice}
+      <p class="font-medium">{notice}</p>
+      <p class="text-muted-foreground">
+        {late ? m.viewer_late_choice() : m.viewer_download_instead()}
+      </p>
+      <div class="flex flex-wrap justify-center gap-2">
+        {#if late}
+          <button
+            type="button"
+            class="inline-flex min-h-9 items-center rounded-md border bg-background px-3 hover:bg-accent roomy:min-h-touch"
+            onclick={() => {
+              answer(true);
+            }}
+          >
+            {m.viewer_wait_on()}
+          </button>
+        {/if}
+        <button
+          type="button"
+          class="inline-flex min-h-9 items-center gap-2 rounded-md border bg-background px-3 hover:bg-accent roomy:min-h-touch"
+          onclick={() => {
+            if (late) answer(false);
+            else onDownload();
+          }}
+        >
+          <DownloadIcon class="size-4" aria-hidden="true" />
+          {m.viewer_download()}
+        </button>
+      </div>
+    {:else}
+      <p class="text-muted-foreground">{m.viewer_opening()}</p>
+    {/if}
   </div>
 {/if}
