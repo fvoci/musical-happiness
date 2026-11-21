@@ -215,9 +215,11 @@ impl App {
             None if self.config().takes_several_organizations() => None,
             None => self.store().login_organization(None).await?,
         };
+        let has_first_user = self.store().is_bootstrapped().await?;
         Ok(LoginOptions {
             organization,
-            registration_open: self.takes_registrations().await?,
+            registration_open: self.config().takes_several_organizations() || !has_first_user,
+            organization_required: !has_first_user,
             mail_enabled: self.config().mail_enabled(),
             email_verification: self.verifies_email(),
         })

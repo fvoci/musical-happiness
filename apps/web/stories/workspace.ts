@@ -4,6 +4,7 @@ import { createBoardView, type Container, type BoardView } from '$lib/logic/wire
 import { getLocale } from '$lib/i18n/paraglide/runtime.js';
 import { Workspace } from '$lib/state/index.ts';
 import { MemoryBackend, memberOf } from '$lib/state/memory/backend.ts';
+import { seedUsers } from '$lib/state/memory/users.ts';
 import { World } from '$lib/state/memory/world.ts';
 
 import { exampleBlock, exampleCard, STORY_NOW } from './fixtures.ts';
@@ -31,8 +32,10 @@ export function exampleWorkspace({
     title: 'Example workspace · 예시 작업 공간',
     role: 'admin',
   };
-  for (const [index, id] of ['example-reader', 'example-member', 'example-guest'].entries()) {
-    world.users.set(id, {
+  // Members of the example workspace, as the server has them: a board takes only its workspace's people.
+  seedUsers(
+    world,
+    ['example-reader', 'example-member', 'example-guest'].map((id, index) => ({
       id,
       username: id,
       displayName: `Example member ${index + 1} · 예시 구성원`,
@@ -40,8 +43,8 @@ export function exampleWorkspace({
       createAt: STORY_NOW,
       updateAt: STORY_NOW,
       deleteAt: 0,
-    });
-  }
+    })),
+  );
   world.settings.set('example-reader', {
     ...DEFAULT_ACCOUNT_SETTINGS,
     timeZone: 'Asia/Seoul',

@@ -4,6 +4,7 @@ use base64::Engine as _;
 use reqwest::{Client as HttpClient, Method, StatusCode, header};
 use serde_json::json;
 
+use fvoci_model::OrgKind;
 use fvoci_server::auth::sealed::SecretKey;
 use fvoci_server::config::Configuration;
 
@@ -116,10 +117,16 @@ async fn sign_in(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
         .expect("OIDC completed with a session");
     let newcomer = Client::new(&server.base_url, session);
     let workspaces = newcomer.get("/users/me/workspaces").await.value();
+    let kinds: Vec<Option<&str>> = workspaces
+        .as_array()
+        .expect("workspaces")
+        .iter()
+        .map(|workspace| workspace["kind"].as_str())
+        .collect();
     assert_eq!(
-        workspaces.as_array().expect("workspaces").len(),
-        1,
-        "OIDC newcomer joins one workspace"
+        kinds,
+        [OrgKind::Team, OrgKind::Personal].map(|kind| Some(kind.as_str())),
+        "OIDC newcomer joins one workspace, and has a space of their own"
     );
     assert_eq!(
         workspaces[0]["id"], case.workspace,

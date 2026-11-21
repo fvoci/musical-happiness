@@ -62,7 +62,9 @@ test('an administrator makes and revokes the link for members, changes what one 
     const workspaces = (await (
       await theirs.get('/api/v1/users/me/workspaces')
     ).json()) as Schemas['UserWorkspace'][];
-    return workspaces[0]?.role;
+    // In the workspace they were let into: their own space, which they keep whatever
+    // becomes of them here, is listed after it.
+    return workspaces.find((workspace) => workspace.kind !== 'personal')?.role;
   };
   await expect.poll(roleOfColleague).toBe('admin');
   await expect(role).toHaveValue('admin');

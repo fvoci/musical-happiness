@@ -90,7 +90,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 pub use account_deletion::{DeletionAsking, DeletionStanding};
 pub use account_erasure::{ErasedFrom, Erasing, ErasureEnd, ErasureStart, HandedOver};
-pub use accounts::Founding;
+pub use accounts::{Founding, OwnSpace, StartedOrganization};
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{
     BlockFilter, BodyPreview, CopyChanges, CopyTitles, DuplicateAs, ListedBlock, Paging, Previews,
@@ -105,7 +105,8 @@ pub use container_membership::Standing;
 pub use containers::{Joined, MemberChange, PublicContainers};
 pub use db::Dialect;
 pub use directory::{
-    Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharedContainer, Sight, WorkspaceAccess,
+    Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SessionTaken, SharedContainer, Sight,
+    WorkspaceAccess,
 };
 pub use error::{StoreError, Taken};
 pub use file_refs::NewBodyFiles;
@@ -139,7 +140,7 @@ pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
 pub use signups::{
     Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,
-    SignupStart,
+    SignupStart, Started,
 };
 pub use trash::{DeletedBlock, DeletedContainer, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
@@ -231,7 +232,7 @@ impl Tenant {
 
 /// The settings of a PostgreSQL transaction that the policies of the schema read: the
 /// organization whose rows it reaches, and `on` if it reaches those of all.
-const ORG_SETTING: &str = "fvoci.org";
+pub(crate) const ORG_SETTING: &str = "fvoci.org";
 const SYSTEM_SETTING: &str = "fvoci.system";
 
 /// How the connection pool of a [`Store`] stands, as [`Store::pool_status`] reads it.

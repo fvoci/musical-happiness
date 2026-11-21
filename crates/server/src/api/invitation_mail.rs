@@ -4,7 +4,7 @@ use axum::body::Bytes;
 use fvoci_model::InvitationMail;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use super::contract::{params::WorkerWorkspaceId, tag};
+use super::contract::{params::PeopleWorkspaceId, tag};
 use super::workspace::InContainer;
 use super::{ApiResult, decode_object, no_content};
 use crate::app::App;
@@ -39,11 +39,11 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// least one request). A refused request sends nothing.
 #[utoipa::path(
     post, path = "/w/{workspaceId}/invitations/mail", operation_id = "emailInvitation",
-    tag = tag::WORKSPACES, params(WorkerWorkspaceId), request_body = InvitationMail,
+    tag = tag::WORKSPACES, params(PeopleWorkspaceId), request_body = InvitationMail,
     responses((status = 204, description = "Delivery queued; the existing invitation is unchanged.")),
 )]
 async fn send(InContainer(ws): InContainer, body: Bytes) -> ApiResult {
-    let ws = ws.require_no_guest()?;
+    let ws = ws.require_people()?;
     let request = decode_object(&body)?;
     ws.app
         .email_invitation(&ws.workspace_id, &ws.session.user_id, request)

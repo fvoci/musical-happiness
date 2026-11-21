@@ -11,6 +11,7 @@
       "deleteAt": 0,
       "displayName": "",
       "firstName": "",
+      "hasPassword": true,
       "id": "<id:1>",
       "isAdmin": true,
       "lastName": "",
@@ -34,6 +35,7 @@
       "deleteAt": 0,
       "displayName": "",
       "firstName": "",
+      "hasPassword": true,
       "id": "<id:2>",
       "isAdmin": false,
       "lastName": "",
@@ -104,16 +106,29 @@
     "body": [
       {
         "id": "<id:3>",
+        "kind": "team",
         "name": "The Firm",
         "orgId": "<id:4>",
+        "passwordRequired": false,
         "role": "admin",
         "ssoRequired": false
       },
       {
         "id": "<id:5>",
+        "kind": "team",
         "name": "",
         "orgId": "<id:4>",
+        "passwordRequired": false,
         "role": "member",
+        "ssoRequired": false
+      },
+      {
+        "id": "<id:6>",
+        "kind": "personal",
+        "name": "",
+        "orgId": "<id:7>",
+        "passwordRequired": false,
+        "role": "admin",
         "ssoRequired": false
       }
     ]
@@ -126,16 +141,29 @@
     "body": [
       {
         "id": "<id:3>",
+        "kind": "team",
         "name": "The Firm",
         "orgId": "<id:4>",
+        "passwordRequired": false,
         "role": "member",
         "ssoRequired": false
       },
       {
         "id": "<id:5>",
+        "kind": "team",
         "name": "",
         "orgId": "<id:4>",
+        "passwordRequired": false,
         "role": "member",
+        "ssoRequired": false
+      },
+      {
+        "id": "<id:8>",
+        "kind": "personal",
+        "name": "",
+        "orgId": "<id:9>",
+        "passwordRequired": false,
+        "role": "admin",
         "ssoRequired": false
       }
     ]
@@ -170,7 +198,7 @@
   },
   {
     "name": "invite: unknown workspace",
-    "request": "POST /api/v1/w/<id:6>/invitations as root",
+    "request": "POST /api/v1/w/<id:10>/invitations as root",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -205,7 +233,7 @@
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "expiresAt": "<ts>",
-      "id": "<id:7>",
+      "id": "<id:11>",
       "role": "member",
       "token": "<secret>",
       "uses": 0,
@@ -271,7 +299,7 @@
   },
   {
     "name": "make: not an administrator",
-    "request": "PUT /api/v1/users/<id:8>/admin as admins-alice",
+    "request": "PUT /api/v1/users/<id:12>/admin as admins-alice",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -301,7 +329,7 @@
   },
   {
     "name": "make: no session",
-    "request": "PUT /api/v1/users/<id:8>/admin as anonymous",
+    "request": "PUT /api/v1/users/<id:12>/admin as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -315,7 +343,7 @@
   },
   {
     "name": "make: no body member",
-    "request": "PUT /api/v1/users/<id:8>/admin as root",
+    "request": "PUT /api/v1/users/<id:12>/admin as root",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -336,7 +364,7 @@
   },
   {
     "name": "make: not a boolean",
-    "request": "PUT /api/v1/users/<id:8>/admin as root",
+    "request": "PUT /api/v1/users/<id:12>/admin as root",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -350,7 +378,7 @@
   },
   {
     "name": "make: unknown user",
-    "request": "PUT /api/v1/users/<id:6>/admin as root",
+    "request": "PUT /api/v1/users/<id:10>/admin as root",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -393,7 +421,7 @@
   },
   {
     "name": "make",
-    "request": "PUT /api/v1/users/<id:8>/admin as root",
+    "request": "PUT /api/v1/users/<id:12>/admin as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -403,7 +431,7 @@
       "deleteAt": 0,
       "displayName": "",
       "firstName": "",
-      "id": "<id:8>",
+      "id": "<id:12>",
       "isAdmin": true,
       "lastName": "",
       "latinFirstName": "",
@@ -416,7 +444,7 @@
   },
   {
     "name": "make: again",
-    "request": "PUT /api/v1/users/<id:8>/admin as root",
+    "request": "PUT /api/v1/users/<id:12>/admin as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -426,7 +454,7 @@
       "deleteAt": 0,
       "displayName": "",
       "firstName": "",
-      "id": "<id:8>",
+      "id": "<id:12>",
       "isAdmin": true,
       "lastName": "",
       "latinFirstName": "",
@@ -505,7 +533,7 @@
   },
   {
     "name": "unmake: the new only administrator",
-    "request": "PUT /api/v1/users/<id:8>/admin as admins-bob",
+    "request": "PUT /api/v1/users/<id:12>/admin as admins-bob",
     "status": 409,
     "content_type": "application/problem+json",
     "body": {

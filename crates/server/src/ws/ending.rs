@@ -26,6 +26,9 @@ pub(super) enum Ended {
     /// The workspace's organization takes only sessions made through its provider,
     /// and the connection's session was not.
     Sso,
+    /// The workspace is the user's own space, which takes only sessions made with
+    /// the account's password, and the connection's session was not.
+    Password,
     /// The board has as many readers by its public link as it may (`readers.rs`): the
     /// subscription was not taken.
     Full,
@@ -50,6 +53,7 @@ impl Ended {
             Self::Access => "workspace access ended",
             Self::Share => "public link access ended",
             Self::Sso => "sso required",
+            Self::Password => "password sign-in required",
             Self::Full => "public link connections full",
         }
     }

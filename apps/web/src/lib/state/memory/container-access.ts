@@ -8,6 +8,7 @@ import type { ContainerKind } from '../../logic/wire.ts';
 
 import { roleOn, type Role } from './comments.ts';
 import { fail } from './refuse.ts';
+import { workersOf } from './spaces.ts';
 import type { World } from './world.ts';
 
 /**
@@ -25,8 +26,10 @@ export function memberRole(
     fail(404, 'no such board');
   const role = roleOn(world.members.get(containerId) ?? [], userId);
   if (role !== '') return role;
-  if (isOpenWiki(container) && world.workspaceMembers.has(userId)) return 'viewer';
-  if (container.type === 'O') fail(403, 'access denied to board');
+  // Of a workspace the user is not in (somebody else's own space), nothing is there.
+  const works = workersOf(world, container.workspaceId).has(userId);
+  if (isOpenWiki(container) && works) return 'viewer';
+  if (container.type === 'O' && works) fail(403, 'access denied to board');
   fail(404, 'no such board');
 }
 
@@ -38,7 +41,7 @@ export function reads(world: World, userId: string, containerId: string): boolea
   const container = world.containers.get(containerId);
   if (!container) return false;
   if (roleOn(world.members.get(containerId) ?? [], userId) !== '') return true;
-  return isOpenWiki(container) && world.workspaceMembers.has(userId);
+  return isOpenWiki(container) && workersOf(world, container.workspaceId).has(userId);
 }
 
 /** An open wiki: read by whoever works in its workspace. */

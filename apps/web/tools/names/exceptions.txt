@@ -39,3 +39,13 @@ docs/ko-review.md
 # The notices of the HWP renderer's crates name where each crate lives; BLAKE3's
 # project is "BLAKE3-team" on GitHub.
 tools/licenses/rhwp-wasm-crates.txt | BLAKE3-team
+
+# The kind of an organization that people work in together, as the contract names it
+# (`kind`: `team`, beside `personal` for a user's own space).
+** | kind: 'team'
+src/lib/state/workspace-types.ts | 'team' | 'personal'
+
+# On the screen an organization that people start together is a team, as the people who
+# use it say; the tests find its fields and buttons by those English texts.
+tests/** | team name
+e2e-live/** | team name

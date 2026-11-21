@@ -82,7 +82,8 @@ impl Store {
 
     /// What a login page may show of an organization: the one with the identifier, or
     /// with none the only organization in use if there is one only. `None` if there is
-    /// no such organization, it is not in use, or it is the system's. Its name, and
+    /// no such organization, it is not in use, or it is the system's. An account's own
+    /// space is none of them: it has no login page and is not counted. Its name, and
     /// whether signing in through its provider is on.
     ///
     /// # Errors
@@ -101,6 +102,7 @@ impl Store {
                 sql.bind(true).push(
                     ") FROM organizations AS o WHERE o.delete_at = 0 AND o.is_system = false",
                 );
+                super::of_people(&mut sql, "o.kind");
                 if let Some(org_id) = org_id {
                     sql.push_bind(" AND o.id = ", Id(org_id));
                 }

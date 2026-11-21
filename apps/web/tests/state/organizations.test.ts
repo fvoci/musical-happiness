@@ -65,6 +65,19 @@ describe('the organization on the server', () => {
     expect(await organizations().administered()).toBeUndefined();
   });
 
+  it('does not ask for the reader’s own space, which nobody administers', async () => {
+    const sent = serve({
+      'GET /api/v1/users/me/workspaces': {
+        body: [
+          { id: 'w1', orgId: 'o1', kind: 'team', name: '', role: 'member' },
+          { id: 'own', orgId: 'mine', kind: 'personal', name: '', role: 'admin' },
+        ],
+      },
+    });
+    expect(await organizations().administered()).toBeUndefined();
+    expect(sent.map((one) => one.url)).toEqual(['/api/v1/users/me/workspaces', '/api/v1/org/o1']);
+  });
+
   it('passes over an organization the session does not open, for the next it administers', async () => {
     const closed = { status: 401, body: { status: 401, reason: 'sso_required', orgId: 'o1' } };
     const mine = [

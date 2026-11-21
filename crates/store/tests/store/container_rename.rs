@@ -9,7 +9,7 @@ use serde_json::Value;
 use sqlx::Connection as _;
 
 use crate::common::{self, db_type};
-use crate::tenancy::Before;
+use crate::tenancy_before::Before;
 use crate::workspace_rename::{Dump, dump};
 
 /// The name a table or a column had before the migration has after it.

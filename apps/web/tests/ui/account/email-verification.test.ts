@@ -37,9 +37,8 @@ describe('a registration that waits for its address', () => {
   it('says where the link went, sends it again and leads back to the form', async () => {
     const { onSignIn, onResend } = signInPage(() => Promise.resolve('waiting'));
     await fireEvent.click(
-      await screen.findByRole('button', { name: 'New here? Start an organization' }),
+      await screen.findByRole('button', { name: 'New here? Create an account' }),
     );
-    await fill(/^organization name$/i, 'Acme');
     await fill(/^user name$/i, 'grace');
     await fill(/email/i, ' grace@example.test ');
     await fill(/^password$/i, 'a long password');
@@ -59,7 +58,7 @@ describe('a registration that waits for its address', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Sign up again' }));
     expect(await screen.findByTestId('register-form')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByLabelText(/^organization name$/i)).toHaveFocus();
+      expect(screen.getByLabelText(/^user name$/i)).toHaveFocus();
     });
     expect(screen.getByTestId('verify-hint')).toHaveTextContent('We will mail a link');
   });

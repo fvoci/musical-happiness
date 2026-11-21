@@ -266,6 +266,7 @@
       "deleteAt": 0,
       "displayName": "",
       "firstName": "",
+      "hasPassword": true,
       "id": "<id:1>",
       "isAdmin": false,
       "lastName": "",

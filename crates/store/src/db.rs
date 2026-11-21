@@ -378,6 +378,23 @@ impl<'c> Scope<'c> {
         }
     }
 
+    /// The operation changes what is read of the organization `org_id` without
+    /// writing a table of it, whatever organization the scope reaches: that one's
+    /// cached reads are thrown away, and no other's.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::InvalidId`] if `org_id` is no identifier.
+    pub(crate) fn invalidate_visibility_of(&self, org_id: &str) -> Result<(), StoreError> {
+        let Tenant::Org(org) = Tenant::org(org_id)? else {
+            return Err(StoreError::InvalidId(org_id.to_owned()));
+        };
+        if let Some(visibility) = self.visibility {
+            visibility.invalidate_of(org);
+        }
+        Ok(())
+    }
+
     /// Whether the operation ran a statement that may have changed something. One that
     /// only read has nothing to commit.
     pub(crate) fn wrote(&self) -> bool {
@@ -406,6 +423,58 @@ impl<'c> Scope<'c> {
     /// Whether the store's handle names an organization.
     pub(crate) fn has_org(&self) -> bool {
         matches!(self.tenant, Tenant::Org(_))
+    }
+
+    /// Runs `operation` as the organization `org_id`, which this transaction makes, in
+    /// place of the one the scope reaches: the scope names it, and on PostgreSQL the
+    /// transaction's wall is moved to it and back, so that the rows `operation` stores
+    /// are the new organization's, and nothing of any other is in its reach meanwhile
+    /// unless the scope has the system's reach, which stays what it was: it is neither
+    /// asked for nor given up here. Only inside a transaction, whose setting the wall
+    /// is. Nothing here knows that the organization is new: the one caller makes its
+    /// identifier (`accounts::make_own_space`), and a test of the sources holds it to
+    /// be the only one.
+    ///
+    /// For an organization nobody read anything of yet: its writes move the revision
+    /// of the scope's own organization, not the new one's, which has no cached read to
+    /// throw away ([`crate::visibility`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::InvalidId`] if `org_id` is no identifier, the error of
+    /// `operation`, and [`StoreError::Database`] if the wall cannot be moved. The wall
+    /// is moved back whatever `operation` answered; where that fails after it failed,
+    /// its error is the one returned, and the transaction is one PostgreSQL takes
+    /// nothing more in.
+    pub(crate) async fn in_new_organization<T>(
+        &mut self,
+        org_id: &str,
+        operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let within = Tenant::org(org_id)?;
+        let outer = self.tenant;
+        self.move_wall_to(within).await?;
+        self.tenant = within;
+        let result = operation(self).await;
+        self.tenant = outer;
+        let back = self.move_wall_to(outer).await;
+        match (result, back) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+        }
+    }
+
+    /// Tells the policies of a PostgreSQL transaction which organization's rows it
+    /// reaches from here on: `tenant`'s, or no single one's. SQLite has no wall.
+    async fn move_wall_to(&mut self, tenant: Tenant) -> Result<(), StoreError> {
+        if self.dialect() != Dialect::Postgres {
+            return Ok(());
+        }
+        let mut sql = self.sql(&format!("SELECT set_config('{}', ", crate::ORG_SETTING));
+        sql.bind(tenant.org_id().unwrap_or_default())
+            .push(", true)");
+        self.fetch_optional(sql).await?;
+        Ok(())
     }
 
     /// The conditions that hold each row of `pairs` to the organization of the row

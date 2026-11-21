@@ -79,7 +79,7 @@ export class Workspace {
   workspaces = $state.raw<WorkspaceInfo[]>([]);
   /** The workspace entered; undefined while none is, or the one asked for is missing or closed. */
   info = $state.raw<WorkspaceInfo | undefined>(undefined);
-  /** The workspace asked for, when it is theirs and closed to this session (`entered` is `sso`). */
+  /** The workspace asked for, when it is theirs and closed to this session (`sso`, `password`). */
   closed = $state.raw<WorkspaceInfo | undefined>(undefined);
   /** How the workspace last asked for (`asked`) stands. */
   entered = $state<entry.EnterStatus>('none');
@@ -145,9 +145,9 @@ export class Workspace {
     return this.#usersById[userId];
   }
 
-  /** The name to show for a user (`UserNames.nameOf`); undefined for someone unknown. */
+  /** The name to show for a user (`UserNames.nameOf`), the reader's before any list of people. */
   userName(userId: string): string | undefined {
-    const user = this.#usersById[userId];
+    const user = this.#usersById[userId] ?? (userId === this.me?.id ? this.me : undefined);
     return user && this.#userNames.nameOf(user);
   }
 
@@ -225,6 +225,7 @@ export class Workspace {
     const read = await entry.enterWorkspace(this.backend, workspace);
     if (turn !== this.#entering) return;
     [this.entered, this.info, this.closed] = [read.status, read.info, read.closed];
+    this.workspaces = entry.withClosed(this.workspaces, read.closed);
     if (read.status === 'ready') {
       ({ users: this.users, containers: this.containers, categories: this.categories } = read);
       this.workspaceUsers = read.users;
@@ -239,9 +240,7 @@ export class Workspace {
     this.asked = asked;
     [this.info, this.closed] = [undefined, undefined];
     this.entered = 'none';
-    [this.users, this.workspaceUsers] = [[], []];
-    this.containers = [];
-    this.categories = [];
+    [this.users, this.workspaceUsers, this.containers, this.categories] = [[], [], [], []];
   }
 
   /**
@@ -343,17 +342,17 @@ export class Workspace {
   /**
    * Puts a failure where the shell shows it, or with no error what is only to be told.
    * Any other error is a bug and is logged. A 401 is no failure to show: the session
-   * is over (`signedOut`), or the workspace shown is closed to it (`sso`).
+   * is over (`signedOut`), or the workspace shown is closed to it (`sso`, `password`).
    */
   report(action: ProblemAction, error: unknown): void {
-    // An organization began to take no password: what is shown of it closes, the session goes on.
-    const closing = entry.closedBySso(this.workspaces, this.info, error);
+    // An organization began to take no password, or the own space the password alone: it closes.
+    const closing = entry.closedBy(this.workspaces, this.info, error);
     if (closing) {
       this.workspaces = closing.workspaces;
       if (!closing.closed) return;
       this.#entering += 1; // What is still being read of it does not open it again.
       this.#leave(this.asked);
-      [this.closed, this.entered] = [closing.closed, 'sso'];
+      [this.closed, this.entered] = [closing.closed, closing.entered];
       return;
     }
     // The session is over (it went idle, or past its end): sign in again.

@@ -2175,11 +2175,7 @@ async fn undelete_container_leaves_out_the_membership_of_a_user_who_is_gone() {
         "all three memberships are in the trash"
     );
 
-    common::execute_raw(
-        &test.database_connection(),
-        &format!("DELETE FROM users WHERE id = '{leaver_id}'"),
-    )
-    .await;
+    common::delete_user_row(&test, &leaver_id).await;
     test.get_user_by_id(&leaver_id)
         .await
         .expect_err("the user is gone");
@@ -2264,11 +2260,7 @@ async fn undelete_container_restores_a_board_whose_creator_is_gone_as_made_by_no
         .await
         .expect("the board is deleted");
     // Nothing that exists names the creator any more.
-    common::execute_raw(
-        &test.database_connection(),
-        &format!("DELETE FROM users WHERE id = '{creator_id}'"),
-    )
-    .await;
+    common::delete_user_row(&test, &creator_id).await;
 
     let returned = test
         .undelete_container(&board.id, &editor_id)
@@ -2341,11 +2333,7 @@ async fn undelete_block_restores_a_block_whose_creator_is_gone_as_made_by_nobody
     test.delete_block(&card.id, &owner_id)
         .await
         .expect("the card is deleted");
-    common::execute_raw(
-        &test.database_connection(),
-        &format!("DELETE FROM users WHERE id = '{author_id}'"),
-    )
-    .await;
+    common::delete_user_row(&test, &author_id).await;
     let in_trash = test
         .get_deleted_block(&card.id)
         .await

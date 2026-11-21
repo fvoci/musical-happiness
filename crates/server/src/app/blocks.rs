@@ -141,7 +141,7 @@ impl App {
             app.ws()
                 .broadcast_block_change(&container.workspace_id, &block)
                 .await;
-            app.webhook().notify_update(&block).await;
+            app.tell_webhooks(&block).await;
         });
         Ok(())
     }
@@ -266,7 +266,7 @@ impl App {
             app.ws()
                 .broadcast_block_change(&workspace_id, &changed)
                 .await;
-            app.webhook().notify_update(&changed).await;
+            app.tell_webhooks(&changed).await;
         });
     }
 
@@ -324,7 +324,7 @@ impl App {
                     }
                 };
                 app.ws().broadcast_block_change(&workspace_id, &block).await;
-                app.webhook().notify_update(&block).await;
+                app.tell_webhooks(&block).await;
             }
         });
         Ok(())
@@ -454,7 +454,7 @@ impl App {
             app.ws()
                 .broadcast_block_change(&container.workspace_id, &restored)
                 .await;
-            app.webhook().notify_update(&restored).await;
+            app.tell_webhooks(&restored).await;
         });
         Ok(block)
     }
@@ -538,7 +538,7 @@ impl App {
         let blocks = blocks.to_vec();
         self.spawn_background(async move {
             for block in &blocks {
-                app.webhook().notify_update(block).await;
+                app.tell_webhooks(block).await;
             }
         });
     }

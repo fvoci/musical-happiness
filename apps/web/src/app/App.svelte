@@ -28,13 +28,15 @@
   import SignInPage from '$lib/features/account/SignInPage.svelte';
   import SsoRequired from '$lib/features/account/SsoRequired.svelte';
   import OrgPage from '$lib/features/organization/OrgPage.svelte';
-  import AppShell from '$lib/features/shell/AppShell.svelte';
+  import AppShell, { type PaneTools } from '$lib/features/shell/AppShell.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import {
     BackendError,
     isBackendError,
+    isOpen,
     isSignedOut,
     providePeople,
+    startOrganization,
     whileHere,
     Workspace,
     type AcceptedInvitation,
@@ -51,8 +53,9 @@
   import { Button } from '$lib/ui/button/index.js';
 
   import { acceptedRoute } from './accepted-route.ts';
+  import { followAddress } from './address.svelte.ts';
   import { resendLink, startBackend } from './backend.ts';
-  import { lastWorkspace, rememberWorkspace } from './last-workspace.ts';
+  import { lastWorkspace } from './last-workspace.ts';
   import {
     browserLocale,
     currentLocale,
@@ -65,6 +68,9 @@
   import { keepReturn, resume, takeReturn } from './return-to.ts';
   import { placeRoute, type Router } from './router.svelte.ts';
   import { signInOrganizations, signInWays } from './sign-in-organizations.ts';
+  import PasswordNoticeHost from './PasswordNoticeHost.svelte';
+  import { signInWithPassword } from './own-space-sign-in.ts';
+  import { Administered } from './administered.svelte.ts';
   import WorkspacePane from './WorkspacePane.svelte';
   import WorkspaceSearch from './WorkspaceSearch.svelte';
 
@@ -74,7 +80,10 @@
   let account = $state.raw<Account | undefined>(undefined);
   let organizations = $state.raw<Organizations | undefined>(undefined);
   /** The organization the reader administers, once asked; the sidebar then leads to it. */
-  let administered = $state<string | undefined>(undefined);
+  const administered = new Administered(
+    () => workspace,
+    () => organizations,
+  );
   /**
    * The names of the account just made on this page: its first sign-in
    * copies the welcome board. Another account signed in here gets none.
@@ -218,49 +227,15 @@
   /** The token of the invitation the address is the link of, if it is one. */
   const invitation = $derived(router.route.invitation);
 
-  // The root address: to the workspace the reader starts in, in its place.
-  $effect(() => {
-    if (workspace?.status !== 'ready' || router.route.unknown || router.route.workspaceId) return;
-    if (invitation !== undefined) return;
-    if (router.route.orgId) return;
-    const chosen = workspace.firstChoice();
-    if (chosen) router.go({ workspaceId: chosen }, { replace: true });
-  });
-
-  // Another workspace in the address (a link, back or forward): it is entered.
-  $effect(() => {
-    const asked = router.route.workspaceId;
-    if (workspace?.status === 'ready' && asked && asked !== workspace.asked) {
-      void workspace.enter(asked);
-    }
-  });
-
-  // The workspace entered is the one to come back to on this browser.
-  $effect(() => {
-    if (workspace?.entered === 'ready' && workspace.me && workspace.info) {
-      rememberWorkspace(workspace.me.id, workspace.info.id);
-    }
-  });
-
-  // Once signed in: is there an organization the reader administers? Asked once.
-  let askedAdministered = false;
-  $effect(() => {
-    if (workspace?.status !== 'ready' || !organizations || askedAdministered) return;
-    askedAdministered = true;
-    organizations.administered().then(
-      (orgId) => {
-        administered = orgId;
-      },
-      () => {
-        // Not told: the way to it is not shown.
-      },
-    );
-  });
+  followAddress(
+    () => router,
+    () => workspace,
+  );
 
   /** The reader's workspaces that this session opens: where else to go from one it does not. */
   const openWorkspaces = $derived(
     (workspace?.workspaces ?? [])
-      .filter((one) => !one.ssoRequired)
+      .filter(isOpen)
       .map((one) => ({ ...one, href: router.href({ workspaceId: one.id }) })),
   );
 
@@ -273,6 +248,17 @@
     // Once the reader is signed in: before that the organization is not there for them.
     if (workspace?.status === 'ready') void orgAdmin?.load();
   });
+
+  /** Starts an organization from the switcher, and goes to its workspace. */
+  async function createOrganization(name: string): Promise<void> {
+    const [shown, api] = [workspace, organizations];
+    if (!shown || !api) return;
+    const made = await signedIn(() =>
+      startOrganization(shown, (named) => api.createOrganization(named), name),
+    );
+    administered.started(made.orgId);
+    router.go({ workspaceId: made.id });
+  }
 
   const openContainer = (container: ContainerPlace): void => {
     router.openContainer(container);
@@ -447,10 +433,11 @@
 {:else}
   <AppShell
     {workspace}
-    orgHref={administered ? router.href({ orgId: administered }) : undefined}
+    orgHref={administered.orgId ? router.href({ orgId: administered.orgId }) : undefined}
     onSwitchWorkspace={(workspaceId: string) => {
       router.go({ workspaceId });
     }}
+    onCreateOrganization={organizations ? createOrganization : undefined}
     readRecords={organizations
       ? (workspaceId: string) => organizations?.workspaceRecords(workspaceId) ?? Promise.resolve([])
       : undefined}
@@ -481,18 +468,26 @@
     {#snippet search(shown: Workspace)}
       <WorkspaceSearch workspace={shown} {router} />
     {/snippet}
-    <WorkspacePane
-      {workspace}
-      {router}
-      {refused}
-      onGoOn={() => {
-        refusal = null;
-        router.go({}, { replace: true });
-      }}
-      onOpenLinked={openLinked}
-      {openWorkspaces}
-      onSso={(orgId: string) => toProvider(orgId)}
-    />
+    {#snippet children({ workspace: shown, addBoard }: PaneTools)}
+      <WorkspacePane
+        workspace={shown}
+        {router}
+        {refused}
+        onAddBoard={addBoard}
+        onGoOn={() => {
+          refusal = null;
+          router.go({}, { replace: true });
+        }}
+        onOpenLinked={openLinked}
+        {openWorkspaces}
+        onSso={(orgId: string) => toProvider(orgId)}
+        onPasswordSignIn={(password: string) => signInWithPassword(account, workspace, password)}
+      />
+      <!-- After the pane: drawn at its foot, it comes after it when tabbing too. -->
+      {#if account}
+        <PasswordNoticeHost workspace={shown} {account} onProvider={toProvider} />
+      {/if}
+    {/snippet}
   </AppShell>
   <Problems {workspace} />
   <FileViewerHost />

@@ -1,7 +1,7 @@
 //! The wall of an organization that takes no password, as the connections meet it.
 //!
 //! A connection follows a workspace if its user is a member of it and its session opens
-//! the workspace's organization (`permissions::session_opens`). That is asked when it
+//! the workspace (`SessionTaken::opened_by`). That is asked when it
 //! subscribes and again with each change it is sent (`delivery.rs`), from the cached
 //! access the store's visibility revision keeps current: a change of an organization's
 //! provider moves that revision on. When an organization begins to take only the
@@ -12,9 +12,8 @@
 
 use fvoci_model::LoginOrigin;
 
-use super::{Identity, Listener};
+use super::Identity;
 use crate::app::Asker;
-use crate::permissions::session_opens;
 
 /// Whose a connection is, as its listener keeps it, and the token its session is
 /// looked up by while it lasts.
@@ -43,13 +42,5 @@ impl Who {
             login: identity.session.login,
             token: Some(identity.token),
         })
-    }
-}
-
-impl Listener {
-    /// Whether the connection's session opens an organization that takes only
-    /// sessions made through `required`, if any.
-    pub(super) fn session_opens(&self, required: Option<&str>) -> bool {
-        session_opens(required, self.login_provider())
     }
 }

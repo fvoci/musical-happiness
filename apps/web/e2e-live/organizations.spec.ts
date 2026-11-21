@@ -34,7 +34,9 @@ test('a second organization goes from signup through the full app to a shared li
   const listed = (await (
     await api.get('/api/v1/users/me/workspaces')
   ).json()) as Schemas['UserWorkspace'][];
-  expect(listed.map((item) => item.id)).toEqual([workspaceId]);
+  // The workspace of the organization, and after it the account's own space.
+  expect(listed.map((item) => item.kind === 'personal')).toEqual([false, true]);
+  expect(listed[0]?.id).toBe(workspaceId);
 
   await sidebar(page).getByTestId('add-board').click();
   await observation.screen();
@@ -97,6 +99,55 @@ test('a second organization goes from signup through the full app to a shared li
   await colleague.context.close();
 });
 
+test('an account made on its own starts in its own space and starts organizations from the switcher up to the limit', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const errors = watchErrors(page);
+  const owner = person('alone');
+  await page.goto('/');
+  await page.getByRole('button', { name: 'New here? Create an account' }).click();
+  const form = page.getByTestId('register-form');
+  await expect(form.getByTestId('register-solo')).toBeChecked();
+  await expect(form.getByLabel(/^team name$/i)).toHaveCount(0);
+  await form.getByLabel(/^user name$/i).fill(owner.username);
+  await form.getByLabel(/email/i).fill(owner.email);
+  await form.getByLabel(/^password$/i).fill(owner.password);
+  await form.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByTestId('app-shell')).toBeVisible();
+  // It starts in its own space, on its own copy of the welcome board.
+  await expect(boardLink(page, 'Getting started with fvoci')).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  const switcher = sidebar(page).getByTestId('workspace-switcher');
+  await expect(switcher).toHaveAccessibleName('Switch workspace: My space');
+  const api = await signedIn(base, owner);
+  const listed = async () =>
+    (await (await api.get('/api/v1/users/me/workspaces')).json()) as Schemas['UserWorkspace'][];
+  expect((await listed()).map((item) => item.kind)).toEqual(['personal']);
+
+  const start = async (name: string): Promise<void> => {
+    await switcher.click();
+    await page.locator('[data-action="new-organization"]').click();
+    await page.getByTestId('new-organization-name').fill(name);
+    await page.getByTestId('new-organization-submit').click();
+  };
+  await start('Design studio');
+  await expect(switcher).toHaveAccessibleName('Switch workspace: Design studio');
+  expect((await listed()).map((item) => item.kind === 'personal')).toEqual([false, true]);
+  for (const name of ['Research', 'Support']) {
+    expect((await api.post('/api/v1/org', { data: { name } })).status()).toBe(201);
+  }
+  // A fourth is refused, with the number the server allows.
+  await start('One more');
+  await expect(page.getByTestId('new-organization-problem')).toContainText('3');
+  await expect(page.getByTestId('new-organization-dialog')).toBeVisible();
+  expect(errors).toEqual([]);
+  await api.dispose();
+});
+
 test('an organization started on a Korean screen begins on the welcome board in Korean', async ({
   browser,
   baseURL,
@@ -106,13 +157,14 @@ test('an organization started on a Korean screen begins on the welcome board in 
   const errors = watchErrors(page);
   const owner = person('korean-founder');
   await page.goto('/');
-  await page.getByRole('button', { name: '처음인가요? 조직 시작하기' }).click();
+  await page.getByRole('button', { name: '처음인가요? 계정 만들기' }).click();
   const form = page.getByTestId('register-form');
-  await form.getByLabel('조직 이름', { exact: true }).fill('한국어 조직');
+  await form.getByLabel('팀과 함께 쓰기').check();
+  await form.getByLabel('팀 이름', { exact: true }).fill('한국어 조직');
   await form.getByLabel('사용자 이름', { exact: true }).fill(owner.username);
   await form.getByLabel('이메일 주소', { exact: true }).fill(owner.email);
   await form.getByLabel('비밀번호', { exact: true }).fill(owner.password);
-  await form.getByRole('button', { name: '조직 시작하기' }).click();
+  await form.getByRole('button', { name: '계정 만들기' }).click();
   await expect(page.getByTestId('app-shell')).toBeVisible();
   // The account's settings leave the language to the device: the browser's is taken.
   await expect(boardLink(page, 'fvoci 시작하기')).toHaveAttribute('aria-current', 'page');

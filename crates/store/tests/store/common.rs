@@ -114,6 +114,109 @@ pub(crate) async fn connect_past_the_store(database_connection: &str) -> PgConne
     conn
 }
 
+/// The workspace of the account's own space.
+pub(crate) async fn own_workspace(test: &TestStore, user_id: &str) -> String {
+    let query = format!(
+        "SELECT CAST(default_workspace_id AS TEXT) FROM organizations WHERE owner_id = '{user_id}'"
+    );
+    let found = test.system().texts_unchecked(&query).await;
+    let [workspace_id] = &found.expect("read")[..] else {
+        panic!("one space of {user_id}, with a workspace");
+    };
+    workspace_id.clone()
+}
+
+/// What an account's own space is made of, as [`own_space_shape`] reads it: one
+/// organization of the kind without a name, in use; its one workspace, the default
+/// one, without a name and inviting no guests; and the account alone in both, their
+/// administrator.
+pub(crate) fn own_space() -> [Vec<String>; 4] {
+    [
+        vec!["personal||0".to_owned()],
+        vec!["|default|no guests".to_owned()],
+        vec!["owner|admin".to_owned()],
+        vec!["owner|admin".to_owned()],
+    ]
+}
+
+/// What the database holds of the account's own space: its organizations, their
+/// workspaces, and who is in each as what. `system` reaches every organization.
+pub(crate) async fn own_space_shape(system: &Store, user_id: &str) -> [Vec<String>; 4] {
+    let who = "CASE WHEN m.user_id = o.owner_id THEN 'owner' ELSE 'other' END || '|' || m.role";
+    let queries = [
+        "SELECT o.kind || '|' || o.name || '|' || CAST(o.delete_at AS TEXT) \
+         FROM organizations AS o WHERE"
+            .to_owned(),
+        "SELECT w.name || '|' \
+         || CASE WHEN w.id = o.default_workspace_id THEN 'default' ELSE 'other' END || '|' \
+         || CASE WHEN w.guest_invitations THEN 'guests' ELSE 'no guests' END \
+         FROM workspaces AS w JOIN organizations AS o ON o.id = w.org_id WHERE"
+            .to_owned(),
+        format!(
+            "SELECT {who} FROM organization_members AS m \
+             JOIN organizations AS o ON o.id = m.org_id WHERE"
+        ),
+        format!(
+            "SELECT {who} FROM workspace_members AS m \
+             JOIN workspaces AS w ON w.id = m.workspace_id \
+             JOIN organizations AS o ON o.id = w.org_id WHERE"
+        ),
+    ];
+    let mut shape: [Vec<String>; 4] = Default::default();
+    for (part, query) in shape.iter_mut().zip(queries) {
+        let query = format!("{query} o.owner_id = '{user_id}' ORDER BY 1");
+        *part = system.texts_unchecked(&query).await.expect("read");
+    }
+    shape
+}
+
+/// The tables an account's own space has a row in when it is made, one in each.
+pub(crate) const OWN_SPACE_TABLES: [&str; 4] = [
+    "organizations",
+    "workspaces",
+    "organization_members",
+    "workspace_members",
+];
+
+/// How many rows of a table of PostgreSQL are of the accounts' own spaces: every
+/// table behind the wall names its organization.
+pub(crate) async fn rows_of_own_spaces(store: &Store, table: &str) -> i64 {
+    let spaces = "SELECT id FROM organizations WHERE owner_id IS NOT NULL";
+    let org = if table == "organizations" {
+        "id"
+    } else {
+        "org_id"
+    };
+    let query = format!("SELECT 'row' FROM {table} WHERE {org} IN ({spaces})");
+    let rows = store.system().texts_unchecked(&query).await;
+    i64::try_from(rows.expect("read").len()).expect("a count")
+}
+
+/// Removes the account's own space past the store, as the erasing of an account does
+/// before anything else: the space names the row of its account, which does not go
+/// while the space is there.
+pub(crate) async fn remove_own_space(test: &TestStore, user_id: &str) {
+    let own = format!("SELECT id FROM organizations WHERE owner_id = '{user_id}'");
+    for statement in [
+        format!(
+            "UPDATE organizations SET default_workspace_id = NULL WHERE owner_id = '{user_id}'"
+        ),
+        format!("DELETE FROM workspaces WHERE org_id IN ({own})"),
+        format!("DELETE FROM organizations WHERE owner_id = '{user_id}'"),
+    ] {
+        let removed = test.system().execute_unchecked(&statement).await;
+        assert_eq!(removed.expect("removed"), 1, "{statement}");
+    }
+}
+
+/// Deletes the row of a user past the store, which never does, after the user's own
+/// space.
+pub(crate) async fn delete_user_row(test: &TestStore, user_id: &str) {
+    remove_own_space(test, user_id).await;
+    let delete = format!("DELETE FROM users WHERE id = '{user_id}'");
+    execute_raw(&test.database_connection(), &delete).await;
+}
+
 /// Runs statements on a connection of its own, past the store.
 pub(crate) async fn execute_raw(database_connection: &str, sql: &str) {
     let sql = sqlx::AssertSqlSafe(sql.to_owned());

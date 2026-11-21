@@ -353,6 +353,13 @@ impl Store {
         kept_session_id: &str,
         kept_session_token_digest: &str,
     ) -> Result<bool, StoreError> {
+        // A first password changes which sessions the account's own space takes
+        // (`SessionTaken::of_space`): what was read of that is read again.
+        let space = if seen_password_hash.is_empty() {
+            self.space_of(user_id).await?
+        } else {
+            None
+        };
         self.transaction(async |scope| {
             let mut sql = scope.sql("UPDATE users SET ");
             sql.push_bind("password_hash = ", password_hash)
@@ -361,6 +368,9 @@ impl Store {
                 .push_bind(" AND password_hash = ", seen_password_hash);
             if scope.execute(sql).await? == 0 {
                 return Ok(false);
+            }
+            if let Some(space) = &space {
+                scope.invalidate_visibility_of(space)?;
             }
             sessions::delete_other_sessions_of_user(scope, user_id, kept_session_id).await?;
             sessions::replace_token_digest(scope, kept_session_id, kept_session_token_digest)

@@ -2,8 +2,9 @@
   Deleting the reader's account, in the settings. Folded until asked for: it
   then reads what the deletion comes to (`getAccountDeletion`) and says it
   before anything is asked: the days the account waits, that what was written
-  stays under "Deleted user", and the organizations that have nobody else,
-  which go with the account, with how much is in each. Who is the only
+  stays under "Deleted user", the reader's own space, which always goes with
+  the account, and apart from it the organizations that have nobody else,
+  which go too, with how much is in each. Who is the only
   administrator of the server, or of an organization with other people in it,
   is told that and gets no form.
 
@@ -24,6 +25,7 @@
   import {
     deletionProblemOf,
     holdingsOf,
+    leavingOf,
     namesAccount,
     wrongName,
     type DeletionProblem,
@@ -169,11 +171,19 @@
         <p class="text-sm text-muted-foreground" data-testid="account-deletion-text">
           {m.account_delete_text({ days: standing.graceDays })}
         </p>
-        {#if standing.organizations.length > 0}
+        {@const leaving = leavingOf(standing.organizations)}
+        {#if leaving.own}
+          <p class="text-sm font-medium text-destructive" data-testid="account-deletion-own-space">
+            {leaving.own.boards === undefined
+              ? m.account_delete_own_space_plain()
+              : m.account_delete_own_space(holdingsOf(leaving.own))}
+          </p>
+        {/if}
+        {#if leaving.alone.length > 0}
           <div class="grid gap-2 text-sm" data-testid="account-deletion-organizations">
             <p class="font-medium text-destructive">{m.account_delete_organizations()}</p>
             <ul class="list-disc ps-5">
-              {#each standing.organizations as organization (organization.id)}
+              {#each leaving.alone as organization (organization.id)}
                 {@const name = organization.name || m.account_delete_organization_unnamed()}
                 <li>
                   {organization.boards === undefined

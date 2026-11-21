@@ -6,13 +6,14 @@
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
 
+  import { nameOfWorkspace } from '$lib/components/workspace-name.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { humanFileSize } from '$lib/logic/format.ts';
   import type { Problem, Workspace } from '$lib/state/index.ts';
 
   let { workspace }: { workspace: Workspace } = $props();
 
-  const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
+  const workspaceName = $derived(nameOfWorkspace(workspace.info, m.shell_workspace_unnamed));
 
   /** How long a line stays when nobody dismisses it, in milliseconds. */
   const STAY = 8000;

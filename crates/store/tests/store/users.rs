@@ -947,8 +947,23 @@ async fn user_preferences_are_per_user_and_ordered() {
 // the row, and the row does not go while a board or a block names the user.
 
 /// Deletes the row of a user on a connection of the test's own and returns how many
-/// rows the statement deleted, or the database's refusal.
+/// rows the statement deleted, or the database's refusal. The user's own space, which
+/// the row does not go without, is removed first if it is there.
 async fn delete_user_row(test: &TestStore, user_id: &str) -> Result<u64, sqlx::Error> {
+    if !own_space_is_gone(test, user_id).await {
+        common::remove_own_space(test, user_id).await;
+    }
+    delete_only_user_row(test, user_id).await
+}
+
+async fn own_space_is_gone(test: &TestStore, user_id: &str) -> bool {
+    let query = format!("SELECT 'own' FROM organizations WHERE owner_id = '{user_id}'");
+    let found = test.system().texts_unchecked(&query).await;
+    found.expect("read").is_empty()
+}
+
+/// Deletes the row of a user and nothing before it.
+async fn delete_only_user_row(test: &TestStore, user_id: &str) -> Result<u64, sqlx::Error> {
     common::try_execute_raw(
         &test.database_connection(),
         &format!("DELETE FROM users WHERE id = '{user_id}'"),
@@ -1192,6 +1207,10 @@ async fn deleting_a_user_row_takes_what_is_theirs_alone_with_it() {
         );
     }
 
+    let error = delete_only_user_row(&test, &leaver)
+        .await
+        .expect_err("the row does not go while the user's own space is there");
+    assert!(common::is_foreign_key_violation(&error), "got {error:?}");
     let deleted = delete_user_row(&test, &leaver)
         .await
         .expect("nothing that stays names the user: the row is deleted");

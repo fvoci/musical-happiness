@@ -56,15 +56,51 @@ describe('a refusal that asks for single sign-on', () => {
   });
 });
 
+/** A workspace that people share, as `workspacesOf` makes it, open to a password's session. */
+const shared = (id: string, title: string, role: 'admin' | 'member', orgId: string) => ({
+  id,
+  title,
+  role,
+  orgId,
+  kind: 'team',
+  passwordRequired: false,
+});
+
 describe('the workspaces as the server lists them', () => {
-  it('say which organization each is of, and which are closed to this session', () => {
+  it('say which organization each is of, what it is, and which are closed to this session', () => {
     const workspaces = workspacesOf([
-      { id: 'a', orgId: ORG, name: 'A', role: 'member', ssoRequired: true },
-      { id: 'b', orgId: 'another', name: 'B', role: 'admin', ssoRequired: false },
+      {
+        id: 'a',
+        orgId: ORG,
+        kind: 'team',
+        name: 'A',
+        role: 'member',
+        ssoRequired: true,
+        passwordRequired: false,
+      },
+      {
+        id: 'b',
+        orgId: 'another',
+        kind: 'team',
+        name: 'B',
+        role: 'admin',
+        ssoRequired: false,
+        passwordRequired: false,
+      },
+      {
+        id: 'c',
+        orgId: 'own',
+        kind: 'personal',
+        name: '',
+        role: 'admin',
+        ssoRequired: false,
+        passwordRequired: false,
+      },
     ]);
     expect(workspaces).toEqual([
-      { id: 'a', title: 'A', role: 'member', orgId: ORG, ssoRequired: true },
-      { id: 'b', title: 'B', role: 'admin', orgId: 'another', ssoRequired: false },
+      { ...shared('a', 'A', 'member', ORG), ssoRequired: true },
+      { ...shared('b', 'B', 'admin', 'another'), ssoRequired: false },
+      { ...shared('c', '', 'admin', 'own'), kind: 'personal', ssoRequired: false },
     ]);
   });
 });
@@ -245,5 +281,38 @@ describe('the workspace to start in', () => {
     const all = [one('a', 'guest', true), one('b', 'member', true)];
     expect(firstChoiceOf(all, undefined)).toBe('a');
     expect(firstChoiceOf(all, 'b')).toBe('b');
+  });
+
+  describe('beside the reader’s own space, listed last', () => {
+    const own: WorkspaceInfo = { id: 'own', title: '', kind: 'personal', role: 'admin' };
+    const shared = (
+      id: string,
+      role: 'admin' | 'member' | 'guest',
+      closed = false,
+    ): WorkspaceInfo => ({
+      ...one(id, role, closed),
+      kind: 'team',
+    });
+
+    it('is the workspace of the organization a new account started, not its own space', () => {
+      expect(firstChoiceOf([shared('made', 'admin'), own], undefined)).toBe('made');
+    });
+
+    it('is the workspace an account is only a guest of, not its own space', () => {
+      expect(firstChoiceOf([shared('invited', 'guest'), own], undefined)).toBe('invited');
+    });
+
+    it('is a shared workspace closed to the session before the own space', () => {
+      expect(firstChoiceOf([shared('closed', 'member', true), own], undefined)).toBe('closed');
+    });
+
+    it('is the own space of an account in no organization, and the own space it was last in', () => {
+      expect(firstChoiceOf([own], undefined)).toBe('own');
+      expect(firstChoiceOf([shared('made', 'admin'), own], 'own')).toBe('own');
+    });
+
+    it('is a shared workspace also where the list puts the own space first', () => {
+      expect(firstChoiceOf([own, shared('made', 'member')], undefined)).toBe('made');
+    });
   });
 });

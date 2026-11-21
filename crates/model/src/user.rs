@@ -12,6 +12,31 @@ use crate::settings::{
     check_client_state_value,
 };
 
+/// The user of a session, as their own account is answered to them: the user, and what
+/// nobody else is told of the account.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Me {
+    /// The user, as anybody who sees them is answered them.
+    #[serde(flatten)]
+    pub user: User,
+    /// Whether the account has a password to sign in with. An account made by a
+    /// sign-in through an organization's provider has none until its person sets one
+    /// (`setPassword`), and signs in through the provider only until then.
+    pub has_password: bool,
+}
+
+impl Me {
+    /// The user as their own account is answered to them. Reads whether there is a
+    /// password before the hash is blanked: `user` is as the store has it.
+    #[must_use]
+    pub fn of(mut user: User) -> Self {
+        let has_password = !user.password_hash.is_empty();
+        user.password_hash.clear();
+        Self { user, has_password }
+    }
+}
+
 /// A user account.
 ///
 /// The JSON form carries only the public members. The email address, password hash and

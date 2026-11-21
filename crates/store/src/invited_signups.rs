@@ -14,7 +14,7 @@ use crate::invitations::{
     push_invites, take_use,
 };
 use crate::link_locks;
-use crate::signups::{self, Confirmed, Proof, Signup, SignupStart};
+use crate::signups::{self, Confirmed, Proof, Signup, SignupStart, Started};
 use crate::users::InstanceRole;
 use crate::{Acceptance, Accepted, Inviter, Store, accounts};
 
@@ -175,7 +175,7 @@ impl Store {
                 org_id,
                 workspace_id: link.workspace_id,
                 container_id: link.container_id,
-                started_organization: false,
+                start: Started::Invited,
             })))
         })
         .await

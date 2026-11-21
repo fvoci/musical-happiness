@@ -105,8 +105,8 @@
     {/each}
   </ul>
   <div class="my-1 w-8 shrink-0 border-t"></div>
-  <!-- A guest is on the boards they were invited to, and makes none. -->
-  {#if !isGuest(workspace)}
+  <!-- A guest is on the boards they were invited to, and makes none; nobody where none is shown. -->
+  {#if workspace.info && !isGuest(workspace)}
     <IconButton label={m.shell_add_board()} data-testid="strip-add-board" onclick={onAddBoard}>
       <PlusIcon />
     </IconButton>

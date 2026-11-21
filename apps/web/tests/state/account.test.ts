@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { BackendError, changeName, type User } from '$lib/state/index.ts';
 
+import { takeUser } from '$lib/state/account.ts';
+
 import { serverBackend, settle, setup } from './support.ts';
 
 const rejection = async (promise: Promise<unknown>): Promise<BackendError> => {
@@ -90,6 +92,18 @@ describe('a change of a name, told', () => {
     });
     expect(told).toHaveBeenCalledWith({ kind: 'user', userId: workspace.me?.id });
     stop();
+  });
+
+  it("keeps the reader's own reading of whether they have a password, which a list of people leaves out", async () => {
+    const { workspace, world, backend } = setup();
+    const reader = world.users.get(backend.userId);
+    if (!reader) throw new Error('no reader');
+    world.users.set(reader.id, { ...reader, hasPassword: false });
+    await workspace.load();
+    const listed: User = { ...reader, displayName: 'Ada' };
+    delete listed.hasPassword;
+    takeUser(workspace, listed);
+    expect(workspace.me).toMatchObject({ displayName: 'Ada', hasPassword: false });
   });
 
   it('keeps the later of two readings of one person, whichever answers last', async () => {
@@ -262,6 +276,63 @@ describe('the display name, on the server', () => {
       { ...account, displayName: 'A', organizationName: 'Acme' },
       { ...account, organizationName: 'Acme' },
     ]);
+  });
+
+  it('leaves the organization out of a registration that starts on its own', async () => {
+    const sent: unknown[] = [];
+    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
+      sent.push(typeof init.body === 'string' ? JSON.parse(init.body) : undefined);
+      return Promise.resolve(new Response(null, { status: 202 }));
+    });
+    const backend = serverBackend('');
+    const account = { username: 'a', email: 'a@x', password: 'p' };
+    expect(await backend.register({ ...account, displayName: '' })).toBe('waiting');
+    await backend.register({ ...account, displayName: '', organizationName: '' });
+    expect(sent).toEqual([account, account]);
+  });
+
+  it('reads whether the reader has a password, and gives them their first with a PUT', async () => {
+    const sent: { method: string | undefined; url: string; body: unknown }[] = [];
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      sent.push({
+        method: init.method,
+        url,
+        body: typeof init.body === 'string' ? JSON.parse(init.body) : undefined,
+      });
+      if (init.method === 'PUT') return Promise.resolve(new Response(null, { status: 204 }));
+      return Promise.resolve(
+        Response.json({
+          id: 'u1',
+          username: 'grace',
+          displayName: '',
+          createAt: 0,
+          updateAt: 0,
+          deleteAt: 0,
+          hasPassword: false,
+        }),
+      );
+    });
+    const backend = serverBackend('');
+    expect(await backend.me()).toMatchObject({ id: 'u1', hasPassword: false });
+    await backend.setPassword('a long password');
+    expect(sent.at(-1)).toEqual({
+      method: 'PUT',
+      url: '/api/v1/users/me/password',
+      body: { password: 'a long password' },
+    });
+  });
+
+  it('reads whether the server needs the name of the organization a registration starts', async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(
+        Response.json({ registrationOpen: true, mailEnabled: false, organizationRequired: true }),
+      ),
+    );
+    const backend = serverBackend('');
+    expect(await backend.loginOptions(undefined)).toMatchObject({
+      registrationOpen: true,
+      organizationRequired: true,
+    });
   });
 });
 

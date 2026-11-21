@@ -103,7 +103,10 @@ impl App {
 
     /// Ends what connections follow of a board of the organization, or of one of its
     /// workspaces, by its read token, and tells them: its links open nothing now.
-    async fn end_shared_readers(&self, workspace_id: Option<&str>) -> Result<(), AppError> {
+    pub(super) async fn end_shared_readers(
+        &self,
+        workspace_id: Option<&str>,
+    ) -> Result<(), AppError> {
         for container_id in self.store().shared_container_ids(workspace_id).await? {
             self.ws().end_readers_of_container(&container_id);
         }

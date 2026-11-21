@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use crate::common::{
     ApiResponse, Client, ORG_NAME, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, container_path,
 };
+use crate::own_space::workspaces_and_own;
 
 fn open(config: &mut fvoci_server::config::Configuration) {
     "open".clone_into(&mut config.org_creation);
@@ -120,7 +121,7 @@ async fn a_server_takes_registrations_until_it_has_its_organization() {
     // Nothing of the refused ones is there: no second organization, and the first
     // keeps its name, which is its first workspace's too, without the white space.
     let first = th.login("first", PASSWORD).await;
-    let workspaces: Vec<UserWorkspace> = first.get("/users/me/workspaces").await.ok_json();
+    let (workspaces, _own) = workspaces_and_own(&first).await;
     assert_eq!(workspaces.len(), 1, "{workspaces:?}");
     assert_eq!(workspaces[0].name, "The Firm");
     assert_eq!(workspaces[0].role, fvoci_model::WorkspaceRole::Admin);
@@ -162,7 +163,7 @@ async fn two_organizations() -> TwoOrganizations {
     let alice = th.login("alice", PASSWORD).await;
     let bob = th.login("bob", PASSWORD).await;
     let of = async |client: &Client| -> UserWorkspace {
-        let workspaces: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
+        let (workspaces, _own) = workspaces_and_own(client).await;
         assert_eq!(workspaces.len(), 1, "the one they started: {workspaces:?}");
         workspaces
             .into_iter()
@@ -261,9 +262,10 @@ async fn where_everybody_starts_an_organization_each_has_one_of_their_own() {
             .count_rows("organizations")
             .await
             .expect("the rows are counted"),
-        // The two organizations, and the system's own.
-        3,
-        "a refused registration leaves no organization behind"
+        // The two organizations, the system's own, and the space of each of the two
+        // accounts: the one that was refused has none.
+        5,
+        "a refused registration leaves no organization behind, and no space"
     );
 
     th.teardown().await;
@@ -302,7 +304,7 @@ async fn who_accepts_a_link_of_another_organization_is_a_member_of_both() {
         .await;
     accepted.check_ok();
     assert_eq!(accepted.value(), json!({"workspaceId": alpha.id}));
-    let mut workspaces: Vec<UserWorkspace> = bob.get("/users/me/workspaces").await.ok_json();
+    let (mut workspaces, _own) = workspaces_and_own(&bob).await;
     workspaces.sort_by(|a, b| a.name.cmp(&b.name));
     let seen: Vec<(&str, &str, fvoci_model::WorkspaceRole)> = workspaces
         .iter()
@@ -425,7 +427,7 @@ async fn a_workspace_administrator_invites_members_by_a_link() {
     assert_eq!(accepted.set_cookies(), Vec::<&str>::new());
     let newcomer = th.login("newcomer", PASSWORD).await;
     assert!(!newcomer.me().await.is_admin);
-    let workspaces: Vec<UserWorkspace> = newcomer.get("/users/me/workspaces").await.ok_json();
+    let (workspaces, _own) = workspaces_and_own(&newcomer).await;
     assert_eq!(
         workspaces.len(),
         1,
@@ -782,9 +784,13 @@ async fn a_guest_comes_in_by_a_link_onto_one_board() {
         th.app
             .store()
             .system()
-            .count_rows("organization_members")
+            .texts_unchecked(
+                "SELECT 'member' FROM organization_members AS m \
+                 JOIN organizations AS o ON o.id = m.org_id WHERE o.owner_id IS NULL",
+            )
             .await
             .expect("the members are counted")
+            .len()
     };
     let before = members_of_the_organization().await;
 

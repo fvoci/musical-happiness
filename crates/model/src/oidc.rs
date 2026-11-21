@@ -301,6 +301,10 @@ pub struct OidcStart {
 /// What the login page shows: the organization it is for, if it is for one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four facts of the server that a login page reads, each a member of the wire form"
+)]
 pub struct LoginOptions {
     /// The organization the page is for: the one named, or the only one of a server
     /// that holds one. `null` for none, also for an identifier that names none.
@@ -309,6 +313,11 @@ pub struct LoginOptions {
     /// server where everybody may, and on any server until its first user did. Where it
     /// is `false`, the link of an invitation is the way in.
     pub registration_open: bool,
+    /// Whether a registration must name the organization it starts
+    /// (`organizationName` of `register`): `true` until the server has its first user,
+    /// who starts the server's own organization. After that a registration may leave
+    /// the name out and start with the account's own space alone.
+    pub organization_required: bool,
     /// Whether this server can deliver password recovery and invitation mail.
     pub mail_enabled: bool,
     /// Whether a registration opens nothing until the link mailed to its address

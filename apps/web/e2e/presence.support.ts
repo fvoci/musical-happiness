@@ -15,7 +15,7 @@ export interface Dev {
     };
   };
   backend: {
-    world: { users: Map<string, Record<string, unknown>> };
+    world: { users: Map<string, Record<string, unknown>>; workspaceMembers: Set<string> };
     as(userId: string): {
       presence: { setPresence(visit: { workspaceId: string; containerId: string } | null): void };
     };
@@ -23,15 +23,16 @@ export interface Dev {
 }
 
 /**
- * Makes `count` other users (made in the world where it has too few) members of the
- * open board and has them come onto it; the number of its members then.
+ * Makes `count` other users (made in the world, in its shared workspace, where it has
+ * too few) members of the open board and has them come onto it; the number of its members then.
  */
 export async function othersArrive(page: Page, count: number): Promise<number> {
   return page.evaluate(async (wanted) => {
     const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const { users } = dev.backend.world;
+    const { users, workspaceMembers } = dev.backend.world;
     for (let made = users.size; made <= wanted; made += 1) {
       const id = crypto.randomUUID();
+      workspaceMembers.add(id);
       users.set(id, {
         id,
         username: `visitor${String(made)}`,

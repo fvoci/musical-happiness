@@ -63,6 +63,20 @@ export function waitsNoMore(error: unknown): boolean {
   );
 }
 
+/**
+ * What goes with the account, the reader's own space apart (`own`, which the
+ * server always names) from the organizations of people that have nobody else.
+ */
+export function leavingOf(organizations: readonly LeavingOrganization[]): {
+  own: LeavingOrganization | undefined;
+  alone: LeavingOrganization[];
+} {
+  return {
+    own: organizations.find((organization) => organization.kind === 'personal'),
+    alone: organizations.filter((organization) => organization.kind !== 'personal'),
+  };
+}
+
 /** How much is in an organization that goes with the account: "3 boards, 1 wiki, 12 files". */
 export function holdingsOf(organization: LeavingOrganization): {
   boards: string;

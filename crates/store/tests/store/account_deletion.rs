@@ -355,3 +355,51 @@ async fn nothing_is_taken_back_once_the_erasing_began() {
     assert_eq!(waits(&test, "meanwhile").await, None);
     test.teardown().await;
 }
+
+/// Asking to delete an account, and taking that back, changes what the links of the
+/// account's own space open, and nothing of any other organization: the revision of
+/// the cached checks of the space moves on, and that of the organization the account
+/// works in stays, so that what was checked there is not thrown away for it.
+#[tokio::test]
+async fn a_deletion_asked_and_taken_back_moves_the_revision_of_the_space_alone() {
+    let test = common::setup().await;
+    // The first user administers the instance, and stays.
+    common::user(&test, "founder").await;
+    let leaver = common::user(&test, "leaver").await;
+    let space = test
+        .account_deletion_standing(&leaver)
+        .await
+        .expect("read")
+        .own_space
+        .expect("the account has a space");
+    let of_the_space = test.for_org(&space.id).expect("an organization");
+    let before = (
+        test.visibility_version().await,
+        of_the_space.visibility_version().await,
+    );
+
+    assert!(matches!(
+        ask(&test, &leaver).await,
+        DeletionAsking::Asked(_)
+    ));
+    let asked = (
+        test.visibility_version().await,
+        of_the_space.visibility_version().await,
+    );
+    assert!(
+        test.cancel_account_deletion(&leaver, T0 + 1)
+            .await
+            .expect("taken back"),
+        "the asking is taken back"
+    );
+    let back = (
+        test.visibility_version().await,
+        of_the_space.visibility_version().await,
+    );
+    test.teardown().await;
+
+    assert_ne!(asked.1, before.1, "asking moves the space's revision");
+    assert_ne!(back.1, asked.1, "and so does taking it back");
+    assert_eq!(asked.0, before.0, "the organization's stays as it is asked");
+    assert_eq!(back.0, before.0, "and as it is taken back");
+}
