@@ -257,6 +257,7 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::TeamNameTaken
         | Reason::DefaultWorkspace
         | Reason::LastOrgAdmin
+        | Reason::PasswordSignInRequired
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
         // The rest are the reasons of uploads and archives, of the search of bodies, of
         // the limits of a wiki's tree and of a body edited together, which the functions
@@ -442,6 +443,18 @@ fn describe_invitation(reason: Reason) -> Option<&'static str> {
 /// workspace are refused for.
 fn describe_organization(reason: Reason) -> Option<&'static str> {
     Some(match reason {
+        Reason::PasswordSignInRequired => {
+            "Status 401, with a session that is good, from the routes under the \
+             `/w/{workspaceId}` of the user's own space: the account has a password, and \
+             its space takes only sessions made with it (`login`), while this one was \
+             made through an organization's provider. A provider is an organization's, \
+             and the space is the person's alone. The session stays, and opens what is \
+             of the organizations it opened before: sign in with the password to open \
+             the space. `getMyWorkspaces` says beforehand that it is closed so \
+             (`passwordRequired`). An account without a password (`hasPassword` of \
+             `getMe`) is refused nothing so. What is shared from the space by a public \
+             link is read without a session and is not closed."
+        }
         Reason::WorkspaceNameTaken => {
             "Status 409. Another workspace of the organization that is in use has the name; \
              one in the trash leaves its name to be taken. `errors` names `/name`, or \

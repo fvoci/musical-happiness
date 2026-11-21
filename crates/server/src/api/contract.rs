@@ -190,10 +190,21 @@ reaches into it from outside or out of it. What changes in it is told to nobody 
 the server's operator is posted no block of it (`block_change_webhooks`), and it is in \
 no audit log anybody but its owner reads.
 
-It is reached by any session of its account, whatever organization the session was \
-made for. An account that was made by a sign-in through an organization's provider has \
-no password (`hasPassword` of `getMe`), and is given one by `setPassword`, so that its \
-person reaches the space when they are no longer in that organization.
+An account that was made by a sign-in through an organization's provider has no \
+password (`hasPassword` of `getMe`), and until it has one its space is reached by any \
+session of the account. It is given one by `setPassword`, so that its person reaches \
+the space when they are no longer in that organization. Once the account has a \
+password, the space takes only sessions made with it (`login`): a provider is an \
+organization's, and whoever holds it could make a session of the account. To a session \
+made through a provider the routes under the space's `/w/{workspaceId}` then answer \
+401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space \
+with `passwordRequired` true, `getMyMemberships` leaves its boards out, \
+`getAccountDeletion` names it without what is in it, and the websocket follows \
+nothing of it for such a session (`contracts/websocket.md`). The session stays and \
+opens what it opened of the organizations; signing in with the password opens the \
+space, and an organization that takes only sessions made through its provider \
+(`sso_required`) then asks for a sign-in through that again. What is shared from the \
+space by a public link is read without a session, and is not closed so.
 
 It goes with its account: `getAccountDeletion` names it among `organizations` always, \
 and while the account waits to be deleted it is closed with the account: what is \

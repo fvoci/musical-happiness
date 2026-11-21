@@ -1,7 +1,7 @@
 //! A user's board memberships in every organization, as the session that asks opens
 //! them.
 
-use fvoci_model::{ContainerKinds, ContainerMember};
+use fvoci_model::{ContainerKinds, ContainerMember, OrgKind};
 
 use crate::db::{Id, Scope, Sql};
 use crate::directory::IN_USE;
@@ -30,7 +30,7 @@ pub(crate) async fn of_user(
     .push(IN_USE)
     .push(&scope.same_organization(&[("bm", "b"), ("b", "t"), ("wm", "t")]));
     container_kinds::push_kinds(&mut sql, "b.kind", kinds);
-    push_opened_by(&mut sql, login_provider);
+    push_opened_by(&mut sql, user_id, login_provider);
     sql.push(" ORDER BY bm.container_id");
     let mut members = containers::fetch_members(scope, sql).await?;
     extend_across_organizations(scope, user_id, login_provider, kinds, &mut members).await?;
@@ -61,15 +61,18 @@ async fn extend_across_organizations(
         .push(IN_USE)
         .push(&scope.same_organization(&[("bt", "b"), ("b", "t")]));
     container_kinds::push_kinds(&mut sql, "b.kind", kinds);
-    push_opened_by(&mut sql, login_provider);
+    push_opened_by(&mut sql, user_id, login_provider);
     container_team_access::extend(scope, sql, members).await?;
     members.sort_by(|a, b| a.container_id.cmp(&b.container_id));
     Ok(())
 }
 
-/// Leaves out the workspaces `t` of an organization that takes only sessions made
-/// through its provider, unless the session was made through `login_provider`.
-fn push_opened_by(sql: &mut Sql, login_provider: Option<&str>) {
+/// Leaves out the workspaces `t`, of the organizations `o`, that a session of the user
+/// made through `login_provider` (`None` for a password) does not open, as
+/// [`crate::SessionTaken::opened_by`] has it: those of an organization that takes only
+/// sessions made through another provider, and, for a session made through any, the
+/// user's own space once the account has a password.
+fn push_opened_by(sql: &mut Sql, user_id: &str, login_provider: Option<&str>) {
     sql.push(
         " AND NOT EXISTS (SELECT 1 FROM oidc_providers AS p \
          WHERE p.org_id = t.org_id AND p.sso_required = ",
@@ -79,4 +82,12 @@ fn push_opened_by(sql: &mut Sql, login_provider: Option<&str>) {
         sql.push_bind(" AND p.id <> ", Id(provider));
     }
     sql.push(")");
+    if login_provider.is_some() {
+        sql.push_bind(" AND NOT (o.kind = ", OrgKind::Personal.as_str())
+            .push_bind(
+                " AND EXISTS (SELECT 1 FROM users AS u WHERE u.id = ",
+                Id(user_id),
+            )
+            .push(" AND u.password_hash <> ''))");
+    }
 }

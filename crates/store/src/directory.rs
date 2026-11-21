@@ -31,7 +31,11 @@ use crate::uploads::{OpenUploads, UploadUsage};
 use crate::{body_versions, invitations, memberships_everywhere, users, users_by_id, workspaces};
 
 mod every_organization;
+mod session_taken;
 mod sign_in;
+
+pub use session_taken::SessionTaken;
+use session_taken::{HAS_PASSWORD, taken};
 
 pub(crate) use every_organization::{
     is_the_instances_organization, of_people, organizations_made_by,
@@ -64,9 +68,8 @@ pub struct WorkspaceAccess {
     pub org_role: Option<OrgRole>,
     /// What the user is in the workspace.
     pub workspace_role: WorkspaceRole,
-    /// The provider a session must be made through to open what is the organization's;
-    /// `None` for an organization that takes a password too.
-    pub required_provider: Option<String>,
+    /// Which sessions of the user open the workspace.
+    pub takes: SessionTaken,
     /// What the organization is: one that people work in together, or the user's own
     /// space.
     pub kind: OrgKind,
@@ -373,6 +376,27 @@ impl Store {
             .await
     }
 
+    /// The organization that is the space of the account `user_id`, in use or not;
+    /// `None` for an account that has none. An account's space is the same one for as
+    /// long as the account is there.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub(crate) async fn space_of(&self, user_id: &str) -> Result<Option<String>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql("SELECT id FROM organizations WHERE owner_id = ");
+                sql.bind(Id(user_id));
+                scope
+                    .fetch_optional(sql)
+                    .await?
+                    .map(|row| row.id(0))
+                    .transpose()
+            })
+            .await
+    }
+
     /// What the user is in the workspace, and whose the workspace is; `None` if the
     /// user is no member of it, whether it exists or not. The user is the one of a
     /// session: whether the account is still in use is the session's to say.
@@ -388,14 +412,16 @@ impl Store {
     ) -> Result<Option<WorkspaceAccess>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                let mut sql = scope.sql(
-                    "SELECT t.org_id, wm.role, om.role, p.id, o.kind FROM workspace_members AS wm \
+                let mut sql = scope.sql(&format!(
+                    "SELECT t.org_id, wm.role, om.role, p.id, o.kind, {HAS_PASSWORD} \
+                     FROM workspace_members AS wm \
+                     JOIN users AS u ON u.id = wm.user_id \
                      JOIN workspaces AS t ON t.id = wm.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
                      LEFT JOIN organization_members AS om \
                      ON om.org_id = t.org_id AND om.user_id = wm.user_id \
                      LEFT JOIN oidc_providers AS p ON p.org_id = t.org_id AND p.sso_required = ",
-                );
+                ));
                 sql.bind(true)
                     .push_bind(" WHERE wm.user_id = ", Id(user_id))
                     .push_bind(" AND wm.workspace_id = ", Id(workspace_id))
@@ -405,6 +431,7 @@ impl Store {
                     return Ok(None);
                 };
                 let org_role = row.text(2)?;
+                let kind = org_kind(&row, 4)?;
                 Ok(Some(WorkspaceAccess {
                     org_id: row.id(0)?,
                     workspace_role: role(&row, 1)?,
@@ -413,8 +440,8 @@ impl Store {
                     } else {
                         Some(role(&row, 2)?)
                     },
-                    required_provider: Some(row.id(3)?).filter(|id| !id.is_empty()),
-                    kind: org_kind(&row, 4)?,
+                    takes: taken(kind, row.id(3)?, &row.text(5)?),
+                    kind,
                 }))
             })
             .await
@@ -425,7 +452,8 @@ impl Store {
     /// user's own space last, whenever it was made. `login_provider` is
     /// the provider the asking session was made through (`None` for a password): a
     /// workspace of an organization that takes only sessions made through another
-    /// says so (`sso_required`), and is listed all the same.
+    /// says so (`sso_required`), and the user's own space says that it takes a session
+    /// made with the password (`password_required`); both are listed all the same.
     ///
     /// # Errors
     ///
@@ -438,13 +466,14 @@ impl Store {
     ) -> Result<Vec<UserWorkspace>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                let mut sql = scope.sql(
-                    "SELECT t.id, t.org_id, t.name, wm.role, p.id, o.kind \
+                let mut sql = scope.sql(&format!(
+                    "SELECT t.id, t.org_id, t.name, wm.role, p.id, o.kind, {HAS_PASSWORD} \
                      FROM workspace_members AS wm \
+                     JOIN users AS u ON u.id = wm.user_id \
                      JOIN workspaces AS t ON t.id = wm.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
                      LEFT JOIN oidc_providers AS p ON p.org_id = t.org_id AND p.sso_required = ",
-                );
+                ));
                 sql.bind(true)
                     .push_bind(" WHERE wm.user_id = ", Id(user_id))
                     .push(IN_USE)
@@ -456,15 +485,17 @@ impl Store {
                     .await?
                     .iter()
                     .map(|row| {
-                        let required = row.id(4)?;
+                        let kind = org_kind(row, 5)?;
+                        let takes = taken(kind, row.id(4)?, &row.text(6)?);
+                        let closed = !takes.opened_by(login_provider);
                         Ok(UserWorkspace {
                             id: row.id(0)?,
                             org_id: row.id(1)?,
-                            kind: org_kind(row, 5)?,
+                            kind,
                             name: row.text(2)?,
                             role: role(row, 3)?,
-                            sso_required: !required.is_empty()
-                                && login_provider != Some(required.as_str()),
+                            sso_required: closed && kind == OrgKind::Team,
+                            password_required: closed && kind == OrgKind::Personal,
                         })
                     })
                     .collect()

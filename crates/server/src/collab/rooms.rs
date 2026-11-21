@@ -53,8 +53,10 @@ use super::versions::Left;
 use super::{Collab, DocChange, DocEvent, Loaded, admission, refusals};
 use crate::app::{App, Asker};
 use crate::config::collab::CollabSettings;
+use fvoci_store::SessionTaken;
+
 use crate::error::{AppError, Reason};
-use crate::permissions::{DocMode, session_opens};
+use crate::permissions::DocMode;
 
 /// How long after a room could not be sent its document anew, because the document
 /// cannot be worked on for now, it is tried again.
@@ -573,7 +575,7 @@ impl Collab {
     /// Puts out of the rooms of the organization of `app` (a handle of one
     /// organization) every connection whose session was not made through `provider_id`,
     /// as the organization begins to take only sessions made through that provider: the
-    /// wall's own rule ([`session_opens`]), so nothing is asked of the store. It waits
+    /// wall's own rule ([`SessionTaken::opened_by`]), so nothing is asked of the store. It waits
     /// for each room's turn, nothing more: a room it empties is closed by a task of its
     /// own. For after that is stored, and before the request that stored it answers:
     /// what such a connection sends after that is taken by no room. A connection whose
@@ -588,13 +590,14 @@ impl Collab {
             self.rooms_index().of_tenant(tenant).cloned().collect();
         // As for a card that is not there: the organization is told to nobody.
         let reason = reason_of(&AppError::not_found("card"));
+        let takes = SessionTaken::Through(provider_id.to_owned());
         for room in of_organization {
             let mut turn = room.turn.lock().await;
             let before = turn.members.len();
             // From the last: a member put out takes the place of none not yet looked at.
             for index in (0..turn.members.len()).rev() {
                 let made_through = turn.members[index].connection.made_through.as_deref();
-                if !session_opens(Some(provider_id), made_through) {
+                if !takes.opened_by(made_through) {
                     turn.put_out(index, &reason);
                 }
             }

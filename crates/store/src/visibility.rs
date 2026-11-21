@@ -14,6 +14,12 @@
 //! changes an organization's people's access is written through that organization's
 //! handle ([`Store::for_org`]).
 //!
+//! A write that changes what is read of one organization without writing a table of
+//! it says which, whatever handle it is written through ([`Writing::invalidate_of`]):
+//! an account that asks to be deleted, or takes that back, or is given its first
+//! password, changes what its sessions and the links of its own space open, by its
+//! own row alone. That moves the space's revision and no other organization's.
+//!
 //! A write abandoned before its outcome was known (its future was dropped between its
 //! first authorization statement and its commit or rollback) may still land. For
 //! a while after that ([`settle_after`]) nothing of its scope is cached: every check
@@ -158,6 +164,7 @@ impl Visibility {
             visibility: self,
             moves: tenant.into(),
             touched: AtomicBool::new(false),
+            named: Mutex::default(),
             finished: AtomicBool::new(false),
         }
     }
@@ -294,6 +301,9 @@ pub(crate) struct Writing<'a> {
     visibility: &'a Visibility,
     moves: Moves,
     touched: AtomicBool,
+    /// The organizations the write named besides ([`Self::invalidate_of`]): each is
+    /// moved on as it is named and again as the write ends.
+    named: Mutex<Vec<Uuid>>,
     finished: AtomicBool,
 }
 
@@ -317,6 +327,21 @@ impl Writing<'_> {
         self.visibility.change(self.moves, Count::start);
     }
 
+    /// Moves on the revision of the organization `org`, which the write changes what
+    /// is read of without writing a table of it, whatever the handle: from here to the
+    /// end of the write, as a write through the organization's own handle would.
+    pub(crate) fn invalidate_of(&self, org: Uuid) {
+        if self.moves == Moves::Org(org) {
+            return self.invalidate();
+        }
+        let mut named = self.named.lock().expect("visibility named lock");
+        if named.contains(&org) {
+            return;
+        }
+        named.push(org);
+        self.visibility.change(Moves::Org(org), Count::start);
+    }
+
     pub(crate) fn settled(&self) {
         self.finished.store(true, Ordering::Relaxed);
     }
@@ -324,11 +349,16 @@ impl Writing<'_> {
 
 impl Drop for Writing<'_> {
     fn drop(&mut self) {
+        let unsettled = (!self.finished.load(Ordering::Relaxed))
+            .then(|| Instant::now() + self.visibility.settle);
+        let named = std::mem::take(&mut *self.named.lock().expect("visibility named lock"));
+        for org in named {
+            self.visibility
+                .change(Moves::Org(org), |count| count.end(unsettled));
+        }
         if !self.touched.load(Ordering::Relaxed) {
             return;
         }
-        let unsettled = (!self.finished.load(Ordering::Relaxed))
-            .then(|| Instant::now() + self.visibility.settle);
         self.visibility
             .change(self.moves, |count| count.end(unsettled));
     }

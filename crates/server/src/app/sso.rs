@@ -10,13 +10,16 @@
 //! does not open (`Store::container_memberships_of_user`). It is asked of
 //! every request: the sessions stay, and one that does not open an organization still
 //! opens the others.
+//!
+//! The same check closes a user's own space, once its account has a password, to a
+//! session made through a provider: what a workspace takes is one answer of the store
+//! (`SessionTaken`), whichever of the two it is.
 
 use fvoci_model::Session;
-use fvoci_store::StoredProvider;
+use fvoci_store::{SessionTaken, StoredProvider};
 
 use super::App;
 use crate::error::{AppError, Reason};
-use crate::permissions::session_opens;
 
 /// What was done to an organization's taking no password.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,29 +176,35 @@ impl<'a> From<&'a Session> for Asker<'a> {
 }
 
 /// Refuses a session that does not open what is the organization `org_id`'s:
-/// `required` is the provider the organization takes sessions of and no other, as
-/// the store answered it for this user, `None` if it takes a password too.
+/// `takes` is which sessions it takes, as the store answered it for this user.
 ///
 /// # Errors
 ///
-/// Returns 401 with the reason `sso_required`, naming the organization. It is for
+/// Returns 401 with the reason `sso_required`, naming the organization, for one that
+/// takes only sessions made through its provider, and 401 with the reason
+/// `password_sign_in_required` for the user's own space, which takes only sessions
+/// made with the account's password once it has one. It is for
 /// who has a place in the organization, or holds a good link of an invitation into
 /// it, only: the caller asks after it knows that, so that the answer tells nobody
 /// else that the organization is there.
 pub(crate) fn require_session_opens(
     asker: Asker<'_>,
     org_id: &str,
-    required: Option<&str>,
+    takes: &SessionTaken,
 ) -> Result<(), AppError> {
-    if session_opens(required, asker.made_through) {
+    if takes.opened_by(asker.made_through) {
         return Ok(());
     }
     tracing::debug!(
         org_id,
         user_id = asker.user_id,
-        "a session not made through the organization's provider was refused"
+        ?takes,
+        "a session of another making than the organization takes was refused"
     );
-    Err(AppError::sso_required(org_id))
+    Err(match takes {
+        SessionTaken::WithPassword => AppError::password_sign_in_required(),
+        SessionTaken::Any | SessionTaken::Through(_) => AppError::sso_required(org_id),
+    })
 }
 
 impl App {
@@ -275,7 +284,7 @@ impl App {
             .await?
             .filter(|provider| provider.sso_required)
             .map(|provider| provider.id);
-        require_session_opens(asker, &org_id, required.as_deref())
+        require_session_opens(asker, &org_id, &SessionTaken::of_organization(required))
     }
 
     /// Refuses a session that does not open the instance's own organization (the
@@ -299,7 +308,11 @@ impl App {
             .store()
             .required_provider_for(&session.user_id, &org_id)
             .await?;
-        require_session_opens(session.into(), &org_id, required.as_deref())
+        require_session_opens(
+            session.into(),
+            &org_id,
+            &SessionTaken::of_organization(required),
+        )
     }
 
     /// The organization this handle stands in. A handle of no organization, or of all,

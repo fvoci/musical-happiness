@@ -54,6 +54,7 @@ impl App {
             role: WorkspaceRole::Admin,
             // An organization that was just made has no provider to require.
             sso_required: false,
+            password_required: false,
         })
     }
 }

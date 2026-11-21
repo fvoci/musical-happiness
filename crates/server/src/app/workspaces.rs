@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use fvoci_model::{
     Container, ContainerKind, OrgKind, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole,
 };
-use fvoci_store::{PublicContainers, Tenant};
+use fvoci_store::{PublicContainers, SessionTaken, Tenant};
 
 use super::{App, Asker, as_managed, sso};
 use crate::error::AppError;
@@ -57,7 +57,8 @@ impl App {
             .store()
             .required_provider_for(&session.user_id, org_id)
             .await?;
-        sso::require_session_opens(session.into(), org_id, required.as_deref())?;
+        let takes = SessionTaken::of_organization(required);
+        sso::require_session_opens(session.into(), org_id, &takes)?;
         Ok(Some(self.scoped(tenant)))
     }
 
@@ -90,8 +91,11 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns 401 with the reason `sso_required` for a member whose session does not
-    /// open the workspace's organization (`sso::require_session_opens`), and the
+    /// Returns 401 for a member whose session does not open the workspace: with the
+    /// reason `sso_required` where its organization takes only sessions made through
+    /// its provider, and `password_sign_in_required` for the user's own space, of an
+    /// account that has a password, asked of a session made through a provider
+    /// (`sso::require_session_opens`); and the
     /// store's error if the membership cannot be read: that is no "not a member".
     pub async fn enter_workspace(
         &self,
@@ -120,7 +124,7 @@ impl App {
         else {
             return Ok(None);
         };
-        sso::require_session_opens(asker, &access.org_id, access.required_provider.as_deref())?;
+        sso::require_session_opens(asker, &access.org_id, &access.takes)?;
         let app = self.in_organization(&access.org_id)?;
         Ok(Some(Entered {
             app,

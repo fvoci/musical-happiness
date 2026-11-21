@@ -307,8 +307,11 @@ fn malformed_path() -> AppError {
 /// organization that takes only sessions made
 /// through its provider is listed for any session, with `ssoRequired` true for one that
 /// was not made so: what is under it answers 401 with the reason `sso_required` until
-/// the user signs in through the provider of `orgId`. The user's own space takes any
-/// session of the account: its `ssoRequired` is false.
+/// the user signs in through the provider of `orgId`. The user's own space asks for no
+/// provider: its `ssoRequired` is false. Once its account has a password it takes only
+/// sessions made with that, and is listed with `passwordRequired` true for a session
+/// made through a provider: what is under it answers 401 with the reason
+/// `password_sign_in_required` until the user signs in with the password (`login`).
 #[utoipa::path(
     get,
     path = "/users/me/workspaces",

@@ -116,7 +116,14 @@ async fn entered(
         Ok(None) => Ok(None),
         // Not let in, which is an answer: told as a failure, it would leave who is in
         // the room there when the organization begins to take no password.
-        Err(error) if error.reason() == Some(Reason::SsoRequired) => Ok(None),
+        Err(error)
+            if matches!(
+                error.reason(),
+                Some(Reason::SsoRequired | Reason::PasswordSignInRequired)
+            ) =>
+        {
+            Ok(None)
+        }
         Err(error) => Err(error),
     }
 }

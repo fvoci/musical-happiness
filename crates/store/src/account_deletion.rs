@@ -176,8 +176,11 @@ impl Store {
                     return Ok(DeletionAsking::Changed);
                 }
                 // The links of the account's own space open nothing while it waits:
-                // what was checked of a link before is checked again.
-                scope.invalidate_visibility();
+                // what was checked of a link before is checked again, of that space
+                // and of no other organization.
+                if let Some(space) = &standing.own_space {
+                    scope.invalidate_visibility_of(&space.id)?;
+                }
                 sessions::delete_sessions_of_user(scope, user_id).await?;
                 password_reset::delete_password_resets_of_user(scope, user_id).await?;
                 Ok(DeletionAsking::Asked(Leaving {
@@ -211,21 +214,24 @@ impl Store {
         user_id: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
-            let mut sql =
-                scope.sql("UPDATE users SET delete_at = 0, delete_after = 0, update_at = ");
-            sql.bind(now)
-                .push_bind(" WHERE id = ", Id(user_id))
-                .push(" AND ")
-                .push(users::WAITS);
-            let back = scope.execute(sql).await? > 0;
-            if back {
-                // The links of its own space open again.
-                scope.invalidate_visibility();
-            }
-            Ok(back)
-        })
-        .await
+        // Through the reach of every organization, whatever handle asks: the space
+        // whose links open again is found by its owner.
+        self.system()
+            .transaction(async |scope| {
+                let mut sql =
+                    scope.sql("UPDATE users SET delete_at = 0, delete_after = 0, update_at = ");
+                sql.bind(now)
+                    .push_bind(" WHERE id = ", Id(user_id))
+                    .push(" AND ")
+                    .push(users::WAITS);
+                let back = scope.execute(sql).await? > 0;
+                if back && let Some(space) = own_space(scope, user_id).await? {
+                    // The links of its own space open again.
+                    scope.invalidate_visibility_of(&space.id)?;
+                }
+                Ok(back)
+            })
+            .await
     }
 
     /// The session with the token digest, if it is one of an account that waits to be
