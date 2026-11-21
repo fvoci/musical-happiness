@@ -126,7 +126,8 @@ test('the outline follows the headings another browser writes, writes nothing it
     await expect(bodyHeading(first, words)).toBeInViewport();
   }
   await second.getByTestId('page-body').getByText(SECTION_WORDS).last().click();
-  await second.keyboard.press('End');
+  // The end of the body: the end of its last paragraph.
+  await second.keyboard.press('Control+End');
   await second.keyboard.type('Z');
   const expected = JSON.parse(before) as { content: { content?: { text: string }[] }[] };
   const last = expected.content.at(-1)?.content?.[0];
