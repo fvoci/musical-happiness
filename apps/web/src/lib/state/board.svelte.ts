@@ -561,17 +561,15 @@ export class BoardStore {
 
   // -------------------------------------------------------------- views
 
-  /** Changes a view to what `change` makes of it; undo puts it back, `was` in its fields. */
+  /** Changes a view: `change` gets the view as it is and returns it as it should be. */
   async changeView(
     viewId: string,
     change: (view: BoardView) => BoardView,
     description = 'changeView',
     groupId?: string,
-    was?: Partial<BoardView['fields']>,
   ): Promise<void> {
-    const shown = this.view(viewId);
-    if (!shown) return;
-    const current = was ? { ...shown, fields: { ...shown.fields, ...was } } : shown;
+    const current = this.view(viewId);
+    if (!current) return;
     const [forward, backward] = viewPatches(change(current), current);
     if (isEmptyBlockPatch(forward)) return;
     await this.#perform(
@@ -598,20 +596,22 @@ export class BoardStore {
     );
   }
 
-  /** Writes places that keep views where they show (`Placing.keep`): no step of undo. */
+  /**
+   * Writes places that keep views where they show (`Placing.keep`): no step of
+   * undo, and said once where refused, as part of the gesture they go with.
+   */
   async keepViewPlaces(keep: readonly PlaceWrite[]): Promise<void> {
-    await Promise.all(
-      keep.map(async ({ id, place }) => {
-        const current = this.view(id);
-        if (!current) return;
-        const placed = { ...current, fields: { ...current.fields, order: place } };
-        const [forward, backward] = viewPatches(placed, current);
-        if (isEmptyBlockPatch(forward)) return;
-        await this.#viewWrites.write(id, forward, backward).catch((error: unknown) => {
-          this.workspace.report('save', error);
-        });
-      }),
+    const writes = keep.flatMap(({ id, place }) => {
+      const current = this.view(id);
+      if (!current) return [];
+      const placed = { ...current, fields: { ...current.fields, order: place } };
+      const [forward, backward] = viewPatches(placed, current);
+      return isEmptyBlockPatch(forward) ? [] : [this.#viewWrites.write(id, forward, backward)];
+    });
+    const refused = (await Promise.allSettled(writes)).find(
+      (each): each is PromiseRejectedResult => each.status === 'rejected',
     );
+    if (refused) this.workspace.report('save', refused.reason);
   }
 
   async createView(draft: ViewDraft): Promise<BoardView | undefined> {

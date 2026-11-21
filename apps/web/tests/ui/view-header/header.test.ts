@@ -406,6 +406,14 @@ describe('views', () => {
       expect(tool.hasAttribute('data-dropdown-menu-item')).toBe(false);
       expect(tool.tabIndex).toBe(-1);
     }
+    // A line is said as one of the lines the arrows go to, the buttons not counted.
+    const lines = menuLines();
+    expect(lines.map((line) => line.getAttribute('aria-posinset'))).toEqual(
+      lines.map((_, index) => String(index + 1)),
+    );
+    expect(lines.every((line) => line.getAttribute('aria-setsize') === String(lines.length))).toBe(
+      true,
+    );
     const disabled = (viewId: string): boolean[] =>
       lineTools(viewId).map((tool) => (tool as HTMLButtonElement).disabled);
     expect(disabled(boardId)).toEqual([true, false]);

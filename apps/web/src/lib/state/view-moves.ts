@@ -24,18 +24,15 @@ export async function moveView(board: BoardStore, viewId: string, step: -1 | 1):
   const from = shown.findIndex((view) => view.id === viewId);
   const to = from + step;
   if (from < 0 || to < 0 || to >= shown.length) return;
-  const { place, keep, was } = movedTo(placesOf(shown), viewId, to);
-  // Both show before their first wait, as one move: what keeps the others where they
-  // are, and the move, whose undo puts back where the view showed.
+  const placed = placesOf(shown);
+  const { place, keep, was } = movedTo(placed, viewId, to);
+  // Where the view shows now is stored first where it is not (it had no place, or the
+  // others' places pass it): what an undo, and a refusal, put back. A view's writes go
+  // one after another (`ServerBackend.patchView`), and all of them show at once.
+  const own = placed[from]?.place === was ? [] : [{ id: viewId, place: was }];
   await Promise.all([
-    board.keepViewPlaces(keep),
-    board.changeView(
-      viewId,
-      (view) => ({ ...view, fields: { ...view.fields, order: place } }),
-      'moveView',
-      undefined,
-      { order: was },
-    ),
+    board.keepViewPlaces([...keep, ...own]),
+    board.setViewFields(viewId, { order: place }, 'moveView'),
   ]);
 }
 

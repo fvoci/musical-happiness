@@ -128,9 +128,9 @@ describe('moving one thing of a list', () => {
   it('writes the thing moved alone where every one has a place', () => {
     const shown = list(['a', 'V'], ['b', 'W'], ['c', 'X']);
     expect(movedTo(shown, 'c', 1)).toEqual({ place: 'VV', keep: [], was: 'X' });
-    expect(movedTo(shown, 'a', 1).place).toBe('WV');
-    expect(movedTo(shown, 'b', 0).place).toBe('U');
-    expect(movedTo(shown, 'b', 2).place).toBe('Y');
+    expect(movedTo(shown, 'a', 1)).toEqual({ place: 'WV', keep: [], was: 'V' });
+    expect(movedTo(shown, 'b', 0)).toEqual({ place: 'U', keep: [], was: 'W' });
+    expect(movedTo(shown, 'b', 2)).toEqual({ place: 'Y', keep: [], was: 'W' });
   });
 
   it('gives those without a place the places they show at, the first time, and says its own', () => {

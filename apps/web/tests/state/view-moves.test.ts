@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createBoardView, type BoardView } from '$lib/logic/wire.ts';
 import {
   addViewAtEnd,
+  BackendError,
   duplicateView,
   moveView,
   Workspace,
@@ -106,8 +107,8 @@ describe('a move', () => {
     // Shown at once.
     expect(titles(board)).toEqual(['Alpha', 'Beta', 'Delta', 'Board', 'Gamma']);
     await done;
-    // Every view, once: the others the places they showed at.
-    expect(patch).toHaveBeenCalledTimes(5);
+    // Every view the place it showed at, and the one moved where it goes.
+    expect(patch).toHaveBeenCalledTimes(6);
     expect(places(board).every((place) => place !== undefined)).toBe(true);
     const stored = (await backend.views(board.boardId)).map((view) => view.fields.order);
     expect(stored.every((place) => place !== undefined)).toBe(true);
@@ -115,7 +116,7 @@ describe('a move', () => {
     // One write back: the view moved, where it showed. The others keep their places.
     await workspace.undoLast();
     expect(titles(board)).toEqual(['Alpha', 'Beta', 'Board', 'Delta', 'Gamma']);
-    expect(patch).toHaveBeenCalledTimes(6);
+    expect(patch).toHaveBeenCalledTimes(7);
     expect(places(board).every((place) => place !== undefined)).toBe(true);
     const read = orderViews(await backend.views(board.boardId), 'en');
     expect(read.map((view) => view.title)).toEqual(titles(board));
@@ -183,12 +184,12 @@ describe('a move', () => {
     expect(titles(board)).toEqual(['Beta', 'Alpha', 'Gamma', 'Board', 'Delta']);
     expect(titles(theirs)).toEqual(titles(board));
     // A move between the two finds no room there: the one of the two after it goes up,
-    // and the view moved has a place of its own; nothing else is written.
+    // past where Board is, whose place is moved up with it first; nothing else is written.
     const patch = vi.spyOn(board.workspace.backend, 'patchView');
     await moveView(board, idOf(board, 'Board'), -1);
     await settle();
     expect(patch.mock.calls.map((call) => call[1]).sort()).toEqual(
-      [idOf(board, 'Board'), idOf(board, 'Gamma')].sort(),
+      [idOf(board, 'Board'), idOf(board, 'Board'), idOf(board, 'Gamma')].sort(),
     );
     expect(titles(board)).toEqual(['Beta', 'Alpha', 'Board', 'Gamma', 'Delta']);
     expect(titles(theirs)).toEqual(titles(board));
@@ -210,6 +211,48 @@ describe('a move', () => {
     await settle();
     expect(titles(board)).toEqual(['Beta', 'Alpha', 'Board', 'Delta', 'Gamma']);
     expect(titles(theirs)).toEqual(titles(board));
+  });
+
+  it('of a first move and a first new view at once keeps where the later write put the view', async () => {
+    // Both give the views without a place theirs: the same places, but for the view moved,
+    // which the move writes where it goes and the new view's writes where it showed.
+    const added = { title: 'Aardvark', fields: createBoardView().fields };
+    const first = await twoReaders();
+    await Promise.all([
+      moveView(first.board, idOf(first.board, 'Gamma'), -1),
+      addViewAtEnd(first.theirs, added),
+    ]);
+    await settle();
+    // The new view's writes came later: Gamma is where it showed, the move gone.
+    expect(titles(first.board)).toEqual(['Alpha', 'Beta', 'Board', 'Delta', 'Gamma', 'Aardvark']);
+    expect(titles(first.theirs)).toEqual(titles(first.board));
+    const second = await twoReaders();
+    await Promise.all([
+      addViewAtEnd(second.theirs, added),
+      moveView(second.board, idOf(second.board, 'Gamma'), -1),
+    ]);
+    await settle();
+    // The move's came later: it stays.
+    expect(titles(second.board)).toEqual(['Alpha', 'Beta', 'Board', 'Gamma', 'Delta', 'Aardvark']);
+    expect(titles(second.theirs)).toEqual(titles(second.board));
+  });
+
+  it('refused, shows the view moved as it is stored, as every browser reads it', async () => {
+    const { board, backend, theirs, workspace } = await twoReaders();
+    const beta = idOf(board, 'Beta');
+    const send = backend.patchView.bind(backend);
+    vi.spyOn(backend, 'patchView').mockImplementation((boardId, viewId, patch) =>
+      viewId === beta
+        ? Promise.reject(new BackendError(403, { detail: 'no' }))
+        : send(boardId, viewId, patch),
+    );
+    await moveView(board, beta, 1);
+    await settle();
+    // The others have the places they showed at; Beta has none, and so reads last.
+    expect(titles(board)).toEqual(['Alpha', 'Board', 'Delta', 'Gamma', 'Beta']);
+    expect(titles(theirs)).toEqual(titles(board));
+    // Said once for the places kept, once for the move: not once a view.
+    expect(workspace.problems).toHaveLength(2);
   });
 });
 

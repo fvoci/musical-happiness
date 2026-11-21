@@ -60,6 +60,14 @@
   const shown = $derived(presentation ?? overlayPresentation(page.stage));
   /** Lines with tools at their ends: a wider dropdown, for their names. */
   const withTools = $derived(actions.some((action) => action.tools));
+
+  /**
+   * Where a line of the dropdown is among its lines, with tools at their ends:
+   * said as one of those the arrows go to, its tools not counted.
+   */
+  function linePlace(index: number): Record<string, number> {
+    return withTools ? { 'aria-posinset': index + 1, 'aria-setsize': actions.length } : {};
+  }
   /** What opened the sheet, for the focus to come back to: Safari does not focus a pressed button. */
   let opener: HTMLElement | null = null;
 
@@ -166,9 +174,10 @@
   {/if}
 {/snippet}
 
-{#snippet dropdownItem(action: MenuAction, row = '')}
+{#snippet dropdownItem(action: MenuAction, index: number, row = '')}
   {#if action.href === undefined}
     <DropdownMenu.Item
+      {...linePlace(index)}
       variant={action.destructive ? 'destructive' : 'default'}
       disabled={action.disabled}
       aria-label={action.ariaLabel}
@@ -199,6 +208,7 @@
         {@const keys = props.onkeydown as ((event: KeyboardEvent) => void) | undefined}
         <a
           {...props}
+          {...linePlace(index)}
           {href}
           aria-current={action.checked ? 'page' : undefined}
           aria-keyshortcuts={lineKeys(action)}
@@ -320,7 +330,7 @@
         'max-w-[calc(100vw-1rem-var(--safe-left)-var(--safe-right))]',
       ]}
     >
-      {#each actions as action (action.id)}
+      {#each actions as action, index (action.id)}
         {#if action.separated}
           <DropdownMenu.Separator />
         {/if}
@@ -328,7 +338,7 @@
           <!-- One row: the line, and the buttons of its tools after it, items of the menu
                that its arrows pass over (not Bits UI's): the keys are the line's. -->
           <div role="none" class="flex items-center gap-0.5" data-line={action.id}>
-            {@render dropdownItem(action, 'min-w-0 flex-1')}
+            {@render dropdownItem(action, index, 'min-w-0 flex-1')}
             {#each action.tools as tool (tool.id)}
               {@const Icon = tool.icon}
               <button
@@ -352,7 +362,7 @@
             {/each}
           </div>
         {:else}
-          {@render dropdownItem(action)}
+          {@render dropdownItem(action, index)}
         {/if}
       {/each}
     </DropdownMenu.Content>
