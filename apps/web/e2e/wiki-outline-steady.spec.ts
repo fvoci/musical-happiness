@@ -6,7 +6,8 @@
  * the button and where it is beside the page; a page switch brings the next
  * page's outline with its body; the mark follows when the column grows or
  * what is above the body grows; and on a touch screen a heading chosen with
- * the keyboard gets the caret.
+ * the keyboard gets the caret. With the scrollbars shown, as where they take
+ * room: a page's layout must not depend on whether it overflows.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -23,7 +24,11 @@ import {
 } from './outline.support.ts';
 import { letSomebodyElseIn, pageBody, pageBySomebodyElse, treeItem } from './wiki.support.ts';
 
-test.use({ locale: 'en-US', reducedMotion: 'reduce' });
+test.use({
+  locale: 'en-US',
+  reducedMotion: 'reduce',
+  launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] },
+});
 
 const WIDE = { width: 1600, height: 900 };
 
@@ -50,6 +55,43 @@ test('typing in the heading chosen keeps it the one marked; a key that moves the
   // A key that moves the page: the mark is the reading line's again.
   await page.keyboard.press('PageUp');
   await expect(currentItem(page)).not.toHaveText('Section 24 and more');
+});
+
+test.describe('where the reader has not asked for less motion', () => {
+  test.use({ reducedMotion: 'no-preference' });
+
+  test('a key pressed while the heading chosen is still coming up does not let go of it', async ({
+    page,
+  }, info) => {
+    test.skip(info.project.name !== 'desktop', 'one wide window');
+    await page.setViewportSize(WIDE);
+    await pageWith(page, 'Guide', longBody(24));
+    await pageColumn(page).evaluate((column) => {
+      column.scrollTop = 0;
+    });
+    await outlineItem(page, 'Section 24').click();
+    await page.keyboard.press('End');
+    // The scroll comes to rest (the key may have cut it short): two frames without a move.
+    await expect
+      .poll(() =>
+        pageColumn(page).evaluate(
+          (column) =>
+            new Promise<boolean>((done) => {
+              const from = column.scrollTop;
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => {
+                  done(column.scrollTop === from);
+                }),
+              );
+            }),
+        ),
+      )
+      .toBe(true);
+    await expect(currentItem(page)).toHaveText('Section 24');
+    await page.keyboard.type(' and more');
+    await expect(outlineItem(page, 'Section 24 and more')).toBeVisible();
+    await expect(currentItem(page)).toHaveText('Section 24 and more');
+  });
 });
 
 /** Where the block of the caret and the block above it are on the screen; none for a block not drawn. */
@@ -143,6 +185,34 @@ test('at 1440 pixels with the sidebar and the page tree open, the page gives up 
   expect(view?.width).toBeLessThan(768);
   expect(view?.width).toBeGreaterThanOrEqual(640);
   expect(side?.x).toBeGreaterThanOrEqual((view?.x ?? 0) + (view?.width ?? 0) - 1);
+});
+
+test('near the width where the outline goes beside the page, a page that comes to overflow keeps its layout', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'desktop', 'one window, scrollbars that take room');
+  // A column of about 52rem with the sidebar and the page tree: the layouts' boundary.
+  await page.setViewportSize({ width: 1352, height: 900 });
+  await pageWith(page, 'Notes', '<p>Line 1</p>');
+  await pageBody(page).click();
+  await page.keyboard.press('ControlOrMeta+End');
+  const boxes: string[] = [];
+  for (let line = 2; line <= 24; line += 1) {
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(`Line ${String(line)}`);
+    await expect(pageBody(page).locator('p').last()).toHaveText(`Line ${String(line)}`);
+    // Two frames on, after anything the line set going.
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+    const box = await page.getByTestId('page-view').boundingBox();
+    boxes.push(`${String(box?.x)} ${String(box?.width)}`);
+  }
+  // It came to overflow, and the page stayed where it was drawn at the first line.
+  expect(
+    await pageColumn(page).evaluate((column) => column.scrollHeight > column.clientHeight),
+  ).toBe(true);
+  expect(new Set(boxes).size).toBe(1);
 });
 
 /** What each frame showed: the body's headings, and the outline's items, as their first words and count. */

@@ -200,6 +200,8 @@ describe('the outline of the read-only view', () => {
     // Nothing is measured here: every top is 0, at the reading line, so the last is read.
     expect(outline.current).toBe(2);
     const inBody = body.querySelector('h2') as HTMLElement;
+    // Typed into what is edited (jsdom does not work this out from `contenteditable`).
+    Object.defineProperty(inBody, 'isContentEditable', { value: true });
     const scrolled = async (): Promise<void> => {
       scroller.dispatchEvent(new Event('scroll'));
       await nextFrame();
@@ -216,6 +218,11 @@ describe('the outline of the read-only view', () => {
     }
     // A key that moves the page, then the page scrolled: the reading line's again.
     key({ key: 'PageDown' });
+    await scrolled();
+    expect(outline.current).toBe(2);
+    // Tab, and the keys of the browser's own (Find), may scroll the page too.
+    outline.go(0);
+    key({ key: 'Tab' });
     await scrolled();
     expect(outline.current).toBe(2);
     // A key that moves the page and then a letter: the scroll is the caret's.
@@ -375,8 +382,12 @@ describe('the list of the outline', () => {
     expect(items[0]).not.toHaveAttribute('aria-current');
     expect(items[0]?.style.paddingInlineStart).toBe('0.5rem');
     expect(items[1]?.style.paddingInlineStart).toBe('1.25rem');
-    // One stop of the Tab key, at the one being read.
+    // One stop of the Tab key, at the one being read, which tells the keys that go along the list.
     expect(Array.from(items, (item) => item.tabIndex)).toEqual([-1, 0, -1]);
+    expect(items[1]).toHaveAccessibleDescription(
+      'The arrow keys, Home and End go from heading to heading; Enter goes to the one chosen.',
+    );
+    expect(items[0]).not.toHaveAccessibleDescription();
     outline.current = 2;
     await tick();
     expect(items[2]).toHaveAttribute('aria-current', 'location');

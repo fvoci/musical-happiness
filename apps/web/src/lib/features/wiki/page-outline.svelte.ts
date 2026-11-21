@@ -49,21 +49,22 @@ const NARROWEST_PAGE = 40;
 const MARGIN = 16;
 /** The events by which the reader may be moving the page themselves: a scroll after one is theirs. */
 const MOVES = ['wheel', 'touchstart', 'pointerdown'] as const;
-/** The keys that move the page, or the caret across it; any other writes, or leaves the page be. */
-const PAGE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+/** Keys that write wherever they are pressed, an input method's among them. */
+const WRITING_KEYS = new Set(['Enter', 'Backspace', 'Delete', 'Process', 'Unidentified', 'Dead']);
 
 export type OutlineMode = 'none' | 'side' | 'button';
 
 /**
- * Whether a key may move the page: not one that writes (a letter, Enter, a
- * key of an input method), which scrolls the page only to keep the caret in
- * sight, and a space only outside what is edited.
+ * Whether a key writes: a letter or a space typed into what is edited, Enter,
+ * the deleting keys, an input method's keys. The page scrolls after one only
+ * to keep the caret in sight. Any other key may move the page: the arrows,
+ * PageUp and PageDown, Home and End, Tab, a space outside what is edited,
+ * the browser's own (Find).
  */
-function movesPage(event: KeyboardEvent): boolean {
-  if (event.isComposing || !PAGE_KEYS.has(event.key)) return false;
-  return (
-    event.key !== ' ' || !(event.target instanceof HTMLElement && event.target.isContentEditable)
-  );
+function writes(event: KeyboardEvent): boolean {
+  if (event.isComposing || WRITING_KEYS.has(event.key)) return true;
+  const edited = event.target instanceof HTMLElement && event.target.isContentEditable;
+  return edited && event.key.length === 1 && !event.ctrlKey && !event.metaKey;
 }
 
 function remembered(): boolean {
@@ -102,6 +103,11 @@ export class PageOutline {
   #chosen: HTMLElement | undefined;
   /** The reader pressed, turned the wheel or pressed a key that moves the page: a scroll now is theirs. */
   #moving = false;
+  /**
+   * Where the scroll to a heading gone to is going, and how far it had left to
+   * go: a scroll that comes nearer is that one still, not the reader's.
+   */
+  #going: { to: number; left: number } | undefined;
   #stale = false;
   #frame: number | undefined;
 
@@ -167,6 +173,7 @@ export class PageOutline {
       if (this.#source !== element) return;
       this.#source = undefined;
       this.#chosen = undefined;
+      this.#going = undefined;
       untrack(() => {
         [this.entries, this.current, this.open] = [[], -1, false];
       });
@@ -191,10 +198,10 @@ export class PageOutline {
       this.#moving = true;
     };
     const keyed = (event: KeyboardEvent): void => {
-      this.#moving = movesPage(event);
+      this.#moving = !writes(event);
     };
     const scrolled = (): void => {
-      if (this.#moving) this.#chosen = undefined;
+      if (!this.#stillGoing(element.scrollTop) && this.#moving) this.#chosen = undefined;
       this.#soon();
     };
     for (const name of MOVES)
@@ -249,8 +256,27 @@ export class PageOutline {
     // The focus first: WebKit brings the caret into sight as the editor takes the
     // focus, which would cut a smooth scroll short; the scroll then starts from there.
     const focused = focusHeading(entry.element, finger);
-    scrollToHeading(scroller, entry.element, this.#head() + MARGIN);
+    const to = scrollToHeading(scroller, entry.element, this.#head() + MARGIN);
+    const left = Math.abs(to - scroller.scrollTop);
+    this.#going = left < 1 ? undefined : { to, left };
     return focused;
+  }
+
+  /**
+   * Whether a scroll to `top` is the one to a heading gone to, coming nearer
+   * to where it goes (a key that moves the caret may cut it short, where it
+   * rests); done once there, or once a scroll goes elsewhere.
+   */
+  #stillGoing(top: number): boolean {
+    const going = this.#going;
+    if (!going) return false;
+    const left = Math.abs(going.to - top);
+    if (left > going.left + 1) {
+      this.#going = undefined;
+      return false;
+    }
+    this.#going = left < 1 ? undefined : { to: going.to, left };
+    return true;
   }
 
   /** How far the bar at the head of the page reaches down into it, in pixels. */

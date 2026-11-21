@@ -17,7 +17,9 @@
   Where it would be behind the button, the bar's place is kept above a page
   with too few headings for one, so that the page does not move down and up
   as a second heading is written and taken out; it stays at the head as the
-  page scrolls only with something in it.
+  page scrolls only with something in it. The scrollbar's room is kept too:
+  the layout, read from the column's width, must not change as the page
+  comes to overflow.
 -->
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
@@ -324,7 +326,7 @@
   </div>
 
   <div
-    class="min-w-0 flex-1 overflow-y-auto overscroll-contain"
+    class="min-w-0 flex-1 [scrollbar-gutter:stable] overflow-y-auto overscroll-contain"
     inert={drawerOut}
     {@attach outline.follow}
   >

@@ -7,7 +7,9 @@
   wide pane the tree is a column beside the page; at a phone's width it is a
   list above it that opens and closes. The visit counts as an anonymous one
   on the wiki and its page; nothing of who else is there comes back. The
-  page's headings are its outline, as in the app (`PageOutline`).
+  page's headings are its outline, as in the app (`PageOutline`); the page's
+  column keeps its scrollbar's room, as there, so that its layout does not
+  change as the page comes to overflow.
 -->
 <script lang="ts">
   import ListTreeIcon from '@lucide/svelte/icons/list-tree';
@@ -199,7 +201,7 @@
       <div class="w-64 shrink-0 overflow-y-auto border-r">{@render tree()}</div>
     {/if}
     <article
-      class="min-w-0 flex-1 overflow-y-auto px-4"
+      class="min-w-0 flex-1 [scrollbar-gutter:stable] overflow-y-auto px-4"
       data-testid="shared-page"
       {@attach outline.follow}
     >
