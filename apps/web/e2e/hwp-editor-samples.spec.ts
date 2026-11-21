@@ -9,20 +9,17 @@
  * what the save asks (the protection, what is left out, what reads back with
  * other counts) and how long it took to ask or to save are written, a line a
  * file, to `FVOCI_HWP_SAMPLE_REPORT`; `FVOCI_HWP_SAMPLE_WAIT` (milliseconds)
- * waits that long before saving. With `FVOCI_HWP_SAMPLE_MODE=pages` it is
- * not saved: the pages the editor lays it out on are written instead, as it
- * opens, a while after, and once typed into. The editor lays a document out
- * on the frame's thread, measuring its text there; the viewer's worker lays
- * the saved file out without that, as tests/logic/hwp-save-samples.test.ts
- * does in Node.
+ * waits that long before saving (the frame counts the pages of the file as it
+ * opens it, editor-frame/recounts.ts). What it asks is what
+ * tests/logic/hwp-save-samples.test.ts finds in Node.
  */
 import { appendFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 import { attach, openCard, viewer } from './file-viewer.support.ts';
-import { editor, editorFrame, HWP_TYPE, HWPX_TYPE, said } from './hwp-editor.support.ts';
+import { editor, HWP_TYPE, HWPX_TYPE, said } from './hwp-editor.support.ts';
 
 const FOLDER = process.env.FVOCI_HWP_SAMPLES ?? '';
 const FILES = (process.env.FVOCI_HWP_SAMPLE_FILES ?? '')
@@ -30,22 +27,12 @@ const FILES = (process.env.FVOCI_HWP_SAMPLE_FILES ?? '')
   .map((line) => line.trim())
   .filter(Boolean);
 const REPORT = process.env.FVOCI_HWP_SAMPLE_REPORT;
-const PAGES_ONLY = process.env.FVOCI_HWP_SAMPLE_MODE === 'pages';
 /** How long to wait after typing before saving, in milliseconds: the frame counts the pages meanwhile. */
 const WAIT = Number(process.env.FVOCI_HWP_SAMPLE_WAIT ?? '0');
 /** How long a large document may take to open in the viewer and in the editor. */
 const OPENING = 120_000;
 
 test.describe.configure({ timeout: 300_000 });
-
-/** The pages the editor has laid the document out on, as its host's hook counts them. */
-const editorPages = (page: Page): Promise<number> =>
-  editorFrame(page).evaluate(
-    () =>
-      (
-        window as unknown as { rhwpStudio: { host: { tally(): { pages: number } } } }
-      ).rhwpStudio.host.tally().pages,
-  );
 
 for (const file of FILES) {
   test(`a sample in the editor: ${file}`, async ({ page }, info) => {
@@ -60,18 +47,6 @@ for (const file of FILES) {
     await page.getByTestId('file-viewer-edit').click();
     await expect(editor(page)).toHaveAttribute('data-status', 'ready', { timeout: OPENING });
     await expect(page.getByTestId('file-editor-frame')).toBeFocused();
-
-    if (PAGES_ONLY) {
-      const opened = await editorPages(page);
-      await page.waitForTimeout(3_000);
-      const after = await editorPages(page);
-      await page.keyboard.type('1');
-      await expect(editor(page)).toHaveAttribute('data-dirty', 'true');
-      await page.waitForTimeout(1_000);
-      const typed = await editorPages(page);
-      if (REPORT) appendFileSync(REPORT, `${JSON.stringify({ file, opened, after, typed })}\n`);
-      return;
-    }
 
     await page.keyboard.type('1');
     await expect(editor(page)).toHaveAttribute('data-dirty', 'true');

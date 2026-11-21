@@ -84,8 +84,11 @@ export const REQUEST_LIMIT = 1_000_000;
 export type Recount =
   | { of: 'pages'; before: number; after: number }
   | { of: 'controls'; id: string; before: number; after: number };
-/** A kind's id as the format gives it: up to four printable ASCII characters. */
-export const CONTROL_ID = /^[\x20-\x7e]{0,4}$/;
+/**
+ * A kind's id as the format gives it, as rhwp trims it: up to four printable
+ * ASCII characters, none a space at either end (`tbl`, not `tbl `), or none.
+ */
+export const CONTROL_ID = /^(?:[\x21-\x7e](?:[\x20-\x7e]{0,2}[\x21-\x7e])?)?$/;
 /** The most counts one save carries; past it, the first are told. */
 export const RECOUNT_LIMIT = 64;
 /** The most controls of a kind a count says. */
@@ -181,7 +184,8 @@ function recountOf(data: unknown): Recount | undefined {
   const most = of === 'pages' ? PAGE_LIMIT : CONTROL_COUNT_LIMIT;
   // A count that did not change is not one to tell.
   if (!isCount(before, most) || !isCount(after, most) || before === after) return undefined;
-  if (of === 'pages') return { of, before, after };
+  // A document opens on a page at least.
+  if (of === 'pages') return before >= 1 && after >= 1 ? { of, before, after } : undefined;
   if (of !== 'controls' || typeof id !== 'string' || !CONTROL_ID.test(id)) return undefined;
   return { of, id, before, after };
 }

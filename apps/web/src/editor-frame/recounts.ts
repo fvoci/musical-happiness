@@ -29,17 +29,19 @@ export type Resaved = readonly [pages: number, saved: number];
  * The counts that differ: the pages first, where the file opened, saved, reads
  * back on other pages, then each kind of control the saved file (`after`)
  * counts otherwise than the document in the editor (`before`), by its id.
+ * What was not counted (undefined) is not compared.
  */
 export function recountsOf(
   pages: Resaved | undefined,
   before: ControlTally,
-  after: ControlTally,
+  after: ControlTally | undefined,
 ): Recount[] {
   const recounts: Recount[] = [];
   const page = (count: number): number => Math.min(count, PAGE_LIMIT);
   if (pages && page(pages[0]) !== page(pages[1])) {
     recounts.push({ of: 'pages', before: page(pages[0]), after: page(pages[1]) });
   }
+  if (!after) return recounts;
   const was = new Map(before);
   const is = new Map(after);
   const ids = [...new Set([...was.keys(), ...is.keys()])].sort();

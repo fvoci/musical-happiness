@@ -56,8 +56,15 @@ export function partsLeftOut(given: readonly ZipEntry[], kept: readonly ZipEntry
   });
 }
 
-/** A path as compared: rhwp's report names a stream from the root (`/BinData/BIN0001.png`). */
-const pathKey = (path: string): string => path.replace(/^\//, '').toUpperCase();
+/**
+ * A path as compared: rhwp's report names a stream from the root
+ * (`/BinData/BIN0001.png`). A stream's name has no case (a compound file's
+ * names do not), a part's of a package has.
+ */
+const pathKey = (path: string, caseless: boolean): string => {
+  const key = path.replace(/^\//, '');
+  return caseless ? key.toUpperCase() : key;
+};
 
 /**
  * rhwp's report with the parts or streams left out added: counted, and listed
@@ -69,8 +76,14 @@ export function withPartsLeftOut(
   report: { count: number; losses: Loss[] },
   left: Loss[],
 ): { count: number; losses: Loss[] } {
-  const named = new Set(report.losses.map((loss) => pathKey(loss.path)));
-  const added = left.filter((loss) => !named.has(pathKey(loss.path)));
+  const named = (caseless: boolean): Set<string> =>
+    new Set(report.losses.map((loss) => pathKey(loss.path, caseless)));
+  const [streams, parts] = [named(true), named(false)];
+  const added = left.filter((loss) =>
+    loss.subject === 'stream'
+      ? !streams.has(pathKey(loss.path, true))
+      : !parts.has(pathKey(loss.path, false)),
+  );
   return {
     count: Math.min(report.count + added.length, LOSS_COUNT_LIMIT),
     losses: [...added, ...report.losses].slice(0, LOSS_LIST_LIMIT),

@@ -158,5 +158,14 @@ describe('the parts a save leaves out of an HWPX package', () => {
         found('Custom/a'),
       ]),
     ).toEqual({ count: 2, losses: [found('Custom/a'), emptied] });
+    // A part of a package is named as written: one spelled otherwise is another part.
+    const part = (path: string): Loss => ({ ...found(path), subject: 'packagePart' });
+    const named = { ...emptied, path: 'BinData/image1.png' };
+    expect(
+      withPartsLeftOut({ count: 1, losses: [named] }, [
+        part('BinData/image1.png'),
+        part('BinData/Image1.png'),
+      ]),
+    ).toEqual({ count: 2, losses: [part('BinData/Image1.png'), named] });
   });
 });

@@ -55,10 +55,9 @@
           : m.file_editor_loss_description({ count }),
       );
     }
+    // "Also, as listed after them": after the losses' list; else the counts' own description.
     if (lossy.recounts.length > 0) {
-      said.push(
-        said.length > 0 ? m.file_editor_recount_also() : m.file_editor_recount_description(),
-      );
+      said.push(count > 0 ? m.file_editor_recount_also() : m.file_editor_recount_description());
     }
     return said.join(' ');
   });
@@ -97,7 +96,14 @@
       <AlertDialog.Description>{description}</AlertDialog.Description>
     </AlertDialog.Header>
     {#if lossy && (lossy.count > 0 || lossy.recounts.length > 0)}
-      <div class="max-h-64 overflow-y-auto rounded-md border text-sm">
+      <!-- Focusable, so that the keys scroll it where it is longer than the box (Safari). -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <div
+        class="max-h-64 overflow-y-auto rounded-md border text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        role="region"
+        aria-label={m.file_editor_changes_list()}
+        tabindex="0"
+      >
         {#if lossy.count > 0}
           <ul>
             {#each lossy.losses as loss, at (at)}

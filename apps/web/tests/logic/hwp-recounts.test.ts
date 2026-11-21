@@ -67,9 +67,14 @@ describe('the controls of a document, tallied', () => {
   });
 
   it('count an id that is none as a kind not known, and refuse a list that is none', () => {
-    expect(tallyControls([{ ctrlId: 'tbl\u0000' }, { ctrlId: 'table' }, { ctrlId: '' }])).toEqual([
-      ['', 3],
-    ]);
+    expect(
+      tallyControls([
+        { ctrlId: 'tbl\u0000' },
+        { ctrlId: 'table' },
+        { ctrlId: '' },
+        { ctrlId: 'tbl ' },
+      ]),
+    ).toEqual([['', 4]]);
     for (const wrong of [undefined, {}, [{}], [{ ctrlId: 7 }], [null], 'tbl']) {
       expect(() => tallyControls(wrong), JSON.stringify(wrong)).toThrow();
     }
@@ -79,9 +84,12 @@ describe('the controls of a document, tallied', () => {
 describe('what the saved file counts otherwise', () => {
   it('is nothing where the counts are the same', () => {
     expect(recountsOf([3, 3], kinds({ tbl: 1, gso: 2 }), kinds({ gso: 2, tbl: 1 }))).toEqual([]);
-    // Pages not counted are not asked about; the controls still are.
+    // What was not counted is not asked about; what was, still is.
     expect(recountsOf(undefined, kinds({ pgnp: 3 }), kinds({ pgnp: 2 }))).toEqual([
       { of: 'controls', id: 'pgnp', before: 3, after: 2 },
+    ]);
+    expect(recountsOf([157, 159], kinds({ pgnp: 3 }), undefined)).toEqual([
+      { of: 'pages', before: 157, after: 159 },
     ]);
   });
 

@@ -129,28 +129,48 @@ async function startEditor(theme: string, lang: string): Promise<Host> {
 }
 
 /**
+ * `promise`'s value, or undefined where it takes past `deadline` (by
+ * `performance.now()`) or fails.
+ */
+async function until<T>(promise: Promise<T>, deadline: number): Promise<T | undefined> {
+  let timer: number | undefined;
+  const late = new Promise<undefined>((resolve) => {
+    timer = window.setTimeout(resolve, Math.max(0, deadline - performance.now()));
+  });
+  try {
+    return await Promise.race([promise.catch(() => undefined), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * The bytes to save, read back as the viewer reads a file: checked as it
  * checks one, and opened by rhwp in a worker of their own, apart from the
- * document being edited; then its controls counted, as the document's in the
- * editor are (recounts.ts). Undefined where they do not open: what does not
- * is not handed to the app.
+ * document being edited (by `deadline` at the latest, as before the counts);
+ * then its controls counted, as the document's in the editor are
+ * (recounts.ts), unless the time is out by then. Undefined where they do not
+ * open: what does not is not handed to the app.
  */
 async function readBack(
   format: EditFormat,
   bytes: ArrayBuffer,
   engine: ArrayBuffer,
-): Promise<ControlTally | undefined> {
-  const client = new WorkerClient(new HwpWorker(), CHECK_LIMIT);
+  deadline: number,
+): Promise<{ controls: ControlTally | undefined } | undefined> {
+  let client: WorkerClient | undefined;
   try {
+    client = new WorkerClient(new HwpWorker(), Math.max(0, deadline - performance.now()));
     const message: ToWorker = { kind: 'open', format, bytes, wasm: engine };
     const opened = (await client.request(message, [bytes, engine])) as FromWorker;
     if (opened.kind !== 'opened') return undefined;
-    const counted = (await client.request({ kind: 'controls' } satisfies ToWorker)) as FromWorker;
-    return counted.kind === 'controls' ? counted.controls : undefined;
+    const asked = client.request({ kind: 'controls' } satisfies ToWorker);
+    const counted = (await until(asked, deadline)) as FromWorker | undefined;
+    return { controls: counted?.kind === 'controls' ? counted.controls : undefined };
   } catch {
     return undefined;
   } finally {
-    client.close();
+    client?.close();
   }
 }
 
@@ -165,8 +185,9 @@ async function resaved(
   bytes: ArrayBuffer,
   engine: ArrayBuffer,
 ): Promise<Resaved | undefined> {
-  const client = new WorkerClient(new HwpWorker(), CHECK_LIMIT);
+  let client: WorkerClient | undefined;
   try {
+    client = new WorkerClient(new HwpWorker(), CHECK_LIMIT);
     const message: ToWorker = { kind: 'open', format, bytes, wasm: engine };
     const opened = (await client.request(message, [bytes, engine])) as FromWorker;
     if (opened.kind !== 'opened') return undefined;
@@ -175,7 +196,7 @@ async function resaved(
   } catch {
     return undefined;
   } finally {
-    client.close();
+    client?.close();
   }
 }
 
@@ -241,10 +262,14 @@ function serve(
       const { count, losses } = withPartsLeftOut(report, left.losses);
       const bytes = exported.bytes.slice().buffer;
       const at = changes;
-      const after = await readBack(format, bytes.slice(0), engine.slice(0));
-      if (!after) throw new Error('not opened');
+      // The reading back and the counts take the time the reading back took alone: the app's
+      // time for an export is not passed. A count not made by then is not asked about.
+      const deadline = performance.now() + CHECK_LIMIT;
+      const read = await readBack(format, bytes.slice(0), engine.slice(0), deadline);
+      if (!read) throw new Error('not opened');
       exportedAt.set(request, at);
-      const recounts = notAccepted(recountsOf(await pages, before, after), accepted);
+      const counted = recountsOf(await until(pages, deadline), before, read.controls);
+      const recounts = notAccepted(counted, accepted);
       last = { request, kept: left.kept, recounts };
       const { unprotected } = left;
       tell({ kind: 'exported', request, bytes, count, losses, unprotected, recounts }, [bytes]);

@@ -117,13 +117,20 @@ test('a saved file that reads back with other counts says which, and is saved on
   await expect(page.getByRole('alertdialog')).toHaveCount(1);
   await expect(
     page.getByRole('alertdialog', { name: 'The saved file reads back differently' }),
-  ).toHaveAccessibleDescription(/Opened again, the saved file has other counts/);
+  ).toHaveAccessibleDescription(
+    /^Opened again, the saved file counts otherwise than the document, as below: .* the document is attached as a file of its own\.$/,
+  );
   await expect(page.getByRole('alertdialog')).toBeFocused();
   await expect(page.getByTestId('file-editor-recounts').locator('li')).toHaveText([
     'Page number position: 2 → 1',
   ]);
   await picture(page, SCREENS, 'question-recounts');
-  await asked.getByRole('button', { name: 'Cancel' }).click();
+  // The list is reached by the keys, then the choices; Escape declines.
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('region', { name: 'What the save changes' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(asked.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await page.keyboard.press('Escape');
   await expect(asked).toHaveCount(0);
   await expect(said(page)).toHaveText('There are unsaved changes');
   expect(made).toEqual([]);

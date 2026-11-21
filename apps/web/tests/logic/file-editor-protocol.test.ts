@@ -28,7 +28,12 @@ const LOSS: Loss = {
 };
 
 const PAGES = { of: 'pages', before: 157, after: 159 } satisfies Recount;
-const PGNP = { of: 'controls', id: 'pgnp', before: 3, after: 2 } satisfies Recount;
+const PGNP = {
+  of: 'controls',
+  id: 'pgnp',
+  before: 3,
+  after: 2,
+} satisfies Recount;
 
 describe('a message from the editor’s frame, in the app', () => {
   it('is one of the protocol’s', () => {
@@ -98,7 +103,14 @@ describe('a message from the editor’s frame, in the app', () => {
       { kind: 'exported', request: 1, bytes, count: 0 },
       { kind: 'exported', request: 1, count: 0, losses: [] },
       { kind: 'exported', request: 1, bytes, count: 0, losses: [] },
-      { kind: 'exported', request: 1, bytes, count: 0, losses: [], unprotected: false },
+      {
+        kind: 'exported',
+        request: 1,
+        bytes,
+        count: 0,
+        losses: [],
+        unprotected: false,
+      },
       { ...exported, unprotected: 1 },
       { ...exported, unprotected: 'true' },
       { ...exported, unprotected: null },
@@ -117,7 +129,10 @@ describe('a message from the editor’s frame, in the app', () => {
       { ...exported, losses: [{ ...LOSS, code: 'somethingNew' }] },
       { ...exported, losses: [{ ...LOSS, subject: 'page' }] },
       { ...exported, losses: [{ ...LOSS, reason: 'because' }] },
-      { ...exported, losses: [{ ...LOSS, path: 'p'.repeat(LOSS_PATH_LIMIT + 1) }] },
+      {
+        ...exported,
+        losses: [{ ...LOSS, path: 'p'.repeat(LOSS_PATH_LIMIT + 1) }],
+      },
       { ...exported, losses: [{ ...LOSS, path: 7 }] },
       { ...exported, losses: [{ ...LOSS, resourceId: 1 }] },
       { ...exported, losses: [null] },
@@ -150,9 +165,13 @@ describe('a message from the editor’s frame, in the app', () => {
       [PAGES, PGNP, { of: 'controls', id: '', before: 0, after: 2 }],
       [{ of: 'controls', id: '%hlk', before: CONTROL_COUNT_LIMIT, after: 0 }],
       [{ of: 'pages', before: PAGE_LIMIT, after: 1 }],
+      [{ of: 'controls', id: 'a b', before: 1, after: 0 }],
       most,
     ]) {
-      expect(readFromEditor({ ...exported, recounts })).toEqual({ ...exported, recounts });
+      expect(readFromEditor({ ...exported, recounts })).toEqual({
+        ...exported,
+        recounts,
+      });
     }
     for (const recounts of [
       undefined,
@@ -168,6 +187,13 @@ describe('a message from the editor’s frame, in the app', () => {
       [{ of: 'controls', before: 1, after: 2 }],
       [{ ...PGNP, id: 'pgnp!' }],
       [{ ...PGNP, id: 'tb\u0000' }],
+      // One kind is one id: as rhwp trims it, with no space at either end.
+      [{ ...PGNP, id: 'tbl ' }],
+      [{ ...PGNP, id: ' tbl' }],
+      [{ ...PGNP, id: ' ' }],
+      // A document opens on a page at least.
+      [{ ...PAGES, before: 0 }],
+      [{ ...PAGES, after: 0 }],
       [{ ...PGNP, id: '표' }],
       [{ ...PGNP, id: 7 }],
       [{ ...PGNP, of: 'sections' }],
@@ -241,7 +267,10 @@ describe('a message from the app, in the editor’s frame', () => {
     });
     const longest = { ...open, name: 'n'.repeat(NAME_LIMIT) };
     expect(readToEditor(longest)).toEqual(longest);
-    expect(readToEditor({ kind: 'export', request: 1 })).toEqual({ kind: 'export', request: 1 });
+    expect(readToEditor({ kind: 'export', request: 1 })).toEqual({
+      kind: 'export',
+      request: 1,
+    });
     const stored = { kind: 'stored', request: 9, as: 'version' };
     expect(readToEditor(stored)).toEqual(stored);
     expect(readToEditor({ kind: 'stored', request: 9 })).toBeUndefined();
@@ -272,7 +301,13 @@ describe('a message from the app, in the editor’s frame', () => {
       { kind: 'export', request: 1, format: 'hwp' },
       { kind: 'stored', request: REQUEST_LIMIT + 1, as: 'version' },
       { kind: 'ready' },
-      { kind: 'exported', request: 1, bytes: new ArrayBuffer(1), count: 0, losses: [] },
+      {
+        kind: 'exported',
+        request: 1,
+        bytes: new ArrayBuffer(1),
+        count: 0,
+        losses: [],
+      },
     ]) {
       expect(readToEditor(wrong), JSON.stringify(wrong ?? null).slice(0, 120)).toBeUndefined();
     }
