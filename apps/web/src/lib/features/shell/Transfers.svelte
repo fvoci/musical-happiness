@@ -86,10 +86,29 @@
   const groupDone = $derived(running.reduce((sum, one) => sum + one.done, 0));
   const groupTotal = $derived(running.reduce((sum, one) => sum + one.total, 0));
 
+  /**
+   * Takes transfers out of sight. Where the focus was on one of them, it goes
+   * to the next one's close, or back to where F8 brought it from, or into the
+   * open dialog: not to the page, from where Escape would close the dialog.
+   */
+  function dismiss(ids: readonly number[]): void {
+    const had = stack?.contains(document.activeElement) ?? false;
+    for (const id of ids) workspace.transfers.dismiss(id);
+    if (!had) return;
+    void tick().then(() => {
+      if (stack?.contains(document.activeElement)) return;
+      const next = stack?.querySelector<HTMLElement>('[data-close]');
+      const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"]');
+      const back = next ?? (cameFrom?.isConnected ? cameFrom : [...dialogs].at(-1));
+      if (!next) cameFrom = undefined;
+      back?.focus();
+    });
+  }
+
   /** One under way is asked about first; an ended one goes. */
   function close(transfer: Transfer): void {
     if (underWay(transfer)) asking = transfer.id;
-    else workspace.transfers.dismiss(transfer.id);
+    else dismiss([transfer.id]);
   }
 
   /** Gives up what was asked about, or keeps it going, the focus back on its button. */
@@ -97,8 +116,8 @@
     const asked = asking;
     asking = undefined;
     if (stop) {
-      const ids = asked === 'group' ? running.map((one) => one.id) : [asked];
-      for (const id of ids) if (id !== undefined) workspace.transfers.dismiss(id);
+      if (asked === 'group') dismiss(running.map((one) => one.id));
+      else if (asked !== undefined) dismiss([asked]);
       return;
     }
     const at = asked === 'group' ? '[data-transfer-group]' : `[data-id="${String(asked)}"]`;
@@ -109,7 +128,7 @@
 
   function closeGroup(): void {
     if (running.length > 0) asking = 'group';
-    else for (const one of uploads) workspace.transfers.dismiss(one.id);
+    else dismiss(uploads.map((one) => one.id));
   }
 
   /** F8 brings the focus into the stack, to its first button. */

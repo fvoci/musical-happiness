@@ -237,10 +237,25 @@ test('the keyboard reaches the stack over the card’s dialog by F8; Escape goes
   await expect(card.getByRole('button', { name: 'Stop', exact: true })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(card).toHaveCount(0);
+  // The focus is not left on the page, from where Escape would close the dialog: it is back.
+  await expect(field).toBeFocused();
   await expect(page.getByTestId('card-dialog')).toBeVisible();
   await latency(page, 40);
   await expect(page.getByTestId('card-uploads').locator('[data-upload]')).toHaveCount(0);
   await expect(attached).toHaveCount(before);
+
+  // A failure dismissed with the keyboard alone: the focus is back too.
+  await failNextUpload(page, 0, { detail: 'no answer' });
+  await page.getByTestId('attach-input').setInputFiles([file('lost.txt')]);
+  const lost = cardOf(page, 'lost.txt');
+  await expect(lost).toHaveAttribute('data-failed', 'network');
+  await field.focus();
+  await page.keyboard.press('F8');
+  await expect(lost.getByRole('button', { name: 'Dismiss lost.txt' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(lost).toHaveCount(0);
+  await expect(field).toBeFocused();
+  await expect(page.getByTestId('card-dialog')).toBeVisible();
 });
 
 test('a sheet from the bottom of a narrow window is not covered by the stack', async ({
