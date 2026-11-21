@@ -7,9 +7,12 @@
  * handed to a new frame, whose document draws them.
  * The frame answers through the messages of `protocol.ts`; a message counts
  * only when it comes from this session's frame and has one of their shapes.
- * The frame has a time to get ready in and another to draw the file in;
- * past either, or when the viewer closes, the frame is taken out of the page,
- * and with it its document, its worker and the memory they held.
+ * The frame has a time to get ready in; past it, or when the viewer closes,
+ * the frame is taken out of the page, and with it its document, its worker and
+ * the memory they held. It has another time to draw the file in; past that,
+ * the reader is asked whether to wait on (the frame goes on drawing, and they
+ * are asked again a time later) or to download the file instead (the frame
+ * goes as it does past the first).
  *
  * A deck with slides hidden from a show opens on the others; the reader may
  * show the hidden ones in place for as long as the viewer is open (it is
@@ -51,7 +54,7 @@ export interface Limits {
   bytes: number;
   /** How long the frame may take to get ready, in milliseconds. */
   ready: number;
-  /** How long it may take to draw the file once it has it. */
+  /** How long it draws the file once it has it before the reader is asked whether to wait on. */
   draw: number;
   /**
    * How long the app may take to fetch rhwp's engine for a Hangul document, the first of a
@@ -72,7 +75,8 @@ export type Status =
   /** The file is over the limit, or an archive that unpacks past the limits. */
   | { name: 'too-large'; what: 'file' | 'contents' }
   | { name: 'unknown' }
-  | { name: 'opening'; format: FormatId }
+  /** `late`: the file was not drawn in its time, and the reader is asked whether to wait on. */
+  | { name: 'opening'; format: FormatId; late: boolean }
   | { name: 'shown'; format: FormatId }
   | { name: 'failed'; reason: Failure | 'unread' | 'slow' | BeforeFile };
 
@@ -180,7 +184,7 @@ export class ViewerSession {
       return;
     }
     this.#bytes = bytes;
-    this.status = { name: 'opening', format: examined.format };
+    this.status = { name: 'opening', format: examined.format, late: false };
   }
 
   /** For `{@attach}` on the frame: listens to it while it is in the page. */
@@ -209,11 +213,28 @@ export class ViewerSession {
     };
   };
 
-  #wait(milliseconds: number, late: 'slow' | BeforeFile): void {
+  /** `then`: what the frame not done in `milliseconds` comes to, given up or the reader asked. */
+  #wait(milliseconds: number, then: BeforeFile | 'late'): void {
     clearTimeout(this.#timer);
     this.#timer = setTimeout(() => {
-      this.#fail(late);
+      const status = this.status;
+      if (then !== 'late') this.#fail(then);
+      else if (status.name === 'opening') this.status = { ...status, late: true };
     }, milliseconds);
+  }
+
+  /** The reader waits on for a file not drawn in its time: the frame goes on, for another such time. */
+  waitOn(): void {
+    const status = this.status;
+    if (status.name !== 'opening' || !status.late) return;
+    this.status = { ...status, late: false };
+    this.#wait(this.#limits.draw, 'late');
+  }
+
+  /** The reader takes the file rather than wait on for it: the frame goes, as one too slow. */
+  giveUp(): void {
+    const status = this.status;
+    if (status.name === 'opening' && status.late) this.#fail('slow');
   }
 
   /** Taking the status off "opening" and "shown" takes the frame out of the page. */
@@ -309,7 +330,7 @@ export class ViewerSession {
       hidden: m.viewer_hidden(),
     };
     this.#send({ kind: 'open', ...open, labels }, engine ? [bytes, engine] : [bytes]);
-    this.#wait(this.#limits.draw, 'slow');
+    this.#wait(this.#limits.draw, 'late');
   }
 
   goTo(page: number): void {

@@ -26,9 +26,6 @@ export function lineStarts(text: string): number[] {
   return starts;
 }
 
-/** How many digits the number of the last line has: how wide the gutter is. */
-export const lineDigits = (lines: number): number => String(Math.max(lines, 1)).length;
-
 /**
  * The element that shows the number of a line. Every one is the same: the
  * style sheet counts them, so that a line added or taken away changes one

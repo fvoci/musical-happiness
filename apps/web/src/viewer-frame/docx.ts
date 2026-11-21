@@ -12,7 +12,8 @@
  * what it drew; here they are built a slice at a time (`docx-build.ts`). So
  * the frame's main thread, which the app shares, stays free while the
  * document is read and drawn, and is given back between slices while it is
- * built: the viewer's time limit and its "Close" hold (they throw the frame
+ * built: the viewer's time limit (which asks the reader whether to wait on)
+ * and its "Close" hold (closing, or downloading instead, throws the frame
  * away, and the worker with it). The archive the worker gets is the one the
  * frame wrote of only the parts it counted (`zip-guard.ts`); a document that
  * would draw past the worker's ceilings is refused as too large.

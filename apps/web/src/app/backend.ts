@@ -135,6 +135,9 @@ async function startMemory(): Promise<StartedBackend> {
   world.shareRooms = 'fvoci:memory-rooms';
   // `?search=0` is a client configuration that says bodies are not searched: no search box.
   world.searchEnabled = new URLSearchParams(location.search).get('search') !== '0';
+  // `?held=<ms>` holds what the rooms send that long after a stroke of a syllable (World.heldIdle).
+  const held = Number(new URLSearchParams(location.search).get('held') ?? '');
+  if (Number.isFinite(held) && held > 0) world.heldIdle = held;
   const otherId = [...world.users.keys()].find((id) => id !== readerId);
   // `?gone=1` says the other person's account was deleted: what they wrote is a deleted user's.
   const gone = new URLSearchParams(location.search).get('gone') === '1';

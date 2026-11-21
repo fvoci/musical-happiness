@@ -3,9 +3,10 @@
  * page as a paste, the page's scrolling column, and where a heading of the
  * body lies in it.
  */
-import type { Locator, Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
-import { pageBody } from './wiki.support.ts';
+import { openApp } from './shell.support.ts';
+import { nameThePage, newWiki, pageBody, wikiPlaceOf } from './wiki.support.ts';
 
 /** The words of each section of `longBody`: some lines, so that a section is taller than a quarter of the page. */
 export const SECTION_WORDS = `Words of the section. ${'More words of it. '.repeat(40).trim()}`;
@@ -66,3 +67,32 @@ export const outlineItems = (page: Page): Locator => outline(page).locator('li b
 /** The item of the outline marked as the one being read. */
 export const currentItem = (page: Page): Locator =>
   outline(page).locator('li button[aria-current="location"]');
+
+/** The item of the outline with these words. */
+export const outlineItem = (page: Page, words: string): Locator =>
+  outline(page).getByRole('button', { name: words, exact: true });
+
+/** A new wiki with one page named `title`, its body `html`; gives where it is. */
+export async function pageWith(page: Page, title: string, html: string) {
+  await openApp(page);
+  await newWiki(page, 'Handbook');
+  await page.getByTestId('wiki-first-page').click();
+  await nameThePage(page, title);
+  await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', 'ready');
+  if (html !== '') await pasteIntoBody(page, html);
+  // All of it went in: not too large to be sent.
+  await expect(page.getByTestId('body-lost')).toHaveCount(0);
+  return wikiPlaceOf(page.url());
+}
+
+/** Whether the focus is in the body's editor, and the words of the heading its caret is in. */
+export async function caretIn(page: Page): Promise<[boolean, string | null]> {
+  return page.evaluate(() => {
+    const anchor = getSelection()?.anchorNode;
+    const at = anchor instanceof Element ? anchor : anchor?.parentElement;
+    return [
+      document.activeElement?.hasAttribute('data-body-editor') ?? false,
+      at?.closest('h1, h2, h3')?.textContent ?? null,
+    ];
+  });
+}

@@ -226,6 +226,25 @@ test('the numbers of the lines of code blocks: off at first, kept on this device
   await expect(page.locator('html')).not.toHaveAttribute('data-code-lines');
 });
 
+test('the numbers of the lines of code blocks follow in another tab of the device, its switch with them', async ({
+  page,
+}) => {
+  await openApp(page);
+  const other = await page.context().newPage();
+  await openApp(other);
+  await openSettings(other);
+  const theirs = setting(other, 'codeLines').getByRole('switch');
+  await expect(theirs).not.toBeChecked();
+  await openSettings(page);
+  await setting(page, 'codeLines').getByRole('switch').click();
+  await expect(other.locator('html')).toHaveAttribute('data-code-lines', '');
+  await expect(theirs).toBeChecked();
+  await theirs.click();
+  await expect(page.locator('html')).not.toHaveAttribute('data-code-lines');
+  await expect(setting(page, 'codeLines').getByRole('switch')).not.toBeChecked();
+  await other.close();
+});
+
 test('time zone: picked from a list that can be searched; a refused change goes back and the reader is told', async ({
   page,
 }) => {

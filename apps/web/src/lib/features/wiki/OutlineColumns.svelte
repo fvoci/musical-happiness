@@ -1,14 +1,16 @@
 <!--
   A page with its outline beside it, at its right, where the page's column
-  has room for both: the page keeps its width (in the middle while the room
-  allows, moved to the left only as far as the outline needs), and the
-  outline stays in sight as the page scrolls, no taller than what shows of
-  the column. Its head folds it away (`PageOutline.setFolded`), the focus
-  going to the button that puts it back.
+  has room for both: the page keeps its width while the room allows (in the
+  middle, moved to the left only as far as the outline needs), and gives up
+  some of it where the room is short; the outline stays in sight as the page
+  scrolls, no taller than what shows of the column. Its head folds it away
+  (`PageOutline.setFolded`), the focus going to the button that puts it back.
 
-  The page is drawn in the same place whether the outline is beside it or
-  not: an editor in it is not made anew when a heading is added or the
-  outline is folded.
+  The page is laid out for the outline beside it wherever the outline would
+  stand there, also while the page has too few headings for one: it does not
+  move as a second heading is written or taken out. Its element is the same
+  in either layout: an editor in it is not made anew when the outline comes,
+  goes or is folded.
 -->
 <script lang="ts">
   import PanelRightCloseIcon from '@lucide/svelte/icons/panel-right-close';
@@ -29,6 +31,8 @@
 
   let { outline, id, children }: Props = $props();
 
+  /** Laid out for the outline beside the page. */
+  const laidOut = $derived(outline.where === 'side');
   const beside = $derived(outline.mode === 'side');
 
   async function fold(): Promise<void> {
@@ -39,9 +43,9 @@
 </script>
 
 <div
-  class={[beside && 'grid']}
-  style:grid-template-columns={beside
-    ? `minmax(0, 1fr) ${outline.page}rem minmax(${outline.side}rem, 1fr)`
+  class={[laidOut && 'grid']}
+  style:grid-template-columns={laidOut
+    ? `minmax(0, 1fr) min(${outline.page}rem, 100% - ${outline.side}rem) minmax(${outline.side}rem, 1fr)`
     : undefined}
 >
   {#if beside}
@@ -69,7 +73,7 @@
       </OutlineNav>
     </div>
   {/if}
-  <div class={[beside && 'col-start-2 row-start-1 min-w-0']}>
+  <div class={[laidOut && 'col-start-2 row-start-1 min-w-0']} {@attach outline.holder}>
     {@render children()}
   </div>
 </div>

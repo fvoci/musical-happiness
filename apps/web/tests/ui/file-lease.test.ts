@@ -275,7 +275,7 @@ describe('the lease of an editor nobody puts anything into', () => {
     await lease.release();
   });
 
-  it('is taken again a turn after the input where letting it go is not answered', async () => {
+  it('is held on to by its name a turn after the input where letting it go is not answered', async () => {
     const { source, asked } = sourceOf();
     source.releaseLease = (leaseId) => {
       asked.push(`release ${leaseId}`);
@@ -289,7 +289,7 @@ describe('the lease of an editor nobody puts anything into', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(asked.at(-1)).toBe('release l1');
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(asked.at(-1)).toBe('hold ');
+    expect(asked.at(-1)).toBe('hold l1');
     expect(lease.lost).toBe(false);
   });
 
@@ -342,6 +342,260 @@ describe('the lease of an editor nobody puts anything into', () => {
     expect(lease.resting).toBe(true);
     expect(asked).toEqual(['hold ', 'release l1']);
     await lease.release();
+  });
+});
+
+/**
+ * How long the server keeps a lease not held on to: a little over three turns, as 90 seconds are
+ * three of 30 (the half keeps a hold in the same millisecond as the end from deciding a test).
+ */
+const TERM = 3_500;
+
+/** What comes of a request: answered, answered when the test says, reached and not answered, not reached. */
+type Fate = 'answered' | 'late' | 'unanswered' | 'unreached';
+
+/**
+ * A file's lease as the server keeps it (crates/server/src/app/file_leases.rs), for more than
+ * one person: held on to by its name while it lasts, taken anew where nobody holds the file's
+ * (whatever name was given), refused otherwise and then not lengthened; let go of only by its
+ * holder, by its name. Each person's requests come to what their fates say.
+ */
+function serverOf() {
+  let held: { id: string; userId: string; until: number } | undefined;
+  let made = 0;
+  const live = () => {
+    if (held && held.until <= Date.now()) held = undefined;
+    return held;
+  };
+  const late: (() => void)[] = [];
+  function carry<T>(fate: Fate, act: () => T): Promise<T> {
+    if (fate === 'unreached') return new Promise(() => undefined);
+    const answer = act();
+    if (fate === 'answered') return Promise.resolve(answer);
+    if (fate === 'unanswered') return new Promise(() => undefined);
+    return new Promise((resolve) => {
+      late.push(() => {
+        resolve(answer);
+      });
+    });
+  }
+  function personOf(userId: string) {
+    const asked: string[] = [];
+    const fates = {
+      hold: 'answered' as Fate,
+      release: 'answered' as Fate,
+      lease: 'answered' as Fate,
+    };
+    const source: LeaseSource = {
+      me: userId,
+      lease: () =>
+        carry(fates.lease, () => {
+          const lease = live();
+          return lease
+            ? { editing: true, editorId: lease.userId }
+            : { editing: false, editorId: '' };
+        }),
+      holdLease: (leaseId) => {
+        asked.push(`hold ${leaseId}`);
+        return carry(fates.hold, (): HeldFileLease | 'editing' => {
+          const lease = live();
+          if (lease && (lease.id !== leaseId || lease.userId !== userId)) return 'editing';
+          if (lease) lease.until = Date.now() + TERM;
+          else {
+            made += 1;
+            held = { id: `l${String(made)}`, userId, until: Date.now() + TERM };
+          }
+          return { leaseId: live()?.id ?? '', seconds: TERM / 1000 };
+        });
+      },
+      releaseLease: (leaseId) => {
+        asked.push(`release ${leaseId}`);
+        return carry(fates.release, () => {
+          if (live()?.id === leaseId && held?.userId === userId) held = undefined;
+        });
+      },
+      learnUsers: () => Promise.resolve(),
+    };
+    return { source, asked, fates };
+  }
+  return {
+    personOf,
+    /** Who holds the file's lease now, by its name. */
+    holder: () => live()?.id,
+    /** Answers the requests answered late, as they came. */
+    answerLate: () => {
+      for (const answer of late.splice(0)) answer();
+    },
+  };
+}
+
+/** An editor of `server`'s file let go of for want of input, its lease let go of on the server. */
+async function rested(server: ReturnType<typeof serverOf>) {
+  const me = server.personOf('me');
+  const lease = new EditLease(me.source, TIMES);
+  expect(await lease.take()).toBe('held');
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(lease.resting).toBe(true);
+  return { lease, ...me };
+}
+
+/** Runs `turns` turns of holding on, `lost` read after each. */
+async function lostOver(lease: EditLease, turns: number): Promise<boolean[]> {
+  const lost: boolean[] = [];
+  for (let turn = 0; turn < turns; turn += 1) {
+    await vi.advanceTimersByTimeAsync(TIMES.holdEvery);
+    lost.push(lease.lost);
+  }
+  return lost;
+}
+
+describe('the lease of an editor whose request to the server was given up on', () => {
+  it('a lease taken again by a request answered past its turn is the editor’s, by the name it comes with', async () => {
+    const server = serverOf();
+    const { lease, asked, fates } = await rested(server);
+    expect(server.holder()).toBeUndefined();
+    fates.hold = 'late';
+    lease.touch();
+    // The server gave the editor l2, and the answer is on its way.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(server.holder()).toBe('l2');
+    fates.hold = 'answered';
+    // The turns after the one given up on find the file's lease held: the editor's own.
+    expect(await lostOver(lease, 2)).toEqual([false, false]);
+    server.answerLate();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await lostOver(lease, 2)).toEqual([false, false]);
+    expect(asked.at(-1)).toBe('hold l2');
+    expect(server.holder()).toBe('l2');
+    await lease.release();
+    expect(server.holder()).toBeUndefined();
+  });
+
+  it('a lease taken again by a request never answered is not told as another’s, and the file’s is taken once it ends', async () => {
+    const server = serverOf();
+    const { lease, asked, fates } = await rested(server);
+    fates.hold = 'unanswered';
+    lease.touch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(server.holder()).toBe('l2');
+    fates.hold = 'answered';
+    // l2 lasts its term from when it was given, unknown to the editor: then it goes, and the
+    // next turn takes the file's anew.
+    expect(await lostOver(lease, 5)).toEqual([false, false, false, false, false]);
+    expect(server.holder()).toBe('l3');
+    expect(asked.at(-1)).toBe('hold l3');
+    await lease.release();
+  });
+
+  it('a lease let go of by a request that did not reach the server is held on to by its name at the next input', async () => {
+    const server = serverOf();
+    const me = server.personOf('me');
+    const lease = new EditLease(me.source, TIMES);
+    await lease.take();
+    me.fates.release = 'unreached';
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(lease.resting).toBe(true);
+    // Still held on the server, until its term ends.
+    expect(server.holder()).toBe('l1');
+    lease.touch();
+    expect(await lostOver(lease, 3)).toEqual([false, false, false]);
+    expect(me.asked.filter((one) => one.startsWith('hold')).slice(-3)).toEqual([
+      'hold l1',
+      'hold l1',
+      'hold l1',
+    ]);
+    expect(server.holder()).toBe('l1');
+    me.fates.release = 'answered';
+    await lease.release();
+    expect(server.holder()).toBeUndefined();
+  });
+
+  it('closed while letting go of it is not answered: let go of by its name', async () => {
+    const server = serverOf();
+    const me = server.personOf('me');
+    const lease = new EditLease(me.source, TIMES);
+    await lease.take();
+    me.fates.release = 'unreached';
+    await vi.advanceTimersByTimeAsync(10_000);
+    me.fates.release = 'answered';
+    await lease.release();
+    // Once letting it go is given up on, a turn later.
+    await vi.advanceTimersByTimeAsync(TIMES.holdEvery);
+    expect(me.asked.slice(-2)).toEqual(['release l1', 'release l1']);
+    expect(server.holder()).toBeUndefined();
+  });
+
+  it('a lease another took meanwhile is told at once, though a request was given up on', async () => {
+    const server = serverOf();
+    const { lease, fates } = await rested(server);
+    fates.hold = 'unreached';
+    lease.touch();
+    await vi.advanceTimersByTimeAsync(TIMES.holdEvery);
+    const ann = new EditLease(server.personOf('ann').source, TIMES);
+    expect(await ann.take()).toBe('held');
+    fates.hold = 'answered';
+    expect(await lostOver(lease, 1)).toEqual([true]);
+    await ann.release();
+    await lease.release();
+  });
+
+  it('the reader’s other window, holding the file’s while a request was given up on, is told once that could be no lease of this one', async () => {
+    const server = serverOf();
+    const { lease, fates, source } = await rested(server);
+    fates.hold = 'unreached';
+    lease.touch();
+    await vi.advanceTimersByTimeAsync(TIMES.holdEvery);
+    const other = new EditLease(source, TIMES);
+    fates.hold = 'answered';
+    expect(await other.take()).toBe('held');
+    // The same person holds it: as well this editor's lost answer, for a term from the turn
+    // given up on.
+    expect(await lostOver(lease, 3)).toEqual([false, false, false]);
+    expect(await lostOver(lease, 2)).toEqual([true, true]);
+    await other.release();
+    await lease.release();
+  });
+
+  it('who holds it not read meanwhile: not told as another’s', async () => {
+    const server = serverOf();
+    const { lease, fates } = await rested(server);
+    fates.hold = 'unanswered';
+    lease.touch();
+    await vi.advanceTimersByTimeAsync(0);
+    fates.hold = 'answered';
+    fates.lease = 'unreached';
+    expect(await lostOver(lease, 2)).toEqual([false, false]);
+    await lease.release();
+  });
+
+  it('a lease answered late to an editor closed, or let go of again, meanwhile is let go of', async () => {
+    const server = serverOf();
+    const closed = await rested(server);
+    closed.fates.hold = 'late';
+    closed.lease.touch();
+    // Given up on, a turn later, and closed.
+    await vi.advanceTimersByTimeAsync(TIMES.holdEvery);
+    await closed.lease.release();
+    expect(server.holder()).toBe('l2');
+    server.answerLate();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(closed.asked.at(-1)).toBe('release l2');
+    expect(server.holder()).toBeUndefined();
+
+    const resting = await rested(server);
+    resting.fates.hold = 'late';
+    resting.lease.touch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(server.holder()).toBe('l4');
+    resting.fates.hold = 'answered';
+    // No input since: it rests again at the next turn.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(resting.lease.resting).toBe(true);
+    server.answerLate();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resting.asked.at(-1)).toBe('release l4');
+    expect(server.holder()).toBeUndefined();
+    await resting.lease.release();
   });
 });
 

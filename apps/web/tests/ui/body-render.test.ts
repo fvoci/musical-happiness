@@ -31,7 +31,8 @@ const ALLOWED: Record<string, string[]> = {
   // A `<div>` is the content of a task, or the place of a block formula.
   div: ['data-type', 'data-latex', 'class'],
   blockquote: [],
-  pre: [],
+  // How wide the room for the numbers of a code block's lines is: digits, set from its text's lines.
+  pre: ['data-line-digits'],
   code: ['class'],
   hr: [],
   br: [],

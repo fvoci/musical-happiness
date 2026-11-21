@@ -10,20 +10,8 @@
 
 .doc-body .doc-code {
   position: relative;
-  /* How many digits the gutter of the numbers is wide for; three unless the block is longer. */
+  /* How many digits the gutter of the numbers is wide for; three unless the block is longer (editor.css). */
   --code-digits: 3;
-}
-.doc-body .doc-code[data-line-digits='4'] {
-  --code-digits: 4;
-}
-.doc-body .doc-code[data-line-digits='5'] {
-  --code-digits: 5;
-}
-.doc-body .doc-code[data-line-digits='6'] {
-  --code-digits: 6;
-}
-.doc-body .doc-code[data-line-digits='7'] {
-  --code-digits: 7;
 }
 .doc-body .doc-code > pre {
   position: relative;

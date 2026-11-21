@@ -24,7 +24,7 @@ import { CODE_BLOCK_SELECTOR } from './code-later.ts';
 import { codeLanguageOf } from './code-languages.ts';
 import { codeLinesShown, onCodeLinesChange } from './code-lines.ts';
 import './code-block.css';
-import { codeBar, codeFrame, lineDigits, lineStarts, paintCode } from './code-paint.ts';
+import { codeBar, codeFrame, paintCode } from './code-paint.ts';
 import type { CodeTokens } from './code-tokens.ts';
 
 /** The stored language of a block, from the class `renderBody` gives its `<code>`. */
@@ -69,8 +69,8 @@ function show(page: Document, code: HTMLElement, texts: CopyTexts): Shown | unde
   const place = page.createComment('');
   pre.replaceWith(place);
   const frame = codeFrame(page, codeBar(page, named, copy.status, copy.button), pre);
+  // The block has the digits of its numbers from `renderBody`, which drew it.
   place.replaceWith(frame);
-  frame.setAttribute('data-line-digits', String(lineDigits(lineStarts(text).length)));
   return { pre, frame, code, text, drawn, tokens: [], copy };
 }
 

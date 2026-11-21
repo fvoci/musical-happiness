@@ -86,7 +86,9 @@ test('pages moved with the keys, from "Move…" and dragged are where they were 
   const moved = ['Getting started', 'Travel', 'Policies', '  Welcome'];
   await expect.poll(() => treeShape(page)).toEqual(moved);
 
-  // The server keeps them so, and the page read anew shows them so.
+  // The server keeps them so, and the page read anew shows them so. A move shows before
+  // it is written: the server is read once the tree is no longer settling.
+  await expect(pageTree(page)).not.toHaveAttribute('data-settling');
   const pages = (await (
     await api.get(`/api/v1/w/${workspaceId}/wikis/${wikiId}/pages`)
   ).json()) as Schemas['PageNode'][];
