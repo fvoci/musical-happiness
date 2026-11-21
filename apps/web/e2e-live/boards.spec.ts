@@ -90,14 +90,20 @@ test('a board is made with its first view, changed, deleted and brought back', a
     .toBe('Launch plan');
 
   // A second view.
-  await page.getByTestId('view-header').locator('[data-tool="add-view"]').click();
-  await page.getByRole('menuitem', { name: 'Table', exact: true }).click();
+  await page.getByTestId('view-header').locator('[data-tool="views"]').click();
+  await page.getByRole('menuitem', { name: 'Add table view' }).click();
   await expect(page).not.toHaveURL(new RegExp(`/${viewId}$`));
   await expect
     .poll(async () =>
       (await views(api, { workspaceId, boardId })).map((view) => view.fields.viewType).sort(),
     )
     .toEqual(['board', 'table']);
+  // The address keeps the view chosen: a reload shows it again.
+  const header = page.getByTestId('view-header');
+  await expect(header.locator('[data-tool="views"]')).toHaveText('Table view');
+  await page.reload();
+  await expect(header.locator('[data-tool="views"]')).toHaveText('Table view');
+  await expect(page.getByTestId('table-view')).toBeVisible();
 
   // Deleted: gone from the server; undo brings it back.
   await chooseFromMenu(page, boardMenu(page, 'Launch plan'), 'delete');

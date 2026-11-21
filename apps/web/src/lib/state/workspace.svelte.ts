@@ -53,7 +53,7 @@ export interface Problem {
   error: BackendError | undefined;
 }
 
-export type ProblemAction = 'load' | 'save' | 'undo' | 'upload' | 'left' | 'export' | 'import';
+export type ProblemAction = 'load' | 'save' | 'undo' | 'export' | 'import';
 
 export interface WorkspaceOptions {
   backend: Backend;
@@ -342,34 +342,36 @@ export class Workspace {
   }
 
   /**
-   * Puts a failure where the shell shows it, or with no error what is only to be told.
-   * Any other error is a bug and is logged. A 401 is no failure to show: the session
-   * is over (`signedOut`), or the workspace shown is closed to it (`sso`, `password`).
+   * Puts a failure where the shell shows it; an error that is not the server's is a bug,
+   * and is logged too. A 401 is no failure to show (`ends`).
    */
   report(action: ProblemAction, error: unknown): void {
-    // An organization began to take no password, or the own space the password alone: it closes.
-    const closing = entry.closedBy(this.workspaces, this.info, error);
-    if (closing) {
-      if (this.showing && action === 'load' && closing.entered === 'password') return;
-      this.workspaces = closing.workspaces;
-      if (!closing.closed) return;
-      this.#entering += 1; // What is still being read of it does not open it again.
-      this.#leave(this.asked);
-      [this.closed, this.entered] = [closing.closed, closing.entered];
-      return;
-    }
-    // The session is over (it went idle, or past its end): sign in again.
-    const over = sessionOver(error);
-    if (over) {
-      this.#over(over);
-      return;
-    }
+    if (this.ends(error, action === 'load')) return;
     this.#problemCount += 1;
     this.problems = [
       ...this.problems,
       { id: this.#problemCount, action, error: isBackendError(error) ? error : undefined },
     ];
     if (error !== undefined && !isBackendError(error)) console.error(error);
+  }
+
+  /** Whether `error` ends the session or closes the workspace shown (a 401), as it then does. */
+  ends(error: unknown, reading = false): boolean {
+    // An organization began to take no password, or the own space the password alone: it closes.
+    const closing = entry.closedBy(this.workspaces, this.info, error);
+    if (closing) {
+      if (reading && this.showing && closing.entered === 'password') return true;
+      this.workspaces = closing.workspaces;
+      if (!closing.closed) return true;
+      this.#entering += 1; // What is still being read of it does not open it again.
+      this.#leave(this.asked);
+      [this.closed, this.entered] = [closing.closed, closing.entered];
+      return true;
+    }
+    // The session is over (it went idle, or past its end): sign in again.
+    const over = sessionOver(error);
+    if (over) this.#over(over);
+    return over !== undefined;
   }
 
   dismissProblem(id: number): void {
@@ -537,10 +539,8 @@ export class Workspace {
 
   // ----------------------------------------------------------- archives
 
-  /** The archives on their way down or up, for the reader to watch. */
-  readonly transfers = new Transfers((kind, error) => {
-    this.report(kind, error);
-  });
+  /** The archives and the files on their way down or up, for the reader to watch. */
+  readonly transfers = new Transfers(this);
 
   /** An archive of the board or wiki, for the shell to save. */
   exportContainer(containerId: string): Promise<DownloadedFile | undefined> {

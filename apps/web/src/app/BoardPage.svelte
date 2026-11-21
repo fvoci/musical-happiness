@@ -17,6 +17,7 @@
   import Kanban from '$lib/features/views/kanban/Kanban.svelte';
   import Table from '$lib/features/views/table/Table.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { focusAdrift } from '$lib/layout/focus.ts';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
   import {
     boardPresence,
@@ -70,14 +71,29 @@
     page?.focus();
   }
 
-  // An address without a view, or with one that is gone, shows the first view.
+  /** The view shown last: not reactive, it tells a view that went from one never shown. */
+  let shownId: string | undefined;
+  $effect(() => {
+    if (view) shownId = view.id;
+  });
+
+  // An address without a view, or with one that is gone, shows the first view. A view that
+  // goes while it is shown (deleted from its own list, or by someone else) takes the page
+  // with it, and the focus if it was there: that goes to the button of the views, which
+  // names the view shown now.
   $effect(() => {
     if (board?.status !== 'ready' || view) return;
     const first = board.orderedViews[0];
-    if (first) {
-      router.go({ ...router.route, viewId: first.id }, { replace: true });
-    }
+    if (!first) return;
+    const went = shownId !== undefined && router.route.viewId === shownId;
+    router.go({ ...router.route, viewId: first.id }, { replace: true });
+    if (went) void tick().then(focusViews);
   });
+
+  function focusViews(): void {
+    const button = page?.querySelector<HTMLElement>('[data-tool="views"]');
+    if (focusAdrift(button)) button?.focus();
+  }
 
   /** What the reader typed into the search of the view. It is theirs alone and not stored. */
   let search = $state('');

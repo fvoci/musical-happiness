@@ -7,16 +7,6 @@ import { isBackendError } from './backend.ts';
 /** How a change of a comment ended: stored, refused for a newer version, or failed (and told). */
 export type CommentEdit = 'saved' | 'conflict' | 'failed';
 
-export interface Upload {
-  id: number;
-  name: string;
-  sentBytes: number;
-  totalBytes: number;
-  failed: boolean;
-  /** Gives the upload up. */
-  cancel: () => void;
-}
-
 /**
  * How long after its room was joined again by itself (`afterPutOut` said
  * `there`) a card's room is not joined again by itself: a server that lets

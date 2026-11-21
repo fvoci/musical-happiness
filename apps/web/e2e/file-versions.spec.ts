@@ -153,6 +153,10 @@ test('the versions of a file are listed, written, looked at, downloaded and gone
   // A new version from a file: it is what the viewer shows, and the one before stays.
   await uploadVersion(page, 'next.pdf', 3);
   await expect(counter(page)).toContainText('1 / 3');
+  // Its upload was told where every upload is, over the viewer.
+  await expect(
+    page.getByTestId('transfers').locator('[data-transfer="upload"][data-name="next.pdf"]'),
+  ).toHaveAttribute('data-finished', '');
   await versions(page);
   await expect(page.getByTestId('file-versions-list').locator('li')).toHaveCount(2);
   await expect(versionRow(page, 2).getByTestId('file-version-current')).toBeVisible();

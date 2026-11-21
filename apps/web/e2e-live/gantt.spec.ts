@@ -115,8 +115,8 @@ async function addGantt(
   await page.clock.setFixedTime(new Date('2026-11-10T00:00:00Z'));
   await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
-  await page.getByTestId('view-header').locator('[data-tool="add-view"]').click();
-  await page.getByRole('menuitem', { name: 'Gantt', exact: true }).click();
+  await page.getByTestId('view-header').locator('[data-tool="views"]').click();
+  await page.getByRole('menuitem', { name: 'Add Gantt view' }).click();
   await expect(page.getByTestId('gantt')).toBeVisible();
   await expect.poll(async () => (await ganttViews(api, board)).length).toBe(1);
   const viewId = (await ganttViews(api, board))[0]?.id ?? '';
