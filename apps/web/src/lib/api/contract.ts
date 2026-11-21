@@ -505,10 +505,14 @@ export interface paths {
          *     A notification is made only for somebody who reads the card or the page at that
          *     time, and each one listed is asked again: its `subject` says what it is about, as
          *     that is now, only where the user reads it now with this session. Where they do not
-         *     (it is in the trash or gone, they left the board or the workspace, or its
-         *     organization takes a sign-in this session was not made through) `subject` is
+         *     (it is in the trash or gone, or they left the board or the workspace) `subject` is
          *     `null`, and nothing says what it was about, where or by whom. Such a one is still
          *     listed, and counted while unread.
+         *
+         *     What an organization that takes only sessions made through its provider told the
+         *     user is left out for a session made otherwise, as `getMyMemberships` leaves its
+         *     boards out: it is not listed, not counted, and not marked as read by such a
+         *     session, and it is there again for a session made through the provider.
          *
          *     A notification that was read is kept for ninety days, and a user has ten thousand
          *     at most: past that the oldest go, those that were read first.
@@ -535,7 +539,8 @@ export interface paths {
          * Mark every notification as read
          * @description Marks as read every notification of the user of the session that was made up to
          *     `through`, or up to now where that is left out: a client gives the `createAt` of
-         *     the newest it has shown, so that one that came since stays unread.
+         *     the newest it has shown, so that one that came since stays unread. Those of an
+         *     organization the session does not open (`getNotifications`) stay as they are.
          */
         post: operations["readNotifications"];
         delete?: never;
@@ -554,7 +559,8 @@ export interface paths {
         /**
          * How many notifications the user has not read
          * @description The number of notifications of the user of the session that are not read, in every
-         *     organization: those whose `subject` is `null` among them.
+         *     organization the session opens (`getNotifications`): those whose `subject` is
+         *     `null` among them.
          */
         get: operations["getUnreadNotifications"];
         put?: never;
@@ -578,7 +584,8 @@ export interface paths {
          * Mark a notification as read
          * @description Marks one notification of the user of the session as read; one that was read stays
          *     read since when it was. 404 for a notification of somebody else, as for one that
-         *     is not there.
+         *     is not there, and for one of an organization the session does not open
+         *     (`getNotifications`).
          */
         post: operations["readNotification"];
         delete?: never;

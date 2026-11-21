@@ -31,10 +31,14 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// A notification is made only for somebody who reads the card or the page at that
 /// time, and each one listed is asked again: its `subject` says what it is about, as
 /// that is now, only where the user reads it now with this session. Where they do not
-/// (it is in the trash or gone, they left the board or the workspace, or its
-/// organization takes a sign-in this session was not made through) `subject` is
+/// (it is in the trash or gone, or they left the board or the workspace) `subject` is
 /// `null`, and nothing says what it was about, where or by whom. Such a one is still
 /// listed, and counted while unread.
+///
+/// What an organization that takes only sessions made through its provider told the
+/// user is left out for a session made otherwise, as `getMyMemberships` leaves its
+/// boards out: it is not listed, not counted, and not marked as read by such a
+/// session, and it is there again for a session made through the provider.
 ///
 /// A notification that was read is kept for ninety days, and a user has ten thousand
 /// at most: past that the oldest go, those that were read first.
@@ -58,7 +62,8 @@ async fn handle_get_notifications(
 /// How many notifications the user has not read
 ///
 /// The number of notifications of the user of the session that are not read, in every
-/// organization: those whose `subject` is `null` among them.
+/// organization the session opens (`getNotifications`): those whose `subject` is
+/// `null` among them.
 #[utoipa::path(
     get,
     path = "/notifications/unread",
@@ -70,7 +75,7 @@ async fn handle_get_unread_notifications(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    let count = app.unread_notifications(&session.user_id).await?;
+    let count = app.unread_notifications((&session).into()).await?;
     Ok(json_response(&UnreadNotifications { count }))
 }
 
@@ -78,7 +83,8 @@ async fn handle_get_unread_notifications(
 ///
 /// Marks as read every notification of the user of the session that was made up to
 /// `through`, or up to now where that is left out: a client gives the `createAt` of
-/// the newest it has shown, so that one that came since stays unread.
+/// the newest it has shown, so that one that came since stays unread. Those of an
+/// organization the session does not open (`getNotifications`) stay as they are.
 #[utoipa::path(
     post,
     path = "/notifications/read",
@@ -93,7 +99,7 @@ async fn handle_read_notifications(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let through = int_query_param(query.as_deref(), "through", now_millis())?;
-    app.read_notifications(&session.user_id, through).await?;
+    app.read_notifications((&session).into(), through).await?;
     Ok(no_content())
 }
 
@@ -101,7 +107,8 @@ async fn handle_read_notifications(
 ///
 /// Marks one notification of the user of the session as read; one that was read stays
 /// read since when it was. 404 for a notification of somebody else, as for one that
-/// is not there.
+/// is not there, and for one of an organization the session does not open
+/// (`getNotifications`).
 #[utoipa::path(
     post,
     path = "/notifications/{notificationId}/read",
@@ -115,7 +122,7 @@ async fn handle_read_notification(
     RequiredSession(session): RequiredSession,
     Path(notification_id): Path<String>,
 ) -> ApiResult {
-    app.read_notification(&session.user_id, &notification_id)
+    app.read_notification((&session).into(), &notification_id)
         .await?;
     Ok(no_content())
 }

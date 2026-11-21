@@ -11,7 +11,10 @@
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{Notification, NotificationSubject, Session};
-use fvoci_store::{NotificationEvent, NotificationLimits, NotificationPlace, StoredNotification};
+use fvoci_store::{
+    NotificationEvent, NotificationLimits, NotificationPlace, NotificationReader,
+    StoredNotification,
+};
 
 use super::sso::Asker;
 use super::{App, ListPage};
@@ -161,9 +164,9 @@ impl App {
         }
     }
 
-    /// A page of what the session's user was told, in every organization, the newest
-    /// first. Each is asked again whether the user reads what it is about, as the
-    /// session opens it: one they do not read now has no subject.
+    /// A page of what the session's user was told, in every organization the session
+    /// opens, the newest first. Each is asked again whether the user reads what it is
+    /// about, as the session opens it: one they do not read now has no subject.
     ///
     /// # Errors
     ///
@@ -176,7 +179,7 @@ impl App {
         let user_id = session.user_id.as_str();
         let stored = self
             .store()
-            .notifications_of_user(user_id, page.paging())
+            .notifications_of_user(reader(session.into()), page.paging())
             .await?;
         let mut places: HashMap<&str, NotificationPlace> = HashMap::new();
         let org_ids: HashSet<&str> = stored.iter().map(|told| told.org_id.as_str()).collect();
@@ -213,30 +216,34 @@ impl App {
             .collect())
     }
 
-    /// How many notifications the user has not read, in every organization: those
-    /// they cannot see any more among them, until they are read.
+    /// How many notifications the asker has not read, in every organization their
+    /// session opens: those they cannot see any more among them, until they are read.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the query fails.
-    pub async fn unread_notifications(&self, user_id: &str) -> Result<i64, AppError> {
-        Ok(self.store().unread_notifications_of_user(user_id).await?)
+    pub async fn unread_notifications(&self, asker: Asker<'_>) -> Result<i64, AppError> {
+        Ok(self
+            .store()
+            .unread_notifications_of_user(reader(asker))
+            .await?)
     }
 
-    /// Marks a notification of the user as read.
+    /// Marks a notification of the asker as read.
     ///
     /// # Errors
     ///
-    /// Returns a not-found error for a notification that is not the user's, as for
-    /// one that is not there.
+    /// Returns a not-found error for a notification that is not the asker's, as for
+    /// one that is not there, and for one of an organization their session does not
+    /// open.
     pub async fn read_notification(
         &self,
-        user_id: &str,
+        asker: Asker<'_>,
         notification_id: &str,
     ) -> Result<(), AppError> {
         let theirs = self
             .store()
-            .read_notification(user_id, notification_id, now_millis())
+            .read_notification(reader(asker), notification_id, now_millis())
             .await?;
         if theirs {
             Ok(())
@@ -245,14 +252,15 @@ impl App {
         }
     }
 
-    /// Marks as read every notification of the user made up to `made_by`.
+    /// Marks as read every notification of the asker made up to `made_by`, in the
+    /// organizations their session opens.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the statement fails.
-    pub async fn read_notifications(&self, user_id: &str, made_by: i64) -> Result<(), AppError> {
+    pub async fn read_notifications(&self, asker: Asker<'_>, made_by: i64) -> Result<(), AppError> {
         self.store()
-            .read_notifications_of_user(user_id, made_by, now_millis())
+            .read_notifications_of_user(reader(asker), made_by, now_millis())
             .await?;
         Ok(())
     }
@@ -292,6 +300,14 @@ fn subject(told: &StoredNotification, place: NotificationPlace) -> NotificationS
         block_kind: place.block_kind,
         title: place.title,
         comment_id,
+    }
+}
+
+/// The asker as the store reads their notifications: with the session they ask by.
+fn reader(asker: Asker<'_>) -> NotificationReader<'_> {
+    NotificationReader {
+        user_id: asker.user_id,
+        login_provider: asker.made_through,
     }
 }
 
@@ -367,13 +383,21 @@ pub async fn tend(app: &App) {
     }
 }
 
-/// Starts the task that works off whom to tell ([`tend`]).
-pub(crate) fn start_upkeep(app: &App) -> RecurringTask {
+/// Starts the task that works off whom to tell ([`tend`]); `None` where it is worked
+/// off only when it is called.
+pub(crate) fn start_upkeep(app: &App) -> Option<RecurringTask> {
+    if app.config().notifications_by_hand {
+        return None;
+    }
     let app = app.clone();
-    RecurringTask::spawn_starting_now("tellPeople", UPKEEP_INTERVAL, move || {
-        let app = app.clone();
-        async move { tend(&app).await }
-    })
+    Some(RecurringTask::spawn_starting_now(
+        "tellPeople",
+        UPKEEP_INTERVAL,
+        move || {
+            let app = app.clone();
+            async move { tend(&app).await }
+        },
+    ))
 }
 
 #[cfg(test)]

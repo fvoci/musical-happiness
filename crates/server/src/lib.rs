@@ -395,7 +395,9 @@ impl Server {
         uploads.cancel().await;
         restock.cancel().await;
         search::stop_upkeep(search).await;
-        telling.cancel().await;
+        if let Some(telling) = telling {
+            telling.cancel().await;
+        }
         served.context("serving HTTP")
     }
 

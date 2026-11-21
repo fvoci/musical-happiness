@@ -6058,7 +6058,7 @@
     },
     "/api/v1/notifications": {
       "get": {
-        "description": "One page of what the user of the session was told, in every organization, the\nnewest first: that somebody mentioned them in a card, a page or a comment\n(`mention`), or gave them a card (`assignment`). Nobody is told of their own doing,\nnor of anything in a user's own space.\n\nA notification is made only for somebody who reads the card or the page at that\ntime, and each one listed is asked again: its `subject` says what it is about, as\nthat is now, only where the user reads it now with this session. Where they do not\n(it is in the trash or gone, they left the board or the workspace, or its\norganization takes a sign-in this session was not made through) `subject` is\n`null`, and nothing says what it was about, where or by whom. Such a one is still\nlisted, and counted while unread.\n\nA notification that was read is kept for ninety days, and a user has ten thousand\nat most: past that the oldest go, those that were read first.",
+        "description": "One page of what the user of the session was told, in every organization, the\nnewest first: that somebody mentioned them in a card, a page or a comment\n(`mention`), or gave them a card (`assignment`). Nobody is told of their own doing,\nnor of anything in a user's own space.\n\nA notification is made only for somebody who reads the card or the page at that\ntime, and each one listed is asked again: its `subject` says what it is about, as\nthat is now, only where the user reads it now with this session. Where they do not\n(it is in the trash or gone, or they left the board or the workspace) `subject` is\n`null`, and nothing says what it was about, where or by whom. Such a one is still\nlisted, and counted while unread.\n\nWhat an organization that takes only sessions made through its provider told the\nuser is left out for a session made otherwise, as `getMyMemberships` leaves its\nboards out: it is not listed, not counted, and not marked as read by such a\nsession, and it is there again for a session made through the provider.\n\nA notification that was read is kept for ninety days, and a user has ten thousand\nat most: past that the oldest go, those that were read first.",
         "operationId": "getNotifications",
         "parameters": [
           {
@@ -6118,7 +6118,7 @@
     },
     "/api/v1/notifications/read": {
       "post": {
-        "description": "Marks as read every notification of the user of the session that was made up to\n`through`, or up to now where that is left out: a client gives the `createAt` of\nthe newest it has shown, so that one that came since stays unread.",
+        "description": "Marks as read every notification of the user of the session that was made up to\n`through`, or up to now where that is left out: a client gives the `createAt` of\nthe newest it has shown, so that one that came since stays unread. Those of an\norganization the session does not open (`getNotifications`) stay as they are.",
         "operationId": "readNotifications",
         "parameters": [
           {
@@ -6155,7 +6155,7 @@
     },
     "/api/v1/notifications/unread": {
       "get": {
-        "description": "The number of notifications of the user of the session that are not read, in every\norganization: those whose `subject` is `null` among them.",
+        "description": "The number of notifications of the user of the session that are not read, in every\norganization the session opens (`getNotifications`): those whose `subject` is\n`null` among them.",
         "operationId": "getUnreadNotifications",
         "responses": {
           "200": {
@@ -6187,7 +6187,7 @@
     },
     "/api/v1/notifications/{notificationId}/read": {
       "post": {
-        "description": "Marks one notification of the user of the session as read; one that was read stays\nread since when it was. 404 for a notification of somebody else, as for one that\nis not there.",
+        "description": "Marks one notification of the user of the session as read; one that was read stays\nread since when it was. 404 for a notification of somebody else, as for one that\nis not there, and for one of an organization the session does not open\n(`getNotifications`).",
         "operationId": "readNotification",
         "parameters": [
           {

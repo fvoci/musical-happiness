@@ -122,7 +122,8 @@ pub use invitations::{
 pub use invited_signups::InvitedConfirmation;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use notifications::{
-    NotificationEvent, NotificationLimits, NotificationPlace, StoredNotification,
+    NotificationEvent, NotificationLimits, NotificationPlace, NotificationReader,
+    StoredNotification,
 };
 pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{

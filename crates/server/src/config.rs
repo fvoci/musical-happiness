@@ -322,6 +322,12 @@ pub struct Configuration {
     /// as it sets `skip_template_init`.
     #[serde(skip)]
     pub skip_websocket_pings: bool,
+    /// Whether whom to tell of a change is worked off only when it is called
+    /// (`app::tend_notifications`), and no task does it every second. Not a
+    /// configuration file key: the tests set it, to say when people are told, as they
+    /// set `upkeep_by_hand` of the search.
+    #[serde(skip)]
+    pub notifications_by_hand: bool,
     /// The keys of the file that no setting reads. Last: it takes what the others,
     /// the flattened ones among them, leave.
     #[serde(flatten)]
@@ -395,6 +401,7 @@ impl Default for Configuration {
             wiki: wiki::WikiSettings::default(),
             skip_template_init: false,
             skip_websocket_pings: false,
+            notifications_by_hand: false,
             unread: UnreadKeys::default(),
         }
     }

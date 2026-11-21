@@ -60,6 +60,31 @@ pub struct NotificationEvent {
     pub attempts: i64,
 }
 
+/// Who reads their notifications, and with which session: an organization that takes
+/// only the sessions made through its provider keeps what it told its people from
+/// any other session of theirs, as it keeps its boards
+/// (`Store::container_memberships_of_user`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NotificationReader<'a> {
+    /// The user of the session.
+    pub user_id: &'a str,
+    /// The provider the session was made through; `None` for a password.
+    pub login_provider: Option<&'a str>,
+}
+
+impl NotificationReader<'_> {
+    /// Binds the reader as the recipient the statement was asking for, and leaves
+    /// out the organizations their session does not open.
+    fn push_theirs(self, sql: &mut Sql) {
+        sql.bind(Id(self.user_id));
+        crate::memberships_everywhere::push_organization_opened_by(
+            sql,
+            "notifications.org_id",
+            self.login_provider,
+        );
+    }
+}
+
 /// A notification as it is stored: what it names, and nothing of what that is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredNotification {
@@ -310,16 +335,16 @@ impl Store {
         .await
     }
 
-    /// A page of the notifications of a user, of every organization, the newest
-    /// first. What each is about is named and no more: whether the user reads it is
-    /// for the caller to ask, of each.
+    /// A page of the notifications of a reader, of every organization their session
+    /// opens, the newest first. What each is about is named and no more: whether the
+    /// user reads it is for the caller to ask, of each.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn notifications_of_user(
         &self,
-        user_id: &str,
+        reader: NotificationReader<'_>,
         paging: Paging,
     ) -> Result<Vec<StoredNotification>, StoreError> {
         self.system()
@@ -327,12 +352,12 @@ impl Store {
                 let mut sql = scope.sql(&format!(
                     "SELECT {NOTIFICATION_COLUMNS} FROM notifications WHERE recipient_id = "
                 ));
-                sql.bind(Id(user_id))
-                    .push_bind(
-                        " ORDER BY create_at DESC, id DESC LIMIT ",
-                        i64::from(paging.per_page),
-                    )
-                    .push_bind(" OFFSET ", paging.offset());
+                reader.push_theirs(&mut sql);
+                sql.push_bind(
+                    " ORDER BY create_at DESC, id DESC LIMIT ",
+                    i64::from(paging.per_page),
+                )
+                .push_bind(" OFFSET ", paging.offset());
                 scope
                     .fetch_all(sql)
                     .await?
@@ -343,18 +368,22 @@ impl Store {
             .await
     }
 
-    /// How many notifications a user has not read, of every organization.
+    /// How many notifications a reader has not read, of every organization their
+    /// session opens.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn unread_notifications_of_user(&self, user_id: &str) -> Result<i64, StoreError> {
+    pub async fn unread_notifications_of_user(
+        &self,
+        reader: NotificationReader<'_>,
+    ) -> Result<i64, StoreError> {
         self.system()
             .with_conn(async |scope| {
                 let mut sql = scope.sql(
                     "SELECT COUNT(*) FROM notifications WHERE read_at = 0 AND recipient_id = ",
                 );
-                sql.bind(Id(user_id));
+                reader.push_theirs(&mut sql);
                 match scope.fetch_optional(sql).await? {
                     Some(row) => row.int(0),
                     None => Ok(0),
@@ -363,31 +392,32 @@ impl Store {
             .await
     }
 
-    /// Marks a notification of a user as read at `now`, in whichever organization it
-    /// is; one that was read keeps the time it was. Returns whether the user has such
-    /// a notification: another's is none of theirs.
+    /// Marks a notification of a reader as read at `now`, in whichever organization
+    /// their session opens it is; one that was read keeps the time it was. Returns
+    /// whether the reader has such a notification: another's is none of theirs, and
+    /// neither is one of an organization the session does not open.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails.
     pub async fn read_notification(
         &self,
-        user_id: &str,
+        reader: NotificationReader<'_>,
         notification_id: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
         self.system()
             .transaction(async |scope| {
                 let mut sql = scope.sql("SELECT read_at FROM notifications WHERE recipient_id = ");
-                sql.bind(Id(user_id))
-                    .push_bind(" AND id = ", Id(notification_id));
+                reader.push_theirs(&mut sql);
+                sql.push_bind(" AND id = ", Id(notification_id));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(false);
                 };
                 if row.int(0)? == 0 {
                     let mut sql = scope.sql("UPDATE notifications SET read_at = ");
                     sql.bind(now)
-                        .push_bind(" WHERE recipient_id = ", Id(user_id))
+                        .push_bind(" WHERE recipient_id = ", Id(reader.user_id))
                         .push_bind(" AND id = ", Id(notification_id))
                         .push(" AND read_at = 0");
                     scope.execute(sql).await?;
@@ -397,24 +427,25 @@ impl Store {
             .await
     }
 
-    /// Marks as read at `now` every notification of a user that was made up to
-    /// `made_by` and not read yet, of every organization. Returns how many.
+    /// Marks as read at `now` every notification of a reader that was made up to
+    /// `made_by` and not read yet, of every organization their session opens.
+    /// Returns how many.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn read_notifications_of_user(
         &self,
-        user_id: &str,
+        reader: NotificationReader<'_>,
         made_by: i64,
         now: i64,
     ) -> Result<u64, StoreError> {
         self.system()
             .with_conn(async |scope| {
                 let mut sql = scope.sql("UPDATE notifications SET read_at = ");
-                sql.bind(now)
-                    .push_bind(" WHERE read_at = 0 AND recipient_id = ", Id(user_id))
-                    .push_bind(" AND create_at <= ", made_by);
+                sql.bind(now).push(" WHERE read_at = 0 AND recipient_id = ");
+                reader.push_theirs(&mut sql);
+                sql.push_bind(" AND create_at <= ", made_by);
                 scope.execute(sql).await
             })
             .await

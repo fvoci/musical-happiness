@@ -628,3 +628,33 @@ async fn what_cannot_be_seen_is_seen_again_once_its_reader_is_let_back() {
     assert_eq!(kinds(&told(&th, &th.client2).await), (vec!["mention"], 0));
     th.teardown().await;
 }
+
+/// A server works off whom to tell by itself, every second: the tests above say when
+/// (`tend_notifications`), and this one waits for the server.
+#[tokio::test]
+async fn a_server_tells_people_by_itself() {
+    let th = Setup::native()
+        .configure(|config| config.notifications_by_hand = false)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let b = th.client2.me().await;
+    let board = board_with_owner(&th, ContainerType::Private).await;
+    give(&th, &board.id, &b.id, "viewer").await;
+    card_with(&th.client, &board.id, &mentioning(&[&b.id])).await;
+
+    let waited = tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            let theirs: Vec<Notification> = th.client2.get("/notifications").await.ok_json();
+            if !theirs.is_empty() {
+                return theirs;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await;
+    let theirs = waited.expect("the server told B within half a minute");
+    assert_eq!(kinds(&theirs), (vec!["mention"], 0), "{theirs:?}");
+    th.teardown().await;
+}

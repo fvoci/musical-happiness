@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use fvoci_model::{Block, BlockPatch, BodyChange, Container, ContainerType, Notification};
 use fvoci_server::app::tend_notifications;
 use fvoci_store::testing::db_type_of_the_tests;
-use fvoci_store::{DbType, Paging, Store};
+use fvoci_store::{DbType, NotificationReader, Paging, Store};
 use serde_json::{Value, json};
 
 use crate::blocks::{delete, undelete_path};
@@ -35,9 +35,13 @@ async fn held_by(th: &TestServer, user_id: &str) -> usize {
         page: 0,
         per_page: 1000,
     };
+    let reader = NotificationReader {
+        user_id,
+        login_provider: None,
+    };
     th.app
         .store()
-        .notifications_of_user(user_id, all)
+        .notifications_of_user(reader, all)
         .await
         .expect("the notifications are read")
         .len()
@@ -413,15 +417,16 @@ async fn what_its_reader_reads_no_more_says_nothing_of_itself() {
     th.teardown().await;
 }
 
-/// An organization that takes only the sessions made through its provider: a session
-/// made by a password lists what its user was told there, and is told nothing of
-/// what any of it is about.
+/// An organization that takes only the sessions made through its provider keeps what
+/// it told its people from a session of theirs made by a password, as it keeps its
+/// boards: such a session lists none of it, counts none, and marks none as read. A
+/// session made through the provider finds it as it was.
 #[tokio::test]
-async fn a_session_its_organization_does_not_take_is_told_nothing_of_what_it_lists() {
+async fn a_session_its_organization_does_not_take_reaches_nothing_it_was_told_there() {
     use crate::common::ROOT_WORKSPACE_ID;
     use crate::fake_oidc::FakeProvider;
     use crate::oidc::{org_of, set_provider, with_key_and_private_addresses};
-    use crate::sso::{Passwords, admin_through_provider, require_sso};
+    use crate::sso::{Passwords, admin_through_provider, require_sso, through_provider, tie};
 
     let fake = FakeProvider::start().await;
     let th = Setup::local_mode()
@@ -434,6 +439,7 @@ async fn a_session_its_organization_does_not_take_is_told_nothing_of_what_it_lis
     let org_id = org_of(&th).await;
     set_provider(&th, &org_id, &fake).await;
     let b = th.client2.me().await.id;
+    tie(&th, &th.client2, &fake, "subject-of-user2").await;
     let board: Container = th
         .client
         .create_board(&new_board(
@@ -451,15 +457,31 @@ async fn a_session_its_organization_does_not_take_is_told_nothing_of_what_it_lis
         )
         .await
         .check_created();
-    assert_eq!(kinds(&told(&th, &th.client2).await), (vec!["mention"], 0));
+    let open = told(&th, &th.client2).await;
+    assert_eq!(kinds(&open), (vec!["mention"], 0), "{open:?}");
 
     let admin = admin_through_provider(&th, &fake, &org_id).await;
     require_sso(&admin, &org_id, &fake, Passwords::Refused)
         .await
         .check_ok();
-    let closed = told(&th, &th.client2).await;
-    assert_eq!(kinds(&closed), (vec![], 1), "{closed:?}");
-    assert_eq!(unread(&th.client2).await, 1, "counted, and no more is said");
+    assert_eq!(told(&th, &th.client2).await, [], "none is listed");
+    assert_eq!(unread(&th.client2).await, 0, "and none is counted");
+    th.client2
+        .post(&format!("/notifications/{}/read", open[0].id), &Value::Null)
+        .await
+        .check_error(reqwest::StatusCode::NOT_FOUND, "notification not found");
+    th.client2
+        .post("/notifications/read", &Value::Null)
+        .await
+        .check_no_content();
+
+    // Through the provider it is there, and not read: the password session marked
+    // nothing.
+    let through = through_provider(&th, &fake, &org_id, "subject-of-user2").await;
+    let theirs = told(&th, &through).await;
+    assert_eq!(kinds(&theirs), (vec!["mention"], 0), "{theirs:?}");
+    assert_eq!(theirs[0].read_at, 0, "as it was");
+    assert_eq!(unread(&through).await, 1);
     th.teardown().await;
     fake.stop();
 }

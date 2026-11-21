@@ -475,6 +475,12 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     // open: asked below.
     "getMyMemberships",
     "getMyWorkspaces",
+    // What the account was told, in every organization its session opens: those of
+    // one it does not open are left out of the list and of the count, and are not
+    // marked as read
+    // (`notifications_isolation::a_session_its_organization_does_not_take_reaches_nothing_it_was_told_there`).
+    "getNotifications",
+    "getUnreadNotifications",
     "getSharedBlocks",
     "getSharedContainer",
     "getSharedCards",
@@ -492,6 +498,8 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "ping",
     // What a link leads into is shown to whoever holds it, signed in or not.
     "previewInvitation",
+    "readNotification",
+    "readNotifications",
     "ready",
     "register",
     "requestAccountDeletion",

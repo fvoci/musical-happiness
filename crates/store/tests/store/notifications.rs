@@ -3,7 +3,9 @@
 //! the bounds a person's notifications are kept within.
 
 use fvoci_model::{Block, BlockType, Body, Container, ContainerType, NotificationKind, new_id};
-use fvoci_store::{NotificationEvent, NotificationLimits, Paging, Store, StoredNotification};
+use fvoci_store::{
+    NotificationEvent, NotificationLimits, NotificationReader, Paging, Store, StoredNotification,
+};
 use serde_json::json;
 
 use crate::common;
@@ -51,13 +53,21 @@ async fn events(store: &Store) -> Vec<NotificationEvent> {
         .expect("the list is read")
 }
 
+/// The user, reading with a session made by a password.
+fn reader(user_id: &str) -> NotificationReader<'_> {
+    NotificationReader {
+        user_id,
+        login_provider: None,
+    }
+}
+
 async fn told(store: &Store, user_id: &str) -> Vec<StoredNotification> {
     let all = Paging {
         page: 0,
         per_page: 1000,
     };
     store
-        .notifications_of_user(user_id, all)
+        .notifications_of_user(reader(user_id), all)
         .await
         .expect("the notifications are read")
 }
@@ -273,7 +283,7 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
         let id = told_of_a_new_card(store, (&board_id, &writer), &other, at, few).await;
         assert!(
             store
-                .read_notification(&other, &id, at + 1)
+                .read_notification(reader(&other), &id, at + 1)
                 .await
                 .expect("read")
         );
@@ -286,7 +296,7 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
         if at == 2 || at == 4 {
             assert!(
                 store
-                    .read_notification(&named, &id, at * 100 + 1)
+                    .read_notification(reader(&named), &id, at * 100 + 1)
                     .await
                     .expect("read")
             );
@@ -318,14 +328,14 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
     // Another's notification is none of theirs to read.
     assert!(
         !store
-            .read_notification(&writer, &made[4], 1000)
+            .read_notification(reader(&writer), &made[4], 1000)
             .await
             .expect("asked"),
         "the writer has no such notification"
     );
     assert_eq!(
         store
-            .unread_notifications_of_user(&named)
+            .unread_notifications_of_user(reader(&named))
             .await
             .expect("counted"),
         3
@@ -333,7 +343,7 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
     // All that were made by 300 are read at 2000; the newest stays unread.
     assert_eq!(
         store
-            .read_notifications_of_user(&named, 300, 2000)
+            .read_notifications_of_user(reader(&named), 300, 2000)
             .await
             .expect("read"),
         2

@@ -67,21 +67,33 @@ async fn extend_across_organizations(
     Ok(())
 }
 
+/// Leaves out the rows whose organization is `org_column` where that organization
+/// takes only sessions made through a provider, and a session made through
+/// `login_provider` (`None` for a password) is none of them: what such a session
+/// reads of nothing, in a list that reaches every organization.
+pub(crate) fn push_organization_opened_by(
+    sql: &mut Sql,
+    org_column: &str,
+    login_provider: Option<&str>,
+) {
+    sql.push(&format!(
+        " AND NOT EXISTS (SELECT 1 FROM oidc_providers AS p \
+         WHERE p.org_id = {org_column} AND p.sso_required = "
+    ))
+    .bind(true);
+    if let Some(provider) = login_provider {
+        sql.push_bind(" AND p.id <> ", Id(provider));
+    }
+    sql.push(")");
+}
+
 /// Leaves out the workspaces `t`, of the organizations `o`, that a session of the user
 /// made through `login_provider` (`None` for a password) does not open, as
 /// [`crate::SessionTaken::opened_by`] has it: those of an organization that takes only
 /// sessions made through another provider, and, for a session made through any, the
 /// user's own space once the account has a password.
 fn push_opened_by(sql: &mut Sql, user_id: &str, login_provider: Option<&str>) {
-    sql.push(
-        " AND NOT EXISTS (SELECT 1 FROM oidc_providers AS p \
-         WHERE p.org_id = t.org_id AND p.sso_required = ",
-    )
-    .bind(true);
-    if let Some(provider) = login_provider {
-        sql.push_bind(" AND p.id <> ", Id(provider));
-    }
-    sql.push(")");
+    push_organization_opened_by(sql, "t.org_id", login_provider);
     if login_provider.is_some() {
         sql.push_bind(" AND NOT (o.kind = ", OrgKind::Personal.as_str())
             .push_bind(
