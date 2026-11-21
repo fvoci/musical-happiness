@@ -21,7 +21,7 @@ use crate::own_space::workspaces_and_own;
 use crate::rooms::Peer;
 use crate::sso::{Passwords, admin_through_provider, require_sso};
 
-const FIRST_PASSWORD: &str = "a first Pa$$word";
+pub(crate) const FIRST_PASSWORD: &str = "a first Pa$$word";
 
 /// Whether the account of the client is told it has a password.
 async fn has_password(client: &Client) -> Value {
@@ -30,7 +30,11 @@ async fn has_password(client: &Client) -> Value {
 }
 
 /// A board in the user's own space that they administer, and its identifier.
-async fn board_in_the_space(ts: &TestServer, own: &UserWorkspace, user_id: &str) -> String {
+pub(crate) async fn board_in_the_space(
+    ts: &TestServer,
+    own: &UserWorkspace,
+    user_id: &str,
+) -> String {
     let mut board = Container {
         id: new_id(),
         workspace_id: own.id.clone(),
@@ -49,7 +53,7 @@ async fn board_in_the_space(ts: &TestServer, own: &UserWorkspace, user_id: &str)
 }
 
 /// The boards the session's user is listed as a member of, in every organization.
-async fn boards_of(client: &Client) -> Vec<String> {
+pub(crate) async fn boards_of(client: &Client) -> Vec<String> {
     let members: Vec<ContainerMember> = client.get("/users/me/memberships").await.ok_json();
     members
         .into_iter()
@@ -59,7 +63,7 @@ async fn boards_of(client: &Client) -> Vec<String> {
 
 /// How many boards the session is told its account's own space holds, where it asks
 /// what deleting the account comes to: nothing for a session the space is closed to.
-async fn counted_in_the_space(client: &Client) -> Value {
+pub(crate) async fn counted_in_the_space(client: &Client) -> Value {
     let deletion: Value = client.get("/users/me/deletion").await.ok_json();
     let space = &deletion["organizations"][0];
     assert_eq!(space["kind"], json!("personal"), "{deletion}");
@@ -67,7 +71,7 @@ async fn counted_in_the_space(client: &Client) -> Value {
 }
 
 /// Signs in with the name and the password, and answers what the server said.
-async fn login(ts: &TestServer, username: &str, password: &str) -> (StatusCode, Client) {
+pub(crate) async fn login(ts: &TestServer, username: &str, password: &str) -> (StatusCode, Client) {
     let mut client = ts.anonymous();
     let answer = client.login(username, password).await;
     (answer.status, client)
@@ -189,7 +193,7 @@ async fn an_account_made_through_a_provider_sets_its_first_password_once() {
 }
 
 /// What a session is told is closed to it for want of the account's password.
-async fn check_asks_for_the_password(client: &Client, path: &str) {
+pub(crate) async fn check_asks_for_the_password(client: &Client, path: &str) {
     let refused = client.get(path).await;
     refused.check_unauthorized();
     assert_eq!(
@@ -265,7 +269,12 @@ async fn a_space_takes_the_password_alone_once_its_account_has_one() {
 }
 
 /// A card on a board of the user's own space, past the routes, and its identifier.
-async fn card_in_the_space(ts: &TestServer, own: &UserWorkspace, board: &str, by: &str) -> String {
+pub(crate) async fn card_in_the_space(
+    ts: &TestServer,
+    own: &UserWorkspace,
+    board: &str,
+    by: &str,
+) -> String {
     let mut card = Block {
         id: new_id(),
         container_id: board.to_owned(),
@@ -333,7 +342,11 @@ async fn the_room_of_a_card_of_a_space_takes_the_password_alone_once_there_is_on
 
 /// Whether a connection of the client's session that follows the workspace of the
 /// space is told of a card made on its board.
-async fn told_of_the_space(ts: &TestServer, client: &Client, at: (&UserWorkspace, &str)) -> bool {
+pub(crate) async fn told_of_the_space(
+    ts: &TestServer,
+    client: &Client,
+    at: (&UserWorkspace, &str),
+) -> bool {
     use futures_util::{SinkExt as _, StreamExt as _};
 
     let (own, board) = at;

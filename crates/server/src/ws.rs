@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::app::{Audience, Former};
+use crate::app::{Audience, Former, SessionMade};
 use crate::auth::limiter::AddressKey;
 use crate::auth::{Authenticator, now_millis};
 use crate::metrics::{Disconnect, Metrics};
@@ -227,6 +227,12 @@ struct Listener {
     /// Where that session came from when it was made through a provider; `None` for a
     /// password, and without a session.
     login: Option<LoginOrigin>,
+    /// How that session was made and what it had confirmed at the handshake, as the
+    /// rule of which session opens what reads it. It holds for as long as the
+    /// connection lasts: a session that confirms the account's password goes on under
+    /// another token and its connections are closed (`App::confirm_session_password`),
+    /// and what it confirmed goes only with the session.
+    making: SessionMade,
     /// Where the connection comes from, as readers by a public link are counted
     /// (`readers.rs`); `None` through the administration socket.
     address: Option<AddressKey>,
@@ -277,9 +283,9 @@ struct Listeners {
 }
 
 impl Listener {
-    /// The provider the connection's session was made through, if any.
-    fn login_provider(&self) -> Option<&str> {
-        self.login.as_ref().map(|login| login.provider_id.as_str())
+    /// How the connection's session was made, and what it had confirmed.
+    fn made(&self) -> &SessionMade {
+        &self.making
     }
 
     /// Gives the connection up, for `reason`; the first reason given is the one counted.

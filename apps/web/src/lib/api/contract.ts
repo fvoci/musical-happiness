@@ -1487,10 +1487,11 @@ export interface paths {
          *     asking for those (`sso_required`). The account's other sessions end, and this one
          *     goes on under a new cookie, as after `changePassword`.
          *
-         *     From then on the account's own space takes only sessions made with the password
-         *     (`password_sign_in_required`, see "The user's own space"): this session, which was
-         *     made through a provider, opens it no more, and the account's websocket
-         *     connections are closed, to come back to what the session opens.
+         *     From then on the account's own space takes only sessions that have shown the
+         *     password (`password_sign_in_required`, see "The user's own space"): this session,
+         *     which was made through a provider and set the password without being asked for
+         *     one, opens it no more until it gives the password (`confirmPassword`), and the
+         *     account's websocket connections are closed, to come back to what the session opens.
          *
          *     Once only: an account that has a password is 409, and changes it with
          *     `changePassword`. The password must have at least 8 characters and at most 1024
@@ -1510,6 +1511,46 @@ export interface paths {
          *     that was changed by somebody else while this request was under way is 409.
          */
         post: operations["changePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/password/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the password in this session
+         * @description Takes the session as one that has shown the account's password: for a session made
+         *     through an organization's provider, to which the account's own space is closed once
+         *     the account has a password (`password_sign_in_required`, see "The user's own
+         *     space"). From then until the session ends it opens the space as a session made
+         *     with the password does, `getMyWorkspaces` lists the space with `passwordRequired`
+         *     false, and it goes on opening what it opened of the organizations: nothing else
+         *     changes of what it opens, and an organization that takes only sessions made
+         *     through another provider stays closed to it (`sso_required`). A session made with
+         *     the password is answered the same and opens what it opened.
+         *
+         *     The session goes on under a new cookie, as after `changePassword`: it opens more
+         *     than it did, and the value that opened less is no longer accepted. Its websocket
+         *     connections are closed, to come back under the new cookie and follow the space.
+         *
+         *     A wrong password is 400 (not 401: the session is good) with the reason
+         *     `invalid_credentials`, and `errors` names `password`. Wrong ones are counted with
+         *     the failed logins to the account by its name, and too many are 429, also for a
+         *     login: the limits are those of `login`. An account that has no password
+         *     (`hasPassword` of `getMe`) is 409: its space takes any session, and there is
+         *     nothing to confirm. A password that was changed while this request was under way
+         *     is 409 too.
+         */
+        post: operations["confirmPassword"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1562,9 +1603,10 @@ export interface paths {
          *     was not made so: what is under it answers 401 with the reason `sso_required` until
          *     the user signs in through the provider of `orgId`. The user's own space asks for no
          *     provider: its `ssoRequired` is false. Once its account has a password it takes only
-         *     sessions made with that, and is listed with `passwordRequired` true for a session
-         *     made through a provider: what is under it answers 401 with the reason
-         *     `password_sign_in_required` until the user signs in with the password (`login`).
+         *     sessions that have shown that, and is listed with `passwordRequired` true for a
+         *     session made through a provider that has not: what is under it answers 401 with the
+         *     reason `password_sign_in_required` until the session gives the password
+         *     (`confirmPassword`), or the user signs in with it (`login`).
          */
         get: operations["getMyWorkspaces"];
         put?: never;
@@ -4705,6 +4747,11 @@ export interface components {
             /** @description The secret from the confirmation link's fragment. */
             token: string;
         };
+        /** @description A request of a session to be taken as one that has shown its account's password. */
+        ConfirmPasswordRequest: {
+            /** @description The account's password. */
+            password: string;
+        };
         /** @description A board: a set of blocks and the property definitions of its cards. */
         Container: {
             /** @description The property definitions of the board's cards, in display order. */
@@ -6531,9 +6578,10 @@ export interface components {
             /**
              * @description Whether the workspace is closed to the session that asks for being the user's
              *     own space, of an account that has a password, while the session was made
-             *     through a provider. What is under the workspace then answers 401 with the
-             *     reason `password_sign_in_required`; signing in with the account's password
-             *     (`login`) opens it. Always false for a workspace of an organization that people
+             *     through a provider and has not given that password. What is under the
+             *     workspace then answers 401 with the reason `password_sign_in_required`; giving
+             *     the password in the session (`confirmPassword`) opens it, and so does signing in
+             *     with it (`login`). Always false for a workspace of an organization that people
              *     work in.
              */
             passwordRequired: boolean;
@@ -8745,6 +8793,50 @@ export interface operations {
                 content?: never;
             };
             /** @description The old password was wrong too often, or the server has too much password work to do at the moment. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    confirmPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description The session has shown the password. */
+            204: {
+                headers: {
+                    /** @description The session cookie, with its new value. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The password was wrong too often, or the server has too much password work to do at the moment. */
             429: {
                 headers: {
                     /** @description How many seconds to wait before trying again. */

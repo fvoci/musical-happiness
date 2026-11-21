@@ -170,7 +170,7 @@ async fn assert_the_workspaces_are_its_workspaces(
         ("left", OrgRole::Member, WorkspaceRole::Member),
     ] {
         let listed = unset
-            .workspaces_of_user(before.id(user), None)
+            .workspaces_of_user(before.id(user), fvoci_store::Making::with_password())
             .await
             .expect("the workspaces are listed");
         // The user's own space, which every account that was there got, is last.
@@ -223,7 +223,7 @@ async fn assert_the_workspaces_are_its_workspaces(
         .expect("a user registers");
     assert!(!newcomer.is_admin, "the instance had its first user");
     let listed = unset
-        .workspaces_of_user(&newcomer.id, None)
+        .workspaces_of_user(&newcomer.id, fvoci_store::Making::with_password())
         .await
         .expect("the workspaces are listed");
     let ids: Vec<(&str, OrgKind)> = listed
@@ -510,7 +510,7 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
             "a member of both"
         );
         let listed = unset
-            .workspaces_of_user(user, None)
+            .workspaces_of_user(user, fvoci_store::Making::with_password())
             .await
             .expect("the workspaces are listed");
         let kinds: Vec<OrgKind> = listed.iter().map(|workspace| workspace.kind).collect();

@@ -405,7 +405,10 @@ async fn the_required_provider_is_told_to_who_has_a_place_in_the_organization() 
             })
     };
     let listed = async |user_id: &str, through: Option<&str>| {
-        test.workspaces_of_user(user_id, through)
+        let making = through.map_or_else(fvoci_store::Making::with_password, |provider| {
+            fvoci_store::Making::through(provider)
+        });
+        test.workspaces_of_user(user_id, making)
             .await
             .expect("listed")
             .iter()

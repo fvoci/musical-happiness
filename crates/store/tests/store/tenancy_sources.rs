@@ -5,7 +5,7 @@
 use std::path::Path;
 
 /// The Rust files below a directory.
-fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
+pub(crate) fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
     for entry in std::fs::read_dir(directory).expect("a source directory") {
         let path = entry.expect("an entry").path();
         if path.is_dir() {

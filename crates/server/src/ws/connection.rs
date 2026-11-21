@@ -214,6 +214,7 @@ impl Listener {
             user_id: who.user_id,
             session_id: who.session_id,
             login: who.login,
+            making: who.making,
             address: None,
             outbox,
             closed: CancellationToken::new(),

@@ -36,7 +36,7 @@ async fn an_account_is_made_with_its_own_space() {
 
     // The member is in the organization of the handle too, listed before their own.
     let listed: Vec<(String, OrgKind)> = unset
-        .workspaces_of_user(&member, None)
+        .workspaces_of_user(&member, fvoci_store::Making::with_password())
         .await
         .expect("listed")
         .into_iter()
@@ -76,7 +76,7 @@ async fn who_starts_an_organization_has_a_space_beside_it() {
             "{username}"
         );
         let listed: Vec<(String, OrgKind)> = test
-            .workspaces_of_user(&founder.id, None)
+            .workspaces_of_user(&founder.id, fvoci_store::Making::with_password())
             .await
             .expect("listed")
             .into_iter()

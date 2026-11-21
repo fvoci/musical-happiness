@@ -105,8 +105,8 @@ pub use container_membership::Standing;
 pub use containers::{Joined, MemberChange, PublicContainers};
 pub use db::Dialect;
 pub use directory::{
-    Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SessionTaken, SharedContainer, Sight,
-    WorkspaceAccess,
+    Looking, Making, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SessionTaken, SharedContainer,
+    Sight, WorkspaceAccess,
 };
 pub use error::{StoreError, Taken};
 pub use file_refs::NewBodyFiles;
@@ -137,6 +137,7 @@ pub use search_docs::SearchDocument;
 pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};
 pub use search_text::{TextFound, TextSearch};
 pub use server_lock::ServerLock;
+pub use sessions::ConfirmedPassword;
 pub use sharing::SharingChange;
 pub use signups::{
     Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,

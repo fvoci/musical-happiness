@@ -24,6 +24,7 @@ fn add(listeners: &mut Listeners, user: &str, visit: Visit, age: Duration) {
             user_id: user.to_owned(),
             session_id: String::new(),
             login: None,
+            making: crate::app::SessionMade::with_password(),
             address: None,
             outbox,
             closed: CancellationToken::new(),

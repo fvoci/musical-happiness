@@ -474,7 +474,10 @@ impl TestServer {
         let workspaces = self
             .app
             .store()
-            .workspaces_of_user(&self.client.me().await.id, None)
+            .workspaces_of_user(
+                &self.client.me().await.id,
+                fvoci_store::Making::with_password(),
+            )
             .await
             .expect("the founder's workspace");
         self.app = self.app.scoped(

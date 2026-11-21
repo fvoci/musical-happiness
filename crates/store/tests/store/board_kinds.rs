@@ -218,7 +218,7 @@ async fn every_list_of_boards_is_of_the_kinds_it_is_asked_for() {
             .await
             .expect("the boards found in the workspace");
         let memberships = test
-            .container_memberships_of_user(&user_id, None, kinds)
+            .container_memberships_of_user(&user_id, fvoci_store::Making::with_password(), kinds)
             .await
             .expect("the memberships");
         let member_of: Vec<&str> = memberships
@@ -226,7 +226,11 @@ async fn every_list_of_boards_is_of_the_kinds_it_is_asked_for() {
             .map(|member| member.container_id.as_str())
             .collect();
         let memberships = test
-            .container_memberships_of_user(&through_team, None, kinds)
+            .container_memberships_of_user(
+                &through_team,
+                fvoci_store::Making::with_password(),
+                kinds,
+            )
             .await
             .expect("the memberships through the team");
         let through: Vec<&str> = memberships

@@ -18,7 +18,7 @@ use tokio::time::Instant;
 
 use super::super::{Outgoing as _, text_of};
 use super::{Hub, LEASE, LOOKUP_WAIT, ListenerId, Snapshot, Visit, snapshot};
-use crate::app::{App, Asker, PresenceAccess};
+use crate::app::{App, Asker, PresenceAccess, SessionMade};
 use crate::error::AppError;
 
 const BATCH: Duration = Duration::from_millis(250);
@@ -32,7 +32,8 @@ struct Batch {
     /// The store is asked anew what the reader may see.
     due: bool,
     user_id: String,
-    provider: Option<String>,
+    /// How the connection's session was made, and what it had confirmed.
+    making: SessionMade,
     /// The board's roster before the reader's sight, and the number of its board's
     /// latest change.
     raw: Snapshot,
@@ -257,10 +258,7 @@ impl Hub {
         let visit = visit.clone();
         let recheck = std::mem::take(&mut state.recheck);
         let revision = state.revision;
-        let (user_id, provider) = (
-            listener.user_id.clone(),
-            listener.login_provider().map(str::to_owned),
-        );
+        let (user_id, making) = (listener.user_id.clone(), listener.making.clone());
         let raw = snapshot(&visit, listeners);
         Taken::Batch(Box::new(Batch {
             visit,
@@ -268,7 +266,7 @@ impl Hub {
             recheck,
             due,
             user_id,
-            provider,
+            making,
             raw,
             changed,
         }))
@@ -319,7 +317,7 @@ impl Hub {
 async fn read_anew(app: &App, batch: &Batch, reader: &mut Reader) -> Result<Looked, AppError> {
     let asker = Asker {
         user_id: &batch.user_id,
-        made_through: batch.provider.as_deref(),
+        making: batch.making.making(),
     };
     let visit = &batch.visit;
     let access = app

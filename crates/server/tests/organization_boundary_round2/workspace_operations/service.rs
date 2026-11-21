@@ -68,6 +68,12 @@ pub(super) async fn exercise(
         "instance authority stays as assigned"
     );
     case.record("setUserAdmin", &response);
+    // A session made with the password gives it once more, and goes on under a new
+    // cookie as the session it was.
+    let confirmed = case
+        .run("confirmPassword", &[], json!({"password": PASSWORD}))
+        .await;
+    case.client.token = confirmed.session_cookie().expect("rotated session cookie");
     let changed = case
         .run(
             "changePassword",

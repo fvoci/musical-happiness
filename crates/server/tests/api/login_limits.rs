@@ -188,6 +188,44 @@ async fn the_old_password_is_not_guessed_at_through_a_session() {
     th.teardown().await;
 }
 
+/// Nor through confirming it in a session: the guesses are counted with the logins to
+/// the account by its name, wait as long, and are answered as a wrong old password is.
+#[tokio::test]
+async fn the_password_is_not_guessed_at_through_confirming_it() {
+    let th = Setup::native()
+        .configure(|config| {
+            config.login_pair_free_failures = 2;
+            config.login_pair_base_delay_seconds = 30;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let confirm = |password: &'static str| {
+        let client = &th.client;
+        async move {
+            client
+                .post("/users/me/password/confirm", &json!({"password": password}))
+                .await
+        }
+    };
+
+    for _ in 0..3 {
+        let response = confirm("a wrong guess").await;
+        response.check_error(StatusCode::BAD_REQUEST, "the password is wrong");
+        assert_eq!(response.error_reason(), "invalid_credentials");
+    }
+    let wait = retry_after(&confirm("a wrong guess").await);
+    assert!((29..=30).contains(&wait), "about 30 s, was {wait}");
+    retry_after(&confirm(PASSWORD).await);
+    // The same count as signing in to the account by its name.
+    retry_after(&login(&th, USER1_USERNAME, PASSWORD).await);
+    // Nothing was recorded, and the session goes on under the cookie it had.
+    th.client.get("/users/me").await.check_ok();
+
+    th.teardown().await;
+}
+
 /// Only who fails waits: the same account from another address is not held up, and a
 /// success ends the count of the address that succeeded, not of the one that guesses.
 /// Addresses are told apart behind a trusted proxy by what the proxy says; the header

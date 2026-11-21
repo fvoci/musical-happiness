@@ -390,19 +390,21 @@ impl Hub {
     /// identifier, and stay.
     pub fn end_subscriptions_made_otherwise(&self, provider_id: &str) {
         self.end_workspaces_where(Ended::Sso, Revocations::everyone, |listener, _| {
-            listener.login_provider() != Some(provider_id)
+            listener.made().is_made_otherwise_than(provider_id)
         });
     }
 }
 
 /// Whether the wall of an organization that now takes only sessions made through
 /// `provider_id` shuts the connection out of `workspace`: one of the organization's,
-/// `workspace_ids`, followed with a session made otherwise.
+/// `workspace_ids`, followed with a session made otherwise, as the one rule has it
+/// (`SessionMade::is_made_otherwise_than`).
 pub(super) fn shuts_out(
     listener: &Listener,
     workspace: &str,
     workspace_ids: &[String],
     provider_id: &str,
 ) -> bool {
-    workspace_ids.iter().any(|id| id == workspace) && listener.login_provider() != Some(provider_id)
+    workspace_ids.iter().any(|id| id == workspace)
+        && listener.made().is_made_otherwise_than(provider_id)
 }

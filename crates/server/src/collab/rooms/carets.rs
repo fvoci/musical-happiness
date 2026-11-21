@@ -260,7 +260,7 @@ mod tests {
             connection: Arc::new(Connection {
                 id,
                 user_id: format!("user {id}"),
-                made_through: None,
+                making: fvoci_store::Making::with_password(),
                 queue: Queue::new(Capacity {
                     messages: 512,
                     bytes: 1 << 20,
@@ -337,7 +337,7 @@ mod tests {
             doc: held.doc,
             who: Who {
                 user_id: held.connection.user_id.clone(),
-                made_through: None,
+                making: fvoci_store::Making::with_password(),
                 workspace_id: held.workspace_id.clone(),
             },
         };

@@ -4,6 +4,7 @@ use fvoci_model::{Block, ContainerMember, WorkspaceRole};
 
 use super::ending::{Ended, Of};
 use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, ReadPermit, UpdateBlockMessage, text_of};
+use crate::app::SessionMade;
 use crate::metrics::Disconnect;
 use crate::permissions::{ContainerScope, role_of, told_without_a_role};
 
@@ -184,16 +185,12 @@ impl Hub {
         workspace_id: &str,
         container_id: &str,
     ) -> (Vec<ListenerId>, Vec<ListenerId>) {
-        let identities: Vec<(ListenerId, String, Option<String>)> = {
+        let identities: Vec<(ListenerId, String, SessionMade)> = {
             let listeners = self.listeners();
             ids.iter()
                 .filter_map(|id| {
                     let listener = listeners.by_id.get(id)?;
-                    Some((
-                        *id,
-                        listener.user_id.clone(),
-                        listener.login_provider().map(str::to_owned),
-                    ))
+                    Some((*id, listener.user_id.clone(), listener.making.clone()))
                 })
                 .collect()
         };
@@ -218,7 +215,7 @@ impl Hub {
                 return (members, readers);
             }
         };
-        for (id, user, login_provider) in signed_in {
+        for (id, user, making) in signed_in {
             let on_container = container_members
                 .iter()
                 .any(|member| member.user_id == user && role_of(member).is_some());
@@ -227,7 +224,7 @@ impl Hub {
                 continue;
             }
             match self.audience.workspace_access(&user, workspace_id).await {
-                Ok(Some(access)) if access.takes.opened_by(login_provider.as_deref()) => {
+                Ok(Some(access)) if access.takes.opened_by(making.making()) => {
                     members.push(id);
                 }
                 Ok(_) => readers.push(id),
@@ -340,11 +337,11 @@ impl Hub {
                 workspace,
                 user,
                 role,
-                login_provider,
+                making,
                 told,
             }) => {
                 if !self
-                    .still_in_workspace(id, workspace, &user, role, login_provider.as_deref())
+                    .still_in_workspace(id, workspace, &user, role, &making)
                     .await
                 {
                     return false;
@@ -420,7 +417,7 @@ impl Hub {
         workspace: &str,
         user: &str,
         role: WorkspaceRole,
-        login_provider: Option<&str>,
+        making: &SessionMade,
     ) -> bool {
         let checked = Of::Role(role);
         let current = match self.audience.workspace_access(user, workspace).await {
@@ -441,7 +438,7 @@ impl Hub {
             self.end_workspace(id, workspace, Ended::Access, checked);
             return false;
         }
-        if !current.takes.opened_by(login_provider) {
+        if !current.takes.opened_by(making.making()) {
             let ended = if current.takes.asks_for_password() {
                 Ended::Password
             } else {
@@ -458,12 +455,12 @@ impl Hub {
 enum Following<'a> {
     /// The board, by its read token.
     Link(ReadPermit),
-    /// The workspace, as `user` with `role`, by a session made through `login_provider`.
+    /// The workspace, as `user` with `role`, by a session of that `making`.
     Workspace {
         workspace: &'a str,
         user: String,
         role: WorkspaceRole,
-        login_provider: Option<String>,
+        making: SessionMade,
         told: Told<'a>,
     },
 }
@@ -498,7 +495,7 @@ fn following_workspace<'a>(
         workspace,
         user: listener.user_id.clone(),
         role: *role,
-        login_provider: listener.login_provider().map(str::to_owned),
+        making: listener.making.clone(),
         told,
     })
 }

@@ -172,6 +172,10 @@ pub struct Session {
     /// The `OpenID Connect` provider the session was made through; `None` for a session
     /// made with a password.
     pub login: Option<LoginOrigin>,
+    /// When the session confirmed the account's password, in milliseconds since the
+    /// Unix epoch; `None` for one that has not. It stays for as long as the session
+    /// does.
+    pub password_confirmed_at: Option<i64>,
 }
 
 impl Session {

@@ -25,6 +25,7 @@ mod builtin_templates;
 mod categories;
 mod category_boards;
 mod common;
+mod confirmed_password;
 mod container_rename;
 mod file_info;
 mod image_files;

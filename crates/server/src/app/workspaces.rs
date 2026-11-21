@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use fvoci_model::{
     Container, ContainerKind, OrgKind, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole,
 };
-use fvoci_store::{PublicContainers, SessionTaken, Tenant};
+use fvoci_store::{Making, PublicContainers, SessionTaken, Tenant};
 
 use super::{App, Asker, as_managed, sso};
 use crate::error::AppError;
@@ -94,8 +94,8 @@ impl App {
     /// Returns 401 for a member whose session does not open the workspace: with the
     /// reason `sso_required` where its organization takes only sessions made through
     /// its provider, and `password_sign_in_required` for the user's own space, of an
-    /// account that has a password, asked of a session made through a provider
-    /// (`sso::require_session_opens`); and the
+    /// account that has a password, asked of a session made through a provider that
+    /// has not confirmed the password (`sso::require_session_opens`); and the
     /// store's error if the membership cannot be read: that is no "not a member".
     pub async fn enter_workspace(
         &self,
@@ -171,7 +171,9 @@ impl App {
     pub(super) fn broadcast_person_change_in_background(&self, user_id: String) {
         let app = self.clone();
         self.spawn_background(async move {
-            let workspaces = match app.store().workspaces_of_user(&user_id, None).await {
+            // Which of them a session opens is not asked: the name changed in all.
+            let every = Making::with_password();
+            let workspaces = match app.store().workspaces_of_user(&user_id, every).await {
                 Ok(workspaces) => workspaces,
                 Err(error) => {
                     tracing::error!(%error, user_id = %user_id, "reading the workspaces of a renamed user failed");
@@ -279,7 +281,7 @@ impl App {
     ) -> Result<Vec<UserWorkspace>, AppError> {
         Ok(self
             .store()
-            .workspaces_of_user(&session.user_id, session.login_provider_id())
+            .workspaces_of_user(&session.user_id, session.into())
             .await?)
     }
 

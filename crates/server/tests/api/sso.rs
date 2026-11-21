@@ -456,6 +456,10 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "changePassword",
     // Confirming a registration's address asks for no session: there is no account yet.
     "completeEmailVerification",
+    // Giving the account's password in a session is the account's own: it opens the
+    // account's own space to the session, and nothing of an organization the session
+    // does not open (`confirmed_password`).
+    "confirmPassword",
     // Recovering a password asks for no session; what it changes is the account's own.
     "completePasswordReset",
     // Starting an organization is the account's own: the new one is no part of the

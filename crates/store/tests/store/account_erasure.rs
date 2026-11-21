@@ -142,7 +142,7 @@ async fn person(store: &Store) -> String {
         last_used_at: T0,
         expires_at: T0 + 2 * WAIT,
         user_agent: "leaver-browser".to_owned(),
-        login: None,
+        ..Session::default()
     };
     assert!(
         store

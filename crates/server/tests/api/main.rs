@@ -37,6 +37,7 @@ mod collab_worn;
 mod collab_written_past;
 mod comments;
 mod compression;
+mod confirmed_password;
 mod content_blocks;
 mod content_search;
 mod cookies;
