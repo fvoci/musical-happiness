@@ -58,18 +58,22 @@
   let box = $state<HTMLElement | null>(null);
 
   let renameDraft = $state('');
+  /** The view the name is for: the page may show another by the time the surface closes. */
+  let renaming: string | undefined;
   /** Escape in the field: the name stays as it was. Not reactive, it is read once on closing. */
   let renameCancelled = false;
 
   function setRenameOpen(open: boolean): void {
     if (open === renameOpen) return;
     if (open) {
+      renaming = view.id;
       renameDraft = view.title;
       renameCancelled = false;
     } else {
       const title = renameDraft.trim();
-      if (!renameCancelled && title !== view.title) {
-        void board.changeView(view.id, (current) => ({ ...current, title }), 'renameView');
+      const named = board.view(renaming);
+      if (!renameCancelled && named && title !== named.title) {
+        void board.changeView(named.id, (current) => ({ ...current, title }), 'renameView');
       }
       // The element the surface opened at cannot take the focus back; the button does.
       void tick().then(() => box?.querySelector<HTMLElement>('[data-tool="views"]')?.focus());

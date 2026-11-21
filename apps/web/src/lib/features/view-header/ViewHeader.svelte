@@ -36,7 +36,7 @@
   import LayersIcon from '@lucide/svelte/icons/layers';
   import ListFilterIcon from '@lucide/svelte/icons/list-filter';
   import PlusIcon from '@lucide/svelte/icons/plus';
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
@@ -130,6 +130,14 @@
     if (open || (row && !always)) return;
     void tick().then(() => header?.querySelector<HTMLElement>('[data-tool="more"]')?.focus());
   }
+
+  // ------------------------------------------------------------ status
+  const shownId = $derived(view.id);
+  /** The name the status says, read when another view is shown: a view renamed is not another. */
+  const shownName = $derived.by(() => {
+    const id = shownId;
+    return untrack(() => viewTitle(board.view(id) ?? view));
+  });
 
   // ------------------------------------------------------------ search
 
@@ -417,5 +425,5 @@
 
 <!-- Outside the header: in the folded row an open search field leaves the rest of it out of reach. -->
 <p class="sr-only" role="status" data-testid="view-shown">
-  {m.viewheader_view_shown({ name: viewTitle(view) })}
+  {m.viewheader_view_shown({ name: shownName })}
 </p>

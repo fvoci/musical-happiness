@@ -521,7 +521,7 @@ test.describe('views', () => {
     expect(page.url()).toBe(copy);
   });
 
-  test('a line of the list opens its view in a new tab, by a held key or the middle button', async ({
+  test('a line of the list opens its view in a new tab, by a held key, the middle button or the keys', async ({
     page,
     context,
   }, testInfo) => {
@@ -552,6 +552,23 @@ test.describe('views', () => {
     ]);
     await expect(middle).toHaveURL(href);
     expect(page.url()).toBe(first);
+    await middle.close();
+
+    // From the keys: Enter with Ctrl (⌘ on a Mac) on the line, as on a link.
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu', { name: 'Views' })).toHaveCount(0);
+    await tool(page, 'views').focus();
+    await page.keyboard.press('Enter');
+    await expect(listed(page).first()).toBeFocused();
+    for (const _ of [1, 2, 3]) await page.keyboard.press('ArrowDown');
+    await expect(line).toBeFocused();
+    const [keyed] = await Promise.all([
+      context.waitForEvent('page'),
+      page.keyboard.press('ControlOrMeta+Enter'),
+    ]);
+    await expect(keyed).toHaveURL(href);
+    expect(page.url()).toBe(first);
+    await expect(tool(page, 'views')).toHaveText('Progress Tracker');
   });
 
   test('a view is renamed, copied and deleted by the keys alone', async ({ page }, testInfo) => {

@@ -8,7 +8,9 @@
   card or board it belongs to), because it opens away from what was pressed.
 
   A line with an address (`href`) is a link, in either: it can be opened in
-  a new tab, and the one marked is the page shown (`aria-current`).
+  a new tab (a click or Enter with Ctrl, ⌘ or Shift, the middle button), the
+  one marked is the page shown (`aria-current`), and its whole label is its
+  tooltip, for a label too long for the line.
 -->
 <script lang="ts">
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -123,6 +125,7 @@
               role="menuitem"
               aria-label={action.ariaLabel}
               aria-current={action.checked ? 'page' : undefined}
+              title={action.label}
               data-action={action.id}
               class={SHEET_LINE}
               onclick={(event) => {
@@ -171,6 +174,8 @@
         {:else}
           {@const href = action.href}
           <!-- Enter is a click on the link (Bits UI): it runs, and the menu closes. -->
+          <!-- With a key that asks for a new tab or window, Enter is the browser's: its click
+               carries the key, and goes to the browser as a click of the mouse does. -->
           <DropdownMenu.Item
             aria-label={action.ariaLabel}
             data-action={action.id}
@@ -178,13 +183,20 @@
           >
             {#snippet child({ props }: { props: Record<string, unknown> })}
               {@const select = props.onclick as ((event: MouseEvent) => void) | undefined}
+              {@const keys = props.onkeydown as ((event: KeyboardEvent) => void) | undefined}
               <a
                 {...props}
                 {href}
                 aria-current={action.checked ? 'page' : undefined}
+                title={action.label}
                 onclick={(event) => {
                   select?.(event);
                   follow(event, action);
+                }}
+                onkeydown={(event) => {
+                  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey || event.shiftKey))
+                    return;
+                  keys?.(event);
                 }}
               >
                 {@render dropdownLine(action)}

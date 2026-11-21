@@ -203,14 +203,23 @@ describe('the whole row', () => {
     expect(onOpenView).toHaveBeenCalledWith(board.views.find((view) => view.title === 'Board')?.id);
   });
 
-  it('says the view shown as it changes, in a quiet status', async () => {
-    const { show } = await mount('List');
+  it('says the view shown as it changes, in a quiet status, and not a new name', async () => {
+    const { board, show } = await mount('List');
     const said = screen.getByTestId('view-shown');
     expect(said).toHaveAttribute('role', 'status');
-    expect(said).toHaveTextContent('Now showing: List');
+    expect(said.textContent.trim()).toBe('Now showing: List');
     await show('Board');
-    expect(said).toHaveTextContent('Now showing: Board');
+    expect(said.textContent.trim()).toBe('Now showing: Board');
     expect(toolButton('views')).toHaveTextContent('Board');
+
+    // Renamed (here or by someone else) it is the same view: the button says so, the status not.
+    const shown = board.views.find((view) => view.title === 'Board')?.id ?? '';
+    await board.changeView(shown, (current) => ({ ...current, title: 'Boarding' }), 'renameView');
+    await settled();
+    expect(toolButton('views')).toHaveTextContent('Boarding');
+    expect(said.textContent.trim()).toBe('Now showing: Board');
+    await show('List');
+    expect(said.textContent.trim()).toBe('Now showing: List');
   });
 
   it('"New" asks for a card', async () => {
@@ -328,6 +337,19 @@ describe('views', () => {
       expect(screen.queryByLabelText('View name')).toBeNull();
     });
     expect(view().title).toBe('Everything');
+  });
+
+  it('renames the view it was opened for, also when another is shown before it closes', async () => {
+    const { board, show } = await mount('List');
+    await openMenu(toolButton('views'));
+    await choose('Rename view');
+    const name = await screen.findByLabelText('View name');
+    await fireEvent.input(name, { target: { value: 'Mine' } });
+    // The address goes back to another view (the browser's back) while the field is open.
+    await show('Board');
+    await fireEvent.keyDown(name, { key: 'Enter' });
+    await settled();
+    expect(board.views.map((view) => view.title).sort()).toEqual(['Board', 'Mine']);
   });
 
   it('does not rename while an input method is still composing the name', async () => {
