@@ -254,8 +254,12 @@ export class MemoryBodyVersions implements BodyVersions {
     await this.#enter();
     const world = this.#world;
     const card = this.#editable(containerId, cardId, 'keep');
-    world.bodyFlushed?.(cardId);
     const kept = keptOf(world, cardId);
+    // As the server: the room's body is written for this version, not kept on its own first
+    // though the interval is up; and the interval stays as it was if none is kept.
+    const due = kept.due;
+    kept.due = undefined;
+    world.bodyFlushed?.(cardId);
     const newest = kept.versions.at(-1);
     if (newest ? same(newest.body, card.body ?? null) : (card.body ?? null) === null) {
       // Kept already: nobody wrote since it, and the interval waits for the next change.
@@ -265,6 +269,7 @@ export class MemoryBodyVersions implements BodyVersions {
     }
     const byHand = kept.versions.findLast((one) => one.cause === 'manual');
     if (byHand && world.now() - byHand.keptAt <= BY_HAND_FLOOR) {
+      kept.due = due;
       return { outcome: 'recent', version: this.#listed(card, byHand.version) };
     }
     keep(world, card, undefined, 'manual');

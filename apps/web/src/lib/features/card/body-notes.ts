@@ -34,10 +34,9 @@ export interface BodyWords {
 
 /**
  * What is said of an ask to keep a version of the body now (`keepVersion`),
- * of a card's and of a page's alike; `notNow` when none was asked for, the
- * body being one that cannot be written for now.
+ * of a card's and of a page's alike.
  */
-export const KEPT_SAID: Record<KeepOutcome | 'notNow', () => string> = {
+export const KEPT_SAID: Record<KeepOutcome, () => string> = {
   kept: m.card_version_kept,
   unchanged: m.card_version_unchanged,
   recent: m.card_version_recent,

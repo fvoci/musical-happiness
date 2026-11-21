@@ -162,11 +162,6 @@
 
   async function keepNow(): Promise<void> {
     if (!keep || !container.canEdit || keeping) return;
-    // What was typed may not be in the room: what would be kept is not what is shown.
-    if (!writable) {
-      say(KEPT_SAID.notNow());
-      return;
-    }
     keeping = true;
     try {
       say(KEPT_SAID[await keep()]());

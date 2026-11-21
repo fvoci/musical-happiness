@@ -37,6 +37,11 @@ export interface VersionsSource {
   readonly itemId: string;
   /** Sends what the reader typed to the room (`CardStore.settleBody`). */
   settle(): Promise<void>;
+  /**
+   * Whether what the reader types goes to the room now (`BodyDocState.writable`):
+   * otherwise a version kept would not be the body they see.
+   */
+  writable(): boolean;
 }
 
 /** The versions of a card's body. */
@@ -47,6 +52,7 @@ export function cardVersions(board: BoardStore, card: CardStore): VersionsSource
     ownerId: board.boardId,
     itemId: card.cardId,
     settle: () => card.settleBody(),
+    writable: () => card.room?.writable ?? false,
   };
 }
 
@@ -60,14 +66,21 @@ export function pageVersions(page: PageStore): VersionsSource {
     ownerId: page.wiki.wikiId,
     itemId: page.pageId,
     settle: () => page.settleBody(),
+    writable: () => page.room?.writable ?? false,
   };
 }
 
-/** What came of asking to keep a version now: the server's answer, or that there was none. */
-export type KeepOutcome = KeptBodyVersion['outcome'] | 'failed';
+/**
+ * What came of asking to keep a version now: the server's answer, that there
+ * was none (`failed`), or that none was asked for, the body being one that
+ * cannot be written for now (`notNow`).
+ */
+export type KeepOutcome = KeptBodyVersion['outcome'] | 'failed' | 'notNow';
 
 /** Keeps the body as a version now, once what the reader typed is in the room. */
 export async function keepVersion(source: VersionsSource): Promise<KeepOutcome> {
+  // What was typed may not reach the room: what would be kept is not what is shown.
+  if (!source.writable()) return 'notNow';
   try {
     await source.settle();
     return (await source.versions.keep(source.ownerId, source.itemId)).outcome;
@@ -131,7 +144,7 @@ export class VersionsReading {
     this.kept = undefined;
     try {
       const outcome = await keepVersion(this.#source);
-      if (outcome !== 'failed') {
+      if (outcome !== 'failed' && outcome !== 'notNow') {
         // A list that cannot be read now stays as it was: the version was kept all the same.
         this.#take(await this.#list().catch(() => this.versions));
       }

@@ -16,8 +16,8 @@ import {
   VersionsReading,
 } from '$lib/features/card/body-versions.svelte.ts';
 import type { BodyDoc, BodyDocHears } from '$lib/state/backend.ts';
-import { BackendError } from '$lib/state/index.ts';
-import { BY_HAND_FLOOR } from '$lib/state/memory/body-versions.ts';
+import { BackendError, type BoardStore, type CardStore } from '$lib/state/index.ts';
+import { BY_HAND_FLOOR, VERSION_EVERY } from '$lib/state/memory/body-versions.ts';
 import { FIELD } from '$lib/state/memory/rooms.ts';
 
 import { openFirstBoard, serverBackend, setup, text } from './support.ts';
@@ -104,6 +104,35 @@ describe('a version kept by hand, in memory', () => {
     theirs.close();
   });
 
+  it('keeps by hand the version the interval has made due, and leaves the interval be when it keeps none', async () => {
+    const { BOARD, backend, other, cardId } = world();
+    const versions = backend.bodyVersions;
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() });
+    try {
+      const theirs = other.openDoc('w', BOARD, cardId, hears());
+      await type(theirs, 'typed by them');
+      vi.setSystemTime(Date.now() + VERSION_EVERY + 1);
+      await type(theirs, 'and later');
+      // Before the room writes on its own: the version due is the one asked for, not one before it.
+      expect(await versions.keep(BOARD, cardId)).toMatchObject({
+        outcome: 'kept',
+        version: { version: 2, cause: 'manual' },
+      });
+      // Typed again, and asked again within the minute: none is kept, and the interval
+      // counts from what was typed, so typing on keeps none on its own.
+      await type(theirs, 'then more');
+      expect((await versions.keep(BOARD, cardId)).outcome).toBe('recent');
+      await type(theirs, 'and more again');
+      expect((await versions.list(BOARD, cardId)).map((one) => one.cause)).toEqual([
+        'manual',
+        'auto',
+      ]);
+      theirs.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('leaves nothing to keep as its writers leave, until they write again', async () => {
     const { BOARD, backend, cardId } = world();
     const versions = backend.bodyVersions;
@@ -185,6 +214,16 @@ describe('a version kept by hand, from the server', () => {
   });
 });
 
+/** A card of the board shown, with its body's room joined to write in. */
+async function joined(board: BoardStore, cardId: string): Promise<CardStore> {
+  const open = await board.showCard(cardId);
+  open.openBody();
+  await vi.waitFor(() => {
+    expect(open.room?.writable).toBe(true);
+  });
+  return open;
+}
+
 describe('a version kept by hand, from the dialog', () => {
   it('reads the list again in place, the version being read with it', async () => {
     const made = await openFirstBoard();
@@ -192,7 +231,7 @@ describe('a version kept by hand, from the dialog', () => {
     if (!card) throw new Error('no card');
     const readAt = made.world.blocks.get(card.id)?.updateAt ?? 0;
     await made.other.writeCardBody(card.containerId, card.id, { body: text('second'), readAt });
-    const open = await made.board.showCard(card.id);
+    const open = await joined(made.board, card.id);
     const source = cardVersions(made.board, open);
     const reading = new VersionsReading(source);
     await vi.waitFor(() => {
@@ -229,9 +268,30 @@ describe('a version kept by hand, from the dialog', () => {
     const made = await openFirstBoard();
     const card = made.board.cards.find((one) => one.title === 'Alpha');
     if (!card) throw new Error('no card');
-    const open = await made.board.showCard(card.id);
+    const open = await joined(made.board, card.id);
     made.backend.failNext('bodyVersions', new BackendError(403, { detail: 'refused' }));
     expect(await keepVersion(cardVersions(made.board, open))).toBe('failed');
+    made.workspace.close();
+  });
+
+  it('asks for none while what is typed does not go to the room, from the dialog as from the keys', async () => {
+    const made = await openFirstBoard();
+    const card = made.board.cards.find((one) => one.title === 'Alpha');
+    if (!card) throw new Error('no card');
+    // Not in the room yet: what is shown may not be what the card has.
+    const open = await made.board.showCard(card.id);
+    const source = cardVersions(made.board, open);
+    const asked = vi.spyOn(source.versions, 'keep');
+    expect(await keepVersion(source)).toBe('notNow');
+    const reading = new VersionsReading(source);
+    await vi.waitFor(() => {
+      expect(reading.status).toBe('ready');
+    });
+    const read = vi.spyOn(source.versions, 'list');
+    await reading.keep();
+    expect(reading.kept).toBe('notNow');
+    expect(asked).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
     made.workspace.close();
   });
 });
