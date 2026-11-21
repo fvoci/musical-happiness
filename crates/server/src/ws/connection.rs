@@ -47,10 +47,7 @@ impl Hub {
         let closed_because = Arc::new(OnceLock::new());
         let mut who = subscribe::Who::of(identity);
         let (mut docs, docs_outbox) = app.collab().seat(app, &who.user_id, who.making.clone());
-        let token = who
-            .token
-            .take()
-            .map(|token| Arc::new(SessionToken::new(token)));
+        let token = who.token.take().map(SessionToken::shared);
         let docs_overrun = docs.overrun();
         let docs_ended_worker = docs.ended_worker();
         self.watch_access_changes(app);

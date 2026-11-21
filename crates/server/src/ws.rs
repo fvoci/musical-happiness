@@ -257,8 +257,10 @@ struct Listener {
 struct SessionToken(Mutex<String>);
 
 impl SessionToken {
-    fn new(token: String) -> Self {
-        Self(Mutex::new(token))
+    /// The token of a handshake, for the connection and for the hub that hands it the
+    /// next one.
+    fn shared(token: String) -> Arc<Self> {
+        Arc::new(Self(Mutex::new(token)))
     }
 
     /// The token as it is now.

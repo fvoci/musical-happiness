@@ -62,9 +62,10 @@ impl App {
     ///
     /// Returns 400 naming `email` for what is no address or is the account's already,
     /// 409 (`password_not_set`) for an account without a password, 429 for too many
-    /// requests from `address`, what [`App::confirm_password`] returns for the
-    /// password, 409 if the password was changed meanwhile, and, only where no mail is
-    /// sent, 409 (`email_taken`) for an address that is another account's.
+    /// requests from `address`, 400 (`invalid_credentials`) for a wrong password or 429
+    /// once too many were tried, 409 if the password was changed meanwhile, and, only
+    /// where no mail is sent, 409 (`email_taken`) for an address that is another
+    /// account's.
     pub async fn ask_email_change(
         &self,
         session: &Session,
