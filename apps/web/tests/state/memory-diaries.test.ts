@@ -452,6 +452,22 @@ describe('a diary’s page', () => {
     store.close();
   }, 10_000);
 
+  it('asks no more by itself for an entry refused for good, and says so once', async () => {
+    const { store, today, backend, workspace } = await aPage();
+    const said = workspace.problems.length;
+    backend.diary.failNext('createEntry', new BackendError(400, {}));
+    const asked = vi.spyOn(backend.diary, 'createEntry');
+    const entry = store.day(today);
+    entry.write(text('refused'));
+    await vi.waitFor(() => {
+      expect(entry.unsaved).toBe(true);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 6000));
+    expect(asked).toHaveBeenCalledTimes(1);
+    expect(workspace.problems.length - said).toBe(1);
+    store.close();
+  }, 10_000);
+
   it('drops what it read of an entry deleted before the answer came', async () => {
     const { store, today, diary, backend } = await aPage();
     const there = await backend.diary.createEntry(diary.id, today);

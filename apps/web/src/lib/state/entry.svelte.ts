@@ -56,6 +56,13 @@ export function appended(body: DocNode | null, draft: DocNode): DocNode {
 /** How long after the entry could not be made it is not asked for again, however much is typed. */
 const MAKE_AGAIN_AFTER = 5000;
 
+/** A refusal that may pass by itself: no answer, too many requests, the server's own trouble. */
+function passing(error: unknown): boolean {
+  return (
+    isBackendError(error) && (error.status === 0 || error.status === 429 || error.status >= 500)
+  );
+}
+
 export class EntryStore {
   readonly host: EntryHost;
   readonly date: CalendarDate;
@@ -151,8 +158,10 @@ export class EntryStore {
       else this.openBody();
     } catch (error) {
       this.#makeAgainAt = Date.now() + MAKE_AGAIN_AFTER;
+      // Said once, until the entry is made; asked for again by itself where that may pass.
+      if (!this.unsaved) this.host.workspace.report('save', error);
       this.unsaved = true;
-      this.host.workspace.report('save', error);
+      if (!passing(error)) return;
       this.#again = setTimeout(() => {
         [this.#again, this.#makeAgainAt] = [undefined, 0];
         if (!this.#closed && this.draft !== null) this.write(this.draft);
