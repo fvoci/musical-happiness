@@ -132,7 +132,15 @@ test('the language is found and taken from the keys, and the bar is reached with
   const body = await openCardWithBody(page, 'Welcome', codeBody('ts', SOURCE));
   await expect(body).toHaveAttribute('data-editor', 'ready');
   const language = block(body).locator('button.doc-code-language');
-  await language.focus();
+  // From the text before the block, Tab is the bar's first button, and Shift+Tab the text again.
+  const tab = await tabKey(page);
+  await body.locator('p').first().click();
+  await page.keyboard.press(tab);
+  await expect(language).toBeFocused();
+  await page.keyboard.press(await tabKey(page, true));
+  await expect(body.locator('[contenteditable="true"]').first()).toBeFocused();
+  await page.keyboard.press(tab);
+  await expect(language).toBeFocused();
   await page.keyboard.press('ArrowDown');
   const search = block(body).getByRole('combobox');
   await expect(search).toBeFocused();
@@ -158,7 +166,7 @@ test('the language is found and taken from the keys, and the bar is reached with
   await expect(language).toHaveAccessibleName(/Python/);
   await expect(block(body).locator('pre > code')).toHaveClass('language-python');
   // The copy button is the next stop.
-  await page.keyboard.press(await tabKey(page));
+  await page.keyboard.press(tab);
   await expect(block(body).locator('button.doc-code-copy')).toBeFocused();
   // What is typed with the focus on a button is not typed into the body.
   await page.keyboard.type('zz');
