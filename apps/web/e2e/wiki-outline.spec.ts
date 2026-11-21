@@ -126,8 +126,41 @@ test.describe('in a wide window', () => {
     await page.mouse.wheel(0, -2500);
     await expect(currentItem(page)).not.toHaveText('Section 24');
 
-    // Nothing of that went into the body.
+    // Nothing of that went into the body. (That the outline's being there writes nothing
+    // is measured from before there was one: in the unit test and on the real server.)
     expect(await bodyElsewhere(page, place, 'Section 24')).toBe(before);
+  });
+
+  test.describe('where the reader has not asked for less motion', () => {
+    test.use({ reducedMotion: 'no-preference' });
+
+    test('a heading chosen comes up smoothly to its place below the head, the caret in it', async ({
+      page,
+    }, info) => {
+      test.skip(info.project.name !== 'desktop', 'one wide window');
+      await pageWith(page, 'Guide', longBody(24));
+      await expect(outlineBeside(page)).toBeVisible();
+      await pageColumn(page).evaluate((column) => {
+        column.scrollTop = 0;
+        const seen = new Set<number>();
+        column.addEventListener('scroll', () => seen.add(Math.round(column.scrollTop)));
+        (window as unknown as { scrolledThrough: Set<number> }).scrolledThrough = seen;
+      });
+      await item(page, 'Section 18').click();
+      await expect
+        .poll(async () => Math.abs((await headingBelowTop(page, 'Section 18')) - 16))
+        .toBeLessThanOrEqual(1);
+      await expect.poll(() => caretIn(page)).toEqual([true, 'Section 18']);
+      // Through the places between, not at once; and it stays there.
+      expect(
+        await page.evaluate(
+          () => (window as unknown as { scrolledThrough: Set<number> }).scrolledThrough.size,
+        ),
+      ).toBeGreaterThan(2);
+      await page.waitForTimeout(300);
+      expect(Math.abs((await headingBelowTop(page, 'Section 18')) - 16)).toBeLessThanOrEqual(1);
+      await expect(currentItem(page)).toHaveText('Section 18');
+    });
   });
 
   test('folded away, it is behind a button in the bar, the page and its editor as they were; the button puts it back', async ({
@@ -151,6 +184,19 @@ test.describe('in a wide window', () => {
     await expect(outlineBeside(page)).toBeVisible();
     await expect(page.getByTestId('fold-page-outline')).toBeFocused();
     expect(await page.evaluate(() => localStorage.getItem('fvoci:wiki-outline'))).toBe('beside');
+
+    // The list is one stop of the Tab key, at the heading read; the arrows go along it.
+    await page.keyboard.press('Tab');
+    await expect(currentItem(page)).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(outlineItems(page).first()).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(outlineItems(page).last()).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(outlineItems(page).nth(4)).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(outlineBeside(page).locator(':focus')).toHaveCount(0);
+    await expect(page.getByTestId('page-view').locator(':focus')).toHaveCount(1);
   });
 
   test('it follows the headings as they are written, by the reader and by others; a page with fewer than two has none', async ({
@@ -223,7 +269,7 @@ test.describe('at 390 pixels', () => {
     await expect(button).toBeFocused();
 
     await page.keyboard.press('Enter');
-    for (let step = 0; step < 6; step += 1) await page.keyboard.press('Tab');
+    for (let step = 0; step < 6; step += 1) await page.keyboard.press('ArrowDown');
     await expect(outlineItems(page).nth(6)).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(outline(page)).toHaveCount(0);
@@ -358,5 +404,4 @@ test('a keystroke on a page of 300 headings: the outline is not drawn again for 
     type: 'keystroke to the frame after it, ms (300 headings)',
     description: `page, paragraph: ${said(inParagraph.times)}; page, heading: ${said(inHeading.times)}; card without outline, paragraph: ${said(onCard.times)}`,
   });
-  console.log(info.annotations.at(-1)?.description);
 });

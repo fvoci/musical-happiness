@@ -187,8 +187,11 @@ export class PageOutline {
     this.open = false;
     this.#chosen = entry.element;
     this.current = at;
+    // The focus first: WebKit brings the caret into sight as the editor takes the
+    // focus, which would cut a smooth scroll short; the scroll then starts from there.
+    const focused = focusHeading(entry.element, fingerPointer.current);
     scrollToHeading(scroller, entry.element, this.#head() + MARGIN);
-    return focusHeading(entry.element, fingerPointer.current);
+    return focused;
   }
 
   /** How far the bar at the head of the page reaches down into it, in pixels. */

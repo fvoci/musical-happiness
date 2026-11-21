@@ -239,8 +239,11 @@ describe('the outline of the editor bound to the room', () => {
     outline.source(container);
     await nextFrame();
     expect(words(outline)).toEqual(['1 First', '2 Second']);
+    // Being there, and reading the headings, wrote nothing into the document.
+    expect(Y.encodeStateAsUpdate(shared)).toEqual(bytes);
+    expect(JSON.stringify(editor.getJSON())).toBe(json);
 
-    // Somebody else adds a heading at the end, and renames the first.
+    // Somebody else adds a heading at the end.
     fromTheRoom(shared, (body) => {
       body.insert(body.length, [block('heading', 'Third', 3)]);
     });
@@ -269,7 +272,6 @@ describe('the outline of the editor bound to the room', () => {
     await nextFrame();
     expect(Y.encodeStateAsUpdate(shared)).toEqual(typedBytes);
     expect(JSON.stringify(editor.getJSON())).toBe(typedJson);
-    expect(bytes.length).toBeGreaterThan(0);
     // The caret is at the start of the heading gone to.
     const { selection } = editor.state;
     expect(selection instanceof TextSelection && selection.$from.parent.textContent).toBe(
@@ -296,9 +298,22 @@ describe('the list of the outline', () => {
     expect(items[0]).not.toHaveAttribute('aria-current');
     expect(items[0]?.style.paddingInlineStart).toBe('0.5rem');
     expect(items[1]?.style.paddingInlineStart).toBe('1.25rem');
+    // One stop of the Tab key, at the one being read.
+    expect(Array.from(items, (item) => item.tabIndex)).toEqual([-1, 0, -1]);
     outline.current = 2;
     await tick();
     expect(items[2]).toHaveAttribute('aria-current', 'location');
+    expect(Array.from(items, (item) => item.tabIndex)).toEqual([-1, -1, 0]);
+    // The arrows, Home and End go along the list, and stop at its ends.
+    items[2]?.focus();
+    await fireEvent.keyDown(items[2] as HTMLElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[2]);
+    await fireEvent.keyDown(items[2] as HTMLElement, { key: 'Home' });
+    expect(document.activeElement).toBe(items[0]);
+    await fireEvent.keyDown(items[0] as HTMLElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[1]);
+    await fireEvent.keyDown(items[1] as HTMLElement, { key: 'End' });
+    expect(document.activeElement).toBe(items[2]);
     // Without a page to scroll, choosing one goes nowhere.
     const chose = vi.fn();
     cleanup();

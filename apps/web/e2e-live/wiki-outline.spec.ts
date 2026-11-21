@@ -50,13 +50,53 @@ const TITLES = Array.from({ length: 8 }, (_, at) => `Part ${at + 1}`);
 const LEVELS = [1, 2, 3, 2, 2, 3, 3, 1];
 const GUIDE = sections(...TITLES.map((title, at): [number, string] => [LEVELS[at] ?? 2, title]));
 
-async function opened(browser: Browser, path: string, who?: Parameters<typeof signInOnPage>[1]) {
+async function opened(
+  browser: Browser,
+  path: string,
+  who?: Parameters<typeof signInOnPage>[1],
+  before?: (page: Page) => Promise<void>,
+) {
   const page = await (
     await browser.newContext({ locale: 'en-US', viewport: WIDE, reducedMotion: 'reduce' })
   ).newPage();
+  await before?.(page);
   await page.goto(path);
   if (who) await signInOnPage(page, who);
   return page;
+}
+
+/**
+ * Whether a binary frame of a body's room is a change of its Y document: a sync step 2
+ * or an update, not a step 1 or a cursor (`contracts/websocket.md` 6, "Binary 프레임").
+ */
+function isChange(frame: Buffer): boolean {
+  let at = 0;
+  const next = (): number => {
+    let value = 0;
+    for (let shift = 0; ; shift += 7) {
+      const byte = frame[at] ?? 0;
+      at += 1;
+      value += (byte & 0x7f) * 2 ** shift;
+      if (byte < 0x80) return value;
+    }
+  };
+  next(); // the room
+  if (next() !== 0) return false; // a cursor
+  next(); // the generation
+  return next() !== 0;
+}
+
+/** Counts the changes of a body's document that `page` sends to the server. */
+async function countChanges(page: Page): Promise<{ sent: number }> {
+  const changes = { sent: 0 };
+  await page.routeWebSocket(/\/ws$/, (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((message) => {
+      if (typeof message !== 'string' && isChange(message)) changes.sent += 1;
+      server.send(message);
+    });
+  });
+  return changes;
 }
 
 const item = (page: Page, words: string) =>
@@ -107,9 +147,14 @@ test('the outline follows the headings another browser writes, writes nothing it
   const stored = async (): Promise<string> =>
     JSON.stringify(((await (await api.get(pageAt)).json()) as Schemas['Page']).body);
   const address = `/w/${workspaceId}/wikis/${wiki.id}/${made.id}`;
+  // The body as it is before anybody has it open, with an outline or without.
+  const before = await stored();
 
+  let changes = { sent: 0 };
   const [first, second] = await Promise.all([
-    opened(browser, address, owner),
+    opened(browser, address, owner, async (page) => {
+      changes = await countChanges(page);
+    }),
     opened(browser, address, colleague),
   ]);
   const watched = [watchErrors(first), watchErrors(second)];
@@ -117,9 +162,9 @@ test('the outline follows the headings another browser writes, writes nothing it
     await expect(page.getByTestId('page-body')).toHaveAttribute('data-editor', 'ready');
     await expect(outlineItems(page)).toHaveText(TITLES);
   }
+  expect(await stored()).toBe(before);
 
   // The first goes about the page by its outline; the second then writes one letter.
-  const before = await stored();
   for (const words of ['Part 6', 'Part 8', 'Part 2']) {
     await item(first, words).click();
     await expect(currentItem(first)).toHaveText(words);
@@ -133,8 +178,10 @@ test('the outline follows the headings another browser writes, writes nothing it
   const last = expected.content.at(-1)?.content?.[0];
   if (last) last.text += 'Z';
   await expect.poll(stored).toContain(`${SECTION_WORDS}Z`);
-  // The body is what it was and that letter: the outline put nothing in it.
+  // The body is what it was and that letter: the outline put nothing in it, neither in
+  // the JSON nor in the Y document (the first's browser has sent no change of it).
   expect(await stored()).toBe(JSON.stringify(expected));
+  expect(changes.sent).toBe(0);
 
   // A heading the second writes is in the first's outline, and goes from it with its words.
   await second.keyboard.press('Enter');
@@ -155,6 +202,11 @@ test('the outline follows the headings another browser writes, writes nothing it
     .toBe(true);
   await pictured(reading, 'read-only-wide');
   await reading.context().close();
+
+  // The count of changes counts: a letter the first writes is one.
+  await first.getByTestId('page-body').getByText(SECTION_WORDS).first().click();
+  await first.keyboard.type('Y');
+  await expect.poll(() => changes.sent).toBeGreaterThan(0);
 
   // Folded away, it stays so after a reload, and the button puts it back.
   await first.getByTestId('fold-page-outline').click();

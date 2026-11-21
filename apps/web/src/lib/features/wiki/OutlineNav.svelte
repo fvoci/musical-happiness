@@ -7,6 +7,10 @@
 
   Choosing one brings it to the head of the page and the focus to it
   (`PageOutline.go`); `onChose` hears whether the focus went there.
+
+  The list is one stop of the Tab key, at the heading being read (the first
+  when none is): a long outline does not stand between the keyboard and the
+  page. The arrow keys, Home and End go from item to item.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -30,6 +34,27 @@
 
   /** The highest level of the page's headings: at the edge of the list. */
   const top = $derived(Math.min(...outline.entries.map((entry) => entry.level)));
+  /** The item the Tab key stops at. */
+  const stop = $derived(Math.max(outline.current, 0));
+
+  /** Where each key moves the focus from the item at `at`, of `count`. */
+  function step(key: string, at: number, count: number): number | undefined {
+    if (key === 'ArrowDown') return Math.min(at + 1, count - 1);
+    if (key === 'ArrowUp') return Math.max(at - 1, 0);
+    if (key === 'Home') return 0;
+    if (key === 'End') return count - 1;
+    return undefined;
+  }
+
+  /** Moves the focus from the item at `at` as its key says. */
+  function moveFocus(event: KeyboardEvent & { currentTarget: HTMLElement }, at: number): void {
+    const to = step(event.key, at, outline.entries.length);
+    const list = event.currentTarget.closest('ol');
+    const target = to === undefined ? null : (list?.children[to]?.querySelector('button') ?? null);
+    if (!target) return;
+    event.preventDefault();
+    target.focus();
+  }
 
   /** Keeps the item at `at` in sight inside `list`, without moving anything outside it. */
   function inSight(list: HTMLElement, at: number): void {
@@ -66,12 +91,16 @@
         <button
           type="button"
           aria-current={at === outline.current ? 'location' : undefined}
+          tabindex={at === stop ? 0 : -1}
           data-level={entry.level}
           class="my-px flex min-h-7 w-full items-center rounded-r-md border-l-2 border-transparent py-1 pr-2 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground aria-[current=location]:border-primary aria-[current=location]:font-semibold aria-[current=location]:text-foreground roomy:min-h-touch"
           style:padding-inline-start="{0.5 + (entry.level - top) * 0.75}rem"
           onclick={() => {
             const focused = outline.go(at);
             onChose?.(focused);
+          }}
+          onkeydown={(event) => {
+            moveFocus(event, at);
           }}
         >
           <span class="line-clamp-2 break-words">{entry.text}</span>
