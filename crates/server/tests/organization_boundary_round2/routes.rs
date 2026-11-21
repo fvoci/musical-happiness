@@ -306,6 +306,55 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "/wikis/{wikiId}/pages/{pageId}/comments/{commentId}/undelete",
         "undeletePageComment",
     ),
+    ("GET", "/diaries", "getDiaries"),
+    ("POST", "/diaries", "createDiary"),
+    ("GET", "/diaries/{diaryId}/days", "getDiaryDays"),
+    (
+        "GET",
+        "/diaries/{diaryId}/days/{monthDay}",
+        "getDiaryEntriesOn",
+    ),
+    ("POST", "/diaries/{diaryId}/entries", "createDiaryEntry"),
+    (
+        "GET",
+        "/diaries/{diaryId}/entries/{entryId}",
+        "getDiaryEntry",
+    ),
+    (
+        "PATCH",
+        "/diaries/{diaryId}/entries/{entryId}",
+        "patchDiaryEntry",
+    ),
+    (
+        "DELETE",
+        "/diaries/{diaryId}/entries/{entryId}",
+        "deleteDiaryEntry",
+    ),
+    (
+        "GET",
+        "/diaries/{diaryId}/trash/entries",
+        "getDeletedDiaryEntries",
+    ),
+    (
+        "POST",
+        "/diaries/{diaryId}/entries/{entryId}/undelete",
+        "undeleteDiaryEntry",
+    ),
+    (
+        "GET",
+        "/diaries/{diaryId}/entries/{entryId}/body-versions",
+        "getDiaryEntryBodyVersions",
+    ),
+    (
+        "GET",
+        "/diaries/{diaryId}/entries/{entryId}/body-versions/{version}",
+        "getDiaryEntryBodyVersion",
+    ),
+    (
+        "POST",
+        "/diaries/{diaryId}/entries/{entryId}/body-versions/{version}/restore",
+        "restoreDiaryEntryBodyVersion",
+    ),
 ];
 
 /// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
@@ -1000,6 +1049,9 @@ pub(super) struct Items<'a> {
     pub(super) page: &'a Block,
     /// A comment on the page.
     pub(super) comment: &'a Block,
+    /// An entry of a diary of the same workspace, where it is of a user's own space;
+    /// its `container_id` is the diary. No other workspace has one.
+    pub(super) entry: Option<&'a Block>,
     pub(super) file: &'a str,
     pub(super) upload_id: &'a str,
     pub(super) category: &'a str,
@@ -1045,6 +1097,18 @@ impl Items<'_> {
             .replace("{wikiId}", &pick(&self.page.container_id, UNKNOWN_ID))
             .replace("{pageId}", &pick(&self.page.id, UNKNOWN_ID))
             .replace("{commentId}", &pick(&self.comment.id, UNKNOWN_ID))
+            .replace(
+                "{diaryId}",
+                &pick(
+                    self.entry.map_or(UNKNOWN_ID, |entry| &entry.container_id),
+                    UNKNOWN_ID,
+                ),
+            )
+            .replace(
+                "{entryId}",
+                &pick(self.entry.map_or(UNKNOWN_ID, |entry| &entry.id), UNKNOWN_ID),
+            )
+            .replace("{monthDay}", "02-29")
             .replace("{fileId}", &pick(self.file, "missing-file"))
             .replace("{uploadId}", &pick(self.upload_id, "missing-upload"))
             .replace("{userId}", &pick(self.user, UNKNOWN_ID))
@@ -1101,6 +1165,8 @@ pub(super) async fn compare_resource_routes(
                 "reorderCardProperties" | "createBlocks" => json!([]),
                 "createCard" => json!({"title": "new card"}),
                 "patchCard" | "patchContainer" | "patchBlock" => json!({"title": "changed"}),
+                "createDiaryEntry" => json!({"date": "2020-02-29"}),
+                "patchDiaryEntry" => json!({"mood": "good"}),
                 "createUpload" => json!({"name": "new.bin", "size": 0}),
                 "addMember" => json!({"userId": user, "schemeViewer": true}),
                 "setSharing" => json!({"enabled": true}),
@@ -1339,6 +1405,7 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
         card: &card,
         page: &page,
         comment: &comment,
+        entry: None,
         file: &file,
         upload_id: &upload.id,
         category: &category,
@@ -1709,6 +1776,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         card: &card,
         page: &page,
         comment: &comment,
+        entry: None,
         file: &file,
         upload_id: &upload.id,
         category: &category,

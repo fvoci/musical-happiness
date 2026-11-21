@@ -1,4 +1,10 @@
-//! Which operations reach a board, which a wiki, and which both.
+//! Which operations reach a board, which a wiki, which a diary, and which several.
+//!
+//! A diary is a board of the kind `diary`, in the workspace of a user's own space
+//! alone: the operations on its entries reach it and nothing else, what is about the
+//! people of a board (its members, its teams, its link, a copy of it) reaches boards and
+//! wikis and no diary, and the container itself, its files, its place in the sidebar and
+//! its archive are the same for all three.
 //!
 //! A wiki is a board of the kind `wiki`. An operation that is about what a board holds
 //! (cards, views) answers for a wiki as for a board that is not there,
@@ -25,8 +31,19 @@ enum Reaches {
     Boards,
     /// Wikis; a board named there is not there.
     Wikis,
-    /// Boards and wikis alike.
+    /// Boards and wikis alike; a diary named there is not there.
     Both,
+    /// Diaries; a board or a wiki named there is not there.
+    Diaries,
+    /// Boards, wikis and diaries alike.
+    Every,
+}
+
+impl Reaches {
+    /// Whether a diary is there to an operation that reaches these.
+    fn holds_a_diary(self) -> bool {
+        matches!(self, Self::Diaries | Self::Every)
+    }
 }
 
 /// Every operation whose path names a board, a wiki, or something that is of one (a
@@ -36,10 +53,10 @@ enum Reaches {
 /// [`what_names_a_wiki_in_a_body_or_a_query_is_refused_as_what_names_nothing`].
 const REACHED: &[(&str, Reaches)] = &[
     // The container itself, in the trash too.
-    ("getContainer", Reaches::Both),
-    ("patchContainer", Reaches::Both),
-    ("deleteContainer", Reaches::Both),
-    ("undeleteContainer", Reaches::Both),
+    ("getContainer", Reaches::Every),
+    ("patchContainer", Reaches::Every),
+    ("deleteContainer", Reaches::Every),
+    ("undeleteContainer", Reaches::Every),
     // Who is on it.
     ("getMembers", Reaches::Both),
     ("addMember", Reaches::Both),
@@ -54,28 +71,28 @@ const REACHED: &[(&str, Reaches)] = &[
     ("getSharing", Reaches::Both),
     ("setSharing", Reaches::Both),
     // Its files.
-    ("uploadFile", Reaches::Both),
-    ("getFile", Reaches::Both),
-    ("getFileInfo", Reaches::Both),
-    ("getFileVersions", Reaches::Both),
-    ("getFileVersion", Reaches::Both),
-    ("addFileVersion", Reaches::Both),
-    ("restoreFileVersion", Reaches::Both),
-    ("getFileLease", Reaches::Both),
-    ("holdFileLease", Reaches::Both),
-    ("releaseFileLease", Reaches::Both),
-    ("createUpload", Reaches::Both),
-    ("getUpload", Reaches::Both),
-    ("putUploadPart", Reaches::Both),
-    ("completeUpload", Reaches::Both),
-    ("deleteUpload", Reaches::Both),
+    ("uploadFile", Reaches::Every),
+    ("getFile", Reaches::Every),
+    ("getFileInfo", Reaches::Every),
+    ("getFileVersions", Reaches::Every),
+    ("getFileVersion", Reaches::Every),
+    ("addFileVersion", Reaches::Every),
+    ("restoreFileVersion", Reaches::Every),
+    ("getFileLease", Reaches::Every),
+    ("holdFileLease", Reaches::Every),
+    ("releaseFileLease", Reaches::Every),
+    ("createUpload", Reaches::Every),
+    ("getUpload", Reaches::Every),
+    ("putUploadPart", Reaches::Every),
+    ("completeUpload", Reaches::Every),
+    ("deleteUpload", Reaches::Every),
     // Its place in the sidebar.
-    ("setContainerCategory", Reaches::Both),
-    ("hideContainer", Reaches::Both),
-    ("unhideContainer", Reaches::Both),
+    ("setContainerCategory", Reaches::Every),
+    ("hideContainer", Reaches::Every),
+    ("unhideContainer", Reaches::Every),
     // A copy of it whole, and its archive.
     ("duplicateContainer", Reaches::Both),
-    ("exportContainerArchive", Reaches::Both),
+    ("exportContainerArchive", Reaches::Every),
     // What a board holds.
     ("reorderCardProperties", Reaches::Boards),
     ("createBlocks", Reaches::Boards),
@@ -114,6 +131,18 @@ const REACHED: &[(&str, Reaches)] = &[
     ("duplicatePage", Reaches::Wikis),
     ("getDeletedPages", Reaches::Wikis),
     ("undeletePage", Reaches::Wikis),
+    // What a diary holds.
+    ("getDiaryDays", Reaches::Diaries),
+    ("getDiaryEntriesOn", Reaches::Diaries),
+    ("createDiaryEntry", Reaches::Diaries),
+    ("getDiaryEntry", Reaches::Diaries),
+    ("patchDiaryEntry", Reaches::Diaries),
+    ("deleteDiaryEntry", Reaches::Diaries),
+    ("getDeletedDiaryEntries", Reaches::Diaries),
+    ("undeleteDiaryEntry", Reaches::Diaries),
+    ("getDiaryEntryBodyVersions", Reaches::Diaries),
+    ("getDiaryEntryBodyVersion", Reaches::Diaries),
+    ("restoreDiaryEntryBodyVersion", Reaches::Diaries),
     // What names a card or a page from a body: a card and a page name each other.
     ("getReferencesTo", Reaches::Both),
     // What the holder of a read token reads.
@@ -127,7 +156,9 @@ const REACHED: &[(&str, Reaches)] = &[
 ];
 
 /// The parameters of a path that name a board or a wiki, or something that is of one.
-const NAMING: [&str; 9] = [
+const NAMING: [&str; 11] = [
+    "{diaryId}",
+    "{entryId}",
     "{containerId}",
     "{boardId}",
     "{wikiId}",
@@ -143,6 +174,8 @@ const NAMING: [&str; 9] = [
 /// at all, under identifiers of nothing.
 #[derive(Debug, Clone)]
 struct Things {
+    /// The workspace they are in.
+    workspace: String,
     container: String,
     /// A card of the board; a page of the wiki.
     block: String,
@@ -156,7 +189,12 @@ struct Things {
 
 impl Things {
     fn nothing() -> Self {
+        Self::nothing_in(ROOT_WORKSPACE_ID)
+    }
+
+    fn nothing_in(workspace: &str) -> Self {
         Self {
+            workspace: workspace.to_owned(),
             container: UNKNOWN_ID.to_owned(),
             block: UNKNOWN_ID.to_owned(),
             comment: UNKNOWN_ID.to_owned(),
@@ -174,6 +212,9 @@ struct World {
     other: String,
     team: String,
     category: String,
+    /// The workspace of the first user's own space, and their category there.
+    own: String,
+    own_category: String,
 }
 
 impl World {
@@ -190,11 +231,15 @@ impl World {
             .get(&format!("{ROOT_WS}/categories"))
             .await
             .value();
+        let own = crate::own_space::own_workspace(&ts.client).await.id;
+        let own_categories = ts.client.get(&format!("/w/{own}/categories")).await.value();
         Self {
             me,
             other,
             team: text(&team, "id"),
             category: text(&categories[0], "id"),
+            own_category: text(&own_categories[0], "id"),
+            own,
             ts,
         }
     }
@@ -206,7 +251,7 @@ impl World {
         let client = &self.ts.client;
         let made_at = match kind {
             Reaches::Wikis => format!("{ROOT_WS}/wikis"),
-            Reaches::Boards | Reaches::Both => format!("{ROOT_WS}/boards"),
+            _ => format!("{ROOT_WS}/boards"),
         };
         let made = client.post(&made_at, &json!({"type": "P"})).await;
         made.check_done();
@@ -268,9 +313,10 @@ impl World {
                 comment.check_done();
                 (page_id, text(&comment.value(), "id"))
             }
-            Reaches::Boards | Reaches::Both => self.card_with_a_comment(&container).await,
+            _ => self.card_with_a_comment(&container).await,
         };
         Things {
+            workspace: ROOT_WORKSPACE_ID.to_owned(),
             container,
             block,
             comment,
@@ -371,8 +417,11 @@ impl World {
         };
         let path = template
             .trim_start_matches("/api/v1")
-            .replace("{workspaceId}", ROOT_WORKSPACE_ID)
+            .replace("{workspaceId}", &things.workspace)
             .replace("{containerId}", &things.container)
+            .replace("{diaryId}", &things.container)
+            .replace("{entryId}", block)
+            .replace("{monthDay}", "11-21")
             .replace("{boardId}", &things.container)
             .replace("{wikiId}", &things.container)
             .replace("{cardId}", block)
@@ -383,7 +432,14 @@ impl World {
             .replace("{uploadId}", &things.upload)
             .replace("{userId}", &self.other)
             .replace("{teamId}", &self.team)
-            .replace("{categoryId}", &self.category)
+            .replace(
+                "{categoryId}",
+                if things.workspace == self.own {
+                    &self.own_category
+                } else {
+                    &self.category
+                },
+            )
             .replace("{subscriberId}", &self.me)
             .replace("{partNumber}", "1")
             .replace("{version}", "1")
@@ -414,6 +470,8 @@ impl World {
             "patchContainer" | "patchBlock" | "patchCard" | "patchPage" => {
                 json!({"title": "changed"})
             }
+            "createDiaryEntry" => json!({"date": "2020-02-29"}),
+            "patchDiaryEntry" => json!({"mood": "good"}),
             "addMember" | "updateMember" => {
                 json!({"containerId": things.container, "userId": self.other, "schemeViewer": true})
             }
@@ -533,9 +591,14 @@ async fn every_operation_reaches_the_kinds_of_its_row_and_answers_for_the_other_
                     && !of_board.status.is_success()
                     && of_wiki.problem() != nothing.problem()
             }
-            Reaches::Both => {
+            Reaches::Both | Reaches::Every => {
                 of_wiki.status == of_board.status && of_wiki.problem() != nothing.problem()
             }
+            // No workspace of an organization of people has a diary: what is asked of
+            // one there is asked of nothing, whatever is named.
+            Reaches::Diaries => [&of_wiki, &of_board]
+                .into_iter()
+                .all(|answer| answer.problem() == nothing.problem() && !answer.status.is_success()),
         };
         // A user has only so many uploads open at once.
         for things in [&board, &wiki] {
@@ -553,6 +616,311 @@ async fn every_operation_reaches_the_kinds_of_its_row_and_answers_for_the_other_
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    world.ts.teardown().await;
+}
+
+/// A board, a wiki and a diary of the first user in the workspace of their own space,
+/// each with a file, an open upload, and what it holds written once: a card, a page, the
+/// entry of a day, each with a body. Nobody else is on any of them, and none has a link:
+/// a space has no people.
+async fn make_in_own_space(world: &World, own: &str) -> [Things; 3] {
+    let client = &world.ts.client;
+    let ws = format!("/w/{own}");
+    let body = json!({"readAt": 0, "body": said()});
+    let written = |made: &Value| {
+        let mut body = body.clone();
+        body["readAt"] = made["updateAt"].clone();
+        body
+    };
+    let mut made = Vec::new();
+    for kind in ["boards", "wikis", "diaries"] {
+        let new = if kind == "diaries" {
+            json!({})
+        } else {
+            json!({"type": "P"})
+        };
+        let container = client.post(&format!("{ws}/{kind}"), &new).await;
+        container.check_done();
+        let container = text(&container.value(), "id");
+        let at = format!("{ws}/containers/{container}");
+        let block = match kind {
+            "boards" => {
+                let card = client
+                    .post(
+                        &format!("{ws}/boards/{container}/cards"),
+                        &json!({"title": "a card"}),
+                    )
+                    .await;
+                card.check_done();
+                let id = text(&card.value(), "id");
+                let patched = client
+                    .patch(&format!("{ws}/cards/{id}"), &written(&card.value()))
+                    .await;
+                patched.check_ok();
+                id
+            }
+            "wikis" => {
+                let pages = format!("{ws}/wikis/{container}/pages");
+                let page = client.post(&pages, &json!({"title": "a page"})).await;
+                page.check_done();
+                let id = text(&page.value(), "id");
+                client
+                    .patch(&format!("{pages}/{id}"), &written(&page.value()))
+                    .await
+                    .check_ok();
+                id
+            }
+            _ => {
+                let entries = format!("{ws}/diaries/{container}/entries");
+                let entry = client.post(&entries, &json!({"date": "2024-11-21"})).await;
+                entry.check_done();
+                let id = text(&entry.value(), "id");
+                client
+                    .patch(&format!("{entries}/{id}"), &written(&entry.value()))
+                    .await
+                    .check_ok();
+                id
+            }
+        };
+        let file = Part::bytes(b"kept".to_vec()).file_name("kept.txt");
+        let uploaded = Client::send(
+            client
+                .request(Method::POST, &format!("{at}/files"))
+                .multipart(Form::new().part("file", file)),
+        )
+        .await;
+        uploaded.check_done();
+        let opened = client
+            .post(
+                &format!("{at}/uploads"),
+                &json!({"name": "parts.bin", "size": 4}),
+            )
+            .await;
+        opened.check_done();
+        made.push(Things {
+            workspace: own.to_owned(),
+            container,
+            block,
+            comment: UNKNOWN_ID.to_owned(),
+            file: text(&uploaded.value(), "fileId"),
+            upload: text(&opened.value(), "uploadId"),
+            token: "no-token".to_owned(),
+        });
+    }
+    made.try_into().expect("three were made")
+}
+
+/// In the workspace of a user's own space, where a board, a wiki and a diary are side
+/// by side, every operation that names one of them is asked about a diary made for it
+/// and about nothing. One whose row holds a diary does something of its own for the
+/// diary; any other answers for the diary, and for what is the diary's, exactly as for
+/// nothing, and does nothing. An operation on a diary's entries answers so for the
+/// board and the wiki beside it.
+#[tokio::test]
+async fn a_diary_is_there_to_the_operations_of_its_rows_and_to_no_other() {
+    let world = World::start().await;
+    let client = &world.ts.client;
+    let own = world.own.clone();
+    let mut wrong = Vec::new();
+    for (method, template, operation) in operations_that_name_one() {
+        let Some((_, reaches)) = REACHED.iter().find(|(name, _)| *name == operation) else {
+            continue;
+        };
+        let [board, wiki, diary] = make_in_own_space(&world, &own).await;
+        let entry = format!(
+            "/w/{own}/diaries/{}/entries/{}",
+            diary.container, diary.block
+        );
+        match operation.as_str() {
+            "undeleteContainer" => {
+                let at = format!("/w/{own}/containers/{}", diary.container);
+                client.delete(&at).await.check_done();
+            }
+            "undeleteDiaryEntry" => client.delete(&entry).await.check_done(),
+            _ => {}
+        }
+        let ask = async |things: &Things| world.ask(&method, &template, &operation, things).await;
+        let nothing = ask(&Things::nothing_in(&own)).await;
+        let of_diary = ask(&diary).await;
+        let as_nothing = |answer: &ApiResponse| {
+            answer.problem() == nothing.problem() && !answer.status.is_success()
+        };
+        let mut right = if reaches.holds_a_diary() {
+            of_diary.problem() != nothing.problem()
+        } else {
+            as_nothing(&of_diary)
+        };
+        if *reaches == Reaches::Diaries {
+            right = right
+                && of_diary.status.is_success()
+                && as_nothing(&ask(&board).await)
+                && as_nothing(&ask(&wiki).await);
+        }
+        // A user has only so many uploads open at once, and a space so many diaries.
+        for things in [&board, &wiki, &diary] {
+            let upload = format!("/w/{own}/uploads/{}", things.upload);
+            drop(client.delete(&upload).await);
+            let at = format!("/w/{own}/containers/{}", things.container);
+            drop(client.delete(&at).await);
+        }
+        if !right {
+            wrong.push(format!(
+                "{operation} ({method} {template}) reaches {reaches:?}: diary={:?}, nothing={:?}",
+                of_diary.problem(),
+                nothing.problem()
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    world.ts.teardown().await;
+}
+
+/// The lists of a user's own space are of one kind each, the diary's among them, and no
+/// workspace of an organization of people lists a diary or makes one.
+#[tokio::test]
+async fn the_lists_of_an_own_space_are_of_their_kinds() {
+    let world = World::start().await;
+    let client = &world.ts.client;
+    let own = world.own.clone();
+    let ws = format!("/w/{own}");
+    let [board, wiki, diary] = make_in_own_space(&world, &own).await;
+    for (list, of) in [("boards", &board), ("wikis", &wiki), ("diaries", &diary)] {
+        let listed = client.get(&format!("{ws}/{list}")).await;
+        assert_eq!(ids(&listed), std::slice::from_ref(&of.container), "{list}");
+    }
+    let diaries = client.get(&format!("{ws}/diaries")).await.value();
+    assert_eq!(
+        (&diaries[0]["kind"], &diaries[0]["type"]),
+        (&json!("diary"), &json!("P"))
+    );
+    for things in [&board, &wiki, &diary] {
+        let at = format!("{ws}/containers/{}", things.container);
+        client
+            .patch(&at, &json!({"title": "findable"}))
+            .await
+            .check_done();
+    }
+    let found = client.get(&format!("{ws}/boards/search?q=findable")).await;
+    assert_eq!(ids(&found), std::slice::from_ref(&board.container));
+    // The workspace of an organization of people lists no diary, and makes none.
+    let elsewhere = client.get(&format!("{ROOT_WS}/diaries")).await;
+    let nowhere = client.get(&format!("/w/{UNKNOWN_ID}/diaries")).await;
+    assert_eq!(elsewhere.problem(), nowhere.problem());
+    assert_eq!(elsewhere.status, reqwest::StatusCode::NOT_FOUND);
+    let made = client.post(&format!("{ROOT_WS}/diaries"), &json!({})).await;
+    assert_eq!(made.problem(), nowhere.problem());
+
+    world.ts.teardown().await;
+}
+
+/// What makes or changes boards by a body takes no diary: a board is not made a diary
+/// of, one at a time or with blocks, what changes or deletes boards together finds no
+/// diary, and an entry is no block to make on a board.
+#[tokio::test]
+async fn what_names_a_diary_in_a_body_is_refused() {
+    let world = World::start().await;
+    let client = &world.ts.client;
+    let own = world.own.clone();
+    let ws = format!("/w/{own}");
+    let [board, _, diary] = make_in_own_space(&world, &own).await;
+    let one = client
+        .post(
+            &format!("{ws}/boards"),
+            &json!({"type": "P", "kind": "diary"}),
+        )
+        .await;
+    let as_diary = json!({"id": "made", "type": "P", "kind": "diary", "title": "no board"});
+    let many = client
+        .post(
+            &format!("{ws}/boards-and-blocks"),
+            &json!({"containers": [as_diary], "blocks": [{
+                "id": "card", "containerId": "made", "type": "card", "createAt": 1, "updateAt": 1,
+            }]}),
+        )
+        .await;
+    for (refused, at) in [(one, "/kind"), (many, "/containers/0/kind")] {
+        refused.check_bad_request();
+        assert_eq!(refused.refused_at(), at, "{}", refused.text());
+    }
+    let together = format!("{ws}/boards-and-blocks");
+    for method in [Method::PATCH, Method::DELETE] {
+        let body = |id: &str| {
+            if method == Method::PATCH {
+                json!({"containerIds": [id], "containerPatches": [{"title": "taken"}],
+                       "blockIds": [], "blockPatches": []})
+            } else {
+                json!({"containers": [id], "blocks": []})
+            }
+        };
+        let send = async |id: &str| {
+            Client::send(client.request(method.clone(), &together).json(&body(id))).await
+        };
+        let (of_diary, nothing) = (send(&diary.container).await, send(UNKNOWN_ID).await);
+        assert_eq!(of_diary.problem(), nothing.problem(), "{method}");
+        assert!(
+            !of_diary.status.is_success(),
+            "{method}: {}",
+            of_diary.text()
+        );
+    }
+    let entry_as_block = client
+        .post(
+            &format!("{ws}/boards/{}/blocks", board.container),
+            &json!([{"containerId": board.container, "type": "entry", "title": "2026-11-21",
+                     "fields": {"date": "2026-11-21"}, "createAt": 1, "updateAt": 1}]),
+        )
+        .await;
+    entry_as_block.check_bad_request();
+    assert_eq!(ids(&client.get(&format!("{ws}/diaries")).await).len(), 1);
+    world.ts.teardown().await;
+}
+
+/// The archive and the trash of a user's own space hold all three kinds, and the trash
+/// says of each which it is.
+#[tokio::test]
+async fn the_archive_and_the_trash_of_an_own_space_hold_every_kind() {
+    let world = World::start().await;
+    let client = &world.ts.client;
+    let own = world.own.clone();
+    let ws = format!("/w/{own}");
+    let [board, wiki, diary] = make_in_own_space(&world, &own).await;
+    let exported = client.get(&format!("{ws}/archive/export")).await;
+    exported.check_done();
+    let archive = zip::ZipArchive::new(std::io::Cursor::new(exported.body))
+        .expect("the export is an archive");
+    let exported: BTreeSet<String> = archive
+        .file_names()
+        .filter_map(Result::ok)
+        .filter_map(|name| name.strip_suffix("/board.jsonl").map(str::to_owned))
+        .collect();
+    let all: BTreeSet<String> = [&board, &wiki, &diary]
+        .into_iter()
+        .map(|things| things.container.clone())
+        .collect();
+    assert_eq!(exported, all, "the export is of boards, wikis and diaries");
+
+    for things in [&board, &wiki, &diary] {
+        let at = format!("{ws}/containers/{}", things.container);
+        client.delete(&at).await.check_done();
+    }
+    let trash = client.get(&format!("{ws}/trash/containers")).await;
+    trash.check_done();
+    let mut listed: Vec<(String, String)> = trash
+        .value()
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|entry| (text(entry, "kind"), text(entry, "id")))
+        .collect();
+    listed.sort();
+    assert_eq!(
+        listed,
+        [
+            ("board".to_owned(), board.container.clone()),
+            ("diary".to_owned(), diary.container.clone()),
+            ("wiki".to_owned(), wiki.container.clone()),
+        ]
+    );
     world.ts.teardown().await;
 }
 

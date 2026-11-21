@@ -53,6 +53,10 @@ struct Space {
     card: Block,
     page: Block,
     comment: Block,
+    /// A diary of the space, which the owner made by its route, and the entry of a day
+    /// of it, whose weather has the word.
+    diary: Container,
+    entry: Block,
     file: String,
     upload_id: String,
     category: String,
@@ -133,6 +137,7 @@ impl Space {
             .id;
         let page = a_page_in(store, &workspace.id, &owner_id).await;
         let comment = a_comment_on(store, &page).await;
+        let (diary, entry) = a_diary_of(&owner, store, &workspace.id).await;
         Self {
             owner,
             owner_id,
@@ -143,6 +148,8 @@ impl Space {
             card,
             page,
             comment,
+            diary,
+            entry,
             file,
             upload_id: upload.id,
             category,
@@ -158,6 +165,7 @@ impl Space {
             card: &self.card,
             page: &self.page,
             comment: &self.comment,
+            entry: Some(&self.entry),
             file: &self.file,
             upload_id: &self.upload_id,
             category: &self.category,
@@ -180,6 +188,8 @@ impl Space {
             &self.page.id,
             &self.page.container_id,
             &self.comment.id,
+            &self.diary.id,
+            &self.entry.id,
             &self.file,
             &self.upload_id,
             &self.category,
@@ -187,6 +197,29 @@ impl Space {
         .iter()
         .any(|part| text.contains(*part))
     }
+}
+
+/// A diary the owner makes in the workspace of their space by its route, and the entry
+/// of a day of it, whose weather has the word.
+async fn a_diary_of(
+    owner: &Client,
+    store: &fvoci_store::Store,
+    workspace: &str,
+) -> (Container, Block) {
+    let diaries = format!("/w/{workspace}/diaries");
+    let diary = owner
+        .post(&diaries, &json!({"title": format!("{SECRET} diary")}))
+        .await;
+    assert_eq!(diary.status, StatusCode::CREATED, "{}", diary.text());
+    let diary: Container = serde_json::from_value(diary.value()).expect("the diary");
+    let written = json!({"date": "2024-02-29", "weather": format!("{SECRET} weather")});
+    let entry = owner
+        .post(&format!("{diaries}/{}/entries", diary.id), &written)
+        .await;
+    assert_eq!(entry.status, StatusCode::CREATED, "{}", entry.text());
+    let entry_id = entry.value()["id"].as_str().expect("its id").to_owned();
+    let entry = store.get_block(&entry_id).await.expect("the entry");
+    (diary, entry)
 }
 
 /// An account that is a guest of the root workspace and nothing else in the
@@ -359,6 +392,7 @@ async fn compare_what_is_found(
         format!("/w/{workspace}/references/search?q={SECRET}"),
         format!("/w/{workspace}/boards"),
         format!("/w/{workspace}/wikis"),
+        format!("/w/{workspace}/diaries"),
         format!("/w/{workspace}/categories"),
         format!("/w/{workspace}/audit"),
     ];
@@ -371,8 +405,8 @@ async fn compare_what_is_found(
     // A reference names its block by the identifier alone: one of the space resolves
     // to what one of nothing does.
     let path = format!("/w/{workspace}/references/resolve");
-    let named = json!([space.card.id, space.page.id, space.board.id]);
-    let nothing = json!([UNKNOWN_ID, UNKNOWN_ID, UNKNOWN_ID]);
+    let named = json!([space.card.id, space.page.id, space.board.id, space.entry.id]);
+    let nothing = json!([UNKNOWN_ID, UNKNOWN_ID, UNKNOWN_ID, UNKNOWN_ID]);
     let (hidden, absent) = (
         client.post(&path, &named).await,
         client.post(&path, &nothing).await,
@@ -543,10 +577,23 @@ async fn check_the_owner_reaches_it(space: &Space) {
     let found = space.owner.get(&format!("{here}/search?q={SECRET}")).await;
     found.check_ok();
     assert!(
-        found.text().contains(&space.card.id),
-        "the owner's search of bodies finds the card: {}",
+        found.text().contains(&space.card.id) && found.text().contains(&space.entry.id),
+        "the owner's search of bodies finds the card and the entry: {}",
         found.text()
     );
+    let diaries: Vec<Container> = space.owner.get(&format!("{here}/diaries")).await.ok_json();
+    assert_eq!(
+        diaries,
+        std::slice::from_ref(&space.diary),
+        "the owner lists the diary"
+    );
+    let entry = format!(
+        "{here}/diaries/{}/entries/{}",
+        space.diary.id, space.entry.id
+    );
+    let read = space.owner.get(&entry).await;
+    read.check_ok();
+    assert!(read.text().contains(SECRET), "{}", read.text());
     let named = json!([space.card.id, space.page.id]);
     let resolved = space
         .owner
@@ -569,19 +616,7 @@ async fn check_the_owner_reaches_it(space: &Space) {
 async fn nobody_but_its_owner_reaches_a_space_by_a_route() {
     // A search server that answers every search with what was planted in it, whoever
     // asks: what a search answers is what the server lets through.
-    let index = FakeSearch::start().await;
-    let ts = Setup::local_mode().search(index.settings()).start().await;
-    fvoci_server::search::tend(&ts.app).await;
-    let ts = ts.init_basic().await;
-    let space = Space::of_a_new_member(&ts).await;
-    let planted = document(
-        &space.workspace.org_id,
-        &space.workspace.id,
-        &space.board.id,
-        &space.card.title,
-        "",
-    );
-    index.plant(&space.card.id, planted);
+    let (index, ts, space) = a_server_with_a_space().await;
     check_the_owner_reaches_it(&space).await;
     let root = ROOT_WORKSPACE_ID;
 
@@ -663,6 +698,43 @@ async fn heard(socket: &mut super::common::WebSocket) -> Vec<String> {
     messages
 }
 
+/// The room of the entry's body opens to the owner, and to nobody else: who asks for it
+/// is refused as who asks for the room of nothing, under either workspace.
+async fn check_the_room_of_the_entry(
+    space: &Space,
+    sockets: &mut [super::common::WebSocket],
+    owner: &mut super::common::WebSocket,
+) {
+    let workspace = &space.workspace.id;
+    let join = |workspace: &str, id: &str| {
+        let command = json!({"action": "JOIN_DOC", "workspaceId": workspace, "cardId": id});
+        Message::Text(command.to_string().into())
+    };
+    for (index, socket) in sockets.iter_mut().enumerate() {
+        for under in [workspace.as_str(), ROOT_WORKSPACE_ID] {
+            let mut answers = Vec::new();
+            for id in [space.entry.id.as_str(), UNKNOWN_ID] {
+                socket.send(join(under, id)).await.expect("sent");
+                let answer = heard(socket).await.join("\n");
+                answers.push(answer.replace(id, "ID"));
+            }
+            assert!(
+                answers[0] == answers[1] && answers[0].contains("DOC_REFUSED"),
+                "connection {index} asks for the entry's room under {under}: {answers:?}"
+            );
+        }
+    }
+    owner
+        .send(join(workspace, &space.entry.id))
+        .await
+        .expect("sent");
+    let joined = heard(owner).await;
+    assert!(
+        !joined.is_empty() && !joined.iter().any(|message| message.contains("DOC_REFUSED")),
+        "the owner joins the room of the entry: {joined:?}"
+    );
+}
+
 /// A change in a space is told to its owner's connection and to no other: not to an
 /// administrator of the organization who asks to follow the space's workspace or its
 /// card, with or without the link of another board, and not to who asks without a
@@ -685,14 +757,17 @@ async fn a_change_in_a_space_is_told_to_its_owner_alone() {
     ];
     let follow = [
         json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace}),
-        json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": workspace, "blockIds": [space.card.id]}),
         json!({
             "action": "SUBSCRIBE_BLOCKS", "workspaceId": workspace,
-            "blockIds": [space.card.id], "readToken": token,
+            "blockIds": [space.card.id, space.entry.id],
+        }),
+        json!({
+            "action": "SUBSCRIBE_BLOCKS", "workspaceId": workspace,
+            "blockIds": [space.card.id, space.entry.id], "readToken": token,
         }),
         json!({
             "action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID,
-            "blockIds": [space.card.id], "readToken": token,
+            "blockIds": [space.card.id, space.entry.id], "readToken": token,
         }),
         json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}),
     ];
@@ -726,18 +801,39 @@ async fn a_change_in_a_space_is_told_to_its_owner_alone() {
         space.app.finish_background(Duration::from_secs(5)).await,
         "the change is told"
     );
-    let told = heard(&mut owner).await;
+    // The entry of a day is changed, and that of another day made, by their routes.
+    let entries = format!("/w/{workspace}/diaries/{}/entries", space.diary.id);
+    let changed = json!({"place": format!("{SECRET} place")});
+    let entry = format!("{entries}/{}", space.entry.id);
+    space.owner.patch(&entry, &changed).await.check_ok();
+    let made = space
+        .owner
+        .post(&entries, &json!({"date": "2024-03-01"}))
+        .await;
+    assert_eq!(made.status, StatusCode::CREATED, "{}", made.text());
+    let made = made.value()["id"].as_str().expect("its id").to_owned();
     assert!(
-        told.iter().any(|message| message.contains(&card.id)),
-        "the owner's connection is told: {told:?}"
+        space.app.finish_background(Duration::from_secs(5)).await,
+        "the entries are told"
     );
+    let told = heard(&mut owner).await;
+    for id in [&card.id, &space.entry.id, &made] {
+        assert!(
+            told.iter().any(|message| message.contains(id.as_str())),
+            "the owner's connection is told of {id}: {told:?}"
+        );
+    }
     for (index, socket) in sockets.iter_mut().enumerate() {
         let told = heard(socket).await;
         assert!(
-            !told.iter().any(|message| space.named_in(message)),
+            !told
+                .iter()
+                .any(|message| space.named_in(message) || message.contains(&made)),
             "connection {index} is told of the space: {told:?}"
         );
     }
+
+    check_the_room_of_the_entry(&space, &mut sockets, &mut owner).await;
     ts.teardown().await;
 }
 
@@ -817,6 +913,35 @@ async fn no_mail_names_anything_of_a_space() {
 /// work in, and nothing of a space: a card made there, changed and deleted is posted
 /// nowhere, and the card made in the organization after it is the first the receiver
 /// gets.
+/// The owner writes the entry of another day and gives the first a mood, on the server
+/// `in_space`.
+async fn write_in_the_diary(in_space: &App, space: &Space) {
+    let day = "2024-03-01".parse().expect("a day");
+    let written = fvoci_model::NewDiaryEntry {
+        date: "2024-03-01".to_owned(),
+        mood: None,
+        weather: format!("{SECRET} posted"),
+        place: String::new(),
+    };
+    in_space
+        .create_diary_entry(&space.diary.id, day, written, &space.owner_id)
+        .await
+        .expect("an entry of the space");
+    let mood = fvoci_model::DiaryEntryPatch {
+        mood: fvoci_model::MoodChange::Set(fvoci_model::Mood::Good),
+        ..fvoci_model::DiaryEntryPatch::default()
+    };
+    in_space
+        .patch_block(
+            &space.entry.id,
+            &mood.into_block_patch(),
+            &space.owner_id,
+            ChangeNotification::Send,
+        )
+        .await
+        .expect("a mood of the entry");
+}
+
 #[tokio::test]
 async fn nothing_of_a_space_is_posted_to_the_operators_webhooks() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -855,6 +980,7 @@ async fn nothing_of_a_space_is_posted_to_the_operators_webhooks() {
         .insert_block(&mut secret, &space.owner_id, ChangeNotification::Suppress)
         .await
         .expect("a card of the space");
+    write_in_the_diary(&in_space, &space).await;
     let patch = fvoci_model::BlockPatch {
         title: Some(format!("{SECRET} changed")),
         ..fvoci_model::BlockPatch::default()
@@ -989,8 +1115,8 @@ async fn the_links_of_a_space_are_closed_while_its_account_waits() {
     ts.teardown().await;
 }
 
-/// A server whose search answers every asker with the card of a space, and the space:
-/// what a search answers of it is what the server lets through.
+/// A server whose search answers every asker with the card and the entry of a space,
+/// and the space: what a search answers of it is what the server lets through.
 async fn a_server_with_a_space() -> (FakeSearch, TestServer, Space) {
     let index = FakeSearch::start().await;
     let ts = Setup::local_mode().search(index.settings()).start().await;
@@ -1005,6 +1131,15 @@ async fn a_server_with_a_space() -> (FakeSearch, TestServer, Space) {
         "",
     );
     index.plant(&space.card.id, planted);
+    let mut planted = document(
+        &space.workspace.org_id,
+        &space.workspace.id,
+        &space.diary.id,
+        &space.entry.title,
+        "",
+    );
+    planted["kind"] = json!("entry");
+    index.plant(&space.entry.id, planted);
     (index, ts, space)
 }
 
@@ -1035,10 +1170,13 @@ async fn told_of_a_change(space: &Space, socket: &mut super::common::WebSocket) 
     let workspace = &space.workspace.id;
     let follow = [
         json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace}),
-        json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": workspace, "blockIds": [space.card.id]}),
+        json!({
+            "action": "SUBSCRIBE_BLOCKS", "workspaceId": workspace,
+            "blockIds": [space.card.id, space.entry.id],
+        }),
         json!({
             "action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID,
-            "blockIds": [space.card.id],
+            "blockIds": [space.card.id, space.entry.id],
         }),
     ];
     for connection in [&mut owners, &mut *socket] {
@@ -1061,15 +1199,33 @@ async fn told_of_a_change(space: &Space, socket: &mut super::common::WebSocket) 
         .insert_block(&mut card, &space.owner_id, ChangeNotification::Suppress)
         .await
         .expect("the owner's change");
+    let mood = fvoci_model::DiaryEntryPatch {
+        mood: fvoci_model::MoodChange::Set(fvoci_model::Mood::Good),
+        ..fvoci_model::DiaryEntryPatch::default()
+    };
+    space
+        .app
+        .patch_block(
+            &space.entry.id,
+            &mood.into_block_patch(),
+            &space.owner_id,
+            ChangeNotification::Send,
+        )
+        .await
+        .expect("the owner's change of the entry");
     assert!(
         space.app.finish_background(Duration::from_secs(5)).await,
         "the change is told"
     );
     let told_the_owner = heard(&mut owners).await;
-    assert!(
-        told_the_owner.iter().any(|message| space.named_in(message)),
-        "the owner's connection is told of the change: {told_the_owner:?}"
-    );
+    for id in [&card.id, &space.entry.id] {
+        assert!(
+            told_the_owner
+                .iter()
+                .any(|message| message.contains(id.as_str())),
+            "the owner's connection is told of the change of {id}: {told_the_owner:?}"
+        );
+    }
     heard(socket)
         .await
         .into_iter()

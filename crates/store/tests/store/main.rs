@@ -26,6 +26,8 @@ mod categories;
 mod category_boards;
 mod common;
 mod container_rename;
+mod diaries;
+mod diary_schema;
 mod file_info;
 mod image_files;
 mod instance_role_scope;

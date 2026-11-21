@@ -43,6 +43,7 @@ mod cookies;
 mod database_busy;
 mod deleted_boards_listed;
 mod deleted_cards;
+mod diaries;
 mod document_visibility;
 mod email_verification;
 mod email_verification_again;

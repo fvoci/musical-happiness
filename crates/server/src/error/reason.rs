@@ -216,6 +216,13 @@ reasons! {
     PageTooDeep => "page_too_deep", "Page too deep";
     /// The wiki would have more pages than the organization's limit.
     TooManyPages => "too_many_pages", "Too many pages in the wiki";
+    /// The day of the diary has an entry: one that would come back from the trash, or
+    /// come with an archive, finds its day taken.
+    DayTaken => "day_taken", "The day has an entry";
+    /// The diary would have more entries than a diary may.
+    TooManyEntries => "too_many_entries", "Too many entries in the diary";
+    /// The space would have more diaries than a space may.
+    TooManyDiaries => "too_many_diaries", "Too many diaries";
     /// The account made as many organizations, which are in use, as one account may.
     TooManyOrganizations => "too_many_organizations", "Too many organizations made";
 }

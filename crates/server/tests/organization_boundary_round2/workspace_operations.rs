@@ -16,7 +16,7 @@ use std::sync::LazyLock;
 
 use fvoci_model::{OrgKind, User, UserWorkspace, new_id};
 use fvoci_store::DbType;
-use reqwest::RequestBuilder;
+use reqwest::{Method, RequestBuilder};
 use serde_json::{Value, json};
 
 use super::common::{ApiResponse, Client, PASSWORD, Setup, TestServer};
@@ -299,6 +299,7 @@ async fn every_contract_operation_is_exercised_by_both_founders() {
     let mut first = Case::founder(&server, &smtp, "parity-first", Vec::new()).await;
     actions::exercise(&mut first).await;
     search_content(&mut first, &index).await;
+    keep_a_diary(&mut first).await;
     service::exercise(&mut first, &server, &fake, &smtp).await;
     first.assert_complete();
     let mut second = Case::founder(&server, &smtp, "parity-other", first.identifiers).await;
@@ -306,6 +307,7 @@ async fn every_contract_operation_is_exercised_by_both_founders() {
     // The index now answers every search with the cards of both founders: what is the
     // first's is forbidden to the second, as everywhere here.
     search_content(&mut second, &index).await;
+    keep_a_diary(&mut second).await;
     service::exercise(&mut second, &server, &fake, &smtp).await;
     second.assert_complete();
     assert_eq!(
@@ -355,6 +357,66 @@ async fn search_content(case: &mut Case, index: &FakeSearch) {
         document(&case.org, &case.workspace, &board, &title, ""),
     );
     case.present("searchWorkspaceContent", &[], &card).await;
+}
+
+/// The founder keeps a diary in the space of their own, which alone has diaries: every
+/// operation on a diary and on its entries, there and not in the workspace of the
+/// organization.
+async fn keep_a_diary(case: &mut Case) {
+    let listed: Vec<UserWorkspace> = case.client.get("/users/me/workspaces").await.ok_json();
+    let own = listed
+        .into_iter()
+        .find(|workspace| workspace.kind == OrgKind::Personal)
+        .expect("the founder's own space");
+    case.identifiers
+        .extend([own.id.clone(), own.org_id.clone()]);
+    let diaries = format!("/w/{}/diaries", own.id);
+    let title = format!("{} diary", case.label);
+    let ask = async |case: &mut Case, operation, method: Method, path: &str, body: Value| {
+        let request = case.client.request(method, path).json(&body);
+        case.send(operation, request).await.value()
+    };
+    let (get, post) = (Method::GET, Method::POST);
+    let diary = ask(
+        case,
+        "createDiary",
+        post.clone(),
+        &diaries,
+        json!({"title": title}),
+    )
+    .await;
+    let diary = format!("{diaries}/{}", case.remember(&diary, "id"));
+    ask(case, "getDiaries", get.clone(), &diaries, json!({})).await;
+    let written = json!({"date": "2024-02-29", "mood": "good", "weather": title});
+    let entries = format!("{diary}/entries");
+    let made = ask(case, "createDiaryEntry", post.clone(), &entries, written).await;
+    let entry = format!("{entries}/{}", case.remember(&made, "id"));
+    let body = json!({"readAt": made["updateAt"], "body": {
+        "type": "doc",
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": title}]}],
+    }});
+    ask(case, "patchDiaryEntry", Method::PATCH, &entry, body).await;
+    let versions = format!("{entry}/body-versions");
+    for (operation, method, path) in [
+        ("getDiaryEntry", &get, entry.clone()),
+        ("getDiaryDays", &get, format!("{diary}/days")),
+        ("getDiaryEntriesOn", &get, format!("{diary}/days/02-29")),
+        ("getDiaryEntryBodyVersions", &get, versions.clone()),
+        ("getDiaryEntryBodyVersion", &get, format!("{versions}/1")),
+        (
+            "restoreDiaryEntryBodyVersion",
+            &post,
+            format!("{versions}/1/restore"),
+        ),
+    ] {
+        ask(case, operation, method.clone(), &path, json!({})).await;
+    }
+    let deleted = case.client.request(Method::DELETE, &entry);
+    case.send("deleteDiaryEntry", deleted).await;
+    let trash = format!("{diary}/trash/entries");
+    ask(case, "getDeletedDiaryEntries", get, &trash, json!({})).await;
+    let back = format!("{entry}/undelete");
+    ask(case, "undeleteDiaryEntry", post, &back, json!({})).await;
 }
 
 /// Keep response semantics while replacing generated identifiers, times and the

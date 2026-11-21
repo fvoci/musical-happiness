@@ -63,8 +63,10 @@ pub(super) fn check(
         for block in &mine {
             place.check(block)?;
         }
-        if container.kind == ContainerKind::Wiki {
-            check_tree(&container.id, &mine, limits)?;
+        match container.kind {
+            ContainerKind::Wiki => check_tree(&container.id, &mine, limits)?,
+            ContainerKind::Diary => check_days(&container.id, &mine)?,
+            ContainerKind::Board => {}
         }
     }
     // What is on none of the boards is dropped later, unless something leads to it; of a
@@ -102,6 +104,9 @@ impl Place<'_> {
         // A block directly on its board has no parent; the board is none, and is refused
         // as another board of the archive is.
         let parent_id = block.parent_id.as_str();
+        if self.kind == ContainerKind::Diary && !parent_id.is_empty() {
+            return Err(refused(block, BlockError::EntryBelowBlock));
+        }
         let parent_type = if parent_id.is_empty() {
             None
         } else if let Some(parent) = self.placed.get(parent_id) {
@@ -135,6 +140,9 @@ impl Place<'_> {
 /// blocks makes and no page; of a wiki, a page or a comment.
 fn check_type(block: &Block, kind: ContainerKind) -> Result<(), AppError> {
     let refusal = match (kind, &block.block_type) {
+        (ContainerKind::Board | ContainerKind::Wiki, BlockType::Entry) => {
+            Some(BlockError::EntryOffDiary)
+        }
         (ContainerKind::Board, BlockType::Page) => Some(BlockError::PageOffWiki),
         (ContainerKind::Board, block_type) if !block_type.is_current() => {
             Some(BlockError::type_not_current(block_type))
@@ -143,8 +151,37 @@ fn check_type(block: &Block, kind: ContainerKind) -> Result<(), AppError> {
             None
         }
         (ContainerKind::Wiki, _) => Some(BlockError::NotPageOnWiki),
+        (ContainerKind::Diary, BlockType::Entry) => None,
+        (ContainerKind::Diary, _) => Some(BlockError::NotEntryOnDiary),
     };
     refusal.map_or(Ok(()), |source| Err(refused(block, source)))
+}
+
+/// Checks that the entries of the diary are no more than a diary may have, and each of
+/// a day of its own: what the store refuses one entry at a time, said of the archive
+/// before anything of it is stored. An entry that says no day is the store's to refuse.
+fn check_days(diary_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
+    let limit = fvoci_model::ENTRIES_PER_DIARY;
+    if blocks.len() > usize::try_from(limit).unwrap_or(usize::MAX) {
+        return Err(StoreError::InvalidBlock {
+            id: diary_id.to_owned(),
+            source: BlockError::TooManyEntries { limit },
+        }
+        .into());
+    }
+    let mut days = HashSet::new();
+    for block in blocks {
+        if let Some(date) = fvoci_model::entry_date(block)
+            && !days.insert(date)
+        {
+            // Of the archive, which is wrong in itself: no day of a diary that is
+            // there is taken.
+            return Err(AppError::bad_request(format_args!(
+                "the archive's diary {diary_id} has two entries of {date}: a day has one entry"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Checks that the pages of the wiki are a tree within `limits`: each identifier once,
