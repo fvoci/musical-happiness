@@ -118,7 +118,7 @@ test('a saved file that reads back with other counts says which, and is saved on
   await expect(
     page.getByRole('alertdialog', { name: 'The saved file reads back differently' }),
   ).toHaveAccessibleDescription(
-    /^Opened again, the saved file counts otherwise than the document, as below: .* the document is attached as a file of its own\.$/,
+    'Opened again, the saved file counts otherwise than the document, as below: its pages break elsewhere, even saved unchanged, or a kind of control is missing or added. The versions so far stay as they are. Saved under another name, this file is not changed and the document is attached as a file of its own.',
   );
   await expect(page.getByRole('alertdialog')).toBeFocused();
   await expect(page.getByTestId('file-editor-recounts').locator('li')).toHaveText([

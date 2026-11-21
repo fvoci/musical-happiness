@@ -133,6 +133,8 @@ describe('what the saved file counts otherwise', () => {
     expect(recounts[0]).toEqual({ of: 'pages', before: PAGE_LIMIT, after: 1 });
     // Counts past the limit are the limit: two such counts are one.
     expect(recountsOf([PAGE_LIMIT + 1, PAGE_LIMIT + 2], [], [])).toEqual([]);
+    // No page is no count of pages, which the app would refuse.
+    expect(recountsOf([3, 0], [], [])).toEqual([]);
     const message = {
       kind: 'exported',
       request: 1,

@@ -38,7 +38,8 @@ export function recountsOf(
 ): Recount[] {
   const recounts: Recount[] = [];
   const page = (count: number): number => Math.min(count, PAGE_LIMIT);
-  if (pages && page(pages[0]) !== page(pages[1])) {
+  // A file on no page is no file read back: its pages are not a count to ask about.
+  if (pages && Math.min(...pages) >= 1 && page(pages[0]) !== page(pages[1])) {
     recounts.push({ of: 'pages', before: page(pages[0]), after: page(pages[1]) });
   }
   if (!after) return recounts;

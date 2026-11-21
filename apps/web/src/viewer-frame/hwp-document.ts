@@ -191,7 +191,10 @@ export class HwpReader {
     } catch (error) {
       throw openFailure(error);
     }
-    return { kind: 'resaved', pages, saved: this.#document.pageCount() };
+    const saved = this.#document.pageCount();
+    // As `open` finds it: a file on no page is not one it reads.
+    if (saved < 1) throw new UnreadableFile();
+    return { kind: 'resaved', pages, saved };
   }
 
   /** A page (from 1), drawn. */
