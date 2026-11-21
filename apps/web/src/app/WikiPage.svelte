@@ -20,6 +20,7 @@
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
+  import type { Attachment } from 'svelte/attachments';
 
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import BodyVersions from '$lib/features/card/BodyVersions.svelte';
@@ -233,15 +234,17 @@
         {#snippet missingPage()}
           <NotFound {router} />
         {/snippet}
-        {#snippet body(page: PageStore)}
-          <!-- The page's body is edited together as a card's is, in the page's own room. -->
-          <CardBody
-            container={wiki}
-            card={page}
-            of="page"
-            testId="page-body"
-            references={bodyReferences(wiki, page.pageId)}
-          />
+        {#snippet body(page: PageStore, outlined: Attachment<HTMLElement>)}
+          <!-- The page's body is edited together as a card's is, in the page's own room; its headings are the outline. -->
+          <div {@attach outlined}>
+            <CardBody
+              container={wiki}
+              card={page}
+              of="page"
+              testId="page-body"
+              references={bodyReferences(wiki, page.pageId)}
+            />
+          </div>
           <!-- WikiScreen draws each page anew: the list is read for the page it is drawn for. -->
           <CardBacklinks {workspace} blockId={page.pageId} of="page" heading="h2" />
           {@const comments = page.comments}

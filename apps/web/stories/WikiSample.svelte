@@ -1,9 +1,11 @@
 <!--
   A wiki of the example workspace: pages three levels deep with a long title,
-  the deepest page shown, the pages above it open; or a wiki without pages; or one the reader may only read.
+  the deepest page shown, the pages above it open; or a wiki without pages; or one the reader may only read;
+  or the page shown with a body of headings, and its outline (`outlined`).
 -->
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
+  import type { Attachment } from 'svelte/attachments';
 
   import BodyView from '$lib/editor/BodyView.svelte';
   import WikiScreen from '$lib/features/wiki/WikiScreen.svelte';
@@ -18,7 +20,39 @@
     empty = false,
     readOnly = false,
     manager = false,
-  }: { empty?: boolean; readOnly?: boolean; manager?: boolean } = $props();
+    outlined = false,
+  }: { empty?: boolean; readOnly?: boolean; manager?: boolean; outlined?: boolean } = $props();
+
+  /** A body of sections, a heading and a paragraph each, in three levels. */
+  const HEADED = {
+    type: 'doc',
+    content: [
+      [1, 'Before you start · 시작하기 전에'],
+      [2, 'Accounts · 계정'],
+      [3, 'Signing in · 로그인'],
+      [3, 'Two steps · 2단계 인증'],
+      [2, 'Boards and wikis · 보드와 위키'],
+      [
+        3,
+        'A heading long enough to wrap onto a second line of the outline · 목차에서 두 줄로 넘어가는 긴 제목',
+      ],
+      [2, 'Who sees what · 누가 무엇을 보는가'],
+      [1, 'Day to day · 매일의 일'],
+      [2, 'Writing together · 함께 쓰기'],
+      [2, 'Questions · 질문'],
+    ].flatMap(([level, title]) => [
+      { type: 'heading', attrs: { level }, content: [{ type: 'text', text: title }] },
+      {
+        type: 'paragraph',
+        content: [
+          {
+            type: 'text',
+            text: 'Words of the section, enough to fill some lines. '.repeat(8),
+          },
+        ],
+      },
+    ]),
+  };
 
   const example = exampleWorkspace();
   let wiki = $state.raw<WikiStore | undefined>(undefined);
@@ -95,12 +129,14 @@
       {#snippet missingPage()}
         <p>{m.app_problem_load()}</p>
       {/snippet}
-      {#snippet body(store: PageStore)}
-        <BodyView doc={store.body} resolveUser={() => ''}>
-          {#snippet empty()}
-            <p class="text-muted-foreground">{m.wiki_page_body_empty()}</p>
-          {/snippet}
-        </BodyView>
+      {#snippet body(store: PageStore, headings: Attachment<HTMLElement>)}
+        <div {@attach headings}>
+          <BodyView doc={outlined ? HEADED : store.body} resolveUser={() => ''}>
+            {#snippet empty()}
+              <p class="text-muted-foreground">{m.wiki_page_body_empty()}</p>
+            {/snippet}
+          </BodyView>
+        </div>
       {/snippet}
     </WikiScreen>
   {:else}
