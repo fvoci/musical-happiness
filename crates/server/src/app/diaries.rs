@@ -3,9 +3,8 @@
 //! and deleted as one ([`App::patch_block`], [`App::delete_block`]); its day is not
 //! changed at all.
 
-use fvoci_model::DiaryMaking;
 use fvoci_model::{
-    Block, BlockType, Container, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryEntry,
+    Block, BlockType, Container, DeletedDiaryEntry, DiaryDate, DiaryDay, DiaryEntry, DiaryMaking,
     ENTRIES_PER_DIARY, MonthDay, NewDiaryEntry, new_id,
 };
 use fvoci_store::DiaryMade;

@@ -552,7 +552,8 @@ async fn an_archive_puts_a_diary_in_a_space_alone_and_as_a_diary_is() {
     let (_, _, archive) = an_archived_diary(client, &ws).await;
     let stored = async || {
         let count = "SELECT CAST(count(*) AS TEXT) FROM containers WHERE kind = 'diary'";
-        let counted = th.app.store().texts_unchecked(count).await;
+        // Of every organization: the space is none of the server's own.
+        let counted = th.app.store().system().texts_unchecked(count).await;
         counted.expect("counted")
     };
     assert_eq!(stored().await, ["1"]);

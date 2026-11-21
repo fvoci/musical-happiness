@@ -454,6 +454,13 @@ async fn what_two_organizations_store_stays_apart_in_every_table() {
     for table in &walled {
         let count = async |store: &Store| store.count_rows(table).await.expect("counted");
         let (our_rows, their_rows) = (count(ours).await, count(&theirs).await);
+        // The days of diaries are of own spaces alone, and no organization of people
+        // has a row of them: `diaries::the_days_of_a_diary_stay_in_its_space` asks.
+        if table == "diary_days" {
+            let all = count(&test.system()).await;
+            assert_eq!((our_rows, their_rows, all), (0, 0, 0), "{table}");
+            continue;
+        }
         assert!(our_rows > 0, "{table}: the test stores a row of ours");
         // An organization, its provider of sign-ins, the one it moved away from and
         // its pending settings are one of each.

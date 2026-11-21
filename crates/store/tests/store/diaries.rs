@@ -4,13 +4,12 @@
 
 use std::sync::Arc;
 
-use fvoci_model::DiaryMaking;
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockType, Container, ContainerError, ContainerKind,
-    ContainerType, DIARIES_PER_SPACE, DiaryDate, ENTRIES_PER_DIARY, MonthDay, Mood, NewDiaryEntry,
-    new_id,
+    ContainerType, DIARIES_PER_SPACE, DiaryDate, DiaryMaking, ENTRIES_PER_DIARY, MonthDay, Mood,
+    NewDiaryEntry, new_id,
 };
-use fvoci_store::{SharingChange, Store, StoreError};
+use fvoci_store::{DbType, SharingChange, Store, StoreError, Tenant};
 use serde_json::json;
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
@@ -509,7 +508,7 @@ async fn a_diary_has_no_link() {
         .set_sharing(&diary_id, SharingChange::On, "token", &user_id)
         .await;
     assert!(matches!(shared, Err(StoreError::NotFound(_))), "{shared:?}");
-    let org = if common::db_type() == fvoci_store::DbType::Postgres {
+    let org = if common::db_type() == DbType::Postgres {
         (
             "org_id, ",
             "(SELECT org_id FROM containers WHERE kind = 'diary'), ",
@@ -722,7 +721,7 @@ async fn the_days_of_a_diary_are_asked_for_by_month_and_day_and_by_range() {
     assert_eq!(on(&own, &diary_id, "07-04").await, Vec::<String>::new());
     assert_eq!(on(&own, &second, "11-21").await, ["2026-11-21"]);
     // Behind the wall on PostgreSQL; on SQLite the server finds no diary of another's.
-    if common::db_type() == fvoci_store::DbType::Postgres {
+    if common::db_type() == DbType::Postgres {
         assert_eq!(
             on(&other_own, &diary_id, "11-21").await,
             Vec::<String>::new()
@@ -797,5 +796,49 @@ async fn a_diary_comes_back_from_the_trash_with_its_days() {
         .expect("read");
     assert_eq!(in_trash.len(), 1);
     assert_eq!(in_trash[0].id, trashed.id);
+    test.teardown().await;
+}
+
+/// The days of a diary are behind the wall of its space: the handle of each space
+/// reaches its own, that of an organization of people and one that names no
+/// organization reach none, and a diary named through the handle of another space is
+/// not there. Asked where there is a wall.
+#[tokio::test]
+async fn the_days_of_a_diary_stay_in_its_space() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let (one, ones, _, ones_diary) = writer(&test, "one").await;
+    let (other, others, _, others_diary) = writer(&test, "other").await;
+    written(&ones, &ones_diary, "2024-02-29", &one).await;
+    for date in ["2024-02-29", "2024-03-01"] {
+        written(&others, &others_diary, date, &other).await;
+    }
+    let count = async |store: &Store| store.count_rows("diary_days").await.expect("counted");
+    assert_eq!((count(&ones).await, count(&others).await), (1, 2));
+    assert_eq!(count(&test.store).await, 0, "an organization of people");
+    let unset = test.scoped(Tenant::Unset);
+    assert_eq!(count(&unset).await, 0, "no organization named");
+    assert_eq!(count(&test.system()).await, 3, "the system's reaches all");
+
+    let at: MonthDay = "02-29".parse().expect("a month and day");
+    let entries = ones.get_diary_entries_on(&others_diary, at).await;
+    assert_eq!(entries.unwrap_or_default(), [], "the entries of another's");
+    let days = ones.get_diary_days(&others_diary, None, None).await;
+    assert_eq!(days.unwrap_or_default(), [], "the days of another's");
+    let made = ones
+        .create_diary_entry(
+            &others_diary,
+            day("2024-03-05"),
+            of_day("2024-03-05"),
+            ENTRIES_PER_DIARY,
+            &one,
+        )
+        .await;
+    assert!(made.is_err(), "an entry in another's diary: {made:?}");
+    let trash = ones.get_deleted_diary_entries(&others_diary, None).await;
+    assert_eq!(trash.unwrap_or_default(), [], "the trash of another's");
+    assert_eq!((count(&ones).await, count(&others).await), (1, 2));
     test.teardown().await;
 }

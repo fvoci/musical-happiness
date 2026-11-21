@@ -5,10 +5,9 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use fvoci_model::DiaryMaking;
 use fvoci_model::{
-    Block, BlockType, Container, ContainerKind, ContainerType, DiaryDate, ENTRIES_PER_DIARY,
-    MonthDay, NewDiaryEntry, new_id,
+    Block, BlockType, Container, ContainerKind, ContainerType, DiaryDate, DiaryMaking,
+    ENTRIES_PER_DIARY, MonthDay, NewDiaryEntry, new_id,
 };
 use fvoci_store::{DbType, SharingChange, Store};
 use sqlx::Connection as _;
