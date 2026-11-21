@@ -16,14 +16,8 @@ import './code-block.css';
 import { copyControls, type CopyControls } from './code-copy.ts';
 import { CODE_COPY_TEXTS } from './code-copy-texts.ts';
 import { LanguagePicker } from './code-language-picker.ts';
-import {
-  codeBar,
-  codeFrame,
-  lineColumn,
-  lineDigits,
-  numberColumn,
-  numberedInColumn,
-} from './code-paint.ts';
+import { lineCount, lineDigits } from './code-lines.ts';
+import { codeBar, codeFrame, lineColumn, numberColumn, numberedInColumn } from './code-paint.ts';
 import { DIAGRAM_LANGUAGE } from './schema.ts';
 
 /** The controls of a code block's bar, which the focus may be on: the editor takes no typing then. */
@@ -31,13 +25,6 @@ export const CODE_CONTROLS = 'button.doc-code-language, button.doc-code-copy';
 
 const storedLanguage = (node: DocumentNode): string | null =>
   typeof node.attrs.language === 'string' ? node.attrs.language : null;
-
-/** How many lines a text has. */
-function lineCount(text: string): number {
-  let lines = 1;
-  for (let at = text.indexOf('\n'); at !== -1; at = text.indexOf('\n', at + 1)) lines += 1;
-  return lines;
-}
 
 /** The code blocks of each editor, to be told when it turns read-only or editable. */
 const blocksOf = new WeakMap<EditorView, Set<CodeBlockView>>();

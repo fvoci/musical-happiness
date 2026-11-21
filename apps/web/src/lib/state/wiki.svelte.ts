@@ -344,9 +344,17 @@ export class WikiStore {
     return this.#writes.createPage(draft);
   }
 
+  /** The reader's moves the backend has not answered yet: the tree says it is settling, as a board does. */
+  moving = $state(0);
+
   /** Moves a page with the pages below it where `to` says; false when it was refused (told). */
-  movePage(pageId: string, to: PagePlace): Promise<boolean> {
-    return this.#writes.movePage(pageId, to);
+  async movePage(pageId: string, to: PagePlace): Promise<boolean> {
+    this.moving += 1;
+    try {
+      return await this.#writes.movePage(pageId, to);
+    } finally {
+      this.moving -= 1;
+    }
   }
 
   /** Copies a page with the pages below it, right after it; undefined when it was refused (told). */

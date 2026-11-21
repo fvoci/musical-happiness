@@ -312,6 +312,31 @@ describe("the frame's client of a renderer's worker", () => {
     await expect(second).resolves.toBe(2);
   });
 
+  it('made with no time, waits as long as it takes, and once given one holds what is under way to it from then', async () => {
+    const worker = new FakeWorker();
+    const client = new WorkerClient(worker, undefined);
+    const first = client.request('one');
+    const second = client.request('two');
+    vi.advanceTimersByTime(60_000);
+    expect(worker.terminated).toBe(false);
+    worker.answer(1);
+    await expect(first).resolves.toBe(1);
+    vi.advanceTimersByTime(60_000);
+    client.limitEach(1000);
+    vi.advanceTimersByTime(999);
+    expect(worker.terminated).toBe(false);
+    worker.answer(2);
+    await expect(second).resolves.toBe(2);
+    // The next has its time from when it is sent.
+    const third = client.request('three');
+    vi.advanceTimersByTime(1000);
+    expect(worker.terminated).toBe(true);
+    await expect(third).rejects.toBeInstanceOf(SlowRenderer);
+    // A client stopped stays stopped.
+    client.limitEach(1000);
+    expect(client.closed).toBeInstanceOf(SlowRenderer);
+  });
+
   it('closing stops the worker; a worker that fails on its own is stopped too', async () => {
     const closing = new FakeWorker();
     const client = new WorkerClient(closing, 1000);

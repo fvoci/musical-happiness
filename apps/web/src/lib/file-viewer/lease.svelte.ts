@@ -17,6 +17,14 @@
  * somebody else took the file's, or somebody else took it while the editor
  * had let it go) is told to the writer, and the editor goes on.
  *
+ * A request to the server not answered within a turn is waited for no longer
+ * (a connection half dead): asked again at the next. A letting go given up on
+ * so leaves the lease held, by the name the next input holds on to. A holding
+ * on given up on may yet have given the editor a lease under a name it does
+ * not know: answered late, the lease is the editor's by that name; not
+ * answered, the file's lease the reader holds is not told as somebody else's
+ * for a term after it, and the lease, held on to by nobody, ends.
+ *
  * The viewer asks whether somebody edits the file (`LeaseWatch`) as it opens,
  * every 15 seconds while it is shown, and after a lease was refused.
  */
@@ -71,8 +79,11 @@ export const LEASE_TIMES: LeaseTimes = {
   warnBefore: WARN_BEFORE,
 };
 
+/** A request not answered in its time: it may have reached the server all the same. */
+class Unanswered extends Error {}
+
 /**
- * `promise`, or a rejection once `ms` passed: a request to the server that is
+ * `promise`, or `Unanswered` once `ms` passed: a request to the server that is
  * not answered within a turn (a connection half dead, a lid closed mid-way)
  * is asked again at the next, and keeps no later turn waiting.
  */
@@ -80,7 +91,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      reject(new Error('not answered within a turn'));
+      reject(new Unanswered('not answered within a turn'));
     }, ms);
   });
   return Promise.race([promise, late]).finally(() => {
@@ -111,8 +122,15 @@ export class EditLease {
   #inputAt = Date.now();
   /** A request to hold on is under way: another waits for its turn. */
   #asking = false;
-  /** The lease let go of for want of input, until the server answered: it is taken after. */
+  /** The lease let go of for want of input, until the server answered (or a turn passed): it is taken after. */
   #resting: Promise<void> = Promise.resolve();
+  /** How long a lease lasts not held on to, as the server last said, in milliseconds. */
+  #term = 0;
+  /**
+   * Until when (by the clock) the editor may hold a lease it does not know the name of: one a
+   * request given up on may have given it.
+   */
+  #unknownUntil = 0;
 
   constructor(source: LeaseSource, times: LeaseTimes = LEASE_TIMES) {
     this.#source = source;
@@ -128,7 +146,7 @@ export class EditLease {
       return 'failed';
     }
     if (held === 'editing') return 'editing';
-    this.#leaseId = held.leaseId;
+    this.#have(held);
     this.#inputAt = Date.now();
     if (this.#ended) {
       // Let go of before it was given.
@@ -163,29 +181,77 @@ export class EditLease {
     }
     this.idleSoon = idle >= this.#times.idleAfter - this.#times.warnBefore;
     this.minutesLeft = this.idleSoon ? Math.ceil((this.#times.idleAfter - idle) / 60_000) : 0;
-    let held: HeldFileLease | 'editing';
     this.#asking = true;
-    const turn = this.#times.holdEvery;
     try {
-      // Taken again only once it went: asked before, it would be found still held. A letting go
-      // not answered within a turn is waited for no longer.
-      await within(this.#resting, turn).catch(() => undefined);
-      held = await within(this.#source.holdLease(this.#leaseId), turn);
+      // Taken again only once it went (or a turn passed): asked before, it would be found still held.
+      await this.#resting;
+      const held = await this.#ask();
+      if (held !== 'editing') this.#have(held);
+      else if (!(await this.#perhapsMine())) this.lost = true;
     } catch {
       // Not reached: asked again at the next turn, within the lease's term.
       return;
     } finally {
       this.#asking = false;
     }
-    if (held === 'editing') {
-      this.lost = true;
-      return;
-    }
-    // A lease that ended and that nobody took is taken anew, under another name.
-    this.#leaseId = held.leaseId;
-    this.lost = false;
     // Let go of while it was asked for: what was given since goes too.
     if (this.#over()) void this.#letGo(false);
+  }
+
+  /** A lease held, as the server gave it: by its name, which may be new, and its term. */
+  #have(held: HeldFileLease): void {
+    // A lease that ended and that nobody took is taken anew, under another name.
+    this.#leaseId = held.leaseId;
+    this.#term = held.seconds * 1000;
+    this.lost = false;
+    // One lease of a file at a time: none other is the editor's.
+    this.#unknownUntil = 0;
+  }
+
+  /** Holds on to the lease by its name, or takes the file's; waits a turn at most. */
+  async #ask(): Promise<HeldFileLease | 'editing'> {
+    const asked = this.#leaseId;
+    const answer = this.#source.holdLease(asked);
+    try {
+      return await within(answer, this.#times.holdEvery);
+    } catch (error) {
+      if (error instanceof Unanswered) {
+        this.#unknownUntil = Date.now() + this.#term;
+        void answer.then(
+          (late) => {
+            this.#answeredLate(late, asked);
+          },
+          () => undefined,
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * A request given up on was answered after all: the lease it gave is the editor's, by its
+   * name, unless the editor let go of it meanwhile (closed, or resting), or learned another's.
+   */
+  #answeredLate(late: HeldFileLease | 'editing', asked: string): void {
+    if (late === 'editing') return;
+    if (this.#ended || this.resting) {
+      void this.#source.releaseLease(late.leaseId, false).catch(() => undefined);
+    } else if (this.#leaseId === asked) {
+      // Held on to by that name at the next turn, which tells whether it is lost.
+      this.#leaseId = late.leaseId;
+      this.#term = late.seconds * 1000;
+    }
+  }
+
+  /**
+   * Whether the file's lease, found held, may be one a request given up on gave the editor: for
+   * a term after it, unless it is somebody else's (asked, a turn at most). The reader's own other
+   * window is not told apart from it until then.
+   */
+  async #perhapsMine(): Promise<boolean> {
+    if (Date.now() >= this.#unknownUntil) return false;
+    const lease = await within(this.#source.lease(), this.#times.holdEvery).catch(() => undefined);
+    return !(lease?.editing === true && lease.editorId !== this.#source.me);
   }
 
   /**
@@ -199,7 +265,10 @@ export class EditLease {
     const leaseId = this.#leaseId;
     this.#leaseId = '';
     if (!leaseId) return;
-    this.#resting = this.#source.releaseLease(leaseId, false).catch(async () => {
+    // Not answered within a turn, it may not have reached the server either: held still, it is
+    // held on to by its name at the next input.
+    const letGo = within(this.#source.releaseLease(leaseId, false), this.#times.holdEvery);
+    this.#resting = letGo.catch(async () => {
       // Closed meanwhile: let go of once more, as nothing will hold on to it.
       if (this.#ended) await this.#source.releaseLease(leaseId, false).catch(() => undefined);
       else if (!this.#leaseId) this.#leaseId = leaseId;

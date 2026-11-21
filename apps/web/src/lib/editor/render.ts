@@ -23,6 +23,7 @@
  *   A link gets its address only when `isAllowedHref` accepts it here, again,
  *   whatever the validator said.
  */
+import { lineCount, lineDigits } from './code-lines.ts';
 import {
   FILE_BLOCK_ATTRIBUTE,
   FILE_ID_ATTRIBUTE,
@@ -35,7 +36,14 @@ import {
   type MathNodeName,
 } from './drawing.ts';
 import { fileUrl } from './files.ts';
-import { isAllowedHref, NODE_SPECS, validateDoc, type DocMark, type DocNode } from './schema.ts';
+import {
+  DIAGRAM_LANGUAGE,
+  isAllowedHref,
+  NODE_SPECS,
+  validateDoc,
+  type DocMark,
+  type DocNode,
+} from './schema.ts';
 
 export interface RenderBodyOptions {
   /**
@@ -357,6 +365,9 @@ class BodyDrawing {
         const isLanguage = this.#isLanguage;
         if (language !== undefined && isLanguage?.(language))
           code.setAttribute('class', `language-${language}`);
+        // A diagram's source has no numbers; a block has the room for its own from here on.
+        if (language !== DIAGRAM_LANGUAGE)
+          pre.setAttribute('data-line-digits', String(lineDigits(lineCount(code.textContent))));
         pre.append(code);
         return pre;
       }

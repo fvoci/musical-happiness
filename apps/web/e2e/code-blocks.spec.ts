@@ -132,7 +132,15 @@ test('the language is found and taken from the keys, and the bar is reached with
   const body = await openCardWithBody(page, 'Welcome', codeBody('ts', SOURCE));
   await expect(body).toHaveAttribute('data-editor', 'ready');
   const language = block(body).locator('button.doc-code-language');
-  await language.focus();
+  // From the text before the block, Tab is the bar's first button, and Shift+Tab the text again.
+  const tab = await tabKey(page);
+  await body.locator('p').first().click();
+  await page.keyboard.press(tab);
+  await expect(language).toBeFocused();
+  await page.keyboard.press(await tabKey(page, true));
+  await expect(body.locator('[contenteditable="true"]').first()).toBeFocused();
+  await page.keyboard.press(tab);
+  await expect(language).toBeFocused();
   await page.keyboard.press('ArrowDown');
   const search = block(body).getByRole('combobox');
   await expect(search).toBeFocused();
@@ -158,7 +166,7 @@ test('the language is found and taken from the keys, and the bar is reached with
   await expect(language).toHaveAccessibleName(/Python/);
   await expect(block(body).locator('pre > code')).toHaveClass('language-python');
   // The copy button is the next stop.
-  await page.keyboard.press(await tabKey(page));
+  await page.keyboard.press(tab);
   await expect(block(body).locator('button.doc-code-copy')).toBeFocused();
   // What is typed with the focus on a button is not typed into the body.
   await page.keyboard.type('zz');
@@ -337,6 +345,47 @@ test('a version read in the dialog is coloured as the editor colours it', async 
   await expect(block(shown).locator('button.doc-code-language')).toHaveCount(0);
   await expect(block(shown).locator('button.doc-code-copy')).toBeVisible();
   expect(await colours(shown)).toEqual(inEditor);
+});
+
+/** Where the first letter of a block's text is in the window. */
+const firstLetter = (code: Locator): Promise<{ x: number; y: number }> =>
+  code.evaluate((element) => {
+    const text = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode();
+    if (!text) throw new Error('the block has no text');
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 1);
+    const { x, y } = range.getBoundingClientRect();
+    return { x, y };
+  });
+
+test('a block of a thousand lines, numbered and only shown, keeps its text where it is when its frame comes', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fvoci:code-lines', '1');
+  });
+  // What frames the code blocks of a body that is only shown comes late, as on a slow network.
+  let release = (): void => undefined;
+  const late = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(/\/code-view-[^/]*\.js$/, async (route) => {
+    await late;
+    await route.continue();
+  });
+  // Past the length that is coloured (CODE_HIGHLIGHT_LIMIT): only the frame and the numbers come.
+  const source = Array.from({ length: 1_200 }, (_, index) => `line ${index + 1}`).join('\n');
+  const body = await openCardWithBody(page, 'Welcome', codeBody('ts', source));
+  const shown = await openVersionBefore(page, body);
+  const code = shown.locator('pre > code').first();
+  await expect(code).toContainText('line 1200');
+  await expect(shown.locator('.doc-code')).toHaveCount(0);
+  const before = await firstLetter(code);
+  release();
+  await expect(block(shown).locator('.doc-code-line')).toHaveCount(1_200);
+  // Four digits from the first drawing: the room of the numbers does not grow when they come.
+  expect(await firstLetter(code)).toEqual(before);
 });
 
 test('a syllable composed in a code block is kept, and coloured once it is done', async ({

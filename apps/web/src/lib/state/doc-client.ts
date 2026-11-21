@@ -56,8 +56,12 @@ class RoomClient implements BodyDoc {
   #read: (() => void) | undefined;
   #closed = false;
 
-  constructor(line: RoomLine, hears: BodyDocHears) {
+  /** How long the room's changes are held after the last stroke (`HELD_IDLE`). */
+  readonly #heldIdle: number;
+
+  constructor(line: RoomLine, hears: BodyDocHears, heldIdle: number) {
     this.#hears = hears;
+    this.#heldIdle = heldIdle;
     this.#port = line({
       up: () => {
         this.#take({ type: 'up' });
@@ -128,7 +132,7 @@ class RoomClient implements BodyDoc {
       // Said again with every stroke of the syllable: quiet for a while, it is held no longer.
       this.#heldTimer = setTimeout(() => {
         this.#composing(false);
-      }, HELD_IDLE);
+      }, this.#heldIdle);
       return;
     }
     const held = this.#held ?? [];
@@ -340,7 +344,11 @@ function lackedBy(doc: Y.Doc, theirs: Uint8Array): Uint8Array | undefined {
   }
 }
 
-/** Opens a card's body on a way into its room. */
-export function openRoom(line: RoomLine, hears: BodyDocHears): BodyDoc {
-  return new RoomClient(line, hears);
+/**
+ * Opens a card's body on a way into its room. `heldIdle` is how long the
+ * room's changes wait after the last stroke of a syllable: `HELD_IDLE`
+ * unless the backend in memory is told otherwise (`World.heldIdle`).
+ */
+export function openRoom(line: RoomLine, hears: BodyDocHears, heldIdle = HELD_IDLE): BodyDoc {
+  return new RoomClient(line, hears, heldIdle);
 }

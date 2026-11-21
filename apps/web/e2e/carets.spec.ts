@@ -66,13 +66,15 @@ async function bodyEditor(page: Page): Promise<Locator> {
  * tab. With `body`, the first tab's reader writes those lines in place of
  * what the body held (each tab has a world of its own, made alike: what one
  * writes reaches the other through their rooms), and leaves the body again.
+ * `query` is put after the first tab's address (a setting of its world).
  */
 async function twoTabs(
   page: Page,
   body?: string[],
+  query = '',
 ): Promise<{ mine: Locator; theirs: Locator; other: Page }> {
   const place = await find(page, 'Identify dependencies');
-  await page.goto(boardPath(place.boardId, place.viewId, place.cardId));
+  await page.goto(`${boardPath(place.boardId, place.viewId, place.cardId)}${query}`);
   const mine = await bodyEditor(page);
   const other = await page.context().newPage();
   await other.goto(boardPath(place.boardId, place.viewId, place.cardId));
@@ -268,7 +270,15 @@ test('a syllable being composed is kept while the other moves and writes in the 
     engine !== 'chromium',
     `an input method is driven through Chromium's protocol; ${engine ?? 'this browser'} has none`,
   );
-  const { mine, theirs, other } = await twoTabs(page, ['가나다 라마바', 'Below.']);
+  // What the room sends waits two seconds after a stroke (HELD_IDLE), and the other's steps
+  // between two strokes take longer than that on a busy machine: the reader's world holds it
+  // for as long as the test may take, so that the strokes alone say the syllable goes on.
+  // Letting go after the quiet is the room client's unit test (doc-room-carets.test.ts).
+  const { mine, theirs, other } = await twoTabs(
+    page,
+    ['가나다 라마바', 'Below.'],
+    `?held=${test.info().timeout}`,
+  );
   const ime = await page.context().newCDPSession(page);
   const compose = (text: string): Promise<unknown> =>
     ime.send('Input.imeSetComposition', {

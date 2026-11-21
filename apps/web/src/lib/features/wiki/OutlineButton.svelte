@@ -31,7 +31,9 @@
 
   let { outline, id }: Props = $props();
 
-  let box = $state<HTMLElement>();
+  /** Read only by handlers: nothing is drawn from it. */
+  let box: HTMLElement | undefined;
+  // State, as the button's `ref` it is bound to is.
   let opener = $state<HTMLElement | null>(null);
 
   closeOnBack(

@@ -213,6 +213,24 @@ describe('moving a page in an open wiki', () => {
     expect(titles(await made.backend.wiki.pages(made.wikiId))).toEqual(['A', '  C', 'B']);
   });
 
+  it('counts the moves not answered yet, refused or taken, one after another', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    const b = await made.page('B');
+    const c = await made.page('C');
+    await made.store.load();
+    expect(made.store.moving).toBe(0);
+    made.backend.wiki.failNext('movePage', new BackendError(500, {}));
+    const first = made.store.movePage(c, { parentId: a });
+    const second = made.store.movePage(b, { parentId: a });
+    // Shown before the backend has either: the tree says it is settling until both are answered.
+    expect(made.store.moving).toBe(2);
+    expect(await first).toBe(false);
+    expect(made.store.moving).toBe(1);
+    expect(await second).toBe(true);
+    expect(made.store.moving).toBe(0);
+  });
+
   it('takes a refused move back, and undoes to as near as is left', async () => {
     const made = await openWiki();
     const a = await made.page('A');
