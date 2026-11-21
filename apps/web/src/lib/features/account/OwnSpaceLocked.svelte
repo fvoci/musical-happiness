@@ -11,6 +11,7 @@
 -->
 <script lang="ts">
   import LockKeyholeIcon from '@lucide/svelte/icons/lock-keyhole';
+  import { tick } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { Button } from '$lib/ui/button/index.js';
@@ -32,6 +33,7 @@
   let password = $state('');
   let working = $state(false);
   let problem = $state('');
+  let field = $state<HTMLInputElement | null>(null);
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -43,7 +45,10 @@
       await onSignIn(password);
     } catch (error) {
       problem = problemOf(error);
+      // The button was out of use, and the focus with it: back to the field, to try again.
       working = false;
+      await tick();
+      field?.focus();
     }
   }
 
@@ -72,6 +77,7 @@
     </p>
     <Label for="{uid}-password">{m.account_password()}</Label>
     <Input
+      bind:ref={field}
       {@attach focusIfLost}
       id="{uid}-password"
       type="password"

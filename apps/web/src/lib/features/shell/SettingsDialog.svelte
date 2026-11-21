@@ -56,7 +56,7 @@
   } from '$lib/logic/regional.ts';
   import { browserTimeZone } from '$lib/regional.ts';
   import { saveBlob } from '$lib/save.ts';
-  import { isGuest, type Workspace } from '$lib/state/index.ts';
+  import { isGuest, isOwnSpace, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
@@ -341,71 +341,76 @@
         />
       </label>
 
-      <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-archives">
-        <h3 id="{uid}-archives" class="font-medium">{m.shell_archive_title()}</h3>
-        <div class="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            class="roomy:min-h-touch"
-            data-testid="export-workspace"
-            onclick={() => void exportWorkspace()}
-          >
-            <DownloadIcon aria-hidden="true" />
-            {m.shell_export_workspace()}
-          </Button>
-          <!-- A guest brings no boards in: importing makes boards. -->
-          {#if !isGuest(workspace)}
+      <!-- Of the workspace shown: none where it is closed to this session. -->
+      {#if workspace.info}
+        <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-archives">
+          <h3 id="{uid}-archives" class="font-medium">{m.shell_archive_title()}</h3>
+          <div class="flex flex-wrap gap-2">
             <Button
               variant="outline"
               class="roomy:min-h-touch"
-              aria-describedby="{uid}-import-hint"
-              onclick={() => importField?.click()}
+              data-testid="export-workspace"
+              onclick={() => void exportWorkspace()}
             >
-              <UploadIcon aria-hidden="true" />
-              {m.shell_import()}
+              <DownloadIcon aria-hidden="true" />
+              {m.shell_export_workspace()}
             </Button>
-            <input
-              bind:this={importField}
-              type="file"
-              accept=".boardarchive,application/zip"
-              hidden
-              data-testid="import-archive"
-              onchange={(event) => {
-                const field = event.currentTarget;
-                const file = field.files?.[0];
-                // The same file can be chosen again.
-                field.value = '';
-                const workspaceId = workspace.info?.id;
-                if (!file || workspaceId === undefined) return;
-                leftOut = undefined;
-                void workspace.importArchive(file).then((imported) => {
-                  leftOut = { workspaceId, count: imported?.membersLeftOut ?? 0 };
-                });
-              }}
-            />
+            <!-- A guest brings no boards in: importing makes boards. -->
+            {#if !isGuest(workspace)}
+              <Button
+                variant="outline"
+                class="roomy:min-h-touch"
+                aria-describedby="{uid}-import-hint"
+                onclick={() => importField?.click()}
+              >
+                <UploadIcon aria-hidden="true" />
+                {m.shell_import()}
+              </Button>
+              <input
+                bind:this={importField}
+                type="file"
+                accept=".boardarchive,application/zip"
+                hidden
+                data-testid="import-archive"
+                onchange={(event) => {
+                  const field = event.currentTarget;
+                  const file = field.files?.[0];
+                  // The same file can be chosen again.
+                  field.value = '';
+                  const workspaceId = workspace.info?.id;
+                  if (!file || workspaceId === undefined) return;
+                  leftOut = undefined;
+                  void workspace.importArchive(file).then((imported) => {
+                    leftOut = { workspaceId, count: imported?.membersLeftOut ?? 0 };
+                  });
+                }}
+              />
+            {/if}
+          </div>
+          {#if !isGuest(workspace)}
+            <p id="{uid}-import-hint" class="text-xs text-muted-foreground">
+              {m.shell_import_hint({ workspace: workspaceName })}
+            </p>
           {/if}
-        </div>
-        {#if !isGuest(workspace)}
-          <p id="{uid}-import-hint" class="text-xs text-muted-foreground">
-            {m.shell_import_hint({ workspace: workspaceName })}
+          <!-- There before it says anything, so that what it says is announced. -->
+          <p
+            role="status"
+            class={leftOutHere > 0 ? 'text-xs' : 'sr-only'}
+            data-testid="import-left-out"
+          >
+            {#if leftOutHere > 0}{m.shell_import_left_out({
+                count: leftOutHere,
+                workspace: workspaceName,
+              })}{/if}
           </p>
-        {/if}
-        <!-- There before it says anything, so that what it says is announced. -->
-        <p
-          role="status"
-          class={leftOutHere > 0 ? 'text-xs' : 'sr-only'}
-          data-testid="import-left-out"
-        >
-          {#if leftOutHere > 0}{m.shell_import_left_out({
-              count: leftOutHere,
-              workspace: workspaceName,
-            })}{/if}
-        </p>
-      </section>
+        </section>
+      {/if}
 
       {#if onOpenRecords}
         <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-records">
-          <h3 id="{uid}-records" class="font-medium">{m.shell_settings_workspace()}</h3>
+          <h3 id="{uid}-records" class="font-medium">
+            {isOwnSpace(workspace.info) ? workspaceName : m.shell_settings_workspace()}
+          </h3>
           <div>
             <Button
               variant="outline"

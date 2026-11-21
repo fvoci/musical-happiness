@@ -379,6 +379,33 @@ describe('the sidebar over a workspace', () => {
   });
 });
 
+describe('the settings in the own space', () => {
+  it('name the space its records are of, and offer no archives where it is closed', async () => {
+    const { workspace, world, backend } = setup(await loadTemplates());
+    const own = (await backend.workspaces()).find((one) => one.kind === 'personal');
+    const kept = world.ownSpaces.get(backend.userId);
+    if (!own || !kept) throw new Error('no own space');
+    await workspace.load(own.id);
+    const dialog = render(SettingsDialog, {
+      props: { open: true, workspace, onOpenRecords: vi.fn() },
+    });
+    expect(await screen.findByRole('heading', { name: 'My space' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Workspace' })).toBeNull();
+    expect(screen.getByTestId('export-workspace')).toBeInTheDocument();
+    dialog.unmount();
+
+    kept.passwordRequired = true;
+    await workspace.enter(world.workspace.id);
+    await workspace.enter(own.id);
+    expect(workspace.entered).toBe('password');
+    render(SettingsDialog, { props: { open: true, workspace } });
+    await screen.findByRole('dialog');
+    expect(screen.queryByTestId('export-workspace')).toBeNull();
+    expect(screen.queryByTestId('import-archive')).toBeNull();
+    expect(screen.queryByText(/this workspace/i)).toBeNull();
+  });
+});
+
 describe('an import from the settings', () => {
   it('says in a line how many members it left out, nothing when none, and forgets it when closed', async () => {
     const { workspace } = setup(await loadTemplates());

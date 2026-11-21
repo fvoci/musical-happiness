@@ -38,7 +38,9 @@ describe('the own space that opens with the password', () => {
     await fireEvent.input(screen.getByLabelText('Password'), {
       target: { value: 'not it at all' },
     });
-    await fireEvent.click(screen.getByRole('button', { name: 'Sign in with password' }));
+    const button = screen.getByRole('button', { name: 'Sign in with password' });
+    button.focus();
+    await fireEvent.click(button);
     await waitFor(() => {
       expect(screen.getByTestId('own-space-locked-problem')).toHaveTextContent(
         'The name or the password is wrong.',
@@ -46,6 +48,10 @@ describe('the own space that opens with the password', () => {
     });
     expect(screen.getByLabelText('Password')).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByRole('button', { name: 'Sign in with password' })).toBeEnabled();
+    // The button was out of use meanwhile: the field has the focus again, to try again.
+    await waitFor(() => {
+      expect(screen.getByLabelText('Password')).toHaveFocus();
+    });
   });
 
   it('leaves the focus where the reader put it', async () => {

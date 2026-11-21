@@ -33,6 +33,7 @@
   import {
     BackendError,
     isBackendError,
+    isOpen,
     isSignedOut,
     providePeople,
     startOrganization,
@@ -234,7 +235,7 @@
   /** The reader's workspaces that this session opens: where else to go from one it does not. */
   const openWorkspaces = $derived(
     (workspace?.workspaces ?? [])
-      .filter((one) => !one.ssoRequired)
+      .filter(isOpen)
       .map((one) => ({ ...one, href: router.href({ workspaceId: one.id }) })),
   );
 
