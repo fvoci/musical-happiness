@@ -161,7 +161,7 @@
 
 <Dialog.Root bind:open>
   <Dialog.Content
-    class="flex h-[min(90dvh,44rem)] flex-col gap-0 p-0 sm:max-w-3xl"
+    class="flex h-[min(90dvh,44rem)] flex-col gap-0 p-0 [--doc-surface:var(--popover)] sm:max-w-3xl"
     showCloseButton={false}
     data-testid="body-versions"
     onkeydown={keyInDialog}

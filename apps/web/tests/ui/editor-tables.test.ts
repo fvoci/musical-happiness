@@ -241,7 +241,49 @@ describe('a table pasted', () => {
     pasteText(editor, '| x | y |\n|---|---|\n| z | w |');
     expect(validateDoc(stored(editor))).toEqual([]);
     expect(editor.state.doc.childCount).toBe(1);
-    expect(cells(editor).flat()).toEqual(expect.arrayContaining(['x', 'y', 'z', 'w', 'a']));
+    // From the reader's cell on, the table grown by what it lacked.
+    expect(cells(editor)).toEqual([
+      ['a', 'b', ''],
+      ['c', 'x', 'y'],
+      ['', 'z', 'w'],
+    ]);
+  });
+
+  it('alone into a cell whence it would take the table past 20 columns is its rows as lines there', () => {
+    const editor = create(wide(2, 20));
+    putCaret(editor, inCell(editor, [0, 19]));
+    pasteHTML(editor, '<table><tr><td>p</td><td>q</td></tr><tr><td>r</td><td>s</td></tr></table>');
+    const made = stored(editor);
+    expect(validateDoc(made)).toEqual([]);
+    expect(editor.state.doc.childCount).toBe(1);
+    expect(cells(editor).map((line) => line.length)).toEqual([20, 20]);
+    const last = editor.state.doc.firstChild?.firstChild?.lastChild;
+    // Pasted where the caret is: at the start of the cell's line.
+    expect(last?.content.content.map((block) => block.textContent)).toEqual([
+      'p | q',
+      'r | s',
+      'x',
+    ]);
+  });
+
+  it('into a cell among other blocks is its rows as lines, a block of no text after its row', () => {
+    const editor = create(doc(table(row(['a', 'b']))));
+    putCaret(editor, inCell(editor, [0, 1]));
+    pasteHTML(
+      editor,
+      '<p>before</p><table><tr><td>c</td><td><hr></td></tr><tr><td>d</td><td>e</td></tr></table>',
+    );
+    const made = stored(editor);
+    expect(validateDoc(made)).toEqual([]);
+    expect(editor.state.doc.childCount).toBe(1);
+    const last = editor.state.doc.firstChild?.firstChild?.lastChild;
+    expect(last?.content.content.map((block) => [block.type.name, block.textContent])).toEqual([
+      ['paragraph', 'before'],
+      ['paragraph', 'c | '],
+      ['horizontalRule', ''],
+      ['paragraph', 'd | e'],
+      ['paragraph', 'b'],
+    ]);
   });
 
   it('into a list entry stands in the document itself', () => {
@@ -277,7 +319,7 @@ describe('a table pasted', () => {
     expect(markdown.state.doc.childCount).toBe(201);
   });
 
-  it('from a page with a table in a cell keeps no table in the cell', () => {
+  it('from a page with a table in a cell is parted around it, so that no table stands in a cell', () => {
     const editor = create(doc(paragraph('')));
     putCaret(editor, 1);
     pasteHTML(
@@ -286,7 +328,19 @@ describe('a table pasted', () => {
     );
     const made = stored(editor);
     expect(validateDoc(made)).toEqual([]);
-    expect(JSON.stringify(made)).toContain('inner');
+    // The parser closes the outer table before the inner one and opens another after it.
+    const tables: string[][][] = [];
+    editor.state.doc.forEach((block) => {
+      expect(block.type.name).toBe('table');
+      const rows: string[][] = [];
+      block.forEach((line) => {
+        const texts: string[] = [];
+        line.forEach((one) => texts.push(one.textContent));
+        rows.push(texts);
+      });
+      tables.push(rows);
+    });
+    expect(tables).toEqual([[['a']], [['inner']], [['b']]]);
   });
 });
 

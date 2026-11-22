@@ -3,16 +3,19 @@
  * (`crates/collab/src/mend.rs`), for the rooms of the backend in memory
  * (rooms.ts): what two changes that are each valid can leave once merged. A
  * text with nothing in it among a row's cells goes, a cell that fails (left
- * empty, holding a table) is put back empty in its place, a row left without
- * cells goes and a table without rows with it, a span is narrowed to what
- * fits, and a row is given the empty cells it lacks at its end. Anything else
- * that is wrong is left, for the room to refuse.
+ * empty, holding a table) is put back empty in its place, a span is narrowed
+ * to what fits, and a row is given the empty cells it lacks at its end (one
+ * without cells too, unless the cells above cover it); a table no row of which
+ * holds a cell goes. Anything else that is wrong is left, for the room to
+ * refuse.
  *
  * The rooms of the tabs joined together (`shareRooms`) each mend what they
  * hold. So that two that mend the same are one, as two makings of a document
  * are (room-docs.ts), each thing put is written as a client of its own, named
- * by where it goes: two tabs that put the same cell after the same one write
- * the same item. Deleting needs none, as it is the same whoever does it.
+ * by where it goes and what it is: two tabs that put the same cell after the
+ * same one write the same item, and two that put one after different ones
+ * write two, never one item that is not the same in both. Deleting needs
+ * none, as it is the same whoever does it.
  */
 import * as Y from 'yjs';
 
@@ -92,21 +95,23 @@ function mendRows(doc: Y.Doc, table: Y.XmlElement): boolean {
     if (!cells.every((cell) => isElement(cell, CELLS))) return false;
     for (const [at, cell] of cells.entries()) {
       if (cellStays(cell)) continue;
-      const put = emptyCell(cell.nodeName, cell.getAttributes());
-      writeAs(doc, `put ${nameOf(row)} ${nameOf(cell)}`, () => {
+      const attrs = cell.getAttributes();
+      const put = emptyCell(cell.nodeName, attrs);
+      // After the cell before it as it is now: one put there already, if it failed too.
+      const after = at > 0 ? nameOf(row.get(at - 1)) : 'start';
+      const key = `put ${nameOf(row)} ${after} ${nameOf(cell)} ${JSON.stringify(attrs)}`;
+      writeAs(doc, key, () => {
         row.delete(at);
         row.insert(at, [put]);
       });
     }
   }
-  for (const [at, row] of [...table.toArray().entries()].reverse()) {
-    if ((row as Y.XmlElement).length === 0)
-      doc.transact(() => {
-        table.delete(at);
-      });
-  }
   return true;
 }
+
+/** Whether no row of a table holds a cell, or it has no row: the grid has no column, and it goes. */
+const holdsNoCell = (table: Y.XmlElement): boolean =>
+  table.toArray().every((row) => row instanceof Y.XmlElement && row.length === 0);
 
 /** Narrows the spans of a table's cells to what fits, and fills its rows' ends; false past a limit. */
 function mendGrid(doc: Y.Doc, table: Y.XmlElement): boolean {
@@ -148,14 +153,13 @@ function mendGrid(doc: Y.Doc, table: Y.XmlElement): boolean {
   return true;
 }
 
-/** Whether a table needs mending: a text or a failing cell in a row, a row without cells, or an unfilled grid. */
+/** Whether a table needs mending: a text or a failing cell in a row, no cell at all, or an unfilled grid. */
 function needsMending(table: Y.XmlElement): boolean {
-  const rows = table.toArray();
+  if (holdsNoCell(table)) return true;
   const grid: GridNode = { content: [] };
-  for (const row of rows) {
+  for (const row of table.toArray()) {
     if (!(row instanceof Y.XmlElement)) return true;
     const cells = row.toArray();
-    if (cells.length === 0) return true;
     if (cells.some((cell) => !isElement(cell, CELLS) || !cellStays(cell))) return true;
     grid.content?.push({
       content: (cells as Y.XmlElement[]).map((cell) => ({ attrs: cell.getAttributes() })),
@@ -186,7 +190,7 @@ export function mendTables(doc: Y.Doc): Uint8Array | undefined {
     for (const table of fragment.toArray()) {
       if (!isElement(table, new Set(['table'])) || !needsMending(table)) continue;
       if (!mendRows(doc, table)) continue;
-      if (table.length === 0) {
+      if (holdsNoCell(table)) {
         const at = fragment.toArray().indexOf(table);
         doc.transact(() => {
           fragment.delete(at);

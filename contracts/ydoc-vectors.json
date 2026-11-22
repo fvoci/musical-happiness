@@ -4886,6 +4886,56 @@
       }
     },
     {
+      "name": "a table whose second row has no cell, which no cell above covers",
+      "update": "AQsBAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgHAAEDBgQAAQQBYYcBAgMJdGFibGVDZWxsBwABBgMJcGFyYWdyYXBoBwABBwYEAAEIAWKHAQEDCHRhYmxlUm93AA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "table",
+            "content": [
+              {
+                "type": "tableRow",
+                "content": [
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "a"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "b"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tableRow"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "a cell whose rowspan reaches past the last row",
       "update": "ARABAAcBB2RlZmF1bHQDBXRhYmxlBwABAAMIdGFibGVSb3cHAAEBAwl0YWJsZUNlbGwHAAECAwlwYXJhZ3JhcGgHAAEDBgQAAQQBYSgAAQIHcm93c3BhbgF9A4cBAgMJdGFibGVDZWxsBwABBwMJcGFyYWdyYXBoBwABCAYEAAEJAWKHAQEDCHRhYmxlUm93BwABCwMJdGFibGVDZWxsBwABDAMJcGFyYWdyYXBoBwABDQYEAAEOAWMA",
       "json": {

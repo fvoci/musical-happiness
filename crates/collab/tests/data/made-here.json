@@ -648,6 +648,74 @@
               {
                 "content": [
                   {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "a",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "content": [
+                          {
+                            "text": "b",
+                            "type": "text"
+                          }
+                        ],
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              },
+              {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  },
+                  {
+                    "content": [
+                      {
+                        "type": "paragraph"
+                      }
+                    ],
+                    "type": "tableCell"
+                  }
+                ],
+                "type": "tableRow"
+              }
+            ],
+            "type": "table"
+          }
+        ],
+        "type": "doc"
+      },
+      "name": "a table whose second row has no cell, which no cell above covers",
+      "update": "AgiAgICAEAAHAAEKAwl0YWJsZUNlbGwHAICAgIAQAAMJcGFyYWdyYXBoKACAgICAEAAHY29sc3BhbgF9ASgAgICAgBAAB3Jvd3NwYW4BfQGHgICAgBAAAwl0YWJsZUNlbGwHAICAgIAQBAMJcGFyYWdyYXBoKACAgICAEAQHY29sc3BhbgF9ASgAgICAgBAEB3Jvd3NwYW4BfQELAQAHAQdkZWZhdWx0AwV0YWJsZQcAAQADCHRhYmxlUm93BwABAQMJdGFibGVDZWxsBwABAgMJcGFyYWdyYXBoBwABAwYEAAEEAWGHAQIDCXRhYmxlQ2VsbAcAAQYDCXBhcmFncmFwaAcAAQcGBAABCAFihwEBAwh0YWJsZVJvdwA="
+    },
+    {
+      "json": {
+        "content": [
+          {
+            "content": [
+              {
+                "content": [
+                  {
                     "attrs": {
                       "rowspan": 2
                     },

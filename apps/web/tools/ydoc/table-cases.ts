@@ -71,6 +71,10 @@ export const TABLE_REFUSED: RawCase[] = [
     root: [table(row(header([line('a')])), row(cell([line('b')]), cell([line('c')])))],
   },
   {
+    name: 'a table whose second row has no cell, which no cell above covers',
+    root: [table(row(cell([line('a')]), cell([line('b')])), row())],
+  },
+  {
     name: 'a cell whose rowspan reaches past the last row',
     root: [
       table(row(cell([line('a')], { rowspan: 3 }), cell([line('b')])), row(cell([line('c')]))),

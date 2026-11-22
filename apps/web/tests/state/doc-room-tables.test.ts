@@ -13,6 +13,7 @@ import * as Y from 'yjs';
 import type { DocNode } from '$lib/editor/schema.ts';
 import type { BodyDoc, BodyDocHears } from '$lib/state/backend.ts';
 import { bodyOf, FIELD, roomsOf } from '$lib/state/memory/rooms.ts';
+import { documentOf } from '$lib/state/memory/room-docs.ts';
 import { mendTables } from '$lib/state/memory/table-mend.ts';
 import type { StoredCard } from '$lib/state/memory/world.ts';
 
@@ -132,12 +133,51 @@ describe('the tables of a room in memory', () => {
     }
   });
 
-  it('leaves a table that fills its grid as it is', () => {
-    const doc = readerOf(fromBase64(TABLES[0]?.update ?? ''));
-    mendTables(doc);
+  it('leaves a table that fills its grid as it is, a row the cells above cover wholly too', () => {
+    // As it is stored: a row with nothing in it has no content, a span of one is not written.
+    const filled: DocNode = {
+      type: 'doc',
+      content: [
+        {
+          type: 'table',
+          content: [
+            {
+              type: 'tableRow',
+              content: [
+                { type: 'tableCell', attrs: { colspan: 2, rowspan: 2 }, content: [paragraph('a')] },
+              ],
+            },
+            { type: 'tableRow' },
+            ...(tableOf([['b', 'c']]).content?.[0]?.content ?? []),
+          ],
+        },
+      ],
+    };
+    const doc = documentOf(filled);
     const before = Y.encodeStateAsUpdate(doc);
     expect(mendTables(doc)).toBeUndefined();
     expect(Y.encodeStateAsUpdate(doc)).toEqual(before);
+    expect(bodyOf(doc)).toEqual(filled);
+  });
+
+  it('puts a failing cell back after the cell before it, so that two tabs that saw different ones still agree', () => {
+    // The cell after `a` failed; one tab has also had `n` put before it, the other not yet.
+    const one = documentOf(tableOf([['a', 'f']]));
+    const failing = rowsOf(one)[0]?.get(1) as Y.XmlElement;
+    one.transact(() => {
+      failing.delete(0, failing.length);
+    });
+    const other = new Y.Doc();
+    Y.applyUpdate(other, Y.encodeStateAsUpdate(one));
+    other.clientID = 0x7fff_fff0;
+    rowsOf(other)[0]?.insert(1, [cell('n')]);
+    expect(mendTables(one)).toBeDefined();
+    expect(mendTables(other)).toBeDefined();
+    Y.applyUpdate(one, Y.encodeStateAsUpdate(other, Y.encodeStateVector(one)));
+    Y.applyUpdate(other, Y.encodeStateAsUpdate(one, Y.encodeStateVector(other)));
+    // Both puts stand, each after the cell its tab saw: one table, the same in both.
+    expect(bodyOf(one)).toBeDefined();
+    expect(bodyOf(one)).toEqual(bodyOf(other));
   });
 
   it('takes a column and a row added at once by two readers, and mends the row once', async () => {

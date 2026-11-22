@@ -33,7 +33,12 @@
   }
 </script>
 
-<div {id} class="mt-2 rounded-lg border bg-muted/40 px-3 py-2" data-testid="comment-history">
+<!-- A tint, not a colour: a table of an older version, which nobody types in, has a clear frame on it. -->
+<div
+  {id}
+  class="mt-2 rounded-lg border bg-muted/40 px-3 py-2 [--doc-surface:transparent]"
+  data-testid="comment-history"
+>
   {#await versions}
     <p class="text-sm text-muted-foreground">{m.app_loading()}</p>
   {:then list}

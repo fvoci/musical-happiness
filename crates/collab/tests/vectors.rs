@@ -261,6 +261,11 @@ fn refused_tables(a: Value) -> Vec<(&'static str, Left)> {
             "a row of headers a cell short",
             left(0, 1, doc(&[table(&[&["#a", "#"], &["b", "c"]])])),
         ),
+        // A row with no cell is a row short of every cell: it stays, and is given them.
+        (
+            "a table whose second row has no cell, which no cell above covers",
+            left(0, 2, doc(&[table(&[&["a", "b"], &["", ""]])])),
+        ),
         // A span is narrowed to what fits.
         (
             "a cell whose rowspan reaches past the last row",
