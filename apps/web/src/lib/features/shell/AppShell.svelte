@@ -45,6 +45,7 @@
   import type { ContainerPlace } from '$lib/logic/urls.ts';
   import type { Container } from '$lib/logic/wire.ts';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
+  import { focusRevealed } from '$lib/layout/focus.ts';
   import { sidebarShape } from '$lib/layout/presentation.ts';
   import { paneCovered } from '$lib/layout/over-pane.svelte.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
@@ -159,13 +160,13 @@
   let opener: Element | null = null;
   $effect(() => {
     if (!drawerOut) return;
-    panel?.focus({ preventScroll: true });
+    focusRevealed(panel, { preventScroll: true });
     return () => {
       const from = opener;
       opener = null;
       const lost = document.activeElement;
       if (!(from instanceof HTMLElement) || !from.isConnected) return;
-      if (lost === null || lost === document.body || panel?.contains(lost)) from.focus();
+      if (lost === null || lost === document.body || panel?.contains(lost)) focusRevealed(from);
     };
   });
 
@@ -180,7 +181,7 @@
 
   async function focusOn(testId: string): Promise<void> {
     await tick();
-    shell?.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus();
+    focusRevealed(shell?.querySelector<HTMLElement>(`[data-testid="${testId}"]`));
   }
 
   /** The strip's first button: the whole list, as a drawer or, on an expanded page, back in its column. */

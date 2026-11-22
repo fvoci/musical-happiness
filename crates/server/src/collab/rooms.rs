@@ -94,6 +94,8 @@ pub(super) struct Rooms {
     per_user: usize,
     /// How many commands and frames a connection may send in a second.
     frames_per_second: u32,
+    /// The clock that counts each connection's frame rate.
+    pub(super) rate_clock: super::seat::RateClock,
     /// How many messages may wait for a connection, of all its rooms.
     queue_messages: usize,
     /// The number of the next connection.
@@ -119,6 +121,7 @@ impl Rooms {
             per_room: as_count(settings.collab_connections_per_document),
             per_user: as_count(settings.collab_connections_per_user),
             frames_per_second: settings.collab_frames_per_second,
+            rate_clock: super::seat::RateClock::default(),
             queue_messages: as_count(settings.collab_queue_messages),
             next_connection: AtomicU64::new(0),
             walls: walls::Walls::new(Duration::from_secs(settings.collab_recheck_seconds)),

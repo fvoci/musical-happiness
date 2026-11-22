@@ -112,11 +112,12 @@ fn operations() -> Vec<(String, String, String)> {
             }
         }
     }
-    // What takes the member off the board, or a thing away, goes after the rest, and
-    // what ends the member's session last, so that everything else is asked first.
+    // What takes the member off the board, or a thing away, goes after the rest, then
+    // the member's leaving the organization, whose session stays, and what ends the
+    // member's session last, so that everything else is asked first.
     let rank = |id: &str| match id {
         "logout" => 3,
-        "changePassword" => 2,
+        "changePassword" | "leaveOrganization" => 2,
         "leaveContainer"
         | "deleteContainer"
         | "deleteBlock"

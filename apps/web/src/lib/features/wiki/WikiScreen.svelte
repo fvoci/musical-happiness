@@ -30,6 +30,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
+  import { focusRevealed } from '$lib/layout/focus.ts';
   import { coverPane } from '$lib/layout/over-pane.svelte.ts';
   import { pane } from '$lib/layout/room.svelte.ts';
   import type { PagePlace } from '$lib/logic/page-moves.ts';
@@ -147,14 +148,14 @@
     const target =
       panel?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]') ??
       panel?.querySelector<HTMLElement>('button');
-    target?.focus();
+    focusRevealed(target);
   }
 
   /** Puts the drawer away, the focus back on the button that opened it once it is no longer inert. */
   async function closeDrawer(): Promise<void> {
     drawer = false;
     await tick();
-    opener?.focus();
+    focusRevealed(opener);
   }
 
   closeOnBack(
