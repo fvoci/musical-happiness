@@ -82,6 +82,8 @@ export type { LinkedBlock } from './references.ts';
 export { byCreation, byTitle, type SidebarCategory } from './order.ts';
 export {
   TRANSFER_STAYS,
+  UploadKept,
+  type Saying,
   type Transfer,
   type TransferOptions,
   type UploadFailure,

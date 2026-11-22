@@ -10,7 +10,8 @@
   A line with an address (`href`) is a link, in either: it can be opened in
   a new tab (a click or Enter with Ctrl, ⌘ or Shift, the middle button), the
   one marked is the page shown (`aria-current`), and its whole label is its
-  tooltip, for a label the dropdown cuts. The sheet's lines wrap instead.
+  tooltip where the dropdown cuts it (`cutTitle`). The sheet's lines wrap
+  instead, and have none: a finger finds no tooltip.
 
   A line may end in tools (`MenuTool`), commands about its thing that leave
   the menu open, and `status` says what they did. Their keys (Alt and an
@@ -27,6 +28,7 @@
   import { overlayPresentation, type OverlayPresentation } from '$lib/layout/presentation.ts';
   import { insets, page } from '$lib/layout/room.svelte.ts';
   import { isApplePlatform } from '$lib/keys.ts';
+  import { cutTitle } from '$lib/components/cut-title.ts';
   import * as DropdownMenu from '$lib/ui/dropdown-menu/index.js';
 
   import BottomSheet from '../sheet/BottomSheet.svelte';
@@ -212,7 +214,7 @@
           {href}
           aria-current={action.checked ? 'page' : undefined}
           aria-keyshortcuts={lineKeys(action)}
-          title={action.label}
+          {@attach cutTitle(action.label)}
           onclick={(event) => {
             select?.(event);
             follow(event, action);
@@ -275,7 +277,6 @@
               aria-label={action.ariaLabel}
               aria-current={action.checked ? 'page' : undefined}
               aria-keyshortcuts={lineKeys(action)}
-              title={action.label}
               data-action={action.id}
               class={SHEET_LINE}
               onclick={(event) => {

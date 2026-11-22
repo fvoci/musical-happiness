@@ -2,7 +2,8 @@
  * The outline of a wiki's page on the real server: it follows the headings
  * another browser writes, writes nothing into the body itself, is the same
  * for whoever may only read the page and for a reader by the public link
- * (none for a page with fewer than two headings), and stays folded away
+ * (beside a page that gives up some of its width for it where it must;
+ * none for a page with fewer than two headings), and stays folded away
  * after a reload once the reader folded it. Pictures with `FVOCI_SCREENS=1`
  * go to `target/wiki-toc/screens/`.
  */
@@ -226,7 +227,7 @@ test('the outline follows the headings another browser writes, writes nothing it
   await api.dispose();
 });
 
-test('a reader by the public link has the same outline, wide and at 390 pixels; a page with one heading has none', async ({
+test('a reader by the public link has the same outline, wide, beside a narrowed page and at 390 pixels; a page with one heading has none', async ({
   browser,
   baseURL,
 }) => {
@@ -267,6 +268,25 @@ test('a reader by the public link has the same outline, wide and at 390 pixels; 
   await expect(bodyHeading(page, 'Part 5')).toBeFocused();
   await expect(currentItem(page)).toHaveText('Part 5');
   await pictured(page, 'public-wide');
+
+  // Narrower, beside the page tree: the page gives up some of its width (from 48rem, not
+  // below 40rem) for the outline at its right, and a heading chosen there is gone to.
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await expect(outlineBeside(page)).toBeVisible();
+  await expect
+    .poll(async () => (await reader.getByTestId('page-title').boundingBox())?.width ?? 0)
+    .toBeLessThan(768);
+  const [title, side] = await Promise.all([
+    reader.getByTestId('page-title').boundingBox(),
+    outlineBeside(page).boundingBox(),
+  ]);
+  expect(title?.width).toBeGreaterThanOrEqual(640);
+  expect(side?.x).toBeGreaterThanOrEqual((title?.x ?? 0) + (title?.width ?? 0) - 1);
+  await item(page, 'Part 2').click();
+  await expect(bodyHeading(page, 'Part 2')).toBeInViewport();
+  await expect(bodyHeading(page, 'Part 2')).toBeFocused();
+  await expect(currentItem(page)).toHaveText('Part 2');
+  await pictured(page, 'public-1200');
 
   // The page with one heading: no outline, and no empty box in its place.
   await reader.getByTestId('shared-page-tree').getByRole('link', { name: 'Short' }).click();

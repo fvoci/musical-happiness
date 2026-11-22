@@ -10,11 +10,13 @@
  * waits while the reader points at the stack or is in it (`holdWhile`). A failed
  * upload stays, with why, until it is dismissed, and one that can be sent
  * again says so (`retry`); a failed archive is told where problems are. One
- * dismissed while under way is given up and told nothing. Each belongs to the
- * workspace it was started in and is shown only there; it goes on meanwhile.
+ * dismissed while under way is given up and told nothing, unless what it did
+ * by then could not be taken back (`UploadKept`): it comes back to say so.
+ * Each belongs to the workspace it was started in and is shown only there; it
+ * goes on meanwhile.
  *
- * Only a start, an end and a failure are said (`said`): not the counts that
- * change with every part.
+ * Only a start, an end and a failure are said (`said`), each in its turn, so
+ * that two at once are both heard: not the counts that change with every part.
  */
 import { isBackendError } from './backend.ts';
 import type { ProblemAction } from './workspace.svelte.ts';
@@ -35,6 +37,8 @@ export type UploadFailure =
   | 'room'
   /** What it was going up for closed before it was in (a body's image or file). */
   | 'left'
+  /** Given up once it was in already (attached), and not taken out again: it stays there. */
+  | 'kept'
   | 'failed';
 
 /** Something on its way down or up, for the reader to watch. */
@@ -57,6 +61,24 @@ export interface Transfer {
   readonly workspaceId?: string;
   /** The card a file is attached to: its list of attachments shows it in place. */
   readonly card?: string;
+}
+
+/** One start, end or failure, as it was when it was said; `key` tells each from the others. */
+export interface Saying {
+  readonly key: number;
+  readonly transfer: Transfer;
+}
+
+/**
+ * What an upload's `send` throws when it was given up only once it had done
+ * its work (a file attached), and that could not be undone: the upload comes
+ * back to say it stays where it went.
+ */
+export class UploadKept extends Error {
+  constructor(cause: unknown) {
+    super('given up once it was in, and not taken out again', { cause });
+    this.name = 'UploadKept';
+  }
 }
 
 /** What a transfer is given to report how far it is, and to be given up by. */
@@ -98,6 +120,9 @@ const PASSING: readonly UploadFailure[] = ['network', 'busy', 'room', 'failed'];
 /** How long a finished transfer stays in sight, in milliseconds. */
 export const TRANSFER_STAYS = 6000;
 
+/** How many of the latest sayings are kept: those said at once, however many, are in it. */
+const SAYINGS_KEPT = 20;
+
 /** Why an upload failed, from what it failed with. */
 export function failureOf(error: unknown): { failure: UploadFailure; limit?: number } {
   if (!isBackendError(error)) return { failure: 'failed' };
@@ -120,10 +145,11 @@ export function failureOf(error: unknown): { failure: UploadFailure; limit?: num
 
 export class Transfers {
   list = $state.raw<Transfer[]>([]);
-  /** The latest start, end or failure, as it was then: what a screen reader is told. */
-  said = $state.raw<Transfer | undefined>(undefined);
+  /** The latest starts, ends and failures, oldest first, as each was then: what a screen reader is told. */
+  said = $state.raw<readonly Saying[]>([]);
   readonly #shell: TransferShell;
   #count = 0;
+  #sayings = 0;
   /** What gives up each transfer under way. */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- nothing that is drawn reads it
   readonly #running = new Map<number, AbortController>();
@@ -253,6 +279,7 @@ export class Transfers {
   ): Promise<T | undefined> {
     const stop = new AbortController();
     this.#running.set(id, stop);
+    const begun = this.list.find((one) => one.id === id);
     try {
       const result = await run({
         onProgress: ({ sentBytes, totalBytes }) => {
@@ -267,10 +294,18 @@ export class Transfers {
       return result;
     } catch (error) {
       if (!stop.signal.aborted) failed(error);
+      else if (error instanceof UploadKept && begun) this.#keep(begun);
       return undefined;
     } finally {
       this.#running.delete(id);
     }
+  }
+
+  /** One given up that stays where it went: back in the stack, said, until dismissed. */
+  #keep(begun: Transfer): void {
+    const kept: Transfer = { ...begun, failure: 'kept', limit: undefined, retry: undefined };
+    this.list = [...this.list.filter((one) => one.id !== begun.id), kept];
+    this.#say(begun.id);
   }
 
   #change(id: number, patch: Partial<Omit<Transfer, 'id'>>): void {
@@ -279,7 +314,9 @@ export class Transfers {
 
   #say(id: number): void {
     const one = this.list.find((each) => each.id === id);
-    if (one) this.said = one;
+    if (!one) return;
+    this.#sayings += 1;
+    this.said = [...this.said, { key: this.#sayings, transfer: one }].slice(-SAYINGS_KEPT);
   }
 
   /** A finished one goes a moment from now, or, the stack held then, a moment after. */

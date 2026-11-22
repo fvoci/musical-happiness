@@ -162,7 +162,9 @@ describe('the whole row', () => {
     // No tabs: the views are behind the one button, which names the one shown.
     expect(within(header()).queryAllByRole('link')).toHaveLength(0);
     expect(toolButton('views')).toHaveTextContent('List');
-    expect(toolButton('views')).toHaveAttribute('title', 'List');
+    // Shown whole (a simulated page cuts nothing): no tooltip of the same words.
+    await fireEvent.pointerEnter(toolButton('views'));
+    expect(toolButton('views')).not.toHaveAttribute('title');
     await openMenu(toolButton('views'));
     const views = viewLinks();
     expect(views.map((line) => line.textContent.trim())).toEqual(['Board', 'List']);

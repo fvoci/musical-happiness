@@ -743,9 +743,12 @@ test.describe('views', () => {
     await resize(page, 390, 844);
     await expect(header(page)).toHaveAttribute('data-layout', 'folded');
     const views = tool(page, 'views');
+    const shown = (await views.textContent())?.trim() ?? '';
     await views.focus();
     await page.keyboard.press('Enter');
     await expect(sheet(page)).toBeVisible();
+    // It names the view the lines after the views change, and the board.
+    await expect(sheet(page).getByText(`Project Tasks · showing ${shown}`)).toBeVisible();
     const lines = sheet(page).locator('a[role="menuitem"]');
     await expect(lines).toHaveText(SEED_VIEWS);
     // Tab reaches the buttons of the sheet, which keep the focus.

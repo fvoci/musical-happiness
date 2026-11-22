@@ -30,7 +30,7 @@ import { REJOIN_SPACING, afterPutOut, type CommentEdit } from './card-parts.ts';
 import { byCreation } from './order.ts';
 import { authorIds } from './user-names.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
-import type { Transfer } from './transfers.svelte.ts';
+import { UploadKept, type Transfer } from './transfers.svelte.ts';
 import { reread, take } from './write.ts';
 
 /** How long the line at the top of the card says "saving" after the server had it all. */
@@ -67,10 +67,13 @@ export class CardStore {
   bodySaving = $state(false);
   /**
    * The files going up to be attached here, or that failed to, as the stack of
-   * the workspace has them: they outlive the card. One that is in is an attachment.
+   * the workspace has them: they outlive the card. One that is in is an attachment,
+   * one given up too late as well (`kept`).
    */
   readonly uploads = $derived.by<Transfer[]>(() =>
-    this.board.workspace.transfers.list.filter((one) => one.card === this.cardId && !one.finished),
+    this.board.workspace.transfers.list.filter(
+      (one) => one.card === this.cardId && !one.finished && one.failure !== 'kept',
+    ),
   );
 
   #comments = $state.raw<Comment[]>([]);
@@ -406,12 +409,17 @@ export class CardStore {
    * Uploads a file and attaches it to the card, shown in the stack of the
    * workspace (`uploads` here). Closing the card does not give it up: the card
    * open then takes the attachment. One given up as it was being attached
-   * is taken away again.
+   * is taken away again; where that fails, it stays attached, and the stack
+   * says so (`UploadKept`).
    */
   async attach(file: File): Promise<void> {
     const { workspace, boardId } = this.board;
     const { backend } = workspace;
     const cardId = this.cardId;
+    const shown = (attachment: Attachment): void => {
+      const open = workspace.board?.openCard;
+      if (open?.cardId === cardId && open.board.boardId === boardId) open.receive(attachment);
+    };
     await workspace.transfers.upload({
       file,
       card: cardId,
@@ -420,12 +428,18 @@ export class CardStore {
         const uploaded = await backend.upload(boardId, file, options);
         options.signal.throwIfAborted();
         const attachment = await backend.createAttachment(boardId, cardId, uploaded);
-        if (options.signal.aborted) {
-          await backend.deleteBlock(boardId, attachment.id);
+        if (!options.signal.aborted) {
+          shown(attachment);
           return;
         }
-        const open = workspace.board?.openCard;
-        if (open?.cardId === cardId && open.board.boardId === boardId) open.receive(attachment);
+        try {
+          await backend.deleteBlock(boardId, attachment.id);
+        } catch (error) {
+          // Gone already: nothing stays.
+          if (isBackendError(error) && error.status === 404) return;
+          shown(attachment);
+          throw new UploadKept(error);
+        }
       },
     }).done;
   }

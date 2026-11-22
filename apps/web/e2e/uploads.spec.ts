@@ -4,7 +4,8 @@
  * in, a moment; it goes on when the card is closed; closing its card in the stack asks,
  * then gives it up; a failure stays with why, and can be sent again; many at once are one
  * card. The stack is over the card's dialog, which does not close when it is pressed, and
- * clear of the comment field; below 40rem it steps aside while the reader writes.
+ * clear of the comment field; below 40rem it steps aside while the reader writes, and F8
+ * shows it again. The moments it waits are the page's clock's, run on by the test.
  *
  * With `FVOCI_SCREENS=1` it also takes the pictures of the stack into
  * `target/web-pair/screens/`.
@@ -82,7 +83,8 @@ const file = (name: string, size = 64): { name: string; mimeType: string; buffer
 const stack = (page: Page): Locator => page.getByTestId('transfers');
 const cardOf = (page: Page, name: string): Locator =>
   stack(page).locator(`[data-transfer="upload"][data-name="${name}"]`);
-const said = (page: Page): Locator => page.getByTestId('transfers-said');
+/** What the screen reader was told last: each saying is a line of the stack's log. */
+const said = (page: Page): Locator => page.getByTestId('transfers-said').locator('p').last();
 
 /** Whether two boxes share any pixel. */
 const overlap = (
@@ -101,7 +103,7 @@ test('a file attached is told in the stack: how far it is, then that it is in, a
 }, info) => {
   await phoneWidth(page, info.project.name);
   await openTaskCard(page);
-  // Two parts (8 MiB, then 1), each a while on its way; no larger, for the specs run beside it.
+  // Two parts (8 MiB, then 1), each a while on its way.
   await latency(page, 600);
   await page.getByTestId('attach-input').setInputFiles([file('scan.bin', 9 * MIB)]);
   const card = cardOf(page, 'scan.bin');
@@ -150,16 +152,21 @@ test('a file attached is told in the stack: how far it is, then that it is in, a
 
 test('a finished card stays while the pointer is over the stack', async ({ page }) => {
   test.skip((page.viewportSize()?.width ?? 0) < 640, 'a pointer that rests is a wide window’s');
+  await page.clock.install();
   await openTaskCard(page);
   await page.getByTestId('attach-input').setInputFiles([file('kept.txt')]);
   const card = cardOf(page, 'kept.txt');
   await expect(card).toHaveAttribute('data-finished', '');
   await card.hover();
   // Longer than a finished one stays (TRANSFER_STAYS).
-  await page.waitForTimeout(7000);
+  await page.clock.runFor(7000);
   await expect(card).toBeVisible();
+  // Let go of, it stays its whole moment from then.
   await page.mouse.move(5, 5);
-  await expect(card).toHaveCount(0, { timeout: 10_000 });
+  await page.clock.runFor(5000);
+  await expect(card).toBeVisible();
+  await page.clock.runFor(1000);
+  await expect(card).toHaveCount(0);
 });
 
 test('an upload goes on when its card is closed, and is attached', async ({ page }) => {
@@ -181,6 +188,7 @@ test('an upload goes on when its card is closed, and is attached', async ({ page
 });
 
 test('closing an upload under way asks first; given up, nothing is attached', async ({ page }) => {
+  await page.clock.install();
   await openTaskCard(page);
   const attached = page.getByTestId('card-attachments').locator('[data-attachment]');
   const before = await attached.count();
@@ -199,7 +207,8 @@ test('closing an upload under way asks first; given up, nothing is attached', as
   await expect(card).toHaveCount(0);
   await expect(page.getByTestId('card-dialog')).toBeVisible();
   await latency(page, 40);
-  await page.waitForTimeout(2000);
+  // Past the moment the upload under way would have been in, and attached.
+  await page.clock.runFor(2000);
   await expect(attached).toHaveCount(before);
   await expect(said(page)).toHaveText('Uploading maybe.txt');
 });
@@ -274,12 +283,33 @@ test('a sheet from the bottom of a narrow window is not covered by the stack', a
   await page.getByTestId('card-menu').click();
   await expect(page.getByTestId('bottom-sheet')).toBeVisible();
   await expect(stack(page)).toBeHidden();
+  // F8 shows it while the focus is in it, and Escape takes the focus back to the sheet.
+  const line = page.getByTestId('bottom-sheet').locator('[role="menuitem"]:enabled').first();
+  await line.focus();
+  await page.keyboard.press('F8');
+  await expect(stack(page)).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Dismiss stays.txt' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(line).toBeFocused();
+  await expect(stack(page)).toBeHidden();
+  await expect(page.getByTestId('bottom-sheet')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('bottom-sheet')).toHaveCount(0);
   await expect(card).toBeVisible();
+
+  // Aside while the reader writes, F8 shows it too.
+  const field = page.getByTestId('comment-field');
+  await field.focus();
+  await expect(stack(page)).toBeHidden();
+  await page.keyboard.press('F8');
+  await expect(card.getByRole('button', { name: 'Dismiss stays.txt' })).toBeFocused();
+  await expect(stack(page)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(field).toBeFocused();
 });
 
 test('a failed upload stays with why until dismissed, and can be sent again', async ({ page }) => {
+  await page.clock.install();
   await openTaskCard(page);
   await failNextUpload(page, 0, { detail: 'no answer' });
   await page.getByTestId('attach-input').setInputFiles([file('flaky.txt')]);
@@ -290,7 +320,8 @@ test('a failed upload stays with why until dismissed, and can be sent again', as
   await expect(said(page)).toHaveText('flaky.txt was not uploaded. The connection dropped.');
   // Told here, and not again where problems are.
   await expect(page.locator('[data-problem]')).toHaveCount(0);
-  await page.waitForTimeout(7000);
+  // Longer than a finished one stays (TRANSFER_STAYS).
+  await page.clock.runFor(7000);
   await expect(card).toBeVisible();
   await card.getByRole('button', { name: 'Upload flaky.txt again' }).click();
   await expect(card).toHaveAttribute('data-finished', '');
@@ -304,7 +335,8 @@ test('a failed upload stays with why until dismissed, and can be sent again', as
   ]);
 
   // Gone a moment after, before the next: two at once are one card in a narrow window.
-  await expect(card).toHaveCount(0, { timeout: 10_000 });
+  await page.clock.runFor(6000);
+  await expect(card).toHaveCount(0);
   await failNextUpload(page, 413, { limit: 1024 });
   await page.getByTestId('attach-input').setInputFiles([file('big.bin', 2048)]);
   const big = cardOf(page, 'big.bin');
@@ -328,6 +360,10 @@ test('many files at once are one card, with each behind a button', async ({ page
   await expect(group).toHaveAttribute('data-transfer-group', String(names.length));
   await expect(group).toContainText(`Uploading ${String(names.length)} files`);
   await expect(stack(page).locator('[data-transfer]')).toHaveCount(0);
+  // Each start is said, though they started at once.
+  await expect(page.getByTestId('transfers-said').locator('p')).toHaveText(
+    names.map((name) => `Uploading ${name}`),
+  );
   await group.getByRole('button', { name: 'Each file' }).click();
   await expect(group.locator('[data-transfer="upload"]')).toHaveCount(names.length);
   await latency(page, 40);

@@ -1,9 +1,10 @@
 <!--
   The views of a board behind one button, at every width of the header. The
   button names the view that is shown (the icon of its kind and its name,
-  cut short where it is long and whole in its tooltip) and opens the list of
-  all of them, in their order, the one shown marked: a dropdown, or a sheet
-  on a compact page. Each line is a link to its view's address, which a
+  cut short where it is long and then whole in its tooltip) and opens the
+  list of all of them, in their order, the one shown marked: a dropdown, or
+  a sheet on a compact page, which names the board and the view shown, the
+  one the lines after the views change. Each line is a link to its view's address, which a
   click or Enter that asks for a new tab or window (Ctrl, ⌘, Shift, the
   middle button) opens there; any other click, and Enter, shows the view
   here, and the focus is back on the button, which now names it.
@@ -34,6 +35,7 @@
   import { tick } from 'svelte';
 
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
+  import { cutTitle } from '$lib/components/cut-title.ts';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction, MenuTool } from '$lib/components/menu/actions.ts';
   import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
@@ -270,7 +272,9 @@
       }
     }
     title={m.viewheader_views()}
-    subtitle={board.board?.title}
+    subtitle={board.board
+      ? m.viewheader_views_subtitle({ board: board.board.title, view: viewTitle(view) })
+      : undefined}
     actions={board.canEdit ? [...viewLines, ...editLines] : viewLines}
     status={board.canEdit ? said : undefined}
     align="start"
@@ -280,7 +284,7 @@
         {...props}
         variant="ghost"
         data-tool="views"
-        title={viewTitle(view)}
+        {@attach cutTitle(viewTitle(view))}
         class="min-w-0 shrink justify-start roomy:h-touch roomy:text-base"
       >
         <CurrentIcon data-icon="inline-start" />

@@ -22,14 +22,17 @@
   The keyboard reaches it by F8 from anywhere, an open dialog too (whose
   trap would take the focus back, and whose Tab goes round inside it), and
   Escape there takes the focus back to where it was: the dialog stays.
+  Stepped aside, it is shown again for as long as the focus is in it. Its
+  name says the key.
 
-  Only a start, an end and a failure are announced (one quiet region with the
-  latest of them); the counts that change with every piece are not.
+  Only a start, an end and a failure are announced, each a line added to one
+  quiet log, so that two at once are both read: not the counts that change
+  with every piece, nor what was said before the workspace was shown.
 -->
 <script lang="ts">
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import XIcon from '@lucide/svelte/icons/x';
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import type { Attachment } from 'svelte/attachments';
   import { on } from 'svelte/events';
   import { MediaQuery } from 'svelte/reactivity';
@@ -68,14 +71,26 @@
   let cameFrom: HTMLElement | undefined;
   /** The focus is in a field: a narrow window keeps its bottom for what is written. */
   let writing = $state(false);
+  /** F8 brought the focus in: shown, where an open sheet would have it aside, while it is there. */
+  let reached = $state(false);
 
-  /** The latest start, end or failure of the workspace shown, for a screen reader. */
-  const announcement = $derived.by(() => {
-    const said = workspace.transfers.said;
-    if (!said || (said.workspaceId !== undefined && said.workspaceId !== workspace.info?.id)) {
-      return '';
-    }
-    return transferSaying(said);
+  /**
+   * The last saying as the workspace `_shown` came to be shown, or the page:
+   * what it says is not said again. Read again only when another is shown.
+   */
+  function saidBefore(_shown: string | undefined): number {
+    return untrack(() => workspace.transfers.said.at(-1)?.key ?? 0);
+  }
+  const since = $derived(saidBefore(workspace.info?.id));
+  /** The starts, ends and failures of the workspace shown since, for a screen reader. */
+  const sayings = $derived.by(() => {
+    // Read first: with nothing said yet, the filter would not ask.
+    const after = since;
+    const shownId = workspace.info?.id;
+    return workspace.transfers.said.filter(
+      ({ key, transfer }) =>
+        key > after && (transfer.workspaceId === undefined || transfer.workspaceId === shownId),
+    );
   });
 
   const groupLabel = $derived(uploadsLabel(running.length, failed.length, uploads.length));
@@ -137,8 +152,9 @@
     event.preventDefault();
     const active = document.activeElement;
     if (active instanceof HTMLElement && !stack?.contains(active)) cameFrom = active;
-    // Shown again first, where a narrow window had it step aside for a field.
+    // Shown again first, where a narrow window had it step aside for a field, or a sheet.
     writing = false;
+    reached = true;
     void tick().then(() => {
       first.focus();
     });
@@ -222,18 +238,26 @@
   }}
 />
 
-<!-- In the page from the start: a live region that appears with its words is often not read. -->
-<p class="sr-only" role="status" data-testid="transfers-said">{announcement}</p>
+<!-- In the page from the start: a live region that appears with its words is often not read.
+     A line each, added: two said at once are both read, and the same words again are read again. -->
+<div class="sr-only" role="log" data-testid="transfers-said">
+  {#each sayings as one (one.key)}
+    <p>{transferSaying(one.transfer)}</p>
+  {/each}
+</div>
 
 {#if shown.length > 0}
   <section
     bind:this={stack}
     aria-label={m.shell_transfers_label()}
-    aria-keyshortcuts="F8"
     class="pointer-events-none fixed right-[calc(0.75rem+var(--safe-right))] bottom-[calc(var(--transfers-lift)+var(--safe-bottom)+var(--keyboard))] left-[calc(0.75rem+var(--safe-left))] z-[60] data-writing:max-sm:hidden sm:right-[calc(1rem+var(--safe-right))] sm:left-auto sm:w-[22rem]"
     data-testid="transfers"
     data-transfers
     data-writing={writing ? '' : undefined}
+    data-reached={reached ? '' : undefined}
+    onfocusout={(event) => {
+      if (!stack?.contains(event.relatedTarget as Node | null)) reached = false;
+    }}
     {@attach holding}
     {@attach ownFocus}
   >
@@ -353,8 +377,8 @@
     --transfers-lift: 6.5rem;
   }
 
-  /* Aside while a sheet is open from the bottom (BottomSheet): back when it closes. */
-  :global(:root:has([data-slot='sheet-content'][data-side='bottom'])) section {
+  /* Aside while a sheet is open from the bottom (BottomSheet): back when it closes, or reached. */
+  :global(:root:has([data-slot='sheet-content'][data-side='bottom'])) section:not([data-reached]) {
     display: none;
   }
 </style>

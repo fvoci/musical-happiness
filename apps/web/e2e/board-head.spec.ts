@@ -273,13 +273,24 @@ for (const scheme of ['light', 'dark'] as const) {
         const long = names.find((name) => name.startsWith('Everything')) ?? '';
         await openList(page);
         await expect(listed(page)).toHaveText(names);
-        // A sheet wraps it; a dropdown cuts it, whole in the line's tooltip.
-        await expect(listed(page).filter({ hasText: long })).toHaveAttribute('title', long);
-        if (width === 390) expect(await cutLines(page)).toEqual([]);
-        else expect(await cutLines(page)).toEqual([long]);
+        // A sheet wraps it, with no tooltip; a dropdown cuts it, whole in the line's tooltip,
+        // which a name shown whole has none of.
+        const longLine = listed(page).filter({ hasText: long });
+        const shortLine = listed(page).filter({ hasText: names.find((name) => name !== long) });
+        await longLine.hover();
+        if (width === 390) {
+          expect(await cutLines(page)).toEqual([]);
+          await expect(longLine).not.toHaveAttribute('title');
+        } else {
+          expect(await cutLines(page)).toEqual([long]);
+          await expect(longLine).toHaveAttribute('title', long);
+        }
+        await shortLine.first().hover();
+        await expect(shortLine.first()).not.toHaveAttribute('title');
         await picture(page, `${String(width)}-eight-list-${scheme}`);
         await listed(page).filter({ hasText: long }).click();
         const views = tool(page, 'views');
+        await views.hover();
         await expect(views).toHaveAttribute('title', long);
         // Cut on the button, and the row does not spill.
         expect(

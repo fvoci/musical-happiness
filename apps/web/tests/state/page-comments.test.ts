@@ -314,7 +314,7 @@ describe('the body of the page shown', () => {
     const uploading = page.uploadFile(new File(['%PDF'], 'minutes.pdf'));
     expect(made.workspace.transfers.list).toMatchObject([{ name: 'minutes.pdf', finished: false }]);
     store.showPage(undefined);
-    await expect(uploading).rejects.toThrow();
+    await expect(uploading).rejects.toThrow('minutes.pdf did not go up');
     expect(made.workspace.transfers.list).toMatchObject([{ name: 'minutes.pdf', failure: 'left' }]);
     expect(made.workspace.problems).toHaveLength(told);
   });
