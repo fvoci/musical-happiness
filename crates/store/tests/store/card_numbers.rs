@@ -415,27 +415,11 @@ async fn a_copy_and_an_import_are_new_cards_with_new_numbers() {
         .await
         .expect("the board is copied");
     let copied_board = copy.containers[0].id.clone();
-    // In the order the copy lists its cards, which is the order they were copied in:
-    // the numbers rise with it, and the template has none.
-    let on_the_copy: Vec<Option<u32>> = test
-        .get_listed_blocks(&BlockFilter::container(&copied_board), Previews::Without)
-        .await
-        .expect("the copy's blocks are listed")
-        .into_iter()
-        .map(|listed| listed.block)
-        .filter(|block| block.block_type == BlockType::Card)
-        .map(|block| block.number)
-        .collect();
-    assert_eq!(
-        on_the_copy.iter().flatten().copied().collect::<Vec<_>>(),
-        [1, 2, 3, 4],
-        "{on_the_copy:?}"
-    );
-    assert_eq!(
-        on_the_copy.iter().filter(|number| number.is_none()).count(),
-        1,
-        "{on_the_copy:?}"
-    );
+    // The copy numbers its cards from one in the order the board lists them, which
+    // here is the order they were numbered in: each copied card has its card's number,
+    // and the template none. A copy made in another order gives "1" another number.
+    let on_the_board = numbers_by_title(&test, &board_id).await;
+    assert_eq!(numbers_by_title(&test, &copied_board).await, on_the_board);
 
     // An import makes its boards with what the archive says, which has numbers.
     let imported_board = Container {
