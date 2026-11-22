@@ -231,6 +231,45 @@ describe('moving a page in an open wiki', () => {
     expect(made.store.moving).toBe(0);
   });
 
+  it('tells of a first move over a page deleted meanwhile, and takes it off the tree with those below it', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.page('A1', a);
+    const b = await made.page('B');
+    await made.store.load();
+    // Deleted by somebody else, and not heard of yet: the backend answers the move 404.
+    made.backend.wiki.failNext('movePage', new BackendError(404, {}));
+    expect(await made.store.movePage(a, { parentId: '', after: b })).toBe(false);
+    expect(titles(made.store.pages)).toEqual(['B']);
+    expect(made.workspace.problems.at(-1)).toMatchObject({
+      action: 'movePage',
+      error: { status: 404 },
+    });
+    // A move that did not happen is nothing to undo.
+    expect(made.workspace.undo.canUndo).toBe(false);
+  });
+
+  it('says nothing of a redo over a page deleted since, and counts an undo and a redo as settling', async () => {
+    const made = await openWiki();
+    const a = await made.page('A');
+    await made.page('B');
+    const c = await made.page('C');
+    await made.store.load();
+    await made.store.movePage(c, { parentId: a });
+    made.backend.latency = 5;
+    const undoing = made.workspace.undoLast();
+    // Under way from the asking, though it is no move of `movePage`'s.
+    expect(made.store.settling).toBe(true);
+    await undoing;
+    expect(made.store.settling).toBe(false);
+    made.backend.wiki.failNext('movePage', new BackendError(404, {}));
+    const redoing = made.workspace.redoLast();
+    expect(made.store.settling).toBe(true);
+    await redoing;
+    expect(made.store.settling).toBe(false);
+    expect(made.workspace.problems).toEqual([]);
+  });
+
   it('takes a refused move back, and undoes to as near as is left', async () => {
     const made = await openWiki();
     const a = await made.page('A');

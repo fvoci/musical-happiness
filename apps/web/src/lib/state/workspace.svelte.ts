@@ -53,7 +53,7 @@ export interface Problem {
   error: BackendError | undefined;
 }
 
-export type ProblemAction = 'load' | 'save' | 'undo' | 'export' | 'import';
+export type ProblemAction = 'load' | 'save' | 'undo' | 'export' | 'import' | 'movePage';
 
 export interface WorkspaceOptions {
   backend: Backend;

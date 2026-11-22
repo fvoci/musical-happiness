@@ -118,6 +118,7 @@
     'not-a-document': m.file_editor_save_not_document,
     'too-large': () => m.file_editor_save_too_large({ size: humanFileSize(EDIT_LIMITS.bytes) }),
     upload: m.file_editor_save_upload,
+    stopped: m.file_editor_save_stopped,
     refused: m.file_editor_save_refused,
   };
 

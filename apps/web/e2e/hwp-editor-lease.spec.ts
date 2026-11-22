@@ -18,6 +18,7 @@ import { koreanHwpx } from '../tests/support/hwp-files.ts';
 
 import { attach, openCard, picture, viewer } from './file-viewer.support.ts';
 import { writtenElsewhere } from './hwp-editor.support.ts';
+import { engineOf } from './keyboard.support.ts';
 
 const HWPX_TYPE = 'application/hwp+zip';
 /** The lease's term (the server's 90 seconds), and a little more. */
@@ -213,13 +214,15 @@ test('an editor nobody puts anything into for 30 minutes lets the file go, says 
   expect(theirs).not.toMatch(/^refused/);
   await theirLease(page, name, theirs);
 
-  // The wheel turned over the document, or on a touch screen a finger put on it (WebKit for
-  // the iPhone and iPad has no wheel): the editor's once more, and nobody else's.
+  // The wheel turned over the document, or, in WebKit for the iPhone and iPad, which has no
+  // wheel, a finger put on it: the editor's once more, and nobody else's. Chromium's touch
+  // screens keep the wheel, so that it is not left to the desktop alone.
   const frame = await page.getByTestId('file-editor-frame').boundingBox();
   if (!frame) throw new Error('no frame');
   const [x, y] = [frame.x + frame.width / 2, frame.y + frame.height / 2];
-  if (test.info().project.use.hasTouch) await page.touchscreen.tap(x, y);
-  else {
+  if (engineOf(page) === 'webkit' && test.info().project.use.hasTouch) {
+    await page.touchscreen.tap(x, y);
+  } else {
     await page.mouse.move(x, y);
     await page.mouse.wheel(0, 120);
   }

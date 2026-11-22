@@ -46,6 +46,9 @@
       return m.app_problem_upload_busy();
     }
     switch (problem.action) {
+      // Answered 404: a page somebody else deleted meanwhile, taken off the tree.
+      case 'movePage':
+        return m.app_problem_page_move_gone();
       case 'export':
         return m.app_problem_export();
       case 'import':
