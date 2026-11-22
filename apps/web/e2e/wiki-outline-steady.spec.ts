@@ -94,8 +94,9 @@ test.describe('where the reader has not asked for less motion', () => {
         column.scrollTop = 0;
       });
       await outlineItem(page, 'Section 20').focus();
-      await page.keyboard.press('Enter');
-      await page.keyboard.press('End');
+      // End goes with Enter, not a round trip after it: on a busy machine the scroll to
+      // the heading could be over by then, with nothing left to cut short.
+      await Promise.all([page.keyboard.press('Enter'), page.keyboard.press('End')]);
       await expect.poll(() => scrollAtRest(page)).toBe(true);
       await expect(currentItem(page)).toHaveText('Section 20');
       // Short of it, the reader moves on towards it, and is reading what is under the line.
