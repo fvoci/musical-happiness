@@ -44,8 +44,11 @@ export interface VersionsSource extends LeaseSource {
   list(): Promise<FileVersion[]>;
   /** The bytes of a version; undefined when not read. */
   bytes(version: number, signal?: AbortSignal): Promise<Blob | undefined>;
-  /** Uploads a file that is to become a version; undefined when it did not go up (told elsewhere). */
-  upload(file: File): Promise<VersionUpload | undefined>;
+  /**
+   * Uploads a file that is to become a version: undefined when it did not go up
+   * (told elsewhere), `stopped` when the reader gave it up there.
+   */
+  upload(file: File): Promise<VersionUpload | 'stopped' | undefined>;
   add(baseVersion: number, upload: VersionUpload): Promise<FileVersion>;
   restore(version: number, baseVersion: number): Promise<FileVersion>;
   /** Attaches an uploaded file where the file is attached, as a file of its own. */
@@ -111,7 +114,7 @@ export class VersionsList {
     this.#begin('upload');
     try {
       const upload = await this.#source.upload(file);
-      if (!upload) return undefined;
+      if (!upload || upload === 'stopped') return undefined;
       try {
         return await this.#written(this.#source.add(base.version, upload));
       } catch (error) {

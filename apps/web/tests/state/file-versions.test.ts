@@ -353,6 +353,17 @@ describe('the list of the versions of a file attached to an open card', () => {
     expect(list.writing).toBeUndefined();
   });
 
+  it('says an upload given up in the stack is stopped, and one that failed is told there', async () => {
+    const { source, backend, workspace } = await listed();
+    backend.latency = 5;
+    const stopping = source.upload(named('paper.txt', 'stopped'));
+    workspace.transfers.dismiss(workspace.transfers.list.at(-1)?.id ?? 0);
+    expect(await stopping).toBe('stopped');
+    backend.failNext('upload', new BackendError(0, { detail: 'no answer' }));
+    expect(await source.upload(named('paper.txt', 'lost'))).toBeUndefined();
+    expect(workspace.transfers.list.at(-1)).toMatchObject({ failure: 'network' });
+  });
+
   it('has no versions to show where the backend keeps none', async () => {
     const { board, card, attachment } = await listed();
     // A board whose backend is that of a reader by a public link: it has no versions.

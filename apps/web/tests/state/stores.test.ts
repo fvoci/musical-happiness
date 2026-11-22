@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { BackendError } from '$lib/state/index.ts';
+import { BackendError, duplicateView } from '$lib/state/index.ts';
 import { refusedMember, type ChangeListener } from '$lib/state/backend.ts';
 import { droppedCardOrder, placeAmongAll } from '$lib/state/card-order.ts';
 import { sidebarOf } from '$lib/state/order.ts';
@@ -595,12 +595,13 @@ describe('changing views and the board', () => {
     const { board, workspace } = await openFirstBoard();
     const view = board.orderedViews[0];
     if (!view) throw new Error('no view');
-    await board.duplicateView(view.id, 'A copy');
-    expect(board.orderedViews.map((each) => each.title)).toEqual(['A copy', 'Board']);
+    await duplicateView(board, view.id, 'A copy');
+    // Right after its view, not by its title.
+    expect(board.orderedViews.map((each) => each.title)).toEqual(['Board', 'A copy']);
     await board.deleteView(view.id);
     expect(board.orderedViews.map((each) => each.title)).toEqual(['A copy']);
     await workspace.undoLast();
-    expect(board.orderedViews.map((each) => each.title)).toEqual(['A copy', 'Board']);
+    expect(board.orderedViews.map((each) => each.title)).toEqual(['Board', 'A copy']);
   });
 
   it('changes the definition of a property', async () => {
