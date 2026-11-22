@@ -6,8 +6,7 @@
 
 서버와 웹앱은 따로 갈라진 브랜치에서 만들어졌고, 2026-11-11에 `master`에서 합쳐졌다. 서버는 저장소 루트에(`crates/`, `xtask/`, `contracts/`, `docs/`), 웹앱은 `apps/web/`에 있다. 이 문서는 서버의 인수인계이고, 웹앱의 것은 `apps/web/docs/handoff.md`다.
 
-- **브랜치.** 일마다 `master`에서 워크트리를 새로 갈라 일하고, 끝나면 `master`에 합친다. 합치기 전의 브랜치 `server`와 `web`의 커밋은 모두 `master`에 들어 있다.
-- **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다(`git push origin <브랜치>`). 강제 푸시는 하지 않는다. 올라간 커밋은 고쳐 쓰지 않는다.
+- **브랜치와 푸시.** 일마다 `master`에서 워크트리를 새로 갈라 일하고, 끝나면 `master`에 합친다. 일한 세션이 자기 브랜치를 이름으로 올린다(`git push origin <브랜치>`). 강제 푸시와 올라간 커밋 고쳐 쓰기(`amend`·`rebase`·`reset`)는 하지 않는다: 스택의 브랜치를 `gh stack`이 rebase해 `--force-with-lease`로 올리는 것만 예외다(`AGENTS.md`의 "CI와 스택").
 - **검증 명령.** 양쪽 모두 저장소 루트에서 돌린다.
 
   | 쪽 | 명령 | 명령의 설명과 기대 결과 |
@@ -41,10 +40,7 @@
 
 - **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다(읽지 않는 키가 없어야 한다). 키는 적힌 그대로만 맞고, 읽지 않는 키는 시작할 때 이름만 경고한다. 값은 우리 꼴이다(`database_kind`는 `sqlite`·`postgres`, `file_storage`는 `local`·`s3`). `metrics_address`는 지표를 따로 연 리스너에서 낸다(`fvoci/metrics`). S3의 키 가운데 자격이 아닌 것은 `FVOCI_FILE_STORAGE_S3_*` 환경 변수로도 받고, 자격은 `AWS_*`로만 받는다(사용자 결정 11:05 KST).
 
-- **작업 자리.** 저장소는 `fvoci/musical-happiness`(비공개)이고 브랜치는 `master`다. 일마다 `master`에서 워크트리를 새로 만들고 끝나면 `master`에 합친다.
-- **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다. 강제 푸시는 하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않는다.** 고칠 것은 새 커밋으로 얹는다.
 - **내장 템플릿은 `crates/server/assets/templates/` 한 곳에 있다.** 일곱 개가 한국어와 영어로 한 파일씩이고, 본문이 보이는 그림과 문서는 그 아래 `files/`에 있다. 서버가 바이너리에 넣는다. 글은 그 파일에서 고친다(그 폴더의 `README.md`). 웹앱의 메모리 구현은 제 폴더(`apps/web/src/lib/state/memory/seed/`)의 보드로 시작한다. 새 워크트리에서도 그대로 컴파일된다.
-- **CI.** 이 저장소에는 워크플로 파일이 없다. 검증은 1절의 명령을 손으로 돌린다.
 
 ## 이 문서가 담는 것
 

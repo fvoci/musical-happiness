@@ -15,7 +15,12 @@
 name: ci
 
 on:
-  # Whatever the base: the pull requests of a stack have the branch below as theirs.
+  # Whatever the base: the pull requests of a stack have the branch below as theirs, and
+  # each is tested merged into it. Each runs everything, whatever its place in the stack:
+  # each merges on its own `ci-done`, and `github.event.pull_request.stack`, so not read,
+  # is missing from a run of a pull request opened before its stack was linked (the
+  # lowest, by `gh stack submit`). Only a new head starts a run: the layer above a changed
+  # one keeps the result of its old head until `gh stack rebase` and `gh stack push`.
   pull_request:
   # Master after a merge: the merged tree itself, and the run that writes the caches.
   push:
