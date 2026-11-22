@@ -8,7 +8,7 @@
 #
 # Run in a checkout of the run's commit with the history of the default branch (the
 # trees are enough). A push also needs REPOSITORY and GH_TOKEN, a token that may read
-# the repository's artifacts.
+# the repository's artifacts and runs.
 #
 # What a run changes:
 # - a pull request: what its test merge changes since it parted from the default
@@ -27,8 +27,9 @@
 #   Rust (crates/collab/tests/data/, xtask/exceptions/, crates/server/assets/) and the
 #   root's (deny.toml): those, like any other file, run everything.
 # - A push whose tree is one a pull request's run of this repository passed with all
-#   four jobs of the build (ci-done keeps the artifact `tested-<tree>` for that): those
-#   four jobs are skipped. The others, which save the caches, run by the rules above.
+#   four jobs of the build (ci-done keeps the artifact `tested-<tree>` for that), and
+#   that run passed still at its last attempt: those four jobs are skipped. The
+#   others, which save the caches, run by the rules above.
 set -euo pipefail
 
 skip=()
@@ -54,21 +55,27 @@ skip_by_files() {
 }
 
 # Whether a pull request's run of a branch of this repository passed on the tree of
-# HEAD with every job of the build.
+# HEAD with every job of the build, and passed still at its last attempt: a run
+# whose first attempt left the record and whose later attempt failed does not count.
 tested_tree() {
-  local tree found
+  local tree runs run conclusion
   tree=$(git rev-parse 'HEAD^{tree}')
-  if ! found=$(gh api --jq '[.artifacts[]
-      | select((.expired | not) and .workflow_run.head_repository_id == .workflow_run.repository_id)]
-      | length' "repos/$REPOSITORY/actions/artifacts?name=tested-$tree&per_page=100"); then
+  if ! runs=$(gh api --jq '.artifacts[]
+      | select((.expired | not) and .workflow_run.head_repository_id == .workflow_run.repository_id)
+      | .workflow_run.id' "repos/$REPOSITORY/actions/artifacts?name=tested-$tree&per_page=100"); then
     echo "plan: GitHub did not say whether the tree $tree passed"
     return 1
   fi
-  if [[ ! $found =~ ^[1-9][0-9]*$ ]]; then
-    echo "plan: no pull request's run passed on the tree $tree with every job of the build"
-    return 1
-  fi
-  echo "plan: a pull request's run passed on the tree $tree with every job of the build"
+  for run in $runs; do
+    [[ $run =~ ^[1-9][0-9]*$ ]] || continue
+    if conclusion=$(gh api --jq .conclusion "repos/$REPOSITORY/actions/runs/$run") &&
+      [[ $conclusion == success ]]; then
+      echo "plan: run $run passed on the tree $tree with every job of the build"
+      return 0
+    fi
+  done
+  echo "plan: no pull request's run passed on the tree $tree with every job of the build"
+  return 1
 }
 
 case ${EVENT:-} in

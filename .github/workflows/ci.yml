@@ -10,9 +10,11 @@
 # The repository is public and anyone may send a pull request, so:
 # - it runs on `pull_request` only, never with more than the right to read, and uses
 #   no secret but the run's own token, which can only read;
-# - every action is pinned to a commit, the tools the workflow fetches to a SHA-256 and
-#   Playwright's image to a digest. The images of the test containers are the tags
-#   xtask names (xtask/src/containers.rs), as on a developer's machine;
+# - every action is pinned to a commit, the tools the workflow downloads itself to a
+#   SHA-256 and Playwright's image to a digest. Playwright's server (from npm, in that
+#   image) and browsers are fetched by their version, and the images of the test
+#   containers are the tags xtask names (xtask/src/containers.rs), as on a developer's
+#   machine;
 # - no text from outside (titles, branch names, messages) reaches a shell, and the
 #   names of the changed files are read as data, never printed;
 # - only a run on master writes a cache. A pull request reads them and writes none:
@@ -407,9 +409,11 @@ jobs:
         run: .github/scripts/verdict.sh
       # A pull request that passed with every job of the build keeps the name of the
       # tree it tested, its test merge's. A push to master whose tree is that one need
-      # not run those jobs again (plan.sh).
+      # not run those jobs again (plan.sh). Without the record master runs them, so a
+      # failure to keep it does not fail the verdict.
       - name: The tree this run passed
         id: tree
+        continue-on-error: true
         if: >-
           ${{ github.event_name == 'pull_request'
           && !contains(needs.plan.outputs.skip, '"web-build"')
@@ -421,6 +425,7 @@ jobs:
           echo "$tree" >"$RUNNER_TEMP/tested-tree"
           echo "name=tested-$tree" >>"$GITHUB_OUTPUT"
       - if: ${{ steps.tree.outcome == 'success' }}
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.tree.outputs.name }}

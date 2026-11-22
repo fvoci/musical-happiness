@@ -12,8 +12,10 @@ trap 'rm -rf "$WORK"' EXIT
 failed=0
 
 # The stand-in for `gh api --jq <filter> <path>`: the filter applied to FAKE_JSON when
-# the path asks for the artifact `tested-<FAKE_TREE>`, to an empty list for any other.
-# FAKE_JSON=fail fails; FAKE_ANSWER, when set, is printed instead of the filter's.
+# the path asks for the artifact `tested-<FAKE_TREE>`, to an empty list for any other;
+# for a run, its conclusion as FAKE_RUNS gives it (`<id>=<conclusion> …`), or a failure
+# as for a run GitHub does not have. FAKE_JSON=fail fails; FAKE_ANSWER, when set, is
+# printed instead of every answer.
 mkdir "$WORK/bin"
 cat >"$WORK/bin/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -22,7 +24,17 @@ cat >"$WORK/bin/gh" <<'EOF'
 if [[ -n ${FAKE_ANSWER:-} ]]; then echo "$FAKE_ANSWER"; exit 0; fi
 case $4 in
   *"/actions/artifacts?name=tested-$FAKE_TREE&"*) jq --raw-output "$3" <<<"$FAKE_JSON" ;;
-  *) jq --raw-output "$3" <<<'{"artifacts": []}' ;;
+  */actions/artifacts\?*) jq --raw-output "$3" <<<'{"artifacts": []}' ;;
+  */actions/runs/*)
+    for pair in ${FAKE_RUNS:-11=success}; do
+      if [[ ${pair%%=*} == "${4##*/}" ]]; then
+        jq --raw-output "$3" <<<"{\"conclusion\": \"${pair#*=}\"}"
+        exit 0
+      fi
+    done
+    exit 1
+    ;;
+  *) exit 2 ;;
 esac
 EOF
 chmod +x "$WORK/bin/gh"
@@ -30,10 +42,12 @@ chmod +x "$WORK/bin/gh"
 RUST='"rust-postgres","rust-sqlite"'
 WEB='"web-checks","web-e2e","web-e2e-apple"'
 BUILD='"web-build","web-e2e","web-e2e-apple","web-e2e-live"'
-# Artifacts as GitHub lists them: of this repository's branch, of a fork, expired.
-OURS='{"expired": false, "workflow_run": {"repository_id": 7, "head_repository_id": 7}}'
-FORK='{"expired": false, "workflow_run": {"repository_id": 7, "head_repository_id": 9}}'
-OLD='{"expired": true, "workflow_run": {"repository_id": 7, "head_repository_id": 7}}'
+# Artifacts as GitHub lists them: of a run (11) of this repository's branch, of a fork's
+# run (12), expired (13), of a run (14) whose later attempt failed.
+OURS='{"expired": false, "workflow_run": {"id": 11, "repository_id": 7, "head_repository_id": 7}}'
+FORK='{"expired": false, "workflow_run": {"id": 12, "repository_id": 7, "head_repository_id": 9}}'
+OLD='{"expired": true, "workflow_run": {"id": 13, "repository_id": 7, "head_repository_id": 7}}'
+RED='{"expired": false, "workflow_run": {"id": 14, "repository_id": 7, "head_repository_id": 7}}'
 
 # A new repository with one commit on master, which is also origin/master.
 repo() {
@@ -194,12 +208,23 @@ expect_plan "a merge whose tree passed twice skips the jobs of the build" "$RUST
 expect_plan "a merge whose tree did not pass skips by its files only" "$RUST" \
   EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON='{"artifacts": []}'
 expect_plan "a merge whose tree passed only in a fork's run skips by its files only" "$RUST" \
-  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$FORK]}"
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$FORK]}" \
+  FAKE_RUNS="11=success 12=success 13=success"
 expect_plan "a merge whose tree's record expired skips by its files only" "$RUST" \
-  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OLD]}"
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OLD]}" \
+  FAKE_RUNS="11=success 12=success 13=success"
 expect_plan "a merge whose branch's tree passed, not its own, skips by its files only" "$RUST" \
   EVENT=push BEFORE="$before" FAKE_TREE="$(git rev-parse 'HEAD^2^{tree}')x" \
   FAKE_JSON="{\"artifacts\": [$OURS]}"
+expect_plan "a merge whose tree's run failed at a later attempt skips by its files only" \
+  "$RUST" EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$RED]}" \
+  FAKE_RUNS="11=success 14=failure"
+expect_plan "a merge whose tree passed in one of two runs skips the jobs of the build" \
+  "$RUST,$BUILD" EVENT=push BEFORE="$before" FAKE_TREE="$tree" \
+  FAKE_JSON="{\"artifacts\": [$RED, $OURS]}" FAKE_RUNS="11=success 14=failure"
+expect_plan "a merge whose tree's run GitHub no longer has skips by its files only" "$RUST" \
+  EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON="{\"artifacts\": [$OURS]}" \
+  FAKE_RUNS="15=success"
 expect_plan "a merge when GitHub does not answer skips by its files only" "$RUST" \
   EVENT=push BEFORE="$before" FAKE_TREE="$tree" FAKE_JSON=fail
 for answer in null '1 2' -1 0x1 ''; do
