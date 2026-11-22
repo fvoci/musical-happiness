@@ -5,13 +5,9 @@
 use fvoci_model::{ContainerMember, ContainerType};
 use serde_json::json;
 
-use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
-use crate::rooms::{PATIENCE, Peer, give, paragraphs, table, two_in_a_room};
-
-/// The periodic check comes when a test asks for it, not by itself.
-fn seldom() -> Setup {
-    Setup::native().configure(|config| config.collab.collab_recheck_seconds = 3600)
-}
+use crate::common::{TEST_WORKSPACE_ID, TestServer};
+use crate::rooms::{Incoming, PATIENCE, Peer, QUIET, give, paragraphs, table, two_in_a_room};
+use crate::rooms_changes::seldom;
 
 /// Comes into the room of `card_id` while `change` is made between the admission and
 /// the room: whether the connection was admitted once more for it. An admission again
@@ -125,6 +121,8 @@ async fn a_periodic_answer_is_applied_though_another_board_changed_meanwhile() {
         .await
         .expect("the periodic check reads again");
     give(&th, &elsewhere.id, &user, "editor").await;
+    // Not this room's change: nothing told of it but the periodic answer.
+    assert_eq!(member.incoming(QUIET).await, Incoming::Nothing);
     go.notify_one();
     assert_eq!(member.text("DOC_MODE").await["mode"], json!("read"));
     th.teardown().await;

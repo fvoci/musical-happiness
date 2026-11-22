@@ -7,9 +7,10 @@ use serde_json::json;
 use crate::common::{Setup, TEST_WORKSPACE_ID};
 use crate::rooms::{PATIENCE, Peer, give, paragraphs, two_in_a_room};
 
-/// The periodic check cannot account for any notice received by these tests: it asks
-/// once an hour, and each of its reads, and of an immediate check's, may take as long.
-/// A notice that comes at all came without it, however slow the machine.
+/// The periodic check cannot account for any notice received by these tests unless the
+/// test has every room ask now (`Collab::ask_again_now`): it asks once an hour, and each
+/// of its reads, and of an immediate check's, may take as long. A notice that comes at
+/// all came without it otherwise, however slow the machine.
 pub(crate) fn seldom() -> Setup {
     Setup::native().configure(|config| config.collab.collab_recheck_seconds = 3600)
 }

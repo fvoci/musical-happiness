@@ -3,7 +3,7 @@
 
 use serde_json::json;
 
-use crate::common::{TEST_WORKSPACE_ID, TestServer};
+use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::rooms::{
     Incoming, PATIENCE, QUIET, UPDATE, frame, give, no_rooms, paragraphs, two_in_a_room,
 };
@@ -16,10 +16,10 @@ fn ask_now(th: &TestServer) {
     th.app.collab().ask_again_now();
 }
 
-/// An editor in a room is made a viewer: at the next asking it is told that it reads,
-/// and what it writes is refused; made an editor again, it writes. Taken off the
-/// board, it is put out, as for a card that is not there, and the room goes on
-/// without it. Who stays is told nothing. The room asks after each change.
+/// An editor in a room is made a viewer: it is told that it reads as the change
+/// answers, and what it writes is refused; made an editor again, it writes. Taken off
+/// the board, it is put out, as for a card that is not there, and the room goes on
+/// without it. Who stays is told nothing.
 #[tokio::test]
 async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
     let th = seldom().start().await.init_basic().await;
@@ -28,7 +28,6 @@ async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
     two.write_acked("as an editor").await;
 
     give(&th, &t.board_id, &user2, "viewer").await;
-    ask_now(&th);
     let mode = two.text("DOC_MODE").await;
     assert_eq!(
         mode,
@@ -46,7 +45,6 @@ async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
 
     // An editor again: it comes in anew to drop what was refused, and writes.
     give(&th, &t.board_id, &user2, "editor").await;
-    ask_now(&th);
     let mode = two.text("DOC_MODE").await;
     assert_eq!(mode["mode"], json!("write"), "{mode}");
     two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
@@ -62,7 +60,6 @@ async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
         ))
         .await
         .check_no_content();
-    ask_now(&th);
     let left = two.text("DOC_LEFT").await;
     assert_eq!(
         left,
@@ -90,7 +87,8 @@ async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
     th.teardown().await;
 }
 
-/// Who leaves the card's workspace, with a role left on the board, is put out too.
+/// Who leaves the card's workspace in the store alone, with a role left on the board, is
+/// put out at the next asking too: no immediate check is made for it.
 #[tokio::test]
 async fn who_is_taken_out_of_the_workspace_is_put_out_of_the_room() {
     let th = seldom().start().await.init_basic().await;
@@ -105,8 +103,8 @@ async fn who_is_taken_out_of_the_workspace_is_put_out_of_the_room() {
     th.teardown().await;
 }
 
-/// A card that is deleted while its room is open: who is in the room is put out at
-/// the next asking, as for a card that is not there.
+/// A card that is deleted while its room is open: who is in the room is put out as the
+/// deletion answers, as for a card that is not there.
 #[tokio::test]
 async fn the_room_of_a_deleted_card_is_emptied() {
     let th = seldom().start().await.init_basic().await;
@@ -118,7 +116,9 @@ async fn the_room_of_a_deleted_card_is_emptied() {
         ))
         .await
         .check_no_content();
-    ask_now(&th);
+    // Out of the room as soon as the deletion has answered.
+    let collab = th.app.collab();
+    assert_eq!(collab.room_members(&th.app, &t.card_id).await, 0);
     for peer in [&mut one, &mut two] {
         let left = peer.text("DOC_LEFT").await;
         assert_eq!(
@@ -127,6 +127,35 @@ async fn the_room_of_a_deleted_card_is_emptied() {
         );
     }
     crate::rooms::no_rooms(&th).await;
+    th.teardown().await;
+}
+
+/// Nobody has the room ask: at the end of its interval it asks by itself, whether the
+/// store answers within that time or not. Both ends of the check count, so how long the
+/// reads take does not matter.
+#[tokio::test]
+async fn a_room_asks_again_by_itself_at_the_end_of_its_interval() {
+    let th = Setup::native()
+        .configure(|config| config.collab.collab_recheck_seconds = 1)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let (_t, _one, _two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    let collab = th.app.collab();
+    let (answered, apply) = collab.pause_next_recheck();
+    let (unanswered, once_more) = collab.pause_next_asking_once_more();
+    tokio::time::timeout(PATIENCE, async {
+        tokio::select! {
+            () = answered.notified() => {}
+            () = unanswered.notified() => {}
+        }
+    })
+    .await
+    .expect("the room asked again by itself");
+    collab.unpause();
+    apply.notify_one();
+    once_more.notify_one();
     th.teardown().await;
 }
 
@@ -239,6 +268,9 @@ async fn losing_the_team_role_puts_the_member_out_of_the_room() {
         .check_no_content();
     two.write_acked("through a team").await;
     th.client.delete(&link).await.check_no_content();
+    // Out of the room as soon as the leaving has answered.
+    let collab = th.app.collab();
+    assert_eq!(collab.room_members(&th.app, &t.card_id).await, 1);
     let left = two.text("DOC_LEFT").await;
     assert_eq!(
         left,

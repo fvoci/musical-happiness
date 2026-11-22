@@ -267,16 +267,17 @@ fn append_line(file: &Path, mut line: String) -> std::io::Result<()> {
 ///
 /// Fails if the file is there and cannot be read.
 pub(crate) fn read(file: &Path) -> Result<Vec<Record>> {
-    let text = match std::fs::read_to_string(file) {
-        Ok(text) => text,
+    let bytes = match std::fs::read(file) {
+        Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => {
             return Err(error).with_context(|| format!("reading {}", file.display()));
         }
     };
-    Ok(text
-        .lines()
-        .filter_map(|line| serde_json::from_str(line).ok())
+    // Line by line: a line cut inside a character spoils itself, not the file.
+    Ok(bytes
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| serde_json::from_slice(line).ok())
         .collect())
 }
 
@@ -485,17 +486,22 @@ mod tests {
 
         let first = run(1, "a", vec![unit("sqlite", "api", 3.5, &["api::x"])]);
         let second = run(2, "a", vec![]);
+        let third = run(3, "a", vec![]);
         append_to(&file, &first).expect("written");
+        append_to(&file, &second).expect("written");
+        let text = std::fs::read_to_string(&file).expect("read as text");
+        assert_eq!(text.lines().count(), 2, "a line each, none blank: {text:?}");
+        // Cut short inside a character, as a run killed as it wrote would leave it.
         std::fs::OpenOptions::new()
             .append(true)
             .open(&file)
-            .and_then(|mut opened| opened.write_all(b"{\"task\": \"te"))
+            .and_then(|mut opened| opened.write_all(b"{\"task\": \"\xea\xb0"))
             .expect("a line cut short");
-        append_to(&file, &second).expect("written");
+        append_to(&file, &third).expect("written");
         assert_eq!(
             read(&file).expect("read"),
-            [first, second],
-            "both records, in order, without the broken line"
+            [first, second, third],
+            "every record, in order, without the broken line"
         );
         let _ = std::fs::remove_dir_all(&directory);
     }

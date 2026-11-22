@@ -74,6 +74,12 @@ async fn in_a_room_through_a_team(th: &TestServer, role: &str) -> (Table, String
     (table, team_id, member)
 }
 
+/// How many are in the room of `table`'s card. Counted as soon as a change has
+/// answered, it says whether the change had reached the room by then.
+async fn in_the_room(th: &TestServer, table: &Table) -> usize {
+    th.app.collab().room_members(&th.app, &table.card_id).await
+}
+
 async fn left_at_once(member: &mut Peer) {
     let left = member.text("DOC_LEFT").await;
     assert_eq!(
@@ -86,12 +92,13 @@ async fn left_at_once(member: &mut Peer) {
 #[tokio::test]
 async fn leaving_a_team_puts_its_reader_out_of_the_room_at_once() {
     let th = seldom().start().await.init_basic().await;
-    let (_table, team_id, mut member) = in_a_room_through_a_team(&th, "editor").await;
+    let (table, team_id, mut member) = in_a_room_through_a_team(&th, "editor").await;
     let user = th.client2.me().await.id;
     th.client
         .delete(&team_path(&team_id, &format!("/members/{user}")))
         .await
         .check_no_content();
+    assert_eq!(in_the_room(&th, &table).await, 0);
     left_at_once(&mut member).await;
     th.teardown().await;
 }
@@ -115,6 +122,7 @@ async fn a_team_role_lowered_then_taken_off_the_board_reaches_the_room_at_once()
         .delete(&assignment(&table, &team_id))
         .await
         .check_no_content();
+    assert_eq!(in_the_room(&th, &table).await, 0);
     left_at_once(&mut member).await;
     th.teardown().await;
 }
@@ -122,11 +130,12 @@ async fn a_team_role_lowered_then_taken_off_the_board_reaches_the_room_at_once()
 #[tokio::test]
 async fn deleting_a_team_puts_its_readers_out_of_the_room_at_once() {
     let th = seldom().start().await.init_basic().await;
-    let (_table, team_id, mut member) = in_a_room_through_a_team(&th, "commenter").await;
+    let (table, team_id, mut member) = in_a_room_through_a_team(&th, "commenter").await;
     th.client
         .delete(&team_path(&team_id, ""))
         .await
         .check_no_content();
+    assert_eq!(in_the_room(&th, &table).await, 0);
     left_at_once(&mut member).await;
     th.teardown().await;
 }
@@ -156,8 +165,9 @@ async fn joining_a_team_that_edits_lets_a_reader_write_at_once() {
         .put(&team_path(team_id, &format!("/members/{user}")), &json!({}))
         .await
         .check_no_content();
-    assert_eq!(member.text("DOC_MODE").await["mode"], json!("write"));
+    // Written as soon as the joining has answered: the room let them write by then.
     member.write_acked("written once in the team").await;
+    assert_eq!(member.text("DOC_MODE").await["mode"], json!("write"));
     th.teardown().await;
 }
 
@@ -174,14 +184,17 @@ async fn deleting_a_team_reaches_every_board_it_was_on_and_leaves_the_admin_writ
         owner.joined(TEST_WORKSPACE_ID, &table.card_id).await;
         let mut member = Peer::connect(&th.client2, 320 + index).await;
         member.joined(TEST_WORKSPACE_ID, &table.card_id).await;
-        rooms.push((owner, member));
+        rooms.push((table, owner, member));
     }
 
     th.client
         .delete(&team_path(&team_id, ""))
         .await
         .check_no_content();
-    for (owner, member) in &mut rooms {
+    for (table, _, _) in &rooms {
+        assert_eq!(in_the_room(&th, table).await, 1, "only the owner is left");
+    }
+    for (_, owner, member) in &mut rooms {
         left_at_once(member).await;
         owner.write_acked("the owner of the board writes on").await;
         owner.settle().await;
