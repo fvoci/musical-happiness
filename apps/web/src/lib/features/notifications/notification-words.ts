@@ -50,3 +50,10 @@ export function notificationText(
 export function unreadBadge(unread: number): string {
   return unread > 99 ? '99+' : String(unread);
 }
+
+/** What the bell, or the line of a menu that stands for it, is called. */
+export function bellLabel(unread: number): string {
+  return unread > 0
+    ? m.notifications_open_unread({ count: String(unread) })
+    : m.notifications_open();
+}

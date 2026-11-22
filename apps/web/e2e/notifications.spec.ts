@@ -3,7 +3,9 @@
  * somebody else writes on a card the reader wrote shows on the bell at once,
  * without a reload; the notification opens the card at that comment and is
  * read by it; and the switch of comments, turned off in the settings, is
- * kept, and nothing is told while it is off. Runs at the three stages.
+ * kept, and nothing is told while it is off. Runs at the three stages: where
+ * the pane is narrow the bell is a line of the bar's menu ("…"), which shows
+ * the count.
  *
  * Somebody else is the other person of the same world (`fvociDev.someoneElse`).
  */
@@ -28,8 +30,32 @@ interface Place {
 }
 
 const bell = (page: Page): Locator => page.getByTestId('open-notifications');
-const badge = (page: Page): Locator => page.getByTestId('unread-notifications');
+const barMenu = (page: Page): Locator => page.getByTestId('top-bar').getByTestId('bar-menu');
+/** What stands for the bell: the bell, or the bar's menu where the pane is narrow. */
+const bellOrMenu = (page: Page): Locator => bell(page).or(barMenu(page)).filter({ visible: true });
+/** The count, on whichever stands for the bell. */
+const badge = (page: Page): Locator =>
+  page
+    .getByTestId('unread-notifications')
+    .or(page.getByTestId('bar-menu-mark'))
+    .filter({ visible: true });
 const inbox = (page: Page): Locator => page.getByTestId('notifications');
+
+/** Opens the list: by the bell, or by its line of the bar's menu. */
+async function openInbox(page: Page): Promise<void> {
+  if (await bell(page).isVisible()) {
+    await bell(page).click();
+    return;
+  }
+  await barMenu(page).click();
+  await page.getByRole('menuitem', { name: /^Notifications/ }).click();
+}
+
+/** Whichever stands for the bell is called by the count. */
+async function expectBellNamed(page: Page, name: string): Promise<void> {
+  if (await bell(page).isVisible()) await expect(bell(page)).toHaveAccessibleName(name);
+  else await expect(barMenu(page)).toHaveAccessibleName(`More: ${name}`);
+}
 
 /** A card the reader writes on the board shown, which the other person is a member of. */
 async function cardOfMine(page: Page, title: string): Promise<Place> {
@@ -77,14 +103,14 @@ test('a comment on the reader’s card rings the bell at once, and opens the car
 }) => {
   await openApp(page);
   const place = await cardOfMine(page, 'Watched plan');
-  await expect(bell(page)).toBeVisible();
+  await expect(bellOrMenu(page)).toBeVisible();
   await expect(badge(page)).toBeHidden();
 
   const commentId = await theyComment(page, place, 'Looks good to me');
   await expect(badge(page)).toHaveText('1');
-  await expect(bell(page)).toHaveAccessibleName('Notifications, 1 unread');
+  await expectBellNamed(page, 'Notifications, 1 unread');
 
-  await bell(page).click();
+  await openInbox(page);
   const line = inbox(page).getByRole('link', { name: /commented on Watched plan/ });
   await expect(line).toBeVisible();
   await expect(inbox(page).locator('[data-unread]')).toHaveCount(1);
@@ -98,7 +124,7 @@ test('a comment on the reader’s card rings the bell at once, and opens the car
   // The card closed, the bell lists it read.
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('card-dialog')).toBeHidden();
-  await bell(page).click();
+  await openInbox(page);
   await expect(inbox(page).locator('[data-notification]')).toHaveCount(1);
   await expect(inbox(page).locator('[data-unread]')).toHaveCount(0);
 });
@@ -126,13 +152,21 @@ test('the switch of comments is kept off, and nothing is told while it is', asyn
 
   const place = await cardOfMine(page, 'Quiet plan');
   await theyComment(page, place, 'Not told');
-  // Turned on again: only what comes after is told.
+  // Turned on again (and saved, as the backend reads it when a comment comes): only
+  // what comes after is told.
   const last = await openSettings(page);
-  await last.locator('[data-setting="notifyComments"]').getByRole('switch').click();
+  const on = last.locator('[data-setting="notifyComments"]').getByRole('switch');
+  await on.click();
+  await expect(on).toBeChecked();
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as unknown as { fvociDev: Dev }).fvociDev.backend.settings()),
+    )
+    .toMatchObject({ notifyComments: true });
   await page.keyboard.press('Escape');
   await theyComment(page, place, 'Told');
   await expect(badge(page)).toHaveText('1');
-  await bell(page).click();
+  await openInbox(page);
   await expect(inbox(page).getByRole('link', { name: /commented on Quiet plan/ })).toBeVisible();
   await expect(inbox(page).getByRole('link', { name: /2 times/ })).toHaveCount(0);
 });

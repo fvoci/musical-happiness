@@ -757,6 +757,7 @@
   "shell_trash_boards_description": "Boards and wikis you were an admin of. The trash is emptied after a while.",
   "shell_trash_cards": "Deleted cards",
   "shell_bar_more": "More",
+  "shell_bar_more_marked": "More: {what}",
   "shell_trash_cards_description": "Cards deleted from this board. The trash is emptied after a while.",
   "shell_trash_empty": "Nothing here.",
   "shell_trash_deleted_by": "Deleted by {name}",
