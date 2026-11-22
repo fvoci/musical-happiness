@@ -146,7 +146,7 @@ export interface CardSummary extends Card {
   tasksDone: number;
   /**
    * What a gallery shows of the body: only on a card that came in a change
-   * message, which carries the body it is made from (`cardPreviews` reads it
+   * message, whose summary of the body carries it (`cardPreviews` reads it
    * for a list).
    */
   preview?: CardPreview;
