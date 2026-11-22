@@ -54,9 +54,11 @@ impl Store {
     /// the only admin of passing to the oldest other administrator of the workspace on
     /// their own account (recorded as the account's doing); then its roles on boards
     /// left from before, what it follows, its membership of the organization and the
-    /// links it made there that nobody used go. Its sessions, its identities, and what
-    /// it wrote stay, and so does the organization's word of who made it. All of it
-    /// happens or none.
+    /// links it made there that nobody used go. Who leaves the server's own
+    /// organization runs the server no more, as one made its member does not
+    /// (`users::follow_org_role`). Its sessions, its identities, and what it wrote
+    /// stay, and so does the organization's word of who made it. All of it happens or
+    /// none.
     ///
     /// # Errors
     ///
@@ -74,8 +76,20 @@ impl Store {
             let Some(role) = org_admin::org_role_of(scope, user_id).await? else {
                 return Ok(Departure::NotAMember);
             };
+            // The instance comes first, as a refused deletion is told.
+            let the_instances = directory::is_the_instances_organization(scope).await?;
+            if the_instances && account_deletion::is_last_instance_admin(scope, user_id).await? {
+                return Ok(Departure::Refused(DepartureRefused::LastInstanceAdmin));
+            }
             if let Some(refused) = refusal(scope, user_id, role).await? {
                 return Ok(Departure::Refused(refused));
+            }
+            // The administrators of the server's own organization are the server's for
+            // now (`members::follow_instance_role`): who leaves it, as who is made its
+            // member, does not run the server, or they would make anybody its
+            // administrator again from outside it.
+            if the_instances && !users::follow_org_role(scope, user_id, OrgRole::Member).await? {
+                return Ok(Departure::Refused(DepartureRefused::LastInstanceAdmin));
             }
             let joined = org_admin::leave_joinings(scope, user_id).await?;
             let actor = AuditActor::Person(user_id.to_owned());
@@ -102,19 +116,14 @@ async fn is_shared_and_in_use(scope: &mut Scope<'_>) -> Result<bool, StoreError>
     Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
-/// What stands in the way of the user's leaving the scope's organization, in which they
-/// are `role`: the questions deleting the account asks (`account_deletion::standing`),
-/// of this organization, in the order a refused deletion is told in.
+/// What of the organization stands in the way of the user's leaving it, in which they
+/// are `role`: the questions deleting the account asks of it
+/// (`account_deletion::standing`), in the order a refused deletion is told in.
 async fn refusal(
     scope: &mut Scope<'_>,
     user_id: &str,
     role: OrgRole,
 ) -> Result<Option<DepartureRefused>, StoreError> {
-    if directory::is_the_instances_organization(scope).await?
-        && account_deletion::is_last_instance_admin(scope, user_id).await?
-    {
-        return Ok(Some(DepartureRefused::LastInstanceAdmin));
-    }
     let org_id = scope.org_id().ok_or(StoreError::NoOrganization)?;
     Ok(
         match (

@@ -63,7 +63,7 @@ describe('leaving an organization', () => {
     const leave = within(dialog).getByRole('button', { name: 'Leave' });
     await fireEvent.click(leave);
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(
-      'Make someone else an administrator',
+      'Make another member an administrator',
     );
     expect(screen.getByRole('alertdialog')).toBe(dialog);
     expect(leave).toBeDisabled();

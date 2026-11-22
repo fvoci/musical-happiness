@@ -56,6 +56,13 @@ describe('leaving an organization', () => {
     expect(shown.workspaces).toEqual([own, plain]);
   });
 
+  it('reads the list again for a reader who is out of it already', async () => {
+    const shown = holder(() => Promise.resolve([own, plain]));
+    const gone = new BackendError(404);
+    await expect(leaveOrganization(shown, () => Promise.reject(gone), 'a')).rejects.toBe(gone);
+    expect(shown.workspaces).toEqual([own, plain]);
+  });
+
   it('changes nothing when it is refused', async () => {
     const read = vi.fn(() => Promise.resolve([own]));
     const shown = holder(read);

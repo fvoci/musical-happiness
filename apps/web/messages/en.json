@@ -265,7 +265,7 @@
   "org_leave_coming_back": "To come back, you need to be invited again.",
   "org_leave_password_first": "Set a password before you leave. This account has none and signs in only through an organization's single sign-on, which may not let you in once you have left. You set one from the notice in My space.",
   "org_leave_last_instance_admin": "You are the only administrator of this server. Make another member of this organization an administrator first, then leave.",
-  "org_leave_sole_admin": "You are this organization's only administrator. Make someone else an administrator in its member list first, then leave.",
+  "org_leave_sole_admin": "You are this organization's only administrator. Make another member an administrator in its member list first, inviting one if only guests are left, then leave.",
   "org_leave_alone": "Nobody else is in this organization. Invite someone first, then leave.",
   "org_leave_not_member": "You are no longer a member of this organization.",
   "org_leave_left": "You left {name}.",

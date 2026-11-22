@@ -163,6 +163,28 @@ async fn what_stands_in_the_way_of_leaving_is_refused_and_changes_nothing() {
         .expect("another administrator of the server");
     refused("the organization's only administrator").await;
     leave(&ts.client2, &org_id).await.check_no_content();
+    // Who left the server's own organization runs the server no more.
+    let made = ts
+        .client2
+        .put(
+            &format!("/users/{member_id}/admin"),
+            &json!({"isAdmin": true}),
+        )
+        .await;
+    assert_eq!(
+        (made.status.as_u16(), made.error_reason()),
+        (403, "admin_required".to_owned()),
+        "{}",
+        made.text()
+    );
+    // Somebody else runs it from outside the organization.
+    ts.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE users SET is_admin = true WHERE id = '{member_id}'"
+        ))
+        .await
+        .expect("an administrator of the server outside the organization");
     refused("the organization's only person").await;
 
     assert_eq!(
@@ -185,6 +207,29 @@ async fn what_stands_in_the_way_of_leaving_is_refused_and_changes_nothing() {
             ),
         ]
     );
+    ts.teardown().await;
+}
+
+/// Who leaves is put out of the rooms of the organization's cards as it leaves, not at
+/// the next periodic asking; who stays goes on writing.
+#[tokio::test]
+async fn who_leaves_is_put_out_of_the_rooms_at_once() {
+    let ts = crate::rooms_changes::seldom()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let org_id = org_of(&ts).await;
+    let body = crate::rooms::paragraphs(&["first"]);
+    let (_table, mut one, mut two) = crate::rooms::two_in_a_room(&ts, &body).await;
+    let changed_at = tokio::time::Instant::now();
+    leave(&ts.client2, &org_id).await.check_no_content();
+    let left = crate::rooms_changes::soon(&mut two, "DOC_LEFT", changed_at).await;
+    assert_eq!(
+        left,
+        json!({"action": "DOC_LEFT", "doc": two.doc, "reason": "not_found"})
+    );
+    one.write_acked("after the member left").await;
     ts.teardown().await;
 }
 

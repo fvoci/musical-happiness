@@ -483,8 +483,9 @@ fn describe_organization(reason: Reason) -> Option<&'static str> {
         }
         Reason::SoleOrgAdmin => {
             "Status 409, leaving an organization (`leaveOrganization`): the account is its \
-             only administrator, and other people are in it. Make somebody else its \
-             administrator first (`putOrgRole`). Nothing changed."
+             only administrator, and other people are in it. Make another member its \
+             administrator first (`putOrgRole`); where the others are guests of its \
+             workspaces only, invite a member first. Nothing changed."
         }
         Reason::AloneInOrganization => {
             "Status 409, leaving an organization (`leaveOrganization`): nobody else is in \

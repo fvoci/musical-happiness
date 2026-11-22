@@ -624,7 +624,8 @@ export interface paths {
          *     administrator, and a workspace it joined as the organization's administrator
          *     (`joinOrgWorkspace`) records that it left. Its roles on boards and wikis, its teams,
          *     what it follows (`subscriptions`) in the organization and the links of invitations it
-         *     made there that nobody used go with it, and so does its membership. Its sessions,
+         *     made there that nobody used go with it, and so does its membership; who leaves the
+         *     server's own first organization administers the server no more. Its sessions,
          *     its identities and what it wrote stay, and the organization stays one it made. Its
          *     open connections stop following the organization's workspaces
          *     (`UNSUBSCRIBED_WORKSPACE`). It comes back only as anybody new does: by an invitation,
@@ -7696,7 +7697,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the organization. 404 unless the user of the session administers it; and 404 for the user's own space, which nobody administers. */
+                /** @description The identifier of an organization that people work in together. 404 unless the user of the session is a member of it (a guest of its workspaces is none); and 404 for the user's own space, which nobody is a member of. */
                 orgId: string;
             };
             cookie?: never;

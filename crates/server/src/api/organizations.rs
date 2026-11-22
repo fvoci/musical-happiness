@@ -9,7 +9,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::auth::address_of;
-use super::contract::params::OrgId;
+use super::contract::params::MemberOrgId;
 use super::contract::tag;
 use super::{ApiResult, RequiredSession, created, decode_object, no_content};
 use crate::app::App;
@@ -77,7 +77,8 @@ async fn handle_create_organization(
 /// administrator, and a workspace it joined as the organization's administrator
 /// (`joinOrgWorkspace`) records that it left. Its roles on boards and wikis, its teams,
 /// what it follows (`subscriptions`) in the organization and the links of invitations it
-/// made there that nobody used go with it, and so does its membership. Its sessions,
+/// made there that nobody used go with it, and so does its membership; who leaves the
+/// server's own first organization administers the server no more. Its sessions,
 /// its identities and what it wrote stay, and the organization stays one it made. Its
 /// open connections stop following the organization's workspaces
 /// (`UNSUBSCRIBED_WORKSPACE`). It comes back only as anybody new does: by an invitation,
@@ -99,7 +100,7 @@ async fn handle_create_organization(
     path = "/org/{orgId}/leave",
     operation_id = "leaveOrganization",
     tag = tag::ORGANIZATION,
-    params(OrgId),
+    params(MemberOrgId),
     responses((status = 204, description = "The account is out of the organization.")),
 )]
 async fn handle_leave_organization(

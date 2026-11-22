@@ -376,6 +376,46 @@ async fn administers_the_instance(test: &TestStore, user_id: &str) {
     .expect("an administrator of the instance");
 }
 
+/// Whether the user administers the instance, past the routes.
+async fn runs_the_instance(test: &TestStore, user_id: &str) -> bool {
+    let query = format!(
+        "SELECT CAST(count(*) AS TEXT) FROM users WHERE is_admin = true AND id = '{user_id}'"
+    );
+    one(test, &query).await == "1"
+}
+
+/// An administrator of the instance's own organization, who administers the instance as
+/// one, leaves it and administers the instance no more; its founder still does. A
+/// workspace they were the only administrator of is told as one without any.
+#[tokio::test]
+async fn who_leaves_the_instances_organization_administers_the_instance_no_more() {
+    let test = common::setup().await;
+    let founder = common::user(&test, "founder").await;
+    let leaver = common::user(&test, "leaver").await;
+    set_org_role(&test, &test.org_id, &leaver, OrgRole::Admin).await;
+    administers_the_instance(&test, &leaver).await;
+    let theirs = common::workspace(&test).await;
+    test.add_workspace_member(&theirs, &leaver, WorkspaceRole::Admin)
+        .await
+        .expect("the leaver administers a workspace alone");
+
+    let left = match test.leave_organization(&leaver).await.expect("asked") {
+        Departure::Left(left) => left,
+        other => panic!("the leaver leaves: {other:?}"),
+    };
+
+    assert!(
+        !runs_the_instance(&test, &leaver).await,
+        "who left administers the instance no more"
+    );
+    assert!(
+        runs_the_instance(&test, &founder).await,
+        "the founder still does"
+    );
+    assert_eq!(left.workspaces_without_administrator, [theirs]);
+    test.teardown().await;
+}
+
 /// The instance's only administrator does not leave its own organization, the only
 /// administrator of one that has other people does not leave it, nor its only person,
 /// whatever they are in it: nothing changes. The instance comes first, as a refused

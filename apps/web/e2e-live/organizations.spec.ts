@@ -269,7 +269,7 @@ test('a member who leaves an organization finds it no more, and its only adminis
   await openedAt(founderPage, founder, address);
   const refused = await leaveInSettings(founderPage, name);
   await expect(refused.dialog.getByRole('alert')).toContainText(
-    'Make someone else an administrator',
+    'Make another member an administrator',
   );
   await refused.dialog.getByRole('button', { name: 'Cancel' }).click();
   expect((await api.get('/api/v1/users/me/workspaces')).ok()).toBe(true);
