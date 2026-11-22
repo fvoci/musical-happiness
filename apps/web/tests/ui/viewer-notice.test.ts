@@ -49,12 +49,22 @@ describe("what the viewer shows in the document's place", () => {
     expect(place.textContent.trim()).toBe('Opening the file…');
   });
 
-  it('downloads a file not drawn in its time as the answer not to wait on', () => {
-    const { onAnswer, onDownload } = shown({ name: 'opening', format: 'xlsx', late: true });
-    screen.getByRole('button', { name: 'Download' }).click();
+  it('downloads a file not drawn in its time as the answer not to wait on, the focus staying on Download', async () => {
+    const { onAnswer, onDownload, rerender } = shown({
+      name: 'opening',
+      format: 'xlsx',
+      late: true,
+    });
+    const download = screen.getByRole('button', { name: 'Download' });
+    download.focus();
+    download.click();
     expect(onAnswer).toHaveBeenCalledWith(false);
     expect(onDownload).toHaveBeenCalledTimes(1);
-    expect(document.activeElement).toBe(screen.getByRole('status'));
+    // The file is given up as too slow (FileViewer): the question goes, Download stays.
+    await rerender({ status: { name: 'failed', reason: 'slow' } });
+    expect(screen.getByRole('status').textContent).toContain('The file took too long to show.');
+    expect(screen.getByRole('button', { name: 'Download' })).toBe(download);
+    expect(document.activeElement).toBe(download);
   });
 
   it('offers a file it cannot show as a download, and asks nothing', () => {

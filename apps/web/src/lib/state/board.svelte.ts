@@ -10,9 +10,9 @@
  */
 import { cardsOfView } from '../logic/card-list.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
+import type { PlaceWrite } from '../logic/list-places.ts';
 import { propertyBehavior } from '../logic/properties.ts';
 import {
-  createBoardView,
   viewGrouping,
   viewQuery,
   type Container,
@@ -88,7 +88,7 @@ export class BoardStore {
   /** The card that is open, if one is. */
   openCard = $state.raw<CardStore | undefined>(undefined);
 
-  /** The views in the order of their tabs. */
+  /** The views in the order of their list (`orderViews`). */
   readonly orderedViews = $derived.by(() => orderViews(this.views, this.workspace.locale));
   /** The cards that are cards, not templates for new ones. */
   readonly realCards = $derived(this.cards.filter((card) => !card.fields.isTemplate));
@@ -596,6 +596,24 @@ export class BoardStore {
     );
   }
 
+  /**
+   * Writes places that keep views where they show (`Placing.keep`): no step of
+   * undo. A refusal is given back, for the gesture they go with to say once.
+   */
+  async keepViewPlaces(keep: readonly PlaceWrite[]): Promise<unknown> {
+    const writes = keep.flatMap(({ id, place }) => {
+      const current = this.view(id);
+      if (!current) return [];
+      const placed = { ...current, fields: { ...current.fields, order: place } };
+      const [forward, backward] = viewPatches(placed, current);
+      return isEmptyBlockPatch(forward) ? [] : [this.#viewWrites.write(id, forward, backward)];
+    });
+    const refused = (await Promise.allSettled(writes)).find(
+      (each): each is PromiseRejectedResult => each.status === 'rejected',
+    );
+    return refused?.reason;
+  }
+
   async createView(draft: ViewDraft): Promise<BoardView | undefined> {
     return this.#perform(
       async () => {
@@ -609,13 +627,6 @@ export class BoardStore {
       },
       'createView',
     );
-  }
-
-  /** A copy of a view under another title. */
-  async duplicateView(viewId: string, title: string): Promise<BoardView | undefined> {
-    const source = this.view(viewId);
-    if (!source) return undefined;
-    return this.createView({ title, fields: createBoardView(source).fields });
   }
 
   async deleteView(viewId: string): Promise<void> {

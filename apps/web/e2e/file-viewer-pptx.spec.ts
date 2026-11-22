@@ -144,7 +144,10 @@ function pixelsApart(page: Page, one: Buffer, other: Buffer, by: number): Promis
   );
 }
 
-/** The numbers of the slides laid out in the frame, in order. */
+/**
+ * The numbers of the slides laid out in the frame, in order. The frame is told of a change by
+ * a message, after the page around it shows it: asked until it is so, not once.
+ */
 function laidOut(page: Page): Promise<number[]> {
   return viewerFrame(page).evaluate(() =>
     [...document.querySelectorAll<HTMLElement>('.slide:not([hidden])')].map((box) =>
@@ -170,7 +173,7 @@ test('a deck with hidden slides opens on those a show gives; the hidden ones com
   // The first slide a show gives is 2, numbered as in the file.
   await expect(counter).toContainText('2 / 7');
   await expect(announce).toHaveText('Slide 2 of 7');
-  expect(await laidOut(page)).toEqual([2, 5, 6]);
+  await expect.poll(() => laidOut(page)).toEqual([2, 5, 6]);
   await expect(frame.locator('.slide[data-page="2"]')).toContainText(numberedText(2));
   await picture(page, SCREENS_HIDDEN, 'pptx-hidden');
 
@@ -196,7 +199,7 @@ test('a deck with hidden slides opens on those a show gives; the hidden ones com
   await expect(toggle).toHaveText('Hide hidden slides');
   await expect(toggle).toBeFocused();
   await expect(line.getByRole('status')).toHaveText('Slides: 7, 4 hidden');
-  expect(await laidOut(page)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  await expect.poll(() => laidOut(page)).toEqual([1, 2, 3, 4, 5, 6, 7]);
   // The reader stays on slide 5, where it was.
   await expect(counter).toContainText('5 / 7');
   await expect(frame.locator('.slide[data-page="5"]')).toBeInViewport();
@@ -217,7 +220,7 @@ test('a deck with hidden slides opens on those a show gives; the hidden ones com
   await toggle.click();
   await expect(toggle).toHaveText('Show hidden slides (4)');
   await expect(counter).toContainText('5 / 7');
-  expect(await laidOut(page)).toEqual([2, 5, 6]);
+  await expect.poll(() => laidOut(page)).toEqual([2, 5, 6]);
   await expect(frame.locator('.slide[data-page="5"]')).toBeInViewport();
   await page.keyboard.press('Escape');
   await expect(viewer(page)).toHaveCount(0);
@@ -286,7 +289,7 @@ test('a deck whose slides are all hidden shows them all, marked, and no button',
   await expect(page.getByTestId('file-viewer-hidden')).toHaveCount(0);
   await expect(page.getByTestId('file-viewer-page')).toContainText('1 / 2');
   await expect(page.getByTestId('file-viewer-announce')).toHaveText('Slide 1 of 2, hidden');
-  expect(await laidOut(page)).toEqual([1, 2]);
+  await expect.poll(() => laidOut(page)).toEqual([1, 2]);
   await expect(frameOf(page).locator('.slide-mark')).toHaveCount(2);
 });
 

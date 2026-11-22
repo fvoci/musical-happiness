@@ -6,7 +6,14 @@
  * told two different things apart (the identifier settles what is left).
  * The order of the cards of a view is the business of `logic/sort.ts`.
  */
-import type { Block, Container, ContainerMember, BoardView } from '../logic/wire.ts';
+import { isPlace, placeAfter, type Placed, type PlaceWrite } from '../logic/list-places.ts';
+import {
+  createBoardView,
+  type Block,
+  type Container,
+  type ContainerMember,
+  type BoardView,
+} from '../logic/wire.ts';
 
 import type { Category } from './backend.ts';
 
@@ -39,9 +46,40 @@ export function byTitle<T extends Pick<Block, 'id' | 'createAt' | 'title'>>(
   });
 }
 
-/** The views of a board in the order of their tabs. */
+/**
+ * The views of a board in the order of its list: those with a place
+ * (`fields.order`, `logic/list-places.ts`) by it, the identifier settling a
+ * tie, then those without one by title (every view made before views had
+ * places, until somebody moves one).
+ */
 export function orderViews(views: readonly BoardView[], locale: string): BoardView[] {
-  return byTitle(views, locale);
+  const placed = views.filter((view) => isPlace(view.fields.order));
+  const place = (view: BoardView): string => view.fields.order ?? '';
+  placed.sort((first, second) =>
+    place(first) < place(second) ? -1 : place(first) > place(second) ? 1 : byId(first, second),
+  );
+  const loose = views.filter((view) => !isPlace(view.fields.order));
+  return [...placed, ...byTitle(loose, locale)];
+}
+
+/** Views in the order of their list (`orderViews`), as `logic/list-places.ts` takes them. */
+export function placesOf(ordered: readonly BoardView[]): Placed[] {
+  return ordered.map((view) => ({
+    id: view.id,
+    place: isPlace(view.fields.order) ? view.fields.order : undefined,
+  }));
+}
+
+/**
+ * What a copy of `source` takes: its fields, with a place right after it, and
+ * the places that keep the other views where they show (`Placing.keep`).
+ */
+export function viewCopy(
+  source: BoardView,
+  ordered: readonly BoardView[],
+): { fields: BoardView['fields']; keep: PlaceWrite[] } {
+  const { place, keep } = placeAfter(placesOf(ordered), source.id);
+  return { fields: { ...createBoardView(source).fields, order: place }, keep };
 }
 
 /** The members of a board by the name they are shown under. */

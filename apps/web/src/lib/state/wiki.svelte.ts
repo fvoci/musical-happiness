@@ -344,8 +344,10 @@ export class WikiStore {
     return this.#writes.createPage(draft);
   }
 
-  /** The reader's moves the backend has not answered yet: the tree says it is settling, as a board does. */
+  /** The reader's moves the backend has not answered yet, queued ones among them. */
   moving = $state(0);
+  /** Moves of the reader's under way, or an undo or redo, maybe of one: the tree says it is settling. */
+  readonly settling = $derived.by(() => this.moving > 0 || this.workspace.undoBusy);
 
   /** Moves a page with the pages below it where `to` says; false when it was refused (told). */
   async movePage(pageId: string, to: PagePlace): Promise<boolean> {
