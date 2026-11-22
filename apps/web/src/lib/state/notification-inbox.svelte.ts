@@ -4,7 +4,8 @@
  * when the backend says that what the reader was told changed
  * (`notifications`: something was told, or read, in this tab or another) and
  * when changes may have been missed (`resync`); the list only while it is
- * open. Of two readings, the later one counts.
+ * open. Of two readings, the later one counts, and a reading begun before
+ * the reader read one, or all, does not count: it may not know of that.
  *
  * Who did each is named as the workspace of its card or page names them
  * (`usersById`), asked once a visit; whom it leaves out stays unnamed.
@@ -69,13 +70,16 @@ export class NotificationInbox {
     await this.#readList();
   }
 
+  /** The list is put away: opened again, it is read again before it shows. */
   close(): void {
     this.#open = false;
+    this.listed = false;
   }
 
   /** Marks one as read, on the screen at once. */
   async read(notification: Notification): Promise<void> {
     if (notification.readAt !== 0) return;
+    this.#forgetReadings();
     const now = Date.now();
     this.items = this.items.map((one) =>
       one.id === notification.id ? { ...one, readAt: now } : one,
@@ -98,6 +102,7 @@ export class NotificationInbox {
       (newest, one) => Math.max(newest ?? 0, one.updateAt),
       undefined,
     );
+    this.#forgetReadings();
     const now = Date.now();
     this.items = this.items.map((one) => (one.readAt === 0 ? { ...one, readAt: now } : one));
     try {
@@ -106,6 +111,12 @@ export class NotificationInbox {
       this.#refused(error);
     }
     await this.refresh();
+  }
+
+  /** The answers of the readings under way do not count: they may not know of a read. */
+  #forgetReadings(): void {
+    this.#countReading += 1;
+    this.#listReading += 1;
   }
 
   async #readCount(): Promise<void> {

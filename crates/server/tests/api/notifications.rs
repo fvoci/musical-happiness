@@ -123,9 +123,10 @@ async fn card_mentions(th: &TestServer, card_id: &str, users: &[&str]) {
 }
 
 /// The end of the first slice: A mentions B in a card's body, typing it into the
-/// card's document, and in a comment, and gives B the card. B is told of the three
-/// and A of none; a mention taken out and put back tells B nothing more; and once B
-/// is off the board, B's list still has three entries that say nothing.
+/// card's document, and in a comment, and gives B the card. B is told of the three,
+/// the two mentions in one line, and A of none; what is taken out and put back by
+/// whoever put it there tells B nothing more; and once B is off the board, B's list
+/// still has its two lines, which say nothing.
 #[tokio::test]
 #[expect(
     clippy::too_many_lines,
@@ -250,20 +251,9 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
             .check_no_content();
         tend_notifications(&th.app).await;
     }
-    // Each taken out and put back joins its notification: no other is made.
+    // Each taken out and put back by whoever put it there was counted already.
     let again = told(&th, &th.client2).await;
-    let ids = |told: &[Notification]| {
-        let mut ids: Vec<String> = told.iter().map(|one| one.id.clone()).collect();
-        ids.sort();
-        ids
-    };
-    assert_eq!(ids(&again), ids(&theirs), "nothing more: {again:?}");
-    assert_eq!(kinds(&again), kinds(&theirs));
-    assert!(
-        of_kind(&again, NotificationKind::Mention).times > 2
-            && of_kind(&again, NotificationKind::Assignment).times == 2,
-        "counted: {again:?}"
-    );
+    assert_eq!(again, theirs, "nothing more, and nothing changed");
     assert_eq!(
         th.app
             .housekeeping()

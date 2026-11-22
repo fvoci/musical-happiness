@@ -10,6 +10,7 @@
  * that notification, counted, by the latest, and unread again. Mentions and
  * cards given tell nothing here: the server's tests hold those.
  */
+import { notifies } from '../../logic/notify-settings.ts';
 import type { Paging } from '../trash-reads.ts';
 import type { Notification, Notifications } from '../notification-types.ts';
 
@@ -51,7 +52,7 @@ export function noteComment(world: World, comment: StoredBlock): void {
   const told: string[] = [];
   for (const recipientId of watchersOf(world, on)) {
     if (recipientId === comment.createdBy || !reads(world, recipientId, container.id)) continue;
-    if (!settingsOf(world, recipientId).notifyComments) continue;
+    if (!notifies(settingsOf(world, recipientId), 'comment')) continue;
     const theirs = world.notifications.get(recipientId) ?? [];
     const same = theirs.find((one) => one.blockId === on.id && one.createAt > now - HOUR);
     if (same) {

@@ -186,9 +186,26 @@ async fn a_write_notes_whom_it_names_with_itself_and_a_row_noted_again_is_not_ta
     test.teardown().await;
 }
 
+/// The row noted when `by` takes the mention of `named` out of the body of `card` and
+/// puts it back.
+async fn mentioned_again(store: &Store, card: &Block, named: &str, by: &str) -> NotificationEvent {
+    for body in [None, mentioning(named)] {
+        let mut again = card.clone();
+        again.body = body;
+        store
+            .insert_block(&mut again, by)
+            .await
+            .expect("the card is written again");
+    }
+    let noted = events(store).await;
+    assert_eq!(noted.len(), 1, "{noted:?}");
+    noted.into_iter().next().expect("one row")
+}
+
 /// What happens to one card, of one kind, within an hour of the first of it joins the
-/// first's line: counted, by the latest, and unread again. After the hour, or of
-/// another card, it is a line of its own.
+/// first's line: counted, by the latest, and unread again; the same person doing the
+/// same in the same place again (a mention taken out and put back) is counted once.
+/// After the hour, or of another card, it is a line of its own.
 #[tokio::test]
 async fn what_happens_to_one_card_within_the_hour_is_one_line_that_counts_it() {
     let test = common::setup().await;
@@ -209,30 +226,40 @@ async fn what_happens_to_one_card_within_the_hour_is_one_line_that_counts_it() {
             .read_notification(reader(&named), &id, start + 1)
             .await
             .expect("read")
+            .is_some()
     );
 
-    // Out of the body and in again, once by the writer and once by a third.
-    let noted_again = async |by: &str| {
-        for body in [None, mentioning(&named)] {
-            let mut again = block.clone();
-            again.body = body;
-            store
-                .insert_block(&mut again, by)
-                .await
-                .expect("the card is written again");
-        }
-        let noted = events(store).await;
-        assert_eq!(noted.len(), 1, "{noted:?}");
-        noted.into_iter().next().expect("one row")
-    };
-    for (by, at) in [(&writer, start + 10), (&third, start + hour - 1)] {
-        let within = noted_again(by).await;
-        assert_eq!(
-            store.tell_of(&within, at, LIMITS).await.expect("told"),
-            Told::Joined(id.clone()),
-            "within the hour"
-        );
-    }
+    // Out of the body and in again, by the writer and then by a third.
+    let noted_again = async |by: &str| mentioned_again(store, &block, &named, by).await;
+    let again = noted_again(&writer).await;
+    assert_eq!(
+        store
+            .tell_of(&again, start + 10, LIMITS)
+            .await
+            .expect("told"),
+        Told::Counted(id.clone()),
+        "the writer's mention was counted"
+    );
+    let line = told(store, &named).await;
+    assert_eq!(
+        (
+            line.len(),
+            line[0].times,
+            line[0].update_at,
+            line[0].read_at
+        ),
+        (1, 1, start, start + 1),
+        "as it was, and read: {line:?}"
+    );
+    let within = noted_again(&third).await;
+    assert_eq!(
+        store
+            .tell_of(&within, start + hour - 1, LIMITS)
+            .await
+            .expect("told"),
+        Told::Joined(id.clone()),
+        "within the hour"
+    );
     assert_eq!(events(store).await, [], "the rows are taken off");
     let line = told(store, &named).await;
     assert_eq!(line.len(), 1, "{line:?}");
@@ -245,8 +272,8 @@ async fn what_happens_to_one_card_within_the_hour_is_one_line_that_counts_it() {
             line[0].update_at,
             line[0].read_at,
         ),
-        (3, 2, third.as_str(), start, start + hour - 1, 0),
-        "three times, by two, the latest by the third; unread again"
+        (2, 2, third.as_str(), start, start + hour - 1, 0),
+        "twice, by two, the latest by the third; unread again"
     );
 
     let after = noted_again(&writer).await;
@@ -451,6 +478,7 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
                 .read_notification(reader(&other), &id, at + 1)
                 .await
                 .expect("read")
+                .is_some()
         );
     }
     // Five, one after another, each of another card; the second and the fourth are
@@ -464,6 +492,7 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
                     .read_notification(reader(&named), &id, at * 100 + 1)
                     .await
                     .expect("read")
+                    .is_some()
             );
         }
         made.push(id);
@@ -491,11 +520,12 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
     );
 
     // Another's notification is none of theirs to read.
-    assert!(
-        !store
+    assert_eq!(
+        store
             .read_notification(reader(&writer), &made[4], 1000)
             .await
             .expect("asked"),
+        None,
         "the writer has no such notification"
     );
     assert_eq!(
@@ -510,8 +540,11 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
         store
             .read_notifications_of_user(reader(&named), 300, 2000)
             .await
-            .expect("read"),
-        2
+            .expect("read")
+            .into_values()
+            .collect::<Vec<_>>(),
+        [2],
+        "two, of the one organization"
     );
     // Read before a time: the other's two, read long ago; then the two read at 2000.
     let forgotten = async |before: i64| {

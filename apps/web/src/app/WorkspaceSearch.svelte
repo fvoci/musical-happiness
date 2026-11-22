@@ -32,7 +32,7 @@
   import type { Workspace } from '$lib/state/index.ts';
   import type { SearchHit } from '$lib/state/content-search.ts';
 
-  import { goToPlace, routeOfPlace, type Place } from './places.ts';
+  import { focusThePlace, goToPlace, routeOfPlace, type Place } from './places.ts';
   import type { Router } from './router.svelte.ts';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
@@ -140,8 +140,7 @@
     if (at instanceof HTMLElement && at !== document.body && !at.closest('[data-search-dialog]')) {
       return;
     }
-    const card = document.querySelector<HTMLElement>('[data-card-dialog]');
-    (card ?? document.querySelector<HTMLElement>('main'))?.focus();
+    focusThePlace();
   }
 
   function containerOf(hit: SearchHit): string {

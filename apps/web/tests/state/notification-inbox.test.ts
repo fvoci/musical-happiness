@@ -1,11 +1,13 @@
 /**
  * The inbox of the top bar: its count follows what the reader is told as it
  * happens, the list is read while it is open, who did each is named, and
- * reading one or all of them shows at once.
+ * reading one or all of them shows at once; an answer that may not know of a
+ * read does not count, and a read that is refused is put back.
  */
 import { describe, expect, it } from 'vitest';
 
 import { NotificationInbox } from '$lib/state/notification-inbox.svelte.ts';
+import type { Notification, Notifications } from '$lib/state/notification-types.ts';
 
 import { settle, setup, text } from './support.ts';
 
@@ -71,5 +73,90 @@ describe('the inbox', () => {
     await settle();
     expect(made.inbox.unread).toBe(0);
     expect(made.inbox.items.every((one) => one.readAt > 0)).toBe(true);
+  });
+});
+
+/** A notification of the stand-in below, unread. */
+const ONE: Notification = { id: 'n1', createAt: 1, updateAt: 2, readAt: 0, subject: null };
+
+/** Notifications whose answers the test gives, one by one, in the order asked. */
+function standIn() {
+  const counts: ((count: number) => void)[] = [];
+  const lists: ((items: Notification[]) => void)[] = [];
+  let refuse = false;
+  const notifications: Notifications = {
+    list: () => new Promise((resolve) => lists.push(resolve)),
+    unread: () => new Promise((resolve) => counts.push(resolve)),
+    read: () => (refuse ? Promise.reject(new Error('refused')) : Promise.resolve()),
+    readAll: () => Promise.resolve(),
+  };
+  const backend = { watchSelf: () => () => undefined, usersById: () => Promise.resolve([]) };
+  const refused: unknown[] = [];
+  const inbox = new NotificationInbox(notifications, backend, (error) => refused.push(error));
+  return {
+    inbox,
+    refused,
+    count: (count: number) => counts.shift()?.(count),
+    list: (items: Notification[]) => lists.shift()?.(items),
+    refuseReads: () => {
+      refuse = true;
+    },
+  };
+}
+
+describe('the inbox, against what it is answered', () => {
+  it('lets no count asked before a read undo it', async () => {
+    const made = standIn();
+    made.inbox.start();
+    made.count(1);
+    const opened = made.inbox.open();
+    made.list([ONE]);
+    await opened;
+    await settle();
+    expect(made.inbox.unread).toBe(1);
+
+    // Asked again, and the line read before the answer comes: it says one still.
+    const refreshed = made.inbox.refresh();
+    const reading = made.inbox.read(ONE);
+    expect(made.inbox.unread).toBe(0);
+    made.count(1);
+    made.list([ONE]);
+    await Promise.all([refreshed, reading]);
+    expect(made.inbox.unread).toBe(0);
+    expect(made.inbox.items[0]?.readAt).toBeGreaterThan(0);
+  });
+
+  it('puts back a read that is refused, as it is read again', async () => {
+    const made = standIn();
+    made.inbox.start();
+    made.count(1);
+    const opened = made.inbox.open();
+    made.list([ONE]);
+    await opened;
+    made.refuseReads();
+    const reading = made.inbox.read(ONE);
+    expect(made.inbox.unread).toBe(0);
+    await settle();
+    made.count(1);
+    made.list([ONE]);
+    await reading;
+    expect(made.refused).toHaveLength(1);
+    expect([made.inbox.unread, made.inbox.items[0]?.readAt]).toEqual([1, 0]);
+  });
+
+  it('shows a list opened again only once it is read again', async () => {
+    const made = standIn();
+    const first = made.inbox.open();
+    made.list([ONE]);
+    await first;
+    expect(made.inbox.listed).toBe(true);
+    made.inbox.close();
+    expect(made.inbox.listed).toBe(false);
+    const again = made.inbox.open();
+    await settle();
+    expect(made.inbox.listed).toBe(false);
+    made.list([]);
+    await again;
+    expect([made.inbox.listed, made.inbox.items]).toEqual([true, []]);
   });
 });

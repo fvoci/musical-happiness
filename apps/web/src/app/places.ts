@@ -49,3 +49,12 @@ export function goToPlace(router: Router, place: Place): void {
     router.go(route, { replace: true });
   }
 }
+
+/**
+ * Puts the focus where a card or a page was opened (`goToPlace`): in the card
+ * where one is open, else on the page.
+ */
+export function focusThePlace(): void {
+  const card = document.querySelector<HTMLElement>('[data-card-dialog]');
+  (card ?? document.querySelector<HTMLElement>('main'))?.focus();
+}

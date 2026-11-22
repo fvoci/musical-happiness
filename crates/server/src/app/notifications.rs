@@ -274,14 +274,16 @@ impl App {
         asker: Asker<'_>,
         notification_id: &str,
     ) -> Result<(), AppError> {
-        let theirs = self
+        let Some(org_id) = self
             .store()
             .read_notification(reader(asker), notification_id, now_millis())
-            .await?;
-        if !theirs {
+            .await?
+        else {
             return Err(AppError::not_found("notification"));
-        }
-        self.ws().notifications_changed(asker.user_id, None).await;
+        };
+        self.ws()
+            .notifications_changed(asker.user_id, &[&org_id])
+            .await;
         Ok(())
     }
 
@@ -296,9 +298,10 @@ impl App {
             .store()
             .read_notifications_of_user(reader(asker), through, now_millis())
             .await?;
-        if read > 0 {
-            self.ws().notifications_changed(asker.user_id, None).await;
-        }
+        let org_ids: Vec<&str> = read.keys().map(String::as_str).collect();
+        self.ws()
+            .notifications_changed(asker.user_id, &org_ids)
+            .await;
         Ok(())
     }
 
@@ -387,6 +390,7 @@ async fn settle(app: &App, event: &NotificationEvent) -> Result<(), AppError> {
         match app.store().tell_of(event, now_millis(), LIMITS).await? {
             Told::Made(_) => Some(NotificationSettled::Made),
             Told::Joined(_) => Some(NotificationSettled::Joined),
+            Told::Counted(_) => Some(NotificationSettled::Counted),
             Told::OverTheLimit => Some(NotificationSettled::OverTheLimit),
             Told::NotedAgain => None,
         }
@@ -404,7 +408,7 @@ async fn settle(app: &App, event: &NotificationEvent) -> Result<(), AppError> {
         NotificationSettled::Made | NotificationSettled::Joined
     ) {
         app.ws()
-            .notifications_changed(&event.recipient_id, Some(&event.org_id))
+            .notifications_changed(&event.recipient_id, &[&event.org_id])
             .await;
     }
     Ok(())

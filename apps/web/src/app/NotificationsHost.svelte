@@ -15,7 +15,7 @@
   import { NotificationInbox } from '$lib/state/notification-inbox.svelte.ts';
   import type { Notification } from '$lib/state/notification-types.ts';
 
-  import { goToPlace, routeOfPlace, type Place } from './places.ts';
+  import { focusThePlace, goToPlace, routeOfPlace, type Place } from './places.ts';
   import { revealComment } from './reveal-comment.ts';
   import type { Router } from './router.svelte.ts';
 
@@ -65,8 +65,7 @@
   function settleFocus(): void {
     const at = document.activeElement;
     if (at instanceof HTMLElement && at !== document.body && at.isConnected) return;
-    const card = document.querySelector<HTMLElement>('[data-card-dialog]');
-    (card ?? document.querySelector<HTMLElement>('main'))?.focus();
+    focusThePlace();
   }
 </script>
 

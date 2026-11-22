@@ -13,8 +13,14 @@ ALTER TABLE notifications ADD COLUMN times BIGINT NOT NULL DEFAULT 1;
 -- Who did it, each once, in the order they first did: a JSON list of identifiers,
 -- of a hundred at most.
 ALTER TABLE notifications ADD COLUMN doers TEXT NOT NULL DEFAULT '[]';
+-- What it counted, each once: a JSON list of [what it was in, who did it], of a hundred
+-- at most. The same person doing the same in the same place again (a mention taken out
+-- and put back) is not counted again.
+ALTER TABLE notifications ADD COLUMN counted TEXT NOT NULL DEFAULT '[]';
 UPDATE notifications SET made_by = actor_id, update_at = create_at,
-    doers = CASE WHEN actor_id IS NULL THEN '[]' ELSE '["' || actor_id::text || '"]' END;
+    doers = CASE WHEN actor_id IS NULL THEN '[]' ELSE '["' || actor_id::text || '"]' END,
+    counted = CASE WHEN actor_id IS NULL THEN '[]'
+        ELSE '[["' || source_id::text || '","' || actor_id::text || '"]]' END;
 
 DROP INDEX notifications_recipient_idx;
 CREATE INDEX notifications_recipient_idx ON notifications (recipient_id, update_at DESC, id DESC);

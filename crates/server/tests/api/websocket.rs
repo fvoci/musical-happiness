@@ -1275,7 +1275,13 @@ async fn messages_match_the_websocket_contract() {
     contract_check
         .hear(&mut socket, "UPDATE_CLIENT_CONFIG")
         .await;
-    ws.notifications_changed(&user1.id, None).await;
+    let org_id = th
+        .app
+        .store()
+        .tenant()
+        .org_id()
+        .expect("the test server's organization");
+    ws.notifications_changed(&user1.id, &[&org_id]).await;
     contract_check
         .hear(&mut socket, "UPDATE_NOTIFICATIONS")
         .await;

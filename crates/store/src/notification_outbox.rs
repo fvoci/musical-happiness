@@ -68,6 +68,9 @@ pub enum Told {
     /// The line of the same card or page, of the same kind, of this identifier, which
     /// counts it now and is unread again.
     Joined(String),
+    /// Nothing more: the line of this identifier counted the same doer's doing in the
+    /// same place already (a mention taken out and put back), and stays as it was.
+    Counted(String),
     /// Nothing: whoever did it made as many lines for the person as one may
     /// ([`NotificationLimits::most_made_by_one`]).
     OverTheLimit,
@@ -127,9 +130,10 @@ impl Store {
 
     /// Tells the person of `event` at `now`: takes its row off the list and, in the
     /// same transaction, joins it to the line the person has of the same card or page
-    /// and kind, made within [`NotificationLimits::same_within_millis`], or makes a new
-    /// line, unless its doer made [`NotificationLimits::most_made_by_one`] for the
-    /// person already. Where the person then has more than
+    /// and kind, made within [`NotificationLimits::same_within_millis`] (unless that
+    /// line counted its doer's doing of its source already), or makes a new line,
+    /// unless its doer made [`NotificationLimits::most_made_by_one`] for the person
+    /// already. Where the person then has more than
     /// [`NotificationLimits::most_of_a_person`], the oldest go, those that were read
     /// first. For a handle that reaches every organization: a person's notifications
     /// are counted across them.
@@ -148,8 +152,8 @@ impl Store {
             if !take_off(scope, event).await? {
                 return Ok(Told::NotedAgain);
             }
-            let mut sql =
-                scope.sql("SELECT org_id, id, doers FROM notifications WHERE recipient_id = ");
+            let mut sql = scope
+                .sql("SELECT org_id, id, doers, counted FROM notifications WHERE recipient_id = ");
             sql.bind(Id(&event.recipient_id))
                 .push_bind(" AND block_id = ", Id(&event.block_id))
                 .push_bind(" AND kind = ", event.kind.as_str())
@@ -160,6 +164,9 @@ impl Store {
                 .push(" ORDER BY create_at DESC LIMIT 1");
             if let Some(row) = scope.fetch_optional(sql).await? {
                 let (org_id, id) = (row.id(0)?, row.id(1)?);
+                let Some(counted) = with_counted(&row.text(3)?, event) else {
+                    return Ok(Told::Counted(id));
+                };
                 let doers = with_doer(&row.text(2)?, &event.actor_id);
                 let mut sql = scope.sql("UPDATE notifications SET update_at = ");
                 sql.bind(now)
@@ -168,6 +175,7 @@ impl Store {
                     .push_bind(", source_id = ", Id(&event.source_id))
                     .push_bind(", container_id = ", Id(&event.container_id))
                     .push_bind(", doers = ", doers)
+                    .push_bind(", counted = ", counted)
                     .push_bind(" WHERE org_id = ", Id(&org_id))
                     .push_bind(" AND id = ", Id(&id));
                 scope.execute(sql).await?;
@@ -180,7 +188,7 @@ impl Store {
             let mut sql = scope.sql(
                 "INSERT INTO notifications (recipient_id, id, org_id, kind, source_id, \
                  block_id, container_id, actor_id, made_by, create_at, update_at, times, \
-                 doers, read_at) VALUES (",
+                 doers, counted, read_at) VALUES (",
             );
             sql.bind(Id(&event.recipient_id))
                 .push_bind(", ", Id(&id))
@@ -194,6 +202,7 @@ impl Store {
                 .push_bind(", ", now)
                 .push_bind(", ", now)
                 .push_bind(", 1, ", with_doer("[]", &event.actor_id))
+                .push_bind(", ", with_counted("[]", event).unwrap_or_default())
                 .push(", 0)");
             scope.execute(sql).await?;
             keep_newest(scope, &event.recipient_id, limits.most_of_a_person).await?;
@@ -288,6 +297,21 @@ fn with_doer(doers: &str, doer: &str) -> String {
         doers.push(doer.to_owned());
     }
     serde_json::to_string(&doers).unwrap_or_else(|_| "[]".to_owned())
+}
+
+/// What a line counted (`counted`, a JSON list of [source, doer] pairs) with the
+/// doing of `event` after it, or `None` where it is among them already. Past
+/// [`MOST_DOERS`] pairs, a doing is counted without being kept.
+fn with_counted(counted: &str, event: &NotificationEvent) -> Option<String> {
+    let mut counted: Vec<(String, String)> = serde_json::from_str(counted).unwrap_or_default();
+    let doing = (event.source_id.clone(), event.actor_id.clone());
+    if counted.contains(&doing) {
+        return None;
+    }
+    if counted.len() < MOST_DOERS {
+        counted.push(doing);
+    }
+    Some(serde_json::to_string(&counted).unwrap_or_else(|_| "[]".to_owned()))
 }
 
 /// Takes the row of `event` off the list, if it is as it was read.

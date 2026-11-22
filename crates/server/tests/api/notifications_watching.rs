@@ -290,9 +290,9 @@ async fn every_connection_of_the_user_hears_that_their_notifications_changed() {
     th.teardown().await;
 }
 
-/// What an organization behind its provider tells somebody is heard by the connections
-/// of their sessions made through that provider, and by no other; what another tells
-/// them is heard by every one.
+/// What an organization behind its provider tells somebody, and their reading it, is
+/// heard by the connections of their sessions made through that provider, and by no
+/// other; what another tells them is heard by every one.
 #[tokio::test]
 async fn a_connection_hears_only_of_what_its_session_opens() {
     use crate::fake_oidc::FakeProvider;
@@ -333,6 +333,18 @@ async fn a_connection_hears_only_of_what_its_session_opens() {
     assert!(
         !hears_notifications(&mut with_password, NOT_HEARD).await,
         "the password's session hears nothing of ours"
+    );
+    // Read through the provider: heard by that session alone, as what it read is ours.
+    let ours_told = told(&th, &through_ours).await;
+    assert_eq!(ours_told.len(), 1, "{ours_told:?}");
+    through_ours
+        .post("/notifications/read", &Value::Null)
+        .await
+        .check_no_content();
+    assert!(hears_notifications(&mut with_provider, HEARD).await, "read");
+    assert!(
+        !hears_notifications(&mut with_password, NOT_HEARD).await,
+        "the password's session hears nothing of what was read of ours"
     );
 
     let their_store = th.app.store().for_org(&theirs).expect("an identifier");

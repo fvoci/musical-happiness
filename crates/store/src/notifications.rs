@@ -6,7 +6,7 @@
 //! each, whether they read what it is about; the list here is narrowed by its reader
 //! and by nothing else, across every organization.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use fvoci_model::{BlockType, ContainerKind, NotificationKind, SearchKind};
 
@@ -207,8 +207,9 @@ impl Store {
 
     /// Marks a notification of a reader as read at `now`, in whichever organization
     /// their session opens it is; one that was read keeps the time it was. Returns
-    /// whether the reader has such a notification: another's is none of theirs, and
-    /// neither is one of an organization the session does not open.
+    /// the organization it is of, where the reader has such a notification: another's
+    /// is none of theirs, and neither is one of an organization the session does not
+    /// open.
     ///
     /// # Errors
     ///
@@ -218,17 +219,18 @@ impl Store {
         reader: NotificationReader<'_>,
         notification_id: &str,
         now: i64,
-    ) -> Result<bool, StoreError> {
+    ) -> Result<Option<String>, StoreError> {
         self.system()
             .transaction(async |scope| {
                 let closed = reader.closed_organizations(scope).await?;
-                let mut sql = scope.sql("SELECT read_at FROM notifications WHERE recipient_id = ");
+                let mut sql =
+                    scope.sql("SELECT org_id, read_at FROM notifications WHERE recipient_id = ");
                 reader.push_theirs(&closed, &mut sql);
                 sql.push_bind(" AND id = ", Id(notification_id));
                 let Some(row) = scope.fetch_optional(sql).await? else {
-                    return Ok(false);
+                    return Ok(None);
                 };
-                if row.int(0)? == 0 {
+                if row.int(1)? == 0 {
                     let mut sql = scope.sql("UPDATE notifications SET read_at = ");
                     sql.bind(now)
                         .push_bind(" WHERE recipient_id = ", Id(reader.user_id))
@@ -236,14 +238,14 @@ impl Store {
                         .push(" AND read_at = 0");
                     scope.execute(sql).await?;
                 }
-                Ok(true)
+                Ok(Some(row.id(0)?))
             })
             .await
     }
 
     /// Marks as read at `now` every notification of a reader whose latest happened up
     /// to `through` and that is not read yet, of every organization their session
-    /// opens. Returns how many.
+    /// opens. Returns how many, by the organization they are of.
     ///
     /// # Errors
     ///
@@ -253,15 +255,20 @@ impl Store {
         reader: NotificationReader<'_>,
         through: i64,
         now: i64,
-    ) -> Result<u64, StoreError> {
+    ) -> Result<BTreeMap<String, u64>, StoreError> {
         self.system()
             .transaction(async |scope| {
                 let closed = reader.closed_organizations(scope).await?;
                 let mut sql = scope.sql("UPDATE notifications SET read_at = ");
                 sql.bind(now).push(" WHERE read_at = 0 AND recipient_id = ");
                 reader.push_theirs(&closed, &mut sql);
-                sql.push_bind(" AND update_at <= ", through);
-                scope.execute(sql).await
+                sql.push_bind(" AND update_at <= ", through)
+                    .push(" RETURNING org_id");
+                let mut read = BTreeMap::new();
+                for row in scope.fetch_all(sql).await? {
+                    *read.entry(row.id(0)?).or_insert(0) += 1;
+                }
+                Ok(read)
             })
             .await
     }
