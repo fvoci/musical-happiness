@@ -281,9 +281,12 @@ describe('the whole row', () => {
     expect(search()).not.toHaveClass('hidden');
     await fireEvent.keyDown(field, { key: 'Escape' });
     expect(screen.getByTestId('search-text')).toHaveTextContent('');
-    await tick();
     expect(search()).toHaveClass('hidden');
     expect(toolButton('search')).toHaveFocus();
+    // Clicking the focused search button again immediately reopens and focuses the field.
+    await fireEvent.click(toolButton('search'));
+    expect(search()).not.toHaveClass('hidden');
+    expect(within(header()).getByRole('searchbox', { name: 'Search cards' })).toHaveFocus();
   });
 
   it('gives an empty search field back to its button when the focus leaves it', async () => {

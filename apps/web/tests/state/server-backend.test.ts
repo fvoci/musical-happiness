@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { serverBackend } from './support.ts';
 import { cardOfBlock } from '$lib/api/convert.ts';
+import { Http } from '$lib/api/http.ts';
 import { isBackendError } from '$lib/state/index.ts';
 
 interface Sent {
@@ -1181,5 +1182,291 @@ describe('searching boards on the server', () => {
     const sent = serveRoutes([['GET /api/v1/w/t/boards/search', []]]);
     expect(await serverBackend('').searchBoards('t', 'garden plan')).toEqual([]);
     expect(sentLines(sent)).toEqual(['GET /api/v1/w/t/boards/search?q=garden+plan']);
+  });
+});
+
+describe('session cookie rotation during password changes', () => {
+  const problem = (status: number, detail: string, reason?: string): Response =>
+    new Response(
+      JSON.stringify({
+        type: '/problems/unauthorized',
+        title: 'No valid session',
+        status,
+        detail,
+        ...(reason ? { reason } : {}),
+      }),
+      { status, headers: { 'Content-Type': 'application/problem+json' } },
+    );
+
+  it('retries concurrent GET and POST requests refused with 401 while setPassword rotates the cookie', async () => {
+    let cookie = 'old';
+    let finishSet!: () => void;
+    const setGate = new Promise<void>((resolve) => {
+      finishSet = resolve;
+    });
+    const calls: string[] = [];
+
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const usedCookie = cookie;
+      calls.push(`${method} ${url} [${usedCookie}]`);
+      if (method === 'PUT' && url === '/api/v1/users/me/password') {
+        await setGate;
+        cookie = 'new';
+        return new Response(null, { status: 204 });
+      }
+      if (usedCookie !== 'new') return problem(401, 'invalid session token');
+      if (method === 'POST' && url === '/api/v1/w/w1/users') {
+        return new Response(
+          JSON.stringify([
+            { id: 'u1', username: 'ada', displayName: 'Ada', createAt: 1, updateAt: 2 },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const backend = serverBackend('');
+    const setting = backend.setPassword('a long password');
+    const boards = backend.boards('w1');
+    const users = backend.usersById('w1', ['u1']);
+    await Promise.resolve();
+    finishSet();
+
+    await setting;
+    expect(await boards).toEqual([]);
+    expect((await users).map((user) => user.id)).toEqual(['u1']);
+    expect(calls).toEqual([
+      'PUT /api/v1/users/me/password [old]',
+      'GET /api/v1/w/w1/boards [old]',
+      'POST /api/v1/w/w1/users [old]',
+      'GET /api/v1/w/w1/boards [new]',
+      'POST /api/v1/w/w1/users [new]',
+    ]);
+  });
+
+  it('retries a slow request started before confirmPassword whose 401 arrives after rotation finishes, and bytes too', async () => {
+    let cookie = 'old';
+    let releaseSlow!: () => void;
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+    let firstBoards = true;
+    let firstFile = true;
+
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const usedCookie = cookie;
+      if (method === 'POST' && url === '/api/v1/users/me/password/confirm') {
+        cookie = 'new';
+        return new Response(null, { status: 204 });
+      }
+      if (url === '/api/v1/w/w1/boards' && firstBoards) {
+        firstBoards = false;
+        await slowGate;
+        return problem(401, 'invalid session token');
+      }
+      if (url.includes('/files/f1') && firstFile) {
+        firstFile = false;
+        await slowGate;
+        return problem(401, 'invalid session token');
+      }
+      if (usedCookie !== 'new') return problem(401, 'invalid session token');
+      if (url.includes('/files/f1')) return new Response('ok', { status: 200 });
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const backend = serverBackend('');
+    const slowBoards = backend.boards('w1');
+    const slowBytes = backend.fileBytes('b1', 'f1');
+    await backend.confirmPassword('a long password');
+    releaseSlow();
+
+    expect(await slowBoards).toEqual([]);
+    expect(await (await slowBytes).text()).toBe('ok');
+  });
+
+  it('does not hide real session loss, failed rotation, remote logout, or account deletion pending', async () => {
+    // 1. Plain 401 with no rotation fails on the first try.
+    let tries = 0;
+    vi.stubGlobal('fetch', () => {
+      tries += 1;
+      return Promise.resolve(problem(401, 'invalid session token'));
+    });
+    await expect(serverBackend('').boards('w1')).rejects.toMatchObject({ status: 401 });
+    expect(tries).toBe(1);
+
+    // 2. Failed changePassword does not trigger retries of concurrent 401s.
+    let failRot!: () => void;
+    const rotGate = new Promise<void>((resolve) => {
+      failRot = resolve;
+    });
+    let boardTries = 0;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url === '/api/v1/users/me/password') {
+        await rotGate;
+        return problem(403, 'wrong password', 'invalid_credentials');
+      }
+      boardTries += 1;
+      return problem(401, 'invalid session token');
+    });
+    const b1 = serverBackend('');
+    const changing = b1.changePassword('wrong', 'new password');
+    const reading = b1.boards('w1');
+    await Promise.resolve();
+    failRot();
+    await expect(changing).rejects.toMatchObject({ status: 403 });
+    await expect(reading).rejects.toMatchObject({ status: 401 });
+    expect(boardTries).toBe(1);
+
+    // 3. Remote logout right after rotation: retries once under the new cookie, then fails 401.
+    let finishRevoked!: () => void;
+    const revokedGate = new Promise<void>((resolve) => {
+      finishRevoked = resolve;
+    });
+    let revokedTries = 0;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT' && url === '/api/v1/users/me/password') {
+        await revokedGate;
+        return new Response(null, { status: 204 });
+      }
+      revokedTries += 1;
+      return problem(401, 'invalid session token');
+    });
+    const b2 = serverBackend('');
+    const setting = b2.setPassword('a long password');
+    const revokedRead = b2.boards('w1');
+    await Promise.resolve();
+    finishRevoked();
+    await setting;
+    await expect(revokedRead).rejects.toMatchObject({ status: 401 });
+    expect(revokedTries).toBe(2);
+
+    // 4. account_deletion_pending is never retried even while a rotation succeeds.
+    let finishPending!: () => void;
+    const pendingGate = new Promise<void>((resolve) => {
+      finishPending = resolve;
+    });
+    let leavingTries = 0;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT' && url === '/api/v1/users/me/password') {
+        await pendingGate;
+        return new Response(null, { status: 204 });
+      }
+      leavingTries += 1;
+      return problem(401, 'account deletion pending', 'account_deletion_pending');
+    });
+    const b3 = serverBackend('');
+    const set3 = b3.setPassword('a long password');
+    const leaving = b3.boards('w1');
+    await Promise.resolve();
+    finishPending();
+    await set3;
+    await expect(leaving).rejects.toMatchObject({
+      status: 401,
+      reason: 'account_deletion_pending',
+    });
+    expect(leavingTries).toBe(1);
+  });
+
+  it('aborts cleanly while waiting on an in-flight rotation without surfacing a stale 401', async () => {
+    let finishSet!: () => void;
+    const setGate = new Promise<void>((resolve) => {
+      finishSet = resolve;
+    });
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT' && url === '/api/v1/users/me/password') {
+        await setGate;
+        return new Response(null, { status: 204 });
+      }
+      return problem(401, 'invalid session token');
+    });
+
+    const http = new Http('');
+    const setting = http.request(
+      '/api/v1/users/me/password',
+      {},
+      { method: 'PUT', json: { password: 'a long password' }, rotates: true },
+    );
+    const bytesAbort = new AbortController();
+    const fileRead = http.bytes(
+      '/api/v1/w/{workspaceId}/containers/{containerId}/files/{fileId}',
+      { workspaceId: 'w1', containerId: 'b1', fileId: 'f1' },
+      {},
+      bytesAbort.signal,
+    );
+    const reqAbort = new AbortController();
+    const boardsRead = http.request(
+      '/api/v1/w/{workspaceId}/boards',
+      { workspaceId: 'w1' },
+      { signal: reqAbort.signal },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    bytesAbort.abort();
+    reqAbort.abort();
+
+    // bytes() reports status-0 no answer (never stale 401); request() rethrows the AbortError.
+    await expect(fileRead).rejects.toMatchObject({ status: 0 });
+    await expect(boardsRead).rejects.toThrow();
+    finishSet();
+    await setting;
+  });
+
+  it('survives back-to-back setPassword and confirmPassword rotations up to the retry cap', async () => {
+    let cookie = 'c0';
+    let finishFirst!: () => void;
+    let finishSecond!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const secondGate = new Promise<void>((resolve) => {
+      finishSecond = resolve;
+    });
+    const backend = serverBackend('');
+    let reads = 0;
+    let secondPromise: Promise<void> | undefined;
+
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT' && url === '/api/v1/users/me/password') {
+        await firstGate;
+        cookie = 'c1';
+        return new Response(null, { status: 204 });
+      }
+      if (init?.method === 'POST' && url === '/api/v1/users/me/password/confirm') {
+        await secondGate;
+        cookie = 'c2';
+        return new Response(null, { status: 204 });
+      }
+      reads += 1;
+      if (reads === 2 && !secondPromise) {
+        secondPromise = backend.confirmPassword('a long password');
+      }
+      if (cookie !== 'c2') return problem(401, 'invalid session token');
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const first = backend.setPassword('a long password');
+    const boards = backend.boards('w1');
+    await Promise.resolve();
+    finishFirst();
+    await first;
+    // Let the second read start confirmPassword and hit 401 under c1 before c2 commits.
+    await Promise.resolve();
+    await Promise.resolve();
+    finishSecond();
+    await secondPromise;
+    expect(await boards).toEqual([]);
+    expect(reads).toBe(3);
   });
 });
