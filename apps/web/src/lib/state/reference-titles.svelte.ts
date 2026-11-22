@@ -20,7 +20,8 @@
  */
 import { SvelteMap } from 'svelte/reactivity';
 
-import { cardIcon } from '../logic/wire.ts';
+import { cardsNamed } from '../logic/card-numbers.ts';
+import { cardIcon, type Card } from '../logic/wire.ts';
 
 import { isBackendError, isCardBlock, type Change } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
@@ -185,6 +186,19 @@ export class ReferenceTitles {
       }
     })();
     this.#latest = found;
+    return found;
+  }
+
+  /**
+   * The cards of `board` but `around` that what was typed after `#` names
+   * (`cardsNamed`): of what the board holds, without asking. What is offered
+   * is known from then on: taken, it is drawn without asking.
+   */
+  onBoard(typed: string, board: Pick<BoardStore, 'realCards'>, around?: string): LinkedBlock[] {
+    const workspaceId = this.#here();
+    const others = board.realCards.filter((card) => card.id !== around);
+    const found = cardsNamed(others, typed).map(linkedOf);
+    this.#learn(workspaceId, found, this.#tick());
     return found;
   }
 
@@ -383,18 +397,24 @@ export class ReferenceTitles {
 }
 
 /** The cards of the board that were changed last, as references show them; templates left out. */
+/** A card of a board the reader holds, as a reference shows it. */
+function linkedOf(card: Card): LinkedBlock {
+  return {
+    id: card.id,
+    kind: 'card',
+    title: card.title,
+    icon: cardIcon(card),
+    containerId: card.containerId,
+    containerKind: 'board',
+    ...(card.number === undefined ? {} : { number: card.number }),
+  };
+}
+
 function recentOf(board: Pick<BoardStore, 'realCards'>): LinkedBlock[] {
   return [...board.realCards]
     .sort((a, b) => b.updateAt - a.updateAt || a.id.localeCompare(b.id))
     .slice(0, OFFERED_UNASKED)
-    .map((card) => ({
-      id: card.id,
-      kind: 'card',
-      title: card.title,
-      icon: cardIcon(card),
-      containerId: card.containerId,
-      containerKind: 'board',
-    }));
+    .map(linkedOf);
 }
 
 const titles = new WeakMap<Workspace, ReferenceTitles>();

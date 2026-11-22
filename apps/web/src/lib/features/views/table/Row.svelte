@@ -17,6 +17,7 @@
   import CardPresence from '../CardPresence.svelte';
   import type { BoardStore } from '$lib/state/index.ts';
 
+  import CardNumber from '$lib/components/card-number/CardNumber.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import { PropertyValue } from '$lib/components/properties/index.ts';
   import TextField from '$lib/components/properties/parts/TextField.svelte';
@@ -160,6 +161,7 @@
         <circle cx="6" cy="12.5" r="1.1" /><circle cx="10" cy="12.5" r="1.1" />
       </svg>
     {/if}
+    <CardNumber number={card.number} class="ps-1" />
     {#if card.fields.icon}
       <span class="shrink-0 ps-1" aria-hidden="true">{card.fields.icon}</span>
     {/if}

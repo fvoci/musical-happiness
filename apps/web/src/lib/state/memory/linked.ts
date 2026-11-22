@@ -1,6 +1,7 @@
 /**
  * What bodies name, for the backend in memory, as the server answers it
- * (`resolveReferences`, `getReferencesTo`, `searchReferences`): a card is told
+ * (`resolveReferences`, `getReferencesTo`, `searchReferences`,
+ * `getCardByNumber`): a card is told
  * to whoever has a role on its board, a page to whoever reads its wiki (a role
  * on it, or work in the workspace of an open one), and neither to anybody else,
  * whatever is asked.
@@ -64,9 +65,10 @@ export class MemoryReferences implements References {
     if (!reads(world, userId, block.containerId)) return undefined;
     const icon = typeof block.fields.icon === 'string' ? block.fields.icon : '';
     const { id, title, containerId } = block;
-    return block.type === 'page'
-      ? { id, kind: 'page', title, icon, containerId, containerKind: 'wiki' }
-      : { id, kind: 'card', title, icon, containerId, containerKind: 'board' };
+    if (block.type === 'page')
+      return { id, kind: 'page', title, icon, containerId, containerKind: 'wiki' };
+    const numbered = block.number === undefined ? {} : { number: block.number };
+    return { id, kind: 'card', title, icon, containerId, containerKind: 'board', ...numbered };
   }
 
   #check(workspaceId: string): void {
@@ -116,5 +118,19 @@ export class MemoryReferences implements References {
       .sort((a, b) => b.updateAt - a.updateAt || a.id.localeCompare(b.id))
       .flatMap((block) => this.#shown(block, workspaceId) ?? [])
       .slice(0, FOUND_AT_MOST);
+  }
+
+  /** A card in the trash, or a template, has no number here: it is none. */
+  async numbered(
+    workspaceId: string,
+    boardId: string,
+    number: number,
+  ): Promise<LinkedBlock | undefined> {
+    await this.#enter();
+    this.#check(workspaceId);
+    const card = this.#asker.world
+      .blocksOf(boardId)
+      .find((block) => block.type === 'card' && block.number === number);
+    return this.#shown(card, workspaceId);
   }
 }

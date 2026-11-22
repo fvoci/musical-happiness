@@ -161,9 +161,11 @@
   const reference: ReferenceOptions = {
     drawing: () => references,
     search: (query) => references?.search(query) ?? [],
+    numbered: (query) => references?.numbered?.(query) ?? [],
     named: (address) => references?.named(address),
     seen: (id) => references?.seen(id) ?? Promise.resolve(false),
     render: suggestionList({ kind: 'reference', label: m.editor_suggest_references }),
+    renderNumbered: suggestionList({ kind: 'card-number', label: m.editor_suggest_board_cards }),
   };
 
   /**

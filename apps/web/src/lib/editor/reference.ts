@@ -6,9 +6,11 @@
  * reader who may not see it is shown no name at all, and what is copied out
  * of the editor carries the identifier alone.
  *
- * A reference is put in three ways: by choosing from what `[[` offers, by
- * pasting the address of a card or a page of the workspace that the reader
- * may see, and by pasting what was copied out of a body. What is pasted from
+ * A reference is put in four ways: by choosing from what `[[` offers, or
+ * from the cards of the same board that `#` and a number or words of a title
+ * offer (the number is the card's, never the document's), by pasting the
+ * address of a card or a page of the workspace that the reader may see, and
+ * by pasting what was copied out of a body. What is pasted from
  * a body is taken as it is: a writer may name what they cannot see, as the
  * server takes any identifier, and readers are shown what each may see.
  */
@@ -29,11 +31,15 @@ export interface ReferenceOptions {
   drawing: () => ReferenceDrawing | undefined;
   /** What may be named whose title matches what was typed after `[[`. */
   search: (query: string) => SuggestionEntry[] | Promise<SuggestionEntry[]>;
+  /** The cards of the same board that what was typed after `#` names; none where there is no board. */
+  numbered: (query: string) => SuggestionEntry[];
   /** The identifier an address names, if it is the address of a card or a page of this workspace. */
   named: (address: string) => string | undefined;
   /** Whether the reader may see what the identifier names: only then is a pasted address made a reference. */
   seen: (id: string) => Promise<boolean>;
   render?: SuggestionRenderer;
+  /** The list of what `#` offers. */
+  renderNumbered?: SuggestionRenderer;
 }
 
 /** The longest title that is looked for after `[[`. */
@@ -59,6 +65,29 @@ export function referenceMatch({ $position }: Trigger): SuggestionMatch {
   };
 }
 
+/**
+ * What is being typed after `#` at the cursor, if anything is: up to the
+ * cursor within the line, a number or the words of a title (`#12`, `#두
+ * 단어`). The `#` begins a word: at the start of the line, or after a space
+ * or a `(`; not `C#`, an address's `#part`, `##`, or `[[#`. What follows it
+ * begins with no space (`# ` makes a heading), and a `]`, a `#` or a node
+ * that is not text ends it. Not in code.
+ */
+export function cardNumberMatch({ $position }: Trigger): SuggestionMatch {
+  if ($position.parent.type.spec.code) return null;
+  if ($position.marks().some((mark) => mark.type.spec.code)) return null;
+  const before = $position.parent.textBetween(0, $position.parentOffset, undefined, '￼');
+  const index = before.lastIndexOf('#');
+  if (index === -1 || !/(^|[\s(])$/u.test(before.slice(0, index))) return null;
+  const query = before.slice(index + 1);
+  if (query === '' || query.length > LONGEST_QUERY || /^\s|[\]#￼\n]/u.test(query)) return null;
+  return {
+    range: { from: $position.start() + index, to: $position.pos },
+    query,
+    text: `#${query}`,
+  };
+}
+
 export const Reference = Node.create<ReferenceOptions>({
   name: 'reference',
   group: 'inline',
@@ -69,6 +98,7 @@ export const Reference = Node.create<ReferenceOptions>({
     return {
       drawing: () => undefined,
       search: () => [],
+      numbered: () => [],
       named: () => undefined,
       seen: () => Promise.resolve(false),
     };
@@ -131,22 +161,32 @@ export const Reference = Node.create<ReferenceOptions>({
 
   addProseMirrorPlugins() {
     const { editor, name, options } = this;
-    const put = (id: string) => [
-      { type: name, attrs: { id } },
-      { type: 'text', text: ' ' },
-    ];
-    return [
+    /** A list of what may be named, after `char`: what is taken is put as a reference and a space. */
+    const offering = (
+      char: string,
+      findSuggestionMatch: (trigger: Trigger) => SuggestionMatch,
+      items: (query: string) => SuggestionEntry[] | Promise<SuggestionEntry[]>,
+      render: SuggestionRenderer | undefined,
+    ) =>
       Suggestion<SuggestionEntry, SuggestionEntry>({
         editor,
-        pluginKey: new PluginKey('referenceSuggestion'),
-        char: '[[',
-        findSuggestionMatch: referenceMatch,
-        items: ({ query }) => options.search(query),
+        pluginKey: new PluginKey(`referenceSuggestion${char}`),
+        char,
+        findSuggestionMatch,
+        items: ({ query }) => items(query),
         command: ({ editor: current, range, props }) => {
-          current.chain().focus().insertContentAt(range, put(props.value)).run();
+          const reference = { type: name, attrs: { id: props.value } };
+          current
+            .chain()
+            .focus()
+            .insertContentAt(range, [reference, { type: 'text', text: ' ' }])
+            .run();
         },
-        ...(options.render ? { render: options.render } : {}),
-      }),
+        ...(render ? { render } : {}),
+      });
+    return [
+      offering('[[', referenceMatch, (query) => options.search(query), options.render),
+      offering('#', cardNumberMatch, (query) => options.numbered(query), options.renderNumbered),
       pastedAddresses(name, options),
     ];
   },

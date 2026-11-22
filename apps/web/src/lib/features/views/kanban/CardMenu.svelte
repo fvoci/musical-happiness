@@ -20,6 +20,7 @@
   import TrashIcon from '@lucide/svelte/icons/trash-2';
   import { onDestroy } from 'svelte';
 
+  import { copyCardLink } from '$lib/components/card-number/card-link.ts';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
@@ -70,7 +71,7 @@
 
   async function copyLink(): Promise<void> {
     try {
-      await navigator.clipboard.writeText(new URL(href, location.href).href);
+      await copyCardLink(new URL(href, location.href).href, card);
     } catch {
       // The browser refused (no permission, not a secure page): nothing was copied, and nothing says it was.
       return;

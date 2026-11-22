@@ -17,6 +17,8 @@ export interface LinkedBlock {
   /** The board or the wiki it is on. */
   containerId: string;
   containerKind: 'board' | 'wiki';
+  /** A card's number on its board; none for a page. */
+  number?: number;
 }
 
 /** How many references are resolved in one request (the server's limit). */
@@ -41,6 +43,12 @@ export interface References {
    * ones changed last.
    */
   search(workspaceId: string, term: string): Promise<LinkedBlock[]>;
+  /**
+   * The card of the board whose number it is (`#12`), if the reader may see
+   * it; nothing for none, as for one in the trash, a template, or a board the
+   * reader may not see.
+   */
+  numbered(workspaceId: string, boardId: string, number: number): Promise<LinkedBlock | undefined>;
 }
 
 /** What a backend keeps of the bodies of its cards: their versions, and what they name. */

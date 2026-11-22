@@ -2,8 +2,9 @@
  * What the bodies of a board's cards, and of a wiki's pages, are given to
  * draw and to put their references with (`BodyReferences`): the titles the
  * workspace holds (`referenceTitles`), the places the app leads to, and what
- * `[[` offers.
+ * `[[` and `#` offer.
  */
+import { cardNumberText } from '$lib/logic/card-numbers.ts';
 import type { BodyReferences } from '$lib/editor/body-editor.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
 import {
@@ -16,9 +17,13 @@ import {
 /** Where the bodies are: a board, whose cards `[[` offers before anything is typed, or a wiki. */
 export type BodiesPlace = BoardStore | { workspace: Workspace };
 
-/** What the list after `[[` says of a card or a page: its icon and title, and where it is when that is elsewhere. */
+/**
+ * What the list after `[[` or `#` says of a card or a page: a card's number,
+ * its icon and title, and where it is when that is elsewhere.
+ */
 function offered(place: BodiesPlace, linked: LinkedBlock): string {
-  const name = `${linked.icon === '' ? '' : `${linked.icon} `}${linked.title || m.editor_reference_untitled()}`;
+  const number = linked.number === undefined ? '' : `${cardNumberText(linked.number)} `;
+  const name = `${number}${linked.icon === '' ? '' : `${linked.icon} `}${linked.title || m.editor_reference_untitled()}`;
   if (linked.kind === 'page') return `${name} · ${m.editor_reference_page()}`;
   if ('boardId' in place && linked.containerId === place.boardId) return name;
   const where = place.workspace.containers.find((each) => each.id === linked.containerId);
@@ -46,6 +51,13 @@ export function bodyReferences(place: BodiesPlace, around?: string): BodyReferen
         .filter((linked) => linked.id !== around)
         .map((linked) => ({ value: linked.id, label: offered(place, linked) }));
     },
+    // In a wiki there is no board whose cards `#` would name.
+    ...(board && {
+      numbered: (typed: string) =>
+        titles
+          .onBoard(typed, board, around)
+          .map((linked) => ({ value: linked.id, label: offered(place, linked) })),
+    }),
     named: (address) => titles.places?.named(address),
     seen: (id) => titles.seen(id),
   };

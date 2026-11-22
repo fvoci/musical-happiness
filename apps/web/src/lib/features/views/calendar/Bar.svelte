@@ -1,6 +1,6 @@
 <!--
   One card in the grid: a bar across the days of one week it is on, with its
-  title (and its time, when its value has one). An end that goes on into
+  number and title (and its time, when its value has one). An end that goes on into
   another week is cut square and marked with an arrow.
 
   In a week (`tall`) it is two lines, 2.75rem high: the title, then
@@ -20,9 +20,13 @@
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 
+  import CardNumber from '$lib/components/card-number/CardNumber.svelte';
+
   interface Props {
     cardId: string;
     title: string;
+    /** The card's number on its board; none for a template. */
+    number?: number;
     /** For a screen reader: the title, and the days when there are several. */
     name: string;
     /** The time of a value that has one, on the reader's clock. */
@@ -46,6 +50,7 @@
   let {
     cardId,
     title,
+    number,
     name,
     time,
     fromBefore,
@@ -97,11 +102,14 @@
   {#if fromBefore}<ChevronLeftIcon aria-hidden="true" class="size-3 shrink-0 opacity-60" />{/if}
   {#if tall}
     <span class="flex min-w-0 flex-1 flex-col">
-      <span class="truncate font-medium">{title}</span>
+      <span class="flex min-w-0 gap-1 font-medium">
+        <CardNumber {number} /><span class="truncate">{title}</span>
+      </span>
       {#if detail}<span class="truncate text-muted-foreground">{detail}</span>{/if}
     </span>
   {:else}
     {#if time}<span class="shrink-0 text-muted-foreground">{time}</span>{/if}
+    <CardNumber {number} />
     <span class="truncate">{title}</span>
   {/if}
   {#if toAfter}

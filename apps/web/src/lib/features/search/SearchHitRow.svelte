@@ -1,6 +1,6 @@
 <!--
   One thing the search found, as an option of the list: what it is (its
-  icon), its title, the board or wiki it is in, and the piece of its body
+  icon), a card's number, its title, the board or wiki it is in, and the piece of its body
   around what matched, the matched stretches marked.
 
   Everything is drawn as text: the snippet is the reader's own writing, and a
@@ -13,6 +13,7 @@
   import FileTextIcon from '@lucide/svelte/icons/file-text';
   import StickyNoteIcon from '@lucide/svelte/icons/sticky-note';
 
+  import CardNumber from '$lib/components/card-number/CardNumber.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { SearchHit } from '$lib/state/content-search.ts';
 
@@ -72,6 +73,7 @@
   <span class="grid min-w-0 flex-1 gap-0.5">
     <span class="flex min-w-0 items-baseline gap-2">
       <span class="sr-only">{hit.kind === 'page' ? m.search_hit_page() : m.search_hit_card()}</span>
+      <CardNumber number={hit.number} class="self-center text-xs" />
       <span class="min-w-0 truncate font-medium" data-hit-title>{title}</span>
       {#if container}
         <span class="min-w-0 shrink-[2] truncate text-xs text-muted-foreground" data-hit-container>

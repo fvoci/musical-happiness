@@ -24,6 +24,8 @@ export interface SearchHit {
   containerKind: 'board' | 'wiki';
   /** Its title as it is now. */
   title: string;
+  /** A card's number on its board; none for a page. */
+  number?: number;
   /**
    * A piece of its body around what matched, its stretches one after the
    * other; empty for a body that changed a moment ago, or has nothing to show.

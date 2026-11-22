@@ -136,8 +136,9 @@ export function memberOf(member: Schemas['ContainerMember']): ContainerMember {
 
 /** A block of the API as the screens' block. Its body, if any, is the card's or comment's to carry. */
 export function blockOf(block: Schemas['Block']): Block {
-  const { body: _body, ...rest } = block;
-  return { ...rest, type: block.type as BlockType, fields: { ...block.fields } };
+  const { body: _body, number, ...rest } = block;
+  const numbered = number === undefined || number === null ? {} : { number };
+  return { ...rest, ...numbered, type: block.type as BlockType, fields: { ...block.fields } };
 }
 
 /** The body of a block or a card, as the screens' document. */
@@ -183,6 +184,7 @@ export function cardOf(card: Schemas['Card']): CardSummary {
       createAt: card.createAt,
       updateAt: card.updateAt,
       deleteAt: card.deleteAt,
+      ...(card.number === null ? {} : { number: card.number }),
     }),
     hasBody: card.hasBody,
     tasksTotal: card.tasksTotal,

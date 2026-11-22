@@ -115,6 +115,8 @@ export class World {
   /** Deleted blocks, by the identifier of the block the deletion was asked for. */
   readonly deletedBlocks = new Map<string, DeletedBlocks>();
   readonly deletedContainers = new Map<string, DeletedContainer>();
+  /** The number the next card of each board takes, by board; 1 where none was made (`card-numbers.ts`). */
+  readonly nextCardNumbers = new Map<string, number>();
   /** The texts written down of changed comments, by comment, the one it has now last. */
   readonly commentVersions = new Map<string, CommentVersion[]>();
   /** The versions kept of the bodies of cards, by card (`body-versions.ts`). */

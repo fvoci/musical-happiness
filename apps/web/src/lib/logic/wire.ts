@@ -14,7 +14,7 @@
  * tests/logic/wire-boundary.test.ts fails when one of them reads `fields`
  * itself. What they do use directly are the members every block has at the
  * top level: `id`, `title`, `type`, `boardId`, `parentId`, `createdBy`,
- * `modifiedBy`, `createAt`, `updateAt`, `deleteAt` and `limited`.
+ * `modifiedBy`, `createAt`, `updateAt`, `deleteAt`, `limited` and `number`.
  */
 import type { MemberRole } from './container-members.ts';
 export type { ContainerMember, MemberRole } from './container-members.ts';
@@ -105,6 +105,8 @@ export interface Block {
   deleteAt: number;
   /** Set by the server on a card it withholds the content of. */
   limited?: boolean;
+  /** A card's number on its board (`#12`), as the server gives it; none for a template or another block. */
+  number?: number;
 }
 
 export interface BlockPatch {
@@ -137,6 +139,7 @@ export function createBlock(source?: Block): Block {
     updateAt: source?.updateAt || now,
     deleteAt: source?.deleteAt || 0,
     limited: Boolean(source?.limited),
+    ...(source?.number === undefined ? {} : { number: source.number }),
   };
 }
 
