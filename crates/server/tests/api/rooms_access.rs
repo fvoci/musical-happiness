@@ -3,28 +3,32 @@
 
 use serde_json::json;
 
-use crate::common::{Setup, TEST_WORKSPACE_ID};
+use crate::common::{TEST_WORKSPACE_ID, TestServer};
 use crate::rooms::{
     Incoming, PATIENCE, QUIET, UPDATE, frame, give, no_rooms, paragraphs, two_in_a_room,
 };
+use crate::rooms_changes::seldom;
 
-/// A server that asks every second whether who is in a room may be there.
-fn asking_often() -> Setup {
-    Setup::native().configure(|config| config.collab.collab_recheck_seconds = 1)
+/// Has every room ask now whether who is in it may be there, as at the end of its
+/// interval: the servers of these tests ask once an hour otherwise ([`seldom`]), and
+/// each read may take as long, however slow the machine.
+fn ask_now(th: &TestServer) {
+    th.app.collab().ask_again_now();
 }
 
 /// An editor in a room is made a viewer: at the next asking it is told that it reads,
 /// and what it writes is refused; made an editor again, it writes. Taken off the
 /// board, it is put out, as for a card that is not there, and the room goes on
-/// without it. Who stays is told nothing.
+/// without it. Who stays is told nothing. The room asks after each change.
 #[tokio::test]
 async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
-    let th = asking_often().start().await.init_basic().await;
+    let th = seldom().start().await.init_basic().await;
     let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let user2 = th.client2.me().await.id;
     two.write_acked("as an editor").await;
 
     give(&th, &t.board_id, &user2, "viewer").await;
+    ask_now(&th);
     let mode = two.text("DOC_MODE").await;
     assert_eq!(
         mode,
@@ -42,6 +46,7 @@ async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
 
     // An editor again: it comes in anew to drop what was refused, and writes.
     give(&th, &t.board_id, &user2, "editor").await;
+    ask_now(&th);
     let mode = two.text("DOC_MODE").await;
     assert_eq!(mode["mode"], json!("write"), "{mode}");
     two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
@@ -57,6 +62,7 @@ async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
         ))
         .await
         .check_no_content();
+    ask_now(&th);
     let left = two.text("DOC_LEFT").await;
     assert_eq!(
         left,
@@ -87,10 +93,11 @@ async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
 /// Who leaves the card's workspace, with a role left on the board, is put out too.
 #[tokio::test]
 async fn who_is_taken_out_of_the_workspace_is_put_out_of_the_room() {
-    let th = asking_often().start().await.init_basic().await;
+    let th = seldom().start().await.init_basic().await;
     let (_t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let user2 = th.client2.me().await.id;
     crate::workspace_removal::remove_from_the_test_workspace(&th, &user2).await;
+    ask_now(&th);
     let left = two.text("DOC_LEFT").await;
     assert_eq!(left["reason"], json!("not_found"), "{left}");
     one.write_acked("goes on").await;
@@ -102,7 +109,7 @@ async fn who_is_taken_out_of_the_workspace_is_put_out_of_the_room() {
 /// the next asking, as for a card that is not there.
 #[tokio::test]
 async fn the_room_of_a_deleted_card_is_emptied() {
-    let th = asking_often().start().await.init_basic().await;
+    let th = seldom().start().await.init_basic().await;
     let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     th.client
         .delete(&format!(
@@ -111,6 +118,7 @@ async fn the_room_of_a_deleted_card_is_emptied() {
         ))
         .await
         .check_no_content();
+    ask_now(&th);
     for peer in [&mut one, &mut two] {
         let left = peer.text("DOC_LEFT").await;
         assert_eq!(
@@ -129,11 +137,7 @@ async fn the_room_of_a_deleted_card_is_emptied() {
 /// has it ask, and is held where the table is to come back.
 #[tokio::test]
 async fn a_store_that_fails_for_a_moment_empties_no_room_and_one_that_stays_failed_does() {
-    let th = crate::rooms_changes::seldom()
-        .start()
-        .await
-        .init_basic()
-        .await;
+    let th = seldom().start().await.init_basic().await;
     let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let collab = th.app.collab();
     let rename = async |from: &str, to: &str| {
@@ -192,11 +196,7 @@ async fn a_store_that_fails_for_a_moment_empties_no_room_and_one_that_stays_fail
 #[tokio::test]
 async fn losing_the_team_role_puts_the_member_out_of_the_room() {
     use fvoci_model::{Team, WorkspaceRole};
-    let th = crate::rooms_changes::seldom()
-        .start()
-        .await
-        .init_basic()
-        .await;
+    let th = seldom().start().await.init_basic().await;
     let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let owner = th.client.me().await.id;
     let user = th.client2.me().await.id;
