@@ -6,6 +6,7 @@ use std::process::Command;
 use anyhow::{Result, bail};
 
 use crate::steps::{self, Step};
+use crate::times;
 
 /// Whether the dependency check runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +25,7 @@ const LOCAL_TOOLS: &str = "target/tools/bin";
 /// Fails if a check failed.
 pub(crate) fn run(root: &Path, licenses: Licenses) -> Result<()> {
     let cargo = steps::cargo();
+    let test_threads: Vec<(&str, String)> = crate::cpus::test_threads()?.into_iter().collect();
     let mut checks = vec![
         Step::new("format", || {
             steps::run(root, &cargo, &["fmt", "--all", "--check"], &[])
@@ -46,11 +48,15 @@ pub(crate) fn run(root: &Path, licenses: Licenses) -> Result<()> {
             )
         }),
         Step::new("unit tests", || {
+            let environment: Vec<(&str, &str)> = test_threads
+                .iter()
+                .map(|(name, value)| (*name, value.as_str()))
+                .collect();
             steps::run(
                 root,
                 &cargo,
                 &["test", "--workspace", "--lib", "--bins", "--locked"],
-                &[],
+                &environment,
             )
         }),
         Step::new("documentation", || {
@@ -88,7 +94,10 @@ pub(crate) fn run(root: &Path, licenses: Licenses) -> Result<()> {
         }),
         Licenses::Skip => Step::skipped("licenses and advisories", "--skip-licenses"),
     });
-    steps::run_all("check", checks)
+    let clock = times::Clock::start(root);
+    let ran = steps::run_all("check", checks);
+    times::append(root, &times::Record::new("check", &clock, &ran));
+    ran.into_result()
 }
 
 /// The path of a tool: the copy under `target/tools` if there is one, else the name, for

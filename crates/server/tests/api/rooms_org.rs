@@ -7,14 +7,10 @@ use fvoci_model::{Card, ContainerMember, ContainerType, WorkspaceRole};
 use serde_json::json;
 
 use crate::boards::new_board;
-use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
+use crate::common::{TEST_WORKSPACE_ID, TestServer};
 use crate::org_admin::{let_in, make_workspace, org_of};
 use crate::rooms::{Peer, give_in, no_rooms, paragraphs, table};
-
-/// A server that asks every second whether who is in a room may be there.
-fn asking_often() -> Setup {
-    Setup::native().configure(|config| config.collab.collab_recheck_seconds = 1)
-}
+use crate::rooms_changes::seldom;
 
 /// A card with a body on a private board of the workspace, made by the first user.
 async fn card_in(th: &TestServer, workspace_id: &str) -> (String, String) {
@@ -39,7 +35,7 @@ async fn card_in(th: &TestServer, workspace_id: &str) -> (String, String) {
 /// workspaces.
 #[tokio::test]
 async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_cards() {
-    let th = asking_often().start().await.init_basic().await;
+    let th = seldom().start().await.init_basic().await;
     let org_id = org_of(&th).await;
     let member = th.client2.me().await.id;
     let workspace = make_workspace(&th, &org_id, "Ops").await;
@@ -58,7 +54,11 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
     one.write_acked("typed").await;
     two.settle().await;
 
+    let collab = th.app.collab();
+    assert_eq!(collab.room_members(&th.app, &card_id).await, 2);
     th.client.delete(&place).await.check_no_content();
+    // Out of the room as soon as the trashing has answered.
+    assert_eq!(collab.room_members(&th.app, &card_id).await, 0);
     for peer in [&mut one, &mut two] {
         let left = peer.text("DOC_LEFT").await;
         assert_eq!(
@@ -83,7 +83,9 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
 
     // In the trash again: its room empties as the operation answers, and then for
     // good, which finds the room gone already.
+    assert_eq!(collab.room_members(&th.app, &card_id).await, 2);
     th.client.delete(&place).await.check_no_content();
+    assert_eq!(collab.room_members(&th.app, &card_id).await, 0);
     for peer in [&mut one, &mut two] {
         let left = peer.text("DOC_LEFT").await;
         assert_eq!(
@@ -121,7 +123,7 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
 /// the member writes on.
 #[tokio::test]
 async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms() {
-    let th = asking_often().start().await.init_basic().await;
+    let th = seldom().start().await.init_basic().await;
     let org_id = org_of(&th).await;
     let (admin, member) = (th.client.me().await.id, th.client2.me().await.id);
     let workspace = make_workspace(&th, &org_id, "Research").await;
@@ -173,6 +175,9 @@ async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms
         .post_empty(&format!("{place}/leave"))
         .await
         .check_ok();
+    // Out of the room as soon as the leaving has answered; the member stays.
+    let collab = th.app.collab();
+    assert_eq!(collab.room_members(&th.app, &card.id).await, 1);
     let left = joined.text("DOC_LEFT").await;
     assert_eq!(
         left,

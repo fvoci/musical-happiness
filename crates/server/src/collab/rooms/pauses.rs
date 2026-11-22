@@ -5,13 +5,15 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 use super::super::Collab;
 
 /// Where a room's step waits for a test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum Pause {
+    /// A periodic check was not answered of somebody, and is about to ask once more.
+    BeforeAskingOnceMore,
     /// A periodic check read its answers and has not applied them.
     AfterRecheck,
     /// A connection coming into a room was admitted, and the room is not held yet.
@@ -32,6 +34,9 @@ pub(super) struct Pauses {
     access_delay: Mutex<Option<Duration>>,
     /// Told when the step gets there, and waited for to go on.
     at: Mutex<HashMap<Pause, Waiting>>,
+    /// Counts the times a test had every room ask now: each room's periodic check
+    /// asks when it changes, besides every `collab_recheck_seconds`.
+    asking_now: watch::Sender<u64>,
 }
 
 impl Collab {
@@ -62,12 +67,39 @@ impl Collab {
             .expect("the pauses are not poisoned") = Some(delay);
     }
 
-    /// Pauses the next periodic check after its reads, before applying its answers:
-    /// the first is told when it gets there, and it goes on when the second is.
+    /// Pauses the next periodic check of any room after its reads, before applying its
+    /// answers: the first is told when it gets there, and it goes on when the second is.
     #[doc(hidden)]
     #[must_use]
     pub fn pause_next_recheck(&self) -> (Arc<Notify>, Arc<Notify>) {
         self.pause_next(Pause::AfterRecheck)
+    }
+
+    /// Pauses the next periodic check of any room that was not answered of somebody,
+    /// before it waits to ask once more: the first is told when it gets there, and it
+    /// goes on when the second is.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn pause_next_asking_once_more(&self) -> (Arc<Notify>, Arc<Notify>) {
+        self.pause_next(Pause::BeforeAskingOnceMore)
+    }
+
+    /// Has the periodic check of every room ask now, as at the end of its interval: a
+    /// test asks when it is ready, and leaves `collab_recheck_seconds`, which is also
+    /// how long each read of a check may take, long. A room in the middle of a check
+    /// asks again after it.
+    #[doc(hidden)]
+    pub fn ask_again_now(&self) {
+        self.inner
+            .rooms
+            .pauses
+            .asking_now
+            .send_modify(|times| *times += 1);
+    }
+
+    /// Changes when a test has every room ask now ([`Self::ask_again_now`]).
+    pub(super) fn asked_now(&self) -> watch::Receiver<u64> {
+        self.inner.rooms.pauses.asking_now.subscribe()
     }
 
     /// Pauses the next connection coming into a room once it is admitted, before the
