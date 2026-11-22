@@ -184,8 +184,9 @@ impl Store {
     /// The cards and pages on the boards of `container_ids` whose title has every word of
     /// `term` in it, as spaces divide it and whatever the case of the letters: at most
     /// `limit`, the one changed last first, without their bodies. An empty term finds
-    /// every one. A card that is a template of its board's cards is never found, and
-    /// nothing in the trash is.
+    /// every one. A block whose `isTemplate` is `true` ([`Block::is_template`]: for a
+    /// card, a template of its board's cards) is never found, and nothing in the trash
+    /// is.
     ///
     /// The blocks are read some at a time, each time those after the last one read in
     /// that order: a block that is changed meanwhile moves to before where the reading

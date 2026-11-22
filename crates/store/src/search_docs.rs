@@ -1,9 +1,9 @@
 //! What the search server is to hold of the blocks: a document for each card and each
-//! page that is on a board or in a wiki, which is no template, and is itself no
-//! template ([`fvoci_model::Block::is_template`]: for a card, a template of its board's
-//! cards). One read says so, for the worker that sends the documents and for the
-//! search that checks each of the search server's answers against it: what is not
-//! read here is not found.
+//! page on a board or in a wiki that is no template, but none for a block whose
+//! `isTemplate` is `true` ([`fvoci_model::Block::is_template`]: for a card, a template
+//! of its board's cards). One read says so, for the worker that sends the documents
+//! and for the search that checks each of the search server's answers against it:
+//! what is not read here is not found.
 
 use fvoci_model::{BlockType, ContainerKind, SearchKind};
 
@@ -44,18 +44,17 @@ const DOCUMENT_COLUMNS: &str = "b.id, w.org_id, bo.workspace_id, b.container_id,
 /// Starts the statement that reads `columns` of the blocks that have a document, with
 /// their boards `bo` and workspaces `w`: the cards and the pages of the boards and
 /// wikis that are no templates, but no block whose `isTemplate` is `true` (for a card,
-/// a template of its board's cards; a page the server stores has no such field). What
-/// is in the trash is no block, and has none. More `AND` conditions on `b` may follow.
+/// a template of its board's cards). What is in the trash is no block, and has none. More `AND` conditions on `b` may follow.
 pub(crate) fn select_documents(scope: &Scope<'_>, columns: &str) -> Sql {
     // Only the JSON `true`, as `block_derived` reads it: not `1`, nor `"true"`.
-    let no_card_template = match scope.dialect() {
+    let no_template = match scope.dialect() {
         Dialect::Sqlite => "json_type(b.fields, '$.isTemplate') IS NOT 'true'",
         Dialect::Postgres => "(b.fields->'isTemplate')::text IS DISTINCT FROM 'true'",
     };
     let mut sql = scope.sql(&format!(
         "SELECT {columns} FROM blocks AS b JOIN containers AS bo ON bo.id = b.container_id{} \
          JOIN workspaces AS w ON w.id = bo.workspace_id{} \
-         WHERE bo.is_template = false AND bo.is_builtin = false AND {no_card_template} \
+         WHERE bo.is_template = false AND bo.is_builtin = false AND {no_template} \
          AND b.type IN (",
         scope.same_organization(&[("bo", "b")]),
         scope.same_organization(&[("w", "bo")]),
