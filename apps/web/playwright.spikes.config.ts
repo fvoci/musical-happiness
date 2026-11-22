@@ -8,6 +8,9 @@ import { defineConfig, devices } from '@playwright/test';
  */
 const PORT = Number(process.env.FVOCI_SPIKES_PORT ?? 18320);
 
+/** The remote-update spike: measurements, not checks, kept out of the other projects. */
+const REMOTE = /spikes[\\/]remote[\\/].*\.spec\.ts$/;
+
 export default defineConfig({
   testDir: 'spikes',
   outputDir: 'test-results/spikes',
@@ -18,8 +21,11 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
-    { name: 'touch', use: { ...devices['Pixel 7'] } },
+    { name: 'desktop', testIgnore: REMOTE, use: { ...devices['Desktop Chrome'] } },
+    { name: 'touch', testIgnore: REMOTE, use: { ...devices['Pixel 7'] } },
+    // Measurements of one large body, each run in a browser of its own.
+    { name: 'remote-chromium', testMatch: REMOTE, use: { ...devices['Desktop Chrome'] } },
+    { name: 'remote-webkit', testMatch: REMOTE, use: { ...devices['Desktop Safari'] } },
   ],
   webServer: {
     command: `vite --config vite.spikes.config.ts --port ${PORT}`,

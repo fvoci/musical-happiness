@@ -27,6 +27,7 @@ import {
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { FileDetails } from '../editor/files.ts';
 import { allPages } from '../state/page-reads.ts';
+import { summaryOfBody } from '../state/body-summary.ts';
 import type { LinkedBlock } from '../state/references.ts';
 import type { Wikis } from '../state/wiki-types.ts';
 import type { Container } from '../logic/wire.ts';
@@ -246,7 +247,8 @@ export class SharedBackend implements Backend {
     );
     // A block of another kind in the place of a card is no card.
     if (block?.type !== 'card') throw new BackendError(404, { detail: 'card not found' });
-    return { ...cardOfBlock(block), body: bodyOf(block.body) };
+    const body = bodyOf(block.body);
+    return { ...cardOfBlock(block, summaryOfBody(body)), body };
   }
 
   async comments(boardId: string, cardId: string): Promise<Comment[]> {

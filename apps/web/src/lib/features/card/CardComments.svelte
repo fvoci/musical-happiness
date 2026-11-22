@@ -281,6 +281,8 @@
               {references}
               commentId={comment.id}
               editedAt={comment.editedAt}
+              body={comment.body}
+              editedBy={comment.modifiedBy}
               {context}
               {resolveUser}
             />

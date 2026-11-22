@@ -174,6 +174,34 @@ test('what is the same is folded, and the way through the changes goes by the bu
   await expect(stops.last()).toBeFocused();
 });
 
+test('the lines of code are numbered as the version has them: a line removed counts none', async ({
+  page,
+}) => {
+  const place = await openTaskCard(page);
+  const code = (value: string): object => ({
+    type: 'doc',
+    content: [
+      { type: 'codeBlock', attrs: { language: 'ts' }, content: [{ type: 'text', text: value }] },
+    ],
+  });
+  await writtenWholeElsewhere(page, place, code('const a = 1;\nconst b = 2;\nconst c = 3;'));
+  await expect(editor(page)).toContainText('const b = 2;');
+  await writtenWholeElsewhere(page, place, code('const a = 1;\nconst c = 3;'));
+  await expect(editor(page)).not.toContainText('const b = 2;');
+  await page.evaluate(() => {
+    document.documentElement.setAttribute('data-code-lines', '');
+  });
+  await openVersions(page);
+  await read(page, 0);
+  const numbers = diff(page).locator('.doc-code-line');
+  await expect(numbers).toHaveCount(3);
+  const counted = await numbers.evaluateAll((all) =>
+    all.map((one) => getComputedStyle(one).counterIncrement),
+  );
+  expect(counted).toEqual(['doc-code-line 1', 'none', 'doc-code-line 1']);
+  await expect(diff(page).locator('del .doc-code-line')).toHaveCount(1);
+});
+
 test('a version of a wiki page shows what it changed', async ({ page }) => {
   await openApp(page);
   await newWiki(page, 'Handbook');

@@ -13,6 +13,7 @@ mod admin;
 mod admins;
 mod alone;
 mod behind_a_tunnel;
+mod block_summaries;
 mod blocks;
 mod board_broadcasts;
 mod board_copies;

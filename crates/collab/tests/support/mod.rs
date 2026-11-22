@@ -9,6 +9,8 @@
 pub(crate) mod explore;
 pub(crate) mod honest;
 pub(crate) mod random;
+pub(crate) mod shapes;
+pub(crate) mod slow;
 pub(crate) mod wire;
 
 use std::path::{Path, PathBuf};

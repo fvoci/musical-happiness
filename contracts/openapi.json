@@ -403,7 +403,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The body of a card, a comment, a page or an entry; `null` for a block without one. Only\nthose have one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads it by the board's link gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused."
+                "description": "The body of a card, a comment, a page or an entry; `null` for a block without one. Only\nthose have one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads it by the board's link gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused. A change message (`UPDATE_BLOCK`) of a card, a page or an entry\nhas it `null`, with a summary of it beside the block."
               },
               {
                 "type": "null"

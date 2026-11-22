@@ -128,3 +128,84 @@ test('what one person does shows on the other’s page, and a dropped connection
   await second.context().close();
   expect(errors.flat()).toEqual([]);
 });
+
+test('a body one person writes in the room changes the card on the other’s board, told without the body', async ({
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('watcher');
+  const other = person('writer');
+  await register(base, owner);
+  await register(base, other);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Tasks',
+    cards: [{ title: 'Pack', status: 'To do' }],
+    members: [{ who: other, role: 'editor' }],
+  });
+  const cardId = board.cards.Pack ?? '';
+  const task = (text: string) => ({
+    type: 'taskItem',
+    attrs: { checked: false },
+    content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+  });
+  const cardPath = `/api/v1/w/${board.workspaceId}/cards/${cardId}`;
+  const now = (await (await api.get(cardPath)).json()) as Schemas['Card'];
+  const written = await api.patch(cardPath, {
+    data: {
+      readAt: now.updateAt,
+      body: {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'For the trip' }] },
+          { type: 'taskList', content: [task('Tent'), task('Stove')] },
+        ],
+      },
+    },
+  });
+  expect(written.ok()).toBe(true);
+
+  const first = await (await browser.newContext({ locale: 'en-US', baseURL: base })).newPage();
+  const second = await (await browser.newContext({ locale: 'en-US', baseURL: base })).newPage();
+  const errors = [...[first, second].map(watchErrors)];
+  // What the server tells the watcher's page of the card.
+  const told: Record<string, unknown>[] = [];
+  await first.routeWebSocket(/\/ws$/, (socket) => {
+    const server = socket.connectToServer();
+    server.onMessage((message) => {
+      if (typeof message === 'string' && message.includes(cardId)) {
+        told.push(JSON.parse(message) as Record<string, unknown>);
+      }
+      socket.send(message);
+    });
+  });
+
+  await first.goto(boardPath(board, board.viewId));
+  await signInOnPage(first, owner);
+  const face = first.locator(`[data-card="${cardId}"]`);
+  await expect(face.locator('[data-slot="card-tasks"]')).toContainText('0/2');
+
+  await second.goto(boardPath(board, board.viewId, cardId));
+  await signInOnPage(second, other);
+  const editor = second.getByTestId('card-body');
+  await expect(editor).toHaveAttribute('data-editor', 'ready');
+  await editor
+    .locator('ul[data-type="taskList"] > li > label input[type="checkbox"]')
+    .first()
+    .click();
+
+  // When the room writes the body, the watcher's card counts the task done.
+  await expect(face.locator('[data-slot="card-tasks"]')).toContainText('1/2');
+  const changes = told.filter((message) => message.action === 'UPDATE_BLOCK');
+  expect(changes.length).toBeGreaterThan(0);
+  for (const message of changes) {
+    expect((message.block as { body: unknown }).body).toBeNull();
+  }
+  expect(changes.at(-1)?.summary).toMatchObject({ hasBody: true, tasksTotal: 2, tasksDone: 1 });
+
+  await api.dispose();
+  await first.context().close();
+  await second.context().close();
+  expect(errors.flat()).toEqual([]);
+});
