@@ -130,8 +130,12 @@ test('the language is found and taken from the keys, and the bar is reached with
   page,
 }) => {
   const body = await openCardWithBody(page, 'Welcome', codeBody('ts', SOURCE));
+  // First the written body, then its editor: the editor is ready on the seed body first,
+  // and clicking before the replacement arrives lands on the seed paragraph instead.
+  await expect(body.locator('p').first()).toHaveText('Before the code.');
   await expect(body).toHaveAttribute('data-editor', 'ready');
   const language = block(body).locator('button.doc-code-language');
+  await expect(language).toBeVisible();
   // From the text before the block, Tab is the bar's first button, and Shift+Tab the text again.
   const tab = await tabKey(page);
   await body.locator('p').first().click();

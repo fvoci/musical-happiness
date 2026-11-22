@@ -92,8 +92,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   readonly #config: ClientConfig;
 
   /** `basePath` is the path the app is served under. */
-  constructor(basePath: string) {
-    const http = new Http(basePath);
+  constructor(basePath: string, http = new Http(basePath)) {
     super(http);
     this.#http = http;
     this.#config = new ClientConfig(http);

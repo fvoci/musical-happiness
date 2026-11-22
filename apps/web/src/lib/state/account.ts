@@ -1,7 +1,7 @@
 /** The reader's own account: what the workspace changes of it beside the settings. */
 import type { NameChange } from '../logic/person-names.ts';
 
-import { BackendError, isOwnSpace, type User } from './backend.ts';
+import { BackendError, isBackendError, isOwnSpace, sessionOver, type User } from './backend.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
 /**
@@ -30,7 +30,8 @@ async function showPassword(workspace: Workspace, password: string): Promise<boo
     }
     workspace.workspaces = listed;
     return !listed.some((one) => one.passwordRequired);
-  } catch {
+  } catch (error) {
+    if (sessionOver(error)) throw error;
     return false;
   }
 }
@@ -54,15 +55,26 @@ export async function setFirstPassword(
   set: (password: string) => Promise<void>,
   password: string,
 ): Promise<void> {
-  let shown: boolean;
+  let shown = false;
+  let setDone = false;
+  let ended: BackendError | undefined;
   workspace.showing = true;
   try {
     await set(password);
+    setDone = true;
     const me = workspace.me;
     if (me) workspace.me = { ...me, hasPassword: true };
     shown = await showPassword(workspace, password);
+  } catch (error) {
+    if (isBackendError(error) && sessionOver(error)) ended = error;
+    else throw error;
   } finally {
     workspace.showing = false;
+  }
+  if (ended !== undefined) {
+    workspace.report('load', ended);
+    if (!setDone) throw ended;
+    return;
   }
   if (!shown) {
     const detail = 'a password was set';
@@ -84,7 +96,17 @@ export async function setFirstPassword(
  * and the space, if it is the one shown, opens.
  */
 export async function passwordChanged(workspace: Workspace, password: string): Promise<void> {
-  if (!(await showPassword(workspace, password))) return;
+  let shown: boolean;
+  try {
+    shown = await showPassword(workspace, password);
+  } catch (error) {
+    if (sessionOver(error)) {
+      workspace.report('load', error);
+      return;
+    }
+    throw error;
+  }
+  if (!shown) return;
   if (workspace.entered === 'password' && workspace.asked !== undefined) {
     await workspace.enter(workspace.asked, true);
   }
