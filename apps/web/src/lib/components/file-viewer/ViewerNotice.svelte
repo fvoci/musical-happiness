@@ -49,8 +49,9 @@
   });
 
   function answer(wait: boolean): void {
-    // The buttons go with the question: the focus stays in the place they were in.
-    place?.focus();
+    // Waiting on, the buttons go with the question: the focus stays in the place they were in.
+    // Not waiting, the file is given up and offered as a download: that button stays.
+    if (wait) place?.focus();
     onAnswer(wait);
     if (!wait) onDownload();
   }

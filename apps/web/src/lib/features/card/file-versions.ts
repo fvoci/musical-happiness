@@ -56,12 +56,18 @@ export function attachmentVersions(
     },
     list: () => versions.list(boardId, fileId),
     bytes: (version, signal) => versions.bytes(boardId, fileId, version, signal),
-    // Shown where every upload is, which says why one failed.
-    upload: (file) =>
-      workspace.transfers.upload({
+    // Shown where every upload is, which says why one failed; one given up there says nothing.
+    async upload(file) {
+      let given: AbortSignal | undefined;
+      const uploaded = await workspace.transfers.upload({
         file,
-        send: (options) => backend.upload(boardId, file, options),
-      }).done,
+        send: (options) => {
+          given = options.signal;
+          return backend.upload(boardId, file, options);
+        },
+      }).done;
+      return uploaded ?? (given?.aborted ? 'stopped' : undefined);
+    },
     add: async (baseVersion, upload) =>
       resized(await versions.add(boardId, fileId, baseVersion, upload)),
     restore: async (version, baseVersion) =>
