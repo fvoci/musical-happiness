@@ -49,6 +49,8 @@ const FRAMES = process.env.FVOCI_SPIKE_FRAMES === '1';
 const COUNT = Number(process.env.FVOCI_SPIKE_CARDS ?? LONG);
 // Pixels to a point: 1 instead of the phone's 3, to see what is left once painting costs less.
 const SCALE = process.env.FVOCI_SPIKE_SCALE;
+// Every third card with a title of two lines or more: the guessed height is then wrong for them.
+const WORDY = process.env.FVOCI_SPIKE_WORDY === '1';
 
 // A trace copies the whole document at every step, which is what would be measured.
 test.use({ trace: 'off', locale: 'en-US', timezoneId: 'Asia/Seoul', baseURL: APP });
@@ -276,7 +278,7 @@ test('a column of some 1,600 cards, scrolled on a phone', async ({ page, browser
   await page.goto('/');
   await expect(page.getByTestId('board-page')).toBeVisible();
   await fitPane(page, paneOf(info));
-  const path = await makeLongColumn(page, COUNT);
+  const path = await makeLongColumn(page, COUNT, WORDY);
   await addStyles(page);
 
   const cdp = browserName === 'chromium' ? await page.context().newCDPSession(page) : undefined;
@@ -314,7 +316,7 @@ test('a column of some 1,600 cards, scrolled on a phone', async ({ page, browser
   await cdp?.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   await page.goto('/');
   await expect(page.getByTestId('board-page')).toBeVisible();
-  const again = await makeLongColumn(page, COUNT);
+  const again = await makeLongColumn(page, COUNT, WORDY);
   await cdp?.send('Emulation.setCPUThrottlingRate', { rate: 4 });
   await addStyles(page);
   await showView(page, again, COUNT);

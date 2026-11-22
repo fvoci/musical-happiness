@@ -23,7 +23,7 @@ export const Cards: Story = {};
 export const Empty: Story = { args: { count: 0 } };
 export const ThreeHundredCards: Story = { args: { count: 300 } };
 export const ReadOnly: Story = { args: { readOnly: true } };
-/** A column of 400 cards on a phone's width: the cards out of sight are not laid out or painted. */
+/** 600 cards, 400 of them in one column, on a phone's width: the cards out of sight are not laid out or painted. */
 export const LongColumn: Story = {
   args: { count: 600, narrow: true },
   play: async (context) => {

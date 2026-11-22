@@ -84,14 +84,19 @@ test.describe('a column of 400 cards', () => {
   }, info) => {
     await openLong(page, info);
     await expect(list(page).locator('[data-card]')).toHaveCount(ALL);
-    // A card far down is in the document with its text, for the page's own search to find.
+    // A screen reader is told of every card, not of those drawn.
+    await expect(list(page).getByRole('listitem')).toHaveCount(ALL);
+    // A card far down is in the document with its text, and skipped while out of sight.
     await expect(card(page, longTitle(MANY))).toHaveCount(1);
-    const skipped = await list(page).evaluate(
-      (element) => getComputedStyle(element.lastElementChild ?? element).contentVisibility,
-    );
-    expect(skipped).toBe('auto');
+    // The list item is drawn; what it skips is the face inside it.
+    const drawn = (): Promise<boolean> =>
+      card(page, longTitle(MANY)).evaluate((element) =>
+        element.checkVisibility({ contentVisibilityAuto: true }),
+      );
+    expect(await drawn()).toBe(false);
 
     await scrollToEnd(page);
+    await expect.poll(drawn).toBe(true);
     await expect(card(page, longTitle(MANY))).toBeInViewport();
     await expect(card(page, longTitle(MANY))).toBeVisible();
   });

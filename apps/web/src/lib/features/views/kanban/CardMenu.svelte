@@ -191,10 +191,14 @@
   <span class="sr-only" role="status" data-testid="link-copied">
     {copied ? m['CardActionsMenu.copiedLink']() : ''}
   </span>
+  <!--
+    Beside the button, not under it: a kanban card clips what it paints to its
+    own box (KanbanCard), and the face of a card of one line ends just below.
+  -->
   {#if copied}
     <span
       aria-hidden="true"
-      class="absolute top-full right-0 z-10 mt-1 rounded-md bg-foreground px-2 py-0.5 text-xs whitespace-nowrap text-background"
+      class="absolute top-1/2 right-full z-10 mr-1 -translate-y-1/2 rounded-md bg-foreground px-2 py-0.5 text-xs whitespace-nowrap text-background"
     >
       {m['CardActionsMenu.copiedLink']()}
     </span>

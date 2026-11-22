@@ -37,7 +37,12 @@ interface Backend {
  * answers the address of its view. The page must have the app open. The app
  * opens on "Project Tasks": it is left for another board first.
  */
-export async function makeLongColumn(page: Page, count = LONG): Promise<string> {
+export async function makeLongColumn(
+  page: Page,
+  count = LONG,
+  /** Every third card gets a title of two lines or more, as cards made by people have. */
+  wordy = false,
+): Promise<string> {
   const elsewhere = await page.evaluate(async () => {
     const backend = (window as unknown as { fvociDev: { backend: Backend } }).fvociDev.backend;
     const workspaces = await backend.workspaces();
@@ -55,7 +60,7 @@ export async function makeLongColumn(page: Page, count = LONG): Promise<string> 
     elsewhere,
   );
   const made = await page.evaluate(
-    async ([many, columnName, viewTitle]) => {
+    async ([many, columnName, viewTitle, wordier]) => {
       const backend = (window as unknown as { fvociDev: { backend: Backend } }).fvociDev.backend;
       backend.latency = 0;
       const workspaces = await backend.workspaces();
@@ -84,7 +89,10 @@ export async function makeLongColumn(page: Page, count = LONG): Promise<string> 
       });
       for (let at = 0; at < many; at += 1) {
         await backend.createCard(boardId, {
-          title: `Long ${String(at + 1)}`,
+          title:
+            wordier && at % 3 === 0
+              ? `Long ${String(at + 1)}: agree the scope and the budget with everyone involved in it`
+              : `Long ${String(at + 1)}`,
           properties: {
             [status.id]: columnId,
             [priority.id]: priority.options[at % priority.options.length]?.id ?? '',
@@ -123,7 +131,7 @@ export async function makeLongColumn(page: Page, count = LONG): Promise<string> 
       });
       return { boardId, viewId: view.id };
     },
-    [count, LONG_COLUMN, LONG_VIEW] as const,
+    [count, LONG_COLUMN, LONG_VIEW, wordy] as const,
   );
   return boardPath(made.boardId, made.viewId);
 }
