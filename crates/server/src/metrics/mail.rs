@@ -13,13 +13,17 @@ pub(crate) enum MailKind {
     Invitation,
     /// The link that confirms the address of a registration.
     EmailVerification,
+    /// What an account's change of its address mails: the link that confirms it, to
+    /// the new address, and the notice of it, to the one before.
+    EmailChange,
 }
 
 impl MailKind {
-    const ALL: [Self; 3] = [
+    const ALL: [Self; 4] = [
         Self::PasswordReset,
         Self::Invitation,
         Self::EmailVerification,
+        Self::EmailChange,
     ];
 
     /// The value of the `kind` label.
@@ -28,6 +32,7 @@ impl MailKind {
             Self::PasswordReset => "password_reset",
             Self::Invitation => "invitation",
             Self::EmailVerification => "email_verification",
+            Self::EmailChange => "email_change",
         }
     }
 
@@ -36,6 +41,7 @@ impl MailKind {
             Self::PasswordReset => 0,
             Self::Invitation => 1,
             Self::EmailVerification => 2,
+            Self::EmailChange => 3,
         }
     }
 
@@ -43,7 +49,7 @@ impl MailKind {
     /// invitations, and gives up a closed way as a reset link does.
     pub(crate) fn goes_first(self) -> bool {
         match self {
-            Self::PasswordReset | Self::EmailVerification => true,
+            Self::PasswordReset | Self::EmailVerification | Self::EmailChange => true,
             Self::Invitation => false,
         }
     }
@@ -81,7 +87,7 @@ impl MailFailure {
 #[derive(Debug)]
 pub(super) struct MailMetrics {
     /// By [`MailKind::index`], then by [`MailFailure::index`].
-    failed: [[IntCounter; 2]; 3],
+    failed: [[IntCounter; 2]; 4],
     path_down: IntGauge,
 }
 
@@ -92,7 +98,7 @@ impl MailMetrics {
             Opts::new(
                 "mail_failed_total",
                 "How many messages were given up, by kind (password_reset, invitation, \
-                 email_verification) \
+                 email_verification, email_change) \
                  and class: permanent (the mail server or provider refused it for good) \
                  or temporary (it asked to try later at every attempt).",
             )

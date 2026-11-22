@@ -13,7 +13,7 @@ use tokio::time::Instant;
 
 use super::readers::ReaderLimits;
 use super::{Command, Hub, HubInner, ListenerId, Listeners, Outgoing};
-use crate::app::{App, Asker};
+use crate::app::{App, Asker, SessionMade};
 use crate::auth::secret::SECRET_LENGTH;
 use crate::collab::{AccessChange, Wall};
 
@@ -276,7 +276,7 @@ impl Hub {
         }
         let asker = Asker {
             user_id: &identity.0,
-            made_through: identity.1.as_deref(),
+            making: identity.1.making(),
         };
         // Changes made while the lookup runs may not be in what it read: access changes
         // of the rooms, and links taken back (`end_readers_of_container`).
@@ -317,9 +317,9 @@ impl Hub {
         self.place_visit(id, visit, &mut meanwhile, since, limits);
     }
 
-    /// The connection's user and the provider of its session, if the rate of its
+    /// The connection's user and the making of its session, if the rate of its
     /// commands takes one more.
-    fn rated_identity(&self, app: &App, id: ListenerId) -> Option<(String, Option<String>)> {
+    fn rated_identity(&self, app: &App, id: ListenerId) -> Option<(String, SessionMade)> {
         let mut listeners = self.listeners();
         let listener = listeners.by_id.get_mut(&id)?;
         let per_second = app.config().collab.collab_frames_per_second;
@@ -327,12 +327,8 @@ impl Hub {
             left: u64::from(per_second) * 1000,
             counted: Instant::now(),
         });
-        rate.admits(per_second).then(|| {
-            (
-                listener.user_id.clone(),
-                listener.login_provider().map(str::to_owned),
-            )
-        })
+        rate.admits(per_second)
+            .then(|| (listener.user_id.clone(), listener.made()))
     }
 
     /// Places a visit read before now: not if the link it came by was taken back since

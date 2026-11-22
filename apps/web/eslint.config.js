@@ -18,6 +18,8 @@ export default ts.config(
       'test-results/',
       'playwright-report/',
       'dist-spikes/',
+      // What `wrangler dev` keeps while it serves Storybook (wrangler.jsonc).
+      '.wrangler/',
       'src/lib/i18n/paraglide/',
       'src/styles/fonts/',
       // Made from the server's contract (`pnpm run api:types`).

@@ -20,6 +20,9 @@
     "e2e:apple": "playwright test --config playwright.apple.config.ts",
     "storybook": "pnpm run i18n && storybook dev --port 6006 --host 127.0.0.1 --no-open",
     "build-storybook": "pnpm run i18n && storybook build --output-dir storybook-static",
+    "storybook:site": "node tools/fonts/build.ts && pnpm run build-storybook && node tools/storybook/site.ts",
+    "storybook:deploy": "node tools/storybook/wrangler.ts deploy",
+    "storybook:preview": "node tools/storybook/wrangler.ts preview",
     "spikes": "pnpm run i18n && vite --config vite.spikes.config.ts",
     "spikes:build": "pnpm run i18n && vite build --config vite.spikes.config.ts",
     "spikes:e2e": "pnpm run i18n && playwright test --config playwright.spikes.config.ts",
@@ -28,7 +31,7 @@
     "api:types": "openapi-typescript ../../contracts/openapi.json -o src/lib/api/contract.ts",
     "e2e:live": "playwright test --config playwright.live.config.ts",
     "e2e:live:apple": "playwright test --config playwright.live.apple.config.ts",
-    "test:storybook": "pnpm run build-storybook && playwright test --config playwright.storybook.config.ts"
+    "test:storybook": "pnpm run build-storybook && node tools/storybook/site.ts && playwright test --config playwright.storybook.config.ts"
   },
   "dependencies": {
     "@aiden0z/pptx-renderer": "1.4.0",

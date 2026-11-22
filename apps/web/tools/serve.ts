@@ -16,6 +16,10 @@
  * with `index.html`, the base path filled in, under the content security
  * policy of the build. The app in that build runs on its in-memory backend,
  * so there is still no API here.
+ *
+ * A folder with a `_headers` file (the public Storybook, tools/storybook/site.ts)
+ * gets the headers of its `/*` block on every file, its policy among them, as
+ * the Worker that serves it sends them.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -96,6 +100,24 @@ function readdirNames(folder: string): string[] {
   } catch {
     return [];
   }
+}
+
+/** The headers a folder's `_headers` gives every path: the lines of its `/*` block. */
+function everyPathHeaders(folder: string): Record<string, string> {
+  const file = path.join(folder, '_headers');
+  if (!existsSync(file)) return {};
+  const lines = readFileSync(file, 'utf8').split('\n');
+  const start = lines.indexOf('/*');
+  const headers: Record<string, string> = {};
+  if (start === -1) return headers;
+  for (const line of lines.slice(start + 1)) {
+    if (!line.startsWith('  ')) break;
+    const colon = line.indexOf(':');
+    // `! Name` detaches a header and `#` starts a comment; neither sets one.
+    if (colon === -1 || /^\s*[!#]/.test(line)) continue;
+    headers[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
+  }
+  return headers;
 }
 
 /** The page of a product build, as the server sends it under the base path `/<name>`. */
@@ -197,6 +219,7 @@ createServer((request, response) => {
   );
   response
     .writeHead(200, {
+      ...everyPathHeaders(folder),
       'Content-Type': TYPES[path.extname(file)] ?? 'application/octet-stream',
       // Rebuilt in place while someone looks: never serve yesterday's file.
       'Cache-Control': 'no-cache',

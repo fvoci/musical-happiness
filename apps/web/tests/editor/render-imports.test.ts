@@ -193,7 +193,6 @@ describe('what the read-only view is made of', () => {
         'mermaid',
         'svelte',
         'svelte/elements',
-        'svelte/events',
       ].sort(),
     });
   });

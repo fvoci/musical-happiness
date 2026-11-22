@@ -102,6 +102,13 @@ pub(super) struct Mailer {
     /// Messages that confirm a registration's address, per address and hour, up to the
     /// same number; they go in the recovery queue.
     verification_quota: Arc<quota::HourlyQuota>,
+    /// Askings for a link that confirms an account's change of its address, per account
+    /// and hour, up to the same number: every asking counts, whether or not a link is
+    /// mailed for it; a link that is counts at its address too (`verification_quota`).
+    change_quota: Arc<quota::HourlyQuota>,
+    /// Notices of a changed address, per account and hour, up to the same number:
+    /// counted apart, so that the links an account asked for never use up its notice.
+    notice_quota: Arc<quota::HourlyQuota>,
     reset_per_hour: u32,
     pace: Arc<pace::Pace>,
     metrics: Metrics,
@@ -181,6 +188,8 @@ impl Mailer {
             )),
             reset_quota: Arc::default(),
             verification_quota: Arc::default(),
+            change_quota: Arc::default(),
+            notice_quota: Arc::default(),
             reset_per_hour: settings.mail_reset_per_account_hour,
             pace: Arc::new(pace::Pace::new(settings.mail_per_second)),
             metrics,
@@ -246,6 +255,62 @@ impl Mailer {
             })
     }
 
+    /// Counts one link the account `user_id` asks for in the account's hour, whatever
+    /// becomes of it: mailed, left out because the address is somebody's, or dropped
+    /// for the address's own hour or a full queue. So what the account is mailed
+    /// afterwards tells nothing of the address it asked for. False once the account
+    /// has had the number an hour: nothing is mailed then.
+    pub(super) fn count_email_change(&self, user_id: &str) -> bool {
+        self.change_quota
+            .take(user_id, 1, self.reset_per_hour, Instant::now(), || {
+                Ok::<(), std::convert::Infallible>(())
+            })
+            .is_ok()
+    }
+
+    /// Takes the place of one message that carries the link confirming a change to
+    /// the address `email`, in the recovery queue. The address's hour is counted, with
+    /// the messages that confirm a registration's: an address is sent no more than the
+    /// number an hour, whoever asks. The account's hour is counted before, apart
+    /// ([`Self::count_email_change`]).
+    ///
+    /// # Errors
+    /// Returns why the message is dropped, as [`Mailer::queue_reset`] does.
+    pub(super) fn queue_email_change(&self, email: &str) -> Result<Queued, ResetMailDrop> {
+        self.verification_quota
+            .take(
+                &email.to_lowercase(),
+                1,
+                self.reset_per_hour,
+                Instant::now(),
+                || Arc::clone(&self.reset_queue).try_acquire_owned(),
+            )
+            .map(|place| Queued {
+                kind: MailKind::EmailChange,
+                place,
+                org: None,
+            })
+            .map_err(|refusal| dropped(&refusal))
+    }
+
+    /// Takes the place of one notice to the account `user_id` that its address was
+    /// changed, in the recovery queue; the account's hour of notices is counted.
+    ///
+    /// # Errors
+    /// Returns why the message is dropped, as [`Mailer::queue_reset`] does.
+    pub(super) fn queue_email_notice(&self, user_id: &str) -> Result<Queued, ResetMailDrop> {
+        self.notice_quota
+            .take(user_id, 1, self.reset_per_hour, Instant::now(), || {
+                Arc::clone(&self.reset_queue).try_acquire_owned()
+            })
+            .map(|place| Queued {
+                kind: MailKind::EmailChange,
+                place,
+                org: None,
+            })
+            .map_err(|refusal| dropped(&refusal))
+    }
+
     /// Takes the places of all `messages` of one invitation request of the workspace
     /// `workspace_id` in the organization `org_id`, or none of them. In this order, the
     /// workspace's hourly limit, the organization's (`org_per_hour`), the
@@ -299,6 +364,15 @@ impl Mailer {
             });
         }
         Ok(queued)
+    }
+}
+
+/// Why a message that found its hour used up, or no place in the recovery queue, is
+/// dropped.
+fn dropped<E>(refusal: &quota::Refusal<E>) -> ResetMailDrop {
+    match refusal {
+        quota::Refusal::Limit(_) => ResetMailDrop::AccountLimit,
+        quota::Refusal::Unplaced(_) => ResetMailDrop::QueueFull,
     }
 }
 

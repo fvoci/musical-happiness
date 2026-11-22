@@ -13,13 +13,20 @@ use tokio_util::sync::CancellationToken;
 use super::inbound::{Came, Inbound};
 use super::{
     Command, Hub, Identity, Listener, ListenerId, OUTBOX_CAPACITY, SESSION_CHECK_WITHOUT_PING,
-    WRITER_GRACE, presence, subscribe, writer,
+    SessionToken, WRITER_GRACE, presence, subscribe, writer,
 };
 use crate::app::App;
 use crate::auth::limiter::AddressKey;
 use crate::collab::Seat;
-use crate::error::ErrorKind;
+use crate::error::{AppError, ErrorKind};
 use crate::metrics::Disconnect;
+
+/// How long after a session was not found under a connection's token it is looked up
+/// again, under the token the connection has then: longer than a new token takes from
+/// the store to the connection, and no wait anybody notices before a connection of an
+/// ended session closes (those are closed by whatever ends the session; this lookup is
+/// for the ones that missed).
+const TOKEN_HANDOVER: Duration = Duration::from_millis(200);
 
 impl Hub {
     /// Serves one websocket connection until it closes. `identity` is the session the
@@ -39,8 +46,8 @@ impl Hub {
         let closed = CancellationToken::new();
         let closed_because = Arc::new(OnceLock::new());
         let mut who = subscribe::Who::of(identity);
-        let (mut docs, docs_outbox) = app.collab().seat(app, who.asker());
-        let token = who.token.take();
+        let (mut docs, docs_outbox) = app.collab().seat(app, &who.user_id, who.making.clone());
+        let token = who.token.take().map(SessionToken::shared);
         let docs_overrun = docs.overrun();
         let docs_ended_worker = docs.ended_worker();
         self.watch_access_changes(app);
@@ -49,6 +56,7 @@ impl Hub {
             address: address.map(AddressKey::from),
             closed: closed.clone(),
             closed_because: Arc::clone(&closed_because),
+            token: token.clone(),
             ..Listener::new(who, outbox)
         });
         let _connection = Connection {
@@ -63,7 +71,7 @@ impl Hub {
         // connections would then have passed this one by. Looked up once more, now that
         // it is closable, the session is either still there or the connection ends.
         if let Some(token) = &token
-            && let Err(error) = self.inner.auth.find_session(token).await
+            && let Err(error) = self.find_kept_session(token).await
         {
             self.listeners().remove(id);
             if error.kind() == ErrorKind::Unauthorized {
@@ -183,9 +191,33 @@ impl Hub {
         }
     }
 
-    /// Returns once the session of `token` has ended, looked up every `period`; never
-    /// for a connection without a session. A store that cannot be read ends nothing.
-    async fn session_ends(&self, token: Option<&str>, period: Duration) {
+    /// Looks the session of `token` up under the token it has now and, not found, once
+    /// more a moment later under the one it has then. A session that gives, sets or
+    /// changes its account's password goes on under a new token, which is stored a
+    /// moment before its connections are handed it (`SessionToken`): looked up in
+    /// between, or under the token read just before, that session has not ended.
+    ///
+    /// # Errors
+    ///
+    /// Returns what the last lookup failed with: unauthorized for a session that ended.
+    async fn find_kept_session(&self, token: &SessionToken) -> Result<(), AppError> {
+        match self.inner.auth.find_session(&token.current()).await {
+            Ok(_) => return Ok(()),
+            Err(error) if error.kind() != ErrorKind::Unauthorized => return Err(error),
+            Err(_) => {}
+        }
+        tokio::time::sleep(TOKEN_HANDOVER).await;
+        self.inner
+            .auth
+            .find_session(&token.current())
+            .await
+            .map(|_| ())
+    }
+
+    /// Returns once the session of `token` has ended, looked up every `period` under
+    /// the token it has then; never for a connection without a session. A store that
+    /// cannot be read ends nothing.
+    async fn session_ends(&self, token: Option<&SessionToken>, period: Duration) {
         let Some(token) = token else {
             return std::future::pending().await;
         };
@@ -195,8 +227,8 @@ impl Hub {
         checks.tick().await;
         loop {
             checks.tick().await;
-            match self.inner.auth.find_session(token).await {
-                Ok(_) => {}
+            match self.find_kept_session(token).await {
+                Ok(()) => {}
                 Err(error) if error.kind() == ErrorKind::Unauthorized => return,
                 Err(error) => {
                     tracing::warn!(%error, "a websocket connection's session could not be read");
@@ -214,6 +246,8 @@ impl Listener {
             user_id: who.user_id,
             session_id: who.session_id,
             login: who.login,
+            making: who.making,
+            token: None,
             address: None,
             outbox,
             closed: CancellationToken::new(),
