@@ -14,6 +14,11 @@
 //! - When the server starts, of the documents a server that ended left with what no
 //!   version holds ([`Collab::recover`]): such a document is opened with a version
 //!   due.
+//! - When an editor asks ([`Collab::keep_by_hand`]): what the editors typed is written
+//!   to the card first, by whoever holds its place as always, and the body kept then,
+//!   unless it is the newest version or one was kept by hand within
+//!   [`BY_HAND_FLOOR`]. It is kept as a version due would be: the clock counts again
+//!   from the next update, and those who leave after leave nothing to keep.
 //! - Around a body written whole: the store keeps the body before, so that it can be
 //!   gone back to, and the body after, by its writer, within that write
 //!   (`fvoci_store::Store::patch_block`).
@@ -23,14 +28,24 @@
 //!   editors change can be gone back to. The store keeps it within the write of the
 //!   update's log.
 
-use fvoci_store::BodyBefore;
+use std::time::Duration;
+
+use fvoci_store::{BodyBefore, ByHand};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use super::Collab;
 use super::place::Held;
+use super::{Collab, refusals};
 use crate::app::App;
 use crate::error::AppError;
+
+/// How long after a version kept by hand no other is kept by hand. Every version is a
+/// whole body, and the newest `collab_body_versions` (fifty) are kept: an editor who
+/// presses the keys each time they stop typing would push the versions of the past
+/// hours out within minutes. A minute keeps fifty presses to an hour of typing, and is
+/// no wait for one who asks to keep what they just wrote: what they typed since is
+/// kept as the server keeps it on its own (as its writers leave, or by the clock).
+pub(crate) const BY_HAND_FLOOR: Duration = Duration::from_mins(1);
 
 /// Whether the body of an open document is kept as a version of its card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +123,12 @@ impl Collab {
 
     /// The time the versions are due by.
     pub(super) fn version_clock(&self) -> Instant {
+        Instant::now() + self.version_time_passed()
+    }
+
+    /// How much later than now the versions take it to be: for the tests, which pass
+    /// time ([`Collab::pass_version_time`]); none otherwise.
+    fn version_time_passed(&self) -> Duration {
         #[cfg(feature = "test-util")]
         let passed = *self
             .inner
@@ -115,8 +136,74 @@ impl Collab {
             .lock()
             .expect("lock poisoned");
         #[cfg(not(feature = "test-util"))]
-        let passed = std::time::Duration::ZERO;
-        Instant::now() + passed
+        let passed = Duration::ZERO;
+        passed
+    }
+
+    /// Keeps the body of a card as a version an editor asks for now: what its editors
+    /// typed is written to the card first, from its open document or from the log of
+    /// one that is not open (opened aside for that, and closed after), and the body the
+    /// card then holds is kept as a version by hand, unless it is the card's newest one
+    /// already or a version was kept by hand within a minute (`BY_HAND_FLOOR`). What the
+    /// store keeps is the body of the card, written by whoever holds its place: nothing is
+    /// written to it here but what the document holds, and the document is left as it is
+    /// for those who edit it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error if `app` reaches no card of that identifier,
+    /// `document_unavailable` if what the editors typed cannot be written first, and
+    /// the store's errors.
+    pub async fn keep_by_hand(&self, app: &App, card_id: &str) -> Result<ByHand, AppError> {
+        let now = crate::auth::now_millis().saturating_add(millis(self.version_time_passed()));
+        let since = now.saturating_sub(millis(BY_HAND_FLOOR));
+        self.on_slot(
+            app,
+            card_id,
+            move |collab, app, card_id, mut slot| async move {
+                let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
+                let kept = collab.keep_held_by_hand(app, card_id, slot, since).await;
+                collab.retire(slot);
+                kept
+            },
+        )
+        .await
+    }
+
+    /// [`Collab::keep_by_hand`] on a held slot.
+    async fn keep_held_by_hand(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        since: i64,
+    ) -> Result<ByHand, AppError> {
+        let opened_aside = slot.open.is_none() && app.store().has_unwritten_body(card_id).await?;
+        if opened_aside {
+            self.open_aside(app, card_id, slot).await?;
+        }
+        // Without a version due being kept on its own first: the one kept is by hand.
+        let written = match slot.open {
+            Some(_) => self.write_or_replace(app, card_id, slot).await.map(drop),
+            None => Ok(()),
+        };
+        if opened_aside {
+            // Opened for its log alone: the next request opens it from the card.
+            self.forget(slot).await;
+        }
+        written.map_err(|error| {
+            tracing::error!(%error, card_id, "cannot write what the editors typed before a version is kept by hand");
+            refusals::unavailable()
+        })?;
+        let by_hand = app
+            .store()
+            .keep_body_version_by_hand(card_id, since)
+            .await?
+            .ok_or_else(|| AppError::not_found("card"))?;
+        if !matches!(by_hand, ByHand::Recent(_)) {
+            kept(slot);
+        }
+        Ok(by_hand)
     }
 
     /// Has the versions take it to be `by` later from now on: for the tests of what
@@ -209,6 +296,11 @@ impl Collab {
         kept(slot);
         Ok(())
     }
+}
+
+/// A span in whole milliseconds, as the times of versions are counted.
+fn millis(span: Duration) -> i64 {
+    i64::try_from(span.as_millis()).unwrap_or(i64::MAX)
 }
 
 /// Whether the open document of a held slot took updates no version holds.

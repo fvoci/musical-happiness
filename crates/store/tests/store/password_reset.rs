@@ -35,7 +35,7 @@ async fn a_reset_is_consumed_once_and_ends_all_sessions() {
         );
     }
     assert!(
-        test.create_password_reset(&account.id, "digest", 100)
+        test.create_password_reset(&account.id, &account.email, "digest", 100)
             .await
             .expect("reset stored")
     );
@@ -87,7 +87,7 @@ async fn expiry_is_exactly_one_hour_and_unknown_tokens_change_nothing() {
     let test = common::setup().await;
     let account = user(&test, "old").await;
     assert!(
-        test.create_password_reset(&account.id, "expired", 100)
+        test.create_password_reset(&account.id, &account.email, "expired", 100)
             .await
             .expect("stored")
     );
@@ -110,7 +110,7 @@ async fn expiry_is_exactly_one_hour_and_unknown_tokens_change_nothing() {
         );
     }
     assert!(
-        test.create_password_reset(&account.id, "live", 100)
+        test.create_password_reset(&account.id, &account.email, "live", 100)
             .await
             .expect("stored")
     );
@@ -129,7 +129,7 @@ async fn accounts_without_passwords_never_get_reset_credentials() {
     let account = user(&test, "").await;
     assert!(
         !test
-            .create_password_reset(&account.id, "digest", 100)
+            .create_password_reset(&account.id, &account.email, "digest", 100)
             .await
             .expect("not stored")
     );
@@ -155,7 +155,7 @@ async fn setting_a_password_any_way_revokes_every_earlier_reset_credential() {
     let account = user(&test, "old").await;
     for digest in ["used", "sibling"] {
         assert!(
-            test.create_password_reset(&account.id, digest, 100)
+            test.create_password_reset(&account.id, &account.email, digest, 100)
                 .await
                 .expect("reset stored")
         );
@@ -186,7 +186,7 @@ async fn setting_a_password_any_way_revokes_every_earlier_reset_credential() {
             .expect("session created")
     );
     assert!(
-        test.create_password_reset(&account.id, "before-change", 200)
+        test.create_password_reset(&account.id, &account.email, "before-change", 200)
             .await
             .expect("reset stored")
     );
@@ -204,7 +204,7 @@ async fn setting_a_password_any_way_revokes_every_earlier_reset_credential() {
     );
 
     assert!(
-        test.create_password_reset(&account.id, "before-operator", 300)
+        test.create_password_reset(&account.id, &account.email, "before-operator", 300)
             .await
             .expect("reset stored")
     );

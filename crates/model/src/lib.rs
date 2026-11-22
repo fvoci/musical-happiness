@@ -60,8 +60,8 @@ pub use account_deletion::{
 pub use allowlist::body_node_types;
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
-    AuthParamError, ChangePasswordRequest, DISPLAY_NAME_MAX_LENGTH, LoginRequest,
-    MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, NewAccount,
+    AuthParamError, ChangePasswordRequest, ConfirmPasswordRequest, DISPLAY_NAME_MAX_LENGTH,
+    LoginRequest, MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, NewAccount,
     NewOrganization, ORGANIZATION_NAME_MAX_LENGTH, RegisterRequest, SetPasswordRequest,
     check_new_password, display_name, is_email_valid, organization_name,
 };
@@ -75,7 +75,10 @@ pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
     BodySummary, TaskCount,
 };
-pub use body_version::{BodyVersion, BodyVersionContent};
+pub use body_version::{
+    BodyVersion, BodyVersionCause, BodyVersionContent, KeptBodyVersion, KeptOutcome,
+    ParseBodyVersionCauseError,
+};
 pub use card::{CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview};
 pub use card_property::{
     CardPropertyError, DATE_PROPERTY_TYPE, PersonProperties, clear_values_of_another_kind,

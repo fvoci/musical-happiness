@@ -7,6 +7,8 @@
 import { m } from '$lib/i18n/paraglide/messages.js';
 import type { BodyDocState } from '$lib/state/backend.ts';
 
+import type { KeepOutcome } from './body-versions.svelte.ts';
+
 /** What a body is called in what it says: a card's description, or a wiki's page. */
 export interface BodyWords {
   label: () => string;
@@ -29,6 +31,18 @@ export interface BodyWords {
   lostFile: () => string;
   lostFormula: () => string;
 }
+
+/**
+ * What is said of an ask to keep a version of the body now (`keepVersion`),
+ * of a card's and of a page's alike.
+ */
+export const KEPT_SAID: Record<KeepOutcome, () => string> = {
+  kept: m.card_version_kept,
+  unchanged: m.card_version_unchanged,
+  recent: m.card_version_recent,
+  failed: m.card_version_keep_failed,
+  notNow: m.card_version_keep_not_now,
+};
 
 export const CARD_WORDS: BodyWords = {
   label: m.card_body,

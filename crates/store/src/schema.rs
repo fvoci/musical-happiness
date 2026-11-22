@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 50] = [
+const STEPS: [Step; 53] = [
     Step {
         version: 1,
         description: "baseline",
@@ -335,6 +335,24 @@ const STEPS: [Step; 50] = [
         postgres: include_str!("../schema/postgres/0051_organizations_made_by.sql"),
     },
     Step {
+        version: 52,
+        description: "a session that confirmed its account's password",
+        sqlite: include_str!("../schema/sqlite/0052_session_password_confirmed.sql"),
+        postgres: include_str!("../schema/postgres/0052_session_password_confirmed.sql"),
+    },
+    Step {
+        version: 53,
+        description: "an account's change of address that waits to be confirmed",
+        sqlite: include_str!("../schema/sqlite/0053_email_changes.sql"),
+        postgres: include_str!("../schema/postgres/0053_email_changes.sql"),
+    },
+    Step {
+        version: 54,
+        description: "how each version of a body came to be kept",
+        sqlite: include_str!("../schema/sqlite/0054_body_version_causes.sql"),
+        postgres: include_str!("../schema/postgres/0054_body_version_causes.sql"),
+    },
+    Step {
         version: 55,
         description: "diaries",
         sqlite: include_str!("../schema/sqlite/0055_diaries.sql"),
@@ -368,9 +386,10 @@ pub(crate) const BEFORE_DIARIES_VERSION: i64 = 51;
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const GLOBAL_TABLES: [&str; 10] = [
+pub(crate) const GLOBAL_TABLES: [&str; 11] = [
     "_sqlx_migrations",
     "data_steps",
+    "email_changes",
     "instance",
     "preferences",
     "password_resets",

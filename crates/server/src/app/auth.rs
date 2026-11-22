@@ -6,7 +6,7 @@ use std::time::Instant;
 use fvoci_model::{
     MAXIMUM_PASSWORD_BYTES, NewAccount, PersonName, RegisterRequest, Session, User, new_id,
 };
-use fvoci_store::{Founding, SignupLookup, StoreError, Taken};
+use fvoci_store::{ConfirmedPassword, Founding, SignupLookup, StoreError, Taken};
 
 use super::App;
 use super::oidc_pending::require_fresh_sign_in;
@@ -584,6 +584,7 @@ impl App {
         }
         self.ws()
             .close_other_sessions_of_user(&user.id, &session.id);
+        self.ws().session_goes_on_under(&session.id, &token);
         Ok(token)
     }
 
@@ -633,10 +634,74 @@ impl App {
             return Err(has_one());
         }
         tracing::info!(user_id = %user.id, "an account without a password was given one");
-        // Its own space takes a session made with the password from here on, and this
-        // one was made through a provider: what its connections follow of the space
-        // ends with them, and they come back to what the session still opens.
-        self.ws().close_user(&user.id);
+        self.ws()
+            .close_other_sessions_of_user(&user.id, &session.id);
+        self.ws().session_goes_on_under(&session.id, &token);
+        self.shut_own_space_to(session).await;
+        Ok(token)
+    }
+}
+
+impl App {
+    /// Records that `session` gave the account's password, so that it opens the
+    /// account's own space as a session made with the password does
+    /// (`SessionTaken::opened_by`), and nothing else that it did not open. The session
+    /// goes on under a new token, which is returned: it opens more than it did, and
+    /// the token that opened less is taken by no request and no handshake from here
+    /// on. Its websocket connections stay, marked as the session's that it is now
+    /// (`Hub::session_gave_password`): they follow the space once they ask to, and no
+    /// tab comes back under a cookie the answer has not replaced yet.
+    ///
+    /// # Errors
+    ///
+    /// Returns a conflict for an account that has no password, whose space takes any
+    /// session, and for a password that was changed while this was under way. A wrong
+    /// password and too many of them are refused as `App::confirm_password` refuses
+    /// them, naming `password`: counted with the logins to the account by its name.
+    /// Returns a not-found error if there is no such user, or the store's error.
+    pub async fn confirm_session_password(
+        &self,
+        session: &Session,
+        password: &str,
+        address: Option<IpAddr>,
+    ) -> Result<String, AppError> {
+        let user = self.store().get_user_by_id(&session.user_id).await?;
+        // Asked before the password is counted or checked: there is none to guess at.
+        if user.password_hash.is_empty() {
+            return Err(AppError::conflict(
+                "the account has no password to confirm; its own space takes any session",
+            ));
+        }
+        self.confirm_password(
+            &user,
+            password,
+            WrongPassword {
+                words: "the password is wrong",
+                field: "password",
+            },
+            address,
+        )
+        .await?;
+        let token = new_secret();
+        let confirmed = ConfirmedPassword {
+            session_id: &session.id,
+            user_id: &user.id,
+            seen_password_hash: &user.password_hash,
+        };
+        let recorded = self
+            .store()
+            .confirm_session_password(confirmed, &token_digest(&token), now_millis())
+            .await
+            .map_err(|error| AppError::from(error).context("unable to record the password"))?;
+        if !recorded {
+            // Checking a password takes a while: it was set anew meanwhile, which ended
+            // this session or left it as one that has confirmed nothing.
+            return Err(AppError::conflict(
+                "the password was changed in the meantime; try again",
+            ));
+        }
+        tracing::info!(user_id = %user.id, session_id = %session.id, "a session confirmed its account's password");
+        self.ws().session_gave_password(&session.id, &token);
         Ok(token)
     }
 }

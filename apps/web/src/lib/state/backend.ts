@@ -41,6 +41,7 @@ import type { OfBodies } from './references.ts';
 import type { TrashReads } from './trash-reads.ts';
 import type { ChangeListener } from './changes.ts';
 import type { ContentSearchOfBackend } from './content-search.ts';
+import type { Category, CategoryDraft, CategoryPatch } from './category-types.ts';
 import type { WikisOfBackend } from './wiki-types.ts';
 import type { DiariesOfBackend } from './diary-types.ts';
 import type { WorkspaceInfo } from './workspace-types.ts';
@@ -62,6 +63,7 @@ export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
 export * from './content-search.ts';
 export type { BodyDoc, BodyDocHears, BodyDocState, BodyDocStatus, DocRooms } from './body-doc.ts';
 export { isCardBlock, isViewBlock, type Change, type ChangeListener } from './changes.ts';
+export type * from './category-types.ts';
 export type * from './wiki-types.ts';
 export type * from './diary-types.ts';
 export { isOwnSpace, type OrgKind, type WorkspaceInfo } from './workspace-types.ts';
@@ -80,7 +82,13 @@ export * from './problems.ts';
 
 export interface User extends UserNames {
   id: string;
+  /** Of the reader's own user only where the backend has accounts: nobody is told another's. */
   email: string;
+  /**
+   * Only on the reader's own user: the address the account waits to change
+   * to, until the link mailed there is opened (`Account.emailChange`).
+   */
+  pendingEmail?: string | undefined;
   /**
    * The parts of the name, which of them the user is shown by
    * (`displayName` is made of them), the title and the credentials: whoever
@@ -113,25 +121,6 @@ export type AccountSettings = RegionalSettings & DisplaySettings & LanguageSetti
 /** A member set to `null` goes back to its default. */
 export type AccountSettingsPatch = { [K in keyof AccountSettings]?: AccountSettings[K] | null };
 
-/** A category of the reader's sidebar, with the boards filed under it. */
-export interface Category {
-  id: string;
-  name: string;
-  userId: string;
-  workspaceId: string;
-  /** `system` is the one every reader has and cannot delete. */
-  type: 'custom' | 'system';
-  collapsed: boolean;
-  /** The reader's order of the categories; ties are the client's to break. */
-  sortOrder: number;
-  /** The boards in the reader's order. */
-  containerIds: string[];
-  /** Boards of this category the reader hid from the sidebar. */
-  hiddenContainerIds: string[];
-  createAt: number;
-  updateAt: number;
-}
-
 /** A role on a board: one of them, the highest a member has. */
 export type ContainerRole = 'admin' | 'editor' | 'commenter' | 'viewer';
 
@@ -148,15 +137,6 @@ export interface SharingChange {
   enabled: boolean;
   /** Makes a new token: the old link stops working. */
   regenerate?: boolean;
-}
-
-export interface CategoryDraft {
-  name: string;
-}
-
-export interface CategoryPatch {
-  name?: string;
-  collapsed?: boolean;
 }
 
 /** A card as a list has it: no body, but whether there is one and how its tasks stand. */
@@ -289,6 +269,14 @@ export interface Backend
    * (`patchMe`); the user as they are now, `displayName` made anew.
    */
   patchMe(patch: NameChange): Promise<User>;
+  /**
+   * Gives the account's password in the session the reader has: their own
+   * space, closed to it until then (`passwordRequired`), opens to it for as
+   * long as it lasts, and it is the same session to everything else. A wrong
+   * password is 400 `invalid_credentials`, too many tries 429, an account
+   * without a password 409.
+   */
+  confirmPassword(password: string): Promise<void>;
   workspaces(): Promise<WorkspaceInfo[]>;
   /** The people of a workspace: who can be mentioned or set as a person. */
   users(workspaceId: string): Promise<User[]>;

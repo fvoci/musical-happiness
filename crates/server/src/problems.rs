@@ -473,11 +473,12 @@ fn describe_organization(reason: Reason) -> Option<&'static str> {
         Reason::PasswordSignInRequired => {
             "Status 401, with a session that is good, from the routes under the \
              `/w/{workspaceId}` of the user's own space: the account has a password, and \
-             its space takes only sessions made with it (`login`), while this one was \
-             made through an organization's provider. A provider is an organization's, \
-             and the space is the person's alone. The session stays, and opens what is \
-             of the organizations it opened before: sign in with the password to open \
-             the space. `getMyWorkspaces` says beforehand that it is closed so \
+             its space takes only sessions that showed it, while this one was made \
+             through an organization's provider and has not. A provider is an \
+             organization's, and the space is the person's alone. The session stays, and \
+             opens what is of the organizations it opened before: give the password in \
+             it (`confirmPassword`) and it opens the space too, as a session made with \
+             the password (`login`) does. `getMyWorkspaces` says beforehand that it is closed so \
              (`passwordRequired`). An account without a password (`hasPassword` of \
              `getMe`) is refused nothing so. What is shared from the space by a public \
              link is read without a session and is not closed."

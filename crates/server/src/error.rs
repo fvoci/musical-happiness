@@ -334,11 +334,11 @@ impl AppError {
     }
 
     /// The 401 of a session that is good and does not open the user's own space: the
-    /// account has a password, and the space takes only sessions made with it.
+    /// account has a password, and the space takes only sessions that showed it.
     pub fn password_sign_in_required() -> Self {
         Self::new(
             ErrorKind::Unauthorized,
-            "sign in with the account's password to open this",
+            "give the account's password to open this",
         )
         .with_reason(Reason::PasswordSignInRequired)
     }

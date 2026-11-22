@@ -490,7 +490,7 @@ pub async fn forget_migration(db_type: DbType, database_connection: &str, versio
 
 /// The tables that are no organization's; every other table of the schema is behind
 /// the wall between organizations.
-pub const GLOBAL_TABLES: [&str; 10] = crate::schema::GLOBAL_TABLES;
+pub const GLOBAL_TABLES: [&str; 11] = crate::schema::GLOBAL_TABLES;
 
 /// The tables that hold rows of organizations, and the organizations themselves, each
 /// behind the wall on PostgreSQL.

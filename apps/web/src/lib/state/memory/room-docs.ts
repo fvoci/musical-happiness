@@ -3,18 +3,13 @@
  * made from a body the same way in every tab, read back as it is stored.
  */
 import { getSchema } from '@tiptap/core';
-import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap';
+import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap';
 import * as Y from 'yjs';
 
 import { BODY_FIELD } from '../../editor/body-editor.ts';
 import { bodyExtensions } from '../../editor/extensions.ts';
-import {
-  emptyDoc,
-  isEmptyDoc,
-  toStoredDoc,
-  validateDoc,
-  type DocNode,
-} from '../../editor/schema.ts';
+import { bodyOfDoc } from '../../editor/room-body.ts';
+import { emptyDoc, type DocNode } from '../../editor/schema.ts';
 
 import type { StoredCard } from './world.ts';
 
@@ -34,16 +29,7 @@ export function documentOf(body: DocNode | null): Y.Doc {
 }
 
 /** The body a document holds, as it would be stored; undefined when it is not one. */
-export function bodyOf(doc: Y.Doc): DocNode | null | undefined {
-  try {
-    const fragment = doc.getXmlFragment(BODY_FIELD);
-    const stored = toStoredDoc(yXmlFragmentToProsemirrorJSON(fragment) as DocNode);
-    if (validateDoc(stored).length > 0) return undefined;
-    return isEmptyDoc(stored) ? null : stored;
-  } catch {
-    return undefined;
-  }
-}
+export const bodyOf = bodyOfDoc;
 
 /** Whether a body read from a document is `stored`, read as a document made from it would hold it. */
 export function sameBody(read: DocNode | null, stored: DocNode | null): boolean {

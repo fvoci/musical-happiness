@@ -176,6 +176,11 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "getCardBodyVersions",
     ),
     (
+        "POST",
+        "/cards/{cardId}/body-versions",
+        "keepCardBodyVersion",
+    ),
+    (
         "GET",
         "/cards/{cardId}/body-versions/{version}",
         "getCardBodyVersion",
@@ -278,6 +283,11 @@ pub(super) const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "GET",
         "/wikis/{wikiId}/pages/{pageId}/body-versions",
         "getPageBodyVersions",
+    ),
+    (
+        "POST",
+        "/wikis/{wikiId}/pages/{pageId}/body-versions",
+        "keepPageBodyVersion",
     ),
     (
         "GET",
@@ -386,6 +396,7 @@ const REACHED_BY_ITEM: &[&str] = &[
     "getPageBodyVersions",
     "getPageBodyVersion",
     "restorePageBodyVersion",
+    "keepPageBodyVersion",
     "movePage",
     "duplicatePage",
     "getDeletedPages",
@@ -436,6 +447,7 @@ const REACHED_BY_ITEM: &[&str] = &[
     "getCardBodyVersions",
     "getCardBodyVersion",
     "restoreCardBodyVersion",
+    "keepCardBodyVersion",
     "createSubscription",
     "deleteSubscription",
     "getSubscriptions",
@@ -1685,7 +1697,7 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
     }
     ts.teardown().await;
     assert_eq!(
-        count, 56,
+        count, 57,
         "the operations that moved or came after under the workspace, and the two that went"
     );
     assert!(violations.is_empty(), "{}", violations.join("\n"));

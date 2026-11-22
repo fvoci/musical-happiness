@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::app::{Audience, Former};
+use crate::app::{Audience, Former, SessionKept, SessionMade};
 use crate::auth::limiter::AddressKey;
 use crate::auth::{Authenticator, now_millis};
 use crate::metrics::{Disconnect, Metrics};
@@ -227,6 +227,14 @@ struct Listener {
     /// Where that session came from when it was made through a provider; `None` for a
     /// password, and without a session.
     login: Option<LoginOrigin>,
+    /// How that session was made, and what it confirmed at the handshake or since, as
+    /// the rule of which session opens what reads it: the connection's place among the
+    /// rooms shares it. A session that confirms the account's password has it marked
+    /// here, on the connections it has (`Hub::session_gave_password`).
+    making: SessionKept,
+    /// The token the session is looked up by while the connection lasts
+    /// (`Hub::session_ends`); `None` for a connection without a session.
+    token: Option<Arc<SessionToken>>,
     /// Where the connection comes from, as readers by a public link are counted
     /// (`readers.rs`); `None` through the administration socket.
     address: Option<AddressKey>,
@@ -242,6 +250,34 @@ struct Listener {
     /// When such a board stops being shared under that token, they stop being followed.
     shared_containers: Vec<ReadPermit>,
     presence: presence::State,
+}
+
+/// The token a connection's session is found under now: the one of its handshake,
+/// until the session goes on under another and its connections with it.
+struct SessionToken(Mutex<String>);
+
+impl SessionToken {
+    /// The token of a handshake, for the connection and for the hub that hands it the
+    /// next one.
+    fn shared(token: String) -> Arc<Self> {
+        Arc::new(Self(Mutex::new(token)))
+    }
+
+    /// The token as it is now.
+    fn current(&self) -> String {
+        self.0.lock().expect("the session token's lock").clone()
+    }
+
+    fn replace(&self, token: &str) {
+        token.clone_into(&mut self.0.lock().expect("the session token's lock"));
+    }
+}
+
+impl std::fmt::Debug for SessionToken {
+    /// Leaves out the token.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionToken").finish_non_exhaustive()
+    }
 }
 
 /// A shared board followed by its read token: the workspace and the blocks the
@@ -277,9 +313,9 @@ struct Listeners {
 }
 
 impl Listener {
-    /// The provider the connection's session was made through, if any.
-    fn login_provider(&self) -> Option<&str> {
-        self.login.as_ref().map(|login| login.provider_id.as_str())
+    /// How the connection's session was made, and what it has confirmed by now.
+    fn made(&self) -> SessionMade {
+        self.making.made()
     }
 
     /// Gives the connection up, for `reason`; the first reason given is the one counted.

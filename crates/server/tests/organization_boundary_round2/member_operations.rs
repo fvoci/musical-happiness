@@ -41,7 +41,7 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 43] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 44] = [
     // No workspace of an organization has a diary: a diary is of a user's own space.
     "getDiaries",
     "createDiary",
@@ -92,6 +92,9 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 43] = [
     "completeUpload",
     "putUploadPart",
     "importArchive",
+    // The member's account waits for no change of its address: the sweep asked for
+    // none it could, with its empty body.
+    "resendEmailChange",
 ];
 
 /// The operations the contract publishes: method, path and identifier, in its order.

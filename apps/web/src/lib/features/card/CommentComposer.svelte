@@ -21,7 +21,13 @@
   import { untrack } from 'svelte';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
-  import { isComposing, primaryModifier, shortcutKeys, shortcutLabel } from '$lib/keys.ts';
+  import {
+    isComposing,
+    isSaveKey,
+    primaryModifier,
+    shortcutKeys,
+    shortcutLabel,
+  } from '$lib/keys.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -75,6 +81,12 @@
   }
 
   function onkeydown(event: KeyboardEvent): void {
+    // A comment keeps no versions: the keys that keep one of a body only keep the browser
+    // from saving the page, also while a syllable is being composed.
+    if (isSaveKey(event)) {
+      event.preventDefault();
+      return;
+    }
     if (isComposing(event)) return;
     if (event.key === 'Enter' && primaryModifier(event)) {
       event.preventDefault();

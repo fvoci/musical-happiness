@@ -79,38 +79,73 @@ export function numberColumn(column: HTMLElement, lines: number): void {
 }
 
 /**
+ * A stretch of a block's text that a comparison marks (render-diff.ts): from
+ * `from` to `to`, inside a copy of `element` (an `<ins>` or a `<del>`).
+ */
+export interface CodeChange {
+  from: number;
+  to: number;
+  element: Element;
+}
+
+/**
  * Fills a `<code>` with its text, a run of a colour in an element of its
  * kind, and, with `numbered`, the numbers of the lines. Like `renderBody`, it
- * holds an empty last line open with a `<br>`.
+ * holds an empty last line open with a `<br>`. What a comparison marked
+ * (`changes`, in order) stays marked, around its runs and numbers.
  */
 export function paintCode(
   code: HTMLElement,
   text: string,
   tokens: CodeTokens,
   numbered: boolean,
+  changes: readonly CodeChange[] = [],
 ): void {
   const page = code.ownerDocument;
   const parts: Node[] = [];
   const starts = numbered ? lineStarts(text) : [];
   let line = 0;
-  const number = (): void => {
+  let changeAt = 0;
+  let open: { element: Element; to: number } | undefined;
+  /** Puts down a node that starts at `at`: inside the change it is in, if any. */
+  const place = (node: Node, at: number): void => {
+    while ((changes[changeAt]?.to ?? Infinity) <= at) changeAt += 1;
+    const change = changes[changeAt];
+    if (!change || change.from > at) {
+      open = undefined;
+      parts.push(node);
+      return;
+    }
+    if (open?.to !== change.to) {
+      open = { element: change.element.cloneNode(false) as Element, to: change.to };
+      parts.push(open.element);
+    }
+    open.element.append(node);
+  };
+  /** Where the next change starts or ends after `at`. */
+  const changeEdge = (at: number): number => {
+    const change = changes.find((one) => one.to > at);
+    if (!change) return Infinity;
+    return change.from > at ? change.from : change.to;
+  };
+  const number = (at: number): void => {
     line += 1;
-    parts.push(lineMarker(page));
+    place(lineMarker(page), at);
   };
   /** Puts down the text from `from` to `to`, in a run of `kind` if there is one, numbering its lines. */
   const put = (from: number, to: number, kind: number | undefined): void => {
     const className = kind === undefined ? undefined : tokenClassAt(kind);
     for (let at = from; at < to;) {
-      if (starts[line] === at) number();
+      if (starts[line] === at) number(at);
       // A run that goes over the end of a line is cut there, for the number of the next one.
-      const next = Math.min(starts[line] ?? to, to);
+      const next = Math.min(starts[line] ?? to, to, changeEdge(at));
       const piece = page.createTextNode(text.slice(at, next));
-      if (className === undefined) parts.push(piece);
+      if (className === undefined) place(piece, at);
       else {
         const run = page.createElement('span');
         run.setAttribute('class', className);
         run.append(piece);
-        parts.push(run);
+        place(run, at);
       }
       at = next;
     }
@@ -125,7 +160,7 @@ export function paintCode(
   }
   put(at, text.length, undefined);
   // The last line has no text when the block is empty or ends in a line feed.
-  if (line < starts.length) number();
+  if (line < starts.length) number(text.length);
   if (text === '' || text.endsWith('\n')) parts.push(page.createElement('br'));
   code.replaceChildren(...parts);
 }

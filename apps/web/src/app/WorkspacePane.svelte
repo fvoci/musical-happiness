@@ -16,7 +16,12 @@
   import SsoRequired from '$lib/features/account/SsoRequired.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import WorkspaceStart from '$lib/features/shell/WorkspaceStart.svelte';
-  import { isOwnSpace, type Workspace, type WorkspaceInfo } from '$lib/state/index.ts';
+  import {
+    confirmPassword,
+    isOwnSpace,
+    type Workspace,
+    type WorkspaceInfo,
+  } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import BoardPage from './BoardPage.svelte';
@@ -36,8 +41,6 @@
     /** The reader's workspaces this session opens, with their addresses. */
     openWorkspaces: readonly (WorkspaceInfo & { href: string })[];
     onSso: (orgId: string) => Promise<void>;
-    /** Signs in with the account's password, which opens the own space; a refusal rejects. */
-    onPasswordSignIn: (password: string) => Promise<void>;
     /** Opens the picker of what to make, for a workspace with nothing in it yet. */
     onAddBoard?: (() => void) | undefined;
   }
@@ -50,7 +53,6 @@
     onOpenLinked,
     openWorkspaces,
     onSso,
-    onPasswordSignIn,
     onAddBoard,
   }: Props = $props();
 
@@ -98,7 +100,11 @@
     />
   {/key}
 {:else if here && workspace.entered === 'password'}
-  <OwnSpaceLocked username={workspace.me?.username ?? ''} onSignIn={onPasswordSignIn} />
+  <!-- Given in the session the reader has, the space opens where it is (`confirmPassword`). -->
+  <OwnSpaceLocked
+    username={workspace.me?.username ?? ''}
+    onConfirm={(password: string) => confirmPassword(workspace, password)}
+  />
 {:else if !router.route.workspaceId && workspace.workspaces.length === 0}
   <div class="grid h-full place-items-center p-6 text-center">
     <p class="text-muted-foreground">{m.app_no_boards()}</p>

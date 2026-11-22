@@ -34,8 +34,9 @@ mod every_organization;
 mod session_taken;
 mod sign_in;
 
-pub use session_taken::SessionTaken;
+pub(crate) use session_taken::memberships_of;
 use session_taken::{HAS_PASSWORD, taken};
+pub use session_taken::{Making, SessionTaken};
 
 pub(crate) use every_organization::{
     OpenedWall, close_wall, is_the_instances_organization, of_people, open_wall,
@@ -442,11 +443,11 @@ impl Store {
 
     /// The workspaces the user is a member of, in every organization: by organization,
     /// the oldest first, and in each the oldest workspace first; the workspace of the
-    /// user's own space last, whenever it was made. `login_provider` is
-    /// the provider the asking session was made through (`None` for a password): a
-    /// workspace of an organization that takes only sessions made through another
-    /// says so (`sso_required`), and the user's own space says that it takes a session
-    /// made with the password (`password_required`); both are listed all the same.
+    /// user's own space last, whenever it was made. `making` is that of the asking
+    /// session: a workspace of an organization that takes only sessions made through
+    /// another provider says so (`sso_required`), and the user's own space says that
+    /// it takes a session that has shown the password (`password_required`); both are
+    /// listed all the same.
     ///
     /// # Errors
     ///
@@ -455,43 +456,15 @@ impl Store {
     pub async fn workspaces_of_user(
         &self,
         user_id: &str,
-        login_provider: Option<&str>,
+        making: Making<&str>,
     ) -> Result<Vec<UserWorkspace>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                let mut sql = scope.sql(&format!(
-                    "SELECT t.id, t.org_id, t.name, wm.role, p.id, o.kind, {HAS_PASSWORD} \
-                     FROM workspace_members AS wm \
-                     JOIN users AS u ON u.id = wm.user_id \
-                     JOIN workspaces AS t ON t.id = wm.workspace_id \
-                     JOIN organizations AS o ON o.id = t.org_id \
-                     LEFT JOIN oidc_providers AS p ON p.org_id = t.org_id AND p.sso_required = ",
-                ));
-                sql.bind(true)
-                    .push_bind(" WHERE wm.user_id = ", Id(user_id))
-                    .push(IN_USE)
-                    .push(&scope.same_organization(&[("wm", "t")]))
-                    .push_bind(" ORDER BY CASE WHEN o.kind = ", OrgKind::Personal.as_str())
-                    .push(" THEN 1 ELSE 0 END, o.create_at, o.id, t.create_at, t.id");
-                scope
-                    .fetch_all(sql)
-                    .await?
-                    .iter()
-                    .map(|row| {
-                        let kind = org_kind(row, 5)?;
-                        let takes = taken(kind, row.id(4)?, &row.text(6)?);
-                        let closed = !takes.opened_by(login_provider);
-                        Ok(UserWorkspace {
-                            id: row.id(0)?,
-                            org_id: row.id(1)?,
-                            kind,
-                            name: row.text(2)?,
-                            role: role(row, 3)?,
-                            sso_required: closed && kind == OrgKind::Team,
-                            password_required: closed && kind == OrgKind::Personal,
-                        })
-                    })
-                    .collect()
+                let memberships = memberships_of(scope, user_id).await?;
+                Ok(memberships
+                    .into_iter()
+                    .map(|membership| membership.listed_for(making))
+                    .collect())
             })
             .await
     }
@@ -701,8 +674,9 @@ impl Store {
     /// The user's memberships of boards of `kinds` in live workspaces of every
     /// organization, direct and through a team (`inherited_role`), ordered by board
     /// identifier. Only the named user's memberships are returned, and only of the
-    /// organizations a session made through `login_provider` (`None` for a password)
-    /// opens: one that takes only sessions of another provider is left out.
+    /// workspaces a session of that `making` opens ([`SessionTaken::opened_by`]): those
+    /// of an organization that takes only sessions of another provider are left out,
+    /// and those of the user's own space that such a session does not open.
     ///
     /// # Errors
     ///
@@ -710,12 +684,12 @@ impl Store {
     pub async fn container_memberships_of_user(
         &self,
         user_id: &str,
-        login_provider: Option<&str>,
+        making: Making<&str>,
         kinds: ContainerKinds,
     ) -> Result<Vec<ContainerMember>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                memberships_everywhere::of_user(scope, user_id, login_provider, kinds).await
+                memberships_everywhere::of_user(scope, user_id, making, kinds).await
             })
             .await
     }

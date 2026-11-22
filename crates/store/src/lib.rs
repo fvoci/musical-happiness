@@ -35,6 +35,7 @@ mod data_steps;
 mod db;
 mod diaries;
 mod directory;
+mod email_change;
 mod error;
 mod file_info;
 mod file_refs;
@@ -98,7 +99,7 @@ pub use blocks::{
 };
 pub use body_digest::body_digest;
 pub use body_docs::{DocAsRead, LoggedUpdate, StoredDoc};
-pub use body_versions::{BodyBefore, DEFAULT_BODY_VERSIONS_KEPT, KeptVersion};
+pub use body_versions::{BodyBefore, ByHand, DEFAULT_BODY_VERSIONS_KEPT, KeptVersion};
 pub use category_containers::{ContainerPlace, ContainerVisibility};
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
@@ -107,8 +108,11 @@ pub use containers::{Joined, MemberChange, PublicContainers};
 pub use db::Dialect;
 pub use diaries::{DiaryMade, EntryMade};
 pub use directory::{
-    Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SessionTaken, SharedContainer, Sight,
-    WorkspaceAccess,
+    Looking, Making, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SessionTaken, SharedContainer,
+    Sight, WorkspaceAccess,
+};
+pub use email_change::{
+    EMAIL_CHANGE_LIFETIME_MILLIS, EMAIL_CHANGE_LINK_LIFETIME_MILLIS, EmailChanged,
 };
 pub use error::{StoreError, Taken};
 pub use file_refs::NewBodyFiles;
@@ -139,6 +143,7 @@ pub use search_docs::SearchDocument;
 pub use search_outbox::{SearchChange, SearchIndexMark, SearchOutboxCounts, SearchTarget};
 pub use search_text::{TextFound, TextSearch};
 pub use server_lock::ServerLock;
+pub use sessions::ConfirmedPassword;
 pub use sharing::SharingChange;
 pub use signups::{
     Confirmed, Proof, SIGNUP_LIFETIME_MILLIS, SIGNUP_LINK_LIFETIME_MILLIS, Signup, SignupLookup,

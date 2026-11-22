@@ -35,6 +35,7 @@
     isBackendError,
     isOpen,
     isSignedOut,
+    passwordChanged,
     providePeople,
     startOrganization,
     whileHere,
@@ -68,8 +69,8 @@
   import { keepReturn, resume, takeReturn } from './return-to.ts';
   import { placeRoute, shownContainerId, type Router } from './router.svelte.ts';
   import { signInOrganizations, signInWays } from './sign-in-organizations.ts';
+  import EmailChangeHost from './EmailChangeHost.svelte';
   import PasswordNoticeHost from './PasswordNoticeHost.svelte';
-  import { signInWithPassword } from './own-space-sign-in.ts';
   import { Administered } from './administered.svelte.ts';
   import WorkspacePane from './WorkspacePane.svelte';
   import WorkspaceSearch from './WorkspaceSearch.svelte';
@@ -269,6 +270,7 @@
   {#if account && workspace}
     {@const of = account}
     {@const mine = workspace.workspaces}
+    <EmailChangeHost {workspace} account={of} />
     <LinkedSignIns
       read={() => signedIn(() => of.identities())}
       organizations={() => signInOrganizations(mine, (orgId) => of.loginOptions(orgId))}
@@ -453,7 +455,10 @@
     onSignOut={account ? () => void signOut() : undefined}
     onChangePassword={account
       ? (oldPassword: string, newPassword: string) =>
-          signedIn(async () => account?.changePassword(oldPassword, newPassword))
+          signedIn(async () => {
+            await account?.changePassword(oldPassword, newPassword);
+            if (workspace) await passwordChanged(workspace, newPassword);
+          })
       : undefined}
     accountSettings={account ? accountSettings : undefined}
     bind:settingsOpen={
@@ -481,7 +486,6 @@
         onOpenLinked={openLinked}
         {openWorkspaces}
         onSso={(orgId: string) => toProvider(orgId)}
-        onPasswordSignIn={(password: string) => signInWithPassword(account, workspace, password)}
       />
       <!-- After the pane: drawn at its foot, it comes after it when tabbing too. -->
       {#if account}

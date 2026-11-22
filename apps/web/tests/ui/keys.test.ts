@@ -2,7 +2,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { closesPlace } from '$lib/editor/place-state.ts';
-import { isApplePlatform, primaryModifier, shortcutKeys, shortcutLabel } from '$lib/keys.ts';
+import { SaveKey } from '$lib/editor/save-key.ts';
+import {
+  isApplePlatform,
+  isSaveKey,
+  primaryModifier,
+  shortcutKeys,
+  shortcutLabel,
+} from '$lib/keys.ts';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -48,6 +55,59 @@ for (const [platform, apple] of [
         );
       }
       expect(closesPlace(new KeyboardEvent('keydown', { key: 'Escape' }))).toBe(true);
+    });
+
+    it('keeps a version with S and its native modifier alone, by letter or, on other letters, by place', () => {
+      const modifier = { ctrlKey: !apple, metaKey: apple };
+      const press = (init: KeyboardEventInit): boolean =>
+        isSaveKey(new KeyboardEvent('keydown', { code: 'KeyS', ...init }), platform);
+      expect(press({ key: 's', ...modifier })).toBe(true);
+      expect(press({ key: 'S', ...modifier })).toBe(true);
+      // Hangul's layout, and a syllable being composed: the key where S is.
+      expect(press({ key: 'ㄴ', ...modifier })).toBe(true);
+      expect(press({ key: 'Process', ...modifier })).toBe(true);
+      // Another Latin layout: its letter, wherever the key is.
+      expect(press({ key: 'o', ...modifier })).toBe(false);
+      expect(press({ key: 's', code: 'KeyO', ...modifier })).toBe(true);
+      expect(press({ key: 's', ctrlKey: apple, metaKey: !apple })).toBe(false);
+      expect(press({ key: 's', ctrlKey: true, metaKey: true })).toBe(false);
+      expect(press({ key: 's', shiftKey: true, ...modifier })).toBe(false);
+      expect(press({ key: 's', altKey: true, ...modifier })).toBe(false);
+      expect(press({ key: 's' })).toBe(false);
+    });
+
+    it("keeps the browser from saving the page in a body's editor, and asks once, after a syllable", () => {
+      const modifier = { key: 's', code: 'KeyS', ctrlKey: !apple, metaKey: apple };
+      const asked = vi.fn();
+      const key = new SaveKey(() => asked);
+      const press = (init: KeyboardEventInit, composing = false): KeyboardEvent => {
+        const event = new KeyboardEvent('keydown', { cancelable: true, ...init });
+        key.down(event, composing, platform);
+        return event;
+      };
+      expect(press(modifier).defaultPrevented).toBe(true);
+      expect(asked).toHaveBeenCalledTimes(1);
+      // Held down: no more asks, and still no dialog of the browser.
+      expect(press({ ...modifier, repeat: true }).defaultPrevented).toBe(true);
+      expect(asked).toHaveBeenCalledTimes(1);
+      // Other keys are the editor's.
+      expect(press({ key: 'z', ctrlKey: !apple, metaKey: apple }).defaultPrevented).toBe(false);
+      // During a syllable: asked once it is over, and not again.
+      expect(press(modifier, true).defaultPrevented).toBe(true);
+      expect(asked).toHaveBeenCalledTimes(1);
+      key.composed();
+      key.composed();
+      expect(asked).toHaveBeenCalledTimes(2);
+      // The editor went away during the syllable: nothing is asked.
+      press(modifier, true);
+      key.drop();
+      key.composed();
+      expect(asked).toHaveBeenCalledTimes(2);
+      // An editor that keeps no version keeps the browser from saving the page all the same.
+      const none = new SaveKey(() => undefined);
+      const event = new KeyboardEvent('keydown', { cancelable: true, ...modifier });
+      none.down(event, false, platform);
+      expect(event.defaultPrevented).toBe(true);
     });
   });
 }

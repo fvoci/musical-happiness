@@ -384,25 +384,44 @@ impl Hub {
         );
     }
 
+    /// Stops what the user's connections follow of `workspace_id`, the workspace of
+    /// their own space, with a session that has not shown the account's password, as
+    /// the account is given its first one: the space takes no other session from then
+    /// on. For after that is stored. A subscription of theirs being checked meanwhile
+    /// is checked again, against access read anew.
+    pub fn end_subscriptions_without_password(&self, workspace_id: &str, user_id: &str) {
+        self.end_workspaces_where(
+            Ended::Password,
+            |revoked| revoked.user_in_workspace(user_id, workspace_id),
+            |listener, workspace| {
+                listener.user_id == user_id
+                    && workspace == workspace_id
+                    && !listener.made().has_shown_password()
+            },
+        );
+    }
+
     /// As [`Self::end_subscriptions_shut_out`] where the organization's workspaces are
     /// not known: stops every workspace followed with a session that was not made
     /// through the provider, whichever. Blocks followed by a read token carry no user's
     /// identifier, and stay.
     pub fn end_subscriptions_made_otherwise(&self, provider_id: &str) {
         self.end_workspaces_where(Ended::Sso, Revocations::everyone, |listener, _| {
-            listener.login_provider() != Some(provider_id)
+            listener.made().is_made_otherwise_than(provider_id)
         });
     }
 }
 
 /// Whether the wall of an organization that now takes only sessions made through
 /// `provider_id` shuts the connection out of `workspace`: one of the organization's,
-/// `workspace_ids`, followed with a session made otherwise.
+/// `workspace_ids`, followed with a session made otherwise, as the one rule has it
+/// (`SessionMade::is_made_otherwise_than`).
 pub(super) fn shuts_out(
     listener: &Listener,
     workspace: &str,
     workspace_ids: &[String],
     provider_id: &str,
 ) -> bool {
-    workspace_ids.iter().any(|id| id == workspace) && listener.login_provider() != Some(provider_id)
+    workspace_ids.iter().any(|id| id == workspace)
+        && listener.made().is_made_otherwise_than(provider_id)
 }

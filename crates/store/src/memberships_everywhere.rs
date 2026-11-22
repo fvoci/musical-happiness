@@ -1,10 +1,10 @@
 //! A user's board memberships in every organization, as the session that asks opens
-//! them.
+//! them: of the workspaces the one rule says it opens, and of no other.
 
-use fvoci_model::{ContainerKinds, ContainerMember, OrgKind};
+use fvoci_model::{ContainerKinds, ContainerMember};
 
 use crate::db::{Id, Scope, Sql};
-use crate::directory::IN_USE;
+use crate::directory::{IN_USE, Making, memberships_of};
 use crate::error::StoreError;
 use crate::{container_kinds, container_team_access, containers};
 
@@ -15,9 +15,14 @@ use crate::{container_kinds, container_team_access, containers};
 pub(crate) async fn of_user(
     scope: &mut Scope<'_>,
     user_id: &str,
-    login_provider: Option<&str>,
+    making: Making<&str>,
     kinds: ContainerKinds,
 ) -> Result<Vec<ContainerMember>, StoreError> {
+    let opened = opened_workspaces(scope, user_id, making).await?;
+    // A list of none is no SQL, and there is nothing in no workspace.
+    if opened.is_empty() {
+        return Ok(Vec::new());
+    }
     let mut sql = containers::select_members(scope);
     sql.push(
         " JOIN containers AS b ON b.id = bm.container_id \
@@ -30,21 +35,21 @@ pub(crate) async fn of_user(
     .push(IN_USE)
     .push(&scope.same_organization(&[("bm", "b"), ("b", "t"), ("wm", "t")]));
     container_kinds::push_kinds(&mut sql, "b.kind", kinds);
-    push_opened_by(&mut sql, user_id, login_provider);
+    push_among(&mut sql, &opened);
     sql.push(" ORDER BY bm.container_id");
     let mut members = containers::fetch_members(scope, sql).await?;
-    extend_across_organizations(scope, user_id, login_provider, kinds, &mut members).await?;
+    extend_across_organizations(scope, user_id, &opened, kinds, &mut members).await?;
     Ok(members)
 }
 
 /// Adds to `members` the boards `user_id` has a role on through a team, of every
 /// organization, as `Store::container_memberships_of_user` lists the direct ones: of a
-/// workspace and an organization in use, that the session made through
-/// `login_provider` opens. Sorted by board.
+/// workspace and an organization in use, among the workspaces `opened`. Sorted by
+/// board.
 async fn extend_across_organizations(
     scope: &mut Scope<'_>,
     user_id: &str,
-    login_provider: Option<&str>,
+    opened: &[String],
     kinds: ContainerKinds,
     members: &mut Vec<ContainerMember>,
 ) -> Result<(), StoreError> {
@@ -61,33 +66,35 @@ async fn extend_across_organizations(
         .push(IN_USE)
         .push(&scope.same_organization(&[("bt", "b"), ("b", "t")]));
     container_kinds::push_kinds(&mut sql, "b.kind", kinds);
-    push_opened_by(&mut sql, user_id, login_provider);
+    push_among(&mut sql, opened);
     container_team_access::extend(scope, sql, members).await?;
     members.sort_by(|a, b| a.container_id.cmp(&b.container_id));
     Ok(())
 }
 
-/// Leaves out the workspaces `t`, of the organizations `o`, that a session of the user
-/// made through `login_provider` (`None` for a password) does not open, as
-/// [`crate::SessionTaken::opened_by`] has it: those of an organization that takes only
-/// sessions made through another provider, and, for a session made through any, the
-/// user's own space once the account has a password.
-fn push_opened_by(sql: &mut Sql, user_id: &str, login_provider: Option<&str>) {
-    sql.push(
-        " AND NOT EXISTS (SELECT 1 FROM oidc_providers AS p \
-         WHERE p.org_id = t.org_id AND p.sso_required = ",
-    )
-    .bind(true);
-    if let Some(provider) = login_provider {
-        sql.push_bind(" AND p.id <> ", Id(provider));
+/// The workspaces the user is a member of that a session of that `making` opens, by
+/// the one rule of it ([`crate::SessionTaken::opened_by`]): what a workspace takes is
+/// read as an entry into it reads it, and nothing here says it again.
+async fn opened_workspaces(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    making: Making<&str>,
+) -> Result<Vec<String>, StoreError> {
+    Ok(memberships_of(scope, user_id)
+        .await?
+        .into_iter()
+        .filter(|membership| membership.takes.opened_by(making))
+        .map(|membership| membership.id)
+        .collect())
+}
+
+/// Keeps the workspaces `t` that are among `opened`, which names one at least: a
+/// workspace that is not known to be opened is left out.
+fn push_among(sql: &mut Sql, opened: &[String]) {
+    let mut separator = " AND t.id IN (";
+    for workspace in opened {
+        sql.push_bind(separator, Id(workspace));
+        separator = ", ";
     }
     sql.push(")");
-    if login_provider.is_some() {
-        sql.push_bind(" AND NOT (o.kind = ", OrgKind::Personal.as_str())
-            .push_bind(
-                " AND EXISTS (SELECT 1 FROM users AS u WHERE u.id = ",
-                Id(user_id),
-            )
-            .push(" AND u.password_hash <> ''))");
-    }
 }

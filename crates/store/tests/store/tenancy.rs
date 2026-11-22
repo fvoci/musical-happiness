@@ -213,7 +213,7 @@ async fn a_member_does_not_find_a_workspace_that_is_not_in_use() {
     };
     let listed = async || {
         unset
-            .workspaces_of_user(&user_id, None)
+            .workspaces_of_user(&user_id, fvoci_store::Making::with_password())
             .await
             .expect("the workspaces are listed")
             .into_iter()

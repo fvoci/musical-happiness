@@ -584,8 +584,12 @@
       "BodyVersion": {
         "description": "A version kept of a card's body: the body as it was at a time, and who wrote it up\nto then.",
         "properties": {
+          "cause": {
+            "$ref": "#/components/schemas/BodyVersionCause",
+            "description": "How it came to be kept."
+          },
           "editors": {
-            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers: those who edited it and those who wrote it whole. Empty for\na body nobody is known to have written.",
+            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers: those who edited it and those who wrote it whole. Empty for\na body nobody is known to have written; who asked for a version is not named\nfor asking.",
             "items": {
               "type": "string"
             },
@@ -596,7 +600,7 @@
             "type": "boolean"
           },
           "keptAt": {
-            "description": "When the version was kept, in milliseconds since the Unix epoch. For a body\nnobody is known to have written (one from before versions were kept, or from an\nimport), when the card was last changed.",
+            "description": "When the version was kept, in milliseconds since the Unix epoch. For a body\nnobody is known to have written (one from before versions were kept, or from an\nimport) that the server kept, when the card was last changed.",
             "format": "int64",
             "type": "integer"
           },
@@ -607,12 +611,22 @@
           }
         },
         "required": [
+          "cause",
           "editors",
           "isCurrent",
           "keptAt",
           "version"
         ],
         "type": "object"
+      },
+      "BodyVersionCause": {
+        "description": "How a version of a card's body came to be kept, as its readers are told: by somebody\nwho asked for it, by going back to a version, or by the server on its own.",
+        "enum": [
+          "auto",
+          "manual",
+          "restored"
+        ],
+        "type": "string"
       },
       "BodyVersionContent": {
         "description": "A version kept of a card's body, with the body.",
@@ -627,6 +641,10 @@
                 "type": "null"
               }
             ]
+          },
+          "cause": {
+            "$ref": "#/components/schemas/BodyVersionCause",
+            "description": "How it came to be kept."
           },
           "editors": {
             "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers. Empty for a body nobody is known to have written.",
@@ -652,6 +670,7 @@
         },
         "required": [
           "body",
+          "cause",
           "editors",
           "isCurrent",
           "keptAt",
@@ -1110,6 +1129,31 @@
         },
         "required": [
           "token"
+        ],
+        "type": "object"
+      },
+      "ConfirmEmailChange": {
+        "properties": {
+          "token": {
+            "description": "The secret from the confirmation link's fragment.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "ConfirmPasswordRequest": {
+        "description": "A request of a session to be taken as one that has shown its account's password.",
+        "properties": {
+          "password": {
+            "description": "The account's password.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
         ],
         "type": "object"
       },
@@ -2281,6 +2325,40 @@
         ],
         "type": "object"
       },
+      "KeptBodyVersion": {
+        "description": "The answer to an editor who asked to keep a body as a version now.",
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/KeptOutcome",
+            "description": "Whether a version was kept, and if not, why."
+          },
+          "version": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BodyVersion",
+                "description": "The version the outcome names, as the list of versions has it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "outcome",
+          "version"
+        ],
+        "type": "object"
+      },
+      "KeptOutcome": {
+        "description": "What became of a body an editor asked to keep as a version now.",
+        "enum": [
+          "kept",
+          "unchanged",
+          "recent"
+        ],
+        "type": "string"
+      },
       "LeavingOrganization": {
         "description": "An organization that goes with the account of its only member, and how much is in\nit: the account's own space, and an organization of people that has nobody else. The\nnumbers are left out for an organization the session that asks does not\nopen (one that takes only sessions made through its provider).",
         "properties": {
@@ -2497,12 +2575,24 @@
           },
           {
             "properties": {
+              "email": {
+                "description": "The email address of the account, which nobody else is answered; empty for an\naccount that has none.",
+                "type": "string"
+              },
               "hasPassword": {
                 "description": "Whether the account has a password to sign in with. An account made by a\nsign-in through an organization's provider has none until its person sets one\n(`setPassword`), and signs in through the provider only until then.",
                 "type": "boolean"
+              },
+              "pendingEmail": {
+                "description": "The address the account waits to have confirmed (`requestEmailChange`), which\nbecomes `email` by the link mailed to it; left out when it waits for none.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
+              "email",
               "hasPassword"
             ],
             "type": "object"
@@ -4223,7 +4313,7 @@
           },
           {
             "reason": "password_sign_in_required",
-            "title": "Sign-in with the password required",
+            "title": "The account's password is required",
             "type": "/problems/password-sign-in-required"
           },
           {
@@ -4437,6 +4527,27 @@
         ],
         "type": "object"
       },
+      "RequestEmailChange": {
+        "properties": {
+          "email": {
+            "description": "The address the account is to have. White space around it is dropped.",
+            "type": "string"
+          },
+          "language": {
+            "description": "The requester's language tag (`ko`, `en-GB`), used when the account's own\nsettings name no language the mail is written in (English, Korean); English if\nneither does.",
+            "type": "string"
+          },
+          "password": {
+            "description": "The account's password.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "type": "object"
+      },
       "RequestEmailVerification": {
         "properties": {
           "email": {
@@ -4468,6 +4579,15 @@
         "required": [
           "email"
         ],
+        "type": "object"
+      },
+      "ResendEmailChange": {
+        "properties": {
+          "language": {
+            "description": "The requester's language tag, as in `requestEmailChange`.",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "SearchHit": {
@@ -5171,7 +5291,7 @@
             "type": "string"
           },
           "passwordRequired": {
-            "description": "Whether the workspace is closed to the session that asks for being the user's\nown space, of an account that has a password, while the session was made\nthrough a provider. What is under the workspace then answers 401 with the\nreason `password_sign_in_required`; signing in with the account's password\n(`login`) opens it. Always false for a workspace of an organization that people\nwork in.",
+            "description": "Whether the workspace is closed to the session that asks for being the user's\nown space, of an account that has a password, while the session was made\nthrough a provider and has not given that password. What is under the\nworkspace then answers 401 with the reason `password_sign_in_required`; giving\nthe password in the session (`confirmPassword`) opens it, and so does signing in\nwith it (`login`). Always false for a workspace of an organization that people\nwork in.",
             "type": "boolean"
           },
           "role": {
@@ -5356,7 +5476,7 @@
     }
   },
   "info": {
-    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its `readToken`, and look at no session that comes along.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401. A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` in bytes.\n\nAny request may be answered 503 with the reason `database_busy`: the database did not take one of its statements in time (another write held the file, or no connection to it was to be had). That statement did nothing and may be taken a moment later. A request of one step may be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done before stays done, and sent again it is answered as its operation says.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## The user's own space\n\nEvery account has a space of its own from the moment it is made, however it was made: an organization of the `kind` `personal` with the account as its only member and one workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, the trash, export and import, and sharing by a public link (`setSharing`) work in it as anywhere. It has no name (a client calls it by the reader's language) and takes none.\n\nWhat it has not is other people, and anybody to administer it. Its identifier is 404 for every operation under `/org/{orgId}` (the organization and its settings, its members, its workspaces, joining one as an administrator, its audit log, its provider of sign-ins), for its owner as for anybody else, and no answer of those operations names it. Under its workspace these are 404, as for a workspace that is not there: `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, `setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is under it) and on the teams of a board or a wiki (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is moved to or from another organization but by export and import, and no reference reaches into it from outside or out of it. What changes in it is told to nobody else: the server's operator is posted no block of it (`block_change_webhooks`), and it is in no audit log anybody but its owner reads.\n\nAn account that was made by a sign-in through an organization's provider has no password (`hasPassword` of `getMe`), and until it has one its space is reached by any session of the account. It is given one by `setPassword`, so that its person reaches the space when they are no longer in that organization. Once the account has a password, the space takes only sessions made with it (`login`): a provider is an organization's, and whoever holds it could make a session of the account. To a session made through a provider the routes under the space's `/w/{workspaceId}` then answer 401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without what is in it, and the websocket follows nothing of it for such a session (`contracts/websocket.md`). The session stays and opens what it opened of the organizations; signing in with the password opens the space, and an organization that takes only sessions made through its provider (`sso_required`) then asks for a sign-in through that again. What is shared from the space by a public link is read without a session, and is not closed so.\n\nIt goes with its account: `getAccountDeletion` names it among `organizations` always, and while the account waits to be deleted it is closed with the account: what is shared from it by a public link answers 404 as a link that is not there, and answers again if the deletion is cancelled.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large` or `document_too_large`; `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The editors themselves speak to the server over the websocket, whose messages name the same reasons (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and `too_many_frames` come only there. The page of each kind says when it comes. `search_not_configured` comes from none of these operations: only from the reindex of the administration socket, on a server configured without a search server (a search there searches its database).\n\n## Request bodies\n\nA request schema lists the members a request is for. A member that is not required may be left out. `null` is a value only of a member whose schema allows it, and is then none; `null` for any other member is refused with 400, as a value of another type is. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings` and `patchMe` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setSharing` refuses a `token`.",
+    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. The operations under `/shared/{containerId}` need no session: they read a shared board with its `readToken`, and look at no session that comes along.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401. A body larger than its route reads is 413 with the reason `request_too_large` and the `limit` in bytes.\n\nAny request may be answered 503 with the reason `database_busy`: the database did not take one of its statements in time (another write held the file, or no connection to it was to be had). That statement did nothing and may be taken a moment later. A request of one step may be sent again as it is; of one of several (`completeUpload`, `importArchive`) what was done before stays done, and sent again it is answered as its operation says.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## The user's own space\n\nEvery account has a space of its own from the moment it is made, however it was made: an organization of the `kind` `personal` with the account as its only member and one workspace, which `getMyWorkspaces` lists with that `kind`. Its workspace is a workspace like another to the operations under `/w/{workspaceId}`: boards, wikis, files, search, the trash, export and import, and sharing by a public link (`setSharing`) work in it as anywhere. It has no name (a client calls it by the reader's language) and takes none.\n\nWhat it has not is other people, and anybody to administer it. Its identifier is 404 for every operation under `/org/{orgId}` (the organization and its settings, its members, its workspaces, joining one as an administrator, its audit log, its provider of sign-ins), for its owner as for anybody else, and no answer of those operations names it. Under its workspace these are 404, as for a workspace that is not there: `createInvitation`, `getInvitations`, `revokeInvitation`, `emailInvitation`, `setGuestInvitations`, `setWorkspaceRole`, `removeWorkspaceMember`, the operations on teams (`/w/{workspaceId}/teams` and what is under it) and on the teams of a board or a wiki (`/w/{workspaceId}/containers/{containerId}/teams`). It has no login page (`getLoginOptions`) and no sign-in through a provider starts for it. Nothing in it is moved to or from another organization but by export and import, and no reference reaches into it from outside or out of it. What changes in it is told to nobody else: the server's operator is posted no block of it (`block_change_webhooks`), and it is in no audit log anybody but its owner reads.\n\nAn account that was made by a sign-in through an organization's provider has no password (`hasPassword` of `getMe`), and until it has one its space is reached by any session of the account. It is given one by `setPassword`, so that its person reaches the space when they are no longer in that organization. Once the account has a password, the space takes only sessions that have shown it: one made with it (`login`), and one made through a provider that gave it since (`confirmPassword`). A provider is an organization's, and whoever holds it could make a session of the account. To a session made through a provider that has not given the password, the routes under the space's `/w/{workspaceId}` then answer 401 with the reason `password_sign_in_required`, `getMyWorkspaces` lists the space with `passwordRequired` true, `getMyMemberships` leaves its boards out, `getAccountDeletion` names it without what is in it, and the websocket follows nothing of it for such a session (`contracts/websocket.md`). The session stays and opens what it opened of the organizations.\n\nThere are two ways in from there. `confirmPassword` keeps the session: it gives the password once, and from then until it ends the session opens the space beside what it opened before, so that somebody whose organization takes only sessions made through its provider (`sso_required`) goes between that organization and the space without signing in again. Signing in with the password (`login`) opens the space too, in a new session, which such an organization then asks to sign in through its provider again. What a session confirmed opens the account's own space and nothing else: not what is another account's, and nothing of an organization that takes only sessions made through a provider other than the session's own. It goes with the session: a change of the password (`changePassword`, a reset, the operator's) ends the account's other sessions, as it always did, and what they confirmed with them. What is shared from the space by a public link is read without a session, and is not closed so.\n\nIt goes with its account: `getAccountDeletion` names it among `organizations` always, and while the account waits to be deleted it is closed with the account: what is shared from it by a public link answers 404 as a link that is not there, and answers again if the deletion is cancelled.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large` or `document_too_large`; `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The editors themselves speak to the server over the websocket, whose messages name the same reasons (`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, `too_many_documents_joined`, `document_full`, `too_many_connections_joined` and `too_many_frames` come only there. The page of each kind says when it comes. `search_not_configured` comes from none of these operations: only from the reindex of the administration socket, on a server configured without a search server (a search there searches its database).\n\n## Request bodies\n\nA request schema lists the members a request is for. A member that is not required may be left out. `null` is a value only of a member whose schema allows it, and is then none; `null` for any other member is refused with 400, as a value of another type is. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings` and `patchMe` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setSharing` refuses a `token`.",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -5805,6 +5925,64 @@
         "summary": "What a client must know about the server",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/api/v1/email-change/confirm": {
+      "post": {
+        "description": "Consumes the token of the link mailed by `requestEmailChange`, within a day of\nthe mail and seven days of the request: the address the link was mailed to becomes\nthe account's. No session is needed and none is made: the link shows that its\nholder reads the new address, and the password was given when the change was\nasked for. From then on reset links go to the new address and `login` finds the\naccount by it; the reset links mailed to the address before end, and that address\nis mailed a notice that it is the account's no more, which names the account and\nnothing of the new address. The account's sessions go on.\n\nA link is used once. A token that is missing, used, ended, replaced by a newer\nmail or request, or taken back (`cancelEmailChange`), one of an account that is no\nlonger in use or whose password was set anew since, and one whose address somebody\nelse took meanwhile are all answered 400 naming `token` in `errors`, and change\nnothing: which of them it was is not said. Requests are counted by where they come\nfrom, as registrations are, and too many are 429.",
+        "operationId": "confirmEmailChange",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmEmailChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The address is the account's."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests from where this one comes from.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Confirm the new email address of an account",
+        "tags": [
+          "auth"
         ]
       }
     },
@@ -8002,7 +8180,7 @@
     },
     "/api/v1/users/me": {
       "get": {
-        "description": "The user as anybody who sees them is answered them, and what only they are told of\ntheir account: whether it has a password (`hasPassword`). An account made by a\nsign-in through an organization's provider has none, and is reached through that\nprovider only, its own space too, until its person sets one (`setPassword`).",
+        "description": "The user as anybody who sees them is answered them, and what only they are told of\ntheir account: its email address (`email`), the one it waits to have confirmed\n(`pendingEmail`, see `requestEmailChange`), and whether it has a password\n(`hasPassword`). An account made by a sign-in through an organization's provider\nhas none, and is reached through that provider only, its own space too, until its\nperson sets one (`setPassword`).",
         "operationId": "getMe",
         "responses": {
           "200": {
@@ -8279,6 +8457,119 @@
         ]
       }
     },
+    "/api/v1/users/me/email-change": {
+      "delete": {
+        "description": "Ends what the account of the session waits for (`pendingEmail` of `getMe`): the\nlink that was mailed confirms nothing any more, and the account keeps the address\nit has. No password is asked for: nothing changes of the account. 204 also when it\nwaited for nothing.",
+        "operationId": "cancelEmailChange",
+        "responses": {
+          "204": {
+            "description": "The account waits for no address."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Take back a change of the email address",
+        "tags": [
+          "users"
+        ]
+      },
+      "post": {
+        "description": "Asks for the address of the account of the session to become `email`. The\naccount's `password` is asked for in this request, whatever the session is and\nwhatever it has shown before: a session alone does not move the address that\npassword resets are mailed to. An account that has no password (`hasPassword` of\n`getMe`) is 409 with the reason `password_not_set`, and sets one first\n(`setPassword`). The account of a session that waits to be deleted changes nothing\n(401, `account_deletion_pending`).\n\n**On a server that sends mail** (`mailEnabled` of `getClientConfig`) the address\ndoes not change yet. The account waits for the new one to be confirmed: `getMe`\nanswers it as `pendingEmail`, and a link is mailed to it\n(`<server_url>/confirm-email#<token>`, for 24 hours, used once) that\n`confirmEmailChange` takes. Until then the account's address is the one it had:\nreset links go there, and `login` finds the account by it. An account waits for\none address: a new request replaces the one before, whose link confirms nothing\nany more, and so does a change or a reset of the password. What is not confirmed\nends after seven days.\n\nThe answer is 204 whether or not another account or a registration has the\naddress: lookup and mail run once the answer is handed off, nothing is mailed for\nan address somebody has, and nothing holds the address until it is confirmed. An\naccount, and an address, are mailed at most `mail_reset_per_account_hour` such\nlinks an hour; more requests are answered the same and mail nothing.\n\n**On a server that sends no mail** there is nothing to confirm an address with, as\nat registration: the address changes with this request, and the answer is 409 with\nthe reason `email_taken` if another account or a registration has it, in any\nletter case. The account's reset links end.\n\nAn address is told apart from another as at registration: by its letters in any\ncase. What is no address, or is the account's already, is 400 naming `email`. A\nwrong password is 400 (not 401: the session is good) with the reason\n`invalid_credentials`, naming `password`, counted with the failed logins to the\naccount by its name; too many are 429, also for a login. Requests are also limited\nby where they come from, with the requests for a reset link (429). A password that\nwas changed while this request was under way is 409.",
+        "operationId": "requestEmailChange",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestEmailChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The account waits for the address to be confirmed, or, on a server that sends no mail, has it."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The password was wrong too often, or too many requests came from where this one comes from.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Change the email address of the account",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/email-change/resend": {
+      "post": {
+        "description": "Mails a new link to the address the account of the session waits for\n(`pendingEmail` of `getMe`); the link of the mail before confirms nothing once\nthe new one is written. No password is asked for: the address is the one the\npassword was given for. Answers 204 whatever became of the message, as\n`requestEmailChange` does, within the same hourly limits. 404 for an account that\nwaits for no address, and on a server that sends no mail. Requests are limited by\nwhere they come from, with the requests for a reset link (429).",
+        "operationId": "resendEmailChange",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendEmailChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "If nobody has the address, it will receive a new link."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Mail the link of a change of the email address again",
+        "tags": [
+          "users"
+        ]
+      }
+    },
     "/api/v1/users/me/identities": {
       "delete": {
         "description": "Removes the identity of `issuer` and `subject` from the account of the session: the\nproviders of that issuer no longer sign in to it. Asks for the account's password,\nas `changePassword` does: a wrong one is 400 with the reason `invalid_credentials`,\nnaming `/password`, and too many are 429. An identity that is not the account's is\n404. An account without a password keeps its last identity, which is all that lets\nits owner in: 409 with the reason `last_sign_in`; and has no password to confirm\nremoving another with: 409 with the reason `password_not_set`. The account's\nsessions made through a provider of that issuer end, and their connections close:\nthis session too when it was one (`madeThisSession` of the identity).",
@@ -8465,7 +8756,7 @@
         ]
       },
       "put": {
-        "description": "Gives the account of the session its first password: for an account that has none\n(`hasPassword` of `getMe`), which was made by a sign-in through an organization's\nprovider. No password is asked for, as there is none: what vouches is a session\nmade through a provider in the last five minutes. Any other session is 403 with\nthe reason `sign_in_again`: the account signs in through the provider again\n(`startOidcLogin`) and sends the request from the session that comes of it.\nFrom then on the account signs in with it (`login`) by its user name, and reaches\nits own space so, also once it is no longer in the organization whose provider made\nit; an organization that takes only sessions made through its provider goes on\nasking for those (`sso_required`). The account's other sessions end, and this one\ngoes on under a new cookie, as after `changePassword`.\n\nFrom then on the account's own space takes only sessions made with the password\n(`password_sign_in_required`, see \"The user's own space\"): this session, which was\nmade through a provider, opens it no more, and the account's websocket\nconnections are closed, to come back to what the session opens.\n\nOnce only: an account that has a password is 409, and changes it with\n`changePassword`. The password must have at least 8 characters and at most 1024\nbytes; otherwise the request is 400 and `errors` names `password`.",
+        "description": "Gives the account of the session its first password: for an account that has none\n(`hasPassword` of `getMe`), which was made by a sign-in through an organization's\nprovider. No password is asked for, as there is none: what vouches is a session\nmade through a provider in the last five minutes. Any other session is 403 with\nthe reason `sign_in_again`: the account signs in through the provider again\n(`startOidcLogin`) and sends the request from the session that comes of it.\nFrom then on the account signs in with it (`login`) by its user name, and reaches\nits own space so, also once it is no longer in the organization whose provider made\nit; an organization that takes only sessions made through its provider goes on\nasking for those (`sso_required`). The account's other sessions end, and this one\ngoes on under a new cookie, as after `changePassword`.\n\nFrom then on the account's own space takes only sessions that have shown the\npassword (`password_sign_in_required`, see \"The user's own space\"): this session,\nwhich was made through a provider and set the password without being asked for\none, opens it no more until it gives the password (`confirmPassword`). Its\nwebsocket connections stay open and hear no more of the space; those of the\naccount's other sessions are closed.\n\nOnce only: an account that has a password is 409, and changes it with\n`changePassword`. The password must have at least 8 characters and at most 1024\nbytes; otherwise the request is 400 and `errors` names `password`.",
         "operationId": "setPassword",
         "requestBody": {
           "content": {
@@ -8521,6 +8812,69 @@
           }
         },
         "summary": "Set the first password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/users/me/password/confirm": {
+      "post": {
+        "description": "Takes the session as one that has shown the account's password: for a session made\nthrough an organization's provider, to which the account's own space is closed once\nthe account has a password (`password_sign_in_required`, see \"The user's own\nspace\"). From then until the session ends it opens the space as a session made\nwith the password does, `getMyWorkspaces` lists the space with `passwordRequired`\nfalse, and it goes on opening what it opened of the organizations: nothing else\nchanges of what it opens, and an organization that takes only sessions made\nthrough another provider stays closed to it (`sso_required`). A session made with\nthe password is answered the same and opens what it opened.\n\nThe session goes on under a new cookie, as after `changePassword`: it opens more\nthan it did, and the value that opened less is no longer accepted. Its websocket\nconnections stay open, and are the confirmed session's from then on: what the\nspace refused them is asked again on the same connection.\n\nA wrong password is 400 (not 401: the session is good) with the reason\n`invalid_credentials`, and `errors` names `password`. Wrong ones are counted with\nthe failed logins to the account by its name, and too many are 429, also for a\nlogin: the limits are those of `login`. An account that has no password\n(`hasPassword` of `getMe`) is 409: its space takes any session, and there is\nnothing to confirm. A password that was changed while this request was under way\nis 409 too.",
+        "operationId": "confirmPassword",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The session has shown the password.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "The session cookie, with its new value.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The password was wrong too often, or the server has too much password work to do at the moment.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Confirm the password in this session",
         "tags": [
           "auth"
         ]
@@ -8600,7 +8954,7 @@
     },
     "/api/v1/users/me/workspaces": {
       "get": {
-        "description": "The workspaces the user of the session is a member of, in every organization, with\nwhat the user is in each. By organization, the oldest first, and in each the oldest\nworkspace first; the one workspace of the user's own space (`kind` `personal`, see\n\"The user's own space\") comes last, whenever it was made, and a client puts it where\nit shows it. Every account has one, so the list is never empty. A workspace of an\norganization that takes only sessions made\nthrough its provider is listed for any session, with `ssoRequired` true for one that\nwas not made so: what is under it answers 401 with the reason `sso_required` until\nthe user signs in through the provider of `orgId`. The user's own space asks for no\nprovider: its `ssoRequired` is false. Once its account has a password it takes only\nsessions made with that, and is listed with `passwordRequired` true for a session\nmade through a provider: what is under it answers 401 with the reason\n`password_sign_in_required` until the user signs in with the password (`login`).",
+        "description": "The workspaces the user of the session is a member of, in every organization, with\nwhat the user is in each. By organization, the oldest first, and in each the oldest\nworkspace first; the one workspace of the user's own space (`kind` `personal`, see\n\"The user's own space\") comes last, whenever it was made, and a client puts it where\nit shows it. Every account has one, so the list is never empty. A workspace of an\norganization that takes only sessions made\nthrough its provider is listed for any session, with `ssoRequired` true for one that\nwas not made so: what is under it answers 401 with the reason `sso_required` until\nthe user signs in through the provider of `orgId`. The user's own space asks for no\nprovider: its `ssoRequired` is false. Once its account has a password it takes only\nsessions that have shown that, and is listed with `passwordRequired` true for a\nsession made through a provider that has not: what is under it answers 401 with the\nreason `password_sign_in_required` until the session gives the password\n(`confirmPassword`), or the user signs in with it (`login`).",
         "operationId": "getMyWorkspaces",
         "responses": {
           "200": {
@@ -10316,6 +10670,56 @@
           }
         },
         "summary": "The versions kept of a card's body",
+        "tags": [
+          "cards"
+        ]
+      },
+      "post": {
+        "description": "Keeps the body the card has as a version, by hand (`cause` `manual`), as an editor\nasks for one: what those who edit the card together typed is written to it first, so\nthat the version is their body of that moment, and what they see and type goes on as\nit was. The version names who wrote the body since the one before, as every version\ndoes, and is as of now; the caller is not named for asking. It counts with the\nothers against the versions kept, the oldest going. After it, the next version the\nserver keeps on its own is of what is typed after it.\n\nNothing is kept (`outcome` `unchanged`, `version` the newest) of a body that is the\ncard's newest version already, nor (`outcome` `recent`, `version` that one) within\na minute of a version kept by hand, the server then keeping what was typed since on\nits own. For editors of the card's board, as `restoreCardBodyVersion` is (403 for\nits other members); to a user who is no member of it there is no such card, and a\ncard in the trash is not there (404). 503 (`document_unavailable`) if what was typed\ncannot be written to the card now.",
+        "operationId": "keepCardBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptBodyVersion"
+                }
+              }
+            },
+            "description": "What became of the body."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Keep a card's body as a version now",
         "tags": [
           "cards"
         ]
@@ -15824,6 +16228,65 @@
           }
         },
         "summary": "The versions kept of a page's body",
+        "tags": [
+          "wikis"
+        ]
+      },
+      "post": {
+        "description": "As `keepCardBodyVersion` keeps a card's: the body the page has, with what those who\nedit it together typed, by hand; nothing of a body that is its newest version\nalready (`unchanged`), nor within a minute of a version kept by hand (`recent`). For\neditors of the wiki (403 for its other members). A page in the trash is not there\n(404).",
+        "operationId": "keepPageBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptBodyVersion"
+                }
+              }
+            },
+            "description": "What became of the body."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Keep a page's body as a version now",
         "tags": [
           "wikis"
         ]
