@@ -94,6 +94,7 @@ async fn leaving_a_team_puts_its_reader_out_of_the_room_at_once() {
     let th = seldom().start().await.init_basic().await;
     let (table, team_id, mut member) = in_a_room_through_a_team(&th, "editor").await;
     let user = th.client2.me().await.id;
+    assert_eq!(in_the_room(&th, &table).await, 1);
     th.client
         .delete(&team_path(&team_id, &format!("/members/{user}")))
         .await
@@ -118,6 +119,7 @@ async fn a_team_role_lowered_then_taken_off_the_board_reaches_the_room_at_once()
         json!("document_read_only")
     );
 
+    assert_eq!(in_the_room(&th, &table).await, 1);
     th.client
         .delete(&assignment(&table, &team_id))
         .await
@@ -131,6 +133,7 @@ async fn a_team_role_lowered_then_taken_off_the_board_reaches_the_room_at_once()
 async fn deleting_a_team_puts_its_readers_out_of_the_room_at_once() {
     let th = seldom().start().await.init_basic().await;
     let (table, team_id, mut member) = in_a_room_through_a_team(&th, "commenter").await;
+    assert_eq!(in_the_room(&th, &table).await, 1);
     th.client
         .delete(&team_path(&team_id, ""))
         .await

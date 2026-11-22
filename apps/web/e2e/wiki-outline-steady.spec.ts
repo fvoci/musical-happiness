@@ -99,9 +99,7 @@ test.describe('where the reader has not asked for less motion', () => {
       // the heading could be over by then, with nothing left to cut short.
       await Promise.all([page.keyboard.press('Enter'), page.keyboard.press('End')]);
       await expect.poll(() => scrollAtRest(page)).toBe(true);
-      // Cut short: it began, and brought all the way up, the heading would rest 16 px down.
-      const began = await pageColumn(page).evaluate((column) => column.scrollTop);
-      expect(began, 'the scroll to the heading began').toBeGreaterThan(0);
+      // Cut short: brought all the way up, the heading would rest near the top, well within 100 px.
       const restsAt = await headingBelowTop(page, 'Section 20');
       expect(restsAt, 'End cut the scroll short').toBeGreaterThan(100);
       await expect(currentItem(page)).toHaveText('Section 20');

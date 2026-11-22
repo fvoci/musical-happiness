@@ -54,9 +54,10 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
     one.write_acked("typed").await;
     two.settle().await;
 
+    let collab = th.app.collab();
+    assert_eq!(collab.room_members(&th.app, &card_id).await, 2);
     th.client.delete(&place).await.check_no_content();
     // Out of the room as soon as the trashing has answered.
-    let collab = th.app.collab();
     assert_eq!(collab.room_members(&th.app, &card_id).await, 0);
     for peer in [&mut one, &mut two] {
         let left = peer.text("DOC_LEFT").await;
@@ -82,6 +83,7 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
 
     // In the trash again: its room empties as the operation answers, and then for
     // good, which finds the room gone already.
+    assert_eq!(collab.room_members(&th.app, &card_id).await, 2);
     th.client.delete(&place).await.check_no_content();
     assert_eq!(collab.room_members(&th.app, &card_id).await, 0);
     for peer in [&mut one, &mut two] {

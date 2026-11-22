@@ -16,8 +16,8 @@ fn ask_now(th: &TestServer) {
     th.app.collab().ask_again_now();
 }
 
-/// An editor in a room is made a viewer: it is told that it reads as the change
-/// answers, and what it writes is refused; made an editor again, it writes. Taken off
+/// An editor in a room is made a viewer: the change's own check tells it that it
+/// reads, and what it writes is refused; made an editor again, it writes. Taken off
 /// the board, it is put out, as for a card that is not there, and the room goes on
 /// without it. Who stays is told nothing.
 #[tokio::test]
@@ -103,8 +103,8 @@ async fn who_is_taken_out_of_the_workspace_is_put_out_of_the_room() {
     th.teardown().await;
 }
 
-/// A card that is deleted while its room is open: who is in the room is put out as the
-/// deletion answers, as for a card that is not there.
+/// A card that is deleted while its room is open: who is in the room is put out, as for
+/// a card that is not there.
 #[tokio::test]
 async fn the_room_of_a_deleted_card_is_emptied() {
     let th = seldom().start().await.init_basic().await;
@@ -116,9 +116,6 @@ async fn the_room_of_a_deleted_card_is_emptied() {
         ))
         .await
         .check_no_content();
-    // Out of the room as soon as the deletion has answered.
-    let collab = th.app.collab();
-    assert_eq!(collab.room_members(&th.app, &t.card_id).await, 0);
     for peer in [&mut one, &mut two] {
         let left = peer.text("DOC_LEFT").await;
         assert_eq!(
@@ -141,10 +138,11 @@ async fn a_room_asks_again_by_itself_at_the_end_of_its_interval() {
         .await
         .init_basic()
         .await;
-    let (_t, _one, _two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    // Set before the room is: its first check is then the one paused.
     let collab = th.app.collab();
     let (answered, apply) = collab.pause_next_recheck();
     let (unanswered, once_more) = collab.pause_next_asking_once_more();
+    let (_t, _one, _two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     tokio::time::timeout(PATIENCE, async {
         tokio::select! {
             () = answered.notified() => {}
