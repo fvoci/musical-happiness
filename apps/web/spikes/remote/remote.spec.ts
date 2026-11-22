@@ -10,7 +10,10 @@ import { expect, test } from '@playwright/test';
 
 import type { RemoteSpike } from './api.ts';
 
-/** The page's handle: `window.spike`, whose type the collaboration spike declares. */
+/**
+ * The page's handle: `window.spike`, of the type `./api.ts` declares. No global says so,
+ * as the collaboration spike's `Window.spike` is of another.
+ */
 type Handled = { spike: RemoteSpike };
 
 /** The letters measured, and those sent before them that are not. */
