@@ -126,6 +126,17 @@ pub(crate) async fn own_workspace(test: &TestStore, user_id: &str) -> String {
     workspace_id.clone()
 }
 
+/// A handle that reaches the account's own space, and the workspace of the space.
+pub(crate) async fn in_own_space(test: &TestStore, user_id: &str) -> (Store, String) {
+    let query = format!("SELECT CAST(id AS TEXT) FROM organizations WHERE owner_id = '{user_id}'");
+    let found = test.system().texts_unchecked(&query).await;
+    let [org_id] = &found.expect("read")[..] else {
+        panic!("one space of {user_id}");
+    };
+    let store = test.store.for_org(org_id).expect("an identifier");
+    (store, own_workspace(test, user_id).await)
+}
+
 /// What an account's own space is made of, as [`own_space_shape`] reads it: one
 /// organization of the kind without a name, in use; its one workspace, the default
 /// one, without a name and inviting no guests; and the account alone in both, their

@@ -320,6 +320,7 @@ impl Store {
         self.transaction(async |scope| {
             // Before the board's: with a joining that ends (`joinings::give_back_roles`).
             org_admin::lock_organization(scope).await?;
+            crate::diaries::hold_place_of_deleted(scope, container_id).await?;
             undelete_container(scope, container_id, user_id).await
         })
         .await

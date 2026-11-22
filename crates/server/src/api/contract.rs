@@ -31,6 +31,7 @@ pub(crate) mod tag {
     pub(crate) const WORKSPACES: &str = "workspaces";
     pub(crate) const CONTAINERS: &str = "boards";
     pub(crate) const WIKIS: &str = "wikis";
+    pub(crate) const DIARIES: &str = "diaries";
     pub(crate) const MEMBERS: &str = "members";
     pub(crate) const SHARING: &str = "sharing";
     pub(crate) const BLOCKS: &str = "blocks";
@@ -45,7 +46,7 @@ pub(crate) mod tag {
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 17] = [
+const TAGS: [(&str, &str); 18] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -68,6 +69,25 @@ const TAGS: [(&str, &str); 17] = [
         "Wikis and their pages. A wiki is a board of the kind `wiki`: who is on it, its \
          sharing, its files, its place in the sidebar and in the trash are asked as a \
          board's are, under `/containers/{containerId}` with the wiki's identifier.",
+    ),
+    (
+        tag::DIARIES,
+        "Diaries and their entries, in the workspace of a user's own space and nowhere \
+         else. A diary is a board of the kind `diary` that holds one entry a day and \
+         nothing else; its owner alone reads it. What it shares with a board is asked \
+         under `/containers/{containerId}` with the diary's identifier: the diary itself \
+         (`getContainer`), its title, description and icon (`patchContainer`), the trash \
+         (`deleteContainer`, `undeleteContainer`, `getDeletedContainers`), its files and \
+         their versions and leases, its place in the sidebar, and its archive \
+         (`exportContainer`; the archive of the workspace holds its diaries, and an \
+         archive that is imported makes each diary anew, in the user's own space only). \
+         Its entries are found by `searchWorkspaceContent`, by their writer. What is about \
+         the people of a board answers 404 for a diary, as for an identifier of nothing: \
+         its members, joining and leaving it, its teams, its link (`/sharing`, \
+         `/shared/{containerId}`), invitations to it, and `duplicateContainer`. So do the \
+         operations under `/boards/{boardId}` and `/wikis/{wikiId}`: a diary has no \
+         blocks but its entries, no cards, no views, no pages, no comments and no \
+         templates; and no reference names an entry.",
     ),
     (tag::MEMBERS, "Who is on a board, and with which role."),
     (tag::SHARING, "Sharing a board with whoever has its link."),
@@ -449,6 +469,14 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("PageMove", Members::Only(&[])),
     ("PageDuplicate", Members::Only(&[])),
     ("DeletedPage", Members::All),
+    ("DiaryEntry", Members::All),
+    ("DiaryDay", Members::AllBut(&["mood"])),
+    ("DiaryRun", Members::All),
+    ("DeletedDiaryEntry", Members::AllBut(&["mood"])),
+    ("Mood", Members::AsWritten),
+    ("NewDiary", Members::Only(&[])),
+    ("NewDiaryEntry", Members::Only(&["date"])),
+    ("DiaryEntryPatch", Members::Only(&[])),
     ("NewCard", Members::AsWritten),
     ("NewCategory", Members::AsWritten),
     ("NewFileVersion", Members::AsWritten),

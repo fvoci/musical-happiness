@@ -47,6 +47,7 @@ import { Heartbeat, Patience, PING, PONG } from './live-heartbeat.ts';
 import { LivePresence } from './live-presence.ts';
 import { LiveRooms } from './live-rooms.ts';
 import { pageOfBlock } from './wikis.ts';
+import { entryOfBlock } from './diaries.ts';
 
 type Members = Extract<Change, { kind: 'members' }>['members'];
 type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
@@ -393,6 +394,15 @@ export class LiveChanges {
         this.#tellContainer(
           block.containerId,
           { kind: 'pages', containerId: block.containerId, pages },
+          false,
+        );
+        return;
+      }
+      if (block.type === 'entry') {
+        const entries = [entryOfBlock(block)];
+        this.#tellContainer(
+          block.containerId,
+          { kind: 'entries', containerId: block.containerId, entries },
           false,
         );
         return;

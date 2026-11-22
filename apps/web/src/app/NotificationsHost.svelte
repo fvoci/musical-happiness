@@ -71,8 +71,8 @@
 
   function placeOf({ subject }: Notification): Place | undefined {
     if (!subject) return undefined;
-    const { blockKind: kind, blockId: id, containerId, workspaceId } = subject;
-    return { kind, id, containerId, workspaceId };
+    const { blockKind: kind, blockId: id, containerId, workspaceId, title } = subject;
+    return { kind, id, containerId, workspaceId, title };
   }
 
   function hrefOf(notification: Notification): string {

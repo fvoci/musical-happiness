@@ -17,6 +17,7 @@
   import { onDestroy } from 'svelte';
 
   import BuildingIcon from '@lucide/svelte/icons/building-2';
+  import NotebookPenIcon from '@lucide/svelte/icons/notebook-pen';
   import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import SearchIcon from '@lucide/svelte/icons/search';
@@ -33,6 +34,7 @@
   import {
     administers,
     containerTrash,
+    firstDiary,
     isGuest,
     isOwnSpace,
     peopleOf,
@@ -127,8 +129,25 @@
   const canDeleteOpenContainer = $derived(
     (workspace.board?.boardId === containerId && workspace.board?.canEdit === true) ||
       (shownWiki(workspace).current?.wikiId === containerId &&
-        shownWiki(workspace).current?.canManage === true),
+        shownWiki(workspace).current?.canManage === true) ||
+      // A diary is the reader's alone.
+      workspace.containers.some((one) => one.id === containerId && one.kind === 'diary'),
   );
+
+  /**
+   * The way into a diary where the reader's own space has none yet: the
+   * first one is made as it is pressed, nothing asked, and opened on today.
+   */
+  const firstDiaryOffered = $derived(
+    ownSpace &&
+      workspace.backend.diary !== undefined &&
+      !workspace.containers.some((one) => one.kind === 'diary'),
+  );
+
+  async function openFirstDiary(): Promise<void> {
+    const made = await whileHere(workspace, () => firstDiary(workspace));
+    if (made) onOpenContainer(made);
+  }
 
   // ------------------------------------------------- names of categories
 
@@ -163,7 +182,10 @@
     { kind: 'container'; container: Container } | { kind: 'category'; category: Category };
   let asked = $state.raw<Asked | undefined>(undefined);
   let askOpen = $state(false);
-  const askedWiki = $derived(asked?.kind === 'container' && asked.container.kind === 'wiki');
+  /** The kind of the board, wiki or diary asked about. */
+  const askedKind = $derived(
+    asked?.kind === 'container' ? (asked.container.kind ?? 'board') : undefined,
+  );
 
   const titleOf = shownTitle;
 
@@ -299,6 +321,17 @@
   <!-- A guest is on the boards they were invited to: they make none, and bring none back.
        Nor does anybody where no workspace is shown, as in one closed to this session. -->
   {#if workspace.info && !isGuest(workspace)}
+    {#if firstDiaryOffered}
+      <button
+        type="button"
+        data-testid="open-diary"
+        class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent roomy:min-h-touch"
+        onclick={() => void openFirstDiary()}
+      >
+        <NotebookPenIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
+        <span class="min-w-0 flex-1 truncate">{m.shell_open_diary()}</span>
+      </button>
+    {/if}
     <button
       type="button"
       data-testid="add-board"
@@ -392,15 +425,19 @@
   bind:open={askOpen}
   title={asked?.kind === 'category'
     ? m['SidebarCategories.CategoryMenu.DeleteModal.Title']()
-    : askedWiki
+    : askedKind === 'wiki'
       ? m.shell_delete_wiki_title()
-      : m['DeleteBoardDialog.confirm-tite']()}
+      : askedKind === 'diary'
+        ? m.shell_delete_diary_title()
+        : m['DeleteBoardDialog.confirm-tite']()}
   description={asked?.kind === 'category'
     ? m['SidebarCategories.CategoryMenu.DeleteModal.Body']({ categoryName: asked.category.name })
     : asked?.kind === 'container'
-      ? askedWiki
+      ? askedKind === 'wiki'
         ? m.shell_delete_wiki_info({ title: titleOf(asked.container) })
-        : m['DeleteBoardDialog.confirm-info']({ boardTitle: titleOf(asked.container) })
+        : askedKind === 'diary'
+          ? m.shell_delete_diary_info({ title: titleOf(asked.container) })
+          : m['DeleteBoardDialog.confirm-info']({ boardTitle: titleOf(asked.container) })
       : undefined}
   confirmLabel={asked?.kind === 'category'
     ? m.shared_delete()

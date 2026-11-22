@@ -78,15 +78,18 @@ export async function startOrganization(
 }
 
 /**
- * The boards and the wikis of a workspace the reader can see, the two lists
- * of the sidebar together (a wiki is a board of the kind `wiki`).
+ * The boards, the wikis and the diaries of a workspace the reader can see,
+ * the lists of the sidebar together (each is a board of its `kind`). Only the
+ * reader's own space has diaries: they are not asked for of another, which
+ * the server answers as one that is not there.
  */
-export async function modulesOf(backend: Backend, workspaceId: string): Promise<Container[]> {
-  const [boards, wikis] = await Promise.all([
-    backend.boards(workspaceId),
-    backend.wiki?.wikis(workspaceId) ?? [],
+export async function modulesOf(backend: Backend, workspace: WorkspaceInfo): Promise<Container[]> {
+  const [boards, wikis, diaries] = await Promise.all([
+    backend.boards(workspace.id),
+    backend.wiki?.wikis(workspace.id) ?? [],
+    (isOwnSpace(workspace) && backend.diary?.diaries(workspace.id)) || [],
   ]);
-  return [...boards, ...wikis];
+  return [...boards, ...wikis, ...diaries];
 }
 
 /** The templates a board can be made from; none (told) when they cannot be read. */
@@ -111,13 +114,13 @@ export async function templatesOf(workspace: {
  */
 export async function readWorkspace(
   backend: Backend,
-  workspaceId: string,
+  workspace: WorkspaceInfo,
 ): Promise<{ users: User[]; containers: Container[]; categories: Category[] } | undefined> {
   try {
     const [users, containers, categories] = await Promise.all([
-      backend.users(workspaceId),
-      modulesOf(backend, workspaceId),
-      backend.categories(workspaceId),
+      backend.users(workspace.id),
+      modulesOf(backend, workspace),
+      backend.categories(workspace.id),
     ]);
     return { users, containers, categories };
   } catch (error) {
@@ -156,7 +159,7 @@ export async function enterWorkspace(backend: Backend, workspace: WorkspaceInfo)
   if (workspace.passwordRequired) return { ...none, status: 'password', closed: workspace };
   backend.enter?.(workspace.id);
   try {
-    const read = await readWorkspace(backend, workspace.id);
+    const read = await readWorkspace(backend, workspace);
     return read
       ? // Each entry its own: what was asked on an earlier visit is not taken for this one's.
         { status: 'ready', info: { ...workspace }, closed: undefined, ...read }

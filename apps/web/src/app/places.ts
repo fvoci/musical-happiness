@@ -12,18 +12,23 @@ import type { Route, Router } from './router.svelte.ts';
  */
 export const ANY_VIEW = '-';
 
-/** A card or a page, and where it is. */
+/** A card, a page or a diary entry, and where it is. */
 export interface Place {
-  kind: 'card' | 'page';
+  kind: 'card' | 'page' | 'entry';
   id: string;
-  /** The board the card is on, or the wiki the page is in. */
+  /** The board the card is on, the wiki the page is in, or the diary the entry is in. */
   containerId: string;
   workspaceId: string | undefined;
+  /** The entry's day (`YYYY-MM-DD`), for a diary entry. */
+  title?: string;
 }
 
-/** The route of a card (over the view shown where its board is shown, else over any) or a page. */
+/** The route of a card (over the view shown where its board is shown, else over any), a page, or a diary entry. */
 export function routeOfPlace(router: Router, place: Place): Partial<Route> {
   const { workspaceId, containerId, id } = place;
+  if (place.kind === 'entry') {
+    return { workspaceId, diaryId: containerId, monthDay: (place.title ?? '').slice(5) };
+  }
   if (place.kind === 'page') return { workspaceId, wikiId: containerId, pageId: id };
   const { boardId, viewId } = router.route;
   const here = boardId === containerId && viewId !== undefined && viewId !== ANY_VIEW;
@@ -31,11 +36,11 @@ export function routeOfPlace(router: Router, place: Place): Partial<Route> {
 }
 
 /**
- * Goes to a card or a page. A card of the board shown opens over its view, in
+ * Goes to a card, a page or a diary entry. A card of the board shown opens over its view, in
  * place of a card open there; a card of another board opens over that board,
  * as a board chosen in the sidebar. A page of the wiki shown is opened as one
  * of its tree; a page of another wiki over that wiki, as a wiki chosen in
- * the sidebar.
+ * the sidebar. A diary entry opens at its day in its diary.
  */
 export function goToPlace(router: Router, place: Place): void {
   const route = routeOfPlace(router, place);
@@ -44,7 +49,7 @@ export function goToPlace(router: Router, place: Place): void {
   } else if (place.kind === 'card' && route.viewId !== ANY_VIEW) {
     router.openCard(place.id);
   } else {
-    const kind = place.kind === 'page' ? 'wiki' : 'board';
+    const kind = ({ card: 'board', page: 'wiki', entry: 'diary' } as const)[place.kind];
     router.openContainer({ id: place.containerId, workspaceId: place.workspaceId ?? '', kind });
     router.go(route, { replace: true });
   }

@@ -54,7 +54,13 @@ parameter!(WorkerWorkspaceId: Path "workspaceId", String, True, "The identifier 
 parameter!(PeopleWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest; and 404 for the workspace of the user's own space, which has no people to invite, to group, to give another role or to take out.");
 parameter!(MemberWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.");
 parameter!(BoardId: Path "boardId", String, True, "The identifier of the board.");
-parameter!(ContainerId: Path "containerId", String, True, "The identifier of the board or the wiki.");
+parameter!(ContainerId: Path "containerId", String, True, "The identifier of the board, the wiki or the diary.");
+parameter!(PeopleContainerId: Path "containerId", String, True, "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.");
+parameter!(OwnWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace of the user's own space. 404 for any other workspace, which has no diaries, as for one the user of the session is no member of.");
+parameter!(DiaryId: Path "diaryId", String, True, "The identifier of the diary: a board of the `kind` `diary`. A board of another kind is 404, as an identifier of nothing is.");
+parameter!(EntryId: Path "entryId", String, True, "The identifier of the entry: an entry of the diary of the path. 404 for an entry of another diary.");
+parameter!(MonthDayOfYear: Path "monthDay", String, True, "A month and a day without a year, as `11-21`: two digits each. `02-29` is a day of its own, which only leap years have. 400 for anything else.");
+parameter!(EntryVersionNumber: Path "version", i64, True, "The number of the version of the entry's body, as `getDiaryEntryBodyVersions` lists it.");
 parameter!(BlockId: Path "blockId", String, True, "The identifier of the block.");
 parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");
 parameter!(WikiId: Path "wikiId", String, True, "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.");
@@ -107,6 +113,8 @@ parameter!(SearchTerm: Query "q", String, False, "What to look for. Without it n
 parameter!(TitleTerm: Query "q", String, False, "The words to look for in titles, at most 200 characters. Without it, what was changed last is found.");
 parameter!(SearchField: Query "field", String, False, "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.");
 parameter!(ContentText: Query "q", String, False, "The words to find, at most 200 characters. Without it nothing is found.");
-parameter!(ContentKind: Query "kind", String, False, "The kind of thing to find: `card` or `page`. Left out, both. Anything else is 400.");
+parameter!(ContentKind: Query "kind", String, False, "The kind of thing to find: `card`, `page` or `entry`. Left out, every kind. Anything else is 400.");
+parameter!(DaysFrom: Query "from", String, True, "The first day to list, as `2026-11-01`. 400 for what is no day, and where it is left out.");
+parameter!(DaysTo: Query "to", String, True, "The last day to list, as `2026-11-30`, at most 365 days after the first. 400 for what is no day, and where it is left out.");
 parameter!(ContentLimit: Query "limit", i64, False, "How many hits to answer with at most, from 1 to 50; 20 if left out.");
 parameter!(UserSearch: Query "search", String, False, "Narrows the list to users whose name has this text in it. In the text `%` stands for any text and `_` for any one character. Whether the case of letters counts depends on the database the server runs on.");

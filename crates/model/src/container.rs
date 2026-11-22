@@ -38,7 +38,8 @@ impl ContainerType {
 }
 
 /// What a container of a workspace is for: a board holds cards and their views, a wiki
-/// holds pages. A container is of one kind from when it is made and never of another.
+/// holds pages, a diary holds the entries of its days. A container is of one kind from
+/// when it is made and never of another.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
 )]
@@ -49,17 +50,22 @@ pub enum ContainerKind {
     Board,
     /// A wiki: a tree of pages.
     Wiki,
+    /// A diary: one entry a day ([`crate::DiaryEntry`]). Only a user's own space has
+    /// any, and nobody is on one but its owner: it has no members to manage, no link
+    /// and no copy.
+    Diary,
 }
 
 impl ContainerKind {
     /// Every kind there is.
-    pub const ALL: [Self; 2] = [Self::Board, Self::Wiki];
+    pub const ALL: [Self; 3] = [Self::Board, Self::Wiki, Self::Diary];
 
     /// Returns the wire and database form.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Board => "board",
             Self::Wiki => "wiki",
+            Self::Diary => "diary",
         }
     }
 }
@@ -91,11 +97,17 @@ impl FromStr for ContainerKind {
 /// holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ContainerKinds {
-    /// Boards and no wiki.
+    /// Boards alone.
     Boards,
-    /// Wikis and no board.
+    /// Wikis alone.
     Wikis,
-    /// Boards and wikis alike.
+    /// Diaries alone.
+    Diaries,
+    /// Boards and wikis, and no diary: what people work on together, with its members,
+    /// its link and its copies. A diary has none of those.
+    BoardsAndWikis,
+    /// Every kind: what is the same for any container (the container itself, its
+    /// files, its place in the sidebar and in the trash).
     Every,
 }
 
@@ -103,12 +115,20 @@ impl ContainerKinds {
     /// Whether a container of `kind` is among them.
     #[must_use]
     pub const fn holds(self, kind: ContainerKind) -> bool {
-        match (self, kind) {
-            (Self::Every, _)
-            | (Self::Boards, ContainerKind::Board)
-            | (Self::Wikis, ContainerKind::Wiki) => true,
-            (Self::Boards, ContainerKind::Wiki) | (Self::Wikis, ContainerKind::Board) => false,
+        match self {
+            Self::Every => true,
+            Self::Boards => matches!(kind, ContainerKind::Board),
+            Self::Wikis => matches!(kind, ContainerKind::Wiki),
+            Self::Diaries => matches!(kind, ContainerKind::Diary),
+            Self::BoardsAndWikis => matches!(kind, ContainerKind::Board | ContainerKind::Wiki),
         }
+    }
+
+    /// The kinds that are among them, in the order of [`ContainerKind::ALL`].
+    pub fn iter(self) -> impl Iterator<Item = ContainerKind> {
+        ContainerKind::ALL
+            .into_iter()
+            .filter(move |kind| self.holds(*kind))
     }
 
     /// The one kind they are, if they are one.
@@ -117,17 +137,19 @@ impl ContainerKinds {
         match self {
             Self::Boards => Some(ContainerKind::Board),
             Self::Wikis => Some(ContainerKind::Wiki),
-            Self::Every => None,
+            Self::Diaries => Some(ContainerKind::Diary),
+            Self::BoardsAndWikis | Self::Every => None,
         }
     }
 }
 
-/// The kinds that are `kind` alone: what reaches a board reaches no wiki.
+/// The kinds that are `kind` alone: what reaches a board reaches nothing else.
 impl From<ContainerKind> for ContainerKinds {
     fn from(kind: ContainerKind) -> Self {
         match kind {
             ContainerKind::Board => Self::Boards,
             ContainerKind::Wiki => Self::Wikis,
+            ContainerKind::Diary => Self::Diaries,
         }
     }
 }
@@ -267,6 +289,24 @@ pub enum ContainerError {
     /// A wiki is stored with card properties.
     #[error("a wiki has no card properties: it holds pages and no cards")]
     WikiHasCardProperties,
+    /// A diary is stored as a template.
+    #[error("a diary is no template")]
+    DiaryIsTemplate,
+    /// A diary is stored with card properties.
+    #[error("a diary has no card properties: it holds entries and no cards")]
+    DiaryHasCardProperties,
+    /// A diary is stored as open: there is nobody to open it to.
+    #[error("a diary is private: its type is `P`")]
+    DiaryNotPrivate,
+    /// A diary is stored in a workspace that is not of a user's own space.
+    #[error("a diary is of a user's own space: no other workspace has one")]
+    DiaryOffOwnSpace,
+    /// The space would have more diaries than it may, those in the trash not counted.
+    #[error("the space would have more than {limit} diaries")]
+    TooManyDiaries {
+        /// The most diaries a space may have.
+        limit: u32,
+    },
 }
 
 /// A board: a set of blocks and the property definitions of its cards.
@@ -291,10 +331,12 @@ pub struct Container {
     /// Whether the board is open or private.
     #[serde(rename = "type")]
     pub container_type: ContainerType,
-    /// What the board is for: `board` for cards, `wiki` for pages. It is what the board
-    /// was made as and never changes; a board decoded without it is a `board`. A wiki
-    /// is no template and has no card properties, and the operations that are about
-    /// cards answer for a wiki as for a board that is not there.
+    /// What the board is for: `board` for cards, `wiki` for pages, `diary` for the
+    /// entries of its days. It is what the board was made as and never changes; a
+    /// board decoded without it is a `board`. A wiki and a diary are no template and
+    /// have no card properties, and the operations that are about cards answer for
+    /// them as for a board that is not there. A diary is private (`type` `P`) besides,
+    /// and is only in the workspace of a user's own space ("Diaries").
     #[serde(default)]
     pub kind: ContainerKind,
     /// The role a user gets who joins the board, or is added by somebody who does not
@@ -416,22 +458,36 @@ impl Container {
     /// Checks what every board that is stored must be, wherever it came from: its card
     /// property definitions are well-formed, none of its texts (`title`,
     /// `description`, `icon`, and the strings and member names of `properties` and
-    /// `cardProperties`) holds U+0000, and a wiki is no template and has no card
-    /// properties.
+    /// `cardProperties`) holds U+0000, a wiki and a diary are no template and have no
+    /// card properties, and a diary is private.
     ///
     /// # Errors
     ///
     /// Returns [`ContainerError::InvalidCardProperty`], [`ContainerError::NulCharacter`],
-    /// [`ContainerError::WikiIsTemplate`] or [`ContainerError::WikiHasCardProperties`].
+    /// or what the kind refuses: [`ContainerError::WikiIsTemplate`],
+    /// [`ContainerError::WikiHasCardProperties`], [`ContainerError::DiaryIsTemplate`],
+    /// [`ContainerError::DiaryHasCardProperties`] or [`ContainerError::DiaryNotPrivate`].
     pub fn check_storable(&self) -> Result<(), ContainerError> {
         self.validate_card_properties()?;
-        if self.kind == ContainerKind::Wiki {
-            if self.is_template {
-                return Err(ContainerError::WikiIsTemplate);
-            }
-            if !self.card_properties.is_empty() {
-                return Err(ContainerError::WikiHasCardProperties);
-            }
+        let (is_template, has_card_properties) = match self.kind {
+            ContainerKind::Board => (None, None),
+            ContainerKind::Wiki => (
+                Some(ContainerError::WikiIsTemplate),
+                Some(ContainerError::WikiHasCardProperties),
+            ),
+            ContainerKind::Diary => (
+                Some(ContainerError::DiaryIsTemplate),
+                Some(ContainerError::DiaryHasCardProperties),
+            ),
+        };
+        if let Some(refused) = is_template.filter(|_| self.is_template) {
+            return Err(refused);
+        }
+        if let Some(refused) = has_card_properties.filter(|_| !self.card_properties.is_empty()) {
+            return Err(refused);
+        }
+        if self.kind == ContainerKind::Diary && self.container_type != ContainerType::Private {
+            return Err(ContainerError::DiaryNotPrivate);
         }
         let texts = [
             ("title", self.title.contains('\0')),

@@ -73,6 +73,8 @@ import { MemoryBodyVersions, writtenWhole } from './body-versions.ts';
 import { pause } from './pause.ts';
 import { MemoryPresence } from './presence.ts';
 import { MemoryWikis } from './wikis.ts';
+import { MemoryDiaries } from './diaries.ts';
+import { checkDiariesComing } from './diary-places.ts';
 import { MemoryCategories, fileAsNew } from './categories.ts';
 import { checkWorkspace, confirmPassword, workersOf, workspacesOf } from './spaces.ts';
 import { copiedBlocks, copyTitle, giveCopiesFiles } from './copies.ts';
@@ -122,6 +124,7 @@ export class MemoryBackend implements Backend {
   readonly userId: string;
   readonly presence: MemoryPresence;
   readonly wiki = new MemoryWikis(this);
+  readonly diary = new MemoryDiaries(this);
   readonly bodyVersions: MemoryBodyVersions;
   readonly search: MemoryContentSearch;
   readonly references = new MemoryReferences(this, () => this.#enter('references'));
@@ -175,18 +178,19 @@ export class MemoryBackend implements Backend {
   }
 
   /** A board of the `kind`: the server answers a wiki to an operation of cards as one not there. */
-  #container(containerId: string, kind: ContainerKind | 'any' = 'any'): Container {
+  /** Of `kind` where it is asked; `shared`: a board or a wiki, which have members and links. */
+  #container(containerId: string, kind: ContainerKind | 'any' | 'shared' = 'any'): Container {
     const board = this.world.containers.get(containerId);
-    return board && (kind === 'any' || (board.kind ?? 'board') === kind)
-      ? board
-      : fail(404, 'no board');
+    const found = board?.kind ?? 'board';
+    const shared = kind === 'shared' && found !== 'diary';
+    return board && (kind === 'any' || shared || found === kind) ? board : fail(404, 'no board');
   }
 
   #block(boardId: string, blockId: string, type?: StoredBlock['type']): StoredBlock {
     const block = this.world.blocks.get(blockId);
-    if (block?.containerId !== boardId || block.type === 'page' || (type && block.type !== type)) {
-      fail(404, `no such ${type ?? 'block'}`);
-    }
+    // A page and an entry are reached by routes of their own, not a board's.
+    const own = block?.containerId === boardId && block.type !== 'page' && block.type !== 'entry';
+    if (!block || !own || (type && block.type !== type)) fail(404, `no such ${type ?? 'block'}`);
     return block;
   }
 
@@ -306,7 +310,7 @@ export class MemoryBackend implements Backend {
     const mine = [...this.world.containers.values()].filter(
       (board) =>
         board.workspaceId === workspaceId &&
-        board.kind !== 'wiki' &&
+        (board.kind ?? 'board') === 'board' &&
         this.#memberIds(board.id).includes(this.userId),
     );
     return scramble(mine).map(copy);
@@ -430,12 +434,12 @@ export class MemoryBackend implements Backend {
     ].map(copy);
   }
 
-  /** Into the workspace `to`, as the server's `toWorkspace`. */
+  /** Into `to`, as the server's `toWorkspace`; no diary, nor across spaces but by export. */
   async duplicateContainer(id: string, asTemplate: boolean, to: string): Promise<Container> {
     await this.#enterWorkspace('duplicateContainer', to);
     const source = this.#container(id);
+    if (source.kind === 'diary') fail(404, 'no board');
     if (source.kind === 'wiki' && asTemplate) fail(400, 'a wiki is no template');
-    // Nothing goes between the own space and another but by export and import.
     if (source.isBuiltin !== true && source.workspaceId !== to) fail(404, 'no board');
     return this.#copyContainer(source, asTemplate, to);
   }
@@ -545,6 +549,7 @@ export class MemoryBackend implements Backend {
     const blocks = lines
       .filter((line) => line.type === 'block')
       .map((line) => blockOfLine(line.data));
+    checkDiariesComing(this.world, this.userId, workspaceId, { containers: boards, blocks });
     for (const board of boards) {
       this.#insertContainer(
         board,
@@ -573,13 +578,13 @@ export class MemoryBackend implements Backend {
 
   async members(id: string): Promise<ContainerMember[]> {
     await this.#enter('members');
-    this.#container(id);
+    this.#container(id, 'shared');
     return scramble(this.world.members.get(id) ?? []).map(copy);
   }
 
   async addMember(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
     await this.#enter('addMember');
-    const into = this.#container(id).workspaceId;
+    const into = this.#container(id, 'shared').workspaceId;
     if (!workersOf(this.world, into).has(userId)) fail(400, 'no such user', { field: 'userId' });
     const members = this.world.members.get(id) ?? [];
     const existing = members.find((member) => member.userId === userId);
@@ -594,7 +599,7 @@ export class MemoryBackend implements Backend {
 
   async setMemberRole(id: string, userId: string, role: ContainerRole): Promise<ContainerMember> {
     await this.#enter('setMemberRole');
-    this.#container(id);
+    this.#container(id, 'shared');
     const members = this.world.members.get(id) ?? [];
     if (!members.some((member) => member.userId === userId)) fail(404, 'no such member');
     const member = memberOf(id, userId, role);
@@ -606,7 +611,7 @@ export class MemoryBackend implements Backend {
 
   async removeMember(id: string, userId: string): Promise<void> {
     await this.#enter('removeMember');
-    this.#container(id);
+    this.#container(id, 'shared');
     const members = this.world.members.get(id) ?? [];
     const next = members.filter((member) => member.userId !== userId);
     if (next.length === members.length) return;
@@ -629,13 +634,13 @@ export class MemoryBackend implements Backend {
 
   async sharing(id: string): Promise<Sharing> {
     await this.#enter('sharing');
-    this.#container(id);
+    this.#container(id, 'shared');
     return copy(this.world.sharing.get(id) ?? { enabled: false, token: '' });
   }
 
   async setSharing(id: string, change: SharingChange): Promise<Sharing> {
     await this.#enter('setSharing');
-    this.#container(id);
+    this.#container(id, 'shared');
     const before = this.world.sharing.get(id);
     const token =
       !before?.token || change.regenerate ? this.world.newId().replaceAll('-', '') : before.token;

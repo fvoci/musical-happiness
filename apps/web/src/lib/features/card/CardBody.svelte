@@ -20,7 +20,10 @@
   A wiki's page has a body of the same kind, in a room of its own: it is
   shown by this too (`of="page"`), with the wiki in place of the board and
   the page in place of the card, and says so in its own words; an empty page
-  says it is empty to whoever may only read it, also in the editor.
+  says it is empty to whoever may only read it, also in the editor. So is the
+  entry of a day of a diary (`of="entry"`), whose page may show, in place of
+  the body as it was read, an editor of its own (`waiting`: the draft of an
+  entry still being made) until the room's editor may take over (`holding`).
 
   ⌘S or Ctrl+S in the body keeps a version of it now (`keep`), and a line
   says what came of it for a while, aloud too. The browser's dialog to save
@@ -31,7 +34,7 @@
 -->
 <script lang="ts">
   import type { Editor as TiptapEditor } from '@tiptap/core';
-  import { tick, untrack } from 'svelte';
+  import { tick, untrack, type Snippet } from 'svelte';
   import { on } from 'svelte/events';
 
   import { avatarColor } from '$lib/components/avatar/avatar.ts';
@@ -45,6 +48,7 @@
 
   import {
     CARD_WORDS,
+    ENTRY_WORDS,
     FORMULA_DROPPED,
     FILE_DROPPED,
     IMAGE_DROPPED,
@@ -53,6 +57,7 @@
     lostNote,
     PAGE_WORDS,
     roomNote,
+    type BodyWords,
   } from './body-notes.ts';
   import type { KeepOutcome } from './body-versions.svelte.ts';
   import { keepCaret } from './caret-keeper.ts';
@@ -74,8 +79,14 @@
       | 'dismissLost'
       | 'uploadFile'
     >;
-    /** Whose body it is, for the words it says: a card's, or a wiki's page's. */
-    of?: 'card' | 'page';
+    /** Whose body it is, for the words it says: a card's, a wiki's page's, or a diary's entry's. */
+    of?: 'card' | 'page' | 'entry';
+    /** Shown in place of the body as it was read, until the room's editor is there. */
+    waiting?: Snippet | undefined;
+    /** The room's editor waits while this is true: `waiting` stays. */
+    holding?: boolean;
+    /** The room's editor was made (for each document). */
+    onEditor?: ((editor: TiptapEditor) => void) | undefined;
     /** What its references are drawn from and put with (`bodyReferences`); without it, none is shown. */
     references?: BodyReferences | undefined;
     /** Keeps a version of the body now (`keepVersion`); without it, the keys keep none. */
@@ -83,12 +94,24 @@
     testId?: string;
   }
 
-  let { container, card, of = 'card', testId = 'card-body', references, keep }: Props = $props();
+  let {
+    container,
+    card,
+    of = 'card',
+    testId = 'card-body',
+    references,
+    keep,
+    waiting,
+    holding = false,
+    onEditor,
+  }: Props = $props();
 
   /** How long what came of the keys is shown: long enough to read, gone before it is old news. */
   const KEPT_SHOWN = 6000;
 
-  const words = $derived(of === 'page' ? PAGE_WORDS : CARD_WORDS);
+  const words = $derived(
+    { card: CARD_WORDS, page: PAGE_WORDS, entry: ENTRY_WORDS }[of] satisfies BodyWords,
+  );
 
   const workspace = $derived(container.workspace);
   const room = $derived(card.room);
@@ -221,7 +244,13 @@
   aria-label={words.label()}
   class="flex flex-col gap-3 border-t pt-5"
   data-testid={testId}
-  data-editor={Editor && doc ? (writable ? 'ready' : 'reading') : room ? 'loading' : 'none'}
+  data-editor={Editor && doc && !holding
+    ? writable
+      ? 'ready'
+      : 'reading'
+    : room
+      ? 'loading'
+      : 'none'}
   data-room={room?.status ?? 'none'}
   data-settling={settling ? '' : undefined}
   data-pending={room?.pending ? '' : undefined}
@@ -249,7 +278,7 @@
       </Button>
     </div>
   {/if}
-  {#if Editor && doc}
+  {#if Editor && doc && !holding}
     <!-- Made anew for another document, and when one it could not draw fits again. -->
     {#key made}
       {#key doc}
@@ -281,10 +310,13 @@
           uploadFile={(file: File) => card.uploadFile(file)}
           onEditor={(editor: TiptapEditor) => {
             caret.take(editor, writable);
+            onEditor?.(editor);
           }}
         />
       {/key}
     {/key}
+  {:else if waiting}
+    {@render waiting()}
   {:else}
     <div {@attach caret.watch}>
       <BodyView doc={card.body} {resolveUser} {references} class="text-base">

@@ -27,7 +27,7 @@ export function searchBoardsOf(
     .filter(
       (board) =>
         !board.isTemplate &&
-        board.kind !== 'wiki' &&
+        (board.kind ?? 'board') === 'board' &&
         board.workspaceId === workspaceId &&
         isMember(board.id) &&
         words.every((word) => board.title.toLowerCase().includes(word)),

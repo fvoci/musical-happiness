@@ -54,7 +54,7 @@
   import ContainerIcon from './ContainerIcon.svelte';
   import BoardTitle from './BoardTitle.svelte';
   import ShareDialog from './ShareDialog.svelte';
-  import { shownTitle } from './shown-title.ts';
+  import { namedAs, shownTitle } from './shown-title.ts';
   import TrashDialog from './TrashDialog.svelte';
 
   interface Props {
@@ -207,9 +207,7 @@
       />
       <h1
         class="flex min-w-0 shrink text-base font-semibold @columns/pane:text-lg"
-        aria-label={container.kind === 'wiki'
-          ? m.shell_wiki_named({ title: shownTitle(container) })
-          : undefined}
+        aria-label={namedAs(container.kind, shownTitle(container))}
       >
         {#if store?.canEdit}
           {#key container.id}

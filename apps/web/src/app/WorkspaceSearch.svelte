@@ -27,6 +27,7 @@
   import { SearchSession } from '$lib/features/search/search-session.svelte.ts';
   import { SearchSwitch } from '$lib/features/search/search-switch.svelte.ts';
   import SearchDialog from '$lib/features/search/SearchDialog.svelte';
+  import { shownTitle } from '$lib/features/shell/shown-title.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { overlayOpen } from '$lib/layout/back.svelte.ts';
   import type { Workspace } from '$lib/state/index.ts';
@@ -145,9 +146,7 @@
 
   function containerOf(hit: SearchHit): string {
     const container = workspace.containers.find((one) => one.id === hit.containerId);
-    if (!container) return '';
-    if (container.title) return container.title;
-    return container.kind === 'wiki' ? m.wiki_untitled() : m['Sidebar.untitled-board']();
+    return container ? shownTitle(container) : '';
   }
 </script>
 

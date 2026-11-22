@@ -7,7 +7,9 @@
  * When what the reader was told changes, `watchSelf` hears `notifications`.
  */
 import type { NotificationKind } from '../logic/notify-settings.ts';
+import type { ContainerKind } from '../logic/wire.ts';
 
+import type { SearchKind } from './content-search.ts';
 import type { Paging } from './trash-reads.ts';
 
 export type { NotificationKind } from '../logic/notify-settings.ts';
@@ -24,10 +26,10 @@ export interface NotificationSubject {
   workspaceId: string;
   /** The board the card is on, or the wiki the page is in. */
   containerId: string;
-  containerKind: 'board' | 'wiki';
+  containerKind: ContainerKind;
   /** The card or the page: what the reader opens. */
   blockId: string;
-  blockKind: 'card' | 'page';
+  blockKind: SearchKind;
   /** Its title as it is now. */
   title: string;
   /** The comment the latest of it happened in, where that is still there; else empty. */

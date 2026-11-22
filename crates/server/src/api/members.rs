@@ -7,9 +7,9 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::{MemberRoles, NewMember};
-use super::contract::params::{ContainerId, MemberWorkspaceId, UserId};
+use super::contract::params::{MemberWorkspaceId, PeopleContainerId, UserId};
 use super::contract::tag;
-use super::workspace::InContainer;
+use super::workspace::InBoardOrWiki;
 
 use super::{ApiResult, json_response, no_content};
 use super::{decode_object, refusal, require_container_permission, require_granted};
@@ -82,11 +82,11 @@ fn require_holdable(
     path = "/w/{workspaceId}/containers/{containerId}/members",
     operation_id = "getMembers",
     tag = tag::MEMBERS,
-    params(MemberWorkspaceId, ContainerId),
+    params(MemberWorkspaceId, PeopleContainerId),
     responses((status = 200, description = "The members.", body = Vec<ContainerMember>)),
 )]
 async fn handle_get_members_for_container(
-    InContainer(ws): InContainer,
+    InBoardOrWiki(ws): InBoardOrWiki,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     require_container_permission(
@@ -125,12 +125,12 @@ async fn handle_get_members_for_container(
     path = "/w/{workspaceId}/containers/{containerId}/members",
     operation_id = "addMember",
     tag = tag::MEMBERS,
-    params(MemberWorkspaceId, ContainerId),
+    params(MemberWorkspaceId, PeopleContainerId),
     request_body = NewMember,
     responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
 async fn handle_add_member(
-    InContainer(ws): InContainer,
+    InBoardOrWiki(ws): InBoardOrWiki,
     Path((_, container_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -224,11 +224,11 @@ async fn handle_add_member(
     path = "/w/{workspaceId}/containers/{containerId}/join",
     operation_id = "joinContainer",
     tag = tag::MEMBERS,
-    params(MemberWorkspaceId, ContainerId),
+    params(MemberWorkspaceId, PeopleContainerId),
     responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
 async fn handle_join_container(
-    InContainer(ws): InContainer,
+    InBoardOrWiki(ws): InBoardOrWiki,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
@@ -278,11 +278,11 @@ async fn handle_join_container(
     path = "/w/{workspaceId}/containers/{containerId}/leave",
     operation_id = "leaveContainer",
     tag = tag::MEMBERS,
-    params(MemberWorkspaceId, ContainerId),
+    params(MemberWorkspaceId, PeopleContainerId),
     responses((status = 204, description = "The user is no member any more.")),
 )]
 async fn handle_leave_container(
-    InContainer(ws): InContainer,
+    InBoardOrWiki(ws): InBoardOrWiki,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = &ws.session.user_id;
@@ -316,12 +316,12 @@ async fn handle_leave_container(
     path = "/w/{workspaceId}/containers/{containerId}/members/{userId}",
     operation_id = "updateMember",
     tag = tag::MEMBERS,
-    params(MemberWorkspaceId, ContainerId, UserId),
+    params(MemberWorkspaceId, PeopleContainerId, UserId),
     request_body = MemberRoles,
     responses((status = 200, description = "The membership as it is now.", body = ContainerMember)),
 )]
 async fn handle_update_member(
-    InContainer(ws): InContainer,
+    InBoardOrWiki(ws): InBoardOrWiki,
     Path((_, container_id, member_user_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
@@ -379,11 +379,11 @@ async fn handle_update_member(
     path = "/w/{workspaceId}/containers/{containerId}/members/{userId}",
     operation_id = "removeMember",
     tag = tag::MEMBERS,
-    params(MemberWorkspaceId, ContainerId, UserId),
+    params(MemberWorkspaceId, PeopleContainerId, UserId),
     responses((status = 204, description = "The user is no member any more.")),
 )]
 async fn handle_delete_member(
-    InContainer(ws): InContainer,
+    InBoardOrWiki(ws): InBoardOrWiki,
     Path((_, container_id, member_user_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     require_container_permission(
