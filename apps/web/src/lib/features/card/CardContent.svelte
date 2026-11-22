@@ -8,8 +8,9 @@
 
   The title, icon and properties come from the board's list of cards and are
   there at once; the body, attachments and comments are read when the card is
-  opened, while the body's room and the editor are asked for. A card that is not there (the address is wrong, or somebody deleted
-  it, also while it was open) says so and can be closed.
+  opened, while the body's room and the editor are asked for. A card that is
+  not there (the address is wrong, or somebody deleted it, also while it was
+  open) says so and can be closed.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';

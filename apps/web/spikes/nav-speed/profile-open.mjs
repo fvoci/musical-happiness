@@ -61,10 +61,8 @@ try {
     const nodes = new Map(profile.nodes.map((n) => [n.id, n]));
     const byFile = new Map();
     const byFn = new Map();
-    // Samples from the click (profile time is in microseconds, from its own start).
-    let t = profile.startTime;
+    // Every sample of the profile, which starts right before the click and stops at ready.
     for (let s = 0; s < profile.samples.length; s += 1) {
-      t += profile.timeDeltas[s] ?? 0;
       const dt = (profile.timeDeltas[s + 1] ?? 0) / 1000;
       const n = nodes.get(profile.samples[s]);
       const f = n.callFrame;

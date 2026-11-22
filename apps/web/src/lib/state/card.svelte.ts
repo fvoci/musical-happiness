@@ -129,6 +129,9 @@ export class CardStore {
       this.#comments = comments;
       this.#attachments = attachments;
       this.status = 'ready';
+      // Put out while it was read, after its block was: the reading cannot say whether it is gone.
+      const room = this.#bodyDoc;
+      if (room && this.room?.reason === 'not_found') void this.#stillThere(room, false);
     } catch (error) {
       this.status = 'failed';
       this.closeBody();

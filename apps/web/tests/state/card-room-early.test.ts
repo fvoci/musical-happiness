@@ -178,6 +178,50 @@ describe('the room asked for as a card is opened', () => {
     });
   }
 
+  it('finds a card deleted after it was read, the room telling before the reading arrives', async () => {
+    const made = await openFirstBoard();
+    const cardId = realCard(made, 'Alpha');
+    const { backend } = made;
+    const [readCard, readComments, readAttachments] = [
+      backend.card.bind(backend),
+      backend.comments.bind(backend),
+      backend.attachments.bind(backend),
+    ];
+    // The card is read whole, then somebody deletes it; what was read arrives when let go.
+    const deleted = gate();
+    const arrives = gate();
+    vi.spyOn(backend, 'card').mockImplementation(async (...asked) => {
+      const detail = await readCard(...asked);
+      await deleted.passed;
+      await arrives.passed;
+      return detail;
+    });
+    vi.spyOn(backend, 'comments').mockImplementation(async (...asked) => {
+      const list = await readComments(...asked);
+      await arrives.passed;
+      return list;
+    });
+    vi.spyOn(backend, 'attachments').mockImplementation(async (...asked) => {
+      const list = await readAttachments(...asked);
+      deleted.open();
+      await arrives.passed;
+      return list;
+    });
+    const showing = made.board.showCard(cardId);
+    const card = made.board.openCard;
+    if (!card) throw new Error('no card open');
+    await deleted.passed;
+    await made.other.deleteBlock(made.board.boardId, cardId);
+    await vi.waitFor(() => {
+      expect(card.room?.reason).toBe('not_found');
+    });
+    arrives.open();
+    await showing;
+    await vi.waitFor(() => {
+      expect(card.missing).toBe(true);
+    });
+  });
+
   it('leaves the room of a card that could not be read for another reason', async () => {
     const made = await openFirstBoard();
     const { opened } = watchRooms(made);

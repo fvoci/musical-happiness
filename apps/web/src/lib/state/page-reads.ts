@@ -19,8 +19,9 @@ export function allPages<T>(read: PageReader<T>): Promise<T[]> {
  * Every item of a long list without waiting for one page before asking for
  * the next: after a full first page the next two are asked for together,
  * then the next four, twice as many each time, until a page is short. A list
- * of up to three pages is read in two round trips, whatever its length, at the
- * cost of a page or two that comes back empty. Pages are put together in
+ * of fewer than three full pages is read in two round trips (one of fewer than
+ * 2000 items in as many as before, with a page more asked for), at the cost of
+ * at most as many empty pages as the last wave asked for. Pages are put together in
  * their order; an item that moved from one page to a later one between two
  * readings (the list changed meanwhile) is kept once, where it was first
  * read (by its `id`).
