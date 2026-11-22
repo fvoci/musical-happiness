@@ -2855,7 +2855,6 @@ async fn subscriptions_to_a_deleted_block_end_and_do_not_come_back() {
         user_id, board_id, ..
     } = fixture(store).await;
     let subscriber_id = common::user(store, "subscriber").await;
-    // Written quietly, so that its writer watches none of it but what they subscribe to.
     let tree = insert_card_tree(&store.telling_nobody(), &board_id, &user_id).await;
     let card_id = id_of(&tree, "card");
     let other_card_id = id_of(&tree, "other card");
