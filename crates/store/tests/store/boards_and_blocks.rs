@@ -157,7 +157,7 @@ async fn create_containers_and_blocks() {
             &user_id,
             &workspace_id,
             PublicContainers::Include,
-            ContainerKinds::Boards,
+            ContainerKinds::BOARDS,
         )
         .await
         .expect("the query succeeds");

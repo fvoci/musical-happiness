@@ -119,8 +119,9 @@ impl App {
         let source = self.container(container_id).await?;
         let changes = changes_of_copy(&source, reader.today.as_deref());
         let kind = source.kind;
-        if kind == ContainerKind::Diary {
-            // A diary is not duplicated: to what copies a board it is none.
+        if matches!(kind, ContainerKind::Diary | ContainerKind::Course) {
+            // Diaries and courses are not duplicated whole: to what copies a board they
+            // are none.
             return Err(AppError::not_found("board"));
         }
         if kind == ContainerKind::Wiki && duplicate_as == DuplicateAs::Template {
@@ -154,7 +155,9 @@ impl App {
                 )
                 .await
                 .map_err(refused_without_member)?,
-            ContainerKind::Diary => return Err(AppError::not_found("board")),
+            ContainerKind::Diary | ContainerKind::Course => {
+                return Err(AppError::not_found("board"));
+            }
         };
 
         let stored = Stored {
@@ -311,6 +314,7 @@ pub(super) fn counted_as(kind: ContainerKind) -> Module {
         ContainerKind::Board => Module::Board,
         ContainerKind::Wiki => Module::Wiki,
         ContainerKind::Diary => Module::Diary,
+        ContainerKind::Course => Module::Course,
     }
 }
 

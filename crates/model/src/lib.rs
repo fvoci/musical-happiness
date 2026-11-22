@@ -49,6 +49,7 @@ mod settings;
 mod sharing;
 mod subscription;
 mod team;
+mod unit;
 mod upload;
 mod user;
 mod workspace;
@@ -163,6 +164,10 @@ pub use settings::{
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
 pub use team::{Team, TeamMember, TeamName, team_name, team_name_key};
+pub use unit::{
+    CHAPTERS_PER_COURSE, COURSE_DEPTH, CourseLimits, DeletedUnit, NewUnit, NotUnitBlockError,
+    UNITS_PER_COURSE, Unit, UnitKind, UnitMove, UnitNode, UnitPatch, sort_units,
+};
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{LoginOrigin, Me, Session, User, UserPreferencesPatch};
 pub use workspace::{GuestInvitationsChange, Workspace};

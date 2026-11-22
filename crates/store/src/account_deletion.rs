@@ -102,7 +102,7 @@ impl Store {
                 Some(row) => directory::org_kind(&row, 0)?,
                 None => return Err(StoreError::not_found("organization")),
             };
-            let (mut boards, mut wikis, mut diaries) = (0, 0, 0);
+            let (mut boards, mut wikis, mut diaries, mut courses) = (0, 0, 0, 0);
             let mut sql = scope.sql(
                 "SELECT c.kind, CAST(COUNT(*) AS BIGINT) FROM containers AS c \
                  JOIN workspaces AS w ON w.id = c.workspace_id \
@@ -117,6 +117,7 @@ impl Store {
                     ContainerKind::Board => boards = row.int(1)?,
                     ContainerKind::Wiki => wikis = row.int(1)?,
                     ContainerKind::Diary => diaries = row.int(1)?,
+                    ContainerKind::Course => courses = row.int(1)?,
                 }
             }
             let mut sql = scope.sql(
@@ -139,6 +140,7 @@ impl Store {
                 boards: Some(boards),
                 wikis: Some(wikis),
                 diaries: Some(diaries),
+                courses: Some(courses),
                 files: Some(files),
             })
         })

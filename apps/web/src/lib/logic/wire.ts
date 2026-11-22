@@ -2,13 +2,11 @@
  * The shapes the server stores and sends, and everything that depends on them.
  *
  * The server's wire format is going to be redesigned. To keep that change in
- * one place, this is the only file of the logic that knows
- *
- * - what a block, a card, a view and a board look like,
- * - what is inside the untyped `fields` of a block,
- * - how a date value and the day of a date filter are written,
- * - how identifiers are made, and
- * - what a patch (the delta sent to the server) looks like.
+ * one place, this is the only file of the logic that knows:
+ * - what a block, card, view and board look like,
+ * - what is inside the untyped `fields` of a block, and how dates are written,
+ * - how identifiers are made, and what a patch (the delta sent to the server)
+ *   looks like.
  *
  * The other modules get at these through the functions exported here.
  * tests/logic/wire-boundary.test.ts fails when one of them reads `fields`
@@ -85,6 +83,8 @@ export const BLOCK_TYPES = [
   'comment',
   'page',
   'entry',
+  'unit',
+  'chapter',
   'unknown',
 ] as const;
 
@@ -476,8 +476,8 @@ export function remapBlockReferences(block: Block, idMap: Readonly<Record<string
 export const CONTAINER_TYPE_OPEN = 'O';
 export const CONTAINER_TYPE_PRIVATE = 'P';
 export type ContainerType = typeof CONTAINER_TYPE_OPEN | typeof CONTAINER_TYPE_PRIVATE;
-/** What a board is for: cards and views, pages, or the entries of a diary. It never changes. */
-export type ContainerKind = 'board' | 'wiki' | 'diary';
+/** What a board is for: cards and views, pages, diary entries, or a course's units. It never changes. */
+export type ContainerKind = 'board' | 'wiki' | 'diary' | 'course';
 
 export type PropertyType =
   | 'text'

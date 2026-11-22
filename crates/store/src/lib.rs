@@ -31,6 +31,7 @@ mod container_team_trash;
 mod container_teams;
 mod containers;
 mod containers_and_blocks;
+mod courses;
 mod data_steps;
 mod db;
 mod diaries;
@@ -106,6 +107,7 @@ pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use container_membership::Standing;
 pub use containers::{Joined, MemberChange, PublicContainers};
+pub use courses::{UnitRestore, UnitWrite};
 pub use db::Dialect;
 pub use diaries::{DiaryMade, EntryMade};
 pub use directory::{

@@ -260,8 +260,8 @@ impl Store {
         self.with_conn(async |scope| {
             // A board that went to the trash before boards had a kind says none: a board.
             let kind = match scope.dialect() {
-                Dialect::Sqlite => " AND COALESCE(json_extract(container, '$.kind'), 'board') = ",
-                Dialect::Postgres => " AND COALESCE(container->>'kind', 'board') = ",
+                Dialect::Sqlite => "COALESCE(json_extract(container, '$.kind'), 'board')",
+                Dialect::Postgres => "COALESCE(container->>'kind', 'board')",
             };
             // The memberships are the JSON array of the board's members when it went.
             let was_admin = match scope.dialect() {
@@ -281,9 +281,7 @@ impl Store {
             if let Some(admin_id) = admin_id {
                 sql.push_bind(was_admin, admin_id).push(")");
             }
-            if let Some(only) = kinds.only() {
-                sql.push_bind(kind, only.as_str());
-            }
+            crate::container_kinds::push_kinds(&mut sql, kind, kinds);
             sql.push(" ORDER BY deleted_at DESC, id");
             push_paging(&mut sql, paging);
             scope

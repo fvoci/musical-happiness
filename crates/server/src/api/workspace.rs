@@ -142,7 +142,7 @@ impl InWorkspace {
             app: entered
                 .app
                 .in_workspace(&workspace_id)
-                .reaching(ContainerKinds::Boards),
+                .reaching(ContainerKinds::BOARDS),
             session,
             workspace_id,
             role: entered.role,
@@ -256,7 +256,7 @@ impl FromRequestParts<App> for InWiki {
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
         let ws = InWorkspace::from_request_parts(parts, app).await?;
-        Ok(Self(ws.reaching(ContainerKinds::Wikis)))
+        Ok(Self(ws.reaching(ContainerKinds::WIKIS)))
     }
 }
 
@@ -274,29 +274,70 @@ impl FromRequestParts<App> for InDiary {
         if ws.kind != OrgKind::Personal {
             return Err(workspace_not_found());
         }
-        Ok(Self(ws.reaching(ContainerKinds::Diaries)))
+        Ok(Self(ws.reaching(ContainerKinds::DIARIES)))
     }
 }
 
-/// A workspace as an operation enters it that is about the people of a board or a wiki
-/// (who is on it, alone or in a group, its invitations, its link) or copies one:
-/// [`InWorkspace`] that reaches boards and wikis. A diary, which is its owner's alone,
-/// is not there to it.
+/// A workspace as an operation on a course and its chapters and units enters it:
+/// [`InWorkspace`] that reaches courses and nothing else.
 #[derive(Debug)]
-pub(crate) struct InBoardOrWiki(pub(crate) InWorkspace);
+pub(crate) struct InCourse(pub(crate) InWorkspace);
 
-impl FromRequestParts<App> for InBoardOrWiki {
+impl FromRequestParts<App> for InCourse {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
         let ws = InWorkspace::from_request_parts(parts, app).await?;
-        Ok(Self(ws.reaching(ContainerKinds::BoardsAndWikis)))
+        Ok(Self(ws.reaching(ContainerKinds::COURSES)))
     }
 }
 
-/// A workspace as an operation enters it that is the same for a board, a wiki and a
-/// diary (the container itself, its files, its place in the sidebar and in the trash,
-/// what is searched and exported): [`InWorkspace`] that reaches every kind.
+/// A workspace as an operation enters it that is about the people of a shared container
+/// (members, joining, leaving, groups, invitations): [`InWorkspace`] that reaches boards,
+/// wikis and courses. A diary, which is its owner's alone, is not there to it.
+#[derive(Debug)]
+pub(crate) struct InShared(pub(crate) InWorkspace);
+
+impl FromRequestParts<App> for InShared {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        let ws = InWorkspace::from_request_parts(parts, app).await?;
+        Ok(Self(ws.reaching(ContainerKinds::SHARED)))
+    }
+}
+
+/// A workspace as an operation enters it that reaches publicly linkable or referenceable
+/// containers: boards and wikis. Diaries and courses are not there to it.
+#[derive(Debug)]
+pub(crate) struct InLinked(pub(crate) InWorkspace);
+
+impl FromRequestParts<App> for InLinked {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        let ws = InWorkspace::from_request_parts(parts, app).await?;
+        Ok(Self(ws.reaching(ContainerKinds::LINKED)))
+    }
+}
+
+/// A workspace as an operation enters it that duplicates a container whole: boards and
+/// wikis. Diaries and courses are not there to it.
+#[derive(Debug)]
+pub(crate) struct InCopied(pub(crate) InWorkspace);
+
+impl FromRequestParts<App> for InCopied {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        let ws = InWorkspace::from_request_parts(parts, app).await?;
+        Ok(Self(ws.reaching(ContainerKinds::COPIED)))
+    }
+}
+
+/// A workspace as an operation enters it that is the same for every container kind (the
+/// container itself, its files, its place in the sidebar and in the trash, what is
+/// searched and exported): [`InWorkspace`] that reaches every kind.
 #[derive(Debug)]
 pub(crate) struct InContainer(pub(crate) InWorkspace);
 
@@ -305,7 +346,7 @@ impl FromRequestParts<App> for InContainer {
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
         let ws = InWorkspace::from_request_parts(parts, app).await?;
-        Ok(Self(ws.reaching(ContainerKinds::Every)))
+        Ok(Self(ws.reaching(ContainerKinds::EVERY)))
     }
 }
 
@@ -318,7 +359,7 @@ impl FromRequestParts<App> for TextInContainer {
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
         let TextInWorkspace(ws) = TextInWorkspace::from_request_parts(parts, app).await?;
-        Ok(Self(ws.reaching(ContainerKinds::Every)))
+        Ok(Self(ws.reaching(ContainerKinds::EVERY)))
     }
 }
 

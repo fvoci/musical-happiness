@@ -167,9 +167,9 @@ async fn a_page_is_a_block_of_a_wiki_and_a_wiki_has_no_other() {
     assert_eq!(blocks_of(&wiki).await, [(on_wiki.clone(), BlockType::Page)]);
     // A handle of boards finds no page, and one of wikis no card.
     for (id, kinds, found) in [
-        (&on_wiki, ContainerKinds::Wikis, true),
-        (&on_wiki, ContainerKinds::Boards, false),
-        (&card.id, ContainerKinds::Wikis, false),
+        (&on_wiki, ContainerKinds::WIKIS, true),
+        (&on_wiki, ContainerKinds::BOARDS, false),
+        (&card.id, ContainerKinds::WIKIS, false),
     ] {
         let read = test.get_block_within(id, Some(&workspace_id), kinds).await;
         assert_eq!(read.is_ok(), found, "{kinds:?}: {read:?}");
@@ -512,7 +512,7 @@ async fn the_pages_of_two_organizations_are_out_of_each_others_reach() {
         "{read:?}"
     );
     let wikis = ours
-        .get_containers_of_workspace(&their_workspace, ContainerKinds::Wikis)
+        .get_containers_of_workspace(&their_workspace, ContainerKinds::WIKIS)
         .await
         .expect("the wikis of the workspace");
     assert!(wikis.is_empty(), "{wikis:?}");

@@ -3,13 +3,13 @@
 //! Every statement here names the organization itself: the handle's
 //! ([`Tenant::Org`](crate::Tenant::Org)).
 
-use fvoci_model::{ContainerKind, ContainerType, OrgRole, WorkspaceRole};
+use fvoci_model::{ContainerKinds, ContainerType, OrgRole, WorkspaceRole};
 
 use crate::audit::AuditActor;
 use crate::db::{Dialect, Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
-use crate::{Store, org_admin};
+use crate::{Store, container_kinds, org_admin};
 
 /// Opens the condition that the board `b` is in a workspace in use the membership `wm`
 /// is of: the caller narrows the memberships and closes the parenthesis. A workspace in
@@ -18,20 +18,17 @@ const IN_USE_MEMBERSHIPS: &str = " AND b.workspace_id IN (SELECT wm.workspace_id
      FROM workspace_members AS wm JOIN workspaces AS ws ON ws.id = wm.workspace_id \
      WHERE ws.delete_at = 0";
 
-/// Opens the condition on a board `b` that it is an open board of a workspace the user
-/// works in (a member who is no guest: `WorkspaceAccess::works_there`), "or": the
-/// caller appends the other way to the board and closes the parenthesis. An open
-/// board is no secret to who works in its workspace, and to nobody else. With `kind`,
-/// only the open boards of that kind are.
+/// Opens the condition on a board `b` that it is an open board of `kinds` in a workspace
+/// the user works in (a member who is no guest: `WorkspaceAccess::works_there`), "or":
+/// the caller appends the other way to the board and closes the parenthesis. An open
+/// board is no secret to who works in its workspace, and to nobody else.
 pub(crate) fn push_open_containers_at_work<'sql>(
     sql: &'sql mut Sql,
     user_id: &str,
-    kind: Option<ContainerKind>,
+    kinds: ContainerKinds,
 ) -> &'sql mut Sql {
     sql.push_bind(" AND ((b.type = ", ContainerType::Open.as_str());
-    if let Some(kind) = kind {
-        sql.push_bind(" AND b.kind = ", kind.as_str());
-    }
+    container_kinds::push_kinds(sql, "b.kind", kinds);
     sql.push(IN_USE_MEMBERSHIPS)
         .push_bind(" AND wm.user_id = ", Id(user_id))
         .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str())

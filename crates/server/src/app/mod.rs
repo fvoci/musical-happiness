@@ -17,6 +17,7 @@ mod category_containers;
 mod container_copies;
 mod containers;
 mod containers_and_blocks;
+mod courses;
 mod diaries;
 mod doomed;
 mod download;
@@ -297,7 +298,7 @@ impl App {
             store,
             ws,
             workspace: None,
-            kinds: ContainerKinds::Every,
+            kinds: ContainerKinds::EVERY,
             inner: Arc::new(Inner {
                 reset_limiter: LoginLimiter::new(Limits::from_config(&config)),
                 mail: mail::Mailer::new(

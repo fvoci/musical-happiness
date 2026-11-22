@@ -132,7 +132,7 @@ impl App {
             return Ok(Vec::new());
         }
         let theirs: HashSet<String> = self
-            .containers_for_user_and_workspace(user_id, workspace_id, PublicContainers::OpenWikis)
+            .containers_for_user_and_workspace(user_id, workspace_id, PublicContainers::OpenToRead)
             .await?
             .into_iter()
             .map(|container| container.id)

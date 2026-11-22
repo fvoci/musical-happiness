@@ -403,7 +403,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The body of a card, a comment, a page or an entry; `null` for a block without one. Only\nthose have one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads it by the board's link gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused. A change message (`UPDATE_BLOCK`) of a card, a page or an entry\nhas it `null`, with a summary of it beside the block."
+                "description": "The body of a card, a comment, a page, an entry or a unit; `null` for a block\nwithout one. Only those have one: a body on another block is refused (400 naming\n`body`). Every image of it shows a file of the block's board. Whoever reads it by\nthe board's link gets every mention with an empty `userId`: a shape that is only\nsent, which a write would have refused. A change message (`UPDATE_BLOCK`) of a\ncard, a page, an entry or a unit has it `null`, with a summary of it beside the\nblock."
               },
               {
                 "type": "null"
@@ -435,7 +435,7 @@
           },
           "fields": {
             "additionalProperties": true,
-            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card, a\ncomment, an attachment or a page and 800,000 for a view or a block of another\ntype. The `icon` of a card is a string and its `isTemplate` a boolean, or either\n`null` (400 naming `fields` otherwise). A page has its `icon` and its `order`\nhere, as `Page` gives them, and an entry its `date`, `mood`, `weather` and\n`place`, as `DiaryEntry` gives them.",
+            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card, a\ncomment, an attachment, a page, an entry, a unit or a chapter and 800,000 for a\nview or a block of another type. The `icon` of a card is a string and its\n`isTemplate` a boolean, or either `null` (400 naming `fields` otherwise). A page\nhas its `icon` and its `order` here, as `Page` gives them, an entry its `date`,\n`mood`, `weather` and `place`, as `DiaryEntry` gives them, and a unit or chapter\nits `order`, as `Unit` gives it.",
             "type": "object"
           },
           "id": {
@@ -460,7 +460,7 @@
             "type": "string"
           },
           "type": {
-            "description": "The block type: `card`, `view`, `comment` or `attachment` on a board, `page`\nand `comment` (on a page) on a wiki, and `entry` on a diary. No request of blocks\nmakes a block of another type or patches one into it (400 naming `type`), nor a\npage or an entry: `createPage` makes pages, `createPageComment` the comments of\na wiki, and `createDiaryEntry` entries.",
+            "description": "The block type: `card`, `view`, `comment` or `attachment` on a board, `page`\nand `comment` (on a page) on a wiki, `entry` on a diary, and `chapter` and `unit`\non a course. No request of blocks makes a block of another type or patches one\ninto it (400 naming `type`), nor a page, an entry, a unit or a chapter:\n`createPage` makes pages, `createPageComment` the comments of a wiki,\n`createDiaryEntry` entries, and `createUnit` chapters and units.",
             "type": "string"
           },
           "updateAt": {
@@ -1204,7 +1204,7 @@
           },
           "kind": {
             "$ref": "#/components/schemas/ContainerKind",
-            "description": "What the board is for: `board` for cards, `wiki` for pages, `diary` for the\nentries of its days. It is what the board was made as and never changes; a\nboard decoded without it is a `board`. A wiki and a diary are no template and\nhave no card properties, and the operations that are about cards answer for\nthem as for a board that is not there. A diary is private (`type` `P`) besides,\nand is only in the workspace of a user's own space (\"Diaries\")."
+            "description": "What the board is for: `board` for cards, `wiki` for pages, `diary` for the\nentries of its days, `course` for chapters and units. It is what the board was\nmade as and never changes; a board decoded without it is a `board`. A wiki, a\ndiary and a course are no template and have no card properties, and the\noperations that are about cards answer for them as for a board that is not there.\nA diary is private (`type` `P`) besides, and is only in the workspace of a user's\nown space (\"Diaries\")."
           },
           "minimumRole": {
             "$ref": "#/components/schemas/MinimumRole",
@@ -1270,11 +1270,12 @@
         "type": "object"
       },
       "ContainerKind": {
-        "description": "What a container of a workspace is for: a board holds cards and their views, a wiki\nholds pages, a diary holds the entries of its days. A container is of one kind from\nwhen it is made and never of another.",
+        "description": "What a container of a workspace is for: a board holds cards and their views, a wiki\nholds pages, a diary holds the entries of its days, and a course holds chapters and\nunits. A container is of one kind from when it is made and never of another.",
         "enum": [
           "board",
           "wiki",
-          "diary"
+          "diary",
+          "course"
         ],
         "type": "string"
       },
@@ -1664,6 +1665,52 @@
           "deletedBy",
           "icon",
           "id",
+          "parentId",
+          "title"
+        ],
+        "type": "object"
+      },
+      "DeletedUnit": {
+        "description": "A unit or chapter in the trash, at the top of what went with it, as the trash of a\ncourse lists it: `undeleteUnit` brings it back, and for a chapter brings back the\nunits deleted along with it.",
+        "properties": {
+          "below": {
+            "description": "How many units below this chapter went with it and come back with it; zero for a\nunit.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deletedAt": {
+            "description": "When it was deleted, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "deletedBy": {
+            "description": "Who deleted it, who may no longer exist; empty if not known.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unit's or chapter's identifier.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UnitKind",
+            "description": "Whether this deleted entry is a `unit` or a `chapter`."
+          },
+          "parentId": {
+            "description": "The chapter it was below; empty for a chapter or a top-level unit. If that\nchapter is gone when the unit is restored, the unit comes back at the top of the\ncourse.",
+            "type": "string"
+          },
+          "title": {
+            "description": "The title when it was deleted.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "below",
+          "deletedAt",
+          "deletedBy",
+          "id",
+          "kind",
           "parentId",
           "title"
         ],
@@ -2367,13 +2414,18 @@
             "format": "int64",
             "type": "integer"
           },
+          "courses": {
+            "description": "How many courses it has in use.",
+            "format": "int64",
+            "type": "integer"
+          },
           "diaries": {
             "description": "How many diaries it has in use: only the account's own space has any.",
             "format": "int64",
             "type": "integer"
           },
           "files": {
-            "description": "How many files its boards, wikis and diaries in use hold.",
+            "description": "How many files its boards, wikis, diaries and courses in use hold.",
             "format": "int64",
             "type": "integer"
           },
@@ -2396,7 +2448,6 @@
           }
         },
         "required": [
-          "diaries",
           "id",
           "kind",
           "name"
@@ -2888,6 +2939,36 @@
         ],
         "type": "object"
       },
+      "NewCourse": {
+        "additionalProperties": false,
+        "description": "A course to make.",
+        "properties": {
+          "description": {
+            "description": "The course's description. Left out, empty.",
+            "type": "string"
+          },
+          "icon": {
+            "description": "The course's icon, usually one emoji. Left out, none.",
+            "type": "string"
+          },
+          "minimumRole": {
+            "$ref": "#/components/schemas/MinimumRole",
+            "description": "The role a user gets who joins the course. Left out, `editor`."
+          },
+          "title": {
+            "description": "The course's title. Left out, empty.",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ContainerType",
+            "description": "Whether the course is open (`O`), for whoever works in the workspace to read and\nsearch without joining, and to join to enroll, or private (`P`), for whom it is\nshared with."
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
       "NewDiary": {
         "additionalProperties": false,
         "description": "A diary to make.",
@@ -3099,6 +3180,32 @@
           "subscriberType",
           "subscriberId"
         ],
+        "type": "object"
+      },
+      "NewUnit": {
+        "additionalProperties": false,
+        "description": "A unit or chapter to make in a course.",
+        "properties": {
+          "after": {
+            "description": "The identifier of the sibling it goes right after: a sibling of the same parent.\nEmpty for the first place; left out or `null`, the last place.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UnitKind",
+            "description": "Whether to make a `unit` or a `chapter`. Left out, `unit`."
+          },
+          "parentId": {
+            "description": "The identifier of the chapter the unit goes below: a chapter of the same course.\nLeft out or empty, it goes at the top of the course. A chapter must leave this\nempty (400 at `/parentId` otherwise).",
+            "type": "string"
+          },
+          "title": {
+            "description": "The title. Left out, empty.",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "NewUpload": {
@@ -4447,6 +4554,16 @@
             "type": "/problems/too-many-diaries"
           },
           {
+            "reason": "too_many_units",
+            "title": "Too many units in the course",
+            "type": "/problems/too-many-units"
+          },
+          {
+            "reason": "too_many_chapters",
+            "title": "Too many chapters in the course",
+            "type": "/problems/too-many-chapters"
+          },
+          {
             "reason": "too_many_organizations",
             "title": "Too many organizations made",
             "type": "/problems/too-many-organizations"
@@ -4609,15 +4726,15 @@
         "description": "One thing a search found: the user reads it now.",
         "properties": {
           "containerId": {
-            "description": "The identifier of the board the card is on, of the wiki the page is in, or of\nthe diary the entry is in.",
+            "description": "The identifier of the board, wiki, diary or course the match is in.",
             "type": "string"
           },
           "containerKind": {
             "$ref": "#/components/schemas/ContainerKind",
-            "description": "What its container is: a board, a wiki, or a diary."
+            "description": "What its container is: a board, a wiki, a diary or a course."
           },
           "id": {
-            "description": "The identifier of the card, the page or the entry.",
+            "description": "The identifier of the card, the page, the entry or the unit.",
             "type": "string"
           },
           "kind": {
@@ -4651,7 +4768,8 @@
         "enum": [
           "card",
           "page",
-          "entry"
+          "entry",
+          "unit"
         ],
         "type": "string"
       },
@@ -5006,6 +5124,182 @@
           "prof"
         ],
         "type": "string"
+      },
+      "Unit": {
+        "description": "A unit or chapter of a course.",
+        "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The unit's body; `null` for a unit without one, and always `null` for a chapter."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "courseId": {
+            "description": "The identifier of the course it is of.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "createdBy": {
+            "description": "The identifier of the user who made it.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unit's or chapter's identifier.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UnitKind",
+            "description": "Whether this entry is a `unit` or a `chapter`."
+          },
+          "modifiedBy": {
+            "description": "The identifier of the user who last changed it.",
+            "type": "string"
+          },
+          "order": {
+            "description": "Its place among the siblings of the same parent, as in `getUnitTree`.",
+            "type": "string"
+          },
+          "parentId": {
+            "description": "The identifier of the chapter it is below; empty for a chapter and for a unit at\nthe top of its course.",
+            "type": "string"
+          },
+          "title": {
+            "description": "The title.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch: what `readAt` of a\nchange of the unit names.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "body",
+          "courseId",
+          "createAt",
+          "createdBy",
+          "id",
+          "kind",
+          "modifiedBy",
+          "order",
+          "parentId",
+          "title",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "UnitKind": {
+        "description": "Whether an entry of a course's outline is a unit (with a body) or a chapter (a\ntop-level title-only heading that groups units).",
+        "enum": [
+          "unit",
+          "chapter"
+        ],
+        "type": "string"
+      },
+      "UnitMove": {
+        "additionalProperties": false,
+        "description": "Where a unit or chapter moves to, within its course. Moving a chapter keeps its units\nbelow it.",
+        "properties": {
+          "after": {
+            "description": "The identifier of the sibling it goes right after: another sibling of that\nparent. Empty for the first place; left out or `null`, the last place.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentId": {
+            "description": "The identifier of the chapter it goes below: a chapter of the same course. Left\nout or empty, it goes to the top of the course. A chapter must leave this empty\n(400 at `/parentId` otherwise).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UnitNode": {
+        "description": "A unit or chapter as the outline of its course lists it: without its body.",
+        "properties": {
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The unit's or chapter's identifier.",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UnitKind",
+            "description": "Whether this node is a `unit` or a `chapter`."
+          },
+          "order": {
+            "description": "Its place among the siblings of the same parent: listed by it as strings compare\n(by code unit, not by a locale), and by `id` where two have the same. The server\nmakes it; a client reads it only to sort.",
+            "type": "string"
+          },
+          "parentId": {
+            "description": "The identifier of the chapter it is below; empty for a chapter and for a unit at\nthe top of its course.",
+            "type": "string"
+          },
+          "title": {
+            "description": "The unit's or chapter's title.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "createAt",
+          "id",
+          "kind",
+          "order",
+          "parentId",
+          "title",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "UnitPatch": {
+        "additionalProperties": false,
+        "description": "What a unit or chapter is changed to. Absent members stay as they are. Where the\nnode stands in the course does not change here (`moveUnit`).",
+        "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The new body of a unit; `null` takes the body away. Sent only with `readAt`. A\nchapter has no body (400 at `/body`)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "readAt": {
+            "description": "The `updateAt` of the unit as the client read it: if the unit has changed since,\nthe patch is refused with 409 and changes nothing. Needed with `body`, and\nchecked whenever it is sent.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "The new title.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
       },
       "UnlinkRequest": {
         "description": "A request to remove an identity from the account of the session.",
@@ -7732,7 +8026,7 @@
         "operationId": "getSharedContainer",
         "parameters": [
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -7787,7 +8081,7 @@
         "operationId": "getSharedBlocks",
         "parameters": [
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -7881,7 +8175,7 @@
         "operationId": "getSharedCards",
         "parameters": [
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -7971,7 +8265,7 @@
         "operationId": "getSharedFile",
         "parameters": [
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -8049,7 +8343,7 @@
         "operationId": "getSharedFileInfo",
         "parameters": [
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -8113,7 +8407,7 @@
         "operationId": "getSharedPageTree",
         "parameters": [
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -8171,7 +8465,7 @@
         "operationId": "getSharedPage",
         "parameters": [
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11194,7 +11488,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11248,7 +11542,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11302,7 +11596,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11406,7 +11700,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11449,7 +11743,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11499,7 +11793,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11561,7 +11855,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11631,7 +11925,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
+            "description": "The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11710,7 +12004,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11772,7 +12066,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11870,7 +12164,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11931,7 +12225,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -11990,7 +12284,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12071,7 +12365,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12134,7 +12428,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12196,7 +12490,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12277,7 +12571,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12385,7 +12679,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12476,7 +12770,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12528,7 +12822,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12573,7 +12867,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12626,7 +12920,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12688,7 +12982,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12740,7 +13034,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12811,7 +13105,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
+            "description": "The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12861,7 +13155,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
+            "description": "The identifier of the board or the wiki. A diary or a course is 404, as an identifier of nothing is.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12923,7 +13217,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -12978,7 +13272,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -13030,7 +13324,7 @@
             }
           },
           {
-            "description": "The identifier of the board or the wiki. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it, no link, and no copy.",
+            "description": "The identifier of the board, the wiki or the course. A diary is 404, as an identifier of nothing is: it is its owner's alone, with nobody to put on it.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -13094,7 +13388,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -13146,7 +13440,7 @@
             }
           },
           {
-            "description": "The identifier of the board, the wiki or the diary.",
+            "description": "The identifier of the board, the wiki, the diary or the course.",
             "in": "path",
             "name": "containerId",
             "required": true,
@@ -13190,6 +13484,610 @@
         "summary": "Open an upload",
         "tags": [
           "files"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses": {
+      "get": {
+        "description": "The courses of the workspace that the user is a member of, and the workspace's open\ncourses; a guest of the workspace gets only the former, an administrator every course\nof the workspace (the units of a private course they are no member of stay 404 to\nthem). Each is a container of the `kind` `course`. Oldest first. 404 unless the user\nis a member of the workspace.",
+        "operationId": "getCourses",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Container"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The courses."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The courses of a workspace",
+        "tags": [
+          "courses"
+        ]
+      },
+      "post": {
+        "description": "The user becomes the course's admin, and the course is filed under the user's default\ncategory, as a board is. Whoever works in the workspace makes courses in it; a guest\nis refused (403). A member the request does not know is 400.",
+        "operationId": "createCourse",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCourse"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Container"
+                }
+              }
+            },
+            "description": "The course that was made."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Make a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/trash/units": {
+      "get": {
+        "description": "One page of the course's chapters and units that are in the trash, each with its\nidentifier, `kind`, title, the chapter it was below, when it was deleted, by whom,\nand (for a chapter) how many units below it went with it; `undeleteUnit` brings one\nback until the trash is emptied of it. A unit that went with its chapter comes back\nwith that chapter, and is not listed separately. For editors of the course. The last\ndeleted first; the pages cut that order.",
+        "operationId": "getDeletedUnits",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one. Below 0 or above 2147483647 is 400.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, from 1 to 1000. Left out, 50. Anything else is 400: a longer list is read page after page.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletedUnit"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The deleted chapters and units of the course."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The deleted units and chapters of a course",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units": {
+      "get": {
+        "description": "Every chapter and unit of the course without its body, for whoever reads the course:\neach names the chapter it is below (`parentId`, empty for a chapter or a top-level\nunit) and its `kind` (`unit` or `chapter`). By `order` as strings compare by code\nunit, then by `id`: the siblings of one parent are in their order when taken out of\nthe list as it is.",
+        "operationId": "getUnitTree",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UnitNode"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The chapters and units."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The outline of a course",
+        "tags": [
+          "courses"
+        ]
+      },
+      "post": {
+        "description": "The server chooses the identifier, the creator, the times and the `order`. For\neditors of the course. With `kind` `unit` (also when left out), the unit goes below\n`parentId`, a chapter of the same course (400 at `/parentId` otherwise), or at the\ntop of the course. With `kind` `chapter`, the chapter is a title-only heading at the\ntop of the course (`parentId` must be empty; 400 at `/parentId` otherwise) with no\nbody and no room. Among the siblings of that parent it goes right after `after` (400\nat `/after` if that is no sibling of the same parent), first if `after` is empty, and\nlast if it is left out. A unit's body is written by `patchUnit`, or together in its\nroom (`JOIN_DOC`).\n\nA course holds at most 2,000 units and 200 chapters, those in the trash not counted\n(chapters do not count toward the 2,000-unit limit): one more unit is 400 with the\nreason `too_many_units` and the `limit`, and one more chapter is 400 with the reason\n`too_many_chapters` and the `limit`.\n\nThe course's listeners are told with `UPDATE_BLOCK`, whose block of the `type` `unit`\nor `chapter` carries its `order` among its `fields`. Any sibling numbered anew to\nleave room is told of too.",
+        "operationId": "createUnit",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewUnit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unit"
+                }
+              }
+            },
+            "description": "The unit or chapter that was made."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Make a unit or chapter",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}": {
+      "delete": {
+        "description": "Moves the unit to the trash of its course, or moves the chapter together with every\nunit below it as one deletion, for editors of the course. The course's listeners are\ntold with `UPDATE_BLOCK` of the deleted block alone, whose `deleteAt` is not 0.",
+        "operationId": "deleteUnit",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The unit or chapter is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete a unit or chapter",
+        "tags": [
+          "courses"
+        ]
+      },
+      "get": {
+        "description": "The unit with its body, or the chapter (`body` is `null`), for whoever reads its\ncourse.",
+        "operationId": "getUnit",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unit"
+                }
+              }
+            },
+            "description": "The unit or chapter."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "A unit or chapter",
+        "tags": [
+          "courses"
+        ]
+      },
+      "patch": {
+        "description": "Its title, or (for a unit) its whole body, for editors of the course. A chapter has\nno body: sending `body` on a chapter is 400 at `/body`. A new body is sent with\n`readAt`, the `updateAt` of the unit as it was read: 409 if the unit has changed\nsince, and nothing is changed. Where the body is being edited together, what the\neditors typed is written to the unit first, so a writer who read it before is refused\nand reads it again. Where the node stands in the course does not change here.",
+        "operationId": "patchUnit",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unit"
+                }
+              }
+            },
+            "description": "The unit or chapter as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Change a unit or chapter",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/move": {
+      "post": {
+        "description": "Moves a unit to the top of the course (left out or empty `parentId`) or below a\nchapter of the same course, right after `after` among the siblings there (empty for\nfirst, left out or `null` for last). Moves a chapter among the top-level siblings\n(`parentId` must be empty; 400 at `/parentId` otherwise), keeping its units below it.\nFor editors of the course. 400 at `/parentId` if the parent is no chapter of the\ncourse or is the unit itself; 400 at `/after` if that is no other sibling of the\nparent. Nothing is changed then.\n\nThe course's listeners are told with `UPDATE_BLOCK` of the moved node and of any\nsibling numbered anew to leave it room; a chapter's units keep their parent and are\nnot told of.",
+        "operationId": "moveUnit",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unit"
+                }
+              }
+            },
+            "description": "The unit or chapter where it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Move a unit or chapter",
+        "tags": [
+          "courses"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/courses/{courseId}/units/{unitId}/undelete": {
+      "post": {
+        "description": "Restores the unit from the course's trash, or restores the chapter together with the\nunits deleted along with it, for editors of the course: below the chapter it was\nbelow at the place it had (right after the siblings before it if a sibling took that\nplace since), or, if that chapter is gone (in the trash or purged), last at the top\nof the course. Held to the course's limits: 400 with the reason `too_many_units` or\n`too_many_chapters` (each with the `limit`) if restoring would exceed them. A block\nnot in this course's trash, or a unit that went with its chapter (it comes back with\nthat chapter), is 404. The course's listeners are told with `UPDATE_BLOCK` of each\nblock that came back (a chapter before its units) and each sibling numbered anew.",
+        "operationId": "undeleteUnit",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the course: a container of the `kind` `course`. A container of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "courseId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the unit or chapter: a unit or chapter of the course of the path. 404 for one of another course.",
+            "in": "path",
+            "name": "unitId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unit"
+                }
+              }
+            },
+            "description": "The unit or chapter as it is again."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Bring back a unit or chapter",
+        "tags": [
+          "courses"
         ]
       }
     },
@@ -14726,7 +15624,7 @@
     },
     "/api/v1/w/{workspaceId}/search": {
       "get": {
-        "description": "The cards of the boards and the pages of the wikis of the workspace that the user\nhas a role on, their own or a team's, the pages of its wikis open to who works\nthere (an open board they have not joined is not searched), and, in the workspace\nof the user's own space, the entries of its diaries, whose title and body\ntogether hold every word of `q`. The title of an entry is its day (`2026-11-21`). Comments, property values and attached files are\nnot searched, and neither are templates. How words match depends on the server:\nwith a search server, Korean is matched by its words, whatever particles and\nendings they carry, and a compound by its parts too (\"환불 규정\" finds \"환불규정을\");\nwithout one, each word (what is between white space) is in the title or the body as\nit is written there, ASCII letters in either case (\"환불\" finds \"환불규정을\",\n\"배포하다\" does not find \"배포합니다\"). Each hit is the card, the page or the entry as\nit is now: its `kind`, its `title`, the board, the wiki or the diary it is in\n(`containerId`, and `containerKind`, by which a client tells their addresses apart), and\n`snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing\nto show. The best match first (without a search server: those whose title holds\nevery word, then the most recently changed). Nothing says how many match in all:\nfewer than `limit` means that no more of what the user reads matches (for a user with\na role on more boards and wikis than a search names, 1,000 with a search server and\n10,000 without: among the 10,000 best matches of the workspace).\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). While the search\nserver does not answer, where it cannot hold its index, or where a search takes more\nthan three seconds, the answer is 503 with the reason `search_unavailable`: nothing\nelse of the server waits for it, and the database does not stand in for a search\nserver.",
+        "description": "The cards of the boards, the pages of the wikis and the units of the courses of the\nworkspace that the user has a role on, their own or a team's, the pages of its open\nwikis and the units of its open courses for who works there (an open board they have\nnot joined is not searched), and, in the workspace of the user's own space, the\nentries of its diaries, whose title and body together hold every word of `q`. The\ntitle of an entry is its day (`2026-11-21`). Chapters, comments, property values and\nattached files are not searched, and neither are templates. How words match depends\non the server: with a search server, Korean is matched by its words, whatever\nparticles and endings they carry, and a compound by its parts too (\"환불 규정\" finds\n\"환불규정을\"); without one, each word (what is between white space) is in the title\nor the body as it is written there, ASCII letters in either case (\"환불\" finds\n\"환불규정을\", \"배포하다\" does not find \"배포합니다\"). Each hit is the card, the page,\nthe entry or the unit as it is now: its `kind`, its `title`, the container it is in\n(`containerId`, and `containerKind`, by which a client tells their addresses apart),\nand `snippet`, a piece of its body in stretches of plain text, those that matched\nmarked; the snippet is empty for a body that changed a moment ago, or has nothing to\nshow. The best match first (without a search server: those whose title holds every\nword, then the most recently changed). Nothing says how many match in all: fewer than\n`limit` means that no more of what the user reads matches (for a user with a role on\nmore containers than a search names, 1,000 with a search server and 10,000 without:\namong the 10,000 best matches of the workspace).\n\nA `q` of more than 200 characters, a `kind` that is none and a `limit` outside 1\nto 50 are 400; a `q` that is empty finds nothing. A user who searches more often\nthan the server lets one is told to wait (429, `Retry-After`). While the search\nserver does not answer, where it cannot hold its index, or where a search takes more\nthan three seconds, the answer is 503 with the reason `search_unavailable`: nothing\nelse of the server waits for it, and the database does not stand in for a search\nserver.",
         "operationId": "searchWorkspaceContent",
         "parameters": [
           {
@@ -14748,7 +15646,7 @@
             }
           },
           {
-            "description": "The kind of thing to find: `card`, `page` or `entry`. Left out, every kind. Anything else is 400.",
+            "description": "The kind of thing to find: `card`, `page`, `entry` or `unit`. Left out, every kind. Anything else is 400.",
             "in": "query",
             "name": "kind",
             "required": false,
@@ -14792,7 +15690,7 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
           }
         },
-        "summary": "Search what the cards, pages and entries of a workspace say",
+        "summary": "Search what the cards, pages, entries and units of a workspace say",
         "tags": [
           "workspaces"
         ]
@@ -17226,6 +18124,10 @@
     {
       "description": "Diaries and their entries, in the workspace of a user's own space and nowhere else. A diary is a board of the kind `diary` that holds one entry a day and nothing else; its owner alone reads it. What it shares with a board is asked under `/containers/{containerId}` with the diary's identifier: the diary itself (`getContainer`), its title, description and icon (`patchContainer`), the trash (`deleteContainer`, `undeleteContainer`, `getDeletedContainers`), its files and their versions and leases, its place in the sidebar, and its archive (`exportContainer`; the archive of the workspace holds its diaries, and an archive that is imported makes each diary anew, in the user's own space only). Its entries are found by `searchWorkspaceContent`, by their writer. What is about the people of a board answers 404 for a diary, as for an identifier of nothing: its members, joining and leaving it, its teams, its link (`/sharing`, `/shared/{containerId}`), invitations to it, and `duplicateContainer`. So do the operations under `/boards/{boardId}` and `/wikis/{wikiId}`: a diary has no blocks but its entries, no cards, no views, no pages, no comments and no templates; and no reference names an entry.",
       "name": "diaries"
+    },
+    {
+      "description": "Courses and their chapters and units. A course is a container of the kind `course`: who is on it, its groups, invitations, files, place in the sidebar and trash, and export and import work under `/containers/{containerId}` with the course's identifier. Open courses are read and searched without joining, as open wikis are.",
+      "name": "courses"
     },
     {
       "description": "Who is on a board, and with which role.",

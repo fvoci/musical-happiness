@@ -139,8 +139,13 @@
     };
   }
 
+  /** Fallback route for a course unit until course routes land in t2. */
+  function unitRoute(): Partial<Route> {
+    return { workspaceId: workspace.info?.id };
+  }
+
   function routeOf(hit: SearchHit): Partial<Route> {
-    return { card: cardRoute, page: pageRoute, entry: entryRoute }[hit.kind](hit);
+    return { card: cardRoute, page: pageRoute, entry: entryRoute, unit: unitRoute }[hit.kind](hit);
   }
 
   function hrefOf(hit: SearchHit): string {
@@ -166,7 +171,9 @@
     } else if (hit.kind === 'card' && route.viewId !== ANY_VIEW) {
       router.openCard(hit.id);
     } else {
-      const kind = ({ card: 'board', page: 'wiki', entry: 'diary' } as const)[hit.kind];
+      const kind = ({ card: 'board', page: 'wiki', entry: 'diary', unit: 'course' } as const)[
+        hit.kind
+      ];
       router.openContainer({ id: hit.containerId, workspaceId: workspace.info?.id ?? '', kind });
       router.go(route, { replace: true });
     }

@@ -58,7 +58,7 @@ async fn a_wiki_is_copied_by_its_own_organization_and_into_none_other() {
                     &scene.user,
                     workspace,
                     PublicContainers::Include,
-                    ContainerKinds::Every,
+                    ContainerKinds::EVERY,
                 )
                 .await
                 .expect("the boards")

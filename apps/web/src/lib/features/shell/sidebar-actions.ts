@@ -143,7 +143,7 @@ export function containerActions(
   return [
     ...moves,
     ...saving,
-    ...(kind === 'diary'
+    ...(kind === 'diary' || kind === 'course'
       ? []
       : [
           {
@@ -173,6 +173,7 @@ export function containerActions(
         board: m['HideBoard.MenuOption'],
         wiki: m.shell_hide_wiki,
         diary: m.shell_hide_diary,
+        course: m['HideBoard.MenuOption'],
       }[kind](),
       icon: EyeOffIcon,
       run: () => void workspace.hideContainer(container.id),
@@ -183,6 +184,7 @@ export function containerActions(
         board: m['Sidebar.delete-board'],
         wiki: m.shell_delete_wiki,
         diary: m.shell_delete_diary,
+        course: m['Sidebar.delete-board'],
       }[kind](),
       icon: Trash2Icon,
       destructive: true,

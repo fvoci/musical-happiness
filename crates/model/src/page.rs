@@ -149,7 +149,7 @@ fn digits_of(order: &str) -> Result<Vec<usize>, OrderError> {
 }
 
 /// The text of a field of a block; empty if the block has none, or one that is no text.
-fn text_field(fields: &JsonMap, field: &str) -> String {
+pub(crate) fn text_field(fields: &JsonMap, field: &str) -> String {
     fields
         .get(field)
         .and_then(Value::as_str)
@@ -409,7 +409,7 @@ impl PagePatch {
 /// Refuses a title longer than a block's may be ([`BLOCK_TITLE_MAX_CHARS`]), where a
 /// request sends one: named here, which the refusal of the block that is stored does
 /// not do.
-fn refuse_title(refused: &mut Refusals, title: Option<&str>) {
+pub(crate) fn refuse_title(refused: &mut Refusals, title: Option<&str>) {
     if title.is_some_and(|title| title.chars().count() > BLOCK_TITLE_MAX_CHARS) {
         refused.refuse("title", RefusalReason::TooLong, TITLE_TOO_LONG);
     }

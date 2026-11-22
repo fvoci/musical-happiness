@@ -104,29 +104,43 @@ impl Store {
             containers::lock_container_of_kind(scope, wiki_id)
                 .await?
                 .ok_or_else(block_not_in_trash)?;
-            let deletion = deletion_of(scope, wiki_id, page_id).await?;
+            let deletion = deletion_of(scope, wiki_id, page_id, &[BlockType::Page]).await?;
             undelete(scope, wiki_id, page_id, deletion, limits, user_id).await
         })
         .await
     }
 }
 
-/// The deletion of the wiki the page went with, if the page is in the wiki's trash at
-/// the top of it.
-async fn deletion_of(
+/// A SQL predicate checking that the JSON `block` column of alias `row` has one of `types`.
+pub(crate) fn block_type_in_json(dialect: Dialect, row: &str, types: &[BlockType]) -> String {
+    let expr = match dialect {
+        Dialect::Sqlite => format!("json_extract({row}.block, '$.type')"),
+        Dialect::Postgres => format!("{row}.block->>'type'"),
+    };
+    let list: Vec<String> = types
+        .iter()
+        .map(|block_type| format!("'{}'", block_type.as_str()))
+        .collect();
+    format!("{expr} IN ({})", list.join(", "))
+}
+
+/// The deletion of the container the block went with, if the block is in the container's
+/// trash at the top of it and has one of `types`.
+pub(crate) async fn deletion_of(
     scope: &mut Scope<'_>,
-    wiki_id: &str,
-    page_id: &str,
+    container_id: &str,
+    block_id: &str,
+    types: &[BlockType],
 ) -> Result<Deletion, StoreError> {
     let mut sql = scope.sql("SELECT deletion_id, block FROM deleted_blocks WHERE id = ");
-    sql.bind(Id(page_id))
-        .push_bind(" AND container_id = ", Id(wiki_id));
+    sql.bind(Id(block_id))
+        .push_bind(" AND container_id = ", Id(container_id));
     let row = scope
         .fetch_optional(sql)
         .await?
         .ok_or_else(block_not_in_trash)?;
-    let page = block_from_json(&row, 1)?;
-    if page.block_type != BlockType::Page {
+    let block = block_from_json(&row, 1)?;
+    if !types.contains(&block.block_type) {
         return Err(block_not_in_trash());
     }
     let deletion_id = row.id(0)?;
@@ -138,8 +152,8 @@ async fn deletion_of(
         .iter()
         .map(|row| block_from_json(row, 0))
         .collect::<Result<Vec<_>, _>>()?;
-    // One that went with the page it was below comes back with that page, not by itself.
-    if family.iter().any(|block| block.id == page.parent_id) {
+    // One that went with the block it was below comes back with that block, not by itself.
+    if family.iter().any(|one| one.id == block.parent_id) {
         return Err(block_not_in_trash());
     }
     Ok(Deletion {
@@ -149,9 +163,9 @@ async fn deletion_of(
 }
 
 /// A deletion in the trash: its identifier, and the blocks that went with it.
-struct Deletion {
-    id: String,
-    blocks: Vec<Block>,
+pub(crate) struct Deletion {
+    pub(crate) id: String,
+    pub(crate) blocks: Vec<Block>,
 }
 
 /// Brings the deletion back, the wiki held: its pages at the top of it below their
@@ -225,9 +239,9 @@ async fn undelete(
     Ok(PageRestore { pages, renumbered })
 }
 
-/// Where a page coming back below its parent goes when a sibling has taken its order
+/// Where a block coming back below its parent goes when a sibling has taken its order
 /// meanwhile: right after the siblings before it. None where its order is its own.
-fn place_taken(tree: &PageTree, top: &Block) -> Result<Option<Place>, BlockError> {
+pub(crate) fn place_taken(tree: &PageTree, top: &Block) -> Result<Option<Place>, BlockError> {
     let node = PageNode::from(top.clone());
     let siblings = tree.siblings(&node.parent_id, "");
     if !siblings.iter().any(|sibling| sibling.order == node.order) {

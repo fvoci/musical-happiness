@@ -199,19 +199,30 @@ pub(crate) async fn page_tree(
     scope: &mut Scope<'_>,
     wiki_id: &str,
 ) -> Result<PageTree, StoreError> {
+    tree_of(scope, wiki_id, &[BlockType::Page]).await
+}
+
+/// The tree of blocks of `types` on `container_id`, read under the container's lock.
+pub(crate) async fn tree_of(
+    scope: &mut Scope<'_>,
+    container_id: &str,
+    types: &[BlockType],
+) -> Result<PageTree, StoreError> {
     let mut sql = scope.sql("SELECT id, parent_id, fields FROM blocks WHERE container_id = ");
-    sql.bind(Id(wiki_id))
-        .push_bind(" AND type = ", BlockType::Page.as_str());
-    let mut pages = Vec::new();
+    sql.bind(Id(container_id))
+        .push(" AND type IN (")
+        .bind_list(types.iter().map(BlockType::as_str))
+        .push(")");
+    let mut nodes = Vec::new();
     for row in &scope.fetch_all(sql).await? {
-        pages.push(PageNode::from(Block {
+        nodes.push(PageNode::from(Block {
             id: row.id(0)?,
             parent_id: row.id(1)?,
             fields: row.json_map(2, "fields")?,
             ..Block::default()
         }));
     }
-    Ok(pages.into_iter().collect())
+    Ok(nodes.into_iter().collect())
 }
 
 /// Gives `page` the order of `place`, and stores the orders of the siblings it numbers

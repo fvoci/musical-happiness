@@ -91,7 +91,7 @@ async fn boards_come_oldest_first() {
             &user_id,
             &workspace_id,
             PublicContainers::Include,
-            ContainerKinds::Boards,
+            ContainerKinds::BOARDS,
         )
         .await
         .expect("the boards are read");
@@ -107,7 +107,7 @@ async fn boards_come_oldest_first() {
             ContainerSearchField::Title,
             &user_id,
             PublicContainers::Include,
-            ContainerKinds::Boards,
+            ContainerKinds::BOARDS,
         )
         .await
         .expect("the boards are searched");
@@ -118,7 +118,7 @@ async fn boards_come_oldest_first() {
             &workspace_id,
             "board",
             &user_id,
-            ContainerKinds::Boards,
+            ContainerKinds::BOARDS,
         )
         .await
         .expect("the boards are searched");
@@ -628,7 +628,7 @@ async fn the_trash_comes_the_last_deleted_first() {
         by_id(cards.iter().map(|card| card.id.clone()).collect())
     );
     let listed: Vec<String> = store
-        .get_deleted_containers(&workspace_id, Some(&user_id), None, ContainerKinds::Boards)
+        .get_deleted_containers(&workspace_id, Some(&user_id), None, ContainerKinds::BOARDS)
         .await
         .expect("the deleted boards")
         .into_iter()
@@ -643,7 +643,7 @@ async fn the_trash_comes_the_last_deleted_first() {
                 page: 1,
                 per_page: 2,
             }),
-            ContainerKinds::Boards,
+            ContainerKinds::BOARDS,
         )
         .await
         .expect("a page of the deleted boards")
@@ -652,7 +652,7 @@ async fn the_trash_comes_the_last_deleted_first() {
         .collect();
     assert_eq!(page, by_id(boards.clone())[2..], "the pages cut that order");
     let not_admin = store
-        .get_deleted_containers(&workspace_id, Some(&other_id), None, ContainerKinds::Boards)
+        .get_deleted_containers(&workspace_id, Some(&other_id), None, ContainerKinds::BOARDS)
         .await
         .expect("the deleted boards of an editor");
     assert!(not_admin.is_empty(), "only those the user was an admin of");

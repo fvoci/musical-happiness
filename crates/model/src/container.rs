@@ -38,8 +38,8 @@ impl ContainerType {
 }
 
 /// What a container of a workspace is for: a board holds cards and their views, a wiki
-/// holds pages, a diary holds the entries of its days. A container is of one kind from
-/// when it is made and never of another.
+/// holds pages, a diary holds the entries of its days, and a course holds chapters and
+/// units. A container is of one kind from when it is made and never of another.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
 )]
@@ -54,11 +54,13 @@ pub enum ContainerKind {
     /// any, and nobody is on one but its owner: it has no members to manage, no link
     /// and no copy.
     Diary,
+    /// A course: an outline of chapters and units ([`crate::Unit`]).
+    Course,
 }
 
 impl ContainerKind {
     /// Every kind there is.
-    pub const ALL: [Self; 3] = [Self::Board, Self::Wiki, Self::Diary];
+    pub const ALL: [Self; 4] = [Self::Board, Self::Wiki, Self::Diary, Self::Course];
 
     /// Returns the wire and database form.
     pub const fn as_str(self) -> &'static str {
@@ -66,6 +68,7 @@ impl ContainerKind {
             Self::Board => "board",
             Self::Wiki => "wiki",
             Self::Diary => "diary",
+            Self::Course => "course",
         }
     }
 }
@@ -93,35 +96,70 @@ impl FromStr for ContainerKind {
     }
 }
 
-/// The kinds of container something reaches: what an operation is for, and what a list
-/// holds.
+/// The kinds of container something reaches: a set of [`ContainerKind`]s telling what an
+/// operation is for and what a list holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ContainerKinds {
-    /// Boards alone.
-    Boards,
-    /// Wikis alone.
-    Wikis,
-    /// Diaries alone.
-    Diaries,
-    /// Boards and wikis, and no diary: what people work on together, with its members,
-    /// its link and its copies. A diary has none of those.
-    BoardsAndWikis,
-    /// Every kind: what is the same for any container (the container itself, its
-    /// files, its place in the sidebar and in the trash).
-    Every,
-}
+pub struct ContainerKinds(u8);
 
 impl ContainerKinds {
+    const BOARD: u8 = 1 << 0;
+    const WIKI: u8 = 1 << 1;
+    const DIARY: u8 = 1 << 2;
+    const COURSE: u8 = 1 << 3;
+
+    /// Boards alone.
+    pub const BOARDS: Self = Self(Self::BOARD);
+    /// Wikis alone.
+    pub const WIKIS: Self = Self(Self::WIKI);
+    /// Diaries alone.
+    pub const DIARIES: Self = Self(Self::DIARY);
+    /// Courses alone.
+    pub const COURSES: Self = Self(Self::COURSE);
+    /// Boards, wikis and courses: what people work on together, with members, groups and
+    /// invitations. A diary is its owner's alone and has none of those.
+    pub const SHARED: Self = Self(Self::BOARD | Self::WIKI | Self::COURSE);
+    /// Boards and wikis: what may be shared by a public link or named by a reference.
+    pub const LINKED: Self = Self(Self::BOARD | Self::WIKI);
+    /// Boards and wikis: what may be copied whole (`duplicateContainer`).
+    pub const COPIED: Self = Self(Self::BOARD | Self::WIKI);
+    /// Wikis and courses: open containers that whoever works in the workspace reads and
+    /// searches without joining.
+    pub const OPEN_TO_READ: Self = Self(Self::WIKI | Self::COURSE);
+    /// Every kind: what is the same for any container (the container itself, its files,
+    /// its place in the sidebar and in the trash, its archive).
+    pub const EVERY: Self = Self(Self::BOARD | Self::WIKI | Self::DIARY | Self::COURSE);
+
+    const fn bit(kind: ContainerKind) -> u8 {
+        match kind {
+            ContainerKind::Board => Self::BOARD,
+            ContainerKind::Wiki => Self::WIKI,
+            ContainerKind::Diary => Self::DIARY,
+            ContainerKind::Course => Self::COURSE,
+        }
+    }
+
+    /// A set of one kind.
+    #[must_use]
+    pub const fn of(kind: ContainerKind) -> Self {
+        Self(Self::bit(kind))
+    }
+
+    /// Both sets together.
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Whether the set holds no kind.
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
     /// Whether a container of `kind` is among them.
     #[must_use]
     pub const fn holds(self, kind: ContainerKind) -> bool {
-        match self {
-            Self::Every => true,
-            Self::Boards => matches!(kind, ContainerKind::Board),
-            Self::Wikis => matches!(kind, ContainerKind::Wiki),
-            Self::Diaries => matches!(kind, ContainerKind::Diary),
-            Self::BoardsAndWikis => matches!(kind, ContainerKind::Board | ContainerKind::Wiki),
-        }
+        (self.0 & Self::bit(kind)) != 0
     }
 
     /// The kinds that are among them, in the order of [`ContainerKind::ALL`].
@@ -134,11 +172,12 @@ impl ContainerKinds {
     /// The one kind they are, if they are one.
     #[must_use]
     pub const fn only(self) -> Option<ContainerKind> {
-        match self {
-            Self::Boards => Some(ContainerKind::Board),
-            Self::Wikis => Some(ContainerKind::Wiki),
-            Self::Diaries => Some(ContainerKind::Diary),
-            Self::BoardsAndWikis | Self::Every => None,
+        match self.0 {
+            Self::BOARD => Some(ContainerKind::Board),
+            Self::WIKI => Some(ContainerKind::Wiki),
+            Self::DIARY => Some(ContainerKind::Diary),
+            Self::COURSE => Some(ContainerKind::Course),
+            _ => None,
         }
     }
 }
@@ -146,11 +185,7 @@ impl ContainerKinds {
 /// The kinds that are `kind` alone: what reaches a board reaches nothing else.
 impl From<ContainerKind> for ContainerKinds {
     fn from(kind: ContainerKind) -> Self {
-        match kind {
-            ContainerKind::Board => Self::Boards,
-            ContainerKind::Wiki => Self::Wikis,
-            ContainerKind::Diary => Self::Diaries,
-        }
+        Self::of(kind)
     }
 }
 
@@ -307,6 +342,12 @@ pub enum ContainerError {
         /// The most diaries a space may have.
         limit: u32,
     },
+    /// A course is stored as a template.
+    #[error("a course is no template")]
+    CourseIsTemplate,
+    /// A course is stored with card properties.
+    #[error("a course has no card properties: it holds units and no cards")]
+    CourseHasCardProperties,
 }
 
 /// A board: a set of blocks and the property definitions of its cards.
@@ -332,11 +373,12 @@ pub struct Container {
     #[serde(rename = "type")]
     pub container_type: ContainerType,
     /// What the board is for: `board` for cards, `wiki` for pages, `diary` for the
-    /// entries of its days. It is what the board was made as and never changes; a
-    /// board decoded without it is a `board`. A wiki and a diary are no template and
-    /// have no card properties, and the operations that are about cards answer for
-    /// them as for a board that is not there. A diary is private (`type` `P`) besides,
-    /// and is only in the workspace of a user's own space ("Diaries").
+    /// entries of its days, `course` for chapters and units. It is what the board was
+    /// made as and never changes; a board decoded without it is a `board`. A wiki, a
+    /// diary and a course are no template and have no card properties, and the
+    /// operations that are about cards answer for them as for a board that is not there.
+    /// A diary is private (`type` `P`) besides, and is only in the workspace of a user's
+    /// own space ("Diaries").
     #[serde(default)]
     pub kind: ContainerKind,
     /// The role a user gets who joins the board, or is added by somebody who does not
@@ -478,6 +520,10 @@ impl Container {
             ContainerKind::Diary => (
                 Some(ContainerError::DiaryIsTemplate),
                 Some(ContainerError::DiaryHasCardProperties),
+            ),
+            ContainerKind::Course => (
+                Some(ContainerError::CourseIsTemplate),
+                Some(ContainerError::CourseHasCardProperties),
             ),
         };
         if let Some(refused) = is_template.filter(|_| self.is_template) {

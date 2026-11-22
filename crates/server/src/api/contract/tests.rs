@@ -516,6 +516,7 @@ const ORDERS: &[(&str, &str)] = &[
         "getContainerTeams",
         "Ordered by team name in any letter case, by code point, then by identifier",
     ),
+    ("getCourses", "Oldest first"),
     (
         "getDeletedCards",
         "The last deleted first; the pages cut that order",
@@ -527,6 +528,10 @@ const ORDERS: &[(&str, &str)] = &[
     ("getDeletedDiaryEntries", "the last deleted first"),
     (
         "getDeletedPages",
+        "The last deleted first; the pages cut that order",
+    ),
+    (
+        "getDeletedUnits",
         "The last deleted first; the pages cut that order",
     ),
     ("getDiaries", "oldest first"),
@@ -569,6 +574,10 @@ const ORDERS: &[(&str, &str)] = &[
         "ordered by name in any letter case, by code point",
     ),
     ("getTemplates", "Each of the two oldest first"),
+    (
+        "getUnitTree",
+        "By `order` as strings compare by code unit, then by `id`",
+    ),
     ("getWikis", "Oldest first"),
     ("getWorkspaceAudit", "the newest first"),
     ("getWorkspaceBoards", "Oldest first"),

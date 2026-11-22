@@ -20,10 +20,17 @@ impl From<BlockError> for AppError {
             BlockError::InvalidCardField { .. }
             | BlockError::InvalidPageField { .. }
             | BlockError::InvalidEntryField { .. }
+            | BlockError::InvalidUnitField { .. }
             | BlockError::EntryDateChanges => Self::bad_request(error).with_field("fields"),
             BlockError::DayTaken { .. } => Self::conflict(error).with_reason(Reason::DayTaken),
             BlockError::TooManyEntries { limit } => Self::bad_request(error)
                 .with_reason(Reason::TooManyEntries)
+                .with_limit(u64::from(limit)),
+            BlockError::TooManyUnits { limit } => Self::bad_request(error)
+                .with_reason(Reason::TooManyUnits)
+                .with_limit(u64::from(limit)),
+            BlockError::TooManyChapters { limit } => Self::bad_request(error)
+                .with_reason(Reason::TooManyChapters)
                 .with_limit(u64::from(limit)),
             BlockError::AfterNotSibling => Self::bad_request(error).with_field("after"),
             BlockError::PageTooDeep { limit } => Self::bad_request(error)
@@ -41,13 +48,18 @@ impl From<BlockError> for AppError {
             | BlockError::NotPageOnWiki
             | BlockError::EntryByBlocks
             | BlockError::EntryOffDiary
-            | BlockError::NotEntryOnDiary => Self::bad_request(error).with_field("type"),
+            | BlockError::NotEntryOnDiary
+            | BlockError::UnitByBlocks
+            | BlockError::UnitOffCourse
+            | BlockError::NotUnitOnCourse => Self::bad_request(error).with_field("type"),
             BlockError::ParentNotOnContainer
             | BlockError::ParentBelowBlock
             | BlockError::CommentNotOnCardOrPage
             | BlockError::ParentIsComment
             | BlockError::PageNotBelowPage
-            | BlockError::EntryBelowBlock => Self::bad_request(error).with_field("parentId"),
+            | BlockError::EntryBelowBlock
+            | BlockError::UnitParentNotChapter
+            | BlockError::ChapterBelowBlock => Self::bad_request(error).with_field("parentId"),
             BlockError::EmptyContainerId => Self::from(anyhow::Error::from(error)),
         }
     }
@@ -101,10 +113,12 @@ impl AppError {
                 .with_limit(u64::from(limit));
         }
         let member = match refused {
-            ContainerError::WikiIsTemplate | ContainerError::DiaryIsTemplate => "isTemplate",
-            ContainerError::WikiHasCardProperties | ContainerError::DiaryHasCardProperties => {
-                "cardProperties"
-            }
+            ContainerError::WikiIsTemplate
+            | ContainerError::DiaryIsTemplate
+            | ContainerError::CourseIsTemplate => "isTemplate",
+            ContainerError::WikiHasCardProperties
+            | ContainerError::DiaryHasCardProperties
+            | ContainerError::CourseHasCardProperties => "cardProperties",
             ContainerError::DiaryNotPrivate => "type",
             _ => "kind",
         };

@@ -165,7 +165,7 @@ async fn nothing_is_listed_once_closed(store: &Store, admin: &str, users: [&Stri
             .container_memberships_of_user(
                 who,
                 fvoci_store::Making::with_password(),
-                ContainerKinds::Every,
+                ContainerKinds::EVERY,
             )
             .await
             .expect("the memberships of a session the workspace is closed to");
@@ -210,10 +210,10 @@ async fn every_list_of_boards_is_of_the_kinds_it_is_asked_for() {
             .expect("the team is on the board");
     }
     let cases = [
-        (ContainerKinds::Boards, vec![board.id.as_str()]),
-        (ContainerKinds::Wikis, vec![wiki.id.as_str()]),
+        (ContainerKinds::BOARDS, vec![board.id.as_str()]),
+        (ContainerKinds::WIKIS, vec![wiki.id.as_str()]),
         (
-            ContainerKinds::Every,
+            ContainerKinds::EVERY,
             vec![board.id.as_str(), wiki.id.as_str()],
         ),
     ];
@@ -300,12 +300,12 @@ async fn a_block_is_found_within_the_kinds_of_its_board_only() {
     let card = &cards[0].id;
 
     for (workspace, kinds, found) in [
-        (None, ContainerKinds::Every, true),
-        (None, ContainerKinds::Boards, true),
-        (None, ContainerKinds::Wikis, false),
-        (Some(workspace_id.as_str()), ContainerKinds::Boards, true),
-        (Some(workspace_id.as_str()), ContainerKinds::Wikis, false),
-        (Some(elsewhere.as_str()), ContainerKinds::Every, false),
+        (None, ContainerKinds::EVERY, true),
+        (None, ContainerKinds::BOARDS, true),
+        (None, ContainerKinds::WIKIS, false),
+        (Some(workspace_id.as_str()), ContainerKinds::BOARDS, true),
+        (Some(workspace_id.as_str()), ContainerKinds::WIKIS, false),
+        (Some(elsewhere.as_str()), ContainerKinds::EVERY, false),
     ] {
         let read = test.get_block_within(card, workspace, kinds).await;
         match read {
@@ -346,8 +346,8 @@ async fn the_trash_is_listed_by_kind_and_what_went_before_kinds_is_a_board() {
     .await;
 
     for (kinds, expected) in [
-        (ContainerKinds::Boards, vec![board.id.as_str()]),
-        (ContainerKinds::Wikis, vec![wiki.id.as_str()]),
+        (ContainerKinds::BOARDS, vec![board.id.as_str()]),
+        (ContainerKinds::WIKIS, vec![wiki.id.as_str()]),
     ] {
         for admin in [None, Some(user_id.as_str())] {
             let listed = test
@@ -362,7 +362,7 @@ async fn the_trash_is_listed_by_kind_and_what_went_before_kinds_is_a_board() {
         }
     }
     let every = test
-        .get_deleted_containers(&workspace_id, None, None, ContainerKinds::Every)
+        .get_deleted_containers(&workspace_id, None, None, ContainerKinds::EVERY)
         .await
         .expect("the trash is listed");
     assert_eq!(every.len(), 2);

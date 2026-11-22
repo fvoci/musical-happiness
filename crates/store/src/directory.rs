@@ -288,12 +288,18 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
     sql.push(" OR ");
     container_team_access::push_has_team_role(sql, scope, seer_id);
     if open_where_seer_works {
-        // Read without a role: an open template and an open wiki, for who works in
-        // its workspace. An open board that is neither is joined to be read.
+        // Read without a role: an open template, an open wiki, and an open course, for
+        // who works in its workspace. An open board that is none of these is joined to be
+        // read.
         sql.push_bind(" OR (b.type = ", ContainerType::Open.as_str())
             .push_bind(" AND (b.is_template = ", true)
-            .push_bind(" OR b.kind = ", ContainerKind::Wiki.as_str())
-            .push_bind(") AND me.role <> ", WorkspaceRole::Guest.as_str())
+            .push(" OR b.kind IN (")
+            .bind_list(
+                ContainerKinds::OPEN_TO_READ
+                    .iter()
+                    .map(ContainerKind::as_str),
+            )
+            .push_bind(")) AND me.role <> ", WorkspaceRole::Guest.as_str())
             .push(")");
     }
     sql.push("))");

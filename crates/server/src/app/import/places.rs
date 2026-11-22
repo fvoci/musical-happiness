@@ -8,8 +8,8 @@
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
-    Block, BlockError, BlockType, ContainerKind, ContainersAndBlocks, DiaryDate, PageLimits,
-    PageNode, PageTree,
+    Block, BlockError, BlockType, CHAPTERS_PER_COURSE, COURSE_DEPTH, ContainerKind,
+    ContainersAndBlocks, DiaryDate, PageLimits, PageNode, PageTree, UNITS_PER_COURSE,
 };
 use fvoci_store::StoreError;
 
@@ -67,6 +67,7 @@ pub(super) fn check(
         match container.kind {
             ContainerKind::Wiki => check_tree(&container.id, &mine, limits)?,
             ContainerKind::Diary => check_days(&container.id, &mine)?,
+            ContainerKind::Course => check_course(&container.id, &mine)?,
             ContainerKind::Board => {}
         }
     }
@@ -108,6 +109,12 @@ impl Place<'_> {
         if self.kind == ContainerKind::Diary && !parent_id.is_empty() {
             return Err(refused(block, BlockError::EntryBelowBlock));
         }
+        if self.kind == ContainerKind::Course
+            && block.block_type == BlockType::Chapter
+            && !parent_id.is_empty()
+        {
+            return Err(refused(block, BlockError::ChapterBelowBlock));
+        }
         let parent_type = if parent_id.is_empty() {
             None
         } else if let Some(parent) = self.placed.get(parent_id) {
@@ -115,17 +122,22 @@ impl Place<'_> {
                 return Err(refused(block, BlockError::ParentNotOnContainer));
             }
             Some(&parent.block_type)
-        } else if self.containers.contains(parent_id) || self.kind == ContainerKind::Wiki {
-            // Another board of the archive, or what a wiki's tree does not have.
+        } else if self.containers.contains(parent_id)
+            || matches!(self.kind, ContainerKind::Wiki | ContainerKind::Course)
+        {
+            // Another board of the archive, or what a wiki's or course's tree does not have.
             return Err(refused(block, BlockError::ParentNotOnContainer));
         } else {
             // What nothing leads to is dropped: no write is asked of it.
             return Ok(());
         };
-        // In the store's order: where a page may be, then where a comment may be.
+        // In the store's order: where a page or unit may be, then where a comment may be.
         let refusal = match (&block.block_type, parent_type) {
             (BlockType::Page, Some(parent)) if *parent != BlockType::Page => {
                 Some(BlockError::PageNotBelowPage)
+            }
+            (BlockType::Unit, Some(parent)) if *parent != BlockType::Chapter => {
+                Some(BlockError::UnitParentNotChapter)
             }
             (BlockType::Comment, parent) if !parent.is_some_and(BlockType::takes_comments) => {
                 Some(BlockError::CommentNotOnCardOrPage)
@@ -138,11 +150,19 @@ impl Place<'_> {
 }
 
 /// Checks that a block is of a type a board of `kind` takes: of a board, what a write of
-/// blocks makes and no page; of a wiki, a page or a comment.
+/// blocks makes and no page, entry, unit or chapter; of a wiki, a page or a comment; of a
+/// diary, an entry; of a course, a chapter or a unit.
 fn check_type(block: &Block, kind: ContainerKind) -> Result<(), AppError> {
     let refusal = match (kind, &block.block_type) {
+        (ContainerKind::Course, BlockType::Unit | BlockType::Chapter)
+        | (ContainerKind::Diary, BlockType::Entry) => None,
+        (ContainerKind::Course, _) => Some(BlockError::NotUnitOnCourse),
+        (ContainerKind::Diary, _) => Some(BlockError::NotEntryOnDiary),
         (ContainerKind::Board | ContainerKind::Wiki, BlockType::Entry) => {
             Some(BlockError::EntryOffDiary)
+        }
+        (ContainerKind::Board | ContainerKind::Wiki, BlockType::Unit | BlockType::Chapter) => {
+            Some(BlockError::UnitOffCourse)
         }
         (ContainerKind::Board, BlockType::Page) => Some(BlockError::PageOffWiki),
         (ContainerKind::Board, block_type) if !block_type.is_current() => {
@@ -152,8 +172,6 @@ fn check_type(block: &Block, kind: ContainerKind) -> Result<(), AppError> {
             None
         }
         (ContainerKind::Wiki, _) => Some(BlockError::NotPageOnWiki),
-        (ContainerKind::Diary, BlockType::Entry) => None,
-        (ContainerKind::Diary, _) => Some(BlockError::NotEntryOnDiary),
     };
     refusal.map_or(Ok(()), |source| Err(refused(block, source)))
 }
@@ -243,6 +261,71 @@ fn check_tree(wiki_id: &str, blocks: &[&Block], limits: PageLimits) -> Result<()
         return Err(refused(looped, BlockError::ParentBelowBlock));
     }
     tree.check_whole(limits).map_err(refused_whole)
+}
+
+/// Checks that the chapters and units of a course form a valid tree of depth at most
+/// [`COURSE_DEPTH`] within [`UNITS_PER_COURSE`] and [`CHAPTERS_PER_COURSE`], with unique
+/// identifiers and no parent cycles.
+fn check_course(course_id: &str, blocks: &[&Block]) -> Result<(), AppError> {
+    let chapters = blocks
+        .iter()
+        .filter(|block| block.block_type == BlockType::Chapter)
+        .count();
+    if usize::try_from(CHAPTERS_PER_COURSE).is_ok_and(|most| chapters > most) {
+        return Err(StoreError::InvalidBlock {
+            id: course_id.to_owned(),
+            source: BlockError::TooManyChapters {
+                limit: CHAPTERS_PER_COURSE,
+            },
+        }
+        .into());
+    }
+    let units = blocks
+        .iter()
+        .filter(|block| block.block_type == BlockType::Unit)
+        .count();
+    if usize::try_from(UNITS_PER_COURSE).is_ok_and(|most| units > most) {
+        return Err(StoreError::InvalidBlock {
+            id: course_id.to_owned(),
+            source: BlockError::TooManyUnits {
+                limit: UNITS_PER_COURSE,
+            },
+        }
+        .into());
+    }
+    let mut ids = HashSet::with_capacity(blocks.len());
+    if let Some(twice) = blocks.iter().find(|block| !ids.insert(block.id.as_str())) {
+        return Err(AppError::bad_request(format_args!(
+            "the archive's course {course_id} has two blocks of the identifier {}",
+            twice.id
+        )));
+    }
+    let tree: PageTree = blocks
+        .iter()
+        .map(|block| PageNode {
+            id: block.id.clone(),
+            parent_id: block.parent_id.clone(),
+            ..PageNode::default()
+        })
+        .collect();
+    let mut reached: HashSet<&str> = HashSet::with_capacity(tree.len());
+    for top in tree.siblings("", "") {
+        reached.extend(tree.below(&top.id));
+    }
+    if let Some(looped) = blocks
+        .iter()
+        .find(|block| !reached.contains(block.id.as_str()))
+    {
+        return Err(refused(looped, BlockError::ParentBelowBlock));
+    }
+    let max_depth = usize::try_from(COURSE_DEPTH).unwrap_or(usize::MAX);
+    if let Some(deep) = blocks
+        .iter()
+        .find(|block| tree.depth(&block.id) > max_depth)
+    {
+        return Err(refused(deep, BlockError::UnitParentNotChapter));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

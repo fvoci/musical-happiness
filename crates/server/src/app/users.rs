@@ -26,7 +26,7 @@ impl App {
     ) -> Result<Vec<ContainerMember>, AppError> {
         Ok(self
             .store()
-            .container_memberships_of_user(&session.user_id, session.into(), ContainerKinds::Every)
+            .container_memberships_of_user(&session.user_id, session.into(), ContainerKinds::EVERY)
             .await?)
     }
 

@@ -9,7 +9,7 @@ use super::contract::{
     params::{PeopleContainerId, PeopleWorkspaceId, TeamId},
     tag,
 };
-use super::workspace::InBoardOrWiki;
+use super::workspace::InShared;
 use super::{ApiResult, decode_object, json_response, no_content, require_container_permission};
 use crate::{app::App, permissions::ContainerPermission};
 
@@ -41,7 +41,7 @@ struct TeamPlace {
 #[utoipa::path(get, path = "/w/{workspaceId}/containers/{containerId}/teams", operation_id = "getContainerTeams", tag = tag::MEMBERS,
     params(PeopleWorkspaceId, PeopleContainerId),
     responses((status = 200, description = "Assigned teams.", body = Vec<ContainerTeam>)))]
-async fn list(InBoardOrWiki(ws): InBoardOrWiki, Path(place): Path<ContainerPlace>) -> ApiResult {
+async fn list(InShared(ws): InShared, Path(place): Path<ContainerPlace>) -> ApiResult {
     let ws = ws.require_people()?;
     require_container_permission(
         &ws.app,
@@ -66,11 +66,7 @@ async fn list(InBoardOrWiki(ws): InBoardOrWiki, Path(place): Path<ContainerPlace
 #[utoipa::path(put, path = "/w/{workspaceId}/containers/{containerId}/teams/{teamId}", operation_id = "setContainerTeam", tag = tag::MEMBERS,
     params(PeopleWorkspaceId, PeopleContainerId, TeamId), request_body = ContainerTeamRole,
     responses((status = 204, description = "The team has this role.")))]
-async fn assign(
-    InBoardOrWiki(ws): InBoardOrWiki,
-    Path(place): Path<TeamPlace>,
-    body: Bytes,
-) -> ApiResult {
+async fn assign(InShared(ws): InShared, Path(place): Path<TeamPlace>, body: Bytes) -> ApiResult {
     let ws = ws.require_people()?;
     require_container_permission(
         &ws.app,
@@ -100,7 +96,7 @@ async fn assign(
 /// roles inherited from other teams remain. Idempotent for an existing team.
 #[utoipa::path(delete, path = "/w/{workspaceId}/containers/{containerId}/teams/{teamId}", operation_id = "removeContainerTeam", tag = tag::MEMBERS,
     params(PeopleWorkspaceId, PeopleContainerId, TeamId), responses((status = 204, description = "The team has no role on this board.")))]
-async fn remove(InBoardOrWiki(ws): InBoardOrWiki, Path(place): Path<TeamPlace>) -> ApiResult {
+async fn remove(InShared(ws): InShared, Path(place): Path<TeamPlace>) -> ApiResult {
     let ws = ws.require_people()?;
     require_container_permission(
         &ws.app,

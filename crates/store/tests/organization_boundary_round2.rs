@@ -271,7 +271,7 @@ async fn a_trash_row_under_another_orgs_parent_is_neither_listed_nor_restored() 
             &b.workspace_id,
             Some(&user_id),
             None,
-            ContainerKinds::Boards,
+            ContainerKinds::BOARDS,
         )
         .await
         .expect("B's trash of the workspace");
