@@ -11,6 +11,8 @@ export class Administered {
   /** The organization, once known; none where the reader administers none. */
   orgId = $state<string | undefined>(undefined);
   #asked = false;
+  /** How many times the server was asked: the answer to the last asking alone counts. */
+  #asking = 0;
   readonly #api: () => Organizations | undefined;
 
   constructor(shown: () => Workspace | undefined, api: () => Organizations | undefined) {
@@ -19,14 +21,9 @@ export class Administered {
       const organizations = api();
       if (shown()?.status !== 'ready' || !organizations || this.#asked) return;
       this.#asked = true;
-      organizations.administered().then(
-        (orgId) => {
-          this.orgId = orgId;
-        },
-        () => {
-          // Not told: the way to it is not shown.
-        },
-      );
+      this.#ask(organizations, (orgId) => {
+        this.orgId = orgId;
+      });
     });
   }
 
@@ -37,20 +34,30 @@ export class Administered {
 
   /**
    * The reader left an organization: the sidebar does not lead to it any
-   * more, and the server is asked again whether they administer another.
+   * more, and the server is asked again whether they administer another. An
+   * answer asked for before, which may name the one left, does not count.
    */
   left(orgId: string): void {
-    if (this.orgId !== orgId) return;
+    if (this.orgId !== undefined && this.orgId !== orgId) return;
     this.orgId = undefined;
-    this.#api()
-      ?.administered()
-      .then(
-        (next) => {
-          this.orgId ??= next;
-        },
-        () => {
-          // Not told: the way to it is not shown.
-        },
-      );
+    const organizations = this.#api();
+    if (!organizations) return;
+    this.#ask(organizations, (next) => {
+      this.orgId ??= next;
+    });
+  }
+
+  /** Asks the server which organization the reader administers; `take` has the answer if it is the last asked for. */
+  #ask(organizations: Organizations, take: (orgId: string | undefined) => void): void {
+    this.#asking += 1;
+    const asking = this.#asking;
+    organizations.administered().then(
+      (orgId) => {
+        if (asking === this.#asking) take(orgId);
+      },
+      () => {
+        // Not told: the way to it is not shown.
+      },
+    );
   }
 }

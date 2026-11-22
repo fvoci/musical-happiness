@@ -15,6 +15,7 @@
   import OrganizationLeaving from '$lib/features/account/OrganizationLeaving.svelte';
   import { leavableOrganizations } from '$lib/features/account/organization-leaving.ts';
   import {
+    isBackendError,
     leaveOrganization,
     type Account,
     type LinkedIdentity,
@@ -59,12 +60,25 @@
 
   const leavable = $derived(leavableOrganizations(workspace.workspaces));
 
-  async function leave(orgId: string): Promise<void> {
-    await signedIn(() =>
-      leaveOrganization(workspace, (left: string) => account.leaveOrganization(left), orgId),
-    );
+  /** Forgets the organization left, and goes from its workspace if that was `shown`. */
+  function forget(orgId: string, shown: boolean): void {
     onLeft(orgId);
-    if (workspace.info?.orgId === orgId) router.go({ workspaceId: workspace.firstChoice() });
+    if (shown) router.go({ workspaceId: workspace.firstChoice() });
+  }
+
+  async function leave(orgId: string): Promise<void> {
+    // Asked before: the workspace shown may hear of the leaving first.
+    const shown = workspace.info?.orgId === orgId;
+    try {
+      await signedIn(() =>
+        leaveOrganization(workspace, (left: string) => account.leaveOrganization(left), orgId),
+      );
+    } catch (error) {
+      // Out of it already, left in another tab: as if left now.
+      if (isBackendError(error) && error.status === 404) forget(orgId, shown);
+      throw error;
+    }
+    forget(orgId, shown);
   }
 </script>
 

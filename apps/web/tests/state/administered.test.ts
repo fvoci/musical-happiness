@@ -28,6 +28,26 @@ describe('the organization the reader administers', () => {
     destroy();
   });
 
+  it('does not lead again to the one left by an answer asked for before', async () => {
+    let answerFirst: (orgId: string | undefined) => void = () => undefined;
+    const first = new Promise<string | undefined>((resolve) => {
+      answerFirst = resolve;
+    });
+    const asked = vi
+      .fn<() => Promise<string | undefined>>()
+      .mockReturnValueOnce(first)
+      .mockResolvedValueOnce(undefined);
+    const { administered, destroy } = administeredBy(asked);
+    flushSync();
+    expect(asked).toHaveBeenCalledOnce();
+    administered.left('a');
+    answerFirst('a');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(asked).toHaveBeenCalledTimes(2);
+    expect(administered.orgId).toBeUndefined();
+    destroy();
+  });
+
   it('stays as it is when the reader leaves another', async () => {
     const asked = vi.fn<() => Promise<string | undefined>>().mockResolvedValue('a');
     const { administered, destroy } = administeredBy(asked);
