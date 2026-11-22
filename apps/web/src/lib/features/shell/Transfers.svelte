@@ -263,6 +263,8 @@
     data-writing={writing ? '' : undefined}
     data-reached={reached ? '' : undefined}
     onfocusout={(event) => {
+      // The window left for another (Alt+Tab): the focus comes back here, shown.
+      if (!document.hasFocus()) return;
       if (!stack?.contains(event.relatedTarget as Node | null)) reached = false;
     }}
     {@attach holding}

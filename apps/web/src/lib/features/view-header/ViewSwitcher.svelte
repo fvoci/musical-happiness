@@ -127,9 +127,8 @@
   let said = $state('');
   let listOpen = $state(false);
 
-  function move(viewId: string, step: -1 | 1): void {
-    void moveView(board, viewId, step);
-    // The move shows at once.
+  /** Says where a view shows now in the list. */
+  function sayPlace(viewId: string): void {
     const shown = board.orderedViews;
     const at = shown.findIndex((each) => each.id === viewId);
     const moved = shown[at];
@@ -140,6 +139,15 @@
         count: shown.length,
       });
     }
+  }
+
+  function move(viewId: string, step: -1 | 1): void {
+    const moving = moveView(board, viewId, step);
+    // The move shows at once; refused, the view goes back where it is stored, said again.
+    sayPlace(viewId);
+    void moving.then((held) => {
+      if (!held && listOpen) sayPlace(viewId);
+    });
   }
 
   function moveTools(each: BoardView, at: number, count: number): MenuTool[] {

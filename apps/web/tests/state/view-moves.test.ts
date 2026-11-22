@@ -251,8 +251,22 @@ describe('a move', () => {
     // The others have the places they showed at; Beta has none, and so reads last.
     expect(titles(board)).toEqual(['Alpha', 'Board', 'Delta', 'Gamma', 'Beta']);
     expect(titles(theirs)).toEqual(titles(board));
-    // Said once for the places kept, once for the move: not once a view.
-    expect(workspace.problems).toHaveLength(2);
+    // Said once, for the move and the places kept for it: not once a view.
+    expect(workspace.problems).toHaveLength(1);
+  });
+
+  it('says the places kept for a move that held, refused, once', async () => {
+    const { board, backend, workspace } = await twoReaders();
+    const beta = idOf(board, 'Beta');
+    const send = backend.patchView.bind(backend);
+    vi.spyOn(backend, 'patchView').mockImplementation((boardId, viewId, patch) =>
+      viewId === beta
+        ? send(boardId, viewId, patch)
+        : Promise.reject(new BackendError(403, { detail: 'no' })),
+    );
+    expect(await moveView(board, beta, 1)).toBe(true);
+    await settle();
+    expect(workspace.problems).toHaveLength(1);
   });
 });
 
@@ -285,6 +299,20 @@ describe('a new view and copies', () => {
     expect(board.views.every((view) => view.fields.order !== undefined)).toBe(true);
     await duplicateView(board, idOf(board, 'Alpha'), 'Zebra');
     expect(titles(board).slice(0, 2)).toEqual(['Alpha', 'Zebra']);
+  });
+
+  it('says once that the places kept for a new view or a copy were refused, the view made', async () => {
+    const { board, backend, workspace } = await openFirstBoard(setup([FIVE]));
+    vi.spyOn(backend, 'patchView').mockRejectedValue(new BackendError(403, { detail: 'no' }));
+    const made = await addViewAtEnd(board, {
+      title: 'Aardvark',
+      fields: createBoardView().fields,
+    });
+    expect(made).toBeDefined();
+    expect(workspace.problems).toHaveLength(1);
+    const copy = await duplicateView(board, idOf(board, 'Alpha'), 'Zebra');
+    expect(copy).toBeDefined();
+    expect(workspace.problems).toHaveLength(2);
   });
 
   it('keeps the order in a copy of the board, and through a template', async () => {

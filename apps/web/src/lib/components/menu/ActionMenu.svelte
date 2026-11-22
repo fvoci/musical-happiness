@@ -296,7 +296,7 @@
               type="button"
               role="menuitem"
               aria-label={tool.label}
-              title={tool.label}
+              title="{tool.label} ({keysLabel(tool.keys)})"
               data-action={tool.id}
               data-line-tool
               disabled={tool.disabled}

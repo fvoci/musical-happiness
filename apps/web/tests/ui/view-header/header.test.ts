@@ -12,7 +12,8 @@ import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FilterGroup } from '$lib/logic/wire.ts';
-import type { BoardStore, Workspace } from '$lib/state/index.ts';
+import { BackendError, type BoardStore, type Workspace } from '$lib/state/index.ts';
+import type { MemoryBackend } from '$lib/state/memory/backend.ts';
 import type { SeedTemplate } from '$lib/state/memory/seed.ts';
 
 import { openFirstBoard, OWNER, setup, SMALL, STATUS } from '../../state/support.ts';
@@ -57,6 +58,7 @@ const TWO_VIEWS: SeedTemplate = {
 interface Mounted {
   board: BoardStore;
   workspace: Workspace;
+  backend: MemoryBackend;
   onOpenView: ReturnType<typeof vi.fn<(viewId: string) => void>>;
   onAddCard: ReturnType<typeof vi.fn<() => void>>;
   /** The view the header is shown for, as the store has it now. */
@@ -67,7 +69,7 @@ interface Mounted {
 }
 
 async function mount(title: string, template: SeedTemplate = TWO_VIEWS): Promise<Mounted> {
-  const { board, workspace } = await openFirstBoard(setup([template]));
+  const { board, workspace, backend } = await openFirstBoard(setup([template]));
   const shown = board.views.find((view) => view.title === title);
   if (!shown) throw new Error(`no view called ${title}`);
   const onOpenView = vi.fn<(viewId: string) => void>();
@@ -78,6 +80,7 @@ async function mount(title: string, template: SeedTemplate = TWO_VIEWS): Promise
   return {
     board,
     workspace,
+    backend,
     onOpenView,
     onAddCard,
     view: () => {
@@ -398,6 +401,20 @@ describe('views', () => {
     await workspace.undoLast();
     await tick();
     expect(lineTexts().slice(0, 2)).toEqual(['List', 'Board']);
+  });
+
+  it('says where a view moved and refused is, back where it is stored, said once', async () => {
+    const { board, workspace, backend } = await mount('List');
+    vi.spyOn(backend, 'patchView').mockRejectedValue(new BackendError(403, { detail: 'no' }));
+    await openMenu(toolButton('views'));
+    const boardId = board.views.find((view) => view.title === 'Board')?.id ?? '';
+    await fireEvent.click(lineTool(boardId, 'move-down'));
+    await tick();
+    expect(screen.getByText('Board is now 2 of 2')).toBeInTheDocument();
+    await settled();
+    expect(lineTexts().slice(0, 2)).toEqual(['Board', 'List']);
+    expect(screen.getByText('Board is now 1 of 2')).toBeInTheDocument();
+    expect(workspace.problems).toHaveLength(1);
   });
 
   it('has buttons at the end of each line for a pointer, closed at the ends, which keep the list open', async () => {

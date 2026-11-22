@@ -753,6 +753,8 @@ test.describe('views', () => {
     await expect(lines).toHaveText(SEED_VIEWS);
     // Tab reaches the buttons of the sheet, which keep the focus.
     const down = sheet(page).getByRole('menuitem', { name: 'Move Project Priorities down' });
+    // Its tooltip, for a mouse in a narrow window, says the keys too: not its name again.
+    await expect(down).toHaveAttribute('title', 'Move Project Priorities down (Alt+↓)');
     await tabTo(page, down);
     await page.keyboard.press('Enter');
     await expect(lines).toHaveText([

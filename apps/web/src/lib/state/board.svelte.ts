@@ -598,9 +598,9 @@ export class BoardStore {
 
   /**
    * Writes places that keep views where they show (`Placing.keep`): no step of
-   * undo, and said once where refused, as part of the gesture they go with.
+   * undo. A refusal is given back, for the gesture they go with to say once.
    */
-  async keepViewPlaces(keep: readonly PlaceWrite[]): Promise<void> {
+  async keepViewPlaces(keep: readonly PlaceWrite[]): Promise<unknown> {
     const writes = keep.flatMap(({ id, place }) => {
       const current = this.view(id);
       if (!current) return [];
@@ -611,7 +611,7 @@ export class BoardStore {
     const refused = (await Promise.allSettled(writes)).find(
       (each): each is PromiseRejectedResult => each.status === 'rejected',
     );
-    if (refused) this.workspace.report('save', refused.reason);
+    return refused?.reason;
   }
 
   async createView(draft: ViewDraft): Promise<BoardView | undefined> {

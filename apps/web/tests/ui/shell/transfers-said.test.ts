@@ -119,6 +119,23 @@ describe('the stack reached by F8', () => {
     expect(screen.getByTestId('transfers')).not.toHaveAttribute('data-reached');
   });
 
+  it('stays shown while the window is away, the focus coming back to it', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { transfers, one } = twoWorkspaces();
+    render(Transfers, { workspace: one });
+    transfers.upload({ file: file('a.txt'), send: () => Promise.reject(new Error('down')) });
+    await vi.waitFor(() => screen.getByRole('button', { name: 'Dismiss a.txt' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F8' }));
+    await tick();
+    const dismiss = screen.getByRole('button', { name: 'Dismiss a.txt' });
+    expect(document.activeElement).toBe(dismiss);
+    // Another window comes to the front: the focus goes out of the page, to nothing in it.
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    dismiss.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+    await tick();
+    expect(screen.getByTestId('transfers')).toHaveAttribute('data-reached');
+  });
+
   it('counts one kept, which is in, apart from those not uploaded', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { transfers, one } = twoWorkspaces();
