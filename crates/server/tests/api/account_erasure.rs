@@ -375,3 +375,109 @@ async fn of_another_organization(th: &TestServer) -> (Client, String) {
         .check_not_found();
     (client, workspace_id)
 }
+
+/// Erasing an account whose own space holds uploaded files deletes those files from the
+/// backing file storage (disk or S3) while keeping files in other organizations and
+/// spaces intact.
+async fn erasing_an_account_removes_its_own_space_files(ts: &TestServer) {
+    let user2 = ts.client2.me().await;
+    let own2 = crate::own_space::own_workspace(&ts.client2).await;
+    let own1 = crate::own_space::own_workspace(&ts.client).await;
+
+    let make_board_and_upload = async |client: &Client, workspace_id: &str, org_id: &str| {
+        let board: Container = client
+            .create_board(&Container {
+                workspace_id: workspace_id.to_owned(),
+                container_type: ContainerType::Private,
+                title: "with file".to_owned(),
+                ..Container::default()
+            })
+            .await
+            .created_json();
+        let response = crate::files::upload_in(
+            client,
+            workspace_id,
+            &board.id,
+            "note.txt",
+            b"own space file content",
+        )
+        .await;
+        response.check_created();
+        let file_id = crate::files::uploaded_id(&response);
+        let store = ts.app.store().for_org(org_id).expect("org id");
+        store
+            .get_file_info(&board.id, &file_id)
+            .await
+            .expect("recorded")
+            .path
+    };
+
+    let own2_path = make_board_and_upload(&ts.client2, &own2.id, &own2.org_id).await;
+    let own1_path = make_board_and_upload(&ts.client, &own1.id, &own1.org_id).await;
+    let (_, org_path) = crate::loose_objects::uploaded(ts, b"shared org file content").await;
+    for path in [&own2_path, &own1_path, &org_path] {
+        assert!(
+            crate::loose_objects::exists(ts, path).await,
+            "uploaded file exists before erasure: {path}"
+        );
+    }
+
+    ts.client2
+        .post(
+            DELETION,
+            &json!({"username": USER2_USERNAME, "password": PASSWORD}),
+        )
+        .await
+        .check_ok();
+    ts.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE users SET delete_after = 1 WHERE id = '{}'",
+            user2.id
+        ))
+        .await
+        .expect("wait elapsed");
+
+    fvoci_server::keep_house(&ts.app).await;
+    // Run doomed-object removal as well in case housekeeping ran file removal before
+    // erasure in a single pass.
+    let _ = crate::loose_objects::remove_doomed(ts, fvoci_server::auth::now_millis()).await;
+
+    assert!(
+        !crate::loose_objects::exists(ts, &own2_path).await,
+        "erased account's own-space file must be deleted from storage: {own2_path}"
+    );
+    assert!(
+        crate::loose_objects::exists(ts, &own1_path).await,
+        "another account's own-space file must remain"
+    );
+    assert!(
+        crate::loose_objects::exists(ts, &org_path).await,
+        "organization workspace file must remain"
+    );
+    assert_eq!(
+        ts.app
+            .housekeeping()
+            .store()
+            .loose_objects()
+            .await
+            .expect("listed"),
+        [],
+        "no doomed objects remain"
+    );
+}
+
+#[tokio::test]
+async fn erasing_an_account_removes_its_own_space_files_on_disk() {
+    let ts = Setup::native().start().await.init_basic().await;
+    erasing_an_account_removes_its_own_space_files(&ts).await;
+    ts.teardown().await;
+}
+
+#[tokio::test]
+#[ignore = "needs an S3-compatible server; see tests/storage.rs"]
+async fn with_s3_erasing_an_account_removes_its_own_space_files() {
+    let ts = crate::uploads::s3_server().await;
+    erasing_an_account_removes_its_own_space_files(&ts).await;
+    ts.teardown().await;
+}

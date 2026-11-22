@@ -122,7 +122,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 
-use fvoci_model::{ClientConfig, ContainerKinds};
+use fvoci_model::{ClientConfig, ContainerKinds, OrgKind};
 use fvoci_store::{Store, Tenant};
 use serde::Serialize;
 use tokio_util::task::TaskTracker;
@@ -159,6 +159,10 @@ pub struct App {
     /// The kinds of board this handle reaches ([`App::reaching`]): a board of another
     /// kind is not there for it, nor what is on one.
     kinds: ContainerKinds,
+    /// The immutable kind of this handle's organization, populated on entry or read at
+    /// most once per handle (`App::tell_webhooks`). Reset whenever [`App::scoped`]
+    /// changes the tenant.
+    org_kind: Arc<tokio::sync::OnceCell<OrgKind>>,
 }
 
 #[derive(Debug)]
@@ -304,6 +308,7 @@ impl App {
             ws,
             workspace: None,
             kinds: ContainerKinds::Every,
+            org_kind: Arc::new(tokio::sync::OnceCell::new()),
             inner: Arc::new(Inner {
                 reset_limiter: LoginLimiter::new(Limits::from_config(&config)),
                 mail: mail::Mailer::new(
@@ -373,7 +378,16 @@ impl App {
             store,
             workspace: None,
             kinds: self.kinds,
+            org_kind: Arc::new(tokio::sync::OnceCell::new()),
         }
+    }
+
+    /// Records the immutable kind of this handle's organization so later checks
+    /// ([`App::tell_webhooks`]) do not query it again.
+    #[must_use]
+    pub(super) fn with_org_kind(mut self, kind: OrgKind) -> Self {
+        self.org_kind = Arc::new(tokio::sync::OnceCell::new_with(Some(kind)));
+        self
     }
 
     /// The same handle, reaching boards of `kinds` only: for an operation that is about

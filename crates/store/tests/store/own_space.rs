@@ -3,7 +3,7 @@
 //! organization.
 
 use fvoci_model::{OrgKind, User, new_id};
-use fvoci_store::{DbType, Founding, Tenant};
+use fvoci_store::{DbType, Founding, StoreError, Tenant};
 
 use crate::common;
 
@@ -114,19 +114,32 @@ async fn one_account_owns_one_space_which_stays_what_it_is() {
         )
     };
     let theirs = format!("'{owner}'");
-    for (statement, why) in [
-        (insert(own, &theirs), "a second space of the account"),
-        (insert(own, "NULL"), "a space of nobody"),
-        (insert(shared, &theirs), "an organization of people, owned"),
+    let (unique_owner, owner_check) = match common::db_type() {
+        DbType::Sqlite => ("UNIQUE constraint failed", "CHECK constraint failed"),
+        DbType::Postgres => (
+            "organizations_owner_id_key",
+            "organizations_owner_of_personal",
+        ),
+    };
+    let keep_kind = "an organization does not change its kind or its owner";
+    for (statement, expected, why) in [
+        (
+            insert(own, &theirs),
+            unique_owner,
+            "a second space of the account",
+        ),
+        (insert(own, "NULL"), owner_check, "a space of nobody"),
         (
             format!(
                 "UPDATE organizations SET kind = '{shared}', owner_id = NULL \
                  WHERE owner_id = '{owner}'"
             ),
+            keep_kind,
             "a space made an organization of people",
         ),
         (
             format!("UPDATE organizations SET owner_id = NULL WHERE owner_id = '{owner}'"),
+            keep_kind,
             "a space taken from its account",
         ),
         (
@@ -134,11 +147,18 @@ async fn one_account_owns_one_space_which_stays_what_it_is() {
                 "UPDATE organizations SET kind = '{own}', owner_id = '{owner}' WHERE id = '{}'",
                 test.org_id
             ),
+            keep_kind,
             "an organization of people made a space",
         ),
     ] {
-        let refused = system.execute_unchecked(&statement).await;
-        assert!(refused.is_err(), "{why}: {refused:?}");
+        let Err(StoreError::Database(error)) = system.execute_unchecked(&statement).await else {
+            panic!("{why}: expected a database constraint refusal");
+        };
+        let message = error.to_string();
+        assert!(
+            message.contains(expected),
+            "{why}: expected {expected:?}, got {message:?}"
+        );
     }
     assert_eq!(
         common::own_space_shape(&system, &owner).await,
@@ -146,6 +166,27 @@ async fn one_account_owns_one_space_which_stays_what_it_is() {
         "the space is as it was"
     );
     test.teardown().await;
+
+    // On a database with no shared organization yet (so SQLite's one-shared-organization
+    // trigger does not mask the CHECK constraint), an owned shared organization is refused
+    // by the CHECK constraint itself on both SQLite and PostgreSQL.
+    let fresh_db = common::empty_database().await;
+    let fresh = fvoci_store::Store::connect(fresh_db.db_type(), fresh_db.database_connection())
+        .await
+        .expect("fresh store");
+    let fresh_owner = common::user(&fresh.scoped(Tenant::Unset), "fresh-owner").await;
+    let owned_org = insert(shared, &format!("'{fresh_owner}'"));
+    let Err(StoreError::Database(error)) = fresh.system().execute_unchecked(&owned_org).await
+    else {
+        panic!("an organization of people, owned: expected a database CHECK constraint refusal");
+    };
+    let message = error.to_string();
+    assert!(
+        message.contains(owner_check),
+        "an organization of people, owned: expected {owner_check:?}, got {message:?}"
+    );
+    fresh.close().await;
+    fresh_db.remove().await;
 }
 
 /// No account's own space is the instance's organization, however old, or the one
@@ -202,6 +243,17 @@ async fn an_own_space_is_not_counted_among_the_organizations() {
         None,
         "its owner administers it by no route of an organization"
     );
+    let own_workspace = common::own_workspace(&test, &owner).await;
+    let resolved = unset
+        .resolve_workspace(&owner, &own_workspace)
+        .await
+        .expect("resolved")
+        .expect("the owner enters their space");
+    assert_eq!(
+        (resolved.kind, resolved.org_role),
+        (OrgKind::Personal, None),
+        "resolve_workspace agrees with org_role_of_user: nobody holds an org role in an own space"
+    );
     test.teardown().await;
 }
 
@@ -247,4 +299,82 @@ async fn a_first_password_moves_the_revision_of_the_space_alone() {
         assert_ne!(after.1, before.1, "{name}: the space's revision moves on");
         assert_eq!(after.0, before.0, "{name}: the organization's stays");
     }
+}
+
+/// Migration 0050 (`erase_started_at = 0` filter): active accounts and accounts waiting
+/// in the deletion grace period both receive a valid own space (and cancelling the
+/// waiting account's deletion leaves its space usable), while accounts whose erasure
+/// already began or completed receive no own space.
+#[tokio::test]
+async fn migration_0050_gives_spaces_to_active_and_waiting_accounts_only() {
+    let database = common::empty_database().await;
+    let connection = common::raw_connection(&database);
+    fvoci_store::testing::migrate_up_to(database.db_type(), database.database_connection(), 49)
+        .await;
+
+    let (active, waiting, mid_erasure, erased) = (new_id(), new_id(), new_id(), new_id());
+    let insert =
+        |id: &str, name: &str, delete_at: i64, delete_after: i64, started: i64, done: i64| {
+            format!(
+                "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+             delete_at, delete_after, erase_started_at, erased_at) \
+             VALUES ('{id}', '{name}', '{name}@example.com', '', 1, 1, {delete_at}, \
+             {delete_after}, {started}, {done});"
+            )
+        };
+    common::execute_raw(
+        &connection,
+        &[
+            insert(&active, "active", 0, 0, 0, 0),
+            insert(&waiting, "waiting", 100, 9_000_000_000_000, 0, 0),
+            insert(&mid_erasure, "mid", 100, 200, 300, 0),
+            insert(&erased, "", 100, 200, 300, 400),
+        ]
+        .concat(),
+    )
+    .await;
+
+    let store = fvoci_store::Store::connect(database.db_type(), database.database_connection())
+        .await
+        .expect("migrated from 49 through 0050 and latest");
+    let system = store.system();
+
+    for (user_id, label) in [(&active, "active"), (&waiting, "waiting in grace")] {
+        assert_eq!(
+            common::own_space_shape(&system, user_id).await,
+            common::own_space(),
+            "{label} account received a valid own space"
+        );
+    }
+    // Cancelling the waiting account's deletion restores the account with its backfilled
+    // own space ready for use.
+    assert!(
+        store
+            .cancel_account_deletion(&waiting, 150)
+            .await
+            .expect("cancelled"),
+        "waiting account deletion can be cancelled after 0050"
+    );
+    let listed = store
+        .workspaces_of_user(&waiting, fvoci_store::Making::with_password())
+        .await
+        .expect("listed");
+    assert_eq!(
+        listed.len(),
+        1,
+        "backfilled own space is listed: {listed:?}"
+    );
+    assert_eq!(listed[0].kind, OrgKind::Personal);
+
+    for (user_id, label) in [(&mid_erasure, "mid-erasure"), (&erased, "already erased")] {
+        let empty: [Vec<String>; 4] = Default::default();
+        assert_eq!(
+            common::own_space_shape(&system, user_id).await,
+            empty,
+            "{label} account must not receive an own space"
+        );
+    }
+
+    store.close().await;
+    database.remove().await;
 }

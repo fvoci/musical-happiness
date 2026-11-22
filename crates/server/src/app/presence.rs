@@ -4,7 +4,7 @@ use fvoci_model::WorkspaceRole;
 
 use super::{App, Asker};
 use crate::collab::Wall;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 /// A visit checked behind its organization's wall. A token reader has no named role.
 #[derive(Debug)]
@@ -31,8 +31,20 @@ impl App {
         read_token: &str,
     ) -> Result<Option<PresenceAccess>, AppError> {
         let (app, role) = if read_token.is_empty() {
-            let Some(entered) = self.enter_workspace_as(asker, workspace_id).await? else {
-                return Ok(None);
+            let entered = match self.enter_workspace_as(asker, workspace_id).await {
+                Ok(Some(entered)) => entered,
+                Ok(None) => return Ok(None),
+                // Expected session refusals are not store failures; drop presence quietly,
+                // matching `collab::admission::entered`.
+                Err(error)
+                    if matches!(
+                        error.reason(),
+                        Some(Reason::SsoRequired | Reason::PasswordSignInRequired)
+                    ) =>
+                {
+                    return Ok(None);
+                }
+                Err(error) => return Err(error),
             };
             (entered.app.in_workspace(workspace_id), Some(entered.role))
         } else {
