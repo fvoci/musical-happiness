@@ -9,13 +9,18 @@
   while a pointer drags it: a finger keeps sending its touch events to the
   element it landed on.
 
+  A long column draws a window of its cards (column-window.ts) and a blank
+  for the rest. Each card tells a screen reader where it is among all
+  (`aria-posinset`), and the drag where it is among those that stay
+  (`data-drag-at`). The page's own search finds only the cards drawn.
+
   The width is a matter of the pane, in classes: as wide as the pane less a
   sliver of the neighbours where only one column fits, a fixed width where
   two do.
 -->
 <script lang="ts">
   import PlusIcon from '@lucide/svelte/icons/plus';
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
 
   import CardFace from '$lib/components/card-face/CardFace.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -29,6 +34,16 @@
 
   import { badgesOf, changeOption, type FaceContext } from './board-data.ts';
   import ColumnMenu from './ColumnMenu.svelte';
+  import {
+    CardHeights,
+    cardsBetween,
+    contentHeight,
+    drawnRuns,
+    guessHeight,
+    piecesOf,
+    topsOf,
+    WINDOW_FROM,
+  } from './column-window.ts';
   import { columnIdOf, type Activation, type MoveTarget } from './kanban.ts';
   import KanbanCard from './KanbanCard.svelte';
 
@@ -118,36 +133,88 @@
   const named = $derived(isOption && option.id !== '');
   const orderable = $derived(canStep !== undefined);
 
-  type Entry = { kind: 'card'; card: Card } | { kind: 'gap' };
   const GAP_KEY = ' gap';
-  const GAP: Entry = { kind: 'gap' };
 
-  // One entry per card, the same object for as long as the cards are the
-  // same: when the gap moves, the list is put together again from these and
-  // no card is drawn anew.
-  const cardEntries = $derived(
-    group.cards.map((card): Entry & { kind: 'card' } => ({ kind: 'card', card })),
-  );
   // Read through these, the list below is put together again only when the
   // gap of this column or the dragged cards change, not on every move of a
   // gap in another column.
   const gap = $derived(gapAt);
   const dragged = $derived(draggedIds);
 
-  const entries = $derived.by(() => {
-    if (gap < 0 && dragged.length === 0) return cardEntries;
-    const list: Entry[] = [];
-    let others = 0;
-    for (const entry of cardEntries) {
-      if (!dragged.includes(entry.card.id)) {
-        if (others === gap) list.push(GAP);
-        others += 1;
-      }
-      list.push(entry);
-    }
-    if (others === gap) list.push(GAP);
-    return list;
+  // ------------------------------------------------------------- window
+
+  // A long column draws a window of its cards (column-window.ts): those near
+  // what is in sight, near the focus, the gap and the card opened last.
+  const windowed = $derived(group.cards.length > WINDOW_FROM);
+  let list = $state<HTMLElement | null>(null);
+  let scrollTop = $state(0);
+  let viewHeight = $state(0);
+  /** The card that has, or last had, the focus in the list. */
+  let focusId = $state<string | undefined>(undefined);
+  const cardHeights = new CardHeights((cardId) => guesses?.get(cardId));
+
+  /** The cards that are not on their way: what the drag counts and the list stacks. */
+  const staying = $derived(
+    dragged.length === 0 ? group.cards : group.cards.filter((card) => !dragged.includes(card.id)),
+  );
+  const guesses = $derived(
+    windowed ? new Map(group.cards.map((card) => [card.id, guessHeight(card, face)])) : undefined,
+  );
+  const heights = $derived(
+    guesses ? staying.map((card) => cardHeights.get(card.id) ?? guesses.get(card.id) ?? 0) : [],
+  );
+  const tops = $derived(topsOf(heights));
+  const atOf = $derived(windowed ? new Map(staying.map((card, at) => [card.id, at])) : undefined);
+  // The card opened last stays drawn once it is closed: the focus comes back to it.
+  let openedLast: string | undefined;
+  const opened = $derived.by(() => {
+    const cardId = board.openCard?.cardId;
+    if (cardId !== undefined) openedLast = cardId;
+    return openedLast;
   });
+
+  const pieces = $derived.by(() => {
+    if (!atOf) return piecesOf(group.cards, dragged, gap, undefined, heights);
+    // A screen above and one below what is in sight, so that a fling finds cards drawn.
+    const screen = viewHeight || 800;
+    const inSight = cardsBetween(tops, scrollTop - screen, scrollTop + 2 * screen);
+    const pin = (cardId: string | undefined): number =>
+      cardId === undefined ? -1 : (atOf.get(cardId) ?? -1);
+    const runs = drawnRuns(staying.length, inSight, [pin(focusId), gap, pin(opened)]);
+    return piecesOf(group.cards, dragged, gap, runs, heights);
+  });
+
+  function watchList(element: HTMLElement): () => void {
+    list = element;
+    const stop = cardHeights.watch(element);
+    return () => {
+      stop();
+      list = null;
+    };
+  }
+
+  // A column moved among the others, or shown again once a pointer has
+  // dragged it, may come back scrolled to its top without a scroll event: it
+  // is put back where it was, where its window is drawn. Not on every scroll.
+  $effect(() => {
+    // The id of its box is its place in the row: it changes when the column moves.
+    if (panelId === '' || hidden || !list) return;
+    const wanted = untrack(() => scrollTop);
+    if (list.scrollTop !== wanted) list.scrollTop = wanted;
+  });
+
+  /** The card of whatever took the focus in the list: the card, its menu, the stand-in it is carried as. */
+  function onFocusIn(event: FocusEvent): void {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const cardId =
+      target
+        .closest('[role="listitem"]')
+        ?.querySelector('[data-card]')
+        ?.getAttribute('data-card') ??
+      target.closest('[data-drag-carried]')?.getAttribute('data-drag-carried');
+    if (cardId) focusId = cardId;
+  }
 
   const targetsOf = (cardId: string): readonly string[] =>
     selectedIds.includes(cardId) ? selectedIds : [cardId];
@@ -300,15 +367,40 @@
     data-drag-list={columnIdOf(option.id)}
     data-drag-scroll="y"
     data-column-cards={option.id}
-    class="flex min-h-12 flex-col gap-2 overflow-y-auto overscroll-y-contain p-2"
+    class={[
+      'relative flex min-h-12 flex-col gap-2 overflow-y-auto overscroll-y-contain p-2',
+      windowed && '[overflow-anchor:none]',
+    ]}
+    bind:clientHeight={viewHeight}
+    onscroll={() => {
+      if (list) scrollTop = list.scrollTop;
+    }}
+    onfocusin={onFocusIn}
+    {@attach watchList}
   >
-    {#each entries as entry (entry.kind === 'gap' ? GAP_KEY : entry.card.id)}
+    {#if windowed}
+      <!--
+        As high as the whole column: what scrolls keeps its height while the
+        window moves, though the cards that leave it go before the blank that
+        stands for them grows, and a browser keeps the scroll where it is.
+      -->
+      <div
+        aria-hidden="true"
+        class="pointer-events-none absolute top-0 left-0 w-px"
+        style:height="{contentHeight(tops, gap, gapHeight)}px"
+      ></div>
+    {/if}
+    {#each pieces as entry (entry.kind === 'card' ? entry.card.id : entry.kind === 'gap' ? GAP_KEY : ` blank ${entry.key}`)}
       {#if entry.kind === 'card'}
         <KanbanCard
           {board}
           card={entry.card}
           {face}
           href={cardHref(entry.card.id)}
+          at={entry.at}
+          position={entry.position}
+          count={group.cards.length}
+          measure={windowed ? cardHeights.measure : undefined}
           dragged={draggedIds.includes(entry.card.id)}
           selected={selectedIds.includes(entry.card.id)}
           targetIds={targetsOf(entry.card.id)}
@@ -318,6 +410,18 @@
           {onSelect}
           {onMove}
         />
+      {:else if entry.kind === 'blank'}
+        <!-- An empty blank at an end takes back the room between it and the cards. -->
+        <div
+          data-column-blank
+          aria-hidden="true"
+          class={[
+            'shrink-0',
+            entry.cards === 0 && entry.key === 'start' && '-mb-2',
+            entry.cards === 0 && entry.key === 'end' && '-mt-2',
+          ]}
+          style:height="{entry.height}px"
+        ></div>
       {:else if carried}
         {@const badges = badgesOf(carried)}
         <div
