@@ -5,7 +5,7 @@
  * A column of a thousand cards drawn whole is most of the cost of drawing
  * the board and of scrolling it. Past `WINDOW_FROM` cards a column draws
  * those near what is in sight, and besides them, wherever they are, the
- * cards near the focus, near the gap of a drag and the card that is open;
+ * cards near the focus, near the gap of a drag and the card opened last;
  * the cards on their way are drawn too, hidden (KanbanColumn). Each run of
  * cards left out is one blank as high as they would be: as high as each was
  * when it was last drawn, or as its face is guessed to be.
@@ -134,6 +134,7 @@ export function piecesOf(
   heights: readonly number[],
 ): Piece[] {
   const pieces: Piece[] = [];
+  const away = new Set(dragged);
   let at = 0;
   let blank: { at: number; height: number; cards: number } | undefined;
   const close = (): void => {
@@ -144,7 +145,7 @@ export function piecesOf(
   };
   let run = 0;
   for (const [position, card] of cards.entries()) {
-    if (dragged.includes(card.id)) {
+    if (away.has(card.id)) {
       close();
       pieces.push({ kind: 'card', card, at: -1, position });
       continue;

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/svelte';
 import { expect, waitFor } from 'storybook/test';
+import { WINDOW_FROM } from '$lib/features/views/kanban/column-window.ts';
 import ViewSample from './ViewSample.svelte';
 import { clickStory, storyElement } from './interactions.ts';
 
@@ -17,8 +18,15 @@ const meta = {
         0,
       );
     await waitFor(() => expect(counted()).toBe(count));
-    // Where no column is long enough for a window, every card is drawn.
-    if (count <= 60) await expect(root.querySelectorAll('[data-card]')).toHaveLength(count);
+    // Each column draws every card it counts, or a window of them once it is long.
+    for (const column of root.querySelectorAll('[data-column]')) {
+      const cards = Number(
+        column.querySelector('[data-column-count] [aria-hidden="true"]')?.textContent,
+      );
+      const drawn = column.querySelectorAll('[data-card]').length;
+      if (cards <= WINDOW_FROM) await expect(drawn).toBe(cards);
+      else await expect(drawn).toBeGreaterThan(0);
+    }
     if (count > 0) await expect(root).toHaveTextContent('Example card 001');
     if (args.readOnly)
       await expect(root.querySelectorAll('[data-column-add], [data-column-new]')).toHaveLength(0);
