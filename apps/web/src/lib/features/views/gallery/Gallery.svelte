@@ -16,6 +16,9 @@
   two axes and lib/drag sorts along one. A sort of the view orders them.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
+
   import CardPresence from '../CardPresence.svelte';
   import CardFace from '$lib/components/card-face/CardFace.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -23,6 +26,7 @@
 
   import { badgesOf, faceContextOf } from '../kanban/board-data.ts';
   import CardMenu from '../kanban/CardMenu.svelte';
+  import { CARD_MENU_BUTTON } from '../kanban/kanban.ts';
   import type { ViewProps } from '../props.ts';
   import { CardPreviews, whileHere } from '$lib/state/index.ts';
 
@@ -31,6 +35,18 @@
   const uid = $props.id();
   const face = $derived(faceContextOf(board, view));
   const previews = $derived(new CardPreviews(board.workspace.backend, board.boardId));
+
+  // Each card's menu is mounted only when asked for, so a large gallery builds plain buttons.
+  const menusMade = new SvelteSet<string>();
+  let openMenuId = $state<string | undefined>(undefined);
+
+  async function openMenu(cardId: string, event: MouseEvent): Promise<void> {
+    const holder = (event.currentTarget as HTMLElement | null)?.parentElement;
+    menusMade.add(cardId);
+    await tick();
+    holder?.querySelector<HTMLElement>('[data-card-menu]')?.focus({ preventScroll: true });
+    openMenuId = cardId;
+  }
 
   /** The address of a picture of the board; none where the backend has no bytes for it. */
   function imageOf(fileId: string | undefined): string | undefined {
@@ -104,7 +120,36 @@
           </CardFace>
         </div>
         <div data-slot="card-menu" class="absolute top-2 right-2 roomy:top-1 roomy:right-1">
-          <CardMenu {board} {card} href={cardHref(card.id)} />
+          {#if menusMade.has(card.id)}
+            <CardMenu
+              bind:open={
+                () => openMenuId === card.id,
+                (next: boolean) => {
+                  if (next) openMenuId = card.id;
+                  else if (openMenuId === card.id) openMenuId = undefined;
+                }
+              }
+              {board}
+              {card}
+              href={cardHref(card.id)}
+            />
+          {:else}
+            {@const label = m.kanban_card_menu({ title: card.title || m['KanbanCard.untitled']() })}
+            <button
+              type="button"
+              aria-label={label}
+              title={label}
+              aria-haspopup="menu"
+              data-card-menu={card.id}
+              class={CARD_MENU_BUTTON}
+              onclick={(event) => void openMenu(card.id, event)}
+            >
+              <svg class="size-4" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <circle cx="3" cy="8" r="1.25" /><circle cx="8" cy="8" r="1.25" />
+                <circle cx="13" cy="8" r="1.25" />
+              </svg>
+            </button>
+          {/if}
         </div>
       </li>
     {/each}

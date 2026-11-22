@@ -5,7 +5,7 @@
  * the caller passes them, from the reader's settings. A moment is a number
  * of milliseconds since the epoch.
  */
-import { dateOfInstant, type CalendarDate } from './dates.ts';
+import { dateOfInstant, startOfDay, type CalendarDate } from './dates.ts';
 
 /** How the hours of a time are written: `h12` is 3:20 PM, `h23` is 15:20. */
 export type HourCycle = 'h12' | 'h23';
@@ -28,22 +28,69 @@ export interface DisplayContext {
 
 const isValid = (instant: number): boolean => Number.isFinite(instant);
 
+interface YearRange {
+  year: number;
+  from: number;
+  until: number;
+}
+
+const currentYears = new Map<string, YearRange>();
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** One formatter per language, zone and shape: card lists format thousands of dates. */
+function dateFormatter(
+  locale: string,
+  timeZone: string,
+  shape: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const key = `${locale}\u0000${timeZone}\u0000${shape}`;
+  let formatter = dateFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, { timeZone, ...options });
+    dateFormatters.set(key, formatter);
+  }
+  return formatter;
+}
+
+/** The reader's current year and its millisecond bounds in their time zone. */
+function currentYearRange(context: DisplayContext): YearRange {
+  const now = context.now ?? Date.now();
+  const cached = currentYears.get(context.timeZone);
+  if (cached && now >= cached.from && now < cached.until) return cached;
+  const year = Number(dateOfInstant(now, context.timeZone).slice(0, 4));
+  if (year <= 1 || year >= 9999) return { year, from: now, until: now };
+  const range: YearRange = {
+    year,
+    from: startOfDay(`${String(year).padStart(4, '0')}-01-01` as CalendarDate, context.timeZone),
+    until: startOfDay(
+      `${String(year + 1).padStart(4, '0')}-01-01` as CalendarDate,
+      context.timeZone,
+    ),
+  };
+  currentYears.set(context.timeZone, range);
+  return range;
+}
+
 /** The reader's current year: dates in it are shown without the year. */
 function thisYear(context: DisplayContext): number {
-  return Number(dateOfInstant(context.now ?? Date.now(), context.timeZone).slice(0, 4));
+  return currentYearRange(context).year;
 }
 
 function yearOption(instant: number, context: DisplayContext): 'numeric' | undefined {
+  const current = currentYearRange(context);
+  if (instant >= current.from && instant < current.until) return undefined;
+  if (current.from < current.until) return 'numeric';
   const year = Number(dateOfInstant(instant, context.timeZone).slice(0, 4));
-  return year === thisYear(context) ? undefined : 'numeric';
+  return year === current.year ? undefined : 'numeric';
 }
 
 /** The day of a moment for the reader: `July 09`, or `July 09, 2025` in another year. */
 export function displayDate(instant: number, context: DisplayContext): string {
   if (!isValid(instant)) return '';
-  return new Intl.DateTimeFormat(context.locale, {
-    timeZone: context.timeZone,
-    year: yearOption(instant, context),
+  const year = yearOption(instant, context);
+  return dateFormatter(context.locale, context.timeZone, year ? 'date-y' : 'date', {
+    year,
     month: 'long',
     day: '2-digit',
   }).format(instant);
@@ -56,9 +103,9 @@ export function displayDate(instant: number, context: DisplayContext): string {
  */
 export function displayCalendarDate(date: CalendarDate, context: DisplayContext): string {
   const year = Number(date.slice(0, 4));
-  return new Intl.DateTimeFormat(context.locale, {
-    timeZone: 'UTC',
-    year: year === thisYear(context) ? undefined : 'numeric',
+  const withYear = year !== thisYear(context);
+  return dateFormatter(context.locale, 'UTC', withYear ? 'date-y' : 'date', {
+    year: withYear ? 'numeric' : undefined,
     month: 'long',
     day: '2-digit',
   }).format(Date.UTC(year, Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10))));
@@ -67,8 +114,7 @@ export function displayCalendarDate(date: CalendarDate, context: DisplayContext)
 /** The short all-digits form a person types: `07/09/2026` in the United States. */
 export function inputDate(instant: number, context: DisplayContext): string {
   if (!isValid(instant)) return '';
-  return new Intl.DateTimeFormat(context.locale, {
-    timeZone: context.timeZone,
+  return dateFormatter(context.locale, context.timeZone, 'input-date', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -78,15 +124,21 @@ export function inputDate(instant: number, context: DisplayContext): string {
 /** A moment on the reader's clock: `July 09 at 3:20 PM`, with the year in another year. */
 export function displayDateTime(instant: number, context: DisplayContext): string {
   if (!isValid(instant)) return '';
-  return new Intl.DateTimeFormat(context.locale, {
-    timeZone: context.timeZone,
-    year: yearOption(instant, context),
-    month: 'long',
-    day: '2-digit',
-    hour: 'numeric',
-    minute: 'numeric',
-    ...(context.hourCycle ? { hourCycle: context.hourCycle } : {}),
-  }).format(instant);
+  const year = yearOption(instant, context);
+  const cycle = context.hourCycle ?? '';
+  return dateFormatter(
+    context.locale,
+    context.timeZone,
+    `datetime\u0000${year ? 'y' : ''}\u0000${cycle}`,
+    {
+      year,
+      month: 'long',
+      day: '2-digit',
+      hour: 'numeric',
+      minute: 'numeric',
+      ...(context.hourCycle ? { hourCycle: context.hourCycle } : {}),
+    },
+  ).format(instant);
 }
 
 type CoarseUnit = 'second' | 'minute' | 'hour' | 'day' | 'month' | 'year';

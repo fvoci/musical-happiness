@@ -14,6 +14,8 @@
   screen reader.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
+
   import { primaryModifier } from '$lib/keys.ts';
   import CardPresence from '../CardPresence.svelte';
   import CardFace from '$lib/components/card-face/CardFace.svelte';
@@ -23,13 +25,13 @@
 
   import { badgesOf, type FaceContext } from './board-data.ts';
   import CardMenu from './CardMenu.svelte';
-  import type { Activation, MoveTarget } from './kanban.ts';
+  import { CARD_MENU_BUTTON, type Activation, type MoveTarget } from './kanban.ts';
 
   interface Props {
     board: BoardStore;
     card: Card;
     face: FaceContext;
-    href: string;
+    cardHref: (cardId: string) => string;
     /** Its place among the cards of the column not on their way, as the drag counts; -1 on its way. */
     at: number;
     /** Its place in the column and how many cards the column has: for a screen reader, which may not be told of all. */
@@ -41,7 +43,7 @@
     dragged: boolean;
     selected: boolean;
     /** The cards the menu's "move" and "delete" act on. */
-    targetIds: readonly string[];
+    targetsOf: (cardId: string) => readonly string[];
     /** The columns the card can be moved to; empty when it cannot. */
     columns: readonly MoveTarget[];
     /** The id of the text that says how to drag with the keyboard. */
@@ -56,14 +58,14 @@
     board,
     card,
     face,
-    href,
+    cardHref,
     at,
     position,
     count,
     measure,
     dragged,
     selected,
-    targetIds,
+    targetsOf,
     columns,
     describedBy,
     onActivate,
@@ -73,6 +75,21 @@
 
   const uid = $props.id();
   const badges = $derived(badgesOf(card));
+  const menuLabel = $derived(
+    m.kanban_card_menu({ title: card.title || m['KanbanCard.untitled']() }),
+  );
+
+  // The menu is mounted only when asked for: scrolling a long column would otherwise build two menus per card.
+  let menuMade = $state(false);
+  let menuOpen = $state(false);
+
+  async function openMenu(event: MouseEvent): Promise<void> {
+    const holder = (event.currentTarget as HTMLElement | null)?.parentElement;
+    menuMade = true;
+    await tick();
+    holder?.querySelector<HTMLElement>('[data-card-menu]')?.focus({ preventScroll: true });
+    menuOpen = true;
+  }
 
   function activate(event: MouseEvent | KeyboardEvent): void {
     // The other platform's modifier is no command on a card, as in the table.
@@ -137,20 +154,39 @@
     {/if}
   </div>
   <div data-slot="card-menu" class="absolute top-1 right-1 roomy:top-0 roomy:right-0">
-    <CardMenu
-      {board}
-      {card}
-      {href}
-      {targetIds}
-      {columns}
-      {selected}
-      onSelect={onSelect &&
-        (() => {
-          onSelect(card.id);
-        })}
-      onMove={(optionId: string) => {
-        onMove(targetIds, optionId);
-      }}
-    />
+    {#if menuMade}
+      {@const targets = targetsOf(card.id)}
+      <CardMenu
+        bind:open={menuOpen}
+        {board}
+        {card}
+        href={cardHref(card.id)}
+        targetIds={targets}
+        {columns}
+        {selected}
+        onSelect={onSelect &&
+          (() => {
+            onSelect(card.id);
+          })}
+        onMove={(optionId: string) => {
+          onMove(targets, optionId);
+        }}
+      />
+    {:else}
+      <button
+        type="button"
+        aria-label={menuLabel}
+        title={menuLabel}
+        aria-haspopup="menu"
+        data-card-menu={card.id}
+        class={CARD_MENU_BUTTON}
+        onclick={(event) => void openMenu(event)}
+      >
+        <svg class="size-4" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <circle cx="3" cy="8" r="1.25" /><circle cx="8" cy="8" r="1.25" />
+          <circle cx="13" cy="8" r="1.25" />
+        </svg>
+      </button>
+    {/if}
   </div>
 </div>

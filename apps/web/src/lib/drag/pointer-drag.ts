@@ -85,6 +85,8 @@ interface Press {
   pointerId: number;
   /** A finger or pen: starts by resting, and the browser may take the gesture for scrolling. */
   touch: boolean;
+  /** Where the finger landed: touch events keep going to it even after it leaves the document. */
+  target: EventTarget | null;
   origin: Point;
   last: Point;
   dragging: boolean;
@@ -143,12 +145,19 @@ class PointerDragController {
     };
     this.#root.addEventListener('pointerdown', this.#onPointerDown);
     this.#root.addEventListener('lostpointercapture', this.#onLostCapture);
-    // Present before any finger lands: a browser decides when the touch begins
-    // whether a listener may cancel its moves.
-    this.#root.addEventListener('touchmove', this.#onTouchMove, this.#notPassive);
     this.#root.addEventListener('contextmenu', this.#onContextMenu);
     // Links and images would start the browser's own drag, which cancels the pointer.
     this.#root.addEventListener('dragstart', this.#preventWhilePressed);
+  }
+
+  /** Attaches the non-passive touchmove listener only while a finger drag holds the touch. */
+  #blockTouchScroll(target: EventTarget | null): () => void {
+    this.#root.addEventListener('touchmove', this.#onTouchMove, this.#notPassive);
+    target?.addEventListener('touchmove', this.#onTouchMove, this.#notPassive);
+    return () => {
+      this.#root.removeEventListener('touchmove', this.#onTouchMove);
+      target?.removeEventListener('touchmove', this.#onTouchMove);
+    };
   }
 
   #finish(): Press | undefined {
@@ -176,6 +185,7 @@ class PointerDragController {
    * screen does not scroll, and the button going up is not a click.
    */
   #ignoreUntilLifted(ended: Press): void {
+    const unblock = ended.touch ? this.#blockTouchScroll(ended.target) : undefined;
     const lifted = (event: PointerEvent): void => {
       if (event.pointerId !== ended.pointerId) return;
       if (event.type === 'pointerup') this.#swallowNextClick();
@@ -184,6 +194,7 @@ class PointerDragController {
     const forget = (): void => {
       window.removeEventListener('pointerup', lifted, this.#capture);
       window.removeEventListener('pointercancel', lifted, this.#capture);
+      unblock?.();
       this.#spent = undefined;
     };
     window.addEventListener('pointerup', lifted, this.#capture);
@@ -196,9 +207,17 @@ class PointerDragController {
     clearTimeout(this.#press.timer);
     this.#press.dragging = true;
     if (this.#press.moved) this.#takePointer();
-    // Only a finger that rested gets the buzz: it is the one sign that the
-    // wait is over. A mouse sees the item move.
-    if (this.#press.touch) buzz(this.#settings.touchVibration);
+    if (this.#press.touch) {
+      const unblock = this.#blockTouchScroll(this.#press.target);
+      const release = this.#press.release;
+      this.#press.release = () => {
+        unblock();
+        release();
+      };
+      // Only a finger that rested gets the buzz: it is the one sign that the
+      // wait is over. A mouse sees the item move.
+      buzz(this.#settings.touchVibration);
+    }
     this.#press.session.start(this.#press.last);
   };
 
@@ -329,14 +348,12 @@ class PointerDragController {
     window.addEventListener('pointercancel', this.#onPointerCancel, this.#capture);
     window.addEventListener('keydown', this.#onKeyDown, this.#capture);
     document.addEventListener('selectstart', this.#preventWhilePressed);
-    // Touch events go to the element the finger landed on even after it has
-    // left the document, where they no longer reach the root.
-    if (touch) target?.addEventListener('touchmove', this.#onTouchMove, this.#notPassive);
 
     this.#press = {
       session,
       pointerId: event.pointerId,
       touch,
+      target,
       origin,
       last: origin,
       dragging: false,
@@ -349,7 +366,6 @@ class PointerDragController {
         window.removeEventListener('pointercancel', this.#onPointerCancel, this.#capture);
         window.removeEventListener('keydown', this.#onKeyDown, this.#capture);
         document.removeEventListener('selectstart', this.#preventWhilePressed);
-        target?.removeEventListener('touchmove', this.#onTouchMove);
       },
     };
     if (!touch && this.#settings.immediate) this.#begin();
@@ -364,7 +380,6 @@ class PointerDragController {
     this.#spent?.forget();
     this.#root.removeEventListener('pointerdown', this.#onPointerDown);
     this.#root.removeEventListener('lostpointercapture', this.#onLostCapture);
-    this.#root.removeEventListener('touchmove', this.#onTouchMove);
     this.#root.removeEventListener('contextmenu', this.#onContextMenu);
     this.#root.removeEventListener('dragstart', this.#preventWhilePressed);
   }
