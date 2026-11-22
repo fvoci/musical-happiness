@@ -5,7 +5,7 @@
  * board the reader may not see, in whichever order the room and the
  * reading answer. Cards opened and closed fast leave no room behind.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { BackendError } from '$lib/state/index.ts';
 import type { BodyDoc, BodyDocHears } from '$lib/state/backend.ts';
@@ -264,5 +264,21 @@ describe('the room asked for as a card is opened', () => {
       expect(roomsOf(made.world).members(alpha)).toBe(0);
     });
     expect(opened.every((one) => one.closed)).toBe(true);
+  });
+
+  it("closes a card's room in test teardown when the test leaves it open", async () => {
+    const made = await openFirstBoard();
+    const cardId = realCard(made, 'Alpha');
+    const card = await made.board.showCard(cardId);
+    await vi.waitFor(() => {
+      expect(card.room?.status).toBe('joined');
+    });
+    expect(roomsOf(made.world).members(cardId)).toBe(1);
+    onTestFinished(async () => {
+      expect(card.room).toBeUndefined();
+      await vi.waitFor(() => {
+        expect(roomsOf(made.world).members(cardId)).toBe(0);
+      });
+    });
   });
 });
