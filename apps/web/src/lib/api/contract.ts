@@ -606,6 +606,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/org/{orgId}/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Leave an organization
+         * @description Takes the account of the session out of an organization that people work in
+         *     together, at its own asking, all at once or not at all. It leaves each workspace of
+         *     the organization, in use or in the trash, as `removeWorkspaceMember` takes a member
+         *     out: a board it was the only admin of passes to the workspace's oldest other
+         *     administrator, and a workspace it joined as the organization's administrator
+         *     (`joinOrgWorkspace`) records that it left. Its roles on boards and wikis, its teams,
+         *     what it follows (`subscriptions`) in the organization and the links of invitations it
+         *     made there that nobody used go with it, and so does its membership; who leaves the
+         *     server's own first organization administers the server no more. Its sessions,
+         *     its identities and what it wrote stay, and the organization stays one it made. Its
+         *     open connections stop following the organization's workspaces
+         *     (`UNSUBSCRIBED_WORKSPACE`). It comes back only as anybody new does: by an invitation,
+         *     or as the organization lets in who signs in through its provider. Asked of any
+         *     session: leaving is the account's own, whatever provider the organization takes.
+         *
+         *     404 for an organization that is not there or the account is no member of, and for
+         *     an own space, which nobody leaves. A guest of a workspace is no member of its
+         *     organization: 404 here, and it leaves a workspace or board by `leaveContainer`.
+         *
+         *     What stands in the way is 409, and nothing changes: the server's only administrator
+         *     stays in the server's own first organization (reason `last_instance_admin`); the
+         *     only administrator of an organization that has other people in it stays until
+         *     somebody else is one (reason `sole_org_admin`); and nobody leaves an organization
+         *     they are the only person in (reason `alone_in_organization`). Asked in that order.
+         *     Of two administrators who leave at once, the second is asked once the first is out.
+         */
+        post: operations["leaveOrganization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/org/{orgId}/members": {
         parameters: {
             query?: never;
@@ -8070,6 +8114,36 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AuditRecord"][];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    leaveOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of an organization that people work in together. 404 unless the user of the session is a member of it (a guest of its workspaces is none); and 404 for the user's own space, which nobody is a member of. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account is out of the organization. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {

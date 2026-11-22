@@ -1,8 +1,8 @@
 /**
  * What a gallery shows of a card's body: the file of its first image and
  * the beginning of its text, made as the server makes `CardPreview`
- * (`contracts/openapi.json`). The memory backend makes it so, and a card
- * that comes in a change message with its body gets it so.
+ * (`contracts/openapi.json`). The memory backend makes it so, and so does a
+ * card read whole with its body.
  */
 import { plainText } from './body-text.ts';
 import type { DocNode } from './schema.ts';

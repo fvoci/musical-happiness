@@ -5,7 +5,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
-import { ON_A_CARD, viewIdOf } from './address.ts';
+import { ON_A_CARD, placeOf, viewIdOf } from './address.ts';
 import { boardPage, card, choose, dialog, fitPane, openView, undo } from './kanban.support.ts';
 import { screensDir } from './screens.ts';
 
@@ -115,6 +115,63 @@ test('the menu of a card duplicates and deletes it, and has nothing about column
   await undo(page);
   await expect(card(page, 'Share a board')).toHaveCount(1);
 });
+
+test('a body another person writes is followed by the card: its preview and its tasks', async ({
+  page,
+}, info) => {
+  await openView(page, info, ...WELCOME);
+  const face = card(page, 'Drag cards');
+  const task = (checked: boolean, text: string) => ({
+    type: 'taskItem',
+    attrs: { checked },
+    content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+  });
+  const write = async (tasks: object[], words: string): Promise<void> => {
+    const body = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: words }] },
+        { type: 'taskList', content: tasks },
+      ],
+    };
+    await page.evaluate(
+      async ([boardId, written]) => {
+        const dev = (
+          window as unknown as {
+            fvociDev: {
+              backend: Pick<DevBackend, 'cards'>;
+              someoneElse(): DevBackend;
+            };
+          }
+        ).fvociDev;
+        const found = (await dev.backend.cards(boardId)).find((one) => one.title === 'Drag cards');
+        if (!found) throw new Error('no card');
+        await dev
+          .someoneElse()
+          .writeCardBody(boardId, found.id, { body: written, readAt: found.updateAt });
+      },
+      [placeOf(page.url()).boardId, body] as const,
+    );
+  };
+
+  // Told as the server tells it: the summary of the body, not the body.
+  await write([task(false, 'one'), task(false, 'two')], 'Written by someone else');
+  await expect(face.locator('[data-slot="card-preview"]')).toContainText('Written by someone else');
+  await expect(face.locator('[data-slot="card-tasks"]')).toContainText('0/2');
+  await write([task(true, 'one'), task(false, 'two')], 'And one is done');
+  await expect(face.locator('[data-slot="card-preview"]')).toContainText('And one is done');
+  await expect(face.locator('[data-slot="card-tasks"]')).toContainText('1/2');
+});
+
+/** What the test asks of a backend in the page. */
+interface DevBackend {
+  cards(boardId: string): Promise<{ id: string; title: string; updateAt: number }[]>;
+  writeCardBody(
+    boardId: string,
+    cardId: string,
+    write: { body: object; readAt: number },
+  ): Promise<unknown>;
+}
 
 test.describe('screens', () => {
   test.skip(!process.env.FVOCI_SCREENS, 'pictures are taken only when asked for');

@@ -7,6 +7,15 @@ import { defineConfig, devices } from '@playwright/test';
  *   pnpm run spikes:e2e
  */
 const PORT = Number(process.env.FVOCI_SPIKES_PORT ?? 18320);
+/** The spikes measured on a phone's screen only. */
+const PHONE_ONLY = /spikes\/kanban-scroll\/[^/]+\.spec\.ts$/;
+/** An iPhone's screen of 390 by 844 points. */
+const PHONE = {
+  viewport: { width: 390, height: 844 },
+  deviceScaleFactor: 3,
+  isMobile: true,
+  hasTouch: true,
+};
 
 /** The remote-update spike: measurements, not checks, kept out of the other projects. */
 const REMOTE = /spikes[\\/]remote[\\/].*\.spec\.ts$/;
@@ -21,8 +30,24 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'desktop', testIgnore: REMOTE, use: { ...devices['Desktop Chrome'] } },
-    { name: 'touch', testIgnore: REMOTE, use: { ...devices['Pixel 7'] } },
+    { name: 'desktop', testIgnore: [PHONE_ONLY, REMOTE], use: { ...devices['Desktop Chrome'] } },
+    { name: 'touch', testIgnore: [PHONE_ONLY, REMOTE], use: { ...devices['Pixel 7'] } },
+    // A phone's screen in both engines, for what is measured on one (spikes/kanban-scroll),
+    // only when there is a built app to measure: a plain run has no WebKit to start.
+    ...(process.env.FVOCI_SPIKE_APP
+      ? [
+          {
+            name: 'phone-webkit',
+            testMatch: PHONE_ONLY,
+            use: { ...PHONE, browserName: 'webkit' as const },
+          },
+          {
+            name: 'phone-chromium',
+            testMatch: PHONE_ONLY,
+            use: { ...PHONE, browserName: 'chromium' as const },
+          },
+        ]
+      : []),
     // Measurements of one large body, each run in a browser of its own.
     { name: 'remote-chromium', testMatch: REMOTE, use: { ...devices['Desktop Chrome'] } },
     { name: 'remote-webkit', testMatch: REMOTE, use: { ...devices['Desktop Safari'] } },

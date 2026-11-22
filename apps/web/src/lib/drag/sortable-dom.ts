@@ -9,11 +9,27 @@ export const ZONE = 'data-drag-zone';
 const SCROLL = 'data-drag-scroll';
 export const HANDLE = 'data-drag-handle';
 export const CARRIED = 'data-drag-carried';
+/** On an item of a list that draws only some of its items: its index among the items that stay. */
+const AT = 'data-drag-at';
 const SCOPE = 'data-drag-scope';
 
 /** Controls inside an item keep their own presses. */
 const CONTROLS =
   'input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"])';
+
+/**
+ * The index in the whole list of a place among the items drawn: before the
+ * `index`th of `items`, or after the last. A list that draws only some of its
+ * items says where each is (`data-drag-at`); without that, the items drawn
+ * are the list.
+ */
+export function placeAmong(items: readonly HTMLElement[], index: number): number {
+  const next = items[index]?.getAttribute(AT) ?? null;
+  if (next !== null) return Number(next);
+  const previous = items[index - 1]?.getAttribute(AT) ?? null;
+  if (previous !== null) return Number(previous) + 1;
+  return index;
+}
 
 export class SortableDom {
   root: HTMLElement | undefined;
