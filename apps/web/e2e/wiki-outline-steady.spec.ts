@@ -14,6 +14,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
   caretIn,
   currentItem,
+  headingBelowTop,
   longBody,
   outlineBeside,
   outlineItem,
@@ -98,6 +99,9 @@ test.describe('where the reader has not asked for less motion', () => {
       // the heading could be over by then, with nothing left to cut short.
       await Promise.all([page.keyboard.press('Enter'), page.keyboard.press('End')]);
       await expect.poll(() => scrollAtRest(page)).toBe(true);
+      // Cut short: brought all the way up, the heading would rest some 40 px down, under the bar.
+      const restsAt = await headingBelowTop(page, 'Section 20');
+      expect(restsAt, 'End cut the scroll short').toBeGreaterThan(100);
       await expect(currentItem(page)).toHaveText('Section 20');
       // Short of it, the reader moves on towards it, and is reading what is under the line.
       if (then === 'the wheel') {
