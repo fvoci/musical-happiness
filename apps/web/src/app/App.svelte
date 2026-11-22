@@ -65,7 +65,7 @@
   import NotFound from './NotFound.svelte';
   import Problems from './Problems.svelte';
   import { keepReturn, resume, takeReturn } from './return-to.ts';
-  import { placeRoute, type Router } from './router.svelte.ts';
+  import { placeRoute, shownContainerId, type Router } from './router.svelte.ts';
   import { signInWays } from './sign-in-organizations.ts';
   import AccountSettings from './AccountSettings.svelte';
   import PasswordNoticeHost from './PasswordNoticeHost.svelte';
@@ -148,7 +148,7 @@
       // wiki shown has them. A file block that cannot be saved says why, as an attachment does.
       const files = fileSourceOf(
         backend,
-        () => router.route.wikiId ?? made.board?.boardId,
+        () => router.route.wikiId ?? router.route.diaryId ?? made.board?.boardId,
         (error) => {
           made.report('load', error);
         },
@@ -437,7 +437,7 @@
     readRecords={organizations
       ? (workspaceId: string) => organizations?.workspaceRecords(workspaceId) ?? Promise.resolve([])
       : undefined}
-    containerId={router.route.boardId ?? router.route.wikiId}
+    containerId={shownContainerId(router.route)}
     containerHref={(container: ContainerPlace) => router.href(placeRoute(container))}
     sharedHref={(containerId: string, readToken: string) =>
       router.href({ boardId: containerId, readToken })}

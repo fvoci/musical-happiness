@@ -9,9 +9,9 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::SharingRequest;
-use super::contract::params::{ContainerId, MemberWorkspaceId};
+use super::contract::params::{MemberWorkspaceId, PeopleContainerId};
 use super::contract::tag;
-use super::workspace::InContainer;
+use super::workspace::InBoardOrWiki;
 
 use super::{ApiResult, json_response};
 use super::{decode_json, json_object, require_container_permission};
@@ -51,11 +51,11 @@ async fn require_share_permission(
     path = "/w/{workspaceId}/containers/{containerId}/sharing",
     operation_id = "getSharing",
     tag = tag::SHARING,
-    params(MemberWorkspaceId, ContainerId),
+    params(MemberWorkspaceId, PeopleContainerId),
     responses((status = 200, description = "The sharing state.", body = Sharing)),
 )]
 async fn handle_get_sharing(
-    InContainer(ws): InContainer,
+    InBoardOrWiki(ws): InBoardOrWiki,
     Path((_, container_id)): Path<(String, String)>,
 ) -> ApiResult {
     require_share_permission(&ws.app, &ws.session.user_id, &container_id).await?;
@@ -114,7 +114,7 @@ fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
     path = "/w/{workspaceId}/containers/{containerId}/sharing",
     operation_id = "setSharing",
     tag = tag::SHARING,
-    params(MemberWorkspaceId, ContainerId),
+    params(MemberWorkspaceId, PeopleContainerId),
     request_body = SharingRequest,
     responses((
         status = 200,
@@ -123,7 +123,7 @@ fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
     )),
 )]
 async fn handle_post_sharing(
-    InContainer(ws): InContainer,
+    InBoardOrWiki(ws): InBoardOrWiki,
     Path((_, container_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {

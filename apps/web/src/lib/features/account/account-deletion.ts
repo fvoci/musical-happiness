@@ -77,21 +77,28 @@ export function leavingOf(organizations: readonly LeavingOrganization[]): {
   };
 }
 
-/** How much is in an organization that goes with the account: "3 boards, 1 wiki, 12 files". */
+/**
+ * How much is in an organization that goes with the account: "3 boards, 1
+ * wiki, 12 files", and the diaries of the own space, the only one with any.
+ */
 export function holdingsOf(organization: LeavingOrganization): {
   boards: string;
   wikis: string;
+  diaries: string;
   files: string;
 } {
-  const [boards, wikis, files] = [
+  const [boards, wikis, diaries, files] = [
     organization.boards ?? 0,
     organization.wikis ?? 0,
+    organization.diaries ?? 0,
     organization.files ?? 0,
   ];
   return {
     boards:
       boards === 1 ? m.account_delete_boards_one() : m.account_delete_boards({ count: boards }),
     wikis: wikis === 1 ? m.account_delete_wikis_one() : m.account_delete_wikis({ count: wikis }),
+    diaries:
+      diaries === 1 ? m.account_delete_diaries_one() : m.account_delete_diaries({ count: diaries }),
     files: files === 1 ? m.account_delete_files_one() : m.account_delete_files({ count: files }),
   };
 }

@@ -86,11 +86,11 @@ describe('the settings', () => {
       ...open,
       organizations: [
         { id: 'a', kind: 'team', name: 'Alone', boards: 1, wikis: 0, files: 0 },
-        { id: 'own', kind: 'personal', name: '', boards: 4, wikis: 1, files: 2 },
+        { id: 'own', kind: 'personal', name: '', boards: 4, wikis: 1, diaries: 1, files: 2 },
       ],
     });
     expect(await screen.findByTestId('account-deletion-own-space')).toHaveTextContent(
-      'My space is deleted with your account, with everything in it: 4 boards, 1 wiki, 2 files',
+      'My space is deleted with your account, with everything in it: 4 boards, 1 wiki, 1 diary, 2 files',
     );
     const list = screen.getByTestId('account-deletion-organizations');
     expect(within(list).getAllByRole('listitem')).toHaveLength(1);

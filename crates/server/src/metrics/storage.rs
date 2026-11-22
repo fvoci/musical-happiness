@@ -70,16 +70,19 @@ pub(crate) enum Module {
     Board,
     /// A wiki.
     Wiki,
+    /// A diary: exported and imported with a user's own space, and never duplicated.
+    Diary,
 }
 
 impl Module {
-    const ALL: [Self; 2] = [Self::Board, Self::Wiki];
+    const ALL: [Self; 3] = [Self::Board, Self::Wiki, Self::Diary];
 
     /// The value of the `kind` label.
     fn as_str(self) -> &'static str {
         match self {
             Self::Board => "board",
             Self::Wiki => "wiki",
+            Self::Diary => "diary",
         }
     }
 }

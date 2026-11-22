@@ -113,6 +113,8 @@ export interface LeavingOrganization {
    */
   boards?: number;
   wikis?: number;
+  /** Only the own space has any. */
+  diaries?: number;
   files?: number;
 }
 
