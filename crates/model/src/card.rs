@@ -271,7 +271,7 @@ impl Card {
             create_at: block.create_at,
             update_at: block.update_at,
             delete_at: block.delete_at,
-            // A block does not know its comments.
+            // A block knows nothing of its comments.
             last_comment_at: 0,
             preview: None,
         };
