@@ -1,6 +1,6 @@
 [package]
 name = "fvoci-model"
-description = "Wire types shared by the fvoci server and web client"
+description = "Wire types shared by the fvoci server and its web client"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
