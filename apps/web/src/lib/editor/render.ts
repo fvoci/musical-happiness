@@ -58,6 +58,11 @@ export interface RenderBodyOptions {
   taskLabel?: ((text: string, checked: boolean) => string) | undefined;
   /** The document the nodes are created in; the page's own unless given. */
   document?: Document | undefined;
+  /**
+   * Called with each block drawn and the node it was drawn from; what it
+   * gives back takes the block's place (render-diff.ts marks what changed).
+   */
+  decorate?: ((node: DocNode, element: HTMLElement) => HTMLElement) | undefined;
 }
 
 export type RenderedBody =
@@ -78,7 +83,7 @@ export type RenderedBody =
  * The marks in the order the editor nests them, outermost first. The stored
  * order of marks has no meaning; the editor sorts them like this.
  */
-const MARK_ORDER = ['link', 'bold', 'italic', 'strike', 'code'];
+const MARK_ORDER = ['diff', 'link', 'bold', 'italic', 'strike', 'code'];
 const MARK_TAGS: Record<string, string> = {
   bold: 'strong',
   italic: 'em',
@@ -86,6 +91,17 @@ const MARK_TAGS: Record<string, string> = {
   code: 'code',
 };
 const HEADING_TAGS: Record<number, string> = { 1: 'h1', 2: 'h2', 3: 'h3' };
+/**
+ * What became of a piece of a body compared with another (logic/body-diff.ts):
+ * a mark no stored body has (the validator refuses it), drawn as the element
+ * that says so, outside all others.
+ */
+const CHANGE_TAGS: Record<string, string> = {
+  added: 'ins',
+  removed: 'del',
+  format: 'span',
+  break: 'span',
+};
 const INLINE = new Set(['text', 'hardBreak', 'mention', 'reference', 'inlineMath']);
 
 const TEXT_NODE = 3;
@@ -96,6 +112,8 @@ interface DrawnMark {
   key: string;
   tag: string;
   href?: string;
+  /** Of a change: `data-change`. */
+  change?: string;
 }
 
 // The validator has been over the document before any of this runs. What
@@ -132,6 +150,13 @@ function drawnMarks(marks: unknown): DrawnMark[] {
   for (const mark of objectsIn<DocMark>(marks)) {
     const rank = MARK_ORDER.indexOf(mark.type);
     if (rank < 0 || drawn.some((other) => other.rank === rank)) continue;
+    if (mark.type === 'diff') {
+      const change = mark.attrs?.change;
+      const tag = typeof change === 'string' ? CHANGE_TAGS[change] : undefined;
+      if (tag && typeof change === 'string')
+        drawn.push({ rank, key: `diff ${change}`, tag, change });
+      continue;
+    }
     if (mark.type === 'link') {
       // Checked here as well as by the validator: this is where the address
       // becomes something that can be clicked.
@@ -213,12 +238,16 @@ class BodyDrawing {
     for (const child of childrenOf(node)) {
       const value = typeof child.text === 'string' ? child.text : '';
       if (!INLINE.has(child.type) || (child.type === 'text' && value === '')) continue;
-      const marks = marked ? drawnMarks(child.marks) : [];
+      // Text that carries no marks still says what became of it, compared with another.
+      const marks = marked
+        ? drawnMarks(child.marks)
+        : drawnMarks(child.marks).filter((mark) => mark.change !== undefined);
       let keep = 0;
       while (keep < open.length && open[keep]?.key === marks[keep]?.key) keep += 1;
       open.length = keep;
       for (const mark of marks.slice(keep)) {
         const wrapper = this.#page.createElement(mark.tag);
+        if (mark.change !== undefined) wrapper.setAttribute('data-change', mark.change);
         if (mark.href !== undefined) {
           for (const [name, fixed] of Object.entries(LINK_ATTRIBUTES))
             wrapper.setAttribute(name, fixed);
@@ -332,6 +361,12 @@ class BodyDrawing {
   }
 
   #block(node: DocNode): HTMLElement | undefined {
+    const drawn = this.#draw(node);
+    const decorate = this.#options.decorate;
+    return drawn && decorate ? decorate(node, drawn) : drawn;
+  }
+
+  #draw(node: DocNode): HTMLElement | undefined {
     switch (node.type) {
       case 'paragraph':
         return this.#textblock('p', node);
@@ -397,6 +432,15 @@ class BodyDrawing {
 
 function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
   return new BodyDrawing(options).draw(doc);
+}
+
+/**
+ * Blocks of bodies the validator accepted, as DOM nodes: the blocks of two
+ * bodies merged by a comparison, with what changed in them marked
+ * (render-diff.ts). Nothing here checks them again: the caller has.
+ */
+export function drawBlocks(blocks: DocNode[], options: RenderBodyOptions = {}): DocumentFragment {
+  return draw({ type: 'doc', content: blocks }, options);
 }
 
 /**

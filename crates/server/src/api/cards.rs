@@ -3,8 +3,8 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use fvoci_model::{
-    Block, BlockType, BodyVersion, BodyVersionContent, Card, CardError, CardPatch, RefusalReason,
-    Refusals,
+    Block, BlockType, BodyVersion, BodyVersionContent, Card, CardError, CardPatch, KeptBodyVersion,
+    RefusalReason, Refusals,
 };
 
 use utoipa_axum::router::OpenApiRouter;
@@ -32,7 +32,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_create_card, handle_get_cards))
         .routes(routes!(handle_get_card, handle_patch_card))
-        .routes(routes!(handle_get_card_body_versions))
+        .routes(routes!(
+            handle_get_card_body_versions,
+            handle_keep_card_body_version
+        ))
         .routes(routes!(handle_get_card_body_version))
         .routes(routes!(handle_restore_card_body_version))
 }
@@ -289,6 +292,49 @@ async fn handle_get_card_body_versions(
     .await?;
     let versions = ws.app.body_versions(&card.id).await?;
     Ok(json_response(&versions))
+}
+
+/// Keep a card's body as a version now
+///
+/// Keeps the body the card has as a version, by hand (`cause` `manual`), as an editor
+/// asks for one: what those who edit the card together typed is written to it first, so
+/// that the version is their body of that moment, and what they see and type goes on as
+/// it was. The version names who wrote the body since the one before, as every version
+/// does, and is as of now; the caller is not named for asking. It counts with the
+/// others against the versions kept, the oldest going. After it, the next version the
+/// server keeps on its own is of what is typed after it.
+///
+/// Nothing is kept (`outcome` `unchanged`, `version` the newest) of a body that is the
+/// card's newest version already, nor (`outcome` `recent`, `version` that one) within
+/// a minute of a version kept by hand, the server then keeping what was typed since on
+/// its own. For editors of the card's board, as `restoreCardBodyVersion` is (403 for
+/// its other members); to a user who is no member of it there is no such card, and a
+/// card in the trash is not there (404). 503 (`document_unavailable`) if what was typed
+/// cannot be written to the card now.
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/cards/{cardId}/body-versions",
+    operation_id = "keepCardBodyVersion",
+    tag = tag::CARDS,
+    params(MemberWorkspaceId, CardId),
+    responses((status = 200, description = "What became of the body.", body = KeptBodyVersion)),
+)]
+async fn handle_keep_card_body_version(
+    ws: InWorkspace,
+    Path((_, card_id)): Path<(String, String)>,
+) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    let card = card_with_permission(
+        &ws.app,
+        user_id,
+        &card_id,
+        ContainerPermission::ManageCards,
+        "access denied to keep a version of the card's body",
+    )
+    .await?;
+    let kept = ws.app.keep_body_version_now(&card.id).await?;
+    tracing::debug!(card_id = %card.id, user_id, outcome = ?kept.outcome, "KeepCardBodyVersion");
+    Ok(json_response(&kept))
 }
 
 /// A version kept of a card's body

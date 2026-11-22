@@ -50,7 +50,13 @@ export type { Registered } from './account-types.ts';
 export { BoardStore, type CardDrop } from './board.svelte.ts';
 export { type Shareable } from './member-writes.ts';
 export { boardPresence } from './board-presence.svelte.ts';
-export type { BodyVersion, BodyVersionContent, BodyVersions } from './body-versions.ts';
+export type {
+  BodyVersion,
+  BodyVersionCause,
+  BodyVersionContent,
+  BodyVersions,
+  KeptBodyVersion,
+} from './body-versions.ts';
 export { CardPreviews } from './card-previews.svelte.ts';
 export { type CommentEdit } from './card-parts.ts';
 export { CardStore } from './card.svelte.ts';

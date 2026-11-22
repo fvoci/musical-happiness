@@ -84,6 +84,7 @@ export class SharedBackend implements Backend {
     list: nothing,
     read: refused,
     restore: refused,
+    keep: refused,
   };
   /** No search through a public link: the board is all there is to read. */
   readonly search: Backend['search'] = {

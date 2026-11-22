@@ -584,8 +584,12 @@
       "BodyVersion": {
         "description": "A version kept of a card's body: the body as it was at a time, and who wrote it up\nto then.",
         "properties": {
+          "cause": {
+            "$ref": "#/components/schemas/BodyVersionCause",
+            "description": "How it came to be kept."
+          },
           "editors": {
-            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers: those who edited it and those who wrote it whole. Empty for\na body nobody is known to have written.",
+            "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers: those who edited it and those who wrote it whole. Empty for\na body nobody is known to have written; who asked for a version is not named\nfor asking.",
             "items": {
               "type": "string"
             },
@@ -596,7 +600,7 @@
             "type": "boolean"
           },
           "keptAt": {
-            "description": "When the version was kept, in milliseconds since the Unix epoch. For a body\nnobody is known to have written (one from before versions were kept, or from an\nimport), when the card was last changed.",
+            "description": "When the version was kept, in milliseconds since the Unix epoch. For a body\nnobody is known to have written (one from before versions were kept, or from an\nimport) that the server kept, when the card was last changed.",
             "format": "int64",
             "type": "integer"
           },
@@ -607,12 +611,22 @@
           }
         },
         "required": [
+          "cause",
           "editors",
           "isCurrent",
           "keptAt",
           "version"
         ],
         "type": "object"
+      },
+      "BodyVersionCause": {
+        "description": "How a version of a card's body came to be kept, as its readers are told: by somebody\nwho asked for it, by going back to a version, or by the server on its own.",
+        "enum": [
+          "auto",
+          "manual",
+          "restored"
+        ],
+        "type": "string"
       },
       "BodyVersionContent": {
         "description": "A version kept of a card's body, with the body.",
@@ -627,6 +641,10 @@
                 "type": "null"
               }
             ]
+          },
+          "cause": {
+            "$ref": "#/components/schemas/BodyVersionCause",
+            "description": "How it came to be kept."
           },
           "editors": {
             "description": "Who wrote the body up to this version since the one before, in the order of\ntheir identifiers. Empty for a body nobody is known to have written.",
@@ -652,6 +670,7 @@
         },
         "required": [
           "body",
+          "cause",
           "editors",
           "isCurrent",
           "keptAt",
@@ -2080,6 +2099,40 @@
           "token"
         ],
         "type": "object"
+      },
+      "KeptBodyVersion": {
+        "description": "The answer to an editor who asked to keep a body as a version now.",
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/KeptOutcome",
+            "description": "Whether a version was kept, and if not, why."
+          },
+          "version": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BodyVersion",
+                "description": "The version the outcome names, as the list of versions has it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "outcome",
+          "version"
+        ],
+        "type": "object"
+      },
+      "KeptOutcome": {
+        "description": "What became of a body an editor asked to keep as a version now.",
+        "enum": [
+          "kept",
+          "unchanged",
+          "recent"
+        ],
+        "type": "string"
       },
       "LeavingOrganization": {
         "description": "An organization that goes with the account of its only member, and how much is in\nit: the account's own space, and an organization of people that has nobody else. The\nnumbers are left out for an organization the session that asks does not\nopen (one that takes only sessions made through its provider).",
@@ -10306,6 +10359,56 @@
         "tags": [
           "cards"
         ]
+      },
+      "post": {
+        "description": "Keeps the body the card has as a version, by hand (`cause` `manual`), as an editor\nasks for one: what those who edit the card together typed is written to it first, so\nthat the version is their body of that moment, and what they see and type goes on as\nit was. The version names who wrote the body since the one before, as every version\ndoes, and is as of now; the caller is not named for asking. It counts with the\nothers against the versions kept, the oldest going. After it, the next version the\nserver keeps on its own is of what is typed after it.\n\nNothing is kept (`outcome` `unchanged`, `version` the newest) of a body that is the\ncard's newest version already, nor (`outcome` `recent`, `version` that one) within\na minute of a version kept by hand, the server then keeping what was typed since on\nits own. For editors of the card's board, as `restoreCardBodyVersion` is (403 for\nits other members); to a user who is no member of it there is no such card, and a\ncard in the trash is not there (404). 503 (`document_unavailable`) if what was typed\ncannot be written to the card now.",
+        "operationId": "keepCardBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptBodyVersion"
+                }
+              }
+            },
+            "description": "What became of the body."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Keep a card's body as a version now",
+        "tags": [
+          "cards"
+        ]
       }
     },
     "/api/v1/w/{workspaceId}/cards/{cardId}/body-versions/{version}": {
@@ -14913,6 +15016,65 @@
           }
         },
         "summary": "The versions kept of a page's body",
+        "tags": [
+          "wikis"
+        ]
+      },
+      "post": {
+        "description": "As `keepCardBodyVersion` keeps a card's: the body the page has, with what those who\nedit it together typed, by hand; nothing of a body that is its newest version\nalready (`unchanged`), nor within a minute of a version kept by hand (`recent`). For\neditors of the wiki (403 for its other members). A page in the trash is not there\n(404).",
+        "operationId": "keepPageBodyVersion",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the wiki: a board of the `kind` `wiki`. A board of another kind is 404, as an identifier of nothing is.",
+            "in": "path",
+            "name": "wikiId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the page: a page of the wiki of the path. 404 for a page of another wiki.",
+            "in": "path",
+            "name": "pageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptBodyVersion"
+                }
+              }
+            },
+            "description": "What became of the body."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Keep a page's body as a version now",
         "tags": [
           "wikis"
         ]

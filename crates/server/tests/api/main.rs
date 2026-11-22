@@ -22,6 +22,7 @@ mod boards_and_blocks;
 mod bodies;
 mod body_limits;
 mod body_versions;
+mod body_versions_by_hand;
 mod body_versions_kept;
 mod body_versions_restore;
 mod card_previews;

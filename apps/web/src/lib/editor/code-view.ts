@@ -24,7 +24,7 @@ import { CODE_BLOCK_SELECTOR } from './code-later.ts';
 import { codeLanguageOf } from './code-languages.ts';
 import { codeLinesShown, onCodeLinesChange } from './code-lines.ts';
 import './code-block.css';
-import { codeBar, codeFrame, paintCode } from './code-paint.ts';
+import { codeBar, codeFrame, paintCode, type CodeChange } from './code-paint.ts';
 import type { CodeTokens } from './code-tokens.ts';
 
 /** The stored language of a block, from the class `renderBody` gives its `<code>`. */
@@ -40,8 +40,39 @@ interface Shown {
   text: string;
   /** What `renderBody` put in the `<code>`, to put back. */
   drawn: Node[];
+  /** What a comparison marked in it (render-diff.ts), kept through the colours. */
+  changes: CodeChange[];
   tokens: CodeTokens;
   copy: CopyControls;
+}
+
+/** The stretches of a block's text that a comparison marked, as `renderBody` drew them. */
+function changesIn(code: HTMLElement): CodeChange[] {
+  const changes: CodeChange[] = [];
+  let at = 0;
+  for (const node of code.childNodes) {
+    const length = node.textContent?.length ?? 0;
+    if (node.nodeType === Node.ELEMENT_NODE && (node as Element).hasAttribute('data-change'))
+      changes.push({ from: at, to: at + length, element: node.cloneNode(false) as Element });
+    at += length;
+  }
+  return changes;
+}
+
+/**
+ * The text of a block without what a comparison says was removed from it,
+ * nor the line it put between the removed and the added: what is copied.
+ */
+function copiedText(text: string, changes: CodeChange[]): string {
+  let copied = '';
+  let at = 0;
+  for (const change of changes) {
+    const kind = change.element.getAttribute('data-change');
+    if (kind !== 'removed' && kind !== 'break') continue;
+    copied += text.slice(at, change.from);
+    at = change.to;
+  }
+  return copied + text.slice(at);
 }
 
 function selectText(code: HTMLElement): void {
@@ -53,6 +84,8 @@ function show(page: Document, code: HTMLElement, texts: CopyTexts): Shown | unde
   const pre = code.parentElement;
   if (!pre || pre.parentElement?.classList.contains('doc-code')) return undefined;
   const text = code.textContent;
+  const changes = changesIn(code);
+  const copied = copiedText(text, changes);
   const stored = storedLanguage(code);
   const named = page.createElement('span');
   named.setAttribute('class', 'doc-code-name');
@@ -60,7 +93,7 @@ function show(page: Document, code: HTMLElement, texts: CopyTexts): Shown | unde
     named.append(page.createTextNode(codeLanguageOf(stored)?.label ?? stored));
   const copy = copyControls(page, {
     texts,
-    text: () => text,
+    text: () => copied,
     select: () => {
       selectText(code);
     },
@@ -71,7 +104,7 @@ function show(page: Document, code: HTMLElement, texts: CopyTexts): Shown | unde
   const frame = codeFrame(page, codeBar(page, named, copy.status, copy.button), pre);
   // The block has the digits of its numbers from `renderBody`, which drew it.
   place.replaceWith(frame);
-  return { pre, frame, code, text, drawn, tokens: [], copy };
+  return { pre, frame, code, text, drawn, changes, tokens: [], copy };
 }
 
 /**
@@ -86,7 +119,7 @@ export function drawCodeBlocks(root: HTMLElement, texts: CopyTexts): () => void 
   );
   const stop = new AbortController();
   const paint = (block: Shown): void => {
-    paintCode(block.code, block.text, block.tokens, codeLinesShown(page));
+    paintCode(block.code, block.text, block.tokens, codeLinesShown(page), block.changes);
   };
   for (const block of shown) {
     const language = codeLanguageOf(storedLanguage(block.code));

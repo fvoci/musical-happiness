@@ -350,6 +350,12 @@ fn board_ops() -> Vec<Op> {
             "/cards/{p}/body-versions",
             None,
         ),
+        op(
+            "cards: keep version",
+            Method::POST,
+            "/cards/{p}/body-versions",
+            None,
+        ),
         op("cards: trash", Method::GET, "/boards/{c}/trash/cards", None),
         op(
             "board: duplicate",
@@ -439,7 +445,8 @@ fn wiki_ops() -> Vec<Op> {
 
 /// The operations of a page's comments and of the versions of its body besides those
 /// with the pages ([`wiki_ops`]: the list, writing one, the list of versions): one
-/// comment's versions, its change, deletion and restoring, a version, going back to it.
+/// comment's versions, its change, deletion and restoring, a version, going back to it,
+/// keeping one now.
 fn page_ops() -> Vec<Op> {
     use Body::{Json, None};
     const COMMENT: &str = "/wikis/{c}/pages/{p}/comments/{comment}";
@@ -476,6 +483,12 @@ fn page_ops() -> Vec<Op> {
             "pages: version restore",
             Method::POST,
             "/wikis/{c}/pages/{p}/body-versions/{version}/restore",
+            None,
+        ),
+        op(
+            "pages: keep version",
+            Method::POST,
+            "/wikis/{c}/pages/{p}/body-versions",
             None,
         ),
     ]
@@ -1015,6 +1028,7 @@ async fn the_wiki_differs_from_the_board_only_where_an_open_wiki_is_read() {
         "pages: comment delete",
         "pages: comment undelete",
         "pages: version restore",
+        "pages: keep version",
     ] {
         assert_eq!(
             row_of(&wiki, row)[unjoined],

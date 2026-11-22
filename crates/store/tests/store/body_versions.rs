@@ -2,10 +2,10 @@
 //! stay, what they hold of the files, and when they go.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockType, Body, BodyChange, Container, ContainerKind, ContainerType,
-    FileInfo, NewPage, new_id,
+    Block, BlockPatch, BlockType, Body, BodyChange, BodyVersionCause, Container, ContainerKind,
+    ContainerType, FileInfo, NewPage, new_id,
 };
-use fvoci_store::{BodyBefore, DEFAULT_BODY_VERSIONS_KEPT, Store};
+use fvoci_store::{BodyBefore, ByHand, DEFAULT_BODY_VERSIONS_KEPT, DbType, Store};
 use serde_json::json;
 
 use crate::boards::new_board;
@@ -600,5 +600,164 @@ async fn a_document_with_a_log_its_state_does_not_hold_is_folded_at_the_start() 
         .await
         .expect("to the trash");
     assert_eq!(unfolded().await, std::slice::from_ref(&logged));
+    test.teardown().await;
+}
+
+/// The causes of the versions of a card, the newest first.
+async fn causes(store: &Store, card_id: &str) -> Vec<(i64, BodyVersionCause)> {
+    let versions = store.body_versions(card_id).await.expect("the versions");
+    versions
+        .iter()
+        .map(|kept| (kept.version, kept.cause))
+        .collect()
+}
+
+/// Keeps the card's body by hand, as of a floor that began at `since`.
+async fn by_hand(store: &Store, card_id: &str, since: i64) -> ByHand {
+    store
+        .keep_body_version_by_hand(card_id, since)
+        .await
+        .expect("kept by hand")
+        .expect("the card is there")
+}
+
+/// A body kept by hand is a version of its own cause, as of when it was asked for and by
+/// who wrote since, the asker not named for asking; nothing is kept of a body that is
+/// the newest version already, which comes first, and nothing within the floor, which
+/// leaves who wrote since for the next version.
+#[tokio::test]
+async fn a_body_is_kept_by_hand_unless_it_is_kept_already_or_was_lately() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let author = common::user(store, "creed.bratton").await;
+    let typist = common::user(store, "toby.flenderson").await;
+    let board_id = board_with_files(store, &author, &[]).await;
+    let card_id = card_with(store, &board_id, body_showing("one", &[]), &author).await;
+    let made = store.get_block(&card_id).await.expect("the card");
+
+    let before = crate::blocks::now_millis();
+    assert_eq!(by_hand(store, &card_id, 0).await, ByHand::Kept(1));
+    let versions = store.body_versions(&card_id).await.expect("the versions");
+    let first_kept_at = versions[0].kept_at;
+    assert_eq!(versions[0].editors, Vec::<String>::new(), "nobody is known");
+    assert!(
+        versions[0].kept_at >= before && versions[0].kept_at >= made.update_at,
+        "as of when it was asked for, not of the card's last change: {versions:?}"
+    );
+    assert_eq!(
+        causes(store, &card_id).await,
+        [(1, BodyVersionCause::Manual)]
+    );
+    // Within the floor, but the same body: that is what is said.
+    assert_eq!(
+        by_hand(store, &card_id, before).await,
+        ByHand::Unchanged(Some(1))
+    );
+
+    type_body(store, &card_id, body_showing("two", &[]), &typist).await;
+    assert_eq!(by_hand(store, &card_id, before).await, ByHand::Recent(1));
+    assert_eq!(texts(store, &card_id).await.len(), 1, "nothing kept");
+    let stored = store.get_body_doc(&card_id).await.expect("read");
+    assert_eq!(
+        stored.expect("a document").unkept_editors,
+        std::slice::from_ref(&typist),
+        "who wrote is left for the next version"
+    );
+    // Past the floor: kept, by who wrote; and the version the server keeps after it on
+    // its own is of its own cause.
+    assert_eq!(
+        by_hand(store, &card_id, first_kept_at + 1).await,
+        ByHand::Kept(2)
+    );
+    let versions = store.body_versions(&card_id).await.expect("the versions");
+    assert_eq!(versions[0].editors, std::slice::from_ref(&typist));
+    let past = versions[0].kept_at + 1;
+    type_body(store, &card_id, body_showing("three", &[]), &typist).await;
+    assert_eq!(keep(store, &card_id).await, Some(3));
+    assert_eq!(
+        causes(store, &card_id).await,
+        [
+            (3, BodyVersionCause::Auto),
+            (2, BodyVersionCause::Manual),
+            (1, BodyVersionCause::Manual)
+        ]
+    );
+    // A version kept by the server is no floor of those kept by hand.
+    type_body(store, &card_id, body_showing("four", &[]), &typist).await;
+    assert_eq!(keep(store, &card_id).await, Some(4));
+    type_body(store, &card_id, body_showing("five", &[]), &typist).await;
+    assert_eq!(by_hand(store, &card_id, past).await, ByHand::Kept(5));
+
+    // No body and no version: nothing to keep, and no version to name.
+    let empty = card_with(store, &board_id, None, &author).await;
+    assert_eq!(by_hand(store, &empty, 0).await, ByHand::Unchanged(None));
+    assert_eq!(
+        store
+            .keep_body_version_by_hand(&new_id(), 0)
+            .await
+            .expect("asked"),
+        None,
+        "no card"
+    );
+    test.teardown().await;
+}
+
+/// The body a version is gone back to is kept as restored, by who went back to it; the
+/// body it is written over is kept as the server keeps one, and so is a body written
+/// whole otherwise.
+#[tokio::test]
+async fn the_body_a_version_is_gone_back_to_is_kept_as_restored() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let author = common::user(store, "ryan.howard").await;
+    let board_id = board_with_files(store, &author, &[]).await;
+    let card_id = card_with(store, &board_id, body_showing("one", &[]), &author).await;
+    write_body(store, &card_id, body_showing("two", &[]), &author).await;
+    let patch = BlockPatch {
+        body: BodyChange::Set(body_showing("one", &[]).expect("a body")),
+        ..BlockPatch::default()
+    };
+    type_body(store, &card_id, body_showing("typed", &[]), &author).await;
+    store
+        .restore_body(&card_id, &patch, &author)
+        .await
+        .expect("restored");
+    assert_eq!(
+        causes(store, &card_id).await,
+        [
+            (4, BodyVersionCause::Restored),
+            (3, BodyVersionCause::Auto),
+            (2, BodyVersionCause::Auto),
+            (1, BodyVersionCause::Auto)
+        ]
+    );
+    assert_eq!(texts(store, &card_id).await[0], (4, "one".to_owned()));
+    let versions = store.body_versions(&card_id).await.expect("the versions");
+    assert_eq!(versions[0].editors, std::slice::from_ref(&author));
+    test.teardown().await;
+}
+
+/// A version stored without its cause, as every version was before the causes were kept
+/// (migration 0054), is one the server kept on its own.
+#[tokio::test]
+async fn a_version_kept_before_the_causes_were_is_the_servers() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let author = common::user(store, "kevin.malone").await;
+    let board_id = board_with_files(store, &author, &[]).await;
+    let card_id = card_with(store, &board_id, body_showing("one", &[]), &author).await;
+    let digest = match common::db_type() {
+        DbType::Sqlite => "X'00'",
+        DbType::Postgres => "'\\x00'::bytea",
+    };
+    common::execute_raw(
+        &test.database_connection(),
+        &format!(
+            "INSERT INTO body_versions (block_id, version, body, body_digest, files, kept_at) \
+             VALUES ('{card_id}', 1, NULL, {digest}, '[]', 5)"
+        ),
+    )
+    .await;
+    assert_eq!(causes(store, &card_id).await, [(1, BodyVersionCause::Auto)]);
     test.teardown().await;
 }
