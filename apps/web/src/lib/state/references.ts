@@ -4,6 +4,7 @@
  * whether the reader may see it, is asked of the backend for the reader, as
  * things are then.
  */
+import type { ContainerKind } from '../logic/wire.ts';
 import type { VersionsOfBodies } from './body-versions.ts';
 import type { Paging } from './trash-reads.ts';
 
@@ -14,9 +15,9 @@ export interface LinkedBlock {
   title: string;
   /** Its icon; empty for none. */
   icon: string;
-  /** The board or the wiki it is on. */
+  /** The board or the wiki it is on. No reference names an entry of a diary. */
   containerId: string;
-  containerKind: 'board' | 'wiki';
+  containerKind: ContainerKind;
 }
 
 /** How many references are resolved in one request (the server's limit). */

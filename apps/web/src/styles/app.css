@@ -171,6 +171,8 @@
   --diff-removed: oklch(0.95 0.035 25);
   --diff-added-line: oklch(0.55 0.15 150);
   --diff-removed-line: oklch(0.55 0.18 25);
+  /* A link on what a comparison marks: the blue of links, darker so as to be read on both. */
+  --diff-link: oklch(0.5 0.2 260);
 
   --radius: 0.5rem;
 
@@ -263,6 +265,7 @@
   --diff-removed: oklch(0.3 0.05 25);
   --diff-added-line: oklch(0.72 0.14 150);
   --diff-removed-line: oklch(0.72 0.15 25);
+  --diff-link: oklch(0.7 0.15 255);
 }
 
 /* ------------------------------------------------------------------ type */

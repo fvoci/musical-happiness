@@ -102,7 +102,7 @@ impl Store {
                 Some(row) => directory::org_kind(&row, 0)?,
                 None => return Err(StoreError::not_found("organization")),
             };
-            let (mut boards, mut wikis) = (0, 0);
+            let (mut boards, mut wikis, mut diaries) = (0, 0, 0);
             let mut sql = scope.sql(
                 "SELECT c.kind, CAST(COUNT(*) AS BIGINT) FROM containers AS c \
                  JOIN workspaces AS w ON w.id = c.workspace_id \
@@ -116,6 +116,7 @@ impl Store {
                 match container_kinds::kind_from_text(&row.text(0)?)? {
                     ContainerKind::Board => boards = row.int(1)?,
                     ContainerKind::Wiki => wikis = row.int(1)?,
+                    ContainerKind::Diary => diaries = row.int(1)?,
                 }
             }
             let mut sql = scope.sql(
@@ -137,6 +138,7 @@ impl Store {
                 name: organization.name,
                 boards: Some(boards),
                 wikis: Some(wikis),
+                diaries: Some(diaries),
                 files: Some(files),
             })
         })
@@ -322,18 +324,45 @@ pub(crate) async fn standing(
         if held == Held::Yes {
             link_locks::hold_organization(scope, &organization.id).await?;
         }
-        if has_another_admin(scope, &organization.id, user_id).await? {
-            continue;
-        }
-        if the_instances.as_deref() == Some(organization.id.as_str())
-            || has_other_people(scope, &organization.id, user_id).await?
-        {
-            standing.sole_admin_of.push(organization);
-        } else {
-            standing.alone_in.push(organization);
+        match without(scope, &organization.id, user_id).await? {
+            Without::Administered => {}
+            Without::NoAdministrator => standing.sole_admin_of.push(organization),
+            // The instance's own stays, whoever is in it.
+            Without::Nobody if the_instances.as_deref() == Some(organization.id.as_str()) => {
+                standing.sole_admin_of.push(organization);
+            }
+            Without::Nobody => standing.alone_in.push(organization),
         }
     }
     Ok(standing)
+}
+
+/// What an organization is without the user: what deleting the account asks of each
+/// organization it administers, and leaving one asks of the organization it leaves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Without {
+    /// Somebody else whose account is in use administers it.
+    Administered,
+    /// Other people are in it, and nobody else administers it.
+    NoAdministrator,
+    /// Nobody else is in it.
+    Nobody,
+}
+
+/// What the organization `org_id` is without the user, read through a scope that
+/// reaches it.
+pub(crate) async fn without(
+    scope: &mut Scope<'_>,
+    org_id: &str,
+    user_id: &str,
+) -> Result<Without, StoreError> {
+    if has_another_admin(scope, org_id, user_id).await? {
+        Ok(Without::Administered)
+    } else if has_other_people(scope, org_id, user_id).await? {
+        Ok(Without::NoAdministrator)
+    } else {
+        Ok(Without::Nobody)
+    }
 }
 
 /// The account's own space in use, by who owns it: whatever its members are.
@@ -358,7 +387,10 @@ async fn own_space(
 }
 
 /// Whether the account administers the instance and no other account in use does.
-async fn is_last_instance_admin(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+pub(crate) async fn is_last_instance_admin(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT 1 FROM users WHERE is_admin = ");
     sql.bind(true).push_bind(" AND id = ", Id(user_id));
     if scope.fetch_optional(sql).await?.is_none() {

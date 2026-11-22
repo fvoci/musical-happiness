@@ -4,7 +4,7 @@
 //! without signing in. The token is the server's: made when sharing is turned on,
 //! forgotten when it is turned off, so that a link that was closed does not open again.
 
-use fvoci_model::Sharing;
+use fvoci_model::{ContainerKind, Sharing};
 
 use crate::Store;
 use crate::containers;
@@ -43,7 +43,11 @@ impl Store {
         user_id: &str,
     ) -> Result<Sharing, StoreError> {
         self.transaction(async |scope| {
-            if !containers::lock_container(scope, container_id).await? {
+            // A diary has no link: to whoever would share one it is no board.
+            if !matches!(
+                containers::lock_container_of_kind(scope, container_id).await?,
+                Some(ContainerKind::Board | ContainerKind::Wiki)
+            ) {
                 return Err(StoreError::not_found(format_args!(
                     "board ID={container_id}"
                 )));

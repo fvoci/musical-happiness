@@ -8,14 +8,17 @@ use fvoci_model::{ContainerKind, ContainerKinds};
 use crate::db::Sql;
 use crate::error::StoreError;
 
-/// Pushes ` AND <column> = <kind>` for kinds that are one kind, and nothing for both.
-/// `column` names the kind column of the boards read, with its alias.
+/// Pushes ` AND <column> IN (<the kinds>)`, and nothing for every kind. `column` names
+/// the kind column of the boards read, with its alias.
 pub(crate) fn push_kinds(sql: &mut Sql, column: &str, kinds: ContainerKinds) {
-    if let Some(kind) = kinds.only() {
-        sql.push(" AND ")
-            .push(column)
-            .push_bind(" = ", kind.as_str());
+    if kinds == ContainerKinds::Every {
+        return;
     }
+    sql.push(" AND ")
+        .push(column)
+        .push(" IN (")
+        .bind_list(kinds.iter().map(ContainerKind::as_str))
+        .push(")");
 }
 
 /// The kind a stored text names.

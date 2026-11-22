@@ -467,7 +467,7 @@ impl Collab {
 
     /// A room that was deleted cannot write later, even if its card was restored. The
     /// updates of a user whose update ended a worker are refused for a while
-    /// ([`senders`]) before anything else, and again as they are sent to the worker.
+    /// ([`senders`]) before anything else, and again in their turn before they are sent.
     async fn take_while(
         &self,
         app: &App,

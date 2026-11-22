@@ -443,7 +443,7 @@ describe('changing a card on the server', () => {
     expect(card().properties).toEqual({ a: '2' });
   });
 
-  it('reads the badges of a card from the server, and works them out from a block’s body', async () => {
+  it('reads the badges of a card from the server, and takes a change message’s from its summary', async () => {
     serve({
       ...CARD,
       properties: {},
@@ -455,25 +455,18 @@ describe('changing a card on the server', () => {
     const answer = await serverBackend('').patchCard('b', 'c1', { title: 'x' });
     expect(answer).toMatchObject({ hasBody: true, tasksTotal: 3, tasksDone: 1, lastCommentAt: 44 });
     expect(answer).not.toHaveProperty('body');
-    const block = cardOfBlock({
-      ...BLOCK,
-      id: 'c2',
-      type: 'card',
-      title: 'With tasks',
-      fields: { properties: {} },
-      body: {
-        type: 'doc',
-        content: [
-          {
-            type: 'taskList',
-            content: [
-              { type: 'taskItem', attrs: { checked: true }, content: [{ type: 'paragraph' }] },
-              { type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph' }] },
-            ],
-          },
-        ],
+    // The block of a change message has no body; its summary says how its tasks stand.
+    const block = cardOfBlock(
+      {
+        ...BLOCK,
+        id: 'c2',
+        type: 'card',
+        title: 'With tasks',
+        fields: { properties: {} },
+        body: null,
       },
-    });
+      { hasBody: true, tasksTotal: 2, tasksDone: 1, preview: { imageFileId: '', text: '' } },
+    );
     expect(block).toMatchObject({ hasBody: true, tasksTotal: 2, tasksDone: 1 });
     expect(block).not.toHaveProperty('body');
     // A change message does not say when the last comment was posted.

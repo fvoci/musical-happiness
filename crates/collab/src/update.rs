@@ -365,7 +365,7 @@ pub(crate) fn within_reading_steps(state: &[u8], limits: &UpdateLimits) -> Resul
 /// Reads the bytes of an update for a document, after the walk that keeps from the
 /// library what it does not survive (`scan`), with how many clients the document names
 /// with it.
-fn read(doc: &Doc, update: &[u8]) -> Result<(Update, usize), UpdateError> {
+pub(crate) fn read(doc: &Doc, update: &[u8]) -> Result<(Update, usize), UpdateError> {
     let begins = scan::check(update)
         .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))?
         .begins;
@@ -488,7 +488,7 @@ fn deletions_in_order(update: &Update) -> Result<(), UpdateError> {
 /// What the changes of an update are charged for the document of a state
 /// ([`placing::charge`]): `copy` is the document as the library read it from `state`,
 /// which holds `changes`, and `sent` the update as the library read it from `update`.
-fn charged(
+pub(crate) fn charged(
     copy: &Doc,
     (state, changes): (&[u8], u64),
     (update, sent): (&[u8], &Update),
@@ -600,7 +600,7 @@ pub(crate) fn settled_sized(doc: &Doc, limits: &UpdateLimits) -> Result<Settled,
 /// change does), the library reads one state to documents that differ from one reading
 /// to the next, so that comparing content would refuse such an update only now and
 /// then. Refusing those origins in the walk is what would close that.
-fn same_state(one: &[u8], other: &[u8]) -> bool {
+pub(crate) fn same_state(one: &[u8], other: &[u8]) -> bool {
     one == other
         || matches!(
             (Update::decode_v1(one), Update::decode_v1(other)),

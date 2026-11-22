@@ -1,12 +1,10 @@
 //! Erasing accounts: those whose wait ran out, by the housekeeping, and one at once on
 //! the operator's word.
 
-use fvoci_model::{ContainerMember, ContainerRole};
-use fvoci_store::{DeletionStanding, ErasedFrom, Erasing, ErasureEnd, ErasureStart};
+use fvoci_store::{DeletionStanding, Erasing, ErasureEnd, ErasureStart, LeftFrom};
 
 use super::App;
 use crate::auth::now_millis;
-use crate::collab::AccessScope;
 use crate::error::AppError;
 
 /// What became of erasing an account.
@@ -126,13 +124,11 @@ impl App {
         (Some(user_id), erased)
     }
 
-    /// What follows an account's leaving the handle's organization: the rooms of the
-    /// workspaces it left ask about it again, as for a member taken out; the boards
-    /// that passed to somebody are announced to who is on them, and their rooms ask
-    /// about the heir, who may write there now; an organization that went, and what
-    /// stays without an administrator (an organization, a workspace, a board), are
-    /// logged.
-    async fn after_erasure_from(&self, org_id: &str, user_id: &str, erased: ErasedFrom) {
+    /// What follows an account's being erased from the handle's organization: an
+    /// organization that went, what stays without an administrator (an organization, a
+    /// workspace, a board) and the boards that passed are logged, and who is to be told
+    /// is ([`App::announce_leaving`]).
+    async fn after_erasure_from(&self, org_id: &str, user_id: &str, erased: LeftFrom) {
         if erased.kept_for_newcomer {
             tracing::warn!(
                 org_id,
@@ -161,12 +157,6 @@ impl App {
                  workspace has no other administrator to pass it to"
             );
         }
-        for workspace_id in &erased.left {
-            self.ws().workspace_role_changed(workspace_id, user_id);
-            self.collab()
-                .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
-                .await;
-        }
         if let Some(removed) = &erased.removed {
             tracing::info!(
                 org_id,
@@ -176,7 +166,7 @@ impl App {
                 "an organization went with the account of its only person"
             );
         }
-        for passed in erased.handed_over {
+        for passed in &erased.handed_over {
             tracing::info!(
                 org_id,
                 workspace_id = %passed.workspace_id,
@@ -184,20 +174,8 @@ impl App {
                 heir_id = %passed.heir_id,
                 "a board passed to an administrator of its workspace as its admin's account was erased"
             );
-            let admin = ContainerMember {
-                container_id: passed.container_id.clone(),
-                user_id: passed.heir_id.clone(),
-                ..ContainerMember::default()
-            }
-            .with_role(Some(ContainerRole::Admin));
-            self.broadcast_member_change_in_background(passed.workspace_id, admin);
-            self.collab()
-                .recheck_access(
-                    self,
-                    AccessScope::container(&passed.container_id).of_user(&passed.heir_id),
-                )
-                .await;
         }
+        self.announce_leaving(user_id, &erased).await;
     }
 
     /// Erases every account whose wait ran out, and takes up the erasings that were

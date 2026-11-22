@@ -20,11 +20,9 @@
 
   import FileViewerHost from '$lib/components/file-viewer/FileViewerHost.svelte';
   import { setViewedFileSource } from '$lib/components/file-viewer/viewing.svelte.ts';
-  import AccountDeletion from '$lib/features/account/AccountDeletion.svelte';
   import AccountLeaving from '$lib/features/account/AccountLeaving.svelte';
   import { daysLeft } from '$lib/features/account/account-deletion.ts';
   import InvitePage from '$lib/features/account/InvitePage.svelte';
-  import LinkedSignIns from '$lib/features/account/LinkedSignIns.svelte';
   import SignInPage from '$lib/features/account/SignInPage.svelte';
   import SsoRequired from '$lib/features/account/SsoRequired.svelte';
   import OrgPage from '$lib/features/organization/OrgPage.svelte';
@@ -67,9 +65,9 @@
   import NotFound from './NotFound.svelte';
   import Problems from './Problems.svelte';
   import { keepReturn, resume, takeReturn } from './return-to.ts';
-  import { placeRoute, type Router } from './router.svelte.ts';
-  import { signInOrganizations, signInWays } from './sign-in-organizations.ts';
-  import EmailChangeHost from './EmailChangeHost.svelte';
+  import { placeRoute, shownContainerId, type Router } from './router.svelte.ts';
+  import { signInWays } from './sign-in-organizations.ts';
+  import AccountSettings from './AccountSettings.svelte';
   import PasswordNoticeHost from './PasswordNoticeHost.svelte';
   import { Administered } from './administered.svelte.ts';
   import WorkspacePane from './WorkspacePane.svelte';
@@ -150,7 +148,7 @@
       // wiki shown has them. A file block that cannot be saved says why, as an attachment does.
       const files = fileSourceOf(
         backend,
-        () => router.route.wikiId ?? made.board?.boardId,
+        () => router.route.wikiId ?? router.route.diaryId ?? made.board?.boardId,
         (error) => {
           made.report('load', error);
         },
@@ -268,24 +266,20 @@
 
 {#snippet accountSettings()}
   {#if account && workspace}
-    {@const of = account}
-    {@const mine = workspace.workspaces}
-    <EmailChangeHost {workspace} account={of} />
-    <LinkedSignIns
-      read={() => signedIn(() => of.identities())}
-      organizations={() => signInOrganizations(mine, (orgId) => of.loginOptions(orgId))}
+    <AccountSettings
+      {workspace}
+      {account}
+      {router}
+      {signedIn}
       onLink={(orgId: string, password: string) => signedIn(() => toProvider(orgId, password))}
       onUnlink={unlink}
       {justLinked}
-      reveal={linkedAsked}
+      {linkedAsked}
+      onDelete={askDeletion}
+      onLeft={(orgId: string) => {
+        administered.left(orgId);
+      }}
     />
-    {#if workspace.me}
-      <AccountDeletion
-        username={workspace.me.username}
-        read={() => signedIn(() => of.deletion())}
-        onDelete={askDeletion}
-      />
-    {/if}
   {/if}
 {/snippet}
 
@@ -443,7 +437,7 @@
     readRecords={organizations
       ? (workspaceId: string) => organizations?.workspaceRecords(workspaceId) ?? Promise.resolve([])
       : undefined}
-    containerId={router.route.boardId ?? router.route.wikiId}
+    containerId={shownContainerId(router.route)}
     containerHref={(container: ContainerPlace) => router.href(placeRoute(container))}
     sharedHref={(containerId: string, readToken: string) =>
       router.href({ boardId: containerId, readToken })}

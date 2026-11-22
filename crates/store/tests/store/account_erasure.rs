@@ -7,7 +7,7 @@ use fvoci_model::{
     NameShown, OrgRole, PersonName, Session, Title, User, WorkspaceRole, new_id,
 };
 use fvoci_store::{
-    AuditPlace, DbType, DeletionAsking, ErasedFrom, Erasing, ErasureEnd, ErasureStart, Identity,
+    AuditPlace, DbType, DeletionAsking, Erasing, ErasureEnd, ErasureStart, Identity, LeftFrom,
     Looking, NewLink, Paging, Reach, Sight, Store, StoreError, Tenant,
 };
 
@@ -225,7 +225,7 @@ async fn made_by(test: &TestStore, org_id: &str, user_id: &str) {
 
 /// Erases the account through every step, on the operator's word, and returns what
 /// became of it in each organization.
-async fn erase(test: &TestStore, user_id: &str, erasing: Erasing, now: i64) -> Vec<ErasedFrom> {
+async fn erase(test: &TestStore, user_id: &str, erasing: Erasing, now: i64) -> Vec<LeftFrom> {
     let begun = test
         .begin_account_erasure(user_id, now, erasing)
         .await
@@ -246,7 +246,7 @@ async fn erase_from_organizations(
     test: &TestStore,
     user_id: &str,
     erasing: Erasing,
-) -> Vec<ErasedFrom> {
+) -> Vec<LeftFrom> {
     let mut erased = Vec::new();
     for org_id in test
         .organizations_of_account(user_id)
@@ -1174,7 +1174,7 @@ async fn an_erasing_that_was_cut_off_is_taken_up_and_ends() {
     erase_from_organizations(&test, &leaver, Erasing::AfterTheWait).await;
     assert_eq!(
         erase_from_organizations(&test, &leaver, Erasing::AfterTheWait).await,
-        Vec::<ErasedFrom>::new(),
+        Vec::<LeftFrom>::new(),
         "no organization is left to go from"
     );
     assert_eq!(
@@ -1439,6 +1439,16 @@ async fn fill_the_space_of(test: &TestStore, owner: &str) -> String {
     work_on(&space, &board, &card, owner).await;
     let saved = space.save_file_info(&file_of(&board)).await;
     saved.expect("a file of the space");
+    // A diary of the space: the entry of a day, one in the trash, and a file.
+    let diary = crate::diaries::new_diary(&workspace);
+    let made = space.create_diary(diary, owner, fvoci_model::DiaryMaking::Another);
+    let diary = made.await.expect("a diary of the space").diary.id;
+    crate::diaries::written(&space, &diary, "2024-02-29", owner).await;
+    let gone = crate::diaries::written(&space, &diary, "2024-03-01", owner).await;
+    let deleted = space.delete_block(&gone.id, owner).await;
+    deleted.expect("an entry in the trash");
+    let saved = space.save_file_info(&file_of(&diary)).await;
+    saved.expect("a file of the diary");
     org
 }
 
@@ -1546,7 +1556,7 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
     begin_alone(&test, &leaver, &alone, T0 + WAIT).await;
     let erased = erase(&test, &leaver, Erasing::AfterTheWait, T0 + WAIT).await;
 
-    let removed: Vec<&ErasedFrom> = erased
+    let removed: Vec<&LeftFrom> = erased
         .iter()
         .filter(|from| from.removed.is_some())
         .collect();
@@ -1556,7 +1566,8 @@ async fn an_organization_that_has_nobody_else_goes_with_the_account() {
         .iter()
         .flat_map(|from| &from.removed.as_ref().expect("removed").files)
         .collect();
-    assert_eq!(files.len(), 2, "the file of each is doomed: {files:?}");
+    // The file of the organization's board, of the space's board and of its diary.
+    assert_eq!(files.len(), 3, "the files of each are doomed: {files:?}");
     check_nothing_names(&system, &space).await;
     assert_eq!(
         holding(&system, &alone).await,
@@ -1689,7 +1700,7 @@ async fn an_organization_somebody_came_into_past_the_mark_is_in_use_again() {
 
     let erased = erase_from_organizations(&test, &leaver, Erasing::AfterTheWait).await;
 
-    let kept: Vec<&ErasedFrom> = erased
+    let kept: Vec<&LeftFrom> = erased
         .iter()
         .filter(|from| from.kept_for_newcomer)
         .collect();

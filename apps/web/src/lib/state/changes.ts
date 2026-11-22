@@ -3,6 +3,7 @@ import type { Container, ContainerMember, BoardView } from '../logic/wire.ts';
 
 import type { AccountSettings, Attachment, CardSummary, Category, Comment } from './backend.ts';
 import type { WikiPage } from './wiki-types.ts';
+import type { DiaryEntry } from './diary-types.ts';
 
 /**
  * A change that happened on the server, whoever made it: the reader in this
@@ -26,6 +27,8 @@ export type Change =
   | { kind: 'blocksDeleted'; containerId: string; blockIds: string[] }
   /** Pages of a wiki (`containerId`) that were made or changed, without their bodies. */
   | { kind: 'pages'; containerId: string; pages: WikiPage[] }
+  /** Entries of a diary (`containerId`) that were made or changed, without their bodies. */
+  | { kind: 'entries'; containerId: string; entries: DiaryEntry[] }
   | { kind: 'members'; containerId: string; members: ContainerMember[] }
   | { kind: 'categories'; categories: Category[] }
   | { kind: 'settings'; settings: AccountSettings }

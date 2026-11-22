@@ -40,6 +40,7 @@ import type { ApiPath, Http, RequestOptions } from './http.ts';
 import { ServerPeople } from './people.ts';
 import { ServerReferences } from './references.ts';
 import { ServerWikis } from './wikis.ts';
+import { ServerDiaries } from './diaries.ts';
 
 /** A path under a workspace, as the contract writes it after `/api/v1/w/{workspaceId}`. */
 export type WorkspacePath = ApiPath extends infer P
@@ -80,6 +81,8 @@ export class ServerRequests implements TrashReads {
   readonly people: People;
   /** The wikis and their pages, under the workspace of each wiki (`workspaceOf`). */
   readonly wiki: ServerWikis;
+  /** The diaries of the own space and their entries, under the workspace of each diary. */
+  readonly diary: ServerDiaries;
   /** The versions kept of the bodies of cards. */
   readonly bodyVersions: BodyVersions;
   readonly fileVersions: FileVersions;
@@ -109,13 +112,16 @@ export class ServerRequests implements TrashReads {
     this.references = new ServerReferences((path, params, options, workspaceId) =>
       this.inWorkspace(path, params, options, workspaceId),
     );
-    this.wiki = new ServerWikis(this.#inWiki.bind(this), (wikis) => {
+    this.wiki = new ServerWikis(this.#inContainer.bind(this), (wikis) => {
       this.learnPlaces(wikis);
+    });
+    this.diary = new ServerDiaries(this.#inContainer.bind(this), (diaries) => {
+      this.learnPlaces(diaries);
     });
   }
 
-  /** A request under the workspace of the wiki `params.wikiId` names (`workspaceOf`). */
-  #inWiki<T>(
+  /** A request under the workspace of the wiki or diary `params.wikiId` or `diaryId` names (`workspaceOf`). */
+  #inContainer<T>(
     path: WorkspacePath,
     params: Record<string, string>,
     options: RequestOptions = {},
@@ -123,7 +129,7 @@ export class ServerRequests implements TrashReads {
   ): Promise<T> {
     return this.inWorkspace<T>(
       path,
-      { ...params, containerId: params.wikiId ?? '' },
+      { ...params, containerId: params.wikiId ?? params.diaryId ?? '' },
       options,
       workspaceId,
     );
@@ -369,6 +375,10 @@ export class ServerRequests implements TrashReads {
 
   async cancelDeletion(): Promise<void> {
     await this.#http.request('/api/v1/users/me/deletion', {}, { method: 'DELETE' });
+  }
+
+  async leaveOrganization(orgId: string): Promise<void> {
+    await this.#http.request('/api/v1/org/{orgId}/leave', { orgId }, { method: 'POST' });
   }
 
   async unlinkIdentity(identity: LinkedIdentity, password: string): Promise<void> {
