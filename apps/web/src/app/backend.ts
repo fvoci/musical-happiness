@@ -89,12 +89,13 @@ async function startServer(): Promise<StartedBackend> {
   ]);
   const base = readBasePath(document);
   const path = base === '' ? '' : `/${base}`;
-  const backend = new ServerBackend(path);
+  const http = new Http(path);
+  const backend = new ServerBackend(path, http);
   return {
     backend,
     account: backend,
     people: backend.people,
-    organizations: new ServerOrganizations(new Http(path)),
+    organizations: new ServerOrganizations(http),
   };
 }
 

@@ -404,13 +404,21 @@ export class ServerRequests implements TrashReads {
    */
   async setPassword(password: string): Promise<void> {
     const request: Schemas['SetPasswordRequest'] = { password };
-    await this.#http.request('/api/v1/users/me/password', {}, { method: 'PUT', json: request });
+    await this.#http.request(
+      '/api/v1/users/me/password',
+      {},
+      { method: 'PUT', json: request, rotates: true },
+    );
   }
 
   /** The session goes on under a new cookie, which the browser keeps by itself. */
   async changePassword(oldPassword: string, newPassword: string): Promise<void> {
     const request: Schemas['ChangePasswordRequest'] = { oldPassword, newPassword };
-    await this.#http.request('/api/v1/users/me/password', {}, { method: 'POST', json: request });
+    await this.#http.request(
+      '/api/v1/users/me/password',
+      {},
+      { method: 'POST', json: request, rotates: true },
+    );
   }
 
   /**
@@ -421,7 +429,7 @@ export class ServerRequests implements TrashReads {
   async confirmPassword(password: string): Promise<void> {
     const request: Schemas['ConfirmPasswordRequest'] = { password };
     const path = '/api/v1/users/me/password/confirm';
-    await this.#http.request(path, {}, { method: 'POST', json: request });
+    await this.#http.request(path, {}, { method: 'POST', json: request, rotates: true });
   }
 
   async patchMe(patch: NameChange): Promise<User> {
