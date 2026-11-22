@@ -42,6 +42,7 @@ export const KEPT_SAID: Record<KeepOutcome, () => string> = {
   recent: m.card_version_recent,
   failed: m.card_version_keep_failed,
   notNow: m.card_version_keep_not_now,
+  opening: m.card_version_keep_opening,
 };
 
 export const CARD_WORDS: BodyWords = {

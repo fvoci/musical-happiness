@@ -19,6 +19,7 @@
  * Like render.ts, it builds elements and text nodes only.
  */
 import { m } from '$lib/i18n/paraglide/messages.js';
+import type { BodyDiff } from '$lib/logic/body-diff.ts';
 import type { DiffNode } from '$lib/logic/body-nodes.ts';
 
 import { codeLanguageOf } from './code-languages.ts';
@@ -57,6 +58,9 @@ function kindName(type: string, attrs: Record<string, unknown> | undefined): str
 const languageName = (value: unknown): string =>
   typeof value === 'string' ? (codeLanguageOf(value)?.label ?? value) : m.body_diff_nothing();
 
+/** A list's first number: 1 where none is stored. */
+const startOf = (value: unknown): string => (typeof value === 'number' ? String(value) : '1');
+
 const altText = (value: unknown): string =>
   typeof value === 'string' && value !== '' ? `“${value}”` : m.body_diff_nothing();
 
@@ -90,9 +94,27 @@ export function noteOf(node: DiffNode): string | undefined {
       return before.alt === after.alt
         ? undefined
         : m.body_diff_alt({ from: altText(before.alt), to: altText(after.alt) });
+    case 'orderedList':
+      // A list's own start is 1, which is not stored.
+      return before.start === after.start
+        ? undefined
+        : m.body_diff_start({ from: startOf(before.start), to: startOf(after.start) });
     default:
       return undefined;
   }
+}
+
+/** How much a comparison changed, in a line: what was added and removed, and what else changed. */
+export function diffCounts(diff: BodyDiff): string {
+  const { formatted, reshaped } = diff;
+  return [
+    m.body_diff_counts({ added: String(diff.added), removed: String(diff.removed) }),
+    formatted > 0 ? m.body_diff_formatted({ count: String(formatted) }) : undefined,
+    reshaped === 1 ? m.body_diff_reshaped_one() : undefined,
+    reshaped > 1 ? m.body_diff_reshaped({ count: String(reshaped) }) : undefined,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 /**

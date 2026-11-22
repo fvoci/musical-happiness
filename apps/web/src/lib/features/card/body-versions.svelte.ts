@@ -52,6 +52,8 @@ export interface VersionsSource {
    * otherwise a version kept would not be the body they see.
    */
   writable(): boolean;
+  /** Whether the body is still being opened (read, or its room joined): it may be written soon. */
+  opening(): boolean;
   /**
    * The body now: what its room holds, with what the reader and the others
    * typed, or the stored body when there is no room.
@@ -60,6 +62,13 @@ export interface VersionsSource {
 }
 
 /** The body a room's document holds, or the stored one when there is no room or it holds none. */
+/** Whether a body is still being opened: read, or its room joined or sent again. */
+function opening(item: Pick<CardStore, 'status' | 'room'>): boolean {
+  const status = item.room?.status;
+  if (status === undefined) return item.status !== 'failed';
+  return status === 'joining' || status === 'receiving';
+}
+
 async function bodyNow(
   room: { doc: YDoc | undefined } | undefined,
   stored: DocNode | null,
@@ -79,6 +88,7 @@ export function cardVersions(board: BoardStore, card: CardStore): VersionsSource
     itemId: card.cardId,
     settle: () => card.settleBody(),
     writable: () => card.room?.writable ?? false,
+    opening: () => opening(card),
     current: () => bodyNow(card.room, card.body),
   };
 }
@@ -94,6 +104,7 @@ export function pageVersions(page: PageStore): VersionsSource {
     itemId: page.pageId,
     settle: () => page.settleBody(),
     writable: () => page.room?.writable ?? false,
+    opening: () => opening(page),
     current: () => bodyNow(page.room, page.body),
   };
 }
@@ -101,16 +112,18 @@ export function pageVersions(page: PageStore): VersionsSource {
 /**
  * What came of asking to keep a version now: the server's answer, that there
  * was none (`failed`), or that none was asked for, the body being one that
- * cannot be written for now (`notNow`).
+ * cannot be written for now (`notNow`) or not yet, being opened (`opening`).
  */
-export type KeepOutcome = KeptBodyVersion['outcome'] | 'failed' | 'notNow';
+export type KeepOutcome = KeptBodyVersion['outcome'] | 'failed' | 'notNow' | 'opening';
 
 /** Keeps the body as a version now, once what the reader typed is in the room. */
 export async function keepVersion(source: VersionsSource): Promise<KeepOutcome> {
   // What was typed may not reach the room: what would be kept is not what is shown.
-  if (!source.writable()) return 'notNow';
+  if (!source.writable()) return source.opening() ? 'opening' : 'notNow';
   try {
     await source.settle();
+    // The room was lost meanwhile: what was typed last may not be in it.
+    if (!source.writable()) return 'notNow';
     return (await source.versions.keep(source.ownerId, source.itemId)).outcome;
   } catch {
     return 'failed';
@@ -180,7 +193,7 @@ export class VersionsReading {
     this.kept = undefined;
     try {
       const outcome = await keepVersion(this.#source);
-      if (outcome !== 'failed' && outcome !== 'notNow') {
+      if (outcome !== 'failed' && outcome !== 'notNow' && outcome !== 'opening') {
         // A list that cannot be read now stays as it was: the version was kept all the same.
         this.#take(await this.#list().catch(() => this.versions));
       }

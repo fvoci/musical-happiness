@@ -13,10 +13,11 @@ import { SharedBackend } from '$lib/api/shared-backend.ts';
 import {
   cardVersions,
   keepVersion,
+  pageVersions,
   VersionsReading,
 } from '$lib/features/card/body-versions.svelte.ts';
 import type { BodyDoc, BodyDocHears } from '$lib/state/backend.ts';
-import { BackendError, type BoardStore, type CardStore } from '$lib/state/index.ts';
+import { BackendError, WikiStore, type BoardStore, type CardStore } from '$lib/state/index.ts';
 import { BY_HAND_FLOOR, VERSION_EVERY } from '$lib/state/memory/body-versions.ts';
 import { FIELD } from '$lib/state/memory/rooms.ts';
 
@@ -278,20 +279,84 @@ describe('a version kept by hand, from the dialog', () => {
     const made = await openFirstBoard();
     const card = made.board.cards.find((one) => one.title === 'Alpha');
     if (!card) throw new Error('no card');
-    // Not in the room yet: what is shown may not be what the card has.
+    // Not in the room yet: what is shown may not be what the card has. It is being opened.
     const open = await made.board.showCard(card.id);
     const source = cardVersions(made.board, open);
     const asked = vi.spyOn(source.versions, 'keep');
-    expect(await keepVersion(source)).toBe('notNow');
+    expect(await keepVersion(source)).toBe('opening');
     const reading = new VersionsReading(source);
     await vi.waitFor(() => {
       expect(reading.status).toBe('ready');
     });
     const read = vi.spyOn(source.versions, 'list');
     await reading.keep();
+    expect(reading.kept).toBe('opening');
+    // In the room, but no longer to write in it: not for now.
+    open.openBody();
+    await vi.waitFor(() => {
+      expect(open.room?.writable).toBe(true);
+    });
+    const { backend, other } = made;
+    // Made a commenter by another admin.
+    await backend.setMemberRole(made.board.boardId, other.userId, 'admin');
+    await other.setMemberRole(made.board.boardId, backend.userId, 'commenter');
+    await vi.waitFor(() => {
+      expect(open.room).toMatchObject({ status: 'joined', writable: false });
+    });
+    expect(await keepVersion(source)).toBe('notNow');
+    await reading.keep();
     expect(reading.kept).toBe('notNow');
     expect(asked).not.toHaveBeenCalled();
     expect(read).not.toHaveBeenCalled();
+    made.workspace.close();
+  });
+
+  it('asks for none when the room is lost while what was typed is sent: it may not be in the room', async () => {
+    const made = await openFirstBoard();
+    const card = made.board.cards.find((one) => one.title === 'Alpha');
+    if (!card) throw new Error('no card');
+    const open = await joined(made.board, card.id);
+    let writable = true;
+    const source = {
+      ...cardVersions(made.board, open),
+      writable: () => writable,
+      opening: () => false,
+      // The connection goes away while what was typed is on its way: the wait gives up.
+      settle: () => {
+        writable = false;
+        return Promise.resolve();
+      },
+    };
+    const asked = vi.spyOn(source.versions, 'keep');
+    expect(await keepVersion(source)).toBe('notNow');
+    expect(asked).not.toHaveBeenCalled();
+    made.workspace.close();
+  });
+
+  it('asks for none of a wiki page while it is opened, nor while it cannot be written', async () => {
+    const made = setup();
+    const wiki = await made.backend.wiki.createWiki(made.world.workspace.id, {
+      title: 'Handbook',
+      type: 'O',
+    });
+    const created = await made.backend.wiki.createPage(wiki.id, { title: 'Page' });
+    await made.workspace.load();
+    const store = new WikiStore(made.workspace, wiki.id);
+    await store.load();
+    const page = store.showPage(created.id);
+    if (!page) throw new Error('no page shown');
+    const source = pageVersions(page);
+    const asked = vi.spyOn(source.versions, 'keep');
+    expect(await keepVersion(source)).toBe('opening');
+    page.openBody();
+    await vi.waitFor(() => {
+      expect(page.room?.writable).toBe(true);
+    });
+    // Asked, now: a page with no body has nothing to keep.
+    expect(await keepVersion(source)).toBe('unchanged');
+    expect(asked).toHaveBeenCalledTimes(1);
+    page.closeBody();
+    store.close();
     made.workspace.close();
   });
 });

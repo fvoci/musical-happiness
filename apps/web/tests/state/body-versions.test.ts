@@ -191,7 +191,7 @@ describe('the versions of a body, in memory', () => {
     expect((await versions.list(BOARD, cardId))[0]).toMatchObject({ editors: [me, them].sort() });
   });
 
-  it('keeps a version as the room writes the card once the body has been written on for the period', async () => {
+  it('keeps the body before the first change after the period, as the server, when the card holds what was written', async () => {
     const { world: stored, BOARD, backend, other, cardId, me, them } = world();
     const versions = backend.bodyVersions;
     const mine = backend.openDoc('w', BOARD, cardId, hears());
@@ -205,13 +205,10 @@ describe('the versions of a body, in memory', () => {
     await type(theirs, 'two', ['one']);
     roomsOf(stored).flush();
     const kept = await versions.list(BOARD, cardId);
-    expect(kept[0]).toMatchObject({ version: 2, editors: [me, them].sort(), isCurrent: true });
-    expect(lines((await versions.read(BOARD, cardId, 2)).body)).toEqual([
-      'first body',
-      'one',
-      'two',
-    ]);
-    // The period begins again with the next change.
+    // The change that came after the period is not in it, nor is its writer.
+    expect(kept[0]).toMatchObject({ version: 2, editors: [me], isCurrent: false });
+    expect(lines((await versions.read(BOARD, cardId, 2)).body)).toEqual(['first body', 'one']);
+    // The period begins again with that change.
     await type(mine, 'three', ['two']);
     roomsOf(stored).flush();
     expect(await versions.list(BOARD, cardId)).toHaveLength(2);
@@ -222,7 +219,34 @@ describe('the versions of a body, in memory', () => {
       expect(await versions.list(BOARD, cardId)).toHaveLength(3);
     });
     clock.mockRestore();
-    expect((await versions.list(BOARD, cardId))[0]).toMatchObject({ version: 3, editors: [me] });
+    expect((await versions.list(BOARD, cardId))[0]).toMatchObject({
+      version: 3,
+      editors: [me, them].sort(),
+    });
+  });
+
+  it('keeps a version as the room writes the card after the period, when the card did not hold what was written', async () => {
+    const { world: stored, BOARD, backend, other, cardId, me, them } = world();
+    const versions = backend.bodyVersions;
+    const mine = backend.openDoc('w', BOARD, cardId, hears());
+    const theirs = other.openDoc('w', BOARD, cardId, hears());
+    await type(mine, 'one');
+    expect(await versions.list(BOARD, cardId)).toHaveLength(1);
+
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now + VERSION_EVERY);
+    await type(theirs, 'two', ['one']);
+    roomsOf(stored).flush();
+    const kept = await versions.list(BOARD, cardId);
+    expect(kept[0]).toMatchObject({ version: 2, editors: [me, them].sort(), isCurrent: true });
+    expect(lines((await versions.read(BOARD, cardId, 2)).body)).toEqual([
+      'first body',
+      'one',
+      'two',
+    ]);
+    clock.mockRestore();
+    mine.close();
+    theirs.close();
   });
 
   it('keeps the body before and after a body written whole, the newest ones only', async () => {

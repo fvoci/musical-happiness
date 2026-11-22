@@ -18,6 +18,7 @@
   import { onMount, untrack } from 'svelte';
 
   import { display } from '$lib/display.svelte.ts';
+  import { holdSaveKey } from '$lib/editor/save-key.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { cardFrame } from '$lib/layout/presentation.ts';
   import { page } from '$lib/layout/room.svelte.ts';
@@ -133,6 +134,13 @@
     onBoard.focus();
   }
 </script>
+
+<!-- Open, the keys that keep a version of the body save no page anywhere in it. -->
+<svelte:window
+  onkeydown={(event: KeyboardEvent) => {
+    if (cardId !== undefined) holdSaveKey(event);
+  }}
+/>
 
 <Dialog.Root
   bind:open={
