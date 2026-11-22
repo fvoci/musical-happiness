@@ -1,0 +1,347 @@
+//! Whom a write of a block by a person may be told to, noted on the list
+//! (`notification_outbox`) in the transaction of that write, and who watches what that
+//! write made or touched (`subscriptions`).
+//!
+//! A write notes the users its body mentions that the body before did not, the users a
+//! person property of a card takes that it did not hold, and, of a new comment, the
+//! watchers of the card or the page it is on. Whoever writes a card or a page, is given
+//! a card, or comments on either watches it from then on, until they stop. A row of the
+//! list says who may be told, never that they are (`notification_outbox.rs`).
+
+use std::collections::BTreeSet;
+
+use fvoci_model::{
+    Block, BlockType, JsonMap, NotificationKind, OrgKind, SubscriberType, assigned_users,
+};
+use serde_json::Value;
+
+use crate::body_docs;
+use crate::containers;
+use crate::db::{Dialect, Id, OptId, Scope, Sql};
+use crate::error::StoreError;
+
+/// How many identifiers one statement binds.
+const BATCH: usize = 300;
+
+/// The most people one write of a block notes for one kind: a body may hold as many
+/// mentions as it has nodes, and each would be a row. Those that come first in the
+/// body, or in the properties, are noted.
+const MOST_NAMED_BY_A_WRITE: usize = 100;
+
+/// Who is told of what a write of a block newly names, and as whose doing.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Telling {
+    /// The people it names, as its writer's doing.
+    Written,
+    /// The people its body newly names, each as the doing of whoever typed the name:
+    /// a body written from its document, by the last of several who typed it. The
+    /// updates of the document past `since` (the last the block's body held) say who
+    /// sent what: the first of them that holds a user's identifier is where that
+    /// user was named. A name no update holds any more (they were folded into the
+    /// document's state before the body was written) is the writer's doing.
+    Typed {
+        /// The last update the body of the block held before this write.
+        since: i64,
+    },
+    /// Nobody: a copy, a card or a board made from a template, what comes back from
+    /// the trash or from an archive. Nobody comes to watch anything by it either.
+    Nobody,
+}
+
+impl Telling {
+    /// The people a write names, as its writer's doing, unless the scope tells nobody.
+    pub(crate) fn of(scope: &Scope<'_>) -> Self {
+        if scope.tells_nobody() {
+            Self::Nobody
+        } else {
+            Self::Written
+        }
+    }
+
+    /// As [`Telling::of`], for a body written from its document.
+    pub(crate) fn of_typed(scope: &Scope<'_>, since: i64) -> Self {
+        if scope.tells_nobody() {
+            Self::Nobody
+        } else {
+            Self::Typed { since }
+        }
+    }
+}
+
+/// The users a property value of a card held before a write: none for a block that is
+/// new.
+fn assigned_before<'b>(before: Option<&'b Block>, definitions: &[JsonMap]) -> BTreeSet<&'b str> {
+    before
+        .and_then(|before| before.fields.get("properties"))
+        .and_then(Value::as_object)
+        .map(|values| assigned_users(values, definitions).into_iter().collect())
+        .unwrap_or_default()
+}
+
+/// Notes whom the write of `block` by `writer` newly names, in the transaction of the
+/// write: the users its body mentions that the body of `before` did not, and, of a
+/// card, the users its person properties take that those of `before` did not hold.
+/// `before` is the block as it was stored, `None` for a new one. A new comment notes
+/// the watchers of what it is on, but for those it names: they are told of that.
+///
+/// A comment is about the card or the page it is on; a card that is a template of its
+/// board tells nobody, and neither does anything else that is no card, page or comment.
+/// Who writes a new card, page or comment, and who is given a card, watches it.
+pub(crate) async fn note_named(
+    scope: &mut Scope<'_>,
+    block: &Block,
+    before: Option<&Block>,
+    writer: &str,
+    telling: Telling,
+) -> Result<(), StoreError> {
+    if matches!(telling, Telling::Nobody) {
+        return Ok(());
+    }
+    let about = match block.block_type {
+        BlockType::Card | BlockType::Page => block.id.as_str(),
+        BlockType::Comment => block.parent_id.as_str(),
+        _ => return Ok(()),
+    };
+    if block.fields.get("isTemplate") == Some(&Value::Bool(true)) {
+        return Ok(());
+    }
+    let mentioned_before: BTreeSet<&str> = before
+        .and_then(|before| before.body.as_ref())
+        .map(|body| body.mention_ids().into_iter().collect())
+        .unwrap_or_default();
+    let mentioned: Vec<&str> = block
+        .body
+        .as_ref()
+        .map(|body| body.mention_ids())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|user| !mentioned_before.contains(user))
+        .collect();
+    // Who typed what is read only for a body that names somebody new.
+    let typed = match telling {
+        Telling::Typed { since } if !mentioned.is_empty() => {
+            body_docs::updates_since(scope, &block.id, since).await?
+        }
+        _ => Vec::new(),
+    };
+    let event = Noted {
+        block,
+        about,
+        writer,
+        typed: &typed,
+    };
+    event
+        .note(scope, NotificationKind::Mention, &mentioned)
+        .await?;
+    if before.is_none() && matches!(telling, Telling::Written) {
+        if block.block_type == BlockType::Comment {
+            event.note_watchers(scope, &mentioned).await?;
+        }
+        event.watch(scope, &[writer]).await?;
+    }
+
+    // The definitions are read only for a card whose values changed: most writes
+    // change none.
+    let values = block.fields.get("properties").and_then(Value::as_object);
+    let values_before = before.and_then(|before| before.fields.get("properties"));
+    let (BlockType::Card, Some(values)) = (&block.block_type, values) else {
+        return Ok(());
+    };
+    if values.is_empty() || values_before.and_then(Value::as_object) == Some(values) {
+        return Ok(());
+    }
+    let Some(board) = containers::find_container(scope, &block.container_id).await? else {
+        return Ok(());
+    };
+    let held = assigned_before(before, &board.card_properties);
+    let assigned: Vec<&str> = assigned_users(values, &board.card_properties)
+        .into_iter()
+        .filter(|user| !held.contains(user))
+        .collect();
+    event
+        .note(scope, NotificationKind::Assignment, &assigned)
+        .await?;
+    let given: Vec<&str> = assigned.into_iter().take(MOST_NAMED_BY_A_WRITE).collect();
+    event.watch(scope, &given).await
+}
+
+/// Whether `bytes` hold `word` somewhere. An update of a document holds the text of
+/// what it puts in as it is, an identifier that an attribute takes among it.
+fn holds(bytes: &[u8], word: &[u8]) -> bool {
+    !word.is_empty() && bytes.windows(word.len()).any(|window| window == word)
+}
+
+/// Ends a statement that notes rows of the list: a row that is there already (the
+/// same person, kind and place) moves its `seq` on and is due again now. In one order,
+/// whoever notes: two writers that name the same people wait for one another's rows,
+/// and never each for the other's.
+const NOTED_AGAIN: &str = " ORDER BY u.id ON CONFLICT (org_id, recipient_id, kind, source_id) \
+     DO UPDATE SET seq = CASE WHEN notification_outbox.seq >= excluded.seq \
+     THEN notification_outbox.seq + 1 ELSE excluded.seq END, \
+     due_at = excluded.due_at, attempts = 0, actor_id = excluded.actor_id, \
+     block_id = excluded.block_id, container_id = excluded.container_id";
+
+/// A write of a block that names people.
+struct Noted<'a> {
+    /// The block that was written: where it happened.
+    block: &'a Block,
+    /// The card or the page it is about.
+    about: &'a str,
+    writer: &'a str,
+    /// The updates of its document that its body did not hold before, the oldest
+    /// first, each with who sent it ([`Telling::Typed`]); none for a block that was
+    /// written as it is.
+    typed: &'a [(String, Vec<u8>)],
+}
+
+impl Noted<'_> {
+    /// Who named `user`: whoever sent the first update that holds the user's
+    /// identifier, or the writer where no update does. `None` where that is the user:
+    /// nobody is told of their own doing.
+    fn doer_for(&self, user: &str) -> Option<&str> {
+        let doer = self
+            .typed
+            .iter()
+            .find(|(_, bytes)| holds(bytes, user.as_bytes()))
+            .map_or(self.writer, |(typist, _)| typist.as_str());
+        (doer != user).then_some(doer)
+    }
+
+    /// Begins a statement that notes rows of `kind` by `doer` on the list, for the
+    /// block's board or wiki as `bo`, its workspace as `w` and its organization as
+    /// `o`; the recipients follow as `u`.
+    fn noting(&self, scope: &Scope<'_>, kind: NotificationKind, doer: &str) -> Sql {
+        let now = crate::db::now_millis();
+        let mut sql = scope.sql(
+            "INSERT INTO notification_outbox (org_id, recipient_id, kind, source_id, \
+             block_id, container_id, actor_id, seq, due_at) SELECT w.org_id, u.id, ",
+        );
+        sql.bind(kind.as_str())
+            .push_bind(", ", Id(&self.block.id))
+            .push_bind(", ", Id(self.about))
+            .push_bind(", bo.id, ", OptId(doer))
+            .push_bind(", ", now)
+            .push_bind(", ", now)
+            .push(" FROM containers AS bo JOIN workspaces AS w ON w.id = bo.workspace_id")
+            .push(&scope.same_organization(&[("w", "bo")]))
+            .push(" JOIN organizations AS o ON o.id = w.org_id");
+        sql
+    }
+
+    /// Narrows a statement of [`Noted::noting`] or [`Noted::watch`] to what is noted
+    /// at all: a board or a wiki that is no template, of an organization people work
+    /// in together (in the space of one account nobody else reads anything), for users
+    /// that are accounts (one that was erased is none).
+    fn push_noted(&self, sql: &mut Sql) {
+        sql.push_bind(
+            " WHERE u.erased_at = 0 AND bo.id = ",
+            Id(&self.block.container_id),
+        )
+        .push_bind(" AND bo.is_template = ", false)
+        .push_bind(" AND o.kind = ", OrgKind::Team.as_str());
+    }
+
+    /// Notes that `users` may be told of `kind`: each as the doing of whoever named
+    /// them, for no one of their own ([`Noted::doer_for`]).
+    async fn note(
+        &self,
+        scope: &mut Scope<'_>,
+        kind: NotificationKind,
+        users: &[&str],
+    ) -> Result<(), StoreError> {
+        let told: Vec<(&str, &str)> = users
+            .iter()
+            .filter(|user| fvoci_model::is_id(user))
+            .filter_map(|user| Some((*user, self.doer_for(user)?)))
+            .take(MOST_NAMED_BY_A_WRITE)
+            .collect();
+        let doers: BTreeSet<&str> = told.iter().map(|(_, doer)| *doer).collect();
+        for doer in doers {
+            let users: Vec<&str> = told
+                .iter()
+                .filter(|(_, by)| *by == doer)
+                .map(|(user, _)| *user)
+                .collect();
+            for batch in users.chunks(BATCH) {
+                let mut sql = self.noting(scope, kind, doer);
+                sql.push(" JOIN users AS u ON u.id IN (")
+                    .bind_list(batch.iter().map(|user| Id(user)))
+                    .push(")");
+                self.push_noted(&mut sql);
+                sql.push(NOTED_AGAIN);
+                scope.execute(sql).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Notes that the watchers of the card or the page a new comment is on may be told
+    /// of it, as its writer's doing: all of them but the writer and those of
+    /// `mentioned`, who are told of the mention.
+    async fn note_watchers(
+        &self,
+        scope: &mut Scope<'_>,
+        mentioned: &[&str],
+    ) -> Result<(), StoreError> {
+        let mut sql = self.noting(scope, NotificationKind::Comment, self.writer);
+        sql.push(" JOIN subscriptions AS s ON s.block_id = ")
+            .bind(Id(self.about))
+            .push(&scope.same_organization(&[("s", "bo")]))
+            .push_bind(" AND s.subscriber_type = ", SubscriberType::User.as_str())
+            .push(" JOIN users AS u ON u.id = s.subscriber_id");
+        self.push_noted(&mut sql);
+        sql.push_bind(" AND u.id <> ", Id(self.writer));
+        let named: Vec<&str> = mentioned
+            .iter()
+            .copied()
+            .filter(|user| fvoci_model::is_id(user))
+            .take(MOST_NAMED_BY_A_WRITE)
+            .collect();
+        if !named.is_empty() {
+            sql.push(" AND u.id NOT IN (")
+                .bind_list(named.iter().map(|user| Id(user)))
+                .push(")");
+        }
+        sql.push(NOTED_AGAIN);
+        scope.execute(sql).await?;
+        Ok(())
+    }
+
+    /// Makes `users` watchers of the card or the page the write is about, where they
+    /// are not already; those that would note nothing ([`Noted::push_noted`]) are
+    /// made none.
+    async fn watch(&self, scope: &mut Scope<'_>, users: &[&str]) -> Result<(), StoreError> {
+        let users: Vec<&str> = users
+            .iter()
+            .copied()
+            .filter(|user| fvoci_model::is_id(user))
+            .collect();
+        let now = crate::db::now_millis();
+        let postgres = scope.dialect() == Dialect::Postgres;
+        for batch in users.chunks(BATCH) {
+            let mut sql = scope.sql(if postgres {
+                "INSERT INTO subscriptions (org_id, block_type, block_id, subscriber_type, \
+                 subscriber_id, notified_at, create_at) SELECT b.org_id, b.type, b.id, "
+            } else {
+                "INSERT INTO subscriptions (block_type, block_id, subscriber_type, \
+                 subscriber_id, notified_at, create_at) SELECT b.type, b.id, "
+            });
+            sql.bind(SubscriberType::User.as_str())
+                .push_bind(", u.id, ", now)
+                .push_bind(", ", now)
+                .push(" FROM blocks AS b JOIN containers AS bo ON bo.id = b.container_id")
+                .push(&scope.same_organization(&[("bo", "b")]))
+                .push(" JOIN workspaces AS w ON w.id = bo.workspace_id")
+                .push(&scope.same_organization(&[("w", "bo")]))
+                .push(" JOIN organizations AS o ON o.id = w.org_id")
+                .push(" JOIN users AS u ON u.id IN (")
+                .bind_list(batch.iter().map(|user| Id(user)))
+                .push(")");
+            self.push_noted(&mut sql);
+            sql.push_bind(" AND b.id = ", Id(self.about))
+                .push(" ORDER BY u.id ON CONFLICT (block_id, subscriber_id) DO NOTHING");
+            scope.execute(sql).await?;
+        }
+        Ok(())
+    }
+}

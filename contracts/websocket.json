@@ -163,6 +163,11 @@
         "reason": "string"
       }
     },
+    "UPDATE_NOTIFICATIONS": {
+      "members": {
+        "action": "string"
+      }
+    },
     "DOC_JOINED": {
       "members": {
         "action": "string",

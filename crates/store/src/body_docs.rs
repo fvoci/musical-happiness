@@ -17,7 +17,7 @@ use crate::body_versions::{self, BodyBefore, BodyWrite};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewBodyFiles};
-use crate::notifications::Telling;
+use crate::notification_noting::Telling;
 
 /// A stored document and the updates it took after its state.
 #[derive(Debug, Clone, PartialEq, Eq)]

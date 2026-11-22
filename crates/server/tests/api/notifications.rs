@@ -155,10 +155,11 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
         .await
         .check_no_content();
 
+    // The two mentions are of one card within the hour: one notification of them.
     let theirs = told(&th, &th.client2).await;
     assert_eq!(
         kinds(&theirs),
-        (vec!["assignment", "mention", "mention"], 0),
+        (vec!["assignment", "mention"], 0),
         "{theirs:?}"
     );
     for one_told in &theirs {
@@ -171,6 +172,7 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
                 subject.block_id.as_str(),
                 subject.block_kind,
                 subject.title.as_str(),
+                subject.people,
             ),
             (
                 a.id.as_str(),
@@ -179,23 +181,30 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
                 card.id.as_str(),
                 SearchKind::Card,
                 "The card",
+                1,
             ),
             "{one_told:?}"
         );
         assert_eq!(one_told.read_at, 0);
     }
-    let in_comments: Vec<&str> = theirs
-        .iter()
-        .filter_map(|told| told.subject.as_ref())
-        .filter(|subject| !subject.comment_id.is_empty())
-        .map(|subject| subject.comment_id.as_str())
-        .collect();
+    let of_kind = |told: &[Notification], kind: NotificationKind| {
+        told.iter()
+            .find(|one| one.subject.as_ref().is_some_and(|s| s.kind == kind))
+            .and_then(|one| one.subject.clone())
+            .expect("one of the kind")
+    };
+    let mention = of_kind(&theirs, NotificationKind::Mention);
     assert_eq!(
-        in_comments,
-        [comment.id.as_str()],
-        "one of them is of the comment"
+        (mention.times, mention.comment_id.as_str()),
+        (2, comment.id.as_str()),
+        "twice, the latest in the comment"
     );
-    assert_eq!(unread(&th.client2).await, 3);
+    assert_eq!(
+        of_kind(&theirs, NotificationKind::Assignment).comment_id,
+        "",
+        "the card given is of the card itself"
+    );
+    assert_eq!(unread(&th.client2).await, 2);
     assert_eq!(told(&th, &th.client).await, [], "A did all of it");
     assert_eq!(unread(&th.client).await, 0);
 
@@ -241,8 +250,20 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
             .check_no_content();
         tend_notifications(&th.app).await;
     }
+    // Each taken out and put back joins its notification: no other is made.
     let again = told(&th, &th.client2).await;
-    assert_eq!(again, theirs, "nothing more, and nothing changed");
+    let ids = |told: &[Notification]| {
+        let mut ids: Vec<String> = told.iter().map(|one| one.id.clone()).collect();
+        ids.sort();
+        ids
+    };
+    assert_eq!(ids(&again), ids(&theirs), "nothing more: {again:?}");
+    assert_eq!(kinds(&again), kinds(&theirs));
+    assert!(
+        of_kind(&again, NotificationKind::Mention).times > 2
+            && of_kind(&again, NotificationKind::Assignment).times == 2,
+        "counted: {again:?}"
+    );
     assert_eq!(
         th.app
             .housekeeping()
@@ -254,21 +275,27 @@ async fn a_mention_typed_a_mention_in_a_comment_and_a_card_given_are_told_once()
         "what was noted again was worked off, and dropped"
     );
 
-    // Off the board: the three are still B's, and say nothing.
+    // Off the board: the two are still B's, and say nothing.
     delete_member(&th.client, &editor(&board.id, &b.id))
         .await
         .check_no_content();
     let unseen = told(&th, &th.client2).await;
-    assert_eq!(kinds(&unseen), (vec![], 3), "{unseen:?}");
+    assert_eq!(kinds(&unseen), (vec![], 2), "{unseen:?}");
     let listed = serde_json::to_value(&unseen).expect("JSON");
-    for (now, before) in listed.as_array().expect("a list").iter().zip(&theirs) {
+    for (now, before) in listed.as_array().expect("a list").iter().zip(&again) {
         assert_eq!(
             *now,
-            json!({"id": before.id, "createAt": before.create_at, "readAt": 0, "subject": null}),
+            json!({
+                "id": before.id,
+                "createAt": before.create_at,
+                "updateAt": before.update_at,
+                "readAt": 0,
+                "subject": null,
+            }),
             "nothing but that there was one"
         );
     }
-    assert_eq!(unread(&th.client2).await, 3, "unread until they are read");
+    assert_eq!(unread(&th.client2).await, 2, "unread until they are read");
     th.teardown().await;
 }
 
@@ -280,8 +307,9 @@ async fn notifications_are_read_one_by_one_and_all_at_once_by_their_reader_alone
     let b = th.client2.me().await;
     let board = board_with_owner(&th, ContainerType::Private).await;
     give(&th, &board.id, &b.id, "viewer").await;
-    let card = card_with(&th.client, &board.id, &Value::Null).await;
+    // Each of another card: what happens to one card within the hour is one.
     for _ in 0..3 {
+        let card = card_with(&th.client, &board.id, &Value::Null).await;
         comment_on(&th.client, &card, &mentioning(&[&b.id])).await;
         tend_notifications(&th.app).await;
         tokio::time::sleep(Duration::from_millis(2)).await;
@@ -291,7 +319,7 @@ async fn notifications_are_read_one_by_one_and_all_at_once_by_their_reader_alone
     assert!(
         theirs
             .windows(2)
-            .all(|pair| pair[0].create_at > pair[1].create_at),
+            .all(|pair| pair[0].update_at > pair[1].update_at),
         "the newest first: {theirs:?}"
     );
     let second_page: Vec<Notification> = th

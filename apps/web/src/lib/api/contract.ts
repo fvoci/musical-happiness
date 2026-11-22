@@ -532,9 +532,19 @@ export interface paths {
         /**
          * The notifications of the user
          * @description One page of what the user of the session was told, in every organization the
-         *     session opens, the newest first: that somebody mentioned them in a card, a page or a comment
-         *     (`mention`), or gave them a card (`assignment`). Nobody is told of their own doing,
-         *     nor of anything in a user's own space.
+         *     session opens, the newest first (by `updateAt`): that somebody mentioned them in a
+         *     card, a page or a comment (`mention`), gave them a card (`assignment`), or commented
+         *     on a card or a page they watch (`comment`; one named in that comment is told of the
+         *     mention alone). Nobody is told of their own doing, nor of anything in a user's own
+         *     space, nor of a kind they switched off (`notifyMentions`, `notifyAssignments`,
+         *     `notifyComments` of `patchUserSettings`): what is off is not made at all.
+         *
+         *     Whoever writes a card or a page, is given a card, or comments on either watches it
+         *     (`createSubscription`), until they end that (`deleteSubscription`). What happens to
+         *     one card or page, of one kind, within an hour of the first of it, is one
+         *     notification: `times` and `people` count it, `actorId` and `commentId` say the
+         *     latest, and it is unread again. One person makes a hundred new ones for another
+         *     within an hour at most; past that, what they do joins only those there.
          *
          *     A notification is made only for somebody who reads the card or the page at that
          *     time, and each one listed is asked again: its `subject` says what it is about, as
@@ -571,9 +581,9 @@ export interface paths {
         put?: never;
         /**
          * Mark every notification as read
-         * @description Marks as read every notification of the user of the session that was made up to
-         *     `through`, or up to now where that is left out: a client gives the `createAt` of
-         *     the newest it has shown, so that one that came since stays unread. Those of an
+         * @description Marks as read every notification of the user of the session whose latest happened
+         *     up to `through`, or up to now where that is left out: a client gives the `updateAt`
+         *     of the newest it has shown, so that one that came or grew since stays unread. Those of an
          *     organization the session does not open (`getNotifications`) stay as they are.
          */
         post: operations["readNotifications"];
@@ -5962,17 +5972,23 @@ export interface components {
         Notification: {
             /**
              * Format: int64
-             * @description When it was made.
+             * @description When it was made: when the first of it happened.
              */
             createAt: number;
             /** @description Its identifier. */
             id: string;
             /**
              * Format: int64
-             * @description When its reader read it; 0 until then.
+             * @description When its reader read it; 0 until then, and again once more of it happens.
              */
             readAt: number;
             subject: components["schemas"]["NotificationSubject"] | null;
+            /**
+             * Format: int64
+             * @description When the latest of it happened; the notifications are listed by it, the
+             *     newest first.
+             */
+            updateAt: number;
         };
         /**
          * @description What a notification tells of.
@@ -5982,9 +5998,9 @@ export interface components {
         /** @description What a notification is about, for a reader who reads it now. */
         NotificationSubject: {
             /**
-             * @description Who did it; empty where nobody is known to have. The identifier alone, as a
-             *     card says who wrote it: the name is asked of the workspace's people, where
-             *     its reader is told the names they may see.
+             * @description Who did the latest of it; empty where nobody is known to have. The identifier
+             *     alone, as a card says who wrote it: the name is asked of the workspace's
+             *     people, where its reader is told the names they may see.
              */
             actorId: string;
             /** @description The card or the page it is about: what the reader opens. */
@@ -5992,8 +6008,8 @@ export interface components {
             /** @description What that is. */
             blockKind: components["schemas"]["SearchKind"];
             /**
-             * @description The comment it happened in; empty where it happened in the card or the page
-             *     itself.
+             * @description The comment the latest of it happened in, where that is still there; empty
+             *     where it happened in the card or the page itself, or the comment went.
              */
             commentId: string;
             /** @description The board the card is on, or the wiki the page is in. */
@@ -6002,6 +6018,18 @@ export interface components {
             containerKind: components["schemas"]["ContainerKind"];
             /** @description What happened. */
             kind: components["schemas"]["NotificationKind"];
+            /**
+             * Format: int64
+             * @description How many people did it, `actorId` among them; 0 where nobody is known to have.
+             *     A hundred are counted at most.
+             */
+            people: number;
+            /**
+             * Format: int64
+             * @description How many times it happened: what happens to the same card or page, of the same
+             *     kind, within an hour of the first of it, is told in one notification.
+             */
+            times: number;
             /** @description Its title as it is now. */
             title: string;
             /** @description The workspace of the card or the page. */
@@ -6636,6 +6664,12 @@ export interface components {
              *     characters; the server keeps no list of languages, and keeps a tag as given.
              */
             language?: string | null;
+            /** @description Whether the user is told when somebody gives them a card (`assignment`). */
+            notifyAssignments?: boolean | null;
+            /** @description Whether the user is told of the new comments on what they watch (`comment`). */
+            notifyComments?: boolean | null;
+            /** @description Whether the user is told when somebody mentions them (`mention`). */
+            notifyMentions?: boolean | null;
             theme?: components["schemas"]["Theme"] | null;
             /**
              * @description `auto`, for the time zone of the device, or the IANA name of a time zone, such
@@ -6919,6 +6953,12 @@ export interface components {
              *     it was given, case and all: compare tags without regard to case.
              */
             language: string;
+            /** @description Whether the user is told when somebody gives them a card (`assignment`). */
+            notifyAssignments: boolean;
+            /** @description Whether the user is told of the new comments on what they watch (`comment`). */
+            notifyComments: boolean;
+            /** @description Whether the user is told when somebody mentions them (`mention`). */
+            notifyMentions: boolean;
             /** @description The colors of the interface. */
             theme: components["schemas"]["Theme"];
             /** @description The time zone times are shown in. */

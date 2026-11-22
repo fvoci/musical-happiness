@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::blocks::{DuplicateAs, OLDEST_FIRST, fetch_blocks, insert_blocks, select_blocks};
 use crate::db::Id;
 use crate::file_refs::NewBodyFiles;
-use crate::notifications::Telling;
+use crate::notification_noting::Telling;
 use crate::{Store, StoreError, card_values, containers};
 
 impl Store {

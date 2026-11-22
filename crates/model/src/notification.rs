@@ -9,7 +9,19 @@ use serde::{Deserialize, Serialize};
 use crate::{ContainerKind, SearchKind};
 
 /// What a notification tells of.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    utoipa::ToSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum NotificationKind {
     /// A body, of a card, a page or a comment, names the person.
@@ -62,10 +74,16 @@ impl FromStr for NotificationKind {
 pub struct NotificationSubject {
     /// What happened.
     pub kind: NotificationKind,
-    /// Who did it; empty where nobody is known to have. The identifier alone, as a
-    /// card says who wrote it: the name is asked of the workspace's people, where
-    /// its reader is told the names they may see.
+    /// Who did the latest of it; empty where nobody is known to have. The identifier
+    /// alone, as a card says who wrote it: the name is asked of the workspace's
+    /// people, where its reader is told the names they may see.
     pub actor_id: String,
+    /// How many times it happened: what happens to the same card or page, of the same
+    /// kind, within an hour of the first of it, is told in one notification.
+    pub times: i64,
+    /// How many people did it, `actorId` among them; 0 where nobody is known to have.
+    /// A hundred are counted at most.
+    pub people: i64,
     /// The workspace of the card or the page.
     pub workspace_id: String,
     /// The board the card is on, or the wiki the page is in.
@@ -78,8 +96,8 @@ pub struct NotificationSubject {
     pub block_kind: SearchKind,
     /// Its title as it is now.
     pub title: String,
-    /// The comment it happened in; empty where it happened in the card or the page
-    /// itself.
+    /// The comment the latest of it happened in, where that is still there; empty
+    /// where it happened in the card or the page itself, or the comment went.
     pub comment_id: String,
 }
 
@@ -89,9 +107,12 @@ pub struct NotificationSubject {
 pub struct Notification {
     /// Its identifier.
     pub id: String,
-    /// When it was made.
+    /// When it was made: when the first of it happened.
     pub create_at: i64,
-    /// When its reader read it; 0 until then.
+    /// When the latest of it happened; the notifications are listed by it, the
+    /// newest first.
+    pub update_at: i64,
+    /// When its reader read it; 0 until then, and again once more of it happens.
     pub read_at: i64,
     /// What it is about; `null` where its reader does not read that now (it is gone,
     /// or theirs no more), and is told nothing of it: not what, not where, not by

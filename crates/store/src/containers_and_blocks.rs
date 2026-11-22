@@ -19,7 +19,7 @@ use crate::file_info;
 use crate::file_refs::NewBodyFiles;
 use crate::loose_objects;
 use crate::members;
-use crate::notifications::Telling;
+use crate::notification_noting::Telling;
 use crate::org_admin;
 use crate::trash;
 use crate::workspace_membership;

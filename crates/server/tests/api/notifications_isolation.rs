@@ -73,7 +73,12 @@ async fn erase(th: &TestServer, user_id: &str) {
 /// with a page whose body mentions `users`: through whichever handle reaches the
 /// workspace. Somebody of the workspace reads the page without being asked in, so
 /// that whoever is not told of it is not for want of a role on it.
-async fn open_page_mentioning(store: &Store, workspace_id: &str, author: &str, users: &[&str]) {
+pub(crate) async fn open_page_mentioning(
+    store: &Store,
+    workspace_id: &str,
+    author: &str,
+    users: &[&str],
+) {
     let (_, page_id) = stored_wiki(store, workspace_id, ContainerType::Open, author).await;
     let patch = BlockPatch {
         body: BodyChange::Set(
@@ -208,8 +213,9 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
     }
     tend_notifications(&th.app).await;
     assert_eq!(waiting(&th).await, 0, "every row was worked off");
+    // The two mentions, of one card within the hour, are one notification.
     for (who, user) in read {
-        assert_eq!(held_by(&th, user).await, 3, "{who}");
+        assert_eq!(held_by(&th, user).await, 2, "{who}");
     }
     for (who, user) in unread_by {
         assert_eq!(held_by(&th, user).await, 0, "{who}");
@@ -256,7 +262,7 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
     );
     assert_eq!(
         held_by(&th, &viewer).await,
-        3,
+        2,
         "nothing from where they are not"
     );
     assert_eq!(held_by(&th, &a.id).await, 0);
@@ -280,7 +286,7 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
     assert!(entry["id"].is_string(), "{entry}");
     assert_eq!(waiting(&th).await, 0, "nothing is noted in one's own space");
     tend_notifications(&th.app).await;
-    assert_eq!(held_by(&th, &viewer).await, 3);
+    assert_eq!(held_by(&th, &viewer).await, 2);
 
     // The account of somebody who was told goes: so does what they were told.
     erase(&th, &invited_guest).await;
@@ -293,8 +299,9 @@ async fn only_who_reads_a_card_is_told_of_being_named_on_it() {
 }
 
 /// What stops being read after somebody was told of it says nothing from then on: a
-/// card in the trash (until it is back), a card gone for good, a comment that went, a
-/// page of a wiki in the trash, and everything of a workspace that was left. What its
+/// card in the trash (until it is back), a card gone for good, a page of a wiki in the
+/// trash, and everything of a workspace that was left. A comment that went leaves its
+/// card, which is still read, without it. What its
 /// writer's account going leaves is the notification, by nobody.
 #[tokio::test]
 #[expect(
@@ -377,11 +384,21 @@ async fn what_its_reader_reads_no_more_says_nothing_of_itself() {
     for (what, block_id) in [
         ("in the trash", &trashed.id),
         ("gone for good", &purged.id),
-        ("whose comment went", &commented.id),
         ("of a wiki in the trash", &page.id),
     ] {
         assert_eq!(seen(&now, block_id), None, "a card or a page {what}");
     }
+    // A comment that went takes nothing of its card, which B reads: the card is
+    // told of, and the comment no more.
+    let of_commented = seen(&now, &commented.id).expect("the card is read");
+    assert_eq!(
+        (
+            of_commented.block_id.as_str(),
+            of_commented.comment_id.as_str()
+        ),
+        (commented.id.as_str(), ""),
+        "whose comment went"
+    );
     assert!(seen(&now, &kept.id).is_some(), "the one that stays");
     assert!(seen(&now, &open_page).is_some(), "and the open page");
     let orphaned = seen(&now, &by_ghost.id).expect("the card is read as before");

@@ -23,7 +23,7 @@ use crate::containers;
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
-use crate::notifications::{self, Telling};
+use crate::notification_noting::{self, Telling};
 use crate::page_places;
 
 /// The name of every block column, in the order rows are read and written.
@@ -757,13 +757,13 @@ async fn insert_block_at(
             body_versions::record_change(scope, &existing, block, user_id, cause).await?;
         }
         block_derived::refresh(scope, block, Before::Stored(&existing), new_files).await?;
-        notifications::note_named(scope, block, Some(&existing), user_id, telling).await?;
+        notification_noting::note_named(scope, block, Some(&existing), user_id, telling).await?;
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
         block.edited_at = 0;
         insert_block_row(scope, block, new_files).await?;
-        notifications::note_named(scope, block, None, user_id, telling).await?;
+        notification_noting::note_named(scope, block, None, user_id, telling).await?;
     }
     Ok(named)
 }

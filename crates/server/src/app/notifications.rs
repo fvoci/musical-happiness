@@ -6,27 +6,36 @@
 //! off ([`tend`]), and again each time its reader lists it ([`App::notifications`]).
 //! What they do not read then, because it is gone, in the trash, another's now or
 //! behind a sign-in their session does not open, is listed as something they cannot
-//! see: no title, no place, no name.
+//! see: no title, no place, no name. Nobody is told of what they switched off
+//! (`notifyMentions` and the others of their settings), and each connection of theirs
+//! is told when what it sees of their notifications changed (`Hub::notifications_changed`).
 
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{Notification, NotificationSubject, Session};
 use fvoci_store::{
     NotificationEvent, NotificationLimits, NotificationPlace, NotificationReader,
-    StoredNotification,
+    StoredNotification, Told,
 };
 
 use super::sso::Asker;
 use super::{App, ListPage};
 use crate::auth::now_millis;
 use crate::error::{AppError, Reason};
+use crate::metrics::NotificationSettled;
 use crate::scheduler::RecurringTask;
 
-/// The bounds a notification is made within: an hour in which the same (a mention
-/// taken out and put back, a card given again) tells nobody twice, and ten thousand
-/// to a person.
+/// An hour, in milliseconds.
+const HOUR_MILLIS: i64 = 60 * 60 * 1000;
+/// The bounds a notification is made within: what happens to one card or page, of one
+/// kind, within an hour of the first of it is one notification (a mention taken out
+/// and put back, a card given again, the comments of a busy card); a hundred new ones
+/// from one person to another within the hour, the rest joining only those; and ten
+/// thousand to a person.
 const LIMITS: NotificationLimits = NotificationLimits {
-    same_within_millis: 60 * 60 * 1000,
+    same_within_millis: HOUR_MILLIS,
+    most_made_by_one: 100,
+    made_within_millis: HOUR_MILLIS,
     most_of_a_person: 10_000,
 };
 /// How long a notification is kept after it was read: ninety days.
@@ -53,6 +62,24 @@ struct Named<'a> {
     source_id: &'a str,
 }
 
+/// What a reader reads of what a notification names, now.
+#[derive(Debug, Clone)]
+struct Seen {
+    /// Where the card or the page is, and what it is called.
+    place: NotificationPlace,
+    /// The comment it happened in, where that is there on the card or the page; empty
+    /// where it happened in the card or the page itself, or the comment went.
+    comment_id: String,
+}
+
+impl Seen {
+    /// Whether what `named` happened in is there: the card or the page, or the
+    /// comment on it.
+    fn holds(&self, named: &Named<'_>) -> bool {
+        named.source_id == named.block_id || !self.comment_id.is_empty()
+    }
+}
+
 /// On whose word a person is let to what is an organization's.
 #[derive(Debug, Clone, Copy)]
 enum Entry<'a> {
@@ -71,14 +98,14 @@ impl App {
     /// What is read is a card that is no template of its board, or a page, that is
     /// not in the trash, on a board or in a wiki that is no template, in a workspace
     /// the user enters (`entry`), which the user reads there ([`App::container_access`],
-    /// asked once a container); and where it happened in a comment, the comment is
-    /// there, on that card or page.
+    /// asked once a container). Where it happened in a comment, [`Seen::comment_id`]
+    /// says whether that is there, on that card or page.
     async fn places_read_by(
         &self,
         user_id: &str,
         entry: Entry<'_>,
         named: &[Named<'_>],
-    ) -> Result<Vec<Option<NotificationPlace>>, AppError> {
+    ) -> Result<Vec<Option<Seen>>, AppError> {
         let block_ids: Vec<&str> = named.iter().map(|named| named.block_id).collect();
         let places: HashMap<String, NotificationPlace> = self
             .store()
@@ -102,11 +129,7 @@ impl App {
         let mut reads: HashMap<&str, bool> = HashMap::new();
         let mut read = Vec::with_capacity(named.len());
         for named in named {
-            let place = places.get(named.block_id).filter(|_| {
-                named.source_id == named.block_id
-                    || comments.get(named.source_id).map(String::as_str) == Some(named.block_id)
-            });
-            let Some(place) = place else {
+            let Some(place) = places.get(named.block_id) else {
                 read.push(None);
                 continue;
             };
@@ -134,7 +157,16 @@ impl App {
                 reads.insert(container_id, reads_it);
                 reads_it
             };
-            read.push(reads_it.then(|| place.clone()));
+            let comment_there = named.source_id != named.block_id
+                && comments.get(named.source_id).map(String::as_str) == Some(named.block_id);
+            read.push(reads_it.then(|| Seen {
+                place: place.clone(),
+                comment_id: if comment_there {
+                    named.source_id.to_owned()
+                } else {
+                    String::new()
+                },
+            }));
         }
         Ok(read)
     }
@@ -181,7 +213,7 @@ impl App {
             .store()
             .notifications_of_user(reader(session.into()), page.paging())
             .await?;
-        let mut places: HashMap<&str, NotificationPlace> = HashMap::new();
+        let mut places: HashMap<&str, Seen> = HashMap::new();
         let org_ids: HashSet<&str> = stored.iter().map(|told| told.org_id.as_str()).collect();
         for org_id in org_ids {
             let of_org: Vec<&StoredNotification> =
@@ -208,10 +240,11 @@ impl App {
             .map(|told| Notification {
                 id: told.id.clone(),
                 create_at: told.create_at,
+                update_at: told.update_at,
                 read_at: told.read_at,
                 subject: places
                     .remove(told.id.as_str())
-                    .map(|place| subject(told, place)),
+                    .map(|seen| subject(told, seen)),
             })
             .collect())
     }
@@ -245,23 +278,27 @@ impl App {
             .store()
             .read_notification(reader(asker), notification_id, now_millis())
             .await?;
-        if theirs {
-            Ok(())
-        } else {
-            Err(AppError::not_found("notification"))
+        if !theirs {
+            return Err(AppError::not_found("notification"));
         }
+        self.ws().notifications_changed(asker.user_id, None).await;
+        Ok(())
     }
 
-    /// Marks as read every notification of the asker made up to `made_by`, in the
-    /// organizations their session opens.
+    /// Marks as read every notification of the asker whose latest happened up to
+    /// `through`, in the organizations their session opens.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the statement fails.
-    pub async fn read_notifications(&self, asker: Asker<'_>, made_by: i64) -> Result<(), AppError> {
-        self.store()
-            .read_notifications_of_user(reader(asker), made_by, now_millis())
+    pub async fn read_notifications(&self, asker: Asker<'_>, through: i64) -> Result<(), AppError> {
+        let read = self
+            .store()
+            .read_notifications_of_user(reader(asker), through, now_millis())
             .await?;
+        if read > 0 {
+            self.ws().notifications_changed(asker.user_id, None).await;
+        }
         Ok(())
     }
 
@@ -283,16 +320,14 @@ impl App {
     }
 }
 
-/// What a notification is about, for a reader who reads `place` now.
-fn subject(told: &StoredNotification, place: NotificationPlace) -> NotificationSubject {
-    let comment_id = if told.source_id == told.block_id {
-        String::new()
-    } else {
-        told.source_id.clone()
-    };
+/// What a notification is about, for a reader who reads what `seen` says now.
+fn subject(told: &StoredNotification, seen: Seen) -> NotificationSubject {
+    let Seen { place, comment_id } = seen;
     NotificationSubject {
         kind: told.kind,
         actor_id: told.actor_id.clone(),
+        times: told.times,
+        people: told.people,
         workspace_id: place.workspace_id,
         container_id: place.container_id,
         container_kind: place.container_kind,
@@ -320,25 +355,57 @@ fn retry_at(now: i64, attempts: i64) -> i64 {
     now.saturating_add(wait)
 }
 
-/// Works off one row of the list: the person is told if somebody else did it and
-/// they read what it is about now, and the row is dropped otherwise. `app` reaches
-/// every organization.
-async fn settle(app: &App, event: &NotificationEvent) -> Result<(), AppError> {
+/// Whether the person of `event` is told of it: somebody else did it, the person did
+/// not switch its kind off, and reads now what it happened in. `app` reaches every
+/// organization.
+async fn tells(app: &App, event: &NotificationEvent) -> Result<bool, AppError> {
+    if event.actor_id == event.recipient_id {
+        return Ok(false);
+    }
+    let settings = app.store().get_user_settings(&event.recipient_id).await?;
+    if !settings.notifies(event.kind) {
+        return Ok(false);
+    }
     let named = Named {
         block_id: &event.block_id,
         source_id: &event.source_id,
     };
-    let told = event.actor_id != event.recipient_id
-        && app
-            .in_organization(&event.org_id)?
-            .places_read_by(&event.recipient_id, Entry::Standing, &[named])
-            .await?
-            .first()
-            .is_some_and(Option::is_some);
-    if told {
-        app.store().tell_of(event, now_millis(), LIMITS).await?;
+    Ok(app
+        .in_organization(&event.org_id)?
+        .places_read_by(&event.recipient_id, Entry::Standing, &[named])
+        .await?
+        .first()
+        .and_then(Option::as_ref)
+        .is_some_and(|seen| seen.holds(&named)))
+}
+
+/// Works off one row of the list: the person is told if they are to be ([`tells`]),
+/// and the row is dropped otherwise. Each connection of theirs is told of what it
+/// sees change.
+async fn settle(app: &App, event: &NotificationEvent) -> Result<(), AppError> {
+    let settled = if tells(app, event).await? {
+        match app.store().tell_of(event, now_millis(), LIMITS).await? {
+            Told::Made(_) => Some(NotificationSettled::Made),
+            Told::Joined(_) => Some(NotificationSettled::Joined),
+            Told::OverTheLimit => Some(NotificationSettled::OverTheLimit),
+            Told::NotedAgain => None,
+        }
+    } else if app.store().drop_notification_event(event).await? {
+        Some(NotificationSettled::NotTold)
     } else {
-        app.store().drop_notification_event(event).await?;
+        None
+    };
+    let Some(settled) = settled else {
+        return Ok(());
+    };
+    app.metrics().notification_settled(settled);
+    if matches!(
+        settled,
+        NotificationSettled::Made | NotificationSettled::Joined
+    ) {
+        app.ws()
+            .notifications_changed(&event.recipient_id, Some(&event.org_id))
+            .await;
     }
     Ok(())
 }

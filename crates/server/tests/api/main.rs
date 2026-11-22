@@ -91,6 +91,7 @@ mod metrics_listener;
 mod metrics_outcomes;
 mod notifications;
 mod notifications_isolation;
+mod notifications_watching;
 mod oidc;
 mod oidc_link;
 mod oidc_races;

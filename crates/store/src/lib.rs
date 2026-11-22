@@ -48,6 +48,8 @@ mod linked_blocks;
 mod loose_objects;
 mod members;
 mod memberships_everywhere;
+mod notification_noting;
+mod notification_outbox;
 mod notifications;
 mod observe;
 mod oidc;
@@ -125,10 +127,8 @@ pub use invitations::{
 };
 pub use invited_signups::InvitedConfirmation;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
-pub use notifications::{
-    NotificationEvent, NotificationLimits, NotificationPlace, NotificationReader,
-    StoredNotification,
-};
+pub use notification_outbox::{NotificationEvent, NotificationLimits, Told};
+pub use notifications::{NotificationPlace, NotificationReader, StoredNotification};
 pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{
     FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoredProvider,

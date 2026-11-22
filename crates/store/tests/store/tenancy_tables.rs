@@ -313,17 +313,19 @@ async fn told_and_to_be_told(store: &Store, board_id: &str, user_id: &str) {
         .expect("the list is read");
     let limits = fvoci_store::NotificationLimits {
         same_within_millis: 0,
+        most_made_by_one: 10,
+        made_within_millis: 0,
         most_of_a_person: 10,
     };
     let of_the_user = noted
         .iter()
         .find(|event| event.recipient_id == user_id)
         .expect("a row of the user");
-    store
-        .tell_of(of_the_user, 1, limits)
-        .await
-        .expect("asked")
-        .expect("the user is told");
+    let told = store.tell_of(of_the_user, 1, limits).await.expect("asked");
+    assert!(
+        matches!(told, fvoci_store::Told::Made(_)),
+        "the user is told: {told:?}"
+    );
 }
 
 /// Stores, through `store`, something in every table of an organization: a workspace, a

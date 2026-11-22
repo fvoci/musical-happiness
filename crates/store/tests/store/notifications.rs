@@ -5,7 +5,7 @@
 use fvoci_model::{Block, BlockType, Body, Container, ContainerType, NotificationKind, new_id};
 use fvoci_store::{
     Making, NotificationEvent, NotificationLimits, NotificationReader, Paging, Store,
-    StoredNotification,
+    StoredNotification, Told,
 };
 use serde_json::json;
 
@@ -16,8 +16,18 @@ const LATER: i64 = i64::MAX;
 /// An hour, and no cap anybody reaches.
 const LIMITS: NotificationLimits = NotificationLimits {
     same_within_millis: 3_600_000,
+    most_made_by_one: 1000,
+    made_within_millis: 3_600_000,
     most_of_a_person: 1000,
 };
+
+/// The identifier of a notification that was made.
+fn made(told: Told) -> String {
+    match told {
+        Told::Made(id) => id,
+        other => panic!("a notification was to be made: {other:?}"),
+    }
+}
 
 fn mentioning(user_id: &str) -> Option<Body> {
     Body::parse(json!({"type": "doc", "content": [
@@ -143,7 +153,7 @@ async fn a_write_notes_whom_it_names_with_itself_and_a_row_noted_again_is_not_ta
     assert!(again[0].seq > first.seq, "moved on: {again:?}");
     assert_eq!(
         store.tell_of(first, 10, LIMITS).await.expect("asked"),
-        None,
+        Told::NotedAgain,
         "read before it was noted again"
     );
     assert!(!store.drop_notification_event(first).await.expect("asked"));
@@ -161,11 +171,7 @@ async fn a_write_notes_whom_it_names_with_itself_and_a_row_noted_again_is_not_ta
     assert_eq!(waited.len(), 1);
     assert_eq!((waited[0].attempts, waited[0].seq), (1, again[0].seq));
 
-    let id = store
-        .tell_of(&waited[0], 1000, LIMITS)
-        .await
-        .expect("told")
-        .expect("a notification");
+    let id = made(store.tell_of(&waited[0], 1000, LIMITS).await.expect("told"));
     assert_eq!(events(store).await, [], "taken off with the telling");
     let theirs = told(store, &named).await;
     assert_eq!(theirs.len(), 1);
@@ -180,13 +186,15 @@ async fn a_write_notes_whom_it_names_with_itself_and_a_row_noted_again_is_not_ta
     test.teardown().await;
 }
 
-/// The same told again within the hour makes no other notification; after it, or of
-/// another kind or from another place, it does.
+/// What happens to one card, of one kind, within an hour of the first of it joins the
+/// first's line: counted, by the latest, and unread again. After the hour, or of
+/// another card, it is a line of its own.
 #[tokio::test]
-async fn the_same_within_the_hour_is_told_once() {
+async fn what_happens_to_one_card_within_the_hour_is_one_line_that_counts_it() {
     let test = common::setup().await;
     let store = &test.store;
     let (board_id, writer, named) = board_and_two(store).await;
+    let third = common::user(store, &format!("t{}", &new_id()[24..])).await;
     let mut block = card(&board_id, mentioning(&named));
     store
         .insert_block(&mut block, &writer)
@@ -195,21 +203,21 @@ async fn the_same_within_the_hour_is_told_once() {
     let event = events(store).await.remove(0);
     let hour = LIMITS.same_within_millis;
     let start = 10 * hour;
+    let id = made(store.tell_of(&event, start, LIMITS).await.expect("told"));
     assert!(
         store
-            .tell_of(&event, start, LIMITS)
+            .read_notification(reader(&named), &id, start + 1)
             .await
-            .expect("told")
-            .is_some()
+            .expect("read")
     );
 
-    // Out of the body and in again, each time: one row, of the same.
-    let noted_again = async || {
+    // Out of the body and in again, once by the writer and once by a third.
+    let noted_again = async |by: &str| {
         for body in [None, mentioning(&named)] {
             let mut again = block.clone();
             again.body = body;
             store
-                .insert_block(&mut again, &writer)
+                .insert_block(&mut again, by)
                 .await
                 .expect("the card is written again");
         }
@@ -217,30 +225,190 @@ async fn the_same_within_the_hour_is_told_once() {
         assert_eq!(noted.len(), 1, "{noted:?}");
         noted.into_iter().next().expect("one row")
     };
-    let within = noted_again().await;
+    for (by, at) in [(&writer, start + 10), (&third, start + hour - 1)] {
+        let within = noted_again(by).await;
+        assert_eq!(
+            store.tell_of(&within, at, LIMITS).await.expect("told"),
+            Told::Joined(id.clone()),
+            "within the hour"
+        );
+    }
+    assert_eq!(events(store).await, [], "the rows are taken off");
+    let line = told(store, &named).await;
+    assert_eq!(line.len(), 1, "{line:?}");
     assert_eq!(
-        store
-            .tell_of(&within, start + hour - 1, LIMITS)
-            .await
-            .expect("asked"),
-        None,
-        "within the hour"
+        (
+            line[0].times,
+            line[0].people,
+            line[0].actor_id.as_str(),
+            line[0].create_at,
+            line[0].update_at,
+            line[0].read_at,
+        ),
+        (3, 2, third.as_str(), start, start + hour - 1, 0),
+        "three times, by two, the latest by the third; unread again"
     );
-    assert_eq!(
-        events(store).await,
-        [],
-        "and the row is taken off all the same"
-    );
-    let after = noted_again().await;
-    assert!(
+
+    let after = noted_again(&writer).await;
+    let next = made(
         store
             .tell_of(&after, start + hour, LIMITS)
             .await
-            .expect("told")
-            .is_some(),
-        "an hour later"
+            .expect("told"),
     );
-    assert_eq!(told(store, &named).await.len(), 2);
+    let mut other = card(&board_id, mentioning(&named));
+    store
+        .insert_block(&mut other, &writer)
+        .await
+        .expect("another card is stored");
+    let of_other = events(store).await.remove(0);
+    let another = made(
+        store
+            .tell_of(&of_other, start + hour, LIMITS)
+            .await
+            .expect("told"),
+    );
+    let ids: Vec<String> = told(store, &named)
+        .await
+        .into_iter()
+        .map(|n| n.id)
+        .collect();
+    assert_eq!(ids.len(), 3, "an hour later, and another card: {ids:?}");
+    assert!(ids.contains(&next) && ids.contains(&another));
+    test.teardown().await;
+}
+
+/// One person makes so many lines for another within the hour and no more; past that,
+/// what they do makes none, what somebody else does still does, and after the hour
+/// theirs does again.
+#[tokio::test]
+async fn one_person_makes_so_many_lines_for_another_within_the_hour() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let (board_id, writer, named) = board_and_two(store).await;
+    let third = common::user(store, &format!("t{}", &new_id()[24..])).await;
+    let two = NotificationLimits {
+        most_made_by_one: 2,
+        ..LIMITS
+    };
+    let new_card_by = async |by: &str, at: i64| {
+        let mut block = card(&board_id, mentioning(&named));
+        store
+            .insert_block(&mut block, by)
+            .await
+            .expect("the card is stored");
+        let event = events(store).await.remove(0);
+        store.tell_of(&event, at, two).await.expect("asked")
+    };
+    let hour = two.made_within_millis;
+    for at in [hour, hour + 1] {
+        made(new_card_by(&writer, at).await);
+    }
+    assert_eq!(new_card_by(&writer, hour + 2).await, Told::OverTheLimit);
+    assert_eq!(events(store).await, [], "and the row is taken off");
+    made(new_card_by(&third, hour + 3).await);
+    made(new_card_by(&writer, 2 * hour + 1).await);
+    assert_eq!(told(store, &named).await.len(), 4);
+    test.teardown().await;
+}
+
+/// A new comment notes the watchers of its card but its writer and those it names; who
+/// writes a card, comments on it or is given it watches it, and nobody watches by a
+/// quiet write.
+#[tokio::test]
+async fn a_comment_notes_the_watchers_of_its_card_and_writing_makes_a_watcher() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let (board_id, writer, named) = board_and_two(store).await;
+    let third = common::user(store, &format!("t{}", &new_id()[24..])).await;
+    let watchers = async |block_id: &str| {
+        let mut ids: Vec<String> = store
+            .get_subscribers_for_block(block_id)
+            .await
+            .expect("read")
+            .into_iter()
+            .map(|subscriber| subscriber.subscriber_id)
+            .collect();
+        ids.sort();
+        ids
+    };
+    let mut quiet = card(&board_id, None);
+    store
+        .telling_nobody()
+        .insert_block(&mut quiet, &writer)
+        .await
+        .expect("a card stored quietly");
+    assert_eq!(watchers(&quiet.id).await, Vec::<String>::new());
+
+    let mut block = card(&board_id, None);
+    store
+        .insert_block(&mut block, &writer)
+        .await
+        .expect("the card is stored");
+    assert_eq!(
+        watchers(&block.id).await,
+        std::slice::from_ref(&writer),
+        "its writer"
+    );
+    let comment_by = async |by: &str, body: Option<Body>| {
+        let mut comment = Block {
+            id: new_id(),
+            container_id: board_id.clone(),
+            parent_id: block.id.clone(),
+            block_type: BlockType::Comment,
+            body,
+            ..Block::default()
+        };
+        store
+            .insert_block(&mut comment, by)
+            .await
+            .expect("the comment is stored");
+        comment
+    };
+    let first = comment_by(&named, None).await;
+    let noted: Vec<(String, NotificationKind, String, String)> = events(store)
+        .await
+        .into_iter()
+        .map(|e| (e.recipient_id, e.kind, e.source_id, e.actor_id))
+        .collect();
+    assert_eq!(
+        noted,
+        [(
+            writer.clone(),
+            NotificationKind::Comment,
+            first.id.clone(),
+            named.clone()
+        )],
+        "the writer of the card, by the one who commented"
+    );
+    let mut expected = vec![writer.clone(), named.clone()];
+    expected.sort();
+    assert_eq!(watchers(&block.id).await, expected, "and who commented");
+    for event in events(store).await {
+        assert!(
+            store
+                .drop_notification_event(&event)
+                .await
+                .expect("dropped")
+        );
+    }
+
+    // The third comments and names the writer: the writer is told of the mention
+    // alone, the other watcher of the comment.
+    let second = comment_by(&third, mentioning(&writer)).await;
+    let mut noted: Vec<(String, NotificationKind)> = events(store)
+        .await
+        .into_iter()
+        .filter(|e| e.source_id == second.id)
+        .map(|e| (e.recipient_id, e.kind))
+        .collect();
+    noted.sort();
+    let mut expected = vec![
+        (writer.clone(), NotificationKind::Mention),
+        (named.clone(), NotificationKind::Comment),
+    ];
+    expected.sort();
+    assert_eq!(noted, expected);
     test.teardown().await;
 }
 
@@ -259,11 +427,7 @@ async fn told_of_a_new_card(
         .await
         .expect("the card is stored");
     let event = events(store).await.remove(0);
-    store
-        .tell_of(&event, at, limits)
-        .await
-        .expect("told")
-        .expect("a notification")
+    made(store.tell_of(&event, at, limits).await.expect("told"))
 }
 
 /// A person has so many notifications and no more: past it the oldest go, those that
@@ -341,7 +505,7 @@ async fn a_person_keeps_the_newest_and_the_unread_and_what_was_read_long_ago_is_
             .expect("counted"),
         3
     );
-    // All that were made by 300 are read at 2000; the newest stays unread.
+    // All whose latest happened by 300 are read at 2000; the newest stays unread.
     assert_eq!(
         store
             .read_notifications_of_user(reader(&named), 300, 2000)

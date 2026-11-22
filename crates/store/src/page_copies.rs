@@ -20,7 +20,7 @@ use crate::blocks::{
 use crate::containers_and_blocks::duplicate_container;
 use crate::db::{Id, Scope};
 use crate::file_refs::NewBodyFiles;
-use crate::notifications::Telling;
+use crate::notification_noting::Telling;
 use crate::pages::{page_tree, write_place};
 use crate::{Store, StoreError, containers};
 

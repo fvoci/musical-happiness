@@ -28,7 +28,7 @@ use crate::body_digest::body_digest;
 use crate::db::{Id, Param, Row, Scope, VersionsKept, now_millis, to_json_text};
 use crate::error::StoreError;
 use crate::file_refs::NewBodyFiles;
-use crate::notifications::Telling;
+use crate::notification_noting::Telling;
 use crate::{blocks, containers};
 
 /// How many versions of a card's body the store keeps unless told otherwise.

@@ -10,7 +10,10 @@ use cache::Cache;
 use fvoci_model::{
     Block, BlockType, Body, ContainerKind, ContainerMember, PersonProperties, WorkspaceRole,
 };
-use fvoci_store::{Looking, Sight, Store, StoreError, Tenant, VisibilityVersion, WorkspaceAccess};
+use fvoci_store::{
+    Looking, Making, NotificationReader, Sight, Store, StoreError, Tenant, VisibilityVersion,
+    WorkspaceAccess,
+};
 
 use crate::permissions::{ContainerScope, people_reach};
 
@@ -280,6 +283,23 @@ impl Audience {
             .blocks_on_container_among(&block.container_id, BlockType::Card, &named)
             .await?;
         Ok(UnsaidByLink { people, shown })
+    }
+
+    /// Whether what the organization `org_id` told `user_id` is kept from a session
+    /// of theirs made as `making` says: as the list of their notifications keeps it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the query fails.
+    pub async fn notifications_kept_from(
+        &self,
+        user_id: &str,
+        making: Making<&str>,
+        org_id: &str,
+    ) -> Result<bool, StoreError> {
+        self.store
+            .notifications_kept_from(NotificationReader { user_id, making }, org_id)
+            .await
     }
 }
 

@@ -1,5 +1,5 @@
-//! What the user of the session was told: that they were mentioned, and that a card
-//! was given to them.
+//! What the user of the session was told: that they were mentioned, that a card was
+//! given to them, and that what they watch has a new comment.
 
 use axum::extract::{Path, RawQuery, State};
 use fvoci_model::{Notification, UnreadNotifications};
@@ -24,9 +24,19 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// The notifications of the user
 ///
 /// One page of what the user of the session was told, in every organization the
-/// session opens, the newest first: that somebody mentioned them in a card, a page or a comment
-/// (`mention`), or gave them a card (`assignment`). Nobody is told of their own doing,
-/// nor of anything in a user's own space.
+/// session opens, the newest first (by `updateAt`): that somebody mentioned them in a
+/// card, a page or a comment (`mention`), gave them a card (`assignment`), or commented
+/// on a card or a page they watch (`comment`; one named in that comment is told of the
+/// mention alone). Nobody is told of their own doing, nor of anything in a user's own
+/// space, nor of a kind they switched off (`notifyMentions`, `notifyAssignments`,
+/// `notifyComments` of `patchUserSettings`): what is off is not made at all.
+///
+/// Whoever writes a card or a page, is given a card, or comments on either watches it
+/// (`createSubscription`), until they end that (`deleteSubscription`). What happens to
+/// one card or page, of one kind, within an hour of the first of it, is one
+/// notification: `times` and `people` count it, `actorId` and `commentId` say the
+/// latest, and it is unread again. One person makes a hundred new ones for another
+/// within an hour at most; past that, what they do joins only those there.
 ///
 /// A notification is made only for somebody who reads the card or the page at that
 /// time, and each one listed is asked again: its `subject` says what it is about, as
@@ -81,9 +91,9 @@ async fn handle_get_unread_notifications(
 
 /// Mark every notification as read
 ///
-/// Marks as read every notification of the user of the session that was made up to
-/// `through`, or up to now where that is left out: a client gives the `createAt` of
-/// the newest it has shown, so that one that came since stays unread. Those of an
+/// Marks as read every notification of the user of the session whose latest happened
+/// up to `through`, or up to now where that is left out: a client gives the `updateAt`
+/// of the newest it has shown, so that one that came or grew since stays unread. Those of an
 /// organization the session does not open (`getNotifications`) stay as they are.
 #[utoipa::path(
     post,
