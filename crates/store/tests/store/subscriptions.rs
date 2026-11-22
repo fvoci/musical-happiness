@@ -35,7 +35,9 @@ async fn create_test_users(store: &Store, num: usize) -> Vec<User> {
 
 /// `createTestBlocks` of the original suite's `util.go`: each block is on a board of
 /// its own. The original only makes up the boards' identifiers; here the boards exist,
-/// in a workspace of this batch.
+/// in a workspace of this batch. The blocks are written quietly
+/// ([`Store::telling_nobody`]): their writer would watch them otherwise, and these
+/// tests make every subscription themselves.
 async fn create_test_blocks(store: &Store, user_id: &str, num: usize) -> Vec<Block> {
     let workspace_id = common::workspace(store).await;
     let boards = common::create_test_boards(store, &workspace_id, user_id, num).await;
@@ -43,7 +45,7 @@ async fn create_test_blocks(store: &Store, user_id: &str, num: usize) -> Vec<Blo
         .into_iter()
         .map(|board| card_on(&board.id, user_id))
         .collect();
-    common::insert_blocks(store, &mut blocks, user_id).await;
+    common::insert_blocks(&store.telling_nobody(), &mut blocks, user_id).await;
     blocks
 }
 

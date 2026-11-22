@@ -375,9 +375,12 @@ pub(crate) async fn subscriptions(s: &mut Session) {
         })
     };
 
-    s.get("list: none", &format!("{path}/{alice_id}"))
-        .user(&alice)
-        .await;
+    s.get(
+        "list: the card its writer wrote",
+        &format!("{path}/{alice_id}"),
+    )
+    .user(&alice)
+    .await;
     s.post("create", &path)
         .json(subscription(&card, "user", &alice_id))
         .user(&alice)

@@ -7,12 +7,10 @@ use super::App;
 use crate::collab::Deletion;
 use crate::error::AppError;
 
-/// Whether a change to a block is reported to the notification service, which tells
-/// subscribers and mentioned users about it. Bulk operations suppress it.
+/// Whether the people a change to a block newly names (those its body mentions, those
+/// a card is given to) are told of it. Bulk operations suppress it.
 ///
-/// A standalone server has no notification service that delivers anything, so all a
-/// notification amounts to here is a debug log line. Websocket broadcasts and webhooks
-/// are not notifications: they happen either way.
+/// Websocket broadcasts and webhooks are not notifications: they happen either way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ChangeNotification {
     /// Report the change.
@@ -41,6 +39,15 @@ impl ChangeAction {
 }
 
 impl App {
+    /// The database for a write of blocks that tells of itself as `notification`
+    /// says: one that is suppressed tells nobody whom it newly names.
+    fn store_telling(&self, notification: ChangeNotification) -> fvoci_store::Store {
+        match notification {
+            ChangeNotification::Send => self.store().clone(),
+            ChangeNotification::Suppress => self.store().telling_nobody(),
+        }
+    }
+
     /// Returns the blocks of a board, optionally only those with the given parent or of
     /// the given type, in no particular order.
     ///
@@ -125,13 +132,17 @@ impl App {
             *block = self
                 .collab()
                 .write_whole(self, card_ids, async move |app| {
-                    app.store().insert_block(&mut stored, &modified_by).await?;
+                    app.store_telling(notification)
+                        .insert_block(&mut stored, &modified_by)
+                        .await?;
                     Ok(stored)
                 })
                 .await?;
         } else {
             let _structure = self.collab().changing_structure(self).await;
-            self.store().insert_block(block, modified_by).await?;
+            self.store_telling(notification)
+                .insert_block(block, modified_by)
+                .await?;
         }
         log_notification(notification, ChangeAction::Add, &block.id);
 
@@ -187,14 +198,18 @@ impl App {
             .collect();
         if card_ids.is_empty() {
             let _structure = self.collab().changing_structure(self).await;
-            self.store().insert_blocks(blocks, modified_by).await?;
+            self.store_telling(notification)
+                .insert_blocks(blocks, modified_by)
+                .await?;
         } else {
             // Cards stored again write their bodies whole, around their documents.
             let (mut stored, modified_by) = (blocks.to_vec(), modified_by.to_owned());
             let stored = self
                 .collab()
                 .write_whole(self, card_ids, async move |app| {
-                    app.store().insert_blocks(&mut stored, &modified_by).await?;
+                    app.store_telling(notification)
+                        .insert_blocks(&mut stored, &modified_by)
+                        .await?;
                     Ok(stored)
                 })
                 .await?;
@@ -230,7 +245,7 @@ impl App {
         let container = self.store().get_container(&old_block.container_id).await?;
         if patch.body.is_keep() || !old_block.block_type.has_room() {
             let _structure = self.collab().changing_structure(self).await;
-            self.store()
+            self.store_telling(notification)
                 .patch_block(block_id, patch, modified_by)
                 .await?;
         } else {
@@ -241,7 +256,7 @@ impl App {
             self.collab()
                 .write_whole(self, card_ids, async move |app| {
                     Ok(app
-                        .store()
+                        .store_telling(notification)
                         .patch_block(&block_id, &patch, &modified_by)
                         .await?)
                 })
@@ -298,12 +313,17 @@ impl App {
             crate::collab::cards_written_whole(&blocks, &batch.block_ids, &batch.block_patches);
         if card_ids.is_empty() {
             let _structure = self.collab().changing_structure(self).await;
-            self.store().patch_blocks(batch, modified_by).await?;
+            self.store_telling(notification)
+                .patch_blocks(batch, modified_by)
+                .await?;
         } else {
             let (batch, modified_by) = (batch.clone(), modified_by.to_owned());
             self.collab()
                 .write_whole(self, card_ids, async move |app| {
-                    Ok(app.store().patch_blocks(&batch, &modified_by).await?)
+                    Ok(app
+                        .store_telling(notification)
+                        .patch_blocks(&batch, &modified_by)
+                        .await?)
                 })
                 .await?;
         }

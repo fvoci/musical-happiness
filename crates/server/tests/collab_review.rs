@@ -93,14 +93,21 @@ async fn an_update_from_an_empty_replaced_document_is_out_of_step() {
 
 /// Folding away the update log must preserve who last edited a body that the card
 /// does not yet hold; crash recovery must not attribute it to the card's old writer.
+///
+/// A server writes the body to its card before it folds the log, so a log folded
+/// past what the card holds is that of a body that could not be written then (or of
+/// a server that closed the document without writing it). That is made here as the
+/// store holds it: the fold the server would do, of a log one update short of the
+/// one it folds at by itself.
 #[tokio::test]
 async fn recovery_after_folding_preserves_the_last_writer() {
     let th = Setup::native().start().await.init_basic().await;
     let (app, card, user1, user2) = editing(&th, paragraph("first")).await;
     let collab = app.collab();
     let (editor, editor_epoch) = joined(collab, &app, &card.id, 102).await;
-    for index in 0..200 {
-        let writer = if index == 199 { &user2 } else { &user1 };
+    let updates = fvoci_server::collab::FOLD_AFTER - 1;
+    for index in 0..updates {
+        let writer = if index == updates - 1 { &user2 } else { &user1 };
         collab
             .take(
                 &app,
@@ -112,18 +119,33 @@ async fn recovery_after_folding_preserves_the_last_writer() {
             .await
             .expect("taken");
     }
+    let unfolded = app
+        .store()
+        .get_body_doc(&card.id)
+        .await
+        .expect("read")
+        .expect("doc");
+    assert_eq!(unfolded.state_seq, 0, "the server has not folded the log");
+    let state = collab.open(&app, &card.id).await.expect("opened").state;
+    app.store()
+        .fold_body_doc(&card.id, &state, unfolded.log_end, unfolded.as_read())
+        .await
+        .expect("the log is folded past what the card holds");
     let stored = app
         .store()
         .get_body_doc(&card.id)
         .await
         .expect("read")
         .expect("doc");
-    assert_eq!(stored.state_seq, 200, "the log was folded");
+    assert_eq!(stored.state_seq, updates, "the log was folded");
     assert!(
         stored.updates.is_empty(),
         "all writer-bearing entries were folded"
     );
-    assert!(stored.projected_seq < 200, "crash before final projection");
+    assert!(
+        stored.projected_seq < updates,
+        "crash before final projection"
+    );
     let th = th
         .killed_and_started_again(async |app| app.collab().abandon().await)
         .await;

@@ -216,8 +216,42 @@ describe('the server backend', () => {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }],
     };
-    await backend.createCard('b', { title: 'Copy', body });
+    await backend.createCard('b', { title: 'Copy', body, quiet: true });
     expect(sent[1]?.body).toMatchObject({ title: 'Copy', body });
+    // A copy tells nobody whom it names or is given to; a card made anew does.
+    expect(sent[1]?.url).toBe('/api/v1/w/w1/boards/b/cards?disableNotify=true');
+  });
+
+  it('reads and marks what the reader was told, of no workspace', async () => {
+    const subject = {
+      kind: 'comment',
+      actorId: 'u2',
+      times: 2,
+      people: 1,
+      workspaceId: 'w2',
+      containerId: 'b',
+      containerKind: 'board',
+      blockId: 'c',
+      blockKind: 'card',
+      title: 'Plan',
+      commentId: 'm',
+    };
+    const listed = [{ id: 'n1', createAt: 1, updateAt: 5, readAt: 0, subject }];
+    const sent = serve(listed);
+    const notifications = serverBackend('').notifications;
+    expect(await notifications.list({ page: 1, perPage: 20 })).toEqual(listed);
+    expect(sent[0]?.url).toBe('/api/v1/notifications?page=1&perPage=20');
+    const marked = serve(null, 204);
+    await notifications.read('n1');
+    await notifications.readAll(5);
+    await notifications.readAll();
+    expect(marked.map(({ method, url }) => `${method} ${url}`)).toEqual([
+      'POST /api/v1/notifications/n1/read',
+      'POST /api/v1/notifications/read?through=5',
+      'POST /api/v1/notifications/read',
+    ]);
+    serve({ count: 3 });
+    expect(await notifications.unread()).toBe(3);
   });
 
   it('makes a comment as a block under the card, its text the body', async () => {

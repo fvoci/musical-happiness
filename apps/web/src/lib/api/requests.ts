@@ -2,8 +2,8 @@
  * The requests of the server backend that take nothing but HTTP: making an
  * account, what the login page shows of an organization, signing in
  * through its provider and what is connected to the account, changing the
- * reader's own and reading their workspaces, reading files, and reading the
- * trash.
+ * reader's own and reading their workspaces, reading files, reading the
+ * trash, and what the reader was told.
  * `ServerBackend` is made of these and the rest (`backend.ts`).
  */
 import type { FileDetails } from '../editor/files.ts';
@@ -36,6 +36,7 @@ import { ServerBodyVersions } from './body-versions.ts';
 import { ServerFileVersions } from './file-versions.ts';
 import { containerOf, workspacesOf, userOf, type Schemas } from './convert.ts';
 import { ServerEmailChange } from './email-change.ts';
+import { ServerNotifications } from './notifications.ts';
 import type { ApiPath, Http, RequestOptions } from './http.ts';
 import { ServerPeople } from './people.ts';
 import { ServerReferences } from './references.ts';
@@ -89,6 +90,8 @@ export class ServerRequests implements TrashReads {
   /** What bodies name, as the reader may see it. */
   readonly references: References;
   readonly emailChange: EmailChange;
+  /** What the reader was told, of every workspace. */
+  readonly notifications: ServerNotifications;
   /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
   #workspaceId: string | undefined;
   /**
@@ -102,6 +105,7 @@ export class ServerRequests implements TrashReads {
     this.#http = http;
     this.people = new ServerPeople(http);
     this.emailChange = new ServerEmailChange(http);
+    this.notifications = new ServerNotifications(http);
     this.bodyVersions = new ServerBodyVersions((path, params, options) =>
       this.inWorkspace(path, params, options),
     );

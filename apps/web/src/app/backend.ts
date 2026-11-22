@@ -20,6 +20,7 @@ import { display } from '$lib/display.svelte.ts';
 import { DEFAULT_ACCOUNT_SETTINGS } from '$lib/logic/account-settings.ts';
 import { readDisplaySettings } from '$lib/logic/display.ts';
 import { readLanguageSettings } from '$lib/logic/language.ts';
+import { readNotifySettings } from '$lib/logic/notify-settings.ts';
 import { readRegionalSettings } from '$lib/logic/regional.ts';
 
 export interface StartedBackend {
@@ -67,6 +68,7 @@ async function keepSettings(backend: Backend): Promise<void> {
         ...readRegionalSettings(saved),
         ...readDisplaySettings(saved),
         ...readLanguageSettings(saved),
+        ...readNotifySettings(saved),
       });
   } catch {
     // Nothing kept, or something the backend refuses now: the defaults then.

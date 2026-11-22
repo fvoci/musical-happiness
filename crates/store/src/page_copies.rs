@@ -20,6 +20,7 @@ use crate::blocks::{
 use crate::containers_and_blocks::duplicate_container;
 use crate::db::{Id, Scope};
 use crate::file_refs::NewBodyFiles;
+use crate::notification_noting::Telling;
 use crate::pages::{page_tree, write_place};
 use crate::{Store, StoreError, containers};
 
@@ -74,7 +75,9 @@ impl Store {
             let renumbered = write_place(scope, &mut copies[0], place).await?;
             // New identifiers, and each copy below the copy of its parent.
             generate_block_ids(&mut copies);
-            insert_blocks(scope, &mut copies, user_id, NewBodyFiles::Unchecked).await?;
+            // A copy names whom its original named: nobody is told again.
+            let nobody = Telling::Nobody;
+            insert_blocks(scope, &mut copies, user_id, NewBodyFiles::Unchecked, nobody).await?;
             Ok(PageCopies {
                 pages: copies,
                 renumbered,

@@ -13,6 +13,7 @@ mod block_message;
 mod connection;
 mod delivery;
 mod inbound;
+mod notifications;
 mod presence;
 mod readers;
 mod subscriptions;
@@ -301,6 +302,8 @@ struct Listeners {
     by_id: HashMap<ListenerId, Listener>,
     by_workspace: HashMap<String, Vec<ListenerId>>,
     by_block: HashMap<String, Vec<ListenerId>>,
+    /// The connections with a session, by its user.
+    by_user: HashMap<String, Vec<ListenerId>>,
     /// The board visits of the connections, by board.
     visits: presence::Containers,
 }
@@ -368,6 +371,7 @@ impl Listeners {
         for block in &listener.blocks {
             remove_from(&mut self.by_block, block, id);
         }
+        remove_from(&mut self.by_user, &listener.user_id, id);
         self.visits.forget(id, &listener.presence);
     }
 }

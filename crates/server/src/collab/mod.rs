@@ -21,7 +21,8 @@
 //! everything else reads) two seconds after the last update, ten seconds after the
 //! first one that is not written at the latest, and when the document is closed or the
 //! server stops. Versions of the body are kept as `versions` says. The log is folded
-//! into the stored state every [`FOLD_AFTER`] updates and when the document closes; a
+//! into the stored state every [`FOLD_AFTER`] updates, once the body is written to its
+//! card (the log says who typed what), and when the document closes; a
 //! document whose state comes near its limit is made again from its body. A server that
 //! ended before it wrote a body or folded a log does so when it starts again
 //! ([`Collab::recover`]).

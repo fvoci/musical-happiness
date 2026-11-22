@@ -290,6 +290,40 @@ fn is_valid_option(option: &Value) -> bool {
 /// but a view may filter by them.
 const PERSON_PROPERTY_TYPES: [&str; 4] = ["person", "multiPerson", "createdBy", "updatedBy"];
 
+/// The `type`s of the property definitions whose values are the people a card is given
+/// to: who made or last changed it is nobody's doing.
+const ASSIGNED_PROPERTY_TYPES: [&str; 2] = ["person", "multiPerson"];
+
+/// The users that the values of a card name in the properties of its board that hold
+/// whom the card is given to (`person`, `multiPerson`), each once, in the order of the
+/// definitions. A value is a user, or a list of users; anything else names nobody.
+#[must_use]
+pub fn assigned_users<'v>(values: &'v JsonMap, definitions: &[JsonMap]) -> Vec<&'v str> {
+    let mut users: Vec<&str> = Vec::new();
+    for definition in definitions {
+        let holds_people = definition
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| ASSIGNED_PROPERTY_TYPES.contains(&kind));
+        let value = definition
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|_| holds_people)
+            .and_then(|id| values.get(id));
+        let named: Vec<&str> = match value {
+            Some(Value::String(user)) => vec![user.as_str()],
+            Some(Value::Array(items)) => items.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
+        };
+        for user in named {
+            if !user.is_empty() && !users.contains(&user) {
+                users.push(user);
+            }
+        }
+    }
+    users
+}
+
 /// The members of a view's `fields` that are lists of the groups (the options, or for a
 /// person property the users) the view shows, hides or folds.
 const VIEW_GROUP_LISTS: [&str; 3] = ["visibleOptionIds", "hiddenOptionIds", "collapsedOptionIds"];

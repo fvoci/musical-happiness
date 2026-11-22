@@ -17,6 +17,7 @@ use crate::body_versions::{self, BodyBefore, BodyWrite};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_refs::{self, NewBodyFiles};
+use crate::notification_noting::Telling;
 
 /// A stored document and the updates it took after its state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -413,7 +414,11 @@ impl Store {
                     };
                     // No version: the server keeps one when it is due.
                     let projected = BodyWrite::Projected;
-                    blocks::patch_block(scope, block_id, &patch, user_id, projected).await?;
+                    // Its writer is the last of those who typed it: who typed a name
+                    // it newly holds is read off the updates it did not hold yet.
+                    let telling = Telling::of_typed(scope, as_read.projected_seq);
+                    blocks::patch_block(scope, block_id, &patch, user_id, projected, telling)
+                        .await?;
                 }
             }
             // The document's row last, as an update takes it; a document that is not
@@ -608,6 +613,27 @@ async fn not_as_read(scope: &mut Scope<'_>, block_id: &str) -> StoreError {
         Ok(None) => no_doc(block_id),
         Err(error) => error,
     }
+}
+
+/// The updates the log of a block's document holds past `seq`, the oldest first, each
+/// with the user whose editor sent it: who typed what the block's body does not hold
+/// yet. The server's own updates are not among them; and those that were folded into
+/// the document's state meanwhile are in no log any more.
+pub(crate) async fn updates_since(
+    scope: &mut Scope<'_>,
+    block_id: &str,
+    seq: i64,
+) -> Result<Vec<(String, Vec<u8>)>, StoreError> {
+    let mut sql = scope.sql("SELECT written_by, bytes FROM body_updates WHERE block_id = ");
+    sql.bind(Id(block_id))
+        .push_bind(" AND seq > ", seq)
+        .push(" AND written_by IS NOT NULL ORDER BY seq");
+    scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| Ok((row.id(0)?, row.bytes(1)?)))
+        .collect()
 }
 
 /// Removes the documents whose blocks are gone for good: neither there nor in the

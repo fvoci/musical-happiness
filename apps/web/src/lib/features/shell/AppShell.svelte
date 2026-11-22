@@ -99,7 +99,7 @@
     onCreateOrganization?: (name: string) => Promise<void>;
     /** Reads the workspace's records. Without it (no server) they are not offered. */
     readRecords?: (workspaceId: string) => Promise<AuditRecord[]>;
-    /** The button of the search of the workspace, in the top bar; none where there is no search. */
+    /** The buttons of the search and of the notifications, in the top bar; none without them. */
     search?: Snippet<[Workspace]>;
     /** The page: what is shown beside the sidebar, given the way to the picker of what to make. */
     children: Snippet<[PaneTools]>;

@@ -37,6 +37,7 @@ mod invitations;
 mod link_lock_order;
 mod lock_gate;
 mod loose_objects;
+mod notifications;
 mod observe;
 mod oidc;
 mod oidc_audit;

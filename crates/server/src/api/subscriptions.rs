@@ -12,7 +12,7 @@ use super::contract::bodies::NewSubscription;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BlockId, SubscriberId};
 use super::contract::tag;
-use super::workspace::InWorkspace;
+use super::workspace::{InBoardOrWiki, InWorkspace};
 
 use super::require_permission_through;
 use super::{ApiResult, created, decode_json, json_object, json_response, no_content};
@@ -102,7 +102,8 @@ impl SubscriptionRequest {
 
 /// Subscribe to a block
 ///
-/// Subscribes the user of the session to a block of a board they are a member of. A
+/// Subscribes the user of the session to a block of a board, or a page of a wiki, they
+/// may read: whoever writes a card or a page watches it, and may stop and start again. A
 /// `subscriberId` that is not the user of the session is 403, and a `subscriberType`
 /// other than `user` is 400. The `blockType` is stored as it is sent, and not compared
 /// with the block. Subscribing again is no error: the subscription stays as it was
@@ -116,15 +117,15 @@ impl SubscriptionRequest {
     request_body = NewSubscription,
     responses((status = 201, description = "The subscription.", body = Subscription)),
 )]
-async fn handle_create_subscription(ws: InWorkspace, body: Bytes) -> ApiResult {
+async fn handle_create_subscription(InBoardOrWiki(ws): InBoardOrWiki, body: Bytes) -> ApiResult {
     let subscription = SubscriptionRequest::decode(&body)?.into_subscription()?;
     if ws.session.user_id != subscription.subscriber_id {
         return Err(
             AppError::forbidden("a user subscribes for themselves only").with_field("subscriberId")
         );
     }
-    // The request names a block and no board: a block on a board the user may not read
-    // does not exist for them.
+    // The request names a block and no board or wiki: a block of one the user may not
+    // read does not exist for them.
     let block = ws.app.block(&subscription.block_id).await?;
     require_permission_through(
         &ws.app,
