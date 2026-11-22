@@ -454,7 +454,11 @@ test('two readers write in one block, and each sees the other’s words coloured
     await expect(block(body).locator('pre > code')).toHaveText(
       'let mine = 1;\nconst theirs = "two";',
     );
-    await expect(block(body).locator('.doc-code-string')).toHaveText('"two"', { timeout: 30_000 });
+    // As a list: while the colours of the line before the last key are still on it, the
+    // string is in two pieces, which is not yet the answer and not a failure either.
+    await expect(block(body).locator('.doc-code-string')).toHaveText(['"two"'], {
+      timeout: 30_000,
+    });
   }
   await other.close();
 });
@@ -469,6 +473,10 @@ test('a block past the length that is coloured stays plain, and the page goes on
     'Welcome',
     codeBody('ts', 'const a = 1; '.repeat(1_000)),
   );
+  // First the written body, then its editor: the editor is ready before that body comes,
+  // on the one the card had, and a press then lands in a document that is replaced under
+  // it, and the keys are lost.
+  await expect(body.locator('p').first()).toHaveText('Before the code.');
   await expect(body).toHaveAttribute('data-editor', 'ready');
   await body.locator('p').first().click();
   await page.keyboard.press('End');
