@@ -16,7 +16,7 @@ import {
   type WebSocketRoute,
 } from '@playwright/test';
 
-import { documentBoundary, lineBoundary } from '../e2e/keyboard.support.ts';
+import { lineBoundary } from '../e2e/keyboard.support.ts';
 import { cellsOf, paste, slash } from '../e2e/tables.support.ts';
 
 import {
@@ -189,6 +189,7 @@ test('two people change one table at once: both pages and the stored body hold o
   hold();
   for (const page of [first, second]) {
     await editor(page).locator('table th').first().click();
+    await lineBoundary(page, 'start');
     await slash(page, 'first', 'Make the first row plain cells');
     await expect(editor(page).locator('table th')).toHaveCount(0);
   }
@@ -218,7 +219,7 @@ test('two people change one table at once: both pages and the stored body hold o
     await expect(page.getByTestId('body-lost')).toHaveCount(0);
     await expect(page.getByTestId('card-body').locator('[data-unreadable]')).toHaveCount(0);
   }
-  await documentBoundary(second, 'end');
+  await editor(second).locator('table td').last().click();
   await second.keyboard.type('!');
   await expect(editor(first).locator('table td').last()).toHaveText('!');
   await first.context().close();

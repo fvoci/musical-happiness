@@ -16,7 +16,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { boardPath } from './address.ts';
 import { documentBoundary, lineBoundary } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
-import { hideSidebar, openApp } from './shell.support.ts';
+import { hideSidebar, openApp, sidebar, sidebarState } from './shell.support.ts';
 import { cellsOf, paste, slash, slashMenu } from './tables.support.ts';
 import { nameThePage, newWiki, pageBody } from './wiki.support.ts';
 
@@ -177,12 +177,23 @@ test('at 390 pixels across only the table moves sideways, never the page', async
   if (process.env.FVOCI_SCREENS !== '1' || testInfo.project.name !== 'desktop') return;
   const dir = screensDir('table-body');
   for (const scheme of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     for (const [name, width] of [
       ['narrow', 390],
       ['wide', 1280],
     ] as const) {
       await page.setViewportSize({ width, height: 844 });
+      // Narrow again, the list of boards is a drawer again, open over the page: it is closed.
+      if (name === 'narrow') {
+        await expect.poll(() => sidebarState(page)).not.toBe('fixed');
+        await hideSidebar(page);
+        await expect
+          .poll(async () => {
+            const box = await sidebar(page).boundingBox();
+            return box ? box.x + box.width : 0;
+          })
+          .toBeLessThanOrEqual(0);
+      }
       await page.screenshot({ path: path.join(dir, `table-${name}-${scheme}.png`) });
     }
   }
