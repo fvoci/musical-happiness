@@ -176,7 +176,7 @@ fn to_taken(with: Settled, limits: &UpdateLimits) -> Result<Taken, TakeError> {
 }
 
 /// The size of a body as JSON without whitespace, as its limit is measured.
-fn size_of(body: &Body) -> usize {
+pub(crate) fn size_of(body: &Body) -> usize {
     /// Counts what is written to it.
     struct Count(usize);
 
